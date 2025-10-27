@@ -1,0 +1,65 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+import pandas as pd
+import pytest
+from pydantic import ValidationError
+
+from data_designer.config.columns import DataDesignerColumnType, SamplerColumnConfig, SamplerType
+from data_designer.engine.analysis.column_profilers.base import (
+    ColumnConfigWithDataFrame,
+    ColumnProfilerMetadata,
+)
+
+
+def test_column_config_with_dataframe_valid_column_config_with_dataframe():
+    df = pd.DataFrame({"test_column": [1, 2, 3]})
+    column_config = SamplerColumnConfig(name="test_column", sampler_type=SamplerType.CATEGORY, params={})
+
+    config_with_df = ColumnConfigWithDataFrame(column_config=column_config, df=df)
+
+    assert config_with_df.column_config.name == "test_column"
+    assert "test_column" in config_with_df.df.columns
+    assert config_with_df.df["test_column"].tolist() == [1, 2, 3]
+
+
+def test_column_config_with_dataframe_column_not_found_validation_error():
+    df = pd.DataFrame({"other_column": [1, 2, 3]})
+    column_config = SamplerColumnConfig(name="test_column", sampler_type=SamplerType.CATEGORY, params={})
+
+    with pytest.raises(ValidationError, match="Column 'test_column' not found in DataFrame"):
+        ColumnConfigWithDataFrame(column_config=column_config, df=df)
+
+
+def test_column_config_with_dataframe_pyarrow_backend_conversion():
+    df = pd.DataFrame({"test_column": [1, 2, 3]})
+    column_config = SamplerColumnConfig(name="test_column", sampler_type=SamplerType.CATEGORY, params={})
+
+    config_with_df = ColumnConfigWithDataFrame(column_config=column_config, df=df)
+
+    assert all(isinstance(dtype, pd.ArrowDtype) for dtype in config_with_df.df.dtypes)
+
+
+def test_column_config_with_dataframe_as_tuple_method():
+    df = pd.DataFrame({"test_column": [1, 2, 3]})
+    column_config = SamplerColumnConfig(name="test_column", sampler_type=SamplerType.CATEGORY, params={})
+
+    config_with_df = ColumnConfigWithDataFrame(column_config=column_config, df=df)
+    column_config_result, df_result = config_with_df.as_tuple()
+
+    assert column_config_result == column_config
+
+    assert df_result["test_column"].tolist() == df["test_column"].tolist()
+
+
+def test_column_profiler_metadata_creation():
+    metadata = ColumnProfilerMetadata(
+        name="test_profiler",
+        description="Test profiler",
+        applicable_column_types=[DataDesignerColumnType.SAMPLER, DataDesignerColumnType.LLM_TEXT],
+        required_resources=None,
+    )
+
+    assert metadata.name == "test_profiler"
+    assert metadata.description == "Test profiler"
+    assert metadata.applicable_column_types == [DataDesignerColumnType.SAMPLER, DataDesignerColumnType.LLM_TEXT]

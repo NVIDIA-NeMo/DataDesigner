@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+from abc import ABC, abstractmethod
+
+from data_designer.engine.configurable_task import ConfigurableTask, ConfigurableTaskMetadata, DataT, TaskConfigT
+
+
+class Processor(ConfigurableTask[TaskConfigT], ABC):
+    @staticmethod
+    @abstractmethod
+    def metadata() -> ConfigurableTaskMetadata: ...
+
+    @abstractmethod
+    def process(self, data: DataT) -> DataT: ...
