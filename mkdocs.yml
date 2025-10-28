@@ -1,0 +1,21 @@
+site_name: Data Designer
+theme:
+  name: material
+plugins:
+  - search
+  - gen-files:
+      scripts:
+        - scripts/gen_ref_pages.py
+  - literate-nav:
+      nav_file: SUMMARY.md
+  - section-index
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          filters: "!^(__.*__$)"
+nav:
+  - Welcome: index.md
+  - Code Reference: reference/
+extra_css:
+- css/code_select.css
