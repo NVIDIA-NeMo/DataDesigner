@@ -79,8 +79,6 @@ venv.bak/
 *.tar.gz
 *.zip
 
-# Auto-generated version file
-src/data_designer/_version.py
 
 # Local scratch space
 .scratch/
