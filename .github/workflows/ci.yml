@@ -25,9 +25,7 @@ jobs:
         uses: astral-sh/setup-uv@v5
         with:
           version: "latest"
-
-      - name: Set up Python ${{ matrix.python-version }}
-        run: uv python install ${{ matrix.python-version }}
+          python-version: ${{ matrix.python-version }}
 
       - name: Install system dependencies (Ubuntu)
         if: runner.os == 'Linux'
@@ -42,11 +40,11 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv sync --all-extras --python ${{ matrix.python-version }}
+          uv sync --all-extras
 
       - name: Run tests
         run: |
-          uv run --python ${{ matrix.python-version }} pytest -v
+          uv run pytest -v
 
   lint:
     name: Lint and Format Check
