@@ -3,9 +3,10 @@
 
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Literal, Self, TypeAlias
+from typing import Literal, TypeAlias
 
 from pydantic import BaseModel, Field, model_validator
+from typing_extensions import Self
 
 from .base import ConfigBase
 from .errors import InvalidColumnTypeError, InvalidConfigError

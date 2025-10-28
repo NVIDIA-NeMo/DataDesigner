@@ -5,10 +5,11 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Annotated, Any, Literal, Self, TypeAlias
+from typing import Annotated, Any, Literal, TypeAlias
 
 from pandas import Series
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from typing_extensions import Self
 
 from ..columns import DataDesignerColumnType
 from ..sampler_params import SamplerType

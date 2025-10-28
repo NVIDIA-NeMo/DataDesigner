@@ -5,11 +5,11 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 import logging
-from typing import Self
 
 import pandas as pd
 import pyarrow as pa
 from pydantic import BaseModel, model_validator
+from typing_extensions import Self
 
 from data_designer.config.base import ConfigBase
 from data_designer.config.columns import DataDesignerColumnType, SingleColumnConfig

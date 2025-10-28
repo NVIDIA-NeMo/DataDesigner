@@ -4,10 +4,11 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Self, TypeAlias
+from typing import Any, TypeAlias
 
 import pandas as pd
 from pydantic import BaseModel
+from typing_extensions import Self
 
 from data_designer.config.analysis.column_statistics import (
     ColumnStatisticsT,

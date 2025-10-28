@@ -2,10 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from enum import Enum
-from typing import Literal, Self, TypeAlias
+from typing import Literal, TypeAlias
 
 import pandas as pd
 from pydantic import Field, field_validator, model_validator
+from typing_extensions import Self
 
 from .base import ConfigBase
 from .utils.constants import (

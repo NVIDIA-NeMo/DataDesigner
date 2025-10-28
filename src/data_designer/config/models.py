@@ -4,10 +4,11 @@
 from abc import ABC, abstractmethod
 from enum import Enum
 from pathlib import Path
-from typing import Any, Generic, Self, TypeAlias, TypeVar
+from typing import Any, Generic, TypeAlias, TypeVar
 
 import numpy as np
 from pydantic import BaseModel, Field, model_validator
+from typing_extensions import Self
 
 from .base import ConfigBase
 from .errors import InvalidConfigError

@@ -4,10 +4,10 @@
 from __future__ import annotations
 
 from functools import cached_property
-from typing import Self
 
 import networkx as nx
 from pydantic import BaseModel, Field, field_validator, model_validator
+from typing_extensions import Self
 
 from data_designer.config.base import ConfigBase
 from data_designer.config.sampler_constraints import ColumnConstraintT

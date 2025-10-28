@@ -2,9 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from enum import Enum
-from typing import Any, Self, TypeAlias
+from typing import Any, TypeAlias
 
 from pydantic import Field, field_serializer, model_validator
+from typing_extensions import Self
 
 from .base import ConfigBase
 from .utils.code_lang import SQL_DIALECTS, CodeLang

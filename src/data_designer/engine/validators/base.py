@@ -3,9 +3,9 @@
 
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
-from typing import Self
 
 from pydantic import BaseModel, ConfigDict
+from typing_extensions import Self
 
 
 class ValidationOutput(BaseModel):

@@ -6,11 +6,11 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Self
 
 from pygments import highlight
 from pygments.formatters import HtmlFormatter
 from pygments.lexers import PythonLexer
+from typing_extensions import Self
 
 from .analysis.column_profilers import ColumnProfilerConfigT
 from .base import ExportableConfigBase
