@@ -1,5 +1,14 @@
 REPO_PATH := $(shell pwd)
 
+define install-pre-commit-hooks
+	@if [ ! -f $(REPO_PATH)/.git/hooks/pre-commit ]; then \
+		echo "🪝 Installing pre-commit hooks..."; \
+		uv run pre-commit install; \
+	else \
+		echo "👍 Pre-commit hooks already installed"; \
+	fi
+endef
+
 help:
 	@echo ""
 	@echo "🚀 DataDesigner Makefile Commands"
@@ -89,11 +98,13 @@ install:
 install-dev:
 	@echo "📦 Installing project with dev dependencies..."
 	uv sync --group dev
+	$(call install-pre-commit-hooks)
 	@echo "✅ Dev installation complete!"
 
 install-dev-notebooks:
 	@echo "📦 Installing project with notebook dependencies..."
 	uv sync --group dev --group notebooks
+	$(call install-pre-commit-hooks)
 	@echo "✅ Dev + notebooks installation complete!"
 
 .PHONY: clean coverage format format-check lint lint-fix test check-license-headers update-license-headers check-all check-all-fix install install-dev install-dev-notebooks
