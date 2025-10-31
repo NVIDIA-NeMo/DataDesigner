@@ -218,6 +218,7 @@ Ensure your changes meet the following criteria:
 
 - Maintainers will review your PR and may request changes
 - Address feedback by pushing additional commits to your branch
+- Reply to the feedback comment with a link to the commit that addresses it.
 - Once approved, a maintainer will merge your PR
 - Your contribution will be included in the next release!
 
