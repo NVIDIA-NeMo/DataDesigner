@@ -25,7 +25,7 @@ Whether you're new to the project or ready to dive in, the resources below will 
 
 1. **[README.md](README.md)** – best place to start to learn the basics of the project
 
-2. **[AGENTS.md](AGENTS.md)** – code structure and development guidelines for humans and agents
+2. **[AGENTS.md](AGENTS.md)** – context and instructions to help AI coding agents work on Data Designer (it's also useful for human developers!)
 
 3. **[Documentation](docs/)** – detailed documentation on Data Designer's capabilities and usage
 
