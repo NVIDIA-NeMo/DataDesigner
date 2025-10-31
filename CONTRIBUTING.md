@@ -141,7 +141,7 @@ Data Designer uses [`uv`](https://github.com/astral-sh/uv) for dependency manage
    ```bash
    git checkout main
    git pull upstream main
-   git checkout -b <type-of-change>/<username>/#<issue-number>-<short-description>
+   git checkout -b <username>/<type-of-change>/<issue-number>-<short-description>
    ```
 
    Example types of change:
@@ -155,7 +155,7 @@ Data Designer uses [`uv`](https://github.com/astral-sh/uv) for dependency manage
    - `perf` for performance improvements
 
    Example branch name:
-   - `feat/johnnygreco/#123-add-xyz-generator` for a new feature by @johnnygreco, addressing issue #123
+   - `johnnygreco/feat/123-add-xyz-generator` for a new feature by @johnnygreco, addressing issue #123
 
 2. **Develop your changes**
 
@@ -207,7 +207,7 @@ Ensure your changes meet the following criteria:
 1. **Push your changes** to your fork:
 
    ```bash
-   git push origin <type-of-change>/<username>/#<issue-number>-<short-description>
+   git push origin <username>/<type-of-change>/<issue-number>-<short-description>
    ```
 
 2. **Open a pull request** on GitHub from your fork to the main repository
