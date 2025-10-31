@@ -1,0 +1,44 @@
+name: "DCO Assistant"
+on:
+  issue_comment:
+    types: [created]
+  pull_request_target:
+    types: [opened,closed,synchronize]
+
+permissions:
+  actions: write
+  checks: none
+  contents: write
+  deployments: none
+  id-token: none
+  issues: none
+  discussions: none
+  packages: none
+  pages: none
+  pull-requests: write
+  repository-projects: none
+  security-events: none
+  statuses: write
+
+jobs:
+  DCOAssistant:
+    if: github.repository_owner == 'NVIDIA-NeMo'
+    runs-on: ubuntu-latest
+    steps:
+      - name: "DCO Assistant"
+        if: (github.event.comment.body == 'recheck' || github.event.comment.body == 'I have read the Contributor Agreement including DCO and I hereby sign the Contributor Agreement and DCO') || github.event_name == 'pull_request_target'
+        uses: cla-assistant/github-action@v2.6.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PERSONAL_ACCESS_TOKEN: ${{ secrets.DCO_ASSISTANT_TOKEN }}
+        with:
+          path-to-signatures: "dco-signatures.json"
+          path-to-document: 'https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/DCO'
+          branch: 'main'
+          allowlist: dependabot
+          create-file-commit-message: "chore: create file to store dco signatures"
+          signed-commit-message: "chore: $contributorName has signed the dco in #$pullRequestNo"
+          custom-notsigned-prcomment: "Thank you for your submission! We ask that $you sign our [Developer Certificate of Origin](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/DCO) before we can accept your contribution. You can sign the DCO by adding a comment below using this text:"
+          custom-pr-sign-comment: "I have read the DCO document and I hereby sign the DCO."
+          lock-pullrequest-aftermerge: false
+          use-dco-flag: true
