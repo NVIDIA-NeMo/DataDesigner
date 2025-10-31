@@ -1,4 +1,4 @@
-name: "DCO Assistant"
+name: "CA & DCO Assistant"
 on:
   issue_comment:
     types: [created]
@@ -25,8 +25,8 @@ jobs:
     if: github.repository_owner == 'NVIDIA-NeMo'
     runs-on: ubuntu-latest
     steps:
-      - name: "DCO Assistant"
-        if: (github.event.comment.body == 'recheck' || github.event.comment.body == 'I have read the Contributor Agreement including DCO and I hereby sign the Contributor Agreement and DCO') || github.event_name == 'pull_request_target'
+      - name: "CA & DCO Assistant"
+        if: (github.event.comment.body == 'recheck' || github.event.comment.body == 'I have read the DCO document and I hereby sign the DCO.') || github.event_name == 'pull_request_target'
         uses: cla-assistant/github-action@v2.3.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -34,7 +34,7 @@ jobs:
         with:
           path-to-signatures: "dco-signatures.json"
           path-to-document: 'https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/DCO'
-          branch: 'main'
+          branch: 'signatures'
           allowlist: dependabot
           create-file-commit-message: "chore: create file to store dco signatures"
           signed-commit-message: "chore: $contributorName has signed the dco in #$pullRequestNo"
