@@ -61,11 +61,9 @@ Share your use cases! Example notebooks and tutorials help others understand how
 Help us improve test coverage by adding tests for untested code paths or edge cases.
 
 ## Feature Requests
-
 Data Designer is designed to be as flexible and extensible as possible, and we welcome your ideas for pushing its capabilities even further! To keep the core library maintainable, while also supporting innovation, we take an incremental approach: we explore what's already possible, extend through plugins when needed, and integrate the most broadly useful features into the core library:
 
 ### How We Grow Data Designer
-
 1. 🧗 **Explore what's possible**: Can your use case be achieved with current features? We've designed Data Designer to be composable – sometimes creative combinations of existing tools can accomplish what you need. Check out our examples or open an issue if you'd like help exploring this!
 
 2. 🔌 **Extend through plugins**: If existing features aren't quite enough, consider implementing your idea as a plugin that extends the core library. Plugins let you experiment and share innovations while keeping the core focused.
@@ -75,7 +73,6 @@ Data Designer is designed to be as flexible and extensible as possible, and we w
 This approach helps us grow thoughtfully while keeping Data Designer reliable for everyone.
 
 ### Submitting a Feature Request
-
 Open a [new issue](https://github.com/NVIDIA-NeMo/DataDesigner/issues/new) with:
 
 - **Clear title**: Concise description of the feature
@@ -86,11 +83,9 @@ Open a [new issue](https://github.com/NVIDIA-NeMo/DataDesigner/issues/new) with:
 - **Willingness to implement**: Are you interested in implementing this yourself?
 
 ## Development Guide
-
 Data Designer uses [`uv`](https://github.com/astral-sh/uv) for dependency management. If you don't have uv installed, follow their [installation instructions](https://docs.astral.sh/uv/getting-started/installation/).
 
 ### Initial Setup
-
 0. **Create or find an issue**
 
    Before starting work, ensure there's an issue tracking your contribution:
@@ -118,12 +113,6 @@ Data Designer uses [`uv`](https://github.com/astral-sh/uv) for dependency manage
 
    # Or, if you use Jupyter / IPython for development
    make install-dev-notebooks
-   ```
-
-   This creates a virtual environment in `.venv`. Activate it with:
-
-   ```bash
-   source .venv/bin/activate
    ```
 
 3. **Verify your setup**
@@ -223,13 +212,11 @@ Ensure your changes meet the following criteria:
 - Your contribution will be included in the next release!
 
 ## Code of Conduct
-
 Data Designer follows the Contributor Covenant Code of Conduct. We are committed to providing a welcoming and inclusive environment for all contributors.
 
 **Please read our complete [Code of Conduct](CODE_OF_CONDUCT.md)** for full details on our standards and expectations.
 
-### Copyright
-
+### License File Headers
 All code files that are added to this repository must include the appropriate NVIDIA copyright header:
 
 ```python
@@ -240,7 +227,6 @@ All code files that are added to this repository must include the appropriate NV
 Use `make update-license-headers` to add headers automatically.
 
 ## Getting Help
-
 Need help with your contribution?
 
 - **Documentation**: Check the [documentation](docs/) and [AGENTS.md](AGENTS.md) for additional information
