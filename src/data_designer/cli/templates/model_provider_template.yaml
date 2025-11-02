@@ -1,0 +1,32 @@
+# Model Provider Configuration
+# This file defines the model providers available for data generation.
+# At least one provider must be defined.
+
+# List of model providers
+providers:
+  # Provider name - must be unique across all providers
+  - name: nvidia
+
+    # API endpoint URL for the provider
+    endpoint: https://integrate.api.nvidia.com/v1
+
+    # Provider type (default: openai)
+    # Supported types: openai
+    provider_type: openai
+
+    # API key or environment variable name
+    # Examples:
+    #   - "NVIDIA_API_KEY" (env var name - recommended)
+    #   - "nvapi-xxxx" (actual key - not recommended for version control)
+    api_key: NVIDIA_API_KEY
+
+  # Example: Custom OpenAI-compatible provider
+  # - name: custom_provider
+  #   endpoint: https://api.example.com/v1
+  #   provider_type: openai
+  #   api_key: CUSTOM_API_KEY
+
+# Default provider to use when none is specified
+# Required if multiple providers are defined
+# If only one provider exists, it becomes the default automatically
+default: nvidia

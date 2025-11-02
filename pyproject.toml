@@ -29,8 +29,10 @@ dependencies = [
   "pygments>=2.19.2",
   "pyyaml>=6.0.1",
   "python-json-logger==2.0.7",
+  "prompt-toolkit>=3.0.0",
   "requests<3,>=2.32.2",
   "rich>=13.7.1",
+  "typer>=0.12.0",
   "anyascii>=0.3.3,<1.0",
   "boto3==1.35.74",
   "datasets>=4.0.0",
@@ -51,6 +53,9 @@ dependencies = [
   "tiktoken>=0.8.0",
   "ruff==0.12.3",
 ]
+
+[project.scripts]
+data-designer = "data_designer.cli:main"
 
 [dependency-groups]
 dev = [
