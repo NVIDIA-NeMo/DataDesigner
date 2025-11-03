@@ -5,7 +5,7 @@ from pathlib import Path
 
 import typer
 
-from data_designer.cli.interactive import console, print_error, print_header, print_info, print_success, print_warning
+from data_designer.cli.ui import console, print_error, print_header, print_info, print_success, print_warning
 from data_designer.cli.utils import get_default_config_dir, get_model_config_path, get_model_provider_path
 from data_designer.config.errors import InvalidConfigError, InvalidFileFormatError, InvalidFilePathError
 from data_designer.config.models import ModelConfig

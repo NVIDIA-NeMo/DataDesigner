@@ -5,7 +5,7 @@ from pathlib import Path
 
 import typer
 
-from data_designer.cli.interactive import (
+from data_designer.cli.ui import (
     BACK,
     console,
     print_error,
