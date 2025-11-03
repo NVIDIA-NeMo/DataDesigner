@@ -7,7 +7,7 @@ import logging
 import duckdb
 import pandas as pd
 
-from data_designer.config.seed import SamplingStrategy, IndexRange, PartitionBlock
+from data_designer.config.seed import IndexRange, PartitionBlock, SamplingStrategy
 from data_designer.engine.column_generators.generators.base import (
     FromScratchColumnGenerator,
     GenerationStrategy,
@@ -64,9 +64,15 @@ class SeedDatasetColumnGenerator(FromScratchColumnGenerator[SeedDatasetMultiColu
     def _validate_selection_strategy(self) -> None:
         err_msg = None
         if self.config.selection_strategy is not None:
-            if isinstance(self.config.selection_strategy, IndexRange) and self.config.selection_strategy.end >= self._seed_dataset_size:
+            if (
+                isinstance(self.config.selection_strategy, IndexRange)
+                and self.config.selection_strategy.end >= self._seed_dataset_size
+            ):
                 err_msg = f"Selection strategy 'end' index {self.config.selection_strategy.end} is out of bounds for dataset size {self._seed_dataset_size}"
-            elif isinstance(self.config.selection_strategy, PartitionBlock) and self.config.selection_strategy.num_partitions > self._seed_dataset_size:
+            elif (
+                isinstance(self.config.selection_strategy, PartitionBlock)
+                and self.config.selection_strategy.num_partitions > self._seed_dataset_size
+            ):
                 err_msg = f"Selection strategy 'num_partitions' {self.config.selection_strategy.num_partitions} is out of bounds for dataset size {self._seed_dataset_size}"
             if err_msg is not None:
                 raise SeedDatasetError(err_msg)
@@ -102,9 +108,7 @@ class SeedDatasetColumnGenerator(FromScratchColumnGenerator[SeedDatasetMultiColu
         else:
             read_query = f"SELECT * FROM '{self._dataset_uri}'{shuffle_query}"
 
-        self._batch_reader = self.duckdb_conn.query(read_query).record_batch(
-            batch_size=num_records
-        )
+        self._batch_reader = self.duckdb_conn.query(read_query).record_batch(batch_size=num_records)
 
     def _sample_records(self, num_records: int) -> pd.DataFrame:
         logger.info(f"🌱 Sampling {num_records} records from seed dataset")
