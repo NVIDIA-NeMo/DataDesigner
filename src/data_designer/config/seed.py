@@ -3,10 +3,11 @@
 
 from abc import ABC
 from enum import Enum
+from typing import Optional, Union
 
-from pydantic import field_validator, Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from typing_extensions import Self
-from typing import Union, Optional
+
 from .base import ConfigBase
 from .datastore import DatastoreSettings
 from .utils.io_helpers import validate_dataset_file_path
