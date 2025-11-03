@@ -2,10 +2,11 @@ import pytest
 
 from data_designer.config.seed import IndexRange, PartitionBlock
 
+
 def test_index_range_validation():
     with pytest.raises(ValueError, match="should be greater than or equal to 0"):
         IndexRange(start=-1, end=10)
-    
+
     with pytest.raises(ValueError, match="should be greater than or equal to 0"):
         IndexRange(start=0, end=-1)
 
@@ -22,10 +23,10 @@ def test_index_range_size():
 def test_partition_block_validation():
     with pytest.raises(ValueError, match="should be greater than or equal to 0"):
         PartitionBlock(partition_index=-1, num_partitions=10)
-    
+
     with pytest.raises(ValueError, match="should be greater than or equal to 1"):
         PartitionBlock(partition_index=0, num_partitions=0)
-    
+
     with pytest.raises(ValueError, match="'partition_index' must be less than 'num_partitions'"):
         PartitionBlock(partition_index=10, num_partitions=10)
 
