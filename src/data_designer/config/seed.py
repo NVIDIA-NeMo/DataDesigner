@@ -4,8 +4,9 @@
 from abc import ABC
 from enum import Enum
 
-from pydantic import field_validator
-
+from pydantic import field_validator, Field, model_validator
+from typing_extensions import Self
+from typing import Union, Optional
 from .base import ConfigBase
 from .datastore import DatastoreSettings
 from .utils.io_helpers import validate_dataset_file_path
@@ -16,9 +17,32 @@ class SamplingStrategy(str, Enum):
     SHUFFLE = "shuffle"
 
 
+class IndexRange(ConfigBase):
+    start: int = Field(..., ge=0)
+    end: int = Field(..., ge=1)
+
+    @model_validator(mode="after")
+    def _validate_index_range(self) -> Self:
+        if self.start >= self.end:
+            raise ValueError("'start' index must be less than 'end' index")
+        return self
+
+
+class PartitionBlock(ConfigBase):
+    partition_index: int = Field(..., default=0, ge=0)
+    num_partitions: int = Field(..., default=1, ge=1)
+
+    @model_validator(mode="after")
+    def _validate_partition_block(self) -> Self:
+        if self.partition_index >= self.num_partitions:
+            raise ValueError("'partition_index' must be less than 'num_partitions'")
+        return self
+
+
 class SeedConfig(ConfigBase):
     dataset: str
     sampling_strategy: SamplingStrategy = SamplingStrategy.ORDERED
+    selection_strategy: Optional[Union[IndexRange, PartitionBlock]] = None
 
 
 class SeedDatasetReference(ABC, ConfigBase):
