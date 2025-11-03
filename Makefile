@@ -35,6 +35,7 @@ help:
 	@echo ""
 	@echo "🛠️  Utilities:"
 	@echo "  clean                  - Remove coverage reports and cache files"
+	@echo "  serve-docs-locally     - Serve documentation locally
 	@echo "  check-license-headers  - Check if all files have license headers"
 	@echo "  update-license-headers - Add license headers to all files"
 	@echo ""
@@ -81,6 +82,11 @@ lint-fix:
 test:
 	@echo "🧪 Running unit tests..."
 	uv run --group dev pytest
+
+serve-docs-locally:
+	@echo "📝 Building and serving docs..."
+	uv sync --group docs
+	uv run mkdocs serve
 
 check-license-headers:
 	@echo "🔍 Checking license headers in all files..."
