@@ -61,16 +61,16 @@ Share your use cases! Example notebooks and tutorials help others understand how
 Help us improve test coverage by adding tests for untested code paths or edge cases.
 
 ## Feature Requests
-Data Designer is designed to be as flexible and extensible as possible, and we welcome your ideas for pushing its capabilities even further! To keep the core library maintainable, while also supporting innovation, we take an incremental approach: we explore what's already possible, extend through plugins when needed, and integrate the most broadly useful features into the core library:
+Data Designer is designed to be as flexible and extensible as possible, and we welcome your ideas for pushing its capabilities even further! To keep the core library maintainable, while also supporting innovation, we take an incremental approach when adding new features: we explore what's already possible, extend through plugins when needed, and integrate the most broadly useful features into the core library:
 
 ### How We Grow Data Designer
 1. 🧗 **Explore what's possible**: Can your use case be achieved with current features? We've designed Data Designer to be composable – sometimes creative combinations of existing tools can accomplish what you need. Check out our examples or open an issue if you'd like help exploring this!
 
-2. 🔌 **Extend through plugins**: If existing features aren't quite enough, consider implementing your idea as a plugin that extends the core library. Plugins let you experiment and share innovations while keeping the core focused.
+2. 🔌 **Extend through plugins**: If existing features aren't quite enough, consider implementing your idea as a plugin that extends the core library. Plugins let you experiment and share functionality while keeping the core library focused.
 
-3. ⚙️ **Integrate into the core**: If your feature or plugin proves broadly useful and aligns with Data Designer's goals, we'd love to integrate it into the core! We're happy to discuss whether it's a good fit and how to move forward together.
+3. ⚙️ **Integrate into the core library**: If your feature or plugin proves broadly useful and aligns with Data Designer's goals, we'd love to integrate it into the core library! We're happy to discuss whether it's a good fit and how to move forward together.
 
-This approach helps us grow thoughtfully while keeping Data Designer reliable for everyone.
+This approach helps us grow thoughtfully while keeping Data Designer focused and maintainable.
 
 ### Submitting a Feature Request
 Open a [new issue](https://github.com/NVIDIA-NeMo/DataDesigner/issues/new) with:
