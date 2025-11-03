@@ -35,7 +35,7 @@ help:
 	@echo ""
 	@echo "🛠️  Utilities:"
 	@echo "  clean                  - Remove coverage reports and cache files"
-	@echo "  serve-docs-locally     - Serve documentation locally
+	@echo "  serve-docs-locally     - Serve documentation locally"
 	@echo "  check-license-headers  - Check if all files have license headers"
 	@echo "  update-license-headers - Add license headers to all files"
 	@echo ""
