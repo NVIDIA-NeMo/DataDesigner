@@ -61,7 +61,7 @@ Share your use cases! Example notebooks and tutorials help others understand how
 Help us improve test coverage by adding tests for untested code paths or edge cases.
 
 ## Feature Requests
-Data Designer is designed to be as flexible and extensible as possible, and we welcome your ideas for pushing its capabilities even further! To keep the core library maintainable, while also supporting innovation, we take an incremental approach when adding new features: we explore what's already possible, extend through plugins when needed, and integrate the most broadly useful features into the core library:
+Data Designer is designed to be as flexible and extensible as possible, and we welcome your ideas for pushing its capabilities even further! To keep the core library maintainable, while also supporting innovation, we take an incremental approach when adding new features – we explore what's already possible, extend through plugins when needed, and integrate the most broadly useful features into the core library:
 
 ### How We Grow Data Designer
 1. 🧗 **Explore what's possible**: Can your use case be achieved with current features? We've designed Data Designer to be composable – sometimes creative combinations of existing tools can accomplish what you need. Check out our examples or open an issue if you'd like help exploring this!
@@ -148,7 +148,7 @@ Data Designer uses [`uv`](https://github.com/astral-sh/uv) for dependency manage
 
 2. **Develop your changes**
 
-   Please follow the patterns and conventions outlined in [AGENTS.md](AGENTS.md).
+   Please follow the patterns and conventions used throughout the codebase, as well as those outlined in [AGENTS.md](AGENTS.md).
 
 3. **Test and validate**
 
@@ -183,7 +183,6 @@ Data Designer uses [`uv`](https://github.com/astral-sh/uv) for dependency manage
 
 Ensure your changes meet the following criteria:
 
-- Code follows patterns and conventions outlined in [AGENTS.md](AGENTS.md)
 - All tests pass (`make test`)
 - Code is formatted and linted (`make check-all-fix`)
 - New functionality includes tests
@@ -201,7 +200,7 @@ Ensure your changes meet the following criteria:
 
 2. **Open a pull request** on GitHub from your fork to the main repository
 
-3. **Respond to review feedback** promptly and update your PR as needed
+3. **Respond to review feedback** update your PR as needed
 
 ### Pull Request Review Process
 
