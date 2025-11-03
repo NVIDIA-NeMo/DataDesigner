@@ -15,7 +15,7 @@ app = typer.Typer(
 # Import and register command groups
 # We import here to avoid circular dependencies
 from data_designer.cli.commands import list as list_cmd
-from data_designer.cli.commands import models, providers, validate
+from data_designer.cli.commands import models, providers
 
 # Create config subcommand group
 config_app = typer.Typer(
@@ -26,7 +26,6 @@ config_app = typer.Typer(
 config_app.command(name="providers", help="Configure model providers interactively")(providers.providers_command)
 config_app.command(name="models", help="Configure models interactively")(models.models_command)
 config_app.command(name="list", help="List current configurations")(list_cmd.list_command)
-config_app.command(name="validate", help="Validate configuration files")(validate.validate_command)
 
 app.add_typer(config_app, name="config")
 

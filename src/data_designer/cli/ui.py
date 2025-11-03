@@ -6,6 +6,7 @@ from collections.abc import Callable
 from prompt_toolkit import Application, prompt
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.completion import FuzzyCompleter, WordCompleter
+from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout
@@ -37,6 +38,8 @@ _PROMPT_STYLE = Style.from_dict(
         "": "#ffffff",
         # Auto-suggestions in gray (from history)
         "auto-suggest": "fg:#666666",
+        # Dim text for defaults and hints (Nord3 - lighter dark gray)
+        "dim": "fg:#4c566a",
         # Selected completion in menu
         "completion-menu.completion.current": "bg:#88c0d0 #2e3440",
         "completion-menu.completion": "bg:#4c566a #d8dee9",
@@ -149,6 +152,7 @@ def select_with_arrows(
                     Window(
                         content=FormattedTextControl(get_formatted_text),
                         dont_extend_height=True,
+                        always_hide_cursor=True,  # Hide cursor during menu selection
                     )
                 ]
             )
@@ -218,12 +222,10 @@ def prompt_text_input(
         User input string, None if cancelled, or BACK sentinel if user wants to go back
     """
     # Build the prompt text with padding
-    # Note: Don't use Rich markup here - prompt-toolkit doesn't understand it
+    # Use prompt-toolkit's HTML-like markup for colors
     padded_prompt = " " * LEFT_PADDING + prompt_msg
     if default:
-        padded_prompt += f" (default: {default})"
-    if allow_back:
-        padded_prompt += " [type 'back' to go back]"
+        padded_prompt += f" <dim>(default: {default})</dim>"
     padded_prompt += ": "
 
     # Create completer if completions provided or if back is enabled
@@ -240,8 +242,9 @@ def prompt_text_input(
 
     try:
         # Use prompt-toolkit for line editing with enhanced features
+        # Wrap in HTML() to enable styled markup
         value = prompt(
-            padded_prompt,
+            HTML(padded_prompt),
             default="",  # Empty input field
             is_password=mask,
             completer=completer,
@@ -290,12 +293,12 @@ def confirm_action(prompt_msg: str, default: bool = False) -> bool:
         True for yes, False for no
     """
     default_text = "Y/n" if default else "y/N"
-    padded_prompt = " " * LEFT_PADDING + f"{prompt_msg} [{default_text}]: "
+    padded_prompt = " " * LEFT_PADDING + f"{prompt_msg} <dim>[{default_text}]</dim>: "
 
     try:
         response = (
             prompt(
-                padded_prompt,
+                HTML(padded_prompt),
                 style=_PROMPT_STYLE,
                 history=_input_history,
             )
@@ -391,33 +394,10 @@ def print_header(text: str) -> None:
     _console.print()
 
 
-def display_welcome() -> None:
-    """Display welcome message for the CLI."""
-    welcome_text = """
-[bold]Welcome to Data Designer CLI![/bold]
-
-This interactive wizard will help you configure:
-  • Model Providers - API endpoints for LLM services
-  • Model Configs - Model settings and inference parameters
-
-Use arrow keys (↑/↓) to navigate menus.
-Press [bold]Enter[/bold] to select, [bold]Esc[/bold] to cancel.
-
-[dim]Features:[/dim]
-  • [dim]Auto-suggestions from history (shown in gray)[/dim]
-  • [dim]Fuzzy completion with Tab[/dim]
-  • [dim]Up/Down arrows to navigate history[/dim]
-  • [dim]Type 'back' or 'b' to return to previous prompt[/dim]
-    """
-
-    panel = Panel(
-        welcome_text.strip(),
-        title="Data Designer Configuration",
-        title_align="left",
-        border_style=NordColor.NORD8.value,
-        padding=(1, 2),
-    )
-    _print_with_padding(panel)
+def print_navigation_tip() -> None:
+    """Display a concise navigation tip for interactive prompts."""
+    tip = "[dim]Tip: Use arrow keys to navigate menus, type [bold]'back'[/bold] to edit previous entries, press [bold]Tab[/bold] for completions[/dim]"
+    _print_with_padding(tip)
     _console.print()
 
 

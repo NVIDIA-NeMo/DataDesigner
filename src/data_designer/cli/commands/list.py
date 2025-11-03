@@ -53,7 +53,7 @@ def list_command(
         if providers_data or models_data:
             print_info("Configuration loaded successfully")
         else:
-            print_warning("No configuration files found. Run 'data-designer init' to create them.")
+            print_warning("No configuration files found. Run 'data-designer config' to see available commands.")
 
 
 def load_providers(provider_path: Path, as_json: bool) -> dict | None:
@@ -123,7 +123,7 @@ def load_providers(provider_path: Path, as_json: bool) -> dict | None:
     except InvalidFilePathError:
         if not as_json:
             print_warning(f"Provider configuration not found: {provider_path}")
-            print_info("Run 'data-designer init' to create it")
+            print_info("Run 'data-designer config providers' to create it")
             console.print()
         return {"file": str(provider_path), "valid": False, "error": "File not found"} if as_json else None
 
@@ -220,7 +220,7 @@ def load_models(model_path: Path, as_json: bool) -> dict | None:
     except InvalidFilePathError:
         if not as_json:
             print_warning(f"Model configuration not found: {model_path}")
-            print_info("Run 'data-designer init' to create it")
+            print_info("Run 'data-designer config models' to create it")
             console.print()
         return {"file": str(model_path), "valid": False, "error": "File not found"} if as_json else None
 
