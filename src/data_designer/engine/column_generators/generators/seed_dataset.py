@@ -60,7 +60,7 @@ class SeedDatasetColumnGenerator(FromScratchColumnGenerator[SeedDatasetMultiColu
         self._dataset_uri = self.resource_provider.datastore.get_dataset_uri(self.config.dataset)
         self._seed_dataset_size = self.duckdb_conn.execute(f"SELECT COUNT(*) FROM '{self._dataset_uri}'").fetchone()[0]
         self._index_range = self._resolve_index_range()
-        
+
     def _validate_selection_strategy(self) -> None:
         err_msg = None
         if self.config.selection_strategy is not None:
@@ -115,7 +115,9 @@ class SeedDatasetColumnGenerator(FromScratchColumnGenerator[SeedDatasetMultiColu
         logger.info(f"  |-- seed dataset size: {self._seed_dataset_size} records")
         logger.info(f"  |-- sampling strategy: {self.config.sampling_strategy}")
         if self._index_range is not None:
-            logger.info(f"  |-- selection strategy: {type(self.config.selection_strategy).__name__}\n{self.config.selection_strategy.model_dump_json(indent=4)}")
+            logger.info(
+                f"  |-- selection strategy: {type(self.config.selection_strategy).__name__}\n{self.config.selection_strategy.model_dump_json(indent=4)}"
+            )
             logger.info(f"  |-- seed dataset size after selection: {self._index_range.size} records")
         df_batch = pd.DataFrame()
         df_sample = pd.DataFrame() if self._df_remaining is None else self._df_remaining
