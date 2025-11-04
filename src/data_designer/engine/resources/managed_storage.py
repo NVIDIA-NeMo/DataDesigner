@@ -118,7 +118,7 @@ def init_managed_blob_storage(assets_storage: str = "s3://gretel-managed-assets-
 
         return S3BlobStorageProvider(bucket_name=bucket_name)
 
-    if assets_storage.startswith("/"):
+    elif assets_storage.startswith("/"):
         path = Path(assets_storage)
         if not path.exists():
             raise RuntimeError(f"Local storage path {assets_storage!r} does not exist.")

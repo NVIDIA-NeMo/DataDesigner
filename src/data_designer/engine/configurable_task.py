@@ -3,7 +3,7 @@
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Generic, TypeVar
+from typing import Generic, Type, TypeVar
 
 import pandas as pd
 
@@ -30,7 +30,7 @@ class ConfigurableTask(ABC, Generic[TaskConfigT]):
         self._initialize()
 
     @classmethod
-    def get_config_type(cls) -> type[TaskConfigT]:
+    def get_config_type(cls) -> Type[TaskConfigT]:
         for base in cls.__orig_bases__:
             if hasattr(base, "__args__") and len(base.__args__) == 1 and issubclass(base.__args__[0], ConfigBase):
                 return base.__args__[0]

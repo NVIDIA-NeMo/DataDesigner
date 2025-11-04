@@ -77,17 +77,18 @@ def get_email_domain_by_age(age: int) -> str:
             weights=list(email_domains_under_30.values()),
             k=1,
         )[0]
-    if age < 50:
+    elif age < 50:
         return random.choices(
             list(email_domains_30_50.keys()),
             weights=list(email_domains_30_50.values()),
             k=1,
         )[0]
-    return random.choices(
-        list(email_domains_over_50.keys()),
-        weights=list(email_domains_over_50.values()),
-        k=1,
-    )[0]
+    else:
+        return random.choices(
+            list(email_domains_over_50.keys()),
+            weights=list(email_domains_over_50.values()),
+            k=1,
+        )[0]
 
 
 def get_email_basename_by_name(first_name: str, middle_name: str | None, last_name: str) -> str:

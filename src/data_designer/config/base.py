@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, Optional, Protocol, TypeVar, Union
 
 import pandas as pd
 from pydantic import BaseModel, ConfigDict
@@ -14,9 +14,9 @@ import yaml
 from .utils.io_helpers import serialize_data
 
 if TYPE_CHECKING:
-    from ..client.results.preview import PreviewResults
     from .analysis.dataset_profiler import DatasetProfilerResults
     from .config_builder import DataDesignerConfigBuilder
+    from .preview_results import PreviewResults
 
 DEFAULT_NUM_RECORDS = 10
 
@@ -66,7 +66,7 @@ class ExportableConfigBase(ConfigBase):
         """
         return self.model_dump(mode="json")
 
-    def to_yaml(self, path: str | Path | None = None, *, indent: int | None = 2, **kwargs) -> str | None:
+    def to_yaml(self, path: Optional[Union[str, Path]] = None, *, indent: Optional[int] = 2, **kwargs) -> Optional[str]:
         """Convert the configuration to a YAML string or file.
 
         Args:
@@ -84,7 +84,7 @@ class ExportableConfigBase(ConfigBase):
         with open(path, "w") as f:
             f.write(yaml_str)
 
-    def to_json(self, path: str | Path | None = None, *, indent: int | None = 2, **kwargs) -> str | None:
+    def to_json(self, path: Optional[Union[str, Path]] = None, *, indent: Optional[int] = 2, **kwargs) -> Optional[str]:
         """Convert the configuration to a JSON string or file.
 
         Args:

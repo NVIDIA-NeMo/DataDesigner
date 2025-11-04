@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from abc import ABC, abstractmethod
+from typing import Type
 
 import numpy as np
 from numpy.typing import NDArray
@@ -90,5 +91,5 @@ CONSTRAINT_TYPE_TO_CHECKER = {
 }
 
 
-def get_constraint_checker(constraint_type: ConstraintType) -> type[ConstraintChecker]:
+def get_constraint_checker(constraint_type: ConstraintType) -> Type[ConstraintChecker]:
     return CONSTRAINT_TYPE_TO_CHECKER[ConstraintType(constraint_type)]

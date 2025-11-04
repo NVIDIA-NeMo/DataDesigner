@@ -73,9 +73,6 @@ def test_hf_hub_seed_dataset_data_store_integration_public_huggingface_no_token(
     assert len(dataset) > 0
 
 
-@pytest.mark.skipif(
-    not os.environ.get("NVIDIA_DATASTORE_TOKEN"), reason="NVIDIA_DATASTORE_TOKEN environment variable not set"
-)
 def test_hf_hub_seed_dataset_data_store_integration_nvidia_datastore_no_token():
     datastore = HfHubSeedDatasetDataStore(
         endpoint="https://datastore.int.aire.nvidia.com/v1/hf",

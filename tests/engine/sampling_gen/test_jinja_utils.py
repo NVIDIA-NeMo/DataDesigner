@@ -76,7 +76,9 @@ def test_jinja_dataframe_select_index_scenarios(test_case, expr, df_data, mock_s
         assert result.tolist() == expected_result
     else:
         result = jdf.select_index(df)
-        if expected_result == "empty_index" or expected_result == "full_index":
+        if expected_result == "empty_index":
+            assert result.equals(df.index)
+        elif expected_result == "full_index":
             assert result.equals(df.index)
 
 

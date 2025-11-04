@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from functools import cached_property
+from typing import Self
 
 from pydantic import BaseModel, field_validator, model_validator
-from typing_extensions import Self
 
 from data_designer.engine.errors import NoModelProvidersError, UnknownProviderError
 
@@ -53,7 +53,7 @@ class ModelProviderRegistry(BaseModel):
             raise ValueError(f"Specified default {self.default!r} not found in providers list")
         return self
 
-    def _get_default_provider_name(self) -> str:
+    def get_default_provider_name(self) -> str:
         return self.default or self.providers[0].name
 
     @cached_property
@@ -62,7 +62,7 @@ class ModelProviderRegistry(BaseModel):
 
     def get_provider(self, name: str | None) -> ModelProvider:
         if name is None:
-            name = self._get_default_provider_name()
+            name = self.get_default_provider_name()
 
         try:
             return self._providers_dict[name]

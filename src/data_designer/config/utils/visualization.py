@@ -7,7 +7,7 @@ from collections import OrderedDict
 from enum import Enum
 from functools import cached_property
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -51,22 +51,23 @@ class WithRecordSamplerMixin:
     def _record_sampler_dataset(self) -> pd.DataFrame:
         if hasattr(self, "dataset") and self.dataset is not None and isinstance(self.dataset, pd.DataFrame):
             return self.dataset
-        if (
+        elif (
             hasattr(self, "load_dataset")
             and callable(self.load_dataset)
             and (dataset := self.load_dataset()) is not None
             and isinstance(dataset, pd.DataFrame)
         ):
             return dataset
-        raise DatasetSampleDisplayError("No valid dataset found in results object.")
+        else:
+            raise DatasetSampleDisplayError("No valid dataset found in results object.")
 
     def display_sample_record(
         self,
-        index: int | None = None,
+        index: Optional[int] = None,
         *,
         hide_seed_columns: bool = False,
         syntax_highlighting_theme: str = "dracula",
-        background_color: str | None = None,
+        background_color: Optional[str] = None,
     ) -> None:
         """Display a sample record from the Data Designer dataset preview.
 
@@ -100,11 +101,11 @@ class WithRecordSamplerMixin:
 
 
 def create_rich_histogram_table(
-    data: dict[str, int | float],
+    data: dict[str, Union[int, float]],
     column_names: tuple[int, int],
     name_style: str = ColorPalette.BLUE.value,
     value_style: str = ColorPalette.TEAL.value,
-    title: str | None = None,
+    title: Optional[str] = None,
     **kwargs,
 ) -> Table:
     table = Table(title=title, **kwargs)
@@ -120,11 +121,11 @@ def create_rich_histogram_table(
 
 
 def display_sample_record(
-    record: dict | pd.Series | pd.DataFrame,
+    record: Union[dict, pd.Series, pd.DataFrame],
     config_builder: DataDesignerConfigBuilder,
-    background_color: str | None = None,
+    background_color: Optional[str] = None,
     syntax_highlighting_theme: str = "dracula",
-    record_index: int | None = None,
+    record_index: Optional[int] = None,
     hide_seed_columns: bool = False,
 ):
     if isinstance(record, (dict, pd.Series)):
@@ -227,7 +228,7 @@ def display_sample_record(
 
 def display_sampler_table(
     sampler_params: dict[SamplerType, ConfigBase],
-    title: str | None = None,
+    title: Optional[str] = None,
 ) -> None:
     table = Table(expand=True)
     table.add_column("Type")
@@ -285,7 +286,7 @@ def _get_field_type(field: dict) -> str:
         return field["type"]
 
     # union type
-    if "anyOf" in field:
+    elif "anyOf" in field:
         types = []
         for f in field["anyOf"]:
             if "$ref" in f:

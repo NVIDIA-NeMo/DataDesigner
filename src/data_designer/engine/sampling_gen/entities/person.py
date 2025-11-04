@@ -78,10 +78,10 @@ def generate_phone_number(locale: str, age: int, postcode: str | None, style: st
     if locality_var < 0.6:
         # Exact match to postcode 60% of the time
         return PhoneNumber.from_zip_prefix(postcode).format(style=style)
-    if locality_var < 0.8:
+    elif locality_var < 0.8:
         # Nearby postcodes 20% of the time
         return PhoneNumber.from_zip_prefix(postcode[:4]).format(style=style)
-    if locality_var < 0.9:
+    elif locality_var < 0.9:
         # More distant postcodes 10% of the time
         return PhoneNumber.from_zip_prefix(postcode[:3]).format(style=style)
     # Random (population-weighted) area code 10% of the time

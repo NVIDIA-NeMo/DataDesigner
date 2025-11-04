@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from abc import ABC, abstractmethod
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Optional, Type, TypeVar, Union
 
 import numpy as np
 from numpy.typing import NDArray
@@ -45,7 +45,7 @@ class PassthroughMixin:
         return series
 
     @staticmethod
-    def validate_data_conversion(convert_to: str | None) -> None:
+    def validate_data_conversion(convert_to: Optional[str]) -> None:
         pass
 
 
@@ -71,7 +71,7 @@ class TypeConversionMixin:
         return series
 
     @staticmethod
-    def postproc(series: pd.Series, convert_to: str | None) -> pd.Series:
+    def postproc(series: pd.Series, convert_to: Optional[str]) -> pd.Series:
         if convert_to is not None:
             if convert_to == "int":
                 series = series.round()
@@ -79,18 +79,18 @@ class TypeConversionMixin:
         return series
 
     @staticmethod
-    def validate_data_conversion(convert_to: str | None) -> None:
+    def validate_data_conversion(convert_to: Optional[str]) -> None:
         if convert_to is not None and convert_to not in ["float", "int", "str"]:
             raise ValueError(f"Invalid `convert_to` value: {convert_to}. Must be one of: [float, int, str]")
 
 
 class DatetimeFormatMixin:
     @staticmethod
-    def preproc(series: pd.Series, convert_to: str | None) -> pd.Series:
+    def preproc(series: pd.Series, convert_to: Optional[str]) -> pd.Series:
         return series
 
     @staticmethod
-    def postproc(series: pd.Series, convert_to: str | None) -> pd.Series:
+    def postproc(series: pd.Series, convert_to: Optional[str]) -> pd.Series:
         if convert_to is not None:
             return series.dt.strftime(convert_to)
         if series.dt.month.nunique() == 1:
@@ -104,7 +104,7 @@ class DatetimeFormatMixin:
         return series.apply(lambda dt: dt.isoformat()).astype(str)
 
     @staticmethod
-    def validate_data_conversion(convert_to: str | None) -> None:
+    def validate_data_conversion(convert_to: Optional[str]) -> None:
         if convert_to is not None:
             try:
                 pd.to_datetime(pd.to_datetime("2012-12-21").strftime(convert_to))
@@ -121,7 +121,7 @@ class DataSource(ABC, Generic[GenericParamsT]):
     def __init__(
         self,
         params: GenericParamsT,
-        random_state: RadomStateT | None = None,
+        random_state: Optional[RadomStateT] = None,
         **kwargs,
     ):
         self.rng = check_random_state(random_state)
@@ -130,7 +130,7 @@ class DataSource(ABC, Generic[GenericParamsT]):
         self._validate()
 
     @classmethod
-    def get_param_type(cls) -> type[GenericParamsT]:
+    def get_param_type(cls) -> Type[GenericParamsT]:
         return cls.__orig_bases__[-1].__args__[0]
 
     @abstractmethod
@@ -138,7 +138,7 @@ class DataSource(ABC, Generic[GenericParamsT]):
         self,
         dataframe: pd.DataFrame,
         column_name: str,
-        index: list[int] | None = None,
+        index: Optional[list[int]] = None,
     ) -> pd.DataFrame: ...
 
     @staticmethod
@@ -147,11 +147,11 @@ class DataSource(ABC, Generic[GenericParamsT]):
 
     @staticmethod
     @abstractmethod
-    def postproc(series: pd.Series, convert_to: str | None) -> pd.Series: ...
+    def postproc(series: pd.Series, convert_to: Optional[str]) -> pd.Series: ...
 
     @staticmethod
     @abstractmethod
-    def validate_data_conversion(convert_to: str | None) -> None: ...
+    def validate_data_conversion(convert_to: Optional[str]) -> None: ...
 
     def get_required_column_names(self) -> tuple[str, ...]:
         return tuple()
@@ -182,7 +182,7 @@ class Sampler(DataSource[GenericParamsT], ABC):
         self,
         dataframe: pd.DataFrame,
         column_name: str,
-        index: list[int] | None = None,
+        index: Optional[list[int]] = None,
     ) -> pd.DataFrame:
         index = slice(None) if index is None else index
 
@@ -208,7 +208,7 @@ class Sampler(DataSource[GenericParamsT], ABC):
 class ScipyStatsSampler(Sampler[GenericParamsT], ABC):
     @property
     @abstractmethod
-    def distribution(self) -> stats.rv_continuous | stats.rv_discrete: ...
+    def distribution(self) -> Union[stats.rv_continuous, stats.rv_discrete]: ...
 
     def sample(self, num_samples: int) -> NumpyArray1dT:
         return self.distribution.rvs(size=num_samples, random_state=self.rng)

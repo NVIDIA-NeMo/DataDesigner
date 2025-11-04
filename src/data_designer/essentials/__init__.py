@@ -16,6 +16,7 @@ from ..config.columns import (
 )
 from ..config.config_builder import DataDesignerConfigBuilder
 from ..config.data_designer_config import DataDesignerConfig
+from ..config.dataset_builders import BuildStage
 from ..config.datastore import DatastoreSettings
 from ..config.models import (
     ImageContext,
@@ -30,6 +31,7 @@ from ..config.models import (
     UniformDistribution,
     UniformDistributionParams,
 )
+from ..config.processors import DropColumnsProcessorConfig, ProcessorType
 from ..config.sampler_constraints import ColumnInequalityConstraint, ScalarInequalityConstraint
 from ..config.sampler_params import (
     BernoulliMixtureSamplerParams,
@@ -80,9 +82,11 @@ __all__ = [
     "DataDesignerColumnType",
     "DataDesignerConfig",
     "DataDesignerConfigBuilder",
+    "BuildStage",
     "DatastoreSeedDatasetReference",
     "DatastoreSettings",
     "DatetimeSamplerParams",
+    "DropColumnsProcessorConfig",
     "ExpressionColumnConfig",
     "GaussianSamplerParams",
     "ImageContext",
@@ -102,6 +106,7 @@ __all__ = [
     "ModelConfig",
     "PersonSamplerParams",
     "PoissonSamplerParams",
+    "ProcessorType",
     "RemoteValidatorParams",
     "SamplerColumnConfig",
     "SamplerType",

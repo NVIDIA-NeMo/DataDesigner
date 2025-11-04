@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from typing import Optional, Type
 
 import json_repair
 from pydantic import BaseModel, ValidationError
@@ -59,12 +60,12 @@ def deserialize_json_code(
 
 
 class RealizePydanticTypes:
-    types: list[type[BaseModel]]
+    types: list[Type[BaseModel]]
 
-    def __init__(self, types: list[type[BaseModel]]):
+    def __init__(self, types: list[Type[BaseModel]]):
         self.types = types
 
-    def _fit_types(self, obj: dict) -> BaseModel | None:
+    def _fit_types(self, obj: dict) -> Optional[BaseModel]:
         final_obj = None
 
         for t in self.types:

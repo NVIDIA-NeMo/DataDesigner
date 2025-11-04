@@ -86,7 +86,8 @@ class HfHubSeedDatasetDataStore(SeedDatasetDataStore):
         if is_file:
             self._validate_file(repo_id, filename)
             return self._download_and_load_file(repo_id, filename)
-        return self._download_and_load_directory(repo_id, filename)
+        else:
+            return self._download_and_load_directory(repo_id, filename)
 
     def _validate_repo(self, repo_id: str) -> None:
         """Validate that the repository exists and is a dataset repo."""

@@ -91,7 +91,7 @@ def test_manual_distribution_sampling():
 
     sample_counts = Counter(samples)
     total_samples = sum(sample_counts.values())
-    for value, weight in zip(values, weights, strict=False):
+    for value, weight in zip(values, weights):
         observed_freq = sample_counts[value] / total_samples
         expected_freq = weight
         # Allow small margin for randomness
