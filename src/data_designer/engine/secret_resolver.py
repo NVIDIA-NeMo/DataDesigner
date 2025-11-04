@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from collections.abc import Sequence
 import json
 import logging
 import os
@@ -30,7 +31,7 @@ class SecretsFileResolver(SecretResolver):
         try:
             return self._secrets[secret]
         except KeyError:
-            raise SecretResolutionError(f"No secret found with key {secret!r}")
+            raise SecretResolutionError(f"No secret found in secrets file with key {secret!r}")
 
 
 class EnvironmentResolver(SecretResolver):
@@ -47,18 +48,22 @@ class PlaintextResolver(SecretResolver):
 
 
 class CompositeResolver(SecretResolver):
-    _resolvers: list[SecretResolver]
+    _resolvers: Sequence[SecretResolver]
 
-    def __init__(self, resolvers: list[SecretResolver]):
+    def __init__(self, resolvers: Sequence[SecretResolver]):
         if len(resolvers) == 0:
             raise SecretResolutionError("Must provide at least one SecretResolver to CompositeResolver")
         self._resolvers = resolvers
 
     def resolve(self, secret: str) -> str:
+        errors = []
         for resolver in self._resolvers:
             try:
                 return resolver.resolve(secret)
-            except SecretResolutionError:
+            except SecretResolutionError as err:
+                errors.append(str(err))
                 continue
 
-        raise SecretResolutionError(f"No configured resolvers were able to resolve secret {secret!r}")
+        raise SecretResolutionError(
+            f"No configured resolvers were able to resolve secret {secret!r}: {', '.join(errors)}"
+        )

@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, TypeAlias
+from typing import Any, Type, TypeAlias, Union
 
 import pandas as pd
 from pydantic import BaseModel
@@ -49,7 +49,7 @@ class GeneralColumnStatisticsCalculator(BaseModel):
         return self.column_config_with_df.df
 
     @property
-    def column_statistics_type(self) -> type[ColumnStatisticsT]:
+    def column_statistics_type(self) -> Type[ColumnStatisticsT]:
         return DEFAULT_COLUMN_STATISTICS_MAP.get(self.column_config.column_type, GeneralColumnStatistics)
 
     def calculate(self) -> Self:
@@ -146,17 +146,17 @@ DEFAULT_COLUMN_STATISTICS_MAP = {
 }
 
 
-ColumnStatisticsCalculatorT: TypeAlias = (
-    ExpressionColumnStatisticsCalculator
-    | ValidationColumnStatisticsCalculator
-    | GeneralColumnStatisticsCalculator
-    | LLMCodeColumnStatisticsCalculator
-    | LLMJudgedColumnStatisticsCalculator
-    | LLMStructuredColumnStatisticsCalculator
-    | LLMTextColumnStatisticsCalculator
-    | SamplerColumnStatisticsCalculator
-    | SeedDatasetColumnStatisticsCalculator
-)
+ColumnStatisticsCalculatorT: TypeAlias = Union[
+    ExpressionColumnStatisticsCalculator,
+    ValidationColumnStatisticsCalculator,
+    GeneralColumnStatisticsCalculator,
+    LLMCodeColumnStatisticsCalculator,
+    LLMJudgedColumnStatisticsCalculator,
+    LLMStructuredColumnStatisticsCalculator,
+    LLMTextColumnStatisticsCalculator,
+    SamplerColumnStatisticsCalculator,
+    SeedDatasetColumnStatisticsCalculator,
+]
 DEFAULT_COLUMN_STATISTICS_CALCULATOR_MAP = {
     DataDesignerColumnType.EXPRESSION: ExpressionColumnStatisticsCalculator,
     DataDesignerColumnType.VALIDATION: ValidationColumnStatisticsCalculator,

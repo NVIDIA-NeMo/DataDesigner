@@ -199,10 +199,11 @@ def test_with_jinja2_user_template_rendering_mixin(test_case, template_1, templa
         def bar(self, record):
             if template_2 is None:
                 return [self.render_template(record) for _ in range(n)]
-            return [
-                self.render_multi_template("template_1", record),
-                self.render_multi_template("template_2", record),
-            ]
+            else:
+                return [
+                    self.render_multi_template("template_1", record),
+                    self.render_multi_template("template_2", record),
+                ]
 
     if test_case.startswith("valid"):
         f = Foo(template_1, template_2)

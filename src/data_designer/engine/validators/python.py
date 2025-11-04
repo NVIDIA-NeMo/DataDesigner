@@ -238,7 +238,7 @@ class PythonValidator(BaseValidator):
     def _count_python_statements(file_path: str) -> int:
         """Count the number of statements in a Python file."""
         try:
-            with open(file_path, encoding="utf-8") as f:
+            with open(file_path, "r", encoding="utf-8") as f:
                 tree = ast.parse(f.read())
             return sum(1 for node in ast.walk(tree) if isinstance(node, ast.stmt))
         except Exception:

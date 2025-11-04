@@ -105,7 +105,7 @@ def test_artifact_storage_write_metadata(stub_artifact_storage):
     assert file_path.exists()
     assert file_path == stub_artifact_storage.metadata_file_path
 
-    with open(file_path) as f:
+    with open(file_path, "r") as f:
         loaded_metadata = json.load(f)
     assert loaded_metadata == metadata
 
@@ -126,7 +126,7 @@ def test_artifact_storage_write_configs(stub_artifact_storage):
     assert file_path.name == "configs.json"
     assert file_path.parent == stub_artifact_storage.base_dataset_path
 
-    with open(file_path) as f:
+    with open(file_path, "r") as f:
         loaded_configs = json.load(f)
     expected = [{"name": "config1", "value": 1}, {"name": "config2", "value": 2}]
     assert loaded_configs == expected

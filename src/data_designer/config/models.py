@@ -4,11 +4,11 @@
 from abc import ABC, abstractmethod
 from enum import Enum
 from pathlib import Path
-from typing import Any, Generic, TypeAlias, TypeVar
+from typing import Any, Generic, List, Optional, TypeVar, Union
 
 import numpy as np
 from pydantic import BaseModel, Field, model_validator
-from typing_extensions import Self
+from typing_extensions import Self, TypeAlias
 
 from .base import ConfigBase
 from .errors import InvalidConfigError
@@ -49,7 +49,7 @@ class ModalityContext(ABC, BaseModel):
 
 class ImageContext(ModalityContext):
     modality: Modality = Modality.IMAGE
-    image_format: ImageFormat | None = None
+    image_format: Optional[ImageFormat] = None
 
     def get_context(self, record: dict) -> dict[str, Any]:
         context = dict(type="image_url")
@@ -82,8 +82,8 @@ class Distribution(ABC, ConfigBase, Generic[DistributionParamsT]):
 
 
 class ManualDistributionParams(ConfigBase):
-    values: list[float] = Field(min_length=1)
-    weights: list[float] | None = None
+    values: List[float] = Field(min_length=1)
+    weights: Optional[List[float]] = None
 
     @model_validator(mode="after")
     def _normalize_weights(self) -> Self:
@@ -99,7 +99,7 @@ class ManualDistributionParams(ConfigBase):
 
 
 class ManualDistribution(Distribution[ManualDistributionParams]):
-    distribution_type: DistributionType | None = "manual"
+    distribution_type: Optional[DistributionType] = "manual"
     params: ManualDistributionParams
 
     def sample(self) -> float:
@@ -118,26 +118,26 @@ class UniformDistributionParams(ConfigBase):
 
 
 class UniformDistribution(Distribution[UniformDistributionParams]):
-    distribution_type: DistributionType | None = "uniform"
+    distribution_type: Optional[DistributionType] = "uniform"
     params: UniformDistributionParams
 
     def sample(self) -> float:
         return float(np.random.uniform(low=self.params.low, high=self.params.high, size=1)[0])
 
 
-DistributionT: TypeAlias = UniformDistribution | ManualDistribution
+DistributionT: TypeAlias = Union[UniformDistribution, ManualDistribution]
 
 
 class InferenceParameters(ConfigBase):
-    temperature: float | DistributionT | None = None
-    top_p: float | DistributionT | None = None
-    max_tokens: int | None = Field(default=None, ge=1)
+    temperature: Optional[Union[float, DistributionT]] = None
+    top_p: Optional[Union[float, DistributionT]] = None
+    max_tokens: Optional[int] = Field(default=None, ge=1)
     max_parallel_requests: int = Field(default=4, ge=1)
-    timeout: int | None = Field(default=None, ge=1)
-    extra_body: dict[str, Any] | None = None
+    timeout: Optional[int] = Field(default=None, ge=1)
+    extra_body: Optional[dict[str, Any]] = None
 
     @property
-    def generate_kwargs(self) -> dict[str, float | int]:
+    def generate_kwargs(self) -> dict[str, Union[float, int]]:
         result = {}
         if self.temperature is not None:
             result["temperature"] = (
@@ -173,7 +173,7 @@ class InferenceParameters(ConfigBase):
 
     def _run_validation(
         self,
-        value: float | DistributionT | None,
+        value: Union[float, DistributionT, None],
         param_name: str,
         min_value: float,
         max_value: float,
@@ -201,10 +201,10 @@ class ModelConfig(ConfigBase):
     alias: str
     model: str
     inference_parameters: InferenceParameters
-    provider: str | None = None
+    provider: Optional[str] = None
 
 
-def load_model_configs(model_configs: list[ModelConfig] | str | Path | None) -> list[ModelConfig]:
+def load_model_configs(model_configs: Union[list[ModelConfig], str, Path, None]) -> list[ModelConfig]:
     if model_configs is None:
         return []
     if isinstance(model_configs, list) and all(isinstance(mc, ModelConfig) for mc in model_configs):

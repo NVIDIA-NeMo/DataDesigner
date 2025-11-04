@@ -179,9 +179,9 @@ def test_conditional_imports_based_on_can_run_locally():
         assert hasattr(essentials, "DataDesigner")
         assert hasattr(essentials, "LocalCallableValidatorParams")
         assert hasattr(essentials, "ModelProvider")
-        assert essentials.DataDesigner is not None
-        assert essentials.LocalCallableValidatorParams is not None
-        assert essentials.ModelProvider is not None
+        assert getattr(essentials, "DataDesigner") is not None
+        assert getattr(essentials, "LocalCallableValidatorParams") is not None
+        assert getattr(essentials, "ModelProvider") is not None
         assert "DataDesigner" in __all__
         assert "LocalCallableValidatorParams" in __all__
         assert "ModelProvider" in __all__

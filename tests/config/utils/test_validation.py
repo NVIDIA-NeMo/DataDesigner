@@ -12,7 +12,9 @@ from data_designer.config.columns import (
     Score,
     ValidationColumnConfig,
 )
+from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.models import ImageContext, ModalityDataType
+from data_designer.config.processors import DropColumnsProcessorConfig
 from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.utils.validation import (
     Violation,
@@ -94,7 +96,12 @@ INVALID_COLUMNS = [
 
 
 COLUMNS = VALID_COLUMNS + INVALID_COLUMNS
-
+PROCESSOR_CONFIGS = [
+    DropColumnsProcessorConfig(
+        column_names=["inexistent_column"],
+        build_stage=BuildStage.POST_BATCH,
+    )
+]
 ALLOWED_REFERENCE = [c.name for c in COLUMNS]
 
 
@@ -102,11 +109,13 @@ ALLOWED_REFERENCE = [c.name for c in COLUMNS]
 @patch("data_designer.config.utils.validation.validate_code_validation")
 @patch("data_designer.config.utils.validation.validate_expression_references")
 @patch("data_designer.config.utils.validation.validate_columns_not_all_dropped")
+@patch("data_designer.config.utils.validation.validate_drop_columns_processor")
 def test_validate_data_designer_config(
     mock_validate_columns_not_all_dropped,
     mock_validate_expression_references,
     mock_validate_code_validation,
     mock_validate_prompt_templates,
+    mock_validate_drop_columns_processor,
 ):
     mock_validate_columns_not_all_dropped.return_value = [
         Violation(
@@ -140,12 +149,21 @@ def test_validate_data_designer_config(
             level=ViolationLevel.ERROR,
         )
     ]
-    violations = validate_data_designer_config(COLUMNS, ALLOWED_REFERENCE)
-    assert len(violations) == 4
+    mock_validate_drop_columns_processor.return_value = [
+        Violation(
+            column="test_column",
+            type=ViolationType.INVALID_COLUMN,
+            message="test error message",
+            level=ViolationLevel.ERROR,
+        )
+    ]
+    violations = validate_data_designer_config(COLUMNS, PROCESSOR_CONFIGS, ALLOWED_REFERENCE)
+    assert len(violations) == 5
     mock_validate_columns_not_all_dropped.assert_called_once()
     mock_validate_expression_references.assert_called_once()
     mock_validate_code_validation.assert_called_once()
     mock_validate_prompt_templates.assert_called_once()
+    mock_validate_drop_columns_processor.assert_called_once()
 
 
 def test_validate_prompt_templates():

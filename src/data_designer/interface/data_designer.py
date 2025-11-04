@@ -204,8 +204,6 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         except Exception as e:
             raise DataDesignerProfilingError(f"🛑 Error profiling preview dataset: {e}")
 
-        dataset = builder.drop_columns_if_needed(dataset)
-
         if len(dataset) > 0 and isinstance(analysis, DatasetProfilerResults) and len(analysis.column_statistics) > 0:
             logger.info(f"{RandomEmoji.success()} Preview complete!")
 
@@ -237,6 +235,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
     ) -> ColumnWiseDatasetBuilder:
         return ColumnWiseDatasetBuilder(
             column_configs=compile_dataset_builder_column_configs(config_builder.build(raise_exceptions=True)),
+            processor_configs=config_builder.get_processor_configs(),
             resource_provider=resource_provider,
         )
 

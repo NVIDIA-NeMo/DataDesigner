@@ -6,32 +6,33 @@ from unittest.mock import Mock, patch
 import pandas as pd
 import pytest
 
+from data_designer.config.dataset_builders import BuildStage
+from data_designer.config.processors import DropColumnsProcessorConfig
 from data_designer.engine.dataset_builders.artifact_storage import BatchStage
-from data_designer.engine.processing.processors.configs import DropColumnsProcessorConfig
 from data_designer.engine.processing.processors.drop_columns import DropColumnsProcessor
 
 
 @pytest.fixture
 def stub_processor_config():
-    return DropColumnsProcessorConfig(column_names=["col1", "col2"])
+    return DropColumnsProcessorConfig(build_stage=BuildStage.POST_BATCH, column_names=["col1", "col2"])
 
 
 @pytest.fixture
 def stub_processor(stub_processor_config):
     mock_resource_provider = Mock()
     mock_resource_provider.artifact_storage = Mock()
-    processor = DropColumnsProcessor(config=stub_processor_config, resource_provider=mock_resource_provider)
+    mock_resource_provider.artifact_storage.create_batch_file_path = Mock()
+    mock_resource_provider.artifact_storage.create_batch_file_path.return_value.name = "dropped.parquet"
+    processor = DropColumnsProcessor(
+        config=stub_processor_config,
+        resource_provider=mock_resource_provider,
+    )
     return processor
 
 
 @pytest.fixture
 def stub_empty_dataframe():
     return pd.DataFrame()
-
-
-def test_config_parquet_filename_validation_invalid():
-    with pytest.raises(ValueError, match="Dropped column parquet file name must end with .parquet"):
-        DropColumnsProcessorConfig(column_names=["col1"], dropped_column_parquet_file_name="test.txt")
 
 
 def test_metadata():
@@ -106,12 +107,11 @@ def test_process_logging(stub_processor, stub_sample_dataframe):
         mock_logger.info.assert_called_once_with("🙈 Dropping columns: ['col1', 'col2']")
 
 
-def test_save_dropped_columns_with_filename(stub_processor, stub_sample_dataframe):
+def test_save_dropped_columns_without_preview(stub_processor, stub_sample_dataframe):
     stub_processor.config.column_names = ["col1", "col2"]
-    stub_processor.config.dropped_column_parquet_file_name = "dropped.parquet"
 
     with patch("data_designer.engine.processing.processors.drop_columns.logger") as mock_logger:
-        stub_processor.process(stub_sample_dataframe.copy())
+        stub_processor.process(stub_sample_dataframe.copy(), current_batch_number=0)
 
         stub_processor.artifact_storage.write_parquet_file.assert_called_once()
         call_args = stub_processor.artifact_storage.write_parquet_file.call_args
@@ -126,9 +126,8 @@ def test_save_dropped_columns_with_filename(stub_processor, stub_sample_datafram
         mock_logger.debug.assert_called_once_with("📦 Saving dropped columns to dropped-columns directory")
 
 
-def test_save_dropped_columns_without_filename(stub_processor, stub_sample_dataframe):
+def test_save_dropped_columns_with_preview(stub_processor, stub_sample_dataframe):
     stub_processor.config.column_names = ["col1", "col2"]
-    stub_processor.config.dropped_column_parquet_file_name = None
 
     stub_processor.process(stub_sample_dataframe.copy())
     stub_processor.artifact_storage.write_parquet_file.assert_not_called()
@@ -136,11 +135,10 @@ def test_save_dropped_columns_without_filename(stub_processor, stub_sample_dataf
 
 def test_save_dropped_columns_with_nonexistent_columns(stub_processor, stub_sample_dataframe):
     stub_processor.config.column_names = ["nonexistent1", "nonexistent2"]
-    stub_processor.config.dropped_column_parquet_file_name = "dropped.parquet"
 
     with patch("data_designer.engine.processing.processors.drop_columns.logger"):
         with pytest.raises(KeyError):
-            stub_processor.process(stub_sample_dataframe.copy())
+            stub_processor.process(stub_sample_dataframe.copy(), current_batch_number=0)
 
 
 def test_process_inplace_modification(stub_processor, stub_sample_dataframe):

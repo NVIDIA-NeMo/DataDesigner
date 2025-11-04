@@ -34,7 +34,20 @@ def stub_name_node():
     ],
 )
 def test_ast_max_depth(stub_node, test_case, children_structure, expected_depth):
-    if test_case == "three_levels" or test_case == "unbalanced_tree":
+    if test_case == "three_levels":
+        root = Mock(spec=j_nodes.Node)
+        child1 = Mock(spec=j_nodes.Node)
+        child2 = Mock(spec=j_nodes.Node)
+        grandchild = Mock(spec=j_nodes.Node)
+
+        grandchild.iter_child_nodes.return_value = []
+        child1.iter_child_nodes.return_value = [grandchild]
+        child2.iter_child_nodes.return_value = []
+        root.iter_child_nodes.return_value = [child1, child2]
+
+        result = ast_max_depth(root)
+        assert result == expected_depth
+    elif test_case == "unbalanced_tree":
         root = Mock(spec=j_nodes.Node)
         child1 = Mock(spec=j_nodes.Node)
         child2 = Mock(spec=j_nodes.Node)

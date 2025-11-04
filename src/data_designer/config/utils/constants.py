@@ -11,7 +11,7 @@ REPORTING_PRECISION = 2
 DEFAULT_REPR_HTML_STYLE = "nord"
 
 REPR_HTML_FIXED_WIDTH = 1000
-REPR_HTML_TEMPLATE = f"""
+REPR_HTML_TEMPLATE = """
 <meta charset="UTF-8">
 <style>
 {{css}}
@@ -20,7 +20,7 @@ REPR_HTML_TEMPLATE = f"""
   padding: 4px;
   border: 1px solid grey;
   border-radius: 4px;
-  max-width: {REPR_HTML_FIXED_WIDTH}px;
+  max-width: {fixed_width}px;
   width: 100%;
   display: inline-block;
   box-sizing: border-box;
@@ -41,7 +41,7 @@ REPR_HTML_TEMPLATE = f"""
 }}}}
 </style>
 {{highlighted_html}}
-"""
+""".format(fixed_width=REPR_HTML_FIXED_WIDTH)
 
 
 class NordColor(Enum):

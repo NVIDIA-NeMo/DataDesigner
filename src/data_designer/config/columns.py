@@ -3,10 +3,10 @@
 
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Literal, TypeAlias
+from typing import Literal, Optional, Type, Union
 
 from pydantic import BaseModel, Field, model_validator
-from typing_extensions import Self
+from typing_extensions import Self, TypeAlias
 
 from .base import ConfigBase
 from .errors import InvalidColumnTypeError, InvalidConfigError
@@ -79,7 +79,7 @@ class SamplerColumnConfig(SingleColumnConfig):
     sampler_type: SamplerType
     params: SamplerParamsT
     conditional_params: dict[str, SamplerParamsT] = {}
-    convert_to: str | None = None
+    convert_to: Optional[str] = None
 
     @property
     def column_type(self) -> DataDesignerColumnType:
@@ -89,8 +89,8 @@ class SamplerColumnConfig(SingleColumnConfig):
 class LLMTextColumnConfig(SingleColumnConfig):
     prompt: str
     model_alias: str
-    system_prompt: str | None = None
-    multi_modal_context: list[ImageContext] | None = None
+    system_prompt: Optional[str] = None
+    multi_modal_context: Optional[list[ImageContext]] = None
 
     @property
     def column_type(self) -> DataDesignerColumnType:
@@ -124,7 +124,7 @@ class LLMCodeColumnConfig(LLMTextColumnConfig):
 
 
 class LLMStructuredColumnConfig(LLMTextColumnConfig):
-    output_format: dict | type[BaseModel]
+    output_format: Union[dict, Type[BaseModel]]
 
     @property
     def column_type(self) -> DataDesignerColumnType:
@@ -140,7 +140,7 @@ class LLMStructuredColumnConfig(LLMTextColumnConfig):
 class Score(ConfigBase):
     name: str = Field(..., description="A clear name for this score.")
     description: str = Field(..., description="An informative and detailed assessment guide for using this score.")
-    options: dict[int | str, str] = Field(..., description="Score options in the format of {score: description}.")
+    options: dict[Union[int, str], str] = Field(..., description="Score options in the format of {score: description}.")
 
 
 class LLMJudgeColumnConfig(LLMTextColumnConfig):
@@ -208,16 +208,16 @@ COLUMN_TYPE_EMOJI_MAP = {
 }
 
 
-ColumnConfigT: TypeAlias = (
-    ExpressionColumnConfig
-    | LLMCodeColumnConfig
-    | LLMJudgeColumnConfig
-    | LLMStructuredColumnConfig
-    | LLMTextColumnConfig
-    | SamplerColumnConfig
-    | SeedDatasetColumnConfig
-    | ValidationColumnConfig
-)
+ColumnConfigT: TypeAlias = Union[
+    ExpressionColumnConfig,
+    LLMCodeColumnConfig,
+    LLMJudgeColumnConfig,
+    LLMStructuredColumnConfig,
+    LLMTextColumnConfig,
+    SamplerColumnConfig,
+    SeedDatasetColumnConfig,
+    ValidationColumnConfig,
+]
 
 
 def get_column_config_from_kwargs(name: str, column_type: DataDesignerColumnType, **kwargs) -> ColumnConfigT:
@@ -234,19 +234,19 @@ def get_column_config_from_kwargs(name: str, column_type: DataDesignerColumnType
     column_type = resolve_string_enum(column_type, DataDesignerColumnType)
     if column_type == DataDesignerColumnType.LLM_TEXT:
         return LLMTextColumnConfig(name=name, **kwargs)
-    if column_type == DataDesignerColumnType.LLM_CODE:
+    elif column_type == DataDesignerColumnType.LLM_CODE:
         return LLMCodeColumnConfig(name=name, **kwargs)
-    if column_type == DataDesignerColumnType.LLM_STRUCTURED:
+    elif column_type == DataDesignerColumnType.LLM_STRUCTURED:
         return LLMStructuredColumnConfig(name=name, **kwargs)
-    if column_type == DataDesignerColumnType.LLM_JUDGE:
+    elif column_type == DataDesignerColumnType.LLM_JUDGE:
         return LLMJudgeColumnConfig(name=name, **kwargs)
-    if column_type == DataDesignerColumnType.VALIDATION:
+    elif column_type == DataDesignerColumnType.VALIDATION:
         return ValidationColumnConfig(name=name, **kwargs)
-    if column_type == DataDesignerColumnType.EXPRESSION:
+    elif column_type == DataDesignerColumnType.EXPRESSION:
         return ExpressionColumnConfig(name=name, **kwargs)
-    if column_type == DataDesignerColumnType.SAMPLER:
+    elif column_type == DataDesignerColumnType.SAMPLER:
         return SamplerColumnConfig(name=name, **_resolve_sampler_kwargs(name, kwargs))
-    if column_type == DataDesignerColumnType.SEED_DATASET:
+    elif column_type == DataDesignerColumnType.SEED_DATASET:
         return SeedDatasetColumnConfig(name=name, **kwargs)
     raise InvalidColumnTypeError(f"🛑 {column_type} is not a valid column type.")  # pragma: no cover
 
