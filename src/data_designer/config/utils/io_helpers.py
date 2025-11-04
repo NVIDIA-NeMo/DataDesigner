@@ -68,9 +68,11 @@ def validate_dataset_file_path(file_path: str | Path, should_exist: bool = True)
     Args:
         file_path: The path to validate, either as a string or Path object.
         should_exist: If True, verify that the file exists. Defaults to True.
-
     Returns:
         The validated path as a Path object.
+    Raises:
+        InvalidFilePathError: If the path is not a file.
+        InvalidFileFormatError: If the path does not have a valid extension.
     """
     file_path = Path(file_path)
     if should_exist and not Path(file_path).is_file():
@@ -80,6 +82,21 @@ def validate_dataset_file_path(file_path: str | Path, should_exist: bool = True)
             "🛑 Dataset files must be in parquet, csv, or jsonl/json (orient='records', lines=True) format."
         )
     return file_path
+
+
+def validate_path_contains_files_of_type(path: str | Path, file_extension: str) -> None:
+    """Validate that a path contains files of a specific type.
+
+    Args:
+        path: The path to validate. Can contain wildcards like `*.parquet`.
+        file_extension: The extension of the files to validate (without the dot, e.g., "parquet").
+    Returns:
+        None if the path contains files of the specified type, raises an error otherwise.
+    Raises:
+        InvalidFilePathError: If the path does not contain files of the specified type.
+    """
+    if not any(Path(path).glob(f"*.{file_extension}")):
+        raise InvalidFilePathError(f"🛑 Path {path!r} does not contain files of type {file_extension!r}.")
 
 
 def smart_load_dataframe(dataframe: str | Path | pd.DataFrame) -> pd.DataFrame:

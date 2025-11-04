@@ -10,7 +10,11 @@ from typing_extensions import Self
 
 from .base import ConfigBase
 from .datastore import DatastoreSettings
-from .utils.io_helpers import validate_dataset_file_path
+from .utils.io_helpers import (
+    VALID_DATASET_FILE_EXTENSIONS,
+    validate_dataset_file_path,
+    validate_path_contains_files_of_type,
+)
 
 
 class SamplingStrategy(str, Enum):
@@ -130,4 +134,12 @@ class DatastoreSeedDatasetReference(SeedDatasetReference):
 class LocalSeedDatasetReference(SeedDatasetReference):
     @field_validator("dataset", mode="after")
     def validate_dataset_is_file(cls, v: str) -> str:
-        return str(validate_dataset_file_path(v))
+        valid_wild_card_versions = {f"*{ext}" for ext in VALID_DATASET_FILE_EXTENSIONS}
+        if any(v.endswith(wildcard) for wildcard in valid_wild_card_versions):
+            parts = v.split("*.")
+            file_path = parts[0]
+            file_extension = parts[-1]
+            validate_path_contains_files_of_type(file_path, file_extension)
+        else:
+            validate_dataset_file_path(v)
+        return v
