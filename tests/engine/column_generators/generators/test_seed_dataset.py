@@ -10,14 +10,15 @@ import pandas as pd
 import pytest
 
 from data_designer.config.columns import SeedDatasetColumnConfig
-from data_designer.config.seed import SamplingStrategy
+from data_designer.config.seed import IndexRange, PartitionBlock, SamplingStrategy
 from data_designer.engine.column_generators.generators.base import GenerationStrategy
 from data_designer.engine.column_generators.generators.seed_dataset import (
     MAX_ZERO_RECORD_RESPONSE_FACTOR,
     SeedDatasetColumnGenerator,
 )
+from data_designer.engine.column_generators.utils.errors import SeedDatasetError
 from data_designer.engine.dataset_builders.multi_column_configs import SeedDatasetMultiColumnConfig
-from data_designer.engine.resources.resource_provider import ResourceType
+from data_designer.engine.resources.resource_provider import ResourceProvider, ResourceType
 
 
 @pytest.fixture
@@ -123,6 +124,30 @@ def test_seed_dataset_column_generator_config_structure():
     assert config.columns[0].column_type.value == "seed-dataset"
     assert config.columns[1].name == "col2"
     assert config.columns[1].column_type.value == "seed-dataset"
+    assert config.selection_strategy is None
+
+    # Test PartitionBlock selection strategy
+    config = SeedDatasetMultiColumnConfig(
+        columns=[SeedDatasetColumnConfig(name="col1"), SeedDatasetColumnConfig(name="col2")],
+        dataset="test/dataset",
+        sampling_strategy=SamplingStrategy.SHUFFLE,
+        selection_strategy=PartitionBlock(index=1, num_partitions=3),
+    )
+    assert isinstance(config.selection_strategy, PartitionBlock)
+    assert config.selection_strategy.index == 1
+    assert config.selection_strategy.num_partitions == 3
+
+    # Test IndexRange selection strategy
+    config = SeedDatasetMultiColumnConfig(
+        columns=[SeedDatasetColumnConfig(name="col1"), SeedDatasetColumnConfig(name="col2")],
+        dataset="test/dataset",
+        sampling_strategy=SamplingStrategy.SHUFFLE,
+        selection_strategy=IndexRange(start=0, end=1),
+    )
+    assert isinstance(config.selection_strategy, IndexRange)
+    assert config.selection_strategy.start == 0
+    assert config.selection_strategy.end == 1
+    assert config.selection_strategy.size == 2
 
     # Test constants and enum values
     assert MAX_ZERO_RECORD_RESPONSE_FACTOR == 2
@@ -333,7 +358,12 @@ def test_seed_dataset_column_generator_sample_records_multiple_batches(stub_seed
 # ============================================================================
 
 
-def create_generator_with_real_file(file_path: str, stub_resource_provider) -> SeedDatasetColumnGenerator:
+def create_generator_with_real_file(
+    file_path: str,
+    stub_resource_provider: ResourceProvider,
+    sampling_strategy: SamplingStrategy = SamplingStrategy.ORDERED,
+    selection_strategy: IndexRange | PartitionBlock | None = None,
+) -> SeedDatasetColumnGenerator:
     """Helper function to create a generator with a real file and DuckDB connection."""
     config = SeedDatasetMultiColumnConfig(
         columns=[
@@ -344,7 +374,8 @@ def create_generator_with_real_file(file_path: str, stub_resource_provider) -> S
             SeedDatasetColumnConfig(name="score"),
         ],
         dataset=f"test/{os.path.basename(file_path)}",
-        sampling_strategy=SamplingStrategy.ORDERED,
+        sampling_strategy=sampling_strategy,
+        selection_strategy=selection_strategy,
     )
 
     # Create a real DuckDB connection (in-memory by default)
@@ -605,3 +636,153 @@ def test_seed_dataset_generator_uses_real_duckdb_connection(fixture_name, stub_r
     # Verify the connection can execute count queries
     count_result = generator.duckdb_conn.execute(f"SELECT COUNT(*) FROM '{file_path}'").fetchone()[0]
     assert count_result == 10
+
+
+# ============================================================================
+# Tests for SeedConfig selection strategies
+# ============================================================================
+@pytest.mark.parametrize(
+    "fixture_name",
+    [
+        "seed_dataset_parquet",
+        "seed_dataset_csv",
+        "seed_dataset_json",
+        "seed_dataset_jsonl",
+    ],
+)
+def test_seed_dataset_generator_index_range_selection_strategy(fixture_name, stub_resource_provider, request):
+    """Test that generator correctly applies index range selection strategy."""
+    # Ordered Sampling
+
+    # Range with a subset of items
+    file_path = request.getfixturevalue(fixture_name)
+    generator = create_generator_with_real_file(
+        file_path,
+        stub_resource_provider,
+        sampling_strategy=SamplingStrategy.ORDERED,
+        selection_strategy=IndexRange(start=4, end=8),
+    )
+    result = generator.generate_from_scratch(6)
+    assert len(result) == 6
+    assert list(result["name"]) == ["Eve", "Frank", "Grace", "Henry", "Ivy", "Eve"]
+
+    # Range with just one item
+    generator = create_generator_with_real_file(
+        file_path,
+        stub_resource_provider,
+        sampling_strategy=SamplingStrategy.ORDERED,
+        selection_strategy=IndexRange(start=4, end=4),
+    )
+    result = generator.generate_from_scratch(1)
+    assert len(result) == 1
+    assert list(result["name"]) == ["Eve"]
+
+    # Range with all items
+    generator = create_generator_with_real_file(
+        file_path,
+        stub_resource_provider,
+        sampling_strategy=SamplingStrategy.ORDERED,
+        selection_strategy=IndexRange(start=0, end=9),
+    )
+    result = generator.generate_from_scratch(10)
+    assert len(result) == 10
+    assert list(result["name"]) == ["Alice", "Bob", "Charlie", "David", "Eve", "Frank", "Grace", "Henry", "Ivy", "Jack"]
+
+    # Shuffle Sampling
+
+    # Range with a subset of items
+    generator = create_generator_with_real_file(
+        file_path,
+        stub_resource_provider,
+        sampling_strategy=SamplingStrategy.SHUFFLE,
+        selection_strategy=IndexRange(start=4, end=8),
+    )
+    result = generator.generate_from_scratch(10)
+    assert len(result) == 10
+    assert set(result["name"]).issubset({"Eve", "Frank", "Grace", "Henry", "Ivy"})
+
+    # Range with just one item
+    generator = create_generator_with_real_file(
+        file_path,
+        stub_resource_provider,
+        sampling_strategy=SamplingStrategy.SHUFFLE,
+        selection_strategy=IndexRange(start=4, end=4),
+    )
+    result = generator.generate_from_scratch(1)
+    assert len(result) == 1
+    assert list(result["name"]) == ["Eve"]
+
+    # Range with all items
+    generator = create_generator_with_real_file(
+        file_path,
+        stub_resource_provider,
+        sampling_strategy=SamplingStrategy.SHUFFLE,
+        selection_strategy=IndexRange(start=0, end=9),
+    )
+    result = generator.generate_from_scratch(10)
+    assert len(result) == 10
+    assert set(result["name"]).issubset(
+        {"Alice", "Bob", "Charlie", "David", "Eve", "Frank", "Grace", "Henry", "Ivy", "Jack"}
+    )
+
+
+@pytest.mark.parametrize(
+    "fixture_name",
+    [
+        "seed_dataset_parquet",
+        "seed_dataset_csv",
+        "seed_dataset_json",
+        "seed_dataset_jsonl",
+    ],
+)
+def test_seed_dataset_generator_partition_block_selection_strategy(fixture_name, stub_resource_provider, request):
+    """Test that generator correctly applies partition block selection strategy."""
+    file_path = request.getfixturevalue(fixture_name)
+    generator = create_generator_with_real_file(
+        file_path,
+        stub_resource_provider,
+        sampling_strategy=SamplingStrategy.ORDERED,
+        selection_strategy=PartitionBlock(index=1, num_partitions=3),
+    )
+    result = generator.generate_from_scratch(5)
+    assert len(result) == 5
+    # Requesting 5 items from a 3-item partition should cycle:
+    assert list(result["name"]) == ["David", "Eve", "Frank", "David", "Eve"]
+
+    generator = create_generator_with_real_file(
+        file_path,
+        stub_resource_provider,
+        sampling_strategy=SamplingStrategy.SHUFFLE,
+        selection_strategy=PartitionBlock(index=4, num_partitions=5),
+    )
+    result = generator.generate_from_scratch(10)
+    assert len(result) == 10
+    assert set(result["name"]).issubset({"Jack", "Ivy"})
+
+
+@pytest.mark.parametrize(
+    "fixture_name",
+    [
+        "seed_dataset_parquet",
+        "seed_dataset_csv",
+        "seed_dataset_json",
+        "seed_dataset_jsonl",
+    ],
+)
+def test_seed_dataset_generator_invalid_selection_strategies(fixture_name, stub_resource_provider, request):
+    """Test that generator raises an error for invalid selection strategies."""
+    file_path = request.getfixturevalue(fixture_name)
+    with pytest.raises(
+        SeedDatasetError, match="Selection strategy 'end' index 10 is out of bounds for dataset size 10"
+    ):
+        generator = create_generator_with_real_file(
+            file_path, stub_resource_provider, selection_strategy=IndexRange(start=1, end=10)
+        )
+        generator.generate_from_scratch(1)
+    with pytest.raises(
+        SeedDatasetError, match="Selection strategy 'num_partitions' 11 is out of bounds for dataset size 10"
+    ):
+        generator = create_generator_with_real_file(
+            file_path, stub_resource_provider, selection_strategy=PartitionBlock(index=0, num_partitions=11)
+        )
+        generator.generate_from_scratch(1)

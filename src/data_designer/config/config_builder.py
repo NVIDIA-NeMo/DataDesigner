@@ -30,7 +30,9 @@ from .sampler_constraints import (
 )
 from .seed import (
     DatastoreSeedDatasetReference,
+    IndexRange,
     LocalSeedDatasetReference,
+    PartitionBlock,
     SamplingStrategy,
     SeedConfig,
     SeedDatasetReference,
@@ -116,7 +118,11 @@ class DataDesignerConfigBuilder:
                     datastore_settings=builder_config.datastore_settings,
                 )
                 builder.set_seed_datastore_settings(builder_config.datastore_settings)
-            builder.with_seed_dataset(seed_dataset_reference, sampling_strategy=config.seed_config.sampling_strategy)
+            builder.with_seed_dataset(
+                seed_dataset_reference,
+                sampling_strategy=config.seed_config.sampling_strategy,
+                selection_strategy=config.seed_config.selection_strategy,
+            )
 
         return builder
 
@@ -545,6 +551,7 @@ class DataDesignerConfigBuilder:
         dataset_reference: SeedDatasetReference,
         *,
         sampling_strategy: SamplingStrategy = SamplingStrategy.ORDERED,
+        selection_strategy: Optional[Union[IndexRange, PartitionBlock]] = None,
     ) -> Self:
         """Add a seed dataset to the current Data Designer configuration.
 
@@ -560,7 +567,11 @@ class DataDesignerConfigBuilder:
         Returns:
             The current Data Designer config builder instance.
         """
-        self._seed_config = SeedConfig(dataset=dataset_reference.dataset, sampling_strategy=sampling_strategy)
+        self._seed_config = SeedConfig(
+            dataset=dataset_reference.dataset,
+            sampling_strategy=sampling_strategy,
+            selection_strategy=selection_strategy,
+        )
         self.set_seed_datastore_settings(
             dataset_reference.datastore_settings if hasattr(dataset_reference, "datastore_settings") else None
         )

@@ -49,7 +49,7 @@ from ..config.sampler_params import (
     UniformSamplerParams,
     UUIDSamplerParams,
 )
-from ..config.seed import DatastoreSeedDatasetReference, SamplingStrategy, SeedConfig
+from ..config.seed import DatastoreSeedDatasetReference, IndexRange, PartitionBlock, SamplingStrategy, SeedConfig
 from ..config.utils.code_lang import CodeLang
 from ..config.utils.misc import can_run_data_designer_locally
 from ..config.validator_params import (
@@ -89,6 +89,7 @@ __all__ = [
     "DropColumnsProcessorConfig",
     "ExpressionColumnConfig",
     "GaussianSamplerParams",
+    "IndexRange",
     "ImageContext",
     "ImageFormat",
     "InferenceParameters",
@@ -104,6 +105,7 @@ __all__ = [
     "ModalityContext",
     "ModalityDataType",
     "ModelConfig",
+    "PartitionBlock",
     "PersonSamplerParams",
     "PoissonSamplerParams",
     "ProcessorType",

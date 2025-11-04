@@ -36,6 +36,7 @@ def compile_dataset_builder_column_configs(config: DataDesignerConfig) -> list[D
                 columns=seed_column_configs,
                 dataset=config.seed_config.dataset,
                 sampling_strategy=config.seed_config.sampling_strategy,
+                selection_strategy=config.seed_config.selection_strategy,
             )
         )
 
