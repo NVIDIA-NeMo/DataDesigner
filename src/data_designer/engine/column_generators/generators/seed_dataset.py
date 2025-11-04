@@ -92,22 +92,20 @@ class SeedDatasetColumnGenerator(FromScratchColumnGenerator[SeedDatasetMultiColu
         shuffle_query = " ORDER BY RANDOM()" if shuffle else ""
 
         if self._index_range is not None:
-            # Use subquery with row_number() window function to filter by index range
-            # IndexRange uses 0-based indexing [start, end] inclusive, row_number() is 1-based
-            # To convert 0-based index i to 1-based row_number: row_number = i + 1
-            # For inclusive range [start, end], we want: row_number > start AND row_number <= end + 1
-            # This gives us 1-based rows [start+1, end+1] which maps to 0-based indices [start, end]
+            # Use LIMIT and OFFSET for efficient index range filtering
+            # IndexRange uses 0-based indexing [start, end] inclusive
+            # OFFSET skips the first 'start' rows (0-based)
+            # LIMIT takes 'end - start + 1' rows to include both start and end (inclusive)
+            offset_value = self._index_range.start
+            limit_value = self._index_range.end - self._index_range.start + 1
             read_query = f"""
-                SELECT * EXCLUDE (row_num) FROM (
-                    SELECT *, row_number() OVER () as row_num
-                    FROM '{self._dataset_uri}'
-                )
-                WHERE row_num > {self._index_range.start} AND row_num <= {self._index_range.end + 1}
-                {shuffle_query}
+                SELECT * FROM '{self._dataset_uri}'
+                LIMIT {limit_value} OFFSET {offset_value}
             """
+
+            read_query = f"SELECT * FROM ({read_query}){shuffle_query}"
         else:
             read_query = f"SELECT * FROM '{self._dataset_uri}'{shuffle_query}"
-
         self._batch_reader = self.duckdb_conn.query(read_query).record_batch(batch_size=num_records)
 
     def _sample_records(self, num_records: int) -> pd.DataFrame:
