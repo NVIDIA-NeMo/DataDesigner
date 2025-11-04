@@ -124,6 +124,30 @@ def test_seed_dataset_column_generator_config_structure():
     assert config.columns[0].column_type.value == "seed-dataset"
     assert config.columns[1].name == "col2"
     assert config.columns[1].column_type.value == "seed-dataset"
+    assert config.selection_strategy is None
+
+    # Test PartitionBlock selection strategy
+    config = SeedDatasetMultiColumnConfig(
+        columns=[SeedDatasetColumnConfig(name="col1"), SeedDatasetColumnConfig(name="col2")],
+        dataset="test/dataset",
+        sampling_strategy=SamplingStrategy.SHUFFLE,
+        selection_strategy=PartitionBlock(partition_index=1, num_partitions=3),
+    )
+    assert isinstance(config.selection_strategy, PartitionBlock)
+    assert config.selection_strategy.partition_index == 1
+    assert config.selection_strategy.num_partitions == 3
+
+    # Test IndexRange selection strategy
+    config = SeedDatasetMultiColumnConfig(
+        columns=[SeedDatasetColumnConfig(name="col1"), SeedDatasetColumnConfig(name="col2")],
+        dataset="test/dataset",
+        sampling_strategy=SamplingStrategy.SHUFFLE,
+        selection_strategy=IndexRange(start=0, end=1),
+    )
+    assert isinstance(config.selection_strategy, IndexRange)
+    assert config.selection_strategy.start == 0
+    assert config.selection_strategy.end == 1
+    assert config.selection_strategy.size == 2
 
     # Test constants and enum values
     assert MAX_ZERO_RECORD_RESPONSE_FACTOR == 2
