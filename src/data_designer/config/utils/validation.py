@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from enum import Enum
 from string import Formatter
+from typing import Optional
 
 from jinja2 import meta
 from jinja2.sandbox import ImmutableSandboxedEnvironment
@@ -15,6 +16,7 @@ from rich.padding import Padding
 from rich.panel import Panel
 
 from ..columns import ColumnConfigT, DataDesignerColumnType
+from ..processors import ProcessorConfig, ProcessorType
 from ..validator_params import ValidatorType
 from .constants import RICH_CONSOLE_THEME
 from .misc import can_run_data_designer_locally
@@ -28,6 +30,7 @@ class ViolationType(str, Enum):
     EXPRESSION_REFERENCE_MISSING = "expression_reference_missing"
     F_STRING_SYNTAX = "f_string_syntax"
     LOCAL_ONLY_COLUMN = "local_only_column"
+    INVALID_COLUMN = "invalid_column"
     INVALID_MODEL_CONFIG = "invalid_model_config"
     INVALID_REFERENCE = "invalid_reference"
     PROMPT_WITHOUT_REFERENCES = "prompt_without_references"
@@ -39,7 +42,7 @@ class ViolationLevel(str, Enum):
 
 
 class Violation(BaseModel):
-    column: str | None = None
+    column: Optional[str] = None
     type: ViolationType
     message: str
     level: ViolationLevel
@@ -51,6 +54,7 @@ class Violation(BaseModel):
 
 def validate_data_designer_config(
     columns: list[ColumnConfigT],
+    processor_configs: list[ProcessorConfig],
     allowed_references: list[str],
 ) -> list[Violation]:
     violations = []
@@ -58,6 +62,7 @@ def validate_data_designer_config(
     violations.extend(validate_code_validation(columns=columns))
     violations.extend(validate_expression_references(columns=columns, allowed_references=allowed_references))
     violations.extend(validate_columns_not_all_dropped(columns=columns))
+    violations.extend(validate_drop_columns_processor(columns=columns, processor_configs=processor_configs))
     if not can_run_data_designer_locally():
         violations.extend(validate_local_only_columns(columns=columns))
     return violations
@@ -147,7 +152,7 @@ def validate_prompt_templates(
             if (
                 prompt_type == "prompt"
                 and len(prompt_references) == 0
-                and (not hasattr(column, "multi_modal_context") or column.multi_modal_context is None)
+                and (not hasattr(column, "multi_modal_context") or getattr(column, "multi_modal_context") is None)
             ):
                 message = (
                     f"The {prompt_type} template for '{column.name}' does not reference any columns. "
@@ -259,6 +264,27 @@ def validate_columns_not_all_dropped(
             )
         ]
 
+    return []
+
+
+def validate_drop_columns_processor(
+    columns: list[ColumnConfigT],
+    processor_configs: list[ProcessorConfig],
+) -> list[Violation]:
+    all_column_names = set([c.name for c in columns])
+    for processor_config in processor_configs:
+        if processor_config.processor_type == ProcessorType.DROP_COLUMNS:
+            invalid_columns = set(processor_config.column_names) - all_column_names
+            if len(invalid_columns) > 0:
+                return [
+                    Violation(
+                        column=c,
+                        type=ViolationType.INVALID_COLUMN,
+                        message=f"Drop columns processor is configured to drop column '{c!r}', but the column is not defined.",
+                        level=ViolationLevel.ERROR,
+                    )
+                    for c in invalid_columns
+                ]
     return []
 
 

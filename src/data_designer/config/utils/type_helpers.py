@@ -3,7 +3,7 @@
 
 from enum import Enum
 import inspect
-from typing import Any
+from typing import Any, Type
 
 from pydantic import BaseModel
 
@@ -11,7 +11,7 @@ from .. import sampler_params
 from .errors import InvalidEnumValueError
 
 
-def get_sampler_params() -> dict[str, type[BaseModel]]:
+def get_sampler_params() -> dict[str, Type[BaseModel]]:
     """Returns a dictionary of sampler parameter classes."""
     params_cls_list = [
         params_cls
@@ -38,7 +38,7 @@ def get_sampler_params() -> dict[str, type[BaseModel]]:
     return params_cls_dict
 
 
-def resolve_string_enum(enum_instance: Any, enum_type: type[Enum]) -> Enum:
+def resolve_string_enum(enum_instance: Any, enum_type: Type[Enum]) -> Enum:
     if not issubclass(enum_type, Enum):
         raise InvalidEnumValueError(f"🛑 `enum_type` must be a subclass of Enum. You provided: {enum_type}")
     invalid_enum_value_error = InvalidEnumValueError(
@@ -47,7 +47,7 @@ def resolve_string_enum(enum_instance: Any, enum_type: type[Enum]) -> Enum:
     )
     if isinstance(enum_instance, enum_type):
         return enum_instance
-    if isinstance(enum_instance, str):
+    elif isinstance(enum_instance, str):
         try:
             return enum_type(enum_instance)
         except ValueError:

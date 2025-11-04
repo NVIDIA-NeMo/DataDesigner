@@ -8,7 +8,7 @@ import logging
 from numbers import Number
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Union
 
 import numpy as np
 import pandas as pd
@@ -39,7 +39,8 @@ def read_parquet_dataset(path: Path) -> pd.DataFrame:
                 [pd.read_parquet(file, dtype_backend="pyarrow") for file in sorted(path.glob("*.parquet"))],
                 ignore_index=True,
             )
-        raise e
+        else:
+            raise e
 
 
 def write_seed_dataset(dataframe: pd.DataFrame, file_path: Path) -> None:
@@ -62,7 +63,7 @@ def write_seed_dataset(dataframe: pd.DataFrame, file_path: Path) -> None:
         dataframe.to_json(file_path, orient="records", lines=True)
 
 
-def validate_dataset_file_path(file_path: str | Path, should_exist: bool = True) -> Path:
+def validate_dataset_file_path(file_path: Union[str, Path], should_exist: bool = True) -> Path:
     """Validate that a dataset file path has a valid extension and optionally exists.
 
     Args:
@@ -82,7 +83,7 @@ def validate_dataset_file_path(file_path: str | Path, should_exist: bool = True)
     return file_path
 
 
-def smart_load_dataframe(dataframe: str | Path | pd.DataFrame) -> pd.DataFrame:
+def smart_load_dataframe(dataframe: Union[str, Path, pd.DataFrame]) -> pd.DataFrame:
     """Load a dataframe from file if a path is given, otherwise return the dataframe.
 
     Args:
@@ -106,14 +107,15 @@ def smart_load_dataframe(dataframe: str | Path | pd.DataFrame) -> pd.DataFrame:
     # Load the dataframe based on the file extension.
     if ext == "csv":
         return pd.read_csv(dataframe)
-    if ext == "json":
+    elif ext == "json":
         return pd.read_json(dataframe, lines=True)
-    if ext == "parquet":
+    elif ext == "parquet":
         return pd.read_parquet(dataframe)
-    raise ValueError(f"Unsupported file format: {dataframe}")
+    else:
+        raise ValueError(f"Unsupported file format: {dataframe}")
 
 
-def smart_load_yaml(yaml_in: str | Path | dict) -> dict:
+def smart_load_yaml(yaml_in: Union[str, Path, dict]) -> dict:
     """Return the yaml config as a dict given flexible input types.
 
     Args:
@@ -130,7 +132,8 @@ def smart_load_yaml(yaml_in: str | Path | dict) -> dict:
     elif isinstance(yaml_in, str):
         if yaml_in.endswith((".yaml", ".yml")) and not os.path.isfile(yaml_in):
             raise FileNotFoundError(f"File not found: {yaml_in}")
-        yaml_out = yaml.safe_load(yaml_in)
+        else:
+            yaml_out = yaml.safe_load(yaml_in)
     else:
         raise ValueError(
             f"'{yaml_in}' is an invalid yaml config format. Valid options are: dict, yaml string, or yaml file path."
@@ -142,14 +145,17 @@ def smart_load_yaml(yaml_in: str | Path | dict) -> dict:
     return yaml_out
 
 
-def serialize_data(data: dict | list | str | Number, **kwargs) -> str:
-    if isinstance(data, dict) or isinstance(data, list):
+def serialize_data(data: Union[dict, list, str, Number], **kwargs) -> str:
+    if isinstance(data, dict):
         return json.dumps(data, ensure_ascii=False, default=_convert_to_serializable, **kwargs)
-    if isinstance(data, str):
+    elif isinstance(data, list):
+        return json.dumps(data, ensure_ascii=False, default=_convert_to_serializable, **kwargs)
+    elif isinstance(data, str):
         return data
-    if isinstance(data, Number):
+    elif isinstance(data, Number):
         return str(data)
-    raise ValueError(f"Invalid data type: {type(data)}")
+    else:
+        raise ValueError(f"Invalid data type: {type(data)}")
 
 
 def _convert_to_serializable(obj: Any) -> Any:

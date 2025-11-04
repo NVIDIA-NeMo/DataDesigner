@@ -43,9 +43,12 @@ def maybe_handle_missing_filter_exception(exception: BaseException, available_ji
     match = re.search(r"No filter named '([^']+)'", exc_message)
     if not match:
         return
-    missing_filter_name = match.group(1)
-    available_filter_str = ", ".join(available_jinja_filters)
-    raise UserTemplateUnsupportedFiltersError(
-        f"The Jinja2 filter `{{{{ ... | {missing_filter_name} }}}}` "
-        f"is not a permitted operation. Available filters: {available_filter_str}"
-    ) from exception
+    else:
+        missing_filter_name = match.group(1)
+        available_filter_str = ", ".join(available_jinja_filters)
+        raise UserTemplateUnsupportedFiltersError(
+            (
+                f"The Jinja2 filter `{{{{ ... | {missing_filter_name} }}}}` "
+                f"is not a permitted operation. Available filters: {available_filter_str}"
+            )
+        ) from exception

@@ -1,10 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from collections.abc import Callable, Container, Iterator
 import logging
 from pathlib import Path
 import shutil
+from typing import Callable, Container, Iterator
 
 import pandas as pd
 import pyarrow.parquet as pq

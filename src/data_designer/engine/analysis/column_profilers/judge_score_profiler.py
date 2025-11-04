@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 import random
+from typing import Union
 
 from data_designer.config.analysis.column_profilers import (
     JudgeScoreProfilerConfig,
@@ -95,7 +96,7 @@ class JudgeScoreProfiler(ColumnProfiler[JudgeScoreProfilerConfig]):
         name: str,
         sample: list[JudgeScoreSample],
         histogram: CategoricalHistogramData,
-        distribution: CategoricalDistribution | NumericalDistribution | MissingValue,
+        distribution: Union[CategoricalDistribution, NumericalDistribution, MissingValue],
         distribution_type: ColumnDistributionType,
     ) -> JudgeScoreSummary:
         if isinstance(distribution, MissingValue) or not sample:
@@ -107,7 +108,7 @@ class JudgeScoreProfiler(ColumnProfiler[JudgeScoreProfilerConfig]):
 
         category_info = []
         total_count = sum(histogram.counts)
-        for cat, count in zip(histogram.categories, histogram.counts, strict=False):
+        for cat, count in zip(histogram.categories, histogram.counts):
             percentage = (count / total_count) * 100
             category_info.append(f"{cat}: {count} records ({percentage:.1f}%)")
 

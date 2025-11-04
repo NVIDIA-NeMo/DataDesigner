@@ -30,14 +30,14 @@ def test_secrets_file_resolution(stub_secrets_file: Path):
     assert resolver.resolve("FOO") == "foo123"
 
 
-def test_not_found(stub_secrets_file: Path):
+def test_secrets_file_key_not_found(stub_secrets_file: Path):
     resolver = SecretsFileResolver(stub_secrets_file)
 
     with pytest.raises(SecretResolutionError):
         resolver.resolve("QUUX")
 
 
-def test_file_doesnt_exist():
+def test_secrets_file_doesnt_exist():
     # the resolver will instantiate...
     resolver = SecretsFileResolver(Path("/this/will/not/exist.json"))
 
@@ -74,3 +74,16 @@ def test_composite_resolver(monkeypatch, stub_secrets_file: Path):
 
     assert resolver.resolve("FOO") == "foo000"
     assert resolver.resolve("BAR") == "bar789"
+
+
+def test_composite_resolver_error(stub_secrets_file: Path):
+    resolvers = [EnvironmentResolver(), SecretsFileResolver(stub_secrets_file)]
+
+    resolver = CompositeResolver(resolvers)
+
+    with pytest.raises(SecretResolutionError) as excinfo:
+        resolver.resolve("QUUX")
+
+    # The composite error message aggregates the individual resolvers' error messages
+    assert "env var" in str(excinfo.value)
+    assert "secret" in str(excinfo.value)
