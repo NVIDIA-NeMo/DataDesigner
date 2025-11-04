@@ -101,7 +101,7 @@ class SeedDatasetColumnGenerator(FromScratchColumnGenerator[SeedDatasetMultiColu
                 SELECT * EXCLUDE (row_num) FROM (
                     SELECT *, row_number() OVER () as row_num
                     FROM '{self._dataset_uri}'
-                ) sub
+                )
                 WHERE row_num > {self._index_range.start} AND row_num <= {self._index_range.end + 1}
                 {shuffle_query}
             """
