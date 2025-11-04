@@ -115,9 +115,12 @@ class SeedDatasetColumnGenerator(FromScratchColumnGenerator[SeedDatasetMultiColu
         logger.info(f"  |-- seed dataset size: {self._seed_dataset_size} records")
         logger.info(f"  |-- sampling strategy: {self.config.sampling_strategy}")
         if self._index_range is not None:
-            logger.info(
-                f"  |-- selection strategy: {type(self.config.selection_strategy).__name__}\n{self.config.selection_strategy.model_dump_json(indent=4)}"
-            )
+            if isinstance(self.config.selection_strategy, IndexRange):
+                logger.info(f"  |-- selection: rows [{self._index_range.start} to {self._index_range.end}] inclusive")
+            else:
+                logger.info(
+                    f"  |-- selection: partition {self.config.selection_strategy.index + 1} of {self.config.selection_strategy.num_partitions}"
+                )
             logger.info(f"  |-- seed dataset size after selection: {self._index_range.size} records")
         df_batch = pd.DataFrame()
         df_sample = pd.DataFrame() if self._df_remaining is None else self._df_remaining
