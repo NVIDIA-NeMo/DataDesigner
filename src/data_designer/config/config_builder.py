@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-
+from typing import Union, Optional
 from pygments import highlight
 from pygments.formatters import HtmlFormatter
 from pygments.lexers import PythonLexer
@@ -31,6 +31,8 @@ from .seed import (
     SamplingStrategy,
     SeedConfig,
     SeedDatasetReference,
+    IndexRange,
+    PartitionBlock,
 )
 from .utils.constants import DEFAULT_REPR_HTML_STYLE, REPR_HTML_TEMPLATE
 from .utils.info import DataDesignerInfo
@@ -113,7 +115,7 @@ class DataDesignerConfigBuilder:
                     datastore_settings=builder_config.datastore_settings,
                 )
                 builder.set_seed_datastore_settings(builder_config.datastore_settings)
-            builder.with_seed_dataset(seed_dataset_reference, sampling_strategy=config.seed_config.sampling_strategy)
+            builder.with_seed_dataset(seed_dataset_reference, sampling_strategy=config.seed_config.sampling_strategy, selection_strategy=config.seed_config.selection_strategy)
 
         return builder
 
@@ -493,6 +495,7 @@ class DataDesignerConfigBuilder:
         dataset_reference: SeedDatasetReference,
         *,
         sampling_strategy: SamplingStrategy = SamplingStrategy.ORDERED,
+        selection_strategy: Optional[Union[IndexRange, PartitionBlock]] = None,
     ) -> Self:
         """Add a seed dataset to the current Data Designer configuration.
 
@@ -508,7 +511,7 @@ class DataDesignerConfigBuilder:
         Returns:
             The current Data Designer config builder instance.
         """
-        self._seed_config = SeedConfig(dataset=dataset_reference.dataset, sampling_strategy=sampling_strategy)
+        self._seed_config = SeedConfig(dataset=dataset_reference.dataset, sampling_strategy=sampling_strategy, selection_strategy=selection_strategy)
         self.set_seed_datastore_settings(
             dataset_reference.datastore_settings if hasattr(dataset_reference, "datastore_settings") else None
         )
