@@ -131,10 +131,10 @@ def test_seed_dataset_column_generator_config_structure():
         columns=[SeedDatasetColumnConfig(name="col1"), SeedDatasetColumnConfig(name="col2")],
         dataset="test/dataset",
         sampling_strategy=SamplingStrategy.SHUFFLE,
-        selection_strategy=PartitionBlock(partition_index=1, num_partitions=3),
+        selection_strategy=PartitionBlock(index=1, num_partitions=3),
     )
     assert isinstance(config.selection_strategy, PartitionBlock)
-    assert config.selection_strategy.partition_index == 1
+    assert config.selection_strategy.index == 1
     assert config.selection_strategy.num_partitions == 3
 
     # Test IndexRange selection strategy
@@ -742,7 +742,7 @@ def test_seed_dataset_generator_partition_block_selection_strategy(fixture_name,
         file_path,
         stub_resource_provider,
         sampling_strategy=SamplingStrategy.ORDERED,
-        selection_strategy=PartitionBlock(partition_index=1, num_partitions=3),
+        selection_strategy=PartitionBlock(index=1, num_partitions=3),
     )
     result = generator.generate_from_scratch(5)
     assert len(result) == 5
@@ -753,7 +753,7 @@ def test_seed_dataset_generator_partition_block_selection_strategy(fixture_name,
         file_path,
         stub_resource_provider,
         sampling_strategy=SamplingStrategy.SHUFFLE,
-        selection_strategy=PartitionBlock(partition_index=4, num_partitions=5),
+        selection_strategy=PartitionBlock(index=4, num_partitions=5),
     )
     result = generator.generate_from_scratch(10)
     assert len(result) == 10
@@ -783,6 +783,6 @@ def test_seed_dataset_generator_invalid_selection_strategies(fixture_name, stub_
         SeedDatasetError, match="Selection strategy 'num_partitions' 11 is out of bounds for dataset size 10"
     ):
         generator = create_generator_with_real_file(
-            file_path, stub_resource_provider, selection_strategy=PartitionBlock(partition_index=0, num_partitions=11)
+            file_path, stub_resource_provider, selection_strategy=PartitionBlock(index=0, num_partitions=11)
         )
         generator.generate_from_scratch(1)

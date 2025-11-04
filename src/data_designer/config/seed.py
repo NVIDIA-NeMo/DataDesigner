@@ -34,24 +34,24 @@ class IndexRange(ConfigBase):
 
 
 class PartitionBlock(ConfigBase):
-    partition_index: int = Field(default=0, ge=0, description="The index of the partition to sample from")
+    index: int = Field(default=0, ge=0, description="The index of the partition to sample from")
     num_partitions: int = Field(default=1, ge=1, description="The total number of partitions in the dataset")
 
     @model_validator(mode="after")
     def _validate_partition_block(self) -> Self:
-        if self.partition_index >= self.num_partitions:
-            raise ValueError("'partition_index' must be less than 'num_partitions'")
+        if self.index >= self.num_partitions:
+            raise ValueError("'index' must be less than 'num_partitions'")
         return self
 
     def to_index_range(self, dataset_size: int) -> IndexRange:
         partition_size = dataset_size // self.num_partitions
-        start = self.partition_index * partition_size
+        start = self.index * partition_size
 
         # For the last partition, extend to the end of the dataset to include remainder rows
-        if self.partition_index == self.num_partitions - 1:
+        if self.index == self.num_partitions - 1:
             end = dataset_size - 1
         else:
-            end = ((self.partition_index + 1) * partition_size) - 1
+            end = ((self.index + 1) * partition_size) - 1
         return IndexRange(start=start, end=end)
 
 
