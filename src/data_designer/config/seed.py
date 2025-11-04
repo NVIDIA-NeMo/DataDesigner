@@ -56,6 +56,56 @@ class PartitionBlock(ConfigBase):
 
 
 class SeedConfig(ConfigBase):
+    """Configuration for sampling data from a seed dataset.
+
+    Args:
+        dataset: Path or identifier for the seed dataset.
+        sampling_strategy: Strategy for how to sample rows from the dataset.
+            - ORDERED: Read rows sequentially in their original order.
+            - SHUFFLE: Randomly shuffle rows before sampling. When used with
+              selection_strategy, shuffling occurs within the selected range/partition.
+        selection_strategy: Optional strategy to select a subset of the dataset.
+            - IndexRange: Select a specific range of indices (e.g., rows 100-200).
+            - PartitionBlock: Select a partition by splitting the dataset into N equal parts.
+              Partition indices are zero-based (index=0 is the first partition, index=1 is
+              the second, etc.).
+
+    Examples:
+        Read rows sequentially from start to end:
+            SeedConfig(dataset="my_data.parquet", sampling_strategy=SamplingStrategy.ORDERED)
+
+        Read rows in random order:
+            SeedConfig(dataset="my_data.parquet", sampling_strategy=SamplingStrategy.SHUFFLE)
+
+        Read specific index range (rows 100-199):
+            SeedConfig(
+                dataset="my_data.parquet",
+                sampling_strategy=SamplingStrategy.ORDERED,
+                selection_strategy=IndexRange(start=100, end=199)
+            )
+
+        Read random rows from a specific index range (shuffles within rows 100-199):
+            SeedConfig(
+                dataset="my_data.parquet",
+                sampling_strategy=SamplingStrategy.SHUFFLE,
+                selection_strategy=IndexRange(start=100, end=199)
+            )
+
+        Read from partition 2 (3rd partition, zero-based) of 5 partitions (20% of dataset):
+            SeedConfig(
+                dataset="my_data.parquet",
+                sampling_strategy=SamplingStrategy.ORDERED,
+                selection_strategy=PartitionBlock(index=2, num_partitions=5)
+            )
+
+        Read shuffled rows from partition 0 of 10 partitions (shuffles within the partition):
+            SeedConfig(
+                dataset="my_data.parquet",
+                sampling_strategy=SamplingStrategy.SHUFFLE,
+                selection_strategy=PartitionBlock(index=0, num_partitions=10)
+            )
+    """
+
     dataset: str
     sampling_strategy: SamplingStrategy = SamplingStrategy.ORDERED
     selection_strategy: Optional[Union[IndexRange, PartitionBlock]] = None
