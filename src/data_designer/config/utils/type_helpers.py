@@ -3,12 +3,51 @@
 
 from enum import Enum
 import inspect
-from typing import Any, Type
+from typing import Any, Type, Union, get_args
 
 from pydantic import BaseModel
 
 from .. import sampler_params
 from .errors import InvalidEnumValueError
+
+
+class StrEnum(str, Enum):
+    pass
+
+
+def create_str_enum_from_discriminated_type_union(
+    enum_name: str,
+    type_union: Type[Union[BaseModel, ...]],
+    discriminator_field_name: str,
+) -> StrEnum:
+    """Create a string enum from a type union.
+
+    The type union is assumed to be a union of configs (Pydantic models) that have a discriminator field,
+    which must be a Literal string type - e.g., Literal["expression"].
+
+    Args:
+        enum_name: Name of the StrEnum.
+        type_union: Type union of configs (Pydantic models).
+        discriminator_field_name: Name of the discriminator field.
+
+    Returns:
+        StrEnum with values being the discriminator field values of the configs in the type union.
+
+    Example:
+        DataDesignerColumnType = create_str_enum_from_discriminated_type_union(
+            enum_name="DataDesignerColumnType",
+            type_union=ColumnConfigT,
+            discriminator_field_name="column_type",
+        )
+    """
+    discriminator_field_values = []
+    for model in type_union.__args__:
+        if not issubclass(model, BaseModel):
+            raise ValueError(f"🛑 {model} is not a Pydantic model.")
+        if discriminator_field_name not in model.model_fields:
+            raise ValueError(f"🛑 {discriminator_field_name} is not a field of {model}.")
+        discriminator_field_values.extend(get_args(model.model_fields[discriminator_field_name].annotation))
+    return StrEnum(enum_name, {v.replace("-", "_").upper(): v for v in set(discriminator_field_values)})
 
 
 def get_sampler_params() -> dict[str, Type[BaseModel]]:

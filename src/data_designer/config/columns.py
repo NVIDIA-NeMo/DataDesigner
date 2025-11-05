@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from abc import ABC
-from enum import Enum
 from typing import Literal, Optional, Type, Union
 
 from pydantic import BaseModel, Field, model_validator
@@ -15,19 +14,8 @@ from .sampler_params import SamplerParamsT, SamplerType
 from .utils.code_lang import CodeLang
 from .utils.constants import REASONING_TRACE_COLUMN_POSTFIX
 from .utils.misc import assert_valid_jinja2_template, get_prompt_template_keywords
-from .utils.type_helpers import SAMPLER_PARAMS, resolve_string_enum
+from .utils.type_helpers import SAMPLER_PARAMS, create_str_enum_from_discriminated_type_union, resolve_string_enum
 from .validator_params import ValidatorParamsT, ValidatorType
-
-
-class DataDesignerColumnType(str, Enum):
-    SAMPLER = "sampler"
-    LLM_TEXT = "llm-text"
-    LLM_CODE = "llm-code"
-    LLM_STRUCTURED = "llm-structured"
-    LLM_JUDGE = "llm-judge"
-    EXPRESSION = "expression"
-    VALIDATION = "validation"
-    SEED_DATASET = "seed-dataset"
 
 
 class SingleColumnConfig(ConfigBase, ABC):
@@ -143,6 +131,25 @@ class SeedDatasetColumnConfig(SingleColumnConfig):
     column_type: Literal["seed-dataset"] = "seed-dataset"
 
 
+ColumnConfigT: TypeAlias = Union[
+    ExpressionColumnConfig,
+    LLMCodeColumnConfig,
+    LLMJudgeColumnConfig,
+    LLMStructuredColumnConfig,
+    LLMTextColumnConfig,
+    SamplerColumnConfig,
+    SeedDatasetColumnConfig,
+    ValidationColumnConfig,
+]
+
+
+DataDesignerColumnType = create_str_enum_from_discriminated_type_union(
+    enum_name="DataDesignerColumnType",
+    type_union=ColumnConfigT,
+    discriminator_field_name="column_type",
+)
+
+
 COLUMN_TYPE_EMOJI_MAP = {
     "general": "⚛️",  # possible analysis column type
     DataDesignerColumnType.EXPRESSION: "🧩",
@@ -154,18 +161,6 @@ COLUMN_TYPE_EMOJI_MAP = {
     DataDesignerColumnType.SAMPLER: "🎲",
     DataDesignerColumnType.VALIDATION: "🔍",
 }
-
-
-ColumnConfigT: TypeAlias = Union[
-    ExpressionColumnConfig,
-    LLMCodeColumnConfig,
-    LLMJudgeColumnConfig,
-    LLMStructuredColumnConfig,
-    LLMTextColumnConfig,
-    SamplerColumnConfig,
-    SeedDatasetColumnConfig,
-    ValidationColumnConfig,
-]
 
 
 def column_type_is_in_dag(column_type: Union[str, DataDesignerColumnType]) -> bool:
