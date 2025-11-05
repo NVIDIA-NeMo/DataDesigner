@@ -13,7 +13,7 @@ import pyarrow.parquet as pq
 from pydantic import BaseModel, Field
 
 from .errors import InvalidConfigError, InvalidFileFormatError, InvalidFilePathError
-from .utils.io_helpers import VALID_DATASET_FILE_EXTENSIONS
+from .utils.io_helpers import VALID_DATASET_FILE_EXTENSIONS, validate_path_contains_files_of_type
 
 if TYPE_CHECKING:
     from .seed import SeedDatasetReference
@@ -38,7 +38,7 @@ def get_file_column_names(file_path: Union[str, Path], file_type: str) -> list[s
         matching_files = sorted(file_path.parent.glob(file_path.name))
         if not matching_files:
             raise InvalidFilePathError(f"🛑 No files found matching pattern: {str(file_path)!r}")
-        logger.info(f"0️⃣ Using the first matching file in {str(file_path)!r} to determine column names in seed dataset")
+        logger.debug(f"0️⃣ Using the first matching file in {str(file_path)!r} to determine column names in seed dataset")
         file_path = matching_files[0]
 
     if file_type == "parquet":
@@ -137,10 +137,7 @@ def _fetch_seed_dataset_column_names_from_local_file(dataset_path: str | Path) -
 
 def _validate_dataset_path(dataset_path: Union[str, Path], allow_glob_pattern: bool = False) -> Path:
     if allow_glob_pattern and "*" in str(dataset_path):
-        valid_wild_card_versions = {f"*{ext}" for ext in VALID_DATASET_FILE_EXTENSIONS}
-        if not any(dataset_path.endswith(wildcard) for wildcard in valid_wild_card_versions):
-            file_extension = dataset_path.split("*.")[-1]
-            raise InvalidFilePathError(f"🛑 Path {dataset_path!r} does not contain files of type {file_extension!r}.")
+        validate_path_contains_files_of_type(dataset_path, str(dataset_path).split(".")[-1])
         return Path(dataset_path)
     if not Path(dataset_path).is_file():
         raise InvalidFilePathError("🛑 To upload a dataset to the datastore, you must provide a valid file path.")
