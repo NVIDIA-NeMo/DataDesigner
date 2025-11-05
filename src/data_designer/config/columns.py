@@ -3,9 +3,10 @@
 
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Literal, Optional, Type, Union
+from typing import Callable, Literal, Optional, Type, Union
 
-from pydantic import BaseModel, Field, model_validator
+import pandas as pd
+from pydantic import BaseModel, Field, field_serializer, model_validator
 from typing_extensions import Self, TypeAlias
 
 from .base import ConfigBase
@@ -28,6 +29,7 @@ class DataDesignerColumnType(str, Enum):
     EXPRESSION = "expression"
     VALIDATION = "validation"
     SEED_DATASET = "seed-dataset"
+    CUSTOM = "custom"
 
     @staticmethod
     def get_display_order() -> list[Self]:
@@ -40,6 +42,7 @@ class DataDesignerColumnType(str, Enum):
             DataDesignerColumnType.LLM_JUDGE,
             DataDesignerColumnType.VALIDATION,
             DataDesignerColumnType.EXPRESSION,
+            DataDesignerColumnType.CUSTOM,
         ]
 
     @property
@@ -55,6 +58,7 @@ class DataDesignerColumnType(str, Enum):
             self.LLM_STRUCTURED,
             self.LLM_TEXT,
             self.VALIDATION,
+            self.CUSTOM,
         ]
 
 
@@ -195,6 +199,18 @@ class SeedDatasetColumnConfig(SingleColumnConfig):
         return DataDesignerColumnType.SEED_DATASET
 
 
+class CustomColumnConfig(SingleColumnConfig):
+    generator_function: Callable[[pd.DataFrame], pd.DataFrame]
+
+    @property
+    def column_type(self) -> DataDesignerColumnType:
+        return DataDesignerColumnType.CUSTOM
+
+    @field_serializer("generator_function")
+    def serialize_generator_function(self, v: Callable[[pd.DataFrame], pd.DataFrame]) -> str:
+        return v.__name__
+
+
 COLUMN_TYPE_EMOJI_MAP = {
     "general": "⚛️",  # possible analysis column type
     DataDesignerColumnType.EXPRESSION: "🧩",
@@ -205,6 +221,7 @@ COLUMN_TYPE_EMOJI_MAP = {
     DataDesignerColumnType.SEED_DATASET: "🌱",
     DataDesignerColumnType.SAMPLER: "🎲",
     DataDesignerColumnType.VALIDATION: "🔍",
+    DataDesignerColumnType.CUSTOM: "🛠️",
 }
 
 
@@ -217,6 +234,7 @@ ColumnConfigT: TypeAlias = Union[
     SamplerColumnConfig,
     SeedDatasetColumnConfig,
     ValidationColumnConfig,
+    CustomColumnConfig,
 ]
 
 
@@ -248,6 +266,8 @@ def get_column_config_from_kwargs(name: str, column_type: DataDesignerColumnType
         return SamplerColumnConfig(name=name, **_resolve_sampler_kwargs(name, kwargs))
     elif column_type == DataDesignerColumnType.SEED_DATASET:
         return SeedDatasetColumnConfig(name=name, **kwargs)
+    elif column_type == DataDesignerColumnType.CUSTOM:
+        return CustomColumnConfig(name=name, **kwargs)
     raise InvalidColumnTypeError(f"🛑 {column_type} is not a valid column type.")  # pragma: no cover
 
 

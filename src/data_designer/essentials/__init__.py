@@ -3,6 +3,7 @@
 
 from ..config.analysis.column_profilers import JudgeScoreProfilerConfig
 from ..config.columns import (
+    CustomColumnConfig,
     DataDesignerColumnType,
     ExpressionColumnConfig,
     LLMCodeColumnConfig,
@@ -79,6 +80,7 @@ __all__ = [
     "CodeValidatorParams",
     "ColumnInequalityConstraint",
     "configure_logging",
+    "CustomColumnConfig",
     "DataDesignerColumnType",
     "DataDesignerConfig",
     "DataDesignerConfigBuilder",

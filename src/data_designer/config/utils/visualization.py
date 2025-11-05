@@ -160,6 +160,7 @@ def display_sample_record(
         + config_builder.get_columns_of_type(DataDesignerColumnType.EXPRESSION)
         + config_builder.get_columns_of_type(DataDesignerColumnType.LLM_TEXT)
         + config_builder.get_columns_of_type(DataDesignerColumnType.LLM_STRUCTURED)
+        + config_builder.get_columns_of_type(DataDesignerColumnType.CUSTOM)
     )
     if len(non_code_columns) > 0:
         table = Table(title="Generated Columns", **table_kws)

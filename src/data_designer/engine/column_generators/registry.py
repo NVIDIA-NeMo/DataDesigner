@@ -3,6 +3,7 @@
 
 from data_designer.config.base import ConfigBase
 from data_designer.config.columns import (
+    CustomColumnConfig,
     DataDesignerColumnType,
     ExpressionColumnConfig,
     LLMCodeColumnConfig,
@@ -12,6 +13,7 @@ from data_designer.config.columns import (
     ValidationColumnConfig,
 )
 from data_designer.engine.column_generators.generators.base import ColumnGenerator
+from data_designer.engine.column_generators.generators.custom import CustomColumnGenerator
 from data_designer.engine.column_generators.generators.expression import ExpressionColumnGenerator
 from data_designer.engine.column_generators.generators.llm_generators import (
     LLMCodeCellGenerator,
@@ -39,6 +41,7 @@ def create_default_column_generator_registry() -> ColumnGeneratorRegistry:
     registry.register(DataDesignerColumnType.LLM_JUDGE, LLMJudgeCellGenerator, LLMJudgeColumnConfig, False)
     registry.register(DataDesignerColumnType.EXPRESSION, ExpressionColumnGenerator, ExpressionColumnConfig, False)
     registry.register(DataDesignerColumnType.SAMPLER, SamplerColumnGenerator, SamplerMultiColumnConfig, False)
+    registry.register(DataDesignerColumnType.CUSTOM, CustomColumnGenerator, CustomColumnConfig, False)
     registry.register(
         DataDesignerColumnType.SEED_DATASET,
         SeedDatasetColumnGenerator,
