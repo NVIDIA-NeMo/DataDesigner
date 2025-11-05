@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Annotated, Optional
 
 from pydantic import Field
 
@@ -32,7 +32,7 @@ class DataDesignerConfig(ExportableConfigBase):
         profilers: Optional list of column profilers for analyzing generated data characteristics.
     """
 
-    columns: list[ColumnConfigT] = Field(min_length=1)
+    columns: list[Annotated[ColumnConfigT, Field(discriminator="column_type")]] = Field(min_length=1)
     model_configs: Optional[list[ModelConfig]] = None
     seed_config: Optional[SeedConfig] = None
     constraints: Optional[list[ColumnConstraintT]] = None

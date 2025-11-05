@@ -7,7 +7,7 @@ from typing import Optional, Union
 
 from pydantic import BaseModel, Field, field_validator
 
-from ..columns import DataDesignerColumnType
+from ..columns import DataDesignerColumnType, get_column_display_order
 from ..utils.constants import EPSILON
 from ..utils.numerical_helpers import prepare_number_for_reporting
 from .column_profilers import ColumnProfilerResultsT
@@ -32,7 +32,7 @@ class DatasetProfilerResults(BaseModel):
 
     @cached_property
     def column_types(self) -> list[str]:
-        display_order = DataDesignerColumnType.get_display_order()
+        display_order = get_column_display_order()
         return sorted(
             list(set([c.column_type for c in self.column_statistics])),
             key=lambda x: display_order.index(x) if x in display_order else len(display_order),

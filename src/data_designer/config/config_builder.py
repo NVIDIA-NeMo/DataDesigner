@@ -15,7 +15,13 @@ from typing_extensions import Self
 
 from .analysis.column_profilers import ColumnProfilerConfigT
 from .base import ExportableConfigBase
-from .columns import ColumnConfigT, DataDesignerColumnType, SeedDatasetColumnConfig, get_column_config_from_kwargs
+from .columns import (
+    ColumnConfigT,
+    DataDesignerColumnType,
+    SeedDatasetColumnConfig,
+    column_type_is_llm_generated,
+    get_column_config_from_kwargs,
+)
 from .data_designer_config import DataDesignerConfig
 from .dataset_builders import BuildStage
 from .datastore import DatastoreSettings, fetch_seed_dataset_column_names
@@ -449,7 +455,7 @@ class DataDesignerConfigBuilder:
         Returns:
             A list of column configurations that use LLM generation.
         """
-        return [c for c in self._column_configs.values() if c.column_type.has_prompt_templates]
+        return [c for c in self._column_configs.values() if column_type_is_llm_generated(c.column_type)]
 
     def get_columns_of_type(self, column_type: DataDesignerColumnType) -> list[ColumnConfigT]:
         """Get all column configurations of the specified type.

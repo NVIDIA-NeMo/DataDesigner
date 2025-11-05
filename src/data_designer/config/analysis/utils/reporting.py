@@ -15,7 +15,7 @@ from rich.table import Column, Table
 from rich.text import Text
 
 from ...analysis.column_statistics import CategoricalHistogramData
-from ...columns import COLUMN_TYPE_EMOJI_MAP, DataDesignerColumnType
+from ...columns import COLUMN_TYPE_EMOJI_MAP, DataDesignerColumnType, get_column_display_order
 from ...utils.visualization import (
     ColorPalette,
     convert_to_row_element,
@@ -44,7 +44,7 @@ class ReportSection(str, Enum):
 DEFAULT_INCLUDE_SECTIONS = [
     ReportSection.OVERVIEW,
     ReportSection.COLUMN_PROFILERS,
-] + DataDesignerColumnType.get_display_order()
+] + get_column_display_order()
 
 
 def generate_analysis_report(

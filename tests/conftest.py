@@ -45,31 +45,38 @@ seed_config:
 columns:
     - name: code_id
       sampler_type: uuid
+      column_type: sampler
       params:
         prefix: code_
         short_form: true
         uppercase: true
     - name: age
       sampler_type: uniform
+      column_type: sampler
       params:
         low: 35
         high: 88
     - name: domain
       sampler_type: category
+      column_type: sampler
       params:
         values: [Healthcare, Finance, Education, Government]
     - name: topic
       sampler_type: category
+      column_type: sampler
       params:
         values: [Web Development, Data Science, Machine Learning, Cloud Computing]
     - name: text
+      column_type: llm-text
       prompt: Write a description of python code in topic {topic} and domain {domain}
       model_alias: my_own_code_model
     - name: code
+      column_type: llm-code
       prompt: Write Python code that will be paired with the following prompt {text}
       model_alias: my_own_code_model
       code_lang: python
     - name: code_validation_result
+      column_type: validation
       target_columns:
         - code
       validator_type: code
@@ -77,6 +84,7 @@ columns:
         code_lang: python
     - name: code_judge_result
       model_alias: my_own_code_model
+      column_type: llm-judge
       prompt: You are an expert in Python programming and make appropriate judgement on the quality of the code.
       scores:
         - name: Pythonic

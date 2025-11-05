@@ -108,7 +108,7 @@ class WithLLMGeneration:
 
     def log_pre_generation(self) -> None:
         emoji = COLUMN_TYPE_EMOJI_MAP[self.config.column_type]
-        logger.info(f"{emoji} Preparing {self.config.column_type.value} column generation")
+        logger.info(f"{emoji} Preparing {self.config.column_type} column generation")
         logger.info(f"  |-- column name: {self.config.name!r}")
         logger.info(f"  |-- model config:\n{self.model_config.model_dump_json(indent=4)}")
         if self.model_config.provider is None:

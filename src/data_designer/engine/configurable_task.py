@@ -3,7 +3,7 @@
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Generic, Type, TypeVar
+from typing import Generic, Type, TypeVar, get_origin
 
 import pandas as pd
 
@@ -32,8 +32,11 @@ class ConfigurableTask(ABC, Generic[TaskConfigT]):
     @classmethod
     def get_config_type(cls) -> Type[TaskConfigT]:
         for base in cls.__orig_bases__:
-            if hasattr(base, "__args__") and len(base.__args__) == 1 and issubclass(base.__args__[0], ConfigBase):
-                return base.__args__[0]
+            if hasattr(base, "__args__") and len(base.__args__) == 1:
+                arg = base.__args__[0]
+                origin = get_origin(arg) or arg
+                if isinstance(origin, type) and issubclass(origin, ConfigBase):
+                    return base.__args__[0]
         raise TypeError(
             f"Could not determine config type for `{cls.__name__}`. Please ensure that the "
             "`ConfigurableTask` is defined with a generic type argument, where the type argument "

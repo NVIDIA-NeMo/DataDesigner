@@ -121,9 +121,9 @@ def test_seed_dataset_column_generator_config_structure():
     assert config.sampling_strategy == SamplingStrategy.SHUFFLE
     assert len(config.columns) == 2
     assert config.columns[0].name == "col1"
-    assert config.columns[0].column_type.value == "seed-dataset"
+    assert config.columns[0].column_type == "seed-dataset"
     assert config.columns[1].name == "col2"
-    assert config.columns[1].column_type.value == "seed-dataset"
+    assert config.columns[1].column_type == "seed-dataset"
     assert config.selection_strategy is None
 
     # Test PartitionBlock selection strategy

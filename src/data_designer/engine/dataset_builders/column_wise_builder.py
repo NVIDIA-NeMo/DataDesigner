@@ -10,7 +10,7 @@ from typing import Callable
 
 import pandas as pd
 
-from data_designer.config.columns import ColumnConfigT
+from data_designer.config.columns import ColumnConfigT, column_type_is_llm_generated
 from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.processors import (
     DropColumnsProcessorConfig,
@@ -64,10 +64,10 @@ class ColumnWiseDatasetBuilder:
     def single_column_configs(self) -> list[ColumnConfigT]:
         configs = []
         for config in self._column_configs:
-            if isinstance(config, ColumnConfigT):
-                configs.append(config)
-            elif isinstance(config, MultiColumnConfig):
+            if isinstance(config, MultiColumnConfig):
                 configs.extend(config.columns)
+            else:
+                configs.append(config)
         return configs
 
     def build(
@@ -171,7 +171,7 @@ class ColumnWiseDatasetBuilder:
         self.batch_manager.update_records(df.to_dict(orient="records"))
 
     def _run_model_health_check_if_needed(self) -> bool:
-        if any(config.column_type.has_prompt_templates for config in self.single_column_configs):
+        if any(column_type_is_llm_generated(config.column_type) for config in self.single_column_configs):
             self._resource_provider.model_registry.run_health_check()
 
     def _fan_out_with_threads(self, generator: WithLLMGeneration, max_workers: int) -> None:
@@ -182,7 +182,7 @@ class ColumnWiseDatasetBuilder:
             )
 
         logger.info(
-            f"🐙 Processing {generator.config.column_type.value} column '{generator.config.name}' "
+            f"🐙 Processing {generator.config.column_type} column '{generator.config.name}' "
             f"with {max_workers} concurrent workers"
         )
         with ConcurrentThreadExecutor(

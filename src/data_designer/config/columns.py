@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from abc import ABC, abstractmethod
+from abc import ABC
 from enum import Enum
 from typing import Literal, Optional, Type, Union
 
@@ -29,42 +29,11 @@ class DataDesignerColumnType(str, Enum):
     VALIDATION = "validation"
     SEED_DATASET = "seed-dataset"
 
-    @staticmethod
-    def get_display_order() -> list[Self]:
-        return [
-            DataDesignerColumnType.SEED_DATASET,
-            DataDesignerColumnType.SAMPLER,
-            DataDesignerColumnType.LLM_TEXT,
-            DataDesignerColumnType.LLM_CODE,
-            DataDesignerColumnType.LLM_STRUCTURED,
-            DataDesignerColumnType.LLM_JUDGE,
-            DataDesignerColumnType.VALIDATION,
-            DataDesignerColumnType.EXPRESSION,
-        ]
-
-    @property
-    def has_prompt_templates(self) -> bool:
-        return self in [self.LLM_TEXT, self.LLM_CODE, self.LLM_STRUCTURED, self.LLM_JUDGE]
-
-    @property
-    def is_dag_column_type(self) -> bool:
-        return self in [
-            self.EXPRESSION,
-            self.LLM_CODE,
-            self.LLM_JUDGE,
-            self.LLM_STRUCTURED,
-            self.LLM_TEXT,
-            self.VALIDATION,
-        ]
-
 
 class SingleColumnConfig(ConfigBase, ABC):
     name: str
     drop: bool = False
-
-    @property
-    @abstractmethod
-    def column_type(self) -> DataDesignerColumnType: ...
+    column_type: str
 
     @property
     def required_columns(self) -> list[str]:
@@ -80,10 +49,7 @@ class SamplerColumnConfig(SingleColumnConfig):
     params: SamplerParamsT
     conditional_params: dict[str, SamplerParamsT] = {}
     convert_to: Optional[str] = None
-
-    @property
-    def column_type(self) -> DataDesignerColumnType:
-        return DataDesignerColumnType.SAMPLER
+    column_type: Literal["sampler"] = "sampler"
 
 
 class LLMTextColumnConfig(SingleColumnConfig):
@@ -91,10 +57,7 @@ class LLMTextColumnConfig(SingleColumnConfig):
     model_alias: str
     system_prompt: Optional[str] = None
     multi_modal_context: Optional[list[ImageContext]] = None
-
-    @property
-    def column_type(self) -> DataDesignerColumnType:
-        return DataDesignerColumnType.LLM_TEXT
+    column_type: Literal["llm-text"] = "llm-text"
 
     @property
     def required_columns(self) -> list[str]:
@@ -117,18 +80,12 @@ class LLMTextColumnConfig(SingleColumnConfig):
 
 class LLMCodeColumnConfig(LLMTextColumnConfig):
     code_lang: CodeLang
-
-    @property
-    def column_type(self) -> DataDesignerColumnType:
-        return DataDesignerColumnType.LLM_CODE
+    column_type: Literal["llm-code"] = "llm-code"
 
 
 class LLMStructuredColumnConfig(LLMTextColumnConfig):
     output_format: Union[dict, Type[BaseModel]]
-
-    @property
-    def column_type(self) -> DataDesignerColumnType:
-        return DataDesignerColumnType.LLM_STRUCTURED
+    column_type: Literal["llm-structured"] = "llm-structured"
 
     @model_validator(mode="after")
     def validate_output_format(self) -> Self:
@@ -145,20 +102,14 @@ class Score(ConfigBase):
 
 class LLMJudgeColumnConfig(LLMTextColumnConfig):
     scores: list[Score] = Field(..., min_length=1)
-
-    @property
-    def column_type(self) -> DataDesignerColumnType:
-        return DataDesignerColumnType.LLM_JUDGE
+    column_type: Literal["llm-judge"] = "llm-judge"
 
 
 class ExpressionColumnConfig(SingleColumnConfig):
     name: str
     expr: str
     dtype: Literal["int", "float", "str", "bool"] = "str"
-
-    @property
-    def column_type(self) -> DataDesignerColumnType:
-        return DataDesignerColumnType.EXPRESSION
+    column_type: Literal["expression"] = "expression"
 
     @property
     def required_columns(self) -> list[str]:
@@ -168,7 +119,9 @@ class ExpressionColumnConfig(SingleColumnConfig):
     def assert_expression_valid_jinja(self) -> Self:
         if not self.expr.strip():
             raise InvalidConfigError(
-                f"🛑 Expression column '{self.name}' has an empty or whitespace-only expression. Please provide a valid Jinja2 expression (e.g., '{{ column_name }}' or '{{ col1 }} + {{ col2 }}') or remove this column if not needed."
+                f"🛑 Expression column '{self.name}' has an empty or whitespace-only expression. "
+                f"Please provide a valid Jinja2 expression (e.g., '{{ column_name }}' or '{{ col1 }} + {{ col2 }}') "
+                "or remove this column if not needed."
             )
         assert_valid_jinja2_template(self.expr)
         return self
@@ -179,10 +132,7 @@ class ValidationColumnConfig(SingleColumnConfig):
     validator_type: ValidatorType
     validator_params: ValidatorParamsT
     batch_size: int = Field(default=10, ge=1, description="Number of records to process in each batch")
-
-    @property
-    def column_type(self) -> DataDesignerColumnType:
-        return DataDesignerColumnType.VALIDATION
+    column_type: Literal["validation"] = "validation"
 
     @property
     def required_columns(self) -> list[str]:
@@ -190,9 +140,7 @@ class ValidationColumnConfig(SingleColumnConfig):
 
 
 class SeedDatasetColumnConfig(SingleColumnConfig):
-    @property
-    def column_type(self) -> DataDesignerColumnType:
-        return DataDesignerColumnType.SEED_DATASET
+    column_type: Literal["seed-dataset"] = "seed-dataset"
 
 
 COLUMN_TYPE_EMOJI_MAP = {
@@ -218,6 +166,28 @@ ColumnConfigT: TypeAlias = Union[
     SeedDatasetColumnConfig,
     ValidationColumnConfig,
 ]
+
+
+def column_type_is_in_dag(column_type: Union[str, DataDesignerColumnType]) -> bool:
+    column_type = resolve_string_enum(column_type, DataDesignerColumnType)
+    return column_type in [
+        DataDesignerColumnType.EXPRESSION,
+        DataDesignerColumnType.LLM_CODE,
+        DataDesignerColumnType.LLM_JUDGE,
+        DataDesignerColumnType.LLM_STRUCTURED,
+        DataDesignerColumnType.LLM_TEXT,
+        DataDesignerColumnType.VALIDATION,
+    ]
+
+
+def column_type_is_llm_generated(column_type: Union[str, DataDesignerColumnType]) -> bool:
+    column_type = resolve_string_enum(column_type, DataDesignerColumnType)
+    return column_type in [
+        DataDesignerColumnType.LLM_TEXT,
+        DataDesignerColumnType.LLM_CODE,
+        DataDesignerColumnType.LLM_STRUCTURED,
+        DataDesignerColumnType.LLM_JUDGE,
+    ]
 
 
 def get_column_config_from_kwargs(name: str, column_type: DataDesignerColumnType, **kwargs) -> ColumnConfigT:
@@ -249,6 +219,19 @@ def get_column_config_from_kwargs(name: str, column_type: DataDesignerColumnType
     elif column_type == DataDesignerColumnType.SEED_DATASET:
         return SeedDatasetColumnConfig(name=name, **kwargs)
     raise InvalidColumnTypeError(f"🛑 {column_type} is not a valid column type.")  # pragma: no cover
+
+
+def get_column_display_order() -> list[DataDesignerColumnType]:
+    return [
+        DataDesignerColumnType.SEED_DATASET,
+        DataDesignerColumnType.SAMPLER,
+        DataDesignerColumnType.LLM_TEXT,
+        DataDesignerColumnType.LLM_CODE,
+        DataDesignerColumnType.LLM_STRUCTURED,
+        DataDesignerColumnType.LLM_JUDGE,
+        DataDesignerColumnType.VALIDATION,
+        DataDesignerColumnType.EXPRESSION,
+    ]
 
 
 def _resolve_sampler_kwargs(name: str, kwargs: dict) -> dict:
