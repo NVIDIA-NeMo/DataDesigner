@@ -36,7 +36,7 @@ def _write_file(df, path, file_type):
 
 @pytest.mark.parametrize("file_type", ["parquet", "json", "jsonl", "csv"])
 def test_get_file_column_names_basic_parquet(tmp_path, file_type):
-    """Test _get_file_column_names with basic parquet file."""
+    """Test get_file_column_names with basic parquet file."""
     test_data = {
         "id": [1, 2, 3],
         "name": ["Alice", "Bob", "Charlie"],
@@ -51,7 +51,7 @@ def test_get_file_column_names_basic_parquet(tmp_path, file_type):
 
 
 def test_get_file_column_names_nested_fields(tmp_path):
-    """Test _get_file_column_names with nested fields in parquet."""
+    """Test get_file_column_names with nested fields in parquet."""
     schema = pa.schema(
         [
             pa.field(
@@ -72,7 +72,7 @@ def test_get_file_column_names_nested_fields(tmp_path):
 
 @pytest.mark.parametrize("file_type", ["parquet", "json", "jsonl", "csv"])
 def test_get_file_column_names_empty_parquet(tmp_path, file_type):
-    """Test _get_file_column_names with empty parquet file."""
+    """Test get_file_column_names with empty parquet file."""
     empty_df = pd.DataFrame()
     empty_path = tmp_path / f"empty.{file_type}"
     _write_file(empty_df, empty_path, file_type)
@@ -83,7 +83,7 @@ def test_get_file_column_names_empty_parquet(tmp_path, file_type):
 
 @pytest.mark.parametrize("file_type", ["parquet", "json", "jsonl", "csv"])
 def test_get_file_column_names_large_schema(tmp_path, file_type):
-    """Test _get_file_column_names with many columns."""
+    """Test get_file_column_names with many columns."""
     num_columns = 50
     test_data = {f"col_{i}": np.random.randn(10) for i in range(num_columns)}
     df = pd.DataFrame(test_data)
@@ -98,7 +98,7 @@ def test_get_file_column_names_large_schema(tmp_path, file_type):
 
 @pytest.mark.parametrize("file_type", ["parquet", "json", "jsonl", "csv"])
 def test_get_file_column_names_special_characters(tmp_path, file_type):
-    """Test _get_file_column_names with special characters in column names."""
+    """Test get_file_column_names with special characters in column names."""
     special_data = {
         "column with spaces": [1],
         "column-with-dashes": [2],
@@ -117,13 +117,29 @@ def test_get_file_column_names_special_characters(tmp_path, file_type):
 
 @pytest.mark.parametrize("file_type", ["parquet", "json", "jsonl", "csv"])
 def test_get_file_column_names_unicode(tmp_path, file_type):
-    """Test _get_file_column_names with unicode column names."""
+    """Test get_file_column_names with unicode column names."""
     unicode_data = {"café": [1], "résumé": [2], "naïve": [3], "façade": [4], "garçon": [5], "über": [6], "schön": [7]}
     df_unicode = pd.DataFrame(unicode_data)
 
     unicode_path = tmp_path / f"unicode_columns.{file_type}"
     _write_file(df_unicode, unicode_path, file_type)
     assert get_file_column_names(str(unicode_path), file_type) == df_unicode.columns.tolist()
+
+
+@pytest.mark.parametrize("file_type", ["parquet", "csv", "json", "jsonl"])
+def test_get_file_column_names_with_glob_pattern(tmp_path, file_type):
+    df = pd.DataFrame({"col1": [1, 2, 3], "col2": [4, 5, 6]})
+    for i in range(5):
+        _write_file(df, tmp_path / f"{i}.{file_type}", file_type)
+    assert get_file_column_names(f"{tmp_path}/*.{file_type}", file_type) == ["col1", "col2"]
+
+
+def test_get_file_column_names_with_glob_pattern_error(tmp_path):
+    df = pd.DataFrame({"col1": [1, 2, 3], "col2": [4, 5, 6]})
+    for i in range(5):
+        _write_file(df, tmp_path / f"{i}.parquet", "parquet")
+    with pytest.raises(InvalidFilePathError, match="No files found matching pattern"):
+        get_file_column_names(f"{tmp_path}/*.csv", "csv")
 
 
 def test_get_file_column_names_error_handling():

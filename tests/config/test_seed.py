@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from pathlib import Path
-import tempfile
 
 import pandas as pd
 import pytest
@@ -77,33 +76,26 @@ def test_partition_block_to_index_range():
     assert index_range.size == 15
 
 
-def test_local_seed_dataset_reference_validation():
+def test_local_seed_dataset_reference_validation(tmp_path: Path):
     with pytest.raises(InvalidFilePathError, match="🛑 Path test/dataset.parquet is not a file."):
         LocalSeedDatasetReference(dataset="test/dataset.parquet")
 
     # Should not raise an error when referencing supported extensions with wildcard pattern.
-    with tempfile.TemporaryDirectory() as temp_dir:
-        create_partitions_in_path(Path(temp_dir), "parquet")
-        create_partitions_in_path(Path(temp_dir), "csv")
-        create_partitions_in_path(Path(temp_dir), "json")
-        create_partitions_in_path(Path(temp_dir), "jsonl")
+    create_partitions_in_path(tmp_path, "parquet")
+    create_partitions_in_path(tmp_path, "csv")
+    create_partitions_in_path(tmp_path, "json")
+    create_partitions_in_path(tmp_path, "jsonl")
 
-        test_cases = [
-            (temp_dir, "parquet"),
-            (temp_dir, "csv"),
-            (temp_dir, "json"),
-            (temp_dir, "jsonl"),
-        ]
+    test_cases = ["parquet", "csv", "json", "jsonl"]
+    try:
+        for extension in test_cases:
+            reference = LocalSeedDatasetReference(dataset=f"{tmp_path}/*.{extension}")
+            assert reference.dataset == f"{tmp_path}/*.{extension}"
+    except Exception as e:
+        pytest.fail(f"Expected no exception, but got {e}")
 
-        try:
-            for temp_dir, extension in test_cases:
-                reference = LocalSeedDatasetReference(dataset=f"{temp_dir}/*.{extension}")
-                assert reference.dataset == f"{temp_dir}/*.{extension}"
-        except Exception as e:
-            pytest.fail(f"Expected no exception, but got {e}")
 
-    # Should raise an error when referencing a path that does not contain files of the specified type.
-    with tempfile.TemporaryDirectory() as temp_dir:
-        create_partitions_in_path(Path(temp_dir), "parquet")
-        with pytest.raises(InvalidFilePathError, match="does not contain files of type 'csv'"):
-            LocalSeedDatasetReference(dataset=f"{temp_dir}/*.csv")
+def test_local_seed_dataset_reference_validation_error(tmp_path: Path):
+    create_partitions_in_path(tmp_path, "parquet")
+    with pytest.raises(InvalidFilePathError, match="does not contain files of type 'csv'"):
+        LocalSeedDatasetReference(dataset=f"{tmp_path}/*.csv")
