@@ -7,7 +7,11 @@ from typing import Literal, Union
 from pydantic import BaseModel
 import pytest
 
-from data_designer.config.utils.errors import InvalidEnumValueError
+from data_designer.config.utils.errors import (
+    InvalidDiscriminatorFieldError,
+    InvalidEnumValueError,
+    InvalidTypeUnionError,
+)
 from data_designer.config.utils.type_helpers import (
     SAMPLER_PARAMS,
     create_str_enum_from_discriminated_type_union,
@@ -94,15 +98,18 @@ def test_create_str_enum_from_type_union_duplicate_values() -> None:
 def test_create_str_enum_from_type_union_not_pydantic_model() -> None:
     type_union = Union[StubModelA, NotAModel]
 
-    with pytest.raises(ValueError, match="is not a Pydantic model"):
+    with pytest.raises(InvalidTypeUnionError, match="must be a subclass of pydantic.BaseModel"):
         create_str_enum_from_discriminated_type_union("TestEnum", type_union, "column_type")
 
 
-def test_create_str_enum_from_type_union_missing_discriminator_field() -> None:
+def test_create_str_enum_from_type_union_invalid_discriminator_field() -> None:
     type_union = Union[StubModelA, StubModelWithoutDiscriminator]
 
-    with pytest.raises(ValueError, match="column_type is not a field of"):
+    with pytest.raises(InvalidDiscriminatorFieldError, match="'column_type' is not a field of"):
         create_str_enum_from_discriminated_type_union("TestEnum", type_union, "column_type")
+
+    with pytest.raises(InvalidDiscriminatorFieldError, match="'name' must be a Literal type"):
+        create_str_enum_from_discriminated_type_union("TestEnum", type_union, "name")
 
 
 def test_create_str_enum_from_type_union_custom_discriminator_name() -> None:

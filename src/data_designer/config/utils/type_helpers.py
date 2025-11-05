@@ -3,12 +3,12 @@
 
 from enum import Enum
 import inspect
-from typing import Any, Type, Union, get_args
+from typing import Any, Literal, Type, Union, get_args, get_origin
 
 from pydantic import BaseModel
 
 from .. import sampler_params
-from .errors import InvalidEnumValueError
+from .errors import InvalidDiscriminatorFieldError, InvalidEnumValueError, InvalidTypeUnionError
 
 
 class StrEnum(str, Enum):
@@ -43,9 +43,11 @@ def create_str_enum_from_discriminated_type_union(
     discriminator_field_values = []
     for model in type_union.__args__:
         if not issubclass(model, BaseModel):
-            raise ValueError(f"🛑 {model} is not a Pydantic model.")
+            raise InvalidTypeUnionError(f"🛑 {model} must be a subclass of pydantic.BaseModel.")
         if discriminator_field_name not in model.model_fields:
-            raise ValueError(f"🛑 {discriminator_field_name} is not a field of {model}.")
+            raise InvalidDiscriminatorFieldError(f"🛑 '{discriminator_field_name}' is not a field of {model}.")
+        if get_origin(model.model_fields[discriminator_field_name].annotation) is not Literal:
+            raise InvalidDiscriminatorFieldError(f"🛑 '{discriminator_field_name}' must be a Literal type.")
         discriminator_field_values.extend(get_args(model.model_fields[discriminator_field_name].annotation))
     return StrEnum(enum_name, {v.replace("-", "_").upper(): v for v in set(discriminator_field_values)})
 
