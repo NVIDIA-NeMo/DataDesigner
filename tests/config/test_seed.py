@@ -20,7 +20,7 @@ def create_partitions_in_path(temp_dir: Path, extension: str, num_files: int = 2
         elif extension == "csv":
             df.to_csv(file_path, index=False)
         elif extension == "json":
-            df.to_json(file_path, orient="records")
+            df.to_json(file_path, orient="records", lines=True)
         elif extension == "jsonl":
             df.to_json(file_path, orient="records", lines=True)
     return temp_dir
