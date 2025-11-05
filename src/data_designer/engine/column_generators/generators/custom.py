@@ -13,7 +13,6 @@ from data_designer.engine.column_generators.generators.base import (
 )
 from data_designer.engine.errors import DataDesignerRuntimeError
 
-
 logger = logging.getLogger(__name__)
 
 

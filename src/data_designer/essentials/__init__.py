@@ -80,6 +80,7 @@ __all__ = [
     "CodeValidatorParams",
     "ColumnInequalityConstraint",
     "configure_logging",
+    "CustomColumnConfig",
     "DataDesignerColumnType",
     "DataDesignerConfig",
     "DataDesignerConfigBuilder",
