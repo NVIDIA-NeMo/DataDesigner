@@ -137,7 +137,10 @@ def _fetch_seed_dataset_column_names_from_local_file(dataset_path: str | Path) -
 
 def _validate_dataset_path(dataset_path: Union[str, Path], allow_glob_pattern: bool = False) -> Path:
     if allow_glob_pattern and "*" in str(dataset_path):
-        validate_path_contains_files_of_type(dataset_path, str(dataset_path).split(".")[-1])
+        parts = str(dataset_path).split("*.")
+        file_path = parts[0]
+        file_extension = parts[-1]
+        validate_path_contains_files_of_type(file_path, file_extension)
         return Path(dataset_path)
     if not Path(dataset_path).is_file():
         raise InvalidFilePathError("🛑 To upload a dataset to the datastore, you must provide a valid file path.")
