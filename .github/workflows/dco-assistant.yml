@@ -34,7 +34,7 @@ jobs:
         with:
           path-to-signatures: "dco-signatures.json"
           path-to-document: 'https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/DCO'
-          branch: 'main'
+          branch: 'signatures'
           allowlist: dependabot
           create-file-commit-message: "chore: create file to store dco signatures"
           signed-commit-message: "chore: $contributorName has signed the dco in #$pullRequestNo"
