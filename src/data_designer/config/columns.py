@@ -163,26 +163,28 @@ COLUMN_TYPE_EMOJI_MAP = {
 }
 
 
-def column_type_is_in_dag(column_type: Union[str, DataDesignerColumnType]) -> bool:
+def column_type_used_in_execution_dag(column_type: Union[str, DataDesignerColumnType]) -> bool:
+    """Return True if the column type is used in the workflow execution DAG."""
     column_type = resolve_string_enum(column_type, DataDesignerColumnType)
-    return column_type in [
+    return column_type in {
         DataDesignerColumnType.EXPRESSION,
         DataDesignerColumnType.LLM_CODE,
         DataDesignerColumnType.LLM_JUDGE,
         DataDesignerColumnType.LLM_STRUCTURED,
         DataDesignerColumnType.LLM_TEXT,
         DataDesignerColumnType.VALIDATION,
-    ]
+    }
 
 
 def column_type_is_llm_generated(column_type: Union[str, DataDesignerColumnType]) -> bool:
+    """Return True if the column type is an LLM-generated column."""
     column_type = resolve_string_enum(column_type, DataDesignerColumnType)
-    return column_type in [
+    return column_type in {
         DataDesignerColumnType.LLM_TEXT,
         DataDesignerColumnType.LLM_CODE,
         DataDesignerColumnType.LLM_STRUCTURED,
         DataDesignerColumnType.LLM_JUDGE,
-    ]
+    }
 
 
 def get_column_config_from_kwargs(name: str, column_type: DataDesignerColumnType, **kwargs) -> ColumnConfigT:
@@ -217,6 +219,7 @@ def get_column_config_from_kwargs(name: str, column_type: DataDesignerColumnType
 
 
 def get_column_display_order() -> list[DataDesignerColumnType]:
+    """Return the preferred display order of the column types."""
     return [
         DataDesignerColumnType.SEED_DATASET,
         DataDesignerColumnType.SAMPLER,

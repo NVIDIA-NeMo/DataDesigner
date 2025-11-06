@@ -15,8 +15,8 @@ from data_designer.config.columns import (
     Score,
     SeedDatasetColumnConfig,
     ValidationColumnConfig,
-    column_type_is_in_dag,
     column_type_is_llm_generated,
+    column_type_used_in_execution_dag,
     get_column_config_from_kwargs,
     get_column_display_order,
 )
@@ -56,14 +56,14 @@ def test_data_designer_column_type_is_llm_generated():
 
 
 def test_data_designer_column_type_is_in_dag():
-    assert column_type_is_in_dag(DataDesignerColumnType.EXPRESSION)
-    assert column_type_is_in_dag(DataDesignerColumnType.LLM_CODE)
-    assert column_type_is_in_dag(DataDesignerColumnType.LLM_JUDGE)
-    assert column_type_is_in_dag(DataDesignerColumnType.LLM_STRUCTURED)
-    assert column_type_is_in_dag(DataDesignerColumnType.LLM_TEXT)
-    assert column_type_is_in_dag(DataDesignerColumnType.VALIDATION)
-    assert not column_type_is_in_dag(DataDesignerColumnType.SAMPLER)
-    assert not column_type_is_in_dag(DataDesignerColumnType.SEED_DATASET)
+    assert column_type_used_in_execution_dag(DataDesignerColumnType.EXPRESSION)
+    assert column_type_used_in_execution_dag(DataDesignerColumnType.LLM_CODE)
+    assert column_type_used_in_execution_dag(DataDesignerColumnType.LLM_JUDGE)
+    assert column_type_used_in_execution_dag(DataDesignerColumnType.LLM_STRUCTURED)
+    assert column_type_used_in_execution_dag(DataDesignerColumnType.LLM_TEXT)
+    assert column_type_used_in_execution_dag(DataDesignerColumnType.VALIDATION)
+    assert not column_type_used_in_execution_dag(DataDesignerColumnType.SAMPLER)
+    assert not column_type_used_in_execution_dag(DataDesignerColumnType.SEED_DATASET)
 
 
 def test_sampler_column_config():
