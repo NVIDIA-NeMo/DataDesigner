@@ -21,7 +21,6 @@ _HF_DATASETS_PREFIX = "hf://datasets/"
 class MalformedFileIdError(Exception):
     """Raised when file_id format is invalid."""
 
-    pass
 
 
 class SeedDatasetSource(BaseModel, ABC):

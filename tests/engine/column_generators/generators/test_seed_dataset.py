@@ -18,7 +18,7 @@ from data_designer.engine.column_generators.generators.seed_dataset import (
 )
 from data_designer.engine.column_generators.utils.errors import SeedDatasetError
 from data_designer.engine.dataset_builders.multi_column_configs import SeedDatasetMultiColumnConfig
-from data_designer.engine.resources.resource_provider import ResourceProvider, ResourceType
+from data_designer.engine.resources.resource_provider import ResourceType
 
 
 @pytest.fixture
