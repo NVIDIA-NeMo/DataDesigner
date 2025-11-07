@@ -7,13 +7,8 @@ from typing import TypeAlias
 from pydantic import Field, field_validator
 
 from data_designer.config.base import ConfigBase
-from data_designer.config.columns import (
-    ColumnConfigT,
-    DataDesignerColumnType,
-    SamplerColumnConfig,
-    SeedDatasetColumnConfig,
-    SingleColumnConfig,
-)
+from data_designer.config.column_configs import SamplerColumnConfig, SeedDatasetColumnConfig, SingleColumnConfig
+from data_designer.config.column_types import ColumnConfigT, DataDesignerColumnType
 from data_designer.config.sampler_constraints import ColumnConstraintT
 from data_designer.config.seed import SeedConfig
 

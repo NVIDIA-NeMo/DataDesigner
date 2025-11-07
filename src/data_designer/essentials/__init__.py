@@ -2,8 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from ..config.analysis.column_profilers import JudgeScoreProfilerConfig
-from ..config.columns import (
-    DataDesignerColumnType,
+from ..config.column_configs import (
     ExpressionColumnConfig,
     LLMCodeColumnConfig,
     LLMJudgeColumnConfig,
@@ -14,6 +13,7 @@ from ..config.columns import (
     SeedDatasetColumnConfig,
     ValidationColumnConfig,
 )
+from ..config.column_types import DataDesignerColumnType
 from ..config.config_builder import DataDesignerConfigBuilder
 from ..config.data_designer_config import DataDesignerConfig
 from ..config.dataset_builders import BuildStage

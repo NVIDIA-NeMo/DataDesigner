@@ -7,7 +7,7 @@ from data_designer.engine.analysis.column_profilers.registry import (
 )
 from data_designer.engine.column_generators.registry import (
     ColumnGeneratorRegistry,
-    create_default_column_generator_registry,
+    create_builtin_column_generator_registry,
 )
 from data_designer.engine.processing.processors.registry import (
     ProcessorRegistry,
@@ -23,7 +23,7 @@ class DataDesignerRegistry:
         column_profiler_registry: ColumnProfilerRegistry | None = None,
         processor_registry: ProcessorRegistry | None = None,
     ):
-        self._column_generator_registry = column_generator_registry or create_default_column_generator_registry()
+        self._column_generator_registry = column_generator_registry or create_builtin_column_generator_registry()
         self._column_profiler_registry = column_profiler_registry or create_default_column_profiler_registry()
         self._processor_registry = processor_registry or create_default_processor_registry()
 

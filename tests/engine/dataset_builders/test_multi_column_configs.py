@@ -4,11 +4,8 @@
 from pydantic import ValidationError
 import pytest
 
-from data_designer.config.columns import (
-    DataDesignerColumnType,
-    SamplerColumnConfig,
-    SeedDatasetColumnConfig,
-)
+from data_designer.config.column_configs import SamplerColumnConfig, SeedDatasetColumnConfig
+from data_designer.config.column_types import DataDesignerColumnType
 from data_designer.config.sampler_constraints import (
     ColumnInequalityConstraint,
     InequalityOperator,

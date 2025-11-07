@@ -22,7 +22,7 @@ from data_designer.config.analysis.column_statistics import (
     SeedDatasetColumnStatistics,
     ValidationColumnStatistics,
 )
-from data_designer.config.columns import ColumnConfigT, DataDesignerColumnType
+from data_designer.config.column_types import ColumnConfigT, DataDesignerColumnType
 from data_designer.config.sampler_params import SamplerType, is_numerical_sampler_type
 from data_designer.engine.analysis.column_profilers.base import ColumnConfigWithDataFrame
 from data_designer.engine.analysis.utils.column_statistics_calculations import (

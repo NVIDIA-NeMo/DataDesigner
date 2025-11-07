@@ -15,7 +15,7 @@ from rich.table import Column, Table
 from rich.text import Text
 
 from ...analysis.column_statistics import CategoricalHistogramData
-from ...columns import COLUMN_TYPE_EMOJI_MAP, DataDesignerColumnType, get_column_display_order
+from ...column_types import COLUMN_TYPE_EMOJI_MAP, DataDesignerColumnType, get_column_display_order
 from ...utils.visualization import (
     ColorPalette,
     convert_to_row_element,

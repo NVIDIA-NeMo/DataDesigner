@@ -15,7 +15,7 @@ from rich.console import Console, Group
 from rich.padding import Padding
 from rich.panel import Panel
 
-from ..columns import ColumnConfigT, DataDesignerColumnType, column_type_is_llm_generated
+from ..column_types import ColumnConfigT, DataDesignerColumnType, column_type_is_llm_generated
 from ..processors import ProcessorConfig, ProcessorType
 from ..validator_params import ValidatorType
 from .constants import RICH_CONSOLE_THEME

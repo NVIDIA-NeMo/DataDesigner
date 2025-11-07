@@ -11,8 +11,7 @@ import pytest
 import yaml
 
 from data_designer.config.analysis.column_profilers import JudgeScoreProfilerConfig
-from data_designer.config.columns import (
-    DataDesignerColumnType,
+from data_designer.config.column_configs import (
     ExpressionColumnConfig,
     LLMCodeColumnConfig,
     LLMJudgeColumnConfig,
@@ -21,8 +20,8 @@ from data_designer.config.columns import (
     SamplerColumnConfig,
     Score,
     ValidationColumnConfig,
-    get_column_config_from_kwargs,
 )
+from data_designer.config.column_types import DataDesignerColumnType, get_column_config_from_kwargs
 from data_designer.config.config_builder import BuilderConfig, DataDesignerConfigBuilder
 from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.datastore import DatastoreSettings

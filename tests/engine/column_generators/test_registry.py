@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from data_designer.config.columns import DataDesignerColumnType
+from data_designer.config.column_types import DataDesignerColumnType
 from data_designer.engine.column_generators.generators.expression import ExpressionColumnGenerator
 from data_designer.engine.column_generators.generators.llm_generators import (
     LLMCodeCellGenerator,
@@ -14,12 +14,12 @@ from data_designer.engine.column_generators.generators.seed_dataset import SeedD
 from data_designer.engine.column_generators.generators.validation import ValidationColumnGenerator
 from data_designer.engine.column_generators.registry import (
     ColumnGeneratorRegistry,
-    create_default_column_generator_registry,
+    create_builtin_column_generator_registry,
 )
 
 
 def test_column_generator_registry_create_default_registry_with_generators():
-    registry = create_default_column_generator_registry()
+    registry = create_builtin_column_generator_registry()
 
     assert isinstance(registry, ColumnGeneratorRegistry)
 

@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from data_designer.config.columns import (
+from data_designer.config.column_configs import (
     LLMCodeColumnConfig,
     LLMJudgeColumnConfig,
     LLMStructuredColumnConfig,

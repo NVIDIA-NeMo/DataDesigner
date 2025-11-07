@@ -7,7 +7,7 @@ from typing import Optional, Union
 
 from pydantic import BaseModel, Field, field_validator
 
-from ..columns import DataDesignerColumnType, get_column_display_order
+from ..column_types import DataDesignerColumnType, get_column_display_order
 from ..utils.constants import EPSILON
 from ..utils.numerical_helpers import prepare_number_for_reporting
 from .column_profilers import ColumnProfilerResultsT

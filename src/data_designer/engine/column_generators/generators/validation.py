@@ -5,7 +5,7 @@ import logging
 
 import pandas as pd
 
-from data_designer.config.columns import ValidationColumnConfig
+from data_designer.config.column_configs import ValidationColumnConfig
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.utils.code_lang import SQL_DIALECTS, CodeLang
 from data_designer.config.validator_params import (

@@ -11,7 +11,7 @@ from pandas import Series
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from typing_extensions import Self, TypeAlias
 
-from ..columns import DataDesignerColumnType
+from ..column_types import DataDesignerColumnType
 from ..sampler_params import SamplerType
 from ..utils.constants import EPSILON
 from ..utils.numerical_helpers import is_float, is_int, prepare_number_for_reporting

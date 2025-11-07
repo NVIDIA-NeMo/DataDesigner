@@ -15,10 +15,10 @@ from typing_extensions import Self
 
 from .analysis.column_profilers import ColumnProfilerConfigT
 from .base import ExportableConfigBase
-from .columns import (
+from .column_configs import SeedDatasetColumnConfig
+from .column_types import (
     ColumnConfigT,
     DataDesignerColumnType,
-    SeedDatasetColumnConfig,
     column_type_is_llm_generated,
     get_column_config_from_kwargs,
 )

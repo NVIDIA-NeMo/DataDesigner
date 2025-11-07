@@ -2,8 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from data_designer.config.base import ConfigBase
-from data_designer.config.columns import (
-    DataDesignerColumnType,
+from data_designer.config.column_configs import (
     ExpressionColumnConfig,
     LLMCodeColumnConfig,
     LLMJudgeColumnConfig,
@@ -11,6 +10,7 @@ from data_designer.config.columns import (
     LLMTextColumnConfig,
     ValidationColumnConfig,
 )
+from data_designer.config.column_types import DataDesignerColumnType
 from data_designer.engine.column_generators.generators.base import ColumnGenerator
 from data_designer.engine.column_generators.generators.expression import ExpressionColumnGenerator
 from data_designer.engine.column_generators.generators.llm_generators import (
@@ -32,7 +32,7 @@ from data_designer.engine.registry.base import TaskRegistry
 class ColumnGeneratorRegistry(TaskRegistry[DataDesignerColumnType, ColumnGenerator, ConfigBase]): ...
 
 
-def create_default_column_generator_registry() -> ColumnGeneratorRegistry:
+def create_builtin_column_generator_registry() -> ColumnGeneratorRegistry:
     registry = ColumnGeneratorRegistry()
     registry.register(DataDesignerColumnType.LLM_TEXT, LLMTextCellGenerator, LLMTextColumnConfig, False)
     registry.register(DataDesignerColumnType.LLM_CODE, LLMCodeCellGenerator, LLMCodeColumnConfig, False)

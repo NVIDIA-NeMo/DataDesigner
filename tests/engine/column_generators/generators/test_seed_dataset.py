@@ -9,7 +9,7 @@ import duckdb
 import pandas as pd
 import pytest
 
-from data_designer.config.columns import SeedDatasetColumnConfig
+from data_designer.config.column_configs import SeedDatasetColumnConfig
 from data_designer.config.seed import IndexRange, PartitionBlock, SamplingStrategy
 from data_designer.engine.column_generators.generators.base import GenerationStrategy
 from data_designer.engine.column_generators.generators.seed_dataset import (
