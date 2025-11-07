@@ -22,7 +22,6 @@ class MalformedFileIdError(Exception):
     """Raised when file_id format is invalid."""
 
 
-
 class SeedDatasetSource(BaseModel, ABC):
     """Abstract base class for dataset storage implementations."""
 
