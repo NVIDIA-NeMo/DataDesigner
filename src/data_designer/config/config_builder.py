@@ -24,7 +24,6 @@ from .columns import (
 )
 from .data_designer_config import DataDesignerConfig
 from .dataset_builders import BuildStage
-from .datastore import DatastoreSettings, fetch_seed_dataset_column_names
 from .errors import BuilderConfigurationError, InvalidColumnTypeError, InvalidConfigError
 from .models import ModelConfig, load_model_configs
 from .processors import ProcessorConfig, ProcessorType, get_processor_config_from_kwargs
@@ -35,19 +34,16 @@ from .sampler_constraints import (
     ScalarInequalityConstraint,
 )
 from .seed import (
-    DatastoreSeedDatasetReference,
     IndexRange,
-    LocalSeedDatasetReference,
     PartitionBlock,
     SamplingStrategy,
     SeedConfig,
-    SeedDatasetReference,
+    SeedDatasetReferenceT,
 )
 from .utils.constants import DEFAULT_REPR_HTML_STYLE, REPR_HTML_TEMPLATE
 from .utils.info import DataDesignerInfo
 from .utils.io_helpers import serialize_data, smart_load_yaml
 from .utils.misc import (
-    can_run_data_designer_locally,
     json_indent_list_of_strings,
     kebab_to_snake,
 )
@@ -61,17 +57,16 @@ class BuilderConfig(ExportableConfigBase):
     """Configuration container for Data Designer builder.
 
     This class holds the main Data Designer configuration along with optional
-    datastore settings needed for seed dataset operations.
+    seed dataset reference settings.
 
     Attributes:
         data_designer: The main Data Designer configuration containing columns,
             constraints, profilers, and other settings.
-        datastore_settings: Optional datastore settings for accessing external
-            datasets.
+        seed_dataset_reference: Information about the seed dataset, if one is in use.
     """
 
     data_designer: DataDesignerConfig
-    datastore_settings: Optional[DatastoreSettings]
+    seed_dataset_reference: Optional[SeedDatasetReferenceT]
 
 
 class DataDesignerConfigBuilder:
@@ -104,30 +99,22 @@ class DataDesignerConfigBuilder:
             builder_config = BuilderConfig.model_validate(json_config)
 
         builder = cls(model_configs=builder_config.data_designer.model_configs)
-        config = builder_config.data_designer
+        dd_config = builder_config.data_designer
 
-        for col in config.columns:
+        for col in dd_config.columns:
             builder.add_column(col)
 
-        for constraint in config.constraints or []:
+        for constraint in dd_config.constraints or []:
             builder.add_constraint(constraint=constraint)
 
-        if config.seed_config:
-            if builder_config.datastore_settings is None:
-                if can_run_data_designer_locally():
-                    seed_dataset_reference = LocalSeedDatasetReference(dataset=config.seed_config.dataset)
-                else:
-                    raise BuilderConfigurationError("🛑 Datastore settings are required.")
-            else:
-                seed_dataset_reference = DatastoreSeedDatasetReference(
-                    dataset=config.seed_config.dataset,
-                    datastore_settings=builder_config.datastore_settings,
-                )
-                builder.set_seed_datastore_settings(builder_config.datastore_settings)
+        if dd_config.seed_config:
+            if (seed_dataset_reference := builder_config.seed_dataset_reference) is None:
+                # TODO: Should this just log a warning and recommend re-running with_seed_dataset, or raise?
+                raise BuilderConfigurationError("🛑 Found seed_config without seed_dataset_reference.")
             builder.with_seed_dataset(
                 seed_dataset_reference,
-                sampling_strategy=config.seed_config.sampling_strategy,
-                selection_strategy=config.seed_config.selection_strategy,
+                sampling_strategy=dd_config.seed_config.sampling_strategy,
+                selection_strategy=dd_config.seed_config.selection_strategy,
             )
 
         return builder
@@ -148,7 +135,7 @@ class DataDesignerConfigBuilder:
         self._constraints: list[ColumnConstraintT] = []
         self._profilers: list[ColumnProfilerConfigT] = []
         self._info = DataDesignerInfo()
-        self._datastore_settings: Optional[DatastoreSettings] = None
+        self._seed_dataset_reference: Optional[SeedDatasetReferenceT] = None
 
     @property
     def model_configs(self) -> list[ModelConfig]:
@@ -497,13 +484,13 @@ class DataDesignerConfigBuilder:
         """
         return self._seed_config
 
-    def get_seed_datastore_settings(self) -> Optional[DatastoreSettings]:
-        """Get most recent datastore settings for the current Data Designer configuration.
+    def get_seed_dataset_reference(self) -> Optional[SeedDatasetReferenceT]:
+        """Get the seed dataset reference for the current Data Designer configuration.
 
         Returns:
-            The datastore settings if configured, None otherwise.
+            The seed dataset reference if configured, None otherwise.
         """
-        return None if not self._datastore_settings else DatastoreSettings.model_validate(self._datastore_settings)
+        return self._seed_dataset_reference
 
     def num_columns_of_type(self, column_type: DataDesignerColumnType) -> int:
         """Get the count of columns of the specified type.
@@ -516,13 +503,13 @@ class DataDesignerConfigBuilder:
         """
         return len(self.get_columns_of_type(column_type))
 
-    def set_seed_datastore_settings(self, datastore_settings: Optional[DatastoreSettings]) -> Self:
-        """Set the datastore settings for the seed dataset.
+    def set_seed_dataset_reference(self, seed_dataset_reference: Optional[SeedDatasetReferenceT]) -> Self:
+        """Set the dataset reference.
 
         Args:
-            datastore_settings: The datastore settings to use for the seed dataset.
+            seed_dataset_reference: The seed dataset reference.
         """
-        self._datastore_settings = datastore_settings
+        self._seed_dataset_reference = seed_dataset_reference
         return self
 
     def validate(self, *, raise_exceptions: bool = False) -> Self:
@@ -554,7 +541,7 @@ class DataDesignerConfigBuilder:
 
     def with_seed_dataset(
         self,
-        dataset_reference: SeedDatasetReference,
+        dataset_reference: SeedDatasetReferenceT,
         *,
         sampling_strategy: SamplingStrategy = SamplingStrategy.ORDERED,
         selection_strategy: Optional[Union[IndexRange, PartitionBlock]] = None,
@@ -563,25 +550,25 @@ class DataDesignerConfigBuilder:
 
         This method sets the seed dataset for the configuration and automatically creates
         SeedDatasetColumnConfig objects for each column found in the dataset. The column
-        names are fetched from the dataset source (Hugging Face Hub or NeMo Microservices Datastore).
+        names are fetched from the dataset source client-side using local access credentials.
 
         Args:
-            dataset_reference: Seed dataset reference for fetching from the datastore.
+            dataset_reference: An object that contains a pointer to the dataset with any necessary
+                credentials for reading it.
             sampling_strategy: The sampling strategy to use when generating data from the seed dataset.
                 Defaults to ORDERED sampling.
 
         Returns:
             The current Data Designer config builder instance.
         """
+        self.set_seed_dataset_reference(dataset_reference)
         self._seed_config = SeedConfig(
-            dataset=dataset_reference.dataset,
+            dataset=dataset_reference.get_dataset(),
             sampling_strategy=sampling_strategy,
             selection_strategy=selection_strategy,
+            source=dataset_reference.get_source(),
         )
-        self.set_seed_datastore_settings(
-            dataset_reference.datastore_settings if hasattr(dataset_reference, "datastore_settings") else None
-        )
-        for column_name in fetch_seed_dataset_column_names(dataset_reference):
+        for column_name in dataset_reference.get_column_names():
             self._column_configs[column_name] = SeedDatasetColumnConfig(name=column_name)
         return self
 
@@ -611,7 +598,7 @@ class DataDesignerConfigBuilder:
         Returns:
             The builder config.
         """
-        return BuilderConfig(data_designer=self.build(), datastore_settings=self._datastore_settings)
+        return BuilderConfig(data_designer=self.build(), seed_dataset_reference=self.get_seed_dataset_reference())
 
     def __repr__(self) -> str:
         """Generates a string representation of the DataDesignerConfigBuilder instance.

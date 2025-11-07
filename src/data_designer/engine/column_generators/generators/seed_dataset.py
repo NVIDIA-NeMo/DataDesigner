@@ -30,7 +30,7 @@ class SeedDatasetColumnGenerator(FromScratchColumnGenerator[SeedDatasetMultiColu
             name="seed_dataset_column_generator",
             description="Sample columns from a seed dataset.",
             generation_strategy=GenerationStrategy.FULL_COLUMN,
-            required_resources=[ResourceType.DATASTORE],
+            required_resources=[ResourceType.SEED_DATASET_REPOSITORY],
         )
 
     @property
@@ -39,7 +39,7 @@ class SeedDatasetColumnGenerator(FromScratchColumnGenerator[SeedDatasetMultiColu
 
     @functools.cached_property
     def duckdb_conn(self) -> duckdb.DuckDBPyConnection:
-        return self.resource_provider.datastore.create_duckdb_connection()
+        return self.resource_provider.seed_dataset_repository.create_duckdb_connection(self.config.source)
 
     def generate(self, dataset: pd.DataFrame) -> pd.DataFrame:
         return concat_datasets([self.generate_from_scratch(len(dataset)), dataset])
@@ -57,7 +57,9 @@ class SeedDatasetColumnGenerator(FromScratchColumnGenerator[SeedDatasetMultiColu
         self._num_records_sampled = 0
         self._batch_reader = None
         self._df_remaining = None
-        self._dataset_uri = self.resource_provider.datastore.get_dataset_uri(self.config.dataset)
+        self._dataset_uri = self.resource_provider.seed_dataset_repository.get_dataset_uri(
+            self.config.dataset, self.config.source
+        )
         self._seed_dataset_size = self.duckdb_conn.execute(f"SELECT COUNT(*) FROM '{self._dataset_uri}'").fetchone()[0]
         self._index_range = self._resolve_index_range()
 
@@ -135,7 +137,7 @@ class SeedDatasetColumnGenerator(FromScratchColumnGenerator[SeedDatasetMultiColu
                 num_zero_record_responses += 1
                 if num_zero_record_responses > MAX_ZERO_RECORD_RESPONSE_FACTOR * num_records:
                     raise RuntimeError(
-                        "🛑 Something went wrong while reading from the datastore. "
+                        "🛑 Something went wrong while reading from the seed dataset source. "
                         "Please check your connection and try again. "
                         "If the issue persists, please contact support."
                     )

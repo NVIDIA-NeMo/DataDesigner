@@ -2,12 +2,17 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from pathlib import Path
+from typing import Union
+from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
-from data_designer.config.errors import InvalidFilePathError
-from data_designer.config.seed import IndexRange, LocalSeedDatasetReference, PartitionBlock
+from data_designer.config.errors import InvalidFileFormatError, InvalidFilePathError
+from data_designer.config.seed import HfHubSeedDatasetReference, IndexRange, LocalSeedDatasetReference, PartitionBlock
 
 
 def create_partitions_in_path(temp_dir: Path, extension: str, num_files: int = 2) -> Path:
@@ -99,3 +104,192 @@ def test_local_seed_dataset_reference_validation_error(tmp_path: Path):
     create_partitions_in_path(tmp_path, "parquet")
     with pytest.raises(InvalidFilePathError, match="does not contain files of type 'csv'"):
         LocalSeedDatasetReference(dataset=f"{tmp_path}/*.csv")
+
+
+def test_local_seed_dataset_reference_file_format_error(tmp_path: Path):
+    df = pd.DataFrame({"col1": [1, 2, 3], "col2": [4, 5, 6]})
+    filepath = tmp_path / "test.txt"
+    df.to_csv(filepath)
+
+    with pytest.raises(InvalidFileFormatError):
+        LocalSeedDatasetReference(dataset=filepath)
+
+
+def _write_file(df: pd.DataFrame, path: Union[str, Path], file_type: str):
+    if file_type == "parquet":
+        df.to_parquet(path)
+    elif file_type in {"json", "jsonl"}:
+        df.to_json(path, orient="records", lines=True)
+    else:
+        df.to_csv(path, index=False)
+
+
+@pytest.mark.parametrize("file_type", ["parquet", "json", "jsonl", "csv"])
+def test_get_column_names(tmp_path, file_type):
+    """Test get_file_column_names with basic parquet file."""
+    test_data = {
+        "id": [1, 2, 3],
+        "name": ["Alice", "Bob", "Charlie"],
+        "age": [25, 30, 35],
+        "city": ["NYC", "LA", "Chicago"],
+    }
+    df = pd.DataFrame(test_data)
+
+    parquet_path = tmp_path / f"test_data.{file_type}"
+    _write_file(df, parquet_path, file_type)
+
+    reference = LocalSeedDatasetReference(dataset=parquet_path)
+    assert reference.get_column_names() == df.columns.tolist()
+
+
+def test_get_file_column_names_nested_fields(tmp_path):
+    """Test get_file_column_names with nested fields in parquet."""
+    schema = pa.schema(
+        [
+            pa.field(
+                "nested", pa.struct([pa.field("col1", pa.list_(pa.int32())), pa.field("col2", pa.list_(pa.int32()))])
+            ),
+        ]
+    )
+
+    # For PyArrow, we need to structure the data as a list of records
+    nested_data = {"nested": [{"col1": [1, 2, 3], "col2": [4, 5, 6]}]}
+    nested_path = tmp_path / "nested_fields.parquet"
+    pq.write_table(pa.Table.from_pydict(nested_data, schema=schema), nested_path)
+
+    reference = LocalSeedDatasetReference(dataset=nested_path)
+    column_names = reference.get_column_names()
+
+    assert column_names == ["nested"]
+
+
+@pytest.mark.parametrize("file_type", ["parquet", "json", "jsonl", "csv"])
+def test_get_file_column_names_empty_parquet(tmp_path, file_type):
+    """Test get_file_column_names with empty parquet file."""
+    empty_df = pd.DataFrame()
+    empty_path = tmp_path / f"empty.{file_type}"
+    _write_file(empty_df, empty_path, file_type)
+
+    reference = LocalSeedDatasetReference(dataset=empty_path)
+    column_names = reference.get_column_names()
+
+    assert column_names == []
+
+
+@pytest.mark.parametrize("file_type", ["parquet", "json", "jsonl", "csv"])
+def test_get_file_column_names_large_schema(tmp_path, file_type):
+    """Test get_file_column_names with many columns."""
+    num_columns = 50
+    test_data = {f"col_{i}": np.random.randn(10) for i in range(num_columns)}
+    df = pd.DataFrame(test_data)
+
+    large_path = tmp_path / f"large_schema.{file_type}"
+    _write_file(df, large_path, file_type)
+
+    reference = LocalSeedDatasetReference(dataset=large_path)
+    column_names = reference.get_column_names()
+
+    assert len(column_names) == num_columns
+    assert column_names == [f"col_{i}" for i in range(num_columns)]
+
+
+@pytest.mark.parametrize("file_type", ["parquet", "json", "jsonl", "csv"])
+def test_get_file_column_names_special_characters(tmp_path, file_type):
+    """Test get_file_column_names with special characters in column names."""
+    special_data = {
+        "column with spaces": [1],
+        "column-with-dashes": [2],
+        "column_with_underscores": [3],
+        "column.with.dots": [4],
+        "column123": [5],
+        "123column": [6],
+        "column!@#$%^&*()": [7],
+    }
+    df_special = pd.DataFrame(special_data)
+    special_path = tmp_path / f"special_chars.{file_type}"
+    _write_file(df_special, special_path, file_type)
+
+    reference = LocalSeedDatasetReference(dataset=special_path)
+    column_names = reference.get_column_names()
+
+    assert column_names == df_special.columns.tolist()
+
+
+@pytest.mark.parametrize("file_type", ["parquet", "json", "jsonl", "csv"])
+def test_get_file_column_names_unicode(tmp_path, file_type):
+    """Test get_file_column_names with unicode column names."""
+    unicode_data = {"café": [1], "résumé": [2], "naïve": [3], "façade": [4], "garçon": [5], "über": [6], "schön": [7]}
+    df_unicode = pd.DataFrame(unicode_data)
+
+    unicode_path = tmp_path / f"unicode_columns.{file_type}"
+    _write_file(df_unicode, unicode_path, file_type)
+
+    reference = LocalSeedDatasetReference(dataset=unicode_path)
+    column_names = reference.get_column_names()
+
+    assert column_names == df_unicode.columns.tolist()
+
+
+@pytest.mark.parametrize("file_type", ["parquet", "csv", "json", "jsonl"])
+def test_get_file_column_names_with_glob_pattern(tmp_path, file_type):
+    df = pd.DataFrame({"col1": [1, 2, 3], "col2": [4, 5, 6]})
+    for i in range(5):
+        _write_file(df, tmp_path / f"{i}.{file_type}", file_type)
+
+    reference = LocalSeedDatasetReference(dataset=f"{tmp_path}/*.{file_type}")
+    column_names = reference.get_column_names()
+
+    assert column_names == ["col1", "col2"]
+
+
+def test_get_file_column_names_error_handling(tmp_path):
+    df = pd.DataFrame({"col1": [1, 2, 3], "col2": [4, 5, 6]})
+    filepath = tmp_path / "test.parquet"
+    df.to_parquet(filepath)
+
+    reference = LocalSeedDatasetReference(dataset=filepath)
+
+    with patch("data_designer.config.seed.pq.read_schema") as mock_read_schema:
+        mock_read_schema.side_effect = Exception("Test error")
+        reference.get_column_names()
+
+    with patch("data_designer.config.seed.pq.read_schema") as mock_read_schema:
+        mock_col1 = MagicMock()
+        mock_col1.name = "col1"
+        mock_col2 = MagicMock()
+        mock_col2.name = "col2"
+        mock_read_schema.return_value = [mock_col1, mock_col2]
+
+        column_names = reference.get_column_names()
+        assert column_names == ["col1", "col2"]
+
+
+TEST_ENDPOINT = "https://testing.com"
+TEST_TOKEN = "stub-token"
+
+
+def test_fetch_seed_dataset_column_names_parquet_error_handling():
+    reference = HfHubSeedDatasetReference(
+        dataset="test/repo/test.txt",
+        endpoint=TEST_ENDPOINT,
+        token=TEST_TOKEN,
+    )
+    with pytest.raises(InvalidFileFormatError, match="🛑 Unsupported file type: 'test.txt'"):
+        reference.get_column_names()
+
+
+@patch("data_designer.config.seed.HfFileSystem.open")
+@patch("data_designer.config.seed._get_file_column_names", autospec=True)
+def test_fetch_seed_dataset_column_names_remote_file(mock_get_file_column_names, mock_hf_fs_open):
+    mock_get_file_column_names.return_value = ["col1", "col2"]
+
+    reference = HfHubSeedDatasetReference(
+        dataset="test/repo/test.parquet",
+        endpoint=TEST_ENDPOINT,
+        token=TEST_TOKEN,
+    )
+
+    assert reference.get_column_names() == ["col1", "col2"]
+    mock_hf_fs_open.assert_called_once_with(
+        "datasets/test/repo/test.parquet",
+    )

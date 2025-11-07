@@ -11,6 +11,7 @@ from data_designer.engine.models.facade import ModelFacade
 from data_designer.engine.models.registry import ModelRegistry
 from data_designer.engine.resources.managed_storage import ManagedBlobStorage
 from data_designer.engine.resources.resource_provider import ResourceProvider
+from data_designer.engine.resources.seed_dataset_source import SeedDatasetRepository
 
 
 @pytest.fixture
@@ -35,7 +36,7 @@ def stub_resource_provider(tmp_path, stub_model_facade):
     mock_provider.model_registry = mock_model_registry
     mock_provider.artifact_storage = ArtifactStorage(artifact_path=tmp_path)
     mock_provider.blob_storage = Mock(spec=ManagedBlobStorage)
-    mock_provider.datastore = Mock()
+    mock_provider.seed_dataset_repository = Mock(spec=SeedDatasetRepository)
     return mock_provider
 
 

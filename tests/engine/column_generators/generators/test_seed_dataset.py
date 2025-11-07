@@ -36,9 +36,9 @@ def stub_seed_dataset_config():
 @pytest.fixture
 def stub_seed_dataset_generator(stub_resource_provider, stub_duckdb_conn, stub_seed_dataset_config):
     mock_provider = stub_resource_provider
-    mock_datastore = mock_provider.datastore
-    mock_datastore.create_duckdb_connection.return_value = stub_duckdb_conn
-    mock_datastore.get_dataset_uri.return_value = "test_uri"
+    mock_seed_dataset_repository = mock_provider.seed_dataset_repository
+    mock_seed_dataset_repository.create_duckdb_connection.return_value = stub_duckdb_conn
+    mock_seed_dataset_repository.get_dataset_uri.return_value = "test_uri"
 
     return SeedDatasetColumnGenerator(config=stub_seed_dataset_config, resource_provider=mock_provider)
 
@@ -107,7 +107,7 @@ def seed_dataset_jsonl(sample_dataframe):
 def test_seed_dataset_column_generator_metadata():
     metadata = SeedDatasetColumnGenerator.metadata()
     assert metadata.generation_strategy == GenerationStrategy.FULL_COLUMN
-    assert ResourceType.DATASTORE in metadata.required_resources
+    assert ResourceType.SEED_DATASET_REPOSITORY in metadata.required_resources
 
 
 def test_seed_dataset_column_generator_config_structure():
@@ -328,7 +328,7 @@ def test_seed_dataset_column_generator_sample_records_zero_record_error(stub_see
     gen._batch_reader = Mock()
     gen._batch_reader.read_next_batch.return_value = mock_batch
 
-    with pytest.raises(RuntimeError, match="🛑 Something went wrong while reading from the datastore"):
+    with pytest.raises(RuntimeError, match="🛑 Something went wrong while reading from the seed dataset source"):
         gen._sample_records(3)
 
 
@@ -360,7 +360,7 @@ def test_seed_dataset_column_generator_sample_records_multiple_batches(stub_seed
 
 def create_generator_with_real_file(
     file_path: str,
-    stub_resource_provider: ResourceProvider,
+    stub_resource_provider,
     sampling_strategy: SamplingStrategy = SamplingStrategy.ORDERED,
     selection_strategy: IndexRange | PartitionBlock | None = None,
 ) -> SeedDatasetColumnGenerator:
@@ -382,9 +382,9 @@ def create_generator_with_real_file(
     real_conn = duckdb.connect()
 
     mock_provider = stub_resource_provider
-    mock_datastore = mock_provider.datastore
-    mock_datastore.create_duckdb_connection.return_value = real_conn
-    mock_datastore.get_dataset_uri.return_value = file_path
+    mock_seed_dataset_repository = mock_provider.seed_dataset_repository
+    mock_seed_dataset_repository.create_duckdb_connection.return_value = real_conn
+    mock_seed_dataset_repository.get_dataset_uri.return_value = file_path
 
     generator = SeedDatasetColumnGenerator(config=config, resource_provider=mock_provider)
     return generator
@@ -441,8 +441,8 @@ def test_seed_dataset_generator_ordered_sampling(fixture_name, stub_resource_pro
 
     real_conn = duckdb.connect()
     mock_provider = stub_resource_provider
-    mock_provider.datastore.create_duckdb_connection.return_value = real_conn
-    mock_provider.datastore.get_dataset_uri.return_value = file_path
+    mock_provider.seed_dataset_repository.create_duckdb_connection.return_value = real_conn
+    mock_provider.seed_dataset_repository.get_dataset_uri.return_value = file_path
 
     generator = SeedDatasetColumnGenerator(config=config, resource_provider=mock_provider)
 
@@ -477,8 +477,8 @@ def test_seed_dataset_generator_shuffle_sampling(fixture_name, stub_resource_pro
 
     real_conn = duckdb.connect()
     mock_provider = stub_resource_provider
-    mock_provider.datastore.create_duckdb_connection.return_value = real_conn
-    mock_provider.datastore.get_dataset_uri.return_value = file_path
+    mock_provider.seed_dataset_repository.create_duckdb_connection.return_value = real_conn
+    mock_provider.seed_dataset_repository.get_dataset_uri.return_value = file_path
 
     generator = SeedDatasetColumnGenerator(config=config, resource_provider=mock_provider)
 

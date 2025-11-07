@@ -10,7 +10,6 @@ from data_designer.config.columns import SamplerColumnConfig
 from data_designer.config.sampler_params import CategorySamplerParams, SamplerType
 from data_designer.engine.analysis.column_profilers.judge_score_profiler import JudgeScoreProfilerConfig
 from data_designer.engine.analysis.dataset_profiler import (
-    DataDesignerDatasetProfiler,
     DatasetProfilerConfig,
 )
 from data_designer.engine.analysis.errors import DatasetProfilerConfigurationError
@@ -89,48 +88,6 @@ def test_dataset_profiler_profile_dataset_with_column_profilers(
     mock_extract_distributions.assert_called()
     mock_sample_scores.assert_called()
     stub_model_facade.generate.assert_called()
-
-
-@patch(
-    "data_designer.engine.analysis.dataset_profiler.DataDesignerDatasetProfiler._validate_schema_consistency",
-    autospec=True,
-)
-def test_dataset_profiler_requires_model_registry_with_column_profiler_configs(
-    mock_validate_schema_consistency, stub_resource_provider_no_model_registry
-):
-    column_configs = [
-        SamplerColumnConfig(
-            name="test_id",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(values=["a", "b", "c"]),
-        ),
-    ]
-
-    mock_validate_schema_consistency.return_value = None
-
-    DataDesignerDatasetProfiler(
-        config=DatasetProfilerConfig(
-            column_configs=column_configs,
-        ),
-        resource_provider=stub_resource_provider_no_model_registry,
-    )
-
-    with pytest.raises(
-        DatasetProfilerConfigurationError,
-        match="Model registry is required for column profiler configs",
-    ):
-        DataDesignerDatasetProfiler(
-            config=DatasetProfilerConfig(
-                column_configs=column_configs,
-                column_profiler_configs=[
-                    JudgeScoreProfilerConfig(
-                        model_alias="model-alias",
-                        summary_score_sample_size=5,
-                    )
-                ],
-            ),
-            resource_provider=stub_resource_provider_no_model_registry,
-        )
 
 
 def test_profile_dataset_no_applicable_column_types(dataset_profiler, stub_df, stub_model_facade):

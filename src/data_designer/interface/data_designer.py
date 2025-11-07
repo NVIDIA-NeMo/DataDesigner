@@ -10,7 +10,7 @@ from data_designer.config.analysis.dataset_profiler import DatasetProfilerResult
 from data_designer.config.base import DEFAULT_NUM_RECORDS, DataDesignerInterface
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.preview_results import PreviewResults
-from data_designer.config.seed import LocalSeedDatasetReference
+from data_designer.config.seed import HfHubSeedDatasetReference, LocalSeedDatasetReference
 from data_designer.config.utils.io_helpers import write_seed_dataset
 from data_designer.engine.analysis.dataset_profiler import (
     DataDesignerDatasetProfiler,
@@ -20,14 +20,19 @@ from data_designer.engine.dataset_builders.artifact_storage import ArtifactStora
 from data_designer.engine.dataset_builders.column_wise_builder import ColumnWiseDatasetBuilder
 from data_designer.engine.dataset_builders.utils.config_compiler import compile_dataset_builder_column_configs
 from data_designer.engine.model_provider import ModelProvider, resolve_model_provider_registry
-from data_designer.engine.models.registry import create_model_registry
 from data_designer.engine.resources.managed_storage import init_managed_blob_storage
-from data_designer.engine.resources.resource_provider import ResourceProvider
-from data_designer.engine.resources.seed_dataset_data_store import (
-    HfHubSeedDatasetDataStore,
-    LocalSeedDatasetDataStore,
+from data_designer.engine.resources.resource_provider import ResourceProvider, create_resource_provider
+from data_designer.engine.resources.seed_dataset_source import (
+    HfHubSeedDatasetSource,
+    LocalSeedDatasetSource,
+    SeedDatasetSourceRegistry,
 )
-from data_designer.engine.secret_resolver import EnvironmentResolver, SecretResolver
+from data_designer.engine.secret_resolver import (
+    CompositeResolver,
+    EnvironmentResolver,
+    PlaintextResolver,
+    SecretResolver,
+)
 from data_designer.interface.errors import (
     DataDesignerGenerationError,
     DataDesignerProfilingError,
@@ -37,6 +42,8 @@ from data_designer.interface.results import DatasetCreationResults
 from data_designer.logging import RandomEmoji
 
 DEFAULT_BUFFER_SIZE = 1000
+
+DEFAULT_SECRET_RESOLVER = CompositeResolver(resolvers=[EnvironmentResolver(), PlaintextResolver()])
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +62,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         model_providers: Optional list of model providers for LLM generation. If None,
             uses default providers.
         secret_resolver: Resolver for handling secrets and credentials. Defaults to
-            EnvironmentResolver which reads secrets from environment variables.
+            a resolver that first checks environment variables before assuming plaintext values.
         blob_storage_path: Path to the blob storage directory. Note this parameter
             is temporary and will be removed after we update person sampling for the library.
     """
@@ -65,10 +72,10 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         artifact_path: Path | str,
         *,
         model_providers: list[ModelProvider] | None = None,
-        secret_resolver: SecretResolver = EnvironmentResolver(),
+        secret_resolver: SecretResolver | None = None,
         blob_storage_path: Path | str | None = None,
     ):
-        self._secret_resolver = secret_resolver
+        self._secret_resolver = secret_resolver or DEFAULT_SECRET_RESOLVER
         self._artifact_path = Path(artifact_path)
         self._buffer_size = DEFAULT_BUFFER_SIZE
         self._blob_storage = (
@@ -254,21 +261,34 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         self, dataset_name: str, config_builder: DataDesignerConfigBuilder
     ) -> ResourceProvider:
         model_configs = config_builder.model_configs
+        seed_dataset_source_registry = self._create_seed_dataset_source_registry(config_builder)
         ArtifactStorage.mkdir_if_needed(self._artifact_path)
-        return ResourceProvider(
+        return create_resource_provider(
             artifact_storage=ArtifactStorage(artifact_path=self._artifact_path, dataset_name=dataset_name),
-            model_registry=create_model_registry(
-                model_configs=model_configs,
-                model_provider_registry=self._model_provider_registry,
-                secret_resolver=self._secret_resolver,
-            ),
+            model_configs=model_configs,
+            secret_resolver=self._secret_resolver,
+            model_provider_registry=self._model_provider_registry,
+            seed_dataset_source_registry=seed_dataset_source_registry,
             blob_storage=self._blob_storage,
-            datastore=(
-                LocalSeedDatasetDataStore()
-                if (settings := config_builder.get_seed_datastore_settings()) is None
-                else HfHubSeedDatasetDataStore(
-                    endpoint=settings.endpoint,
-                    token=settings.token,
-                )
-            ),
         )
+
+    def _create_seed_dataset_source_registry(
+        self, config_builder: DataDesignerConfigBuilder
+    ) -> SeedDatasetSourceRegistry:
+        if (seed_config := config_builder.get_seed_config()) is None:
+            return SeedDatasetSourceRegistry(sources=[LocalSeedDatasetSource()])
+
+        reference = config_builder.get_seed_dataset_reference()
+
+        if isinstance(reference, HfHubSeedDatasetReference):
+            source = HfHubSeedDatasetSource(
+                endpoint=reference.endpoint,
+                token=reference.token,
+            )
+        else:
+            source = LocalSeedDatasetSource()
+
+        if seed_config.source:
+            source.name = seed_config.source
+
+        return SeedDatasetSourceRegistry(sources=[source])

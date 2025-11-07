@@ -25,12 +25,11 @@ from data_designer.config.columns import (
 )
 from data_designer.config.config_builder import BuilderConfig, DataDesignerConfigBuilder
 from data_designer.config.data_designer_config import DataDesignerConfig
-from data_designer.config.datastore import DatastoreSettings
 from data_designer.config.errors import BuilderConfigurationError, InvalidColumnTypeError, InvalidConfigError
 from data_designer.config.models import InferenceParameters, ModelConfig
 from data_designer.config.sampler_constraints import ColumnInequalityConstraint, ScalarInequalityConstraint
 from data_designer.config.sampler_params import SamplerType, UUIDSamplerParams
-from data_designer.config.seed import DatastoreSeedDatasetReference, SamplingStrategy
+from data_designer.config.seed import HfHubSeedDatasetReference, SamplingStrategy
 from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.validator_params import CodeValidatorParams
 
@@ -41,16 +40,13 @@ class DummyStructuredModel(BaseModel):
 
 @pytest.fixture
 def mock_fetch_seed_dataset_column_names():
-    with patch("data_designer.config.config_builder.fetch_seed_dataset_column_names") as mock_fetch_seed:
-        mock_fetch_seed.return_value = ["id", "name", "age", "city"]
-        yield mock_fetch_seed
+    with patch.object(HfHubSeedDatasetReference, "get_column_names", return_value=["id", "name", "age", "city"]):
+        yield
 
 
 @pytest.fixture
-def stub_data_designer_builder(stub_data_designer_builder_config_str):
-    with patch("data_designer.config.config_builder.fetch_seed_dataset_column_names") as mock_fetch_seed:
-        mock_fetch_seed.return_value = ["id", "name", "age", "city"]
-        yield DataDesignerConfigBuilder.from_config(config=stub_data_designer_builder_config_str)
+def stub_data_designer_builder(stub_data_designer_builder_config_str, mock_fetch_seed_dataset_column_names):
+    yield DataDesignerConfigBuilder.from_config(config=stub_data_designer_builder_config_str)
 
 
 def test_loading_model_configs_in_constructor(stub_model_configs):
@@ -635,12 +631,12 @@ def test_seed_config(stub_complete_builder):
 
 def test_with_seed_dataset_basic(stub_empty_builder, mock_fetch_seed_dataset_column_names):
     """Test with_seed_dataset method with basic parameters."""
-    datastore_settings = DatastoreSettings(endpoint="https://huggingface.co", token="test-token")
-    with patch("data_designer.config.config_builder.fetch_seed_dataset_column_names") as mock_fetch:
-        mock_fetch.return_value = ["id", "name", "age", "city"]
-        result = stub_empty_builder.with_seed_dataset(
-            DatastoreSeedDatasetReference(dataset="test-repo/test-data.parquet", datastore_settings=datastore_settings)
-        )
+    seed_dataset_reference = HfHubSeedDatasetReference(
+        dataset="test-repo/test-data.parquet",
+        endpoint="https://huggingface.co",
+        token="test-token",
+    )
+    result = stub_empty_builder.with_seed_dataset(seed_dataset_reference)
 
     assert result is stub_empty_builder
     assert stub_empty_builder.get_seed_config().dataset == "test-repo/test-data.parquet"
@@ -649,14 +645,16 @@ def test_with_seed_dataset_basic(stub_empty_builder, mock_fetch_seed_dataset_col
 
 def test_with_seed_dataset_sampling_strategy(stub_empty_builder, mock_fetch_seed_dataset_column_names):
     """Test with_seed_dataset with different sampling strategies."""
-    datastore_settings = DatastoreSettings(endpoint="https://huggingface.co", token="test-token")
+    seed_dataset_reference = HfHubSeedDatasetReference(
+        dataset="test-repo/test-data.parquet",
+        endpoint="https://huggingface.co",
+        token="test-token",
+    )
 
-    with patch("data_designer.config.config_builder.fetch_seed_dataset_column_names") as mock_fetch:
-        mock_fetch.return_value = ["id", "name", "age", "city"]
-        stub_empty_builder.with_seed_dataset(
-            DatastoreSeedDatasetReference(dataset="test-repo/test-data.parquet", datastore_settings=datastore_settings),
-            sampling_strategy=SamplingStrategy.SHUFFLE,
-        )
+    stub_empty_builder.with_seed_dataset(
+        seed_dataset_reference,
+        sampling_strategy=SamplingStrategy.SHUFFLE,
+    )
 
     seed_config = stub_empty_builder.get_seed_config()
     assert seed_config.sampling_strategy == SamplingStrategy.SHUFFLE

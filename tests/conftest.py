@@ -16,8 +16,8 @@ from data_designer.config.analysis.dataset_profiler import DatasetProfilerResult
 from data_designer.config.columns import SamplerColumnConfig
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.data_designer_config import DataDesignerConfig
-from data_designer.config.datastore import DatastoreSettings
 from data_designer.config.models import InferenceParameters, ModelConfig
+from data_designer.config.seed import HfHubSeedDatasetReference
 
 
 @pytest.fixture
@@ -117,9 +117,11 @@ def stub_data_designer_builder_config_str(stub_data_designer_config_str: str) ->
 data_designer:
   {textwrap.indent(stub_data_designer_config_str, prefix="    ")}
 
-datastore_settings:
+seed_dataset_reference:
+  dataset: test-repo/testing/data.csv
   endpoint: http://test-endpoint:3000/v1/hf
   token: stub-token
+  reference_type: hf_hub
 """
 
 
@@ -152,15 +154,8 @@ def stub_empty_builder(stub_model_configs: list[ModelConfig]) -> DataDesignerCon
 
 @pytest.fixture
 def stub_complete_builder(stub_data_designer_builder_config_str: str) -> DataDesignerConfigBuilder:
-    with patch("data_designer.config.config_builder.fetch_seed_dataset_column_names") as mock_fetch:
-        mock_fetch.return_value = ["id", "name", "age", "city"]
+    with patch.object(HfHubSeedDatasetReference, "get_column_names", return_value=["id", "name", "age", "city"]):
         return DataDesignerConfigBuilder.from_config(config=stub_data_designer_builder_config_str)
-
-
-@pytest.fixture
-def stub_datastore_settings():
-    """Test datastore settings with testing endpoint and token."""
-    return DatastoreSettings(endpoint="https://testing.com", token="stub-token")
 
 
 @pytest.fixture

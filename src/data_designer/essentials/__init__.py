@@ -17,7 +17,6 @@ from ..config.columns import (
 from ..config.config_builder import DataDesignerConfigBuilder
 from ..config.data_designer_config import DataDesignerConfig
 from ..config.dataset_builders import BuildStage
-from ..config.datastore import DatastoreSettings
 from ..config.models import (
     ImageContext,
     ImageFormat,
@@ -49,7 +48,7 @@ from ..config.sampler_params import (
     UniformSamplerParams,
     UUIDSamplerParams,
 )
-from ..config.seed import DatastoreSeedDatasetReference, IndexRange, PartitionBlock, SamplingStrategy, SeedConfig
+from ..config.seed import IndexRange, PartitionBlock, SamplingStrategy, SeedConfig
 from ..config.utils.code_lang import CodeLang
 from ..config.utils.misc import can_run_data_designer_locally
 from ..config.validator_params import (
@@ -83,8 +82,6 @@ __all__ = [
     "DataDesignerConfig",
     "DataDesignerConfigBuilder",
     "BuildStage",
-    "DatastoreSeedDatasetReference",
-    "DatastoreSettings",
     "DatetimeSamplerParams",
     "DropColumnsProcessorConfig",
     "ExpressionColumnConfig",

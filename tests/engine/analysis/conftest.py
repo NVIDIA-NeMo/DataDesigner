@@ -24,7 +24,9 @@ from data_designer.engine.analysis.utils.judge_score_processing import JudgeScor
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.engine.models.registry import ModelRegistry
 from data_designer.engine.registry.data_designer_registry import DataDesignerRegistry
+from data_designer.engine.resources.managed_storage import ManagedBlobStorage
 from data_designer.engine.resources.resource_provider import ResourceProvider
+from data_designer.engine.resources.seed_dataset_source import SeedDatasetRepository
 
 
 @fixture
@@ -78,7 +80,12 @@ def dataset_profiler(
 
     profiler = DataDesignerDatasetProfiler(
         config=DatasetProfilerConfig(column_configs=column_configs),
-        resource_provider=ResourceProvider(artifact_storage=artifact_storage, model_registry=model_registry),
+        resource_provider=ResourceProvider(
+            artifact_storage=artifact_storage,
+            model_registry=model_registry,
+            seed_dataset_repository=Mock(spec=SeedDatasetRepository),
+            blob_storage=Mock(spec=ManagedBlobStorage),
+        ),
     )
 
     return profiler
@@ -144,9 +151,3 @@ def stub_judge_distributions():
         distributions={"quality": NumericalDistribution(min=0, max=4, mean=2.0, stddev=1.4, median=2.0)},
         histograms={"quality": CategoricalHistogramData(categories=[4, 3, 2, 1, 0], counts=[1, 1, 1, 1, 1])},
     )
-
-
-@fixture
-def stub_resource_provider_no_model_registry(tmp_path):
-    """Create a mock ResourceProvider for testing."""
-    return ResourceProvider(artifact_storage=ArtifactStorage(artifact_path=tmp_path))

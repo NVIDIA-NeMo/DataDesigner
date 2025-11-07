@@ -107,8 +107,6 @@ class DataDesignerDatasetProfiler:
 
     def _validate_column_profiler_configs(self) -> None:
         if self.config.column_profiler_configs:
-            if self.resource_provider.model_registry is None:
-                raise DatasetProfilerConfigurationError("Model registry is required for column profiler configs")
             self._validate_model_configs()
 
     def _validate_model_configs(self) -> None:

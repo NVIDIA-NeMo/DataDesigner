@@ -16,7 +16,9 @@ from data_designer.engine.configurable_task import (
 )
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.engine.models.registry import ModelRegistry
+from data_designer.engine.resources.managed_storage import ManagedBlobStorage
 from data_designer.engine.resources.resource_provider import ResourceProvider, ResourceType
+from data_designer.engine.resources.seed_dataset_source import SeedDatasetRepository
 
 
 def test_configurable_task_metadata_creation():
@@ -68,7 +70,12 @@ def test_configurable_task_concrete_implementation():
     mock_artifact_storage.final_dataset_folder_name = "final_dataset"
     mock_artifact_storage.partial_results_folder_name = "partial_results"
     mock_artifact_storage.dropped_columns_folder_name = "dropped_columns"
-    resource_provider = ResourceProvider(artifact_storage=mock_artifact_storage)
+    resource_provider = ResourceProvider(
+        artifact_storage=mock_artifact_storage,
+        model_registry=Mock(spec=ModelRegistry),
+        seed_dataset_repository=Mock(spec=SeedDatasetRepository),
+        blob_storage=Mock(spec=ManagedBlobStorage),
+    )
 
     task = TestTask(config=config, resource_provider=resource_provider)
 
@@ -99,7 +106,12 @@ def test_configurable_task_config_validation():
     mock_artifact_storage.final_dataset_folder_name = "final_dataset"
     mock_artifact_storage.partial_results_folder_name = "partial_results"
     mock_artifact_storage.dropped_columns_folder_name = "dropped_columns"
-    resource_provider = ResourceProvider(artifact_storage=mock_artifact_storage)
+    resource_provider = ResourceProvider(
+        artifact_storage=mock_artifact_storage,
+        model_registry=Mock(spec=ModelRegistry),
+        seed_dataset_repository=Mock(spec=SeedDatasetRepository),
+        blob_storage=Mock(spec=ManagedBlobStorage),
+    )
 
     task = TestTask(config=config, resource_provider=resource_provider)
     assert task._config.value == "test"
@@ -138,7 +150,12 @@ def test_configurable_task_resource_validation():
     mock_artifact_storage.partial_results_folder_name = "partial_results"
     mock_artifact_storage.dropped_columns_folder_name = "dropped_columns"
     mock_model_registry = Mock(spec=ModelRegistry)
-    resource_provider = ResourceProvider(artifact_storage=mock_artifact_storage, model_registry=mock_model_registry)
+    resource_provider = ResourceProvider(
+        artifact_storage=mock_artifact_storage,
+        model_registry=mock_model_registry,
+        seed_dataset_repository=Mock(spec=SeedDatasetRepository),
+        blob_storage=Mock(spec=ManagedBlobStorage),
+    )
     task = TestTask(config=config, resource_provider=resource_provider)
     assert task._resource_provider == resource_provider
 
