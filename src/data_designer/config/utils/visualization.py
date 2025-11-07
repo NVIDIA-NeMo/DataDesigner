@@ -22,6 +22,7 @@ from rich.text import Text
 
 from ..base import ConfigBase
 from ..columns import DataDesignerColumnType
+from ..models import ModelConfig
 from ..sampler_params import SamplerType
 from .code_lang import code_lang_to_syntax_lexer
 from .errors import DatasetSampleDisplayError
@@ -255,6 +256,25 @@ def display_sampler_table(
     title = title or "NeMo Data Designer Samplers"
 
     group = Group(Rule(title, end="\n\n"), table)
+    console.print(group)
+
+
+def display_model_configs_table(model_configs: list[ModelConfig]) -> None:
+    table_model_configs = Table(expand=True)
+    table_model_configs.add_column("Alias")
+    table_model_configs.add_column("Model")
+    table_model_configs.add_column("Provider")
+    table_model_configs.add_column("Temperature")
+    table_model_configs.add_column("Top P")
+    for model_config in model_configs:
+        table_model_configs.add_row(
+            model_config.alias,
+            model_config.model,
+            model_config.provider,
+            str(model_config.inference_parameters.temperature),
+            str(model_config.inference_parameters.top_p),
+        )
+    group = Group(Rule(title="Model Configs"), table_model_configs)
     console.print(group)
 
 

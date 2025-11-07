@@ -3,6 +3,8 @@
 
 from abc import ABC, abstractmethod
 from enum import Enum
+import logging
+import os
 from pathlib import Path
 from typing import Any, Generic, List, Optional, TypeVar, Union
 
@@ -12,8 +14,17 @@ from typing_extensions import Self, TypeAlias
 
 from .base import ConfigBase
 from .errors import InvalidConfigError
-from .utils.constants import MAX_TEMPERATURE, MAX_TOP_P, MIN_TEMPERATURE, MIN_TOP_P
+from .utils.constants import (
+    MAX_TEMPERATURE,
+    MAX_TOP_P,
+    MIN_TEMPERATURE,
+    MIN_TOP_P,
+    NVIDIA_API_KEY_ENV_VAR_NAME,
+    NVIDIA_PROVIDER_NAME,
+)
 from .utils.io_helpers import smart_load_yaml
+
+logger = logging.getLogger(__name__)
 
 
 class Modality(str, Enum):
@@ -204,9 +215,14 @@ class ModelConfig(ConfigBase):
     provider: Optional[str] = None
 
 
-def load_model_configs(model_configs: Union[list[ModelConfig], str, Path, None]) -> list[ModelConfig]:
-    if model_configs is None:
-        return []
+class ModelProvider(ConfigBase):
+    name: str
+    endpoint: str
+    provider_type: str = "openai"
+    api_key: str | None = None
+
+
+def load_model_configs(model_configs: Union[list[ModelConfig], str, Path]) -> list[ModelConfig]:
     if isinstance(model_configs, list) and all(isinstance(mc, ModelConfig) for mc in model_configs):
         return model_configs
     json_config = smart_load_yaml(model_configs)
@@ -215,3 +231,51 @@ def load_model_configs(model_configs: Union[list[ModelConfig], str, Path, None])
             "The list of model configs must be provided under model_configs in the configuration file."
         )
     return [ModelConfig.model_validate(mc) for mc in json_config["model_configs"]]
+
+
+def get_default_nvidia_model_configs() -> list[ModelConfig]:
+    if not get_nvidia_api_key():
+        logger.warning(
+            "‼️🔑 'NVIDIA_API_KEY' environment variable is not set. Please set it to your API key from 'build.nvidia.com' if you want to use the default NVIDIA model configs."
+        )
+    return [
+        ModelConfig(
+            alias="text",
+            model="nvidia/nvidia-nemotron-nano-9b-v2",
+            provider=NVIDIA_PROVIDER_NAME,
+            inference_parameters=InferenceParameters(
+                temperature=0.85,
+                top_p=0.95,
+            ),
+        ),
+        ModelConfig(
+            alias="reasoning",
+            model="nvidia/llama-3.3-nemotron-super-49b-v1.5",
+            provider=NVIDIA_PROVIDER_NAME,
+            inference_parameters=InferenceParameters(
+                temperature=0.35,
+                top_p=0.95,
+            ),
+        ),
+        ModelConfig(
+            alias="vision",
+            model="nvidia/nemotron-nano-12b-v2-vl",
+            provider=NVIDIA_PROVIDER_NAME,
+            inference_parameters=InferenceParameters(
+                temperature=0.85,
+                top_p=0.95,
+            ),
+        ),
+    ]
+
+
+def get_nvidia_api_key() -> Optional[str]:
+    return os.getenv(NVIDIA_API_KEY_ENV_VAR_NAME)
+
+
+def get_default_nvidia_model_provider() -> ModelProvider:
+    return ModelProvider(
+        name=NVIDIA_PROVIDER_NAME,
+        endpoint="https://integrate.api.nvidia.com/v1",
+        api_key=NVIDIA_API_KEY_ENV_VAR_NAME,
+    )

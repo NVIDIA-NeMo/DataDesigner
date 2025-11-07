@@ -7,10 +7,17 @@ from pathlib import Path
 import pandas as pd
 
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
-from data_designer.config.base import DEFAULT_NUM_RECORDS, DataDesignerInterface
 from data_designer.config.config_builder import DataDesignerConfigBuilder
+from data_designer.config.interface import DataDesignerInterface
+from data_designer.config.models import (
+    ModelConfig,
+    ModelProvider,
+    get_default_nvidia_model_configs,
+    get_default_nvidia_model_provider,
+)
 from data_designer.config.preview_results import PreviewResults
 from data_designer.config.seed import LocalSeedDatasetReference
+from data_designer.config.utils.constants import DEFAULT_NUM_RECORDS
 from data_designer.config.utils.io_helpers import write_seed_dataset
 from data_designer.engine.analysis.dataset_profiler import (
     DataDesignerDatasetProfiler,
@@ -19,7 +26,7 @@ from data_designer.engine.analysis.dataset_profiler import (
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.engine.dataset_builders.column_wise_builder import ColumnWiseDatasetBuilder
 from data_designer.engine.dataset_builders.utils.config_compiler import compile_dataset_builder_column_configs
-from data_designer.engine.model_provider import ModelProvider, resolve_model_provider_registry
+from data_designer.engine.model_provider import resolve_model_provider_registry
 from data_designer.engine.models.registry import create_model_registry
 from data_designer.engine.resources.managed_storage import init_managed_blob_storage
 from data_designer.engine.resources.resource_provider import ResourceProvider
@@ -62,20 +69,21 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
 
     def __init__(
         self,
-        artifact_path: Path | str,
+        artifact_path: Path | str | None = None,
         *,
         model_providers: list[ModelProvider] | None = None,
         secret_resolver: SecretResolver = EnvironmentResolver(),
         blob_storage_path: Path | str | None = None,
     ):
         self._secret_resolver = secret_resolver
-        self._artifact_path = Path(artifact_path)
+        self._artifact_path = Path(artifact_path) if artifact_path is not None else Path.cwd() / "artifacts"
         self._buffer_size = DEFAULT_BUFFER_SIZE
         self._blob_storage = (
             init_managed_blob_storage()
             if blob_storage_path is None
             else init_managed_blob_storage(str(blob_storage_path))
         )
+        model_providers = model_providers or self.get_default_model_providers()
         self._model_provider_registry = resolve_model_provider_registry(model_providers)
 
     @staticmethod
@@ -212,6 +220,12 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             analysis=analysis,
             config_builder=config_builder,
         )
+
+    def get_default_model_configs(self) -> list[ModelConfig]:
+        return get_default_nvidia_model_configs()
+
+    def get_default_model_providers(self) -> list[ModelProvider]:
+        return [get_default_nvidia_model_provider()]
 
     def set_buffer_size(self, buffer_size: int) -> None:
         """Set the buffer size for dataset generation.

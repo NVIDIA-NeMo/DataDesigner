@@ -132,22 +132,21 @@ class DataDesignerConfigBuilder:
 
         return builder
 
-    def __init__(self, model_configs: Optional[Union[list[ModelConfig], str, Path]] = None):
+    def __init__(self, model_configs: Union[list[ModelConfig], str, Path]):
         """Initialize a new DataDesignerConfigBuilder instance.
 
         Args:
-            model_configs: Optional model configurations. Can be:
+            model_configs: Model configurations. Can be:
                 - A list of ModelConfig objects
                 - A string or Path to a model configuration file
-                - None to use default model configurations
         """
         self._column_configs = {}
-        self._model_configs = load_model_configs(model_configs)
+        self._info = DataDesignerInfo()
+        self.set_model_configs(load_model_configs(model_configs))
         self._processor_configs: list[ProcessorConfig] = []
         self._seed_config: Optional[SeedConfig] = None
         self._constraints: list[ColumnConstraintT] = []
         self._profilers: list[ColumnProfilerConfigT] = []
-        self._info = DataDesignerInfo()
         self._datastore_settings: Optional[DatastoreSettings] = None
 
     @property
@@ -181,6 +180,16 @@ class DataDesignerConfigBuilder:
         """
         return self._info
 
+    def set_model_configs(self, model_configs: list[ModelConfig]) -> Self:
+        """Set the model configurations for this builder.
+
+        Args:
+            model_configs: The model configurations to set.
+        """
+        self._model_configs = model_configs
+        self._info.set_model_configs(model_configs=self._model_configs)
+        return self
+
     def add_model_config(self, model_config: ModelConfig) -> Self:
         """Add a model configuration to the current Data Designer configuration.
 
@@ -191,7 +200,7 @@ class DataDesignerConfigBuilder:
             raise BuilderConfigurationError(
                 f"🛑 Model configuration with alias {model_config.alias} already exists. Please delete the existing model configuration or choose a different alias."
             )
-        self._model_configs.append(model_config)
+        self.set_model_configs(self._model_configs + [model_config])
         return self
 
     def delete_model_config(self, alias: str) -> Self:
@@ -200,7 +209,7 @@ class DataDesignerConfigBuilder:
         Args:
             alias: The alias of the model configuration to delete.
         """
-        self._model_configs = [mc for mc in self._model_configs if mc.alias != alias]
+        self.set_model_configs([mc for mc in self._model_configs if mc.alias != alias])
         if len(self._model_configs) == 0:
             logger.warning(
                 f"⚠️ No model configurations found after deleting model configuration with alias {alias}. Please add a model configuration before building the configuration."

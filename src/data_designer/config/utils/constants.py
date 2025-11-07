@@ -5,6 +5,8 @@ from enum import Enum
 
 from rich.theme import Theme
 
+DEFAULT_NUM_RECORDS = 10
+
 EPSILON = 1e-8
 REPORTING_PRECISION = 2
 
@@ -255,3 +257,6 @@ AVAILABLE_LOCALES = [
     "zh_TW",
     "zu_ZA",
 ]
+
+NVIDIA_PROVIDER_NAME = "nvidia"
+NVIDIA_API_KEY_ENV_VAR_NAME = "NVIDIA_API_KEY"

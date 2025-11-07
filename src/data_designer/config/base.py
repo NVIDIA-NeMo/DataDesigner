@@ -3,48 +3,13 @@
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Generic, Optional, Protocol, TypeVar, Union
+from typing import Any, Optional, Union
 
-import pandas as pd
 from pydantic import BaseModel, ConfigDict
 import yaml
 
 from .utils.io_helpers import serialize_data
-
-if TYPE_CHECKING:
-    from .analysis.dataset_profiler import DatasetProfilerResults
-    from .config_builder import DataDesignerConfigBuilder
-    from .preview_results import PreviewResults
-
-DEFAULT_NUM_RECORDS = 10
-
-
-class ResultsProtocol(Protocol):
-    def load_analysis(self) -> DatasetProfilerResults: ...
-    def load_dataset(self) -> pd.DataFrame: ...
-
-
-ResultsT = TypeVar("ResultsT", bound=ResultsProtocol)
-
-
-class DataDesignerInterface(ABC, Generic[ResultsT]):
-    @abstractmethod
-    def create(
-        self,
-        config_builder: DataDesignerConfigBuilder,
-        *,
-        num_records: int = DEFAULT_NUM_RECORDS,
-    ) -> ResultsT: ...
-
-    @abstractmethod
-    def preview(
-        self,
-        config_builder: DataDesignerConfigBuilder,
-        *,
-        num_records: int = DEFAULT_NUM_RECORDS,
-    ) -> PreviewResults: ...
 
 
 class ConfigBase(BaseModel):

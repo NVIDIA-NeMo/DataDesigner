@@ -208,7 +208,6 @@ def test_load_model_configs():
     ]
     stub_model_configs_dict_list = [mc.model_dump() for mc in stub_model_configs]
     assert load_model_configs([]) == []
-    assert load_model_configs(None) == []
     assert load_model_configs(stub_model_configs) == stub_model_configs
 
     with tempfile.NamedTemporaryFile(prefix="model_configs", suffix=".yaml") as tmp_file:

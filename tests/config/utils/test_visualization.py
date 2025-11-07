@@ -24,12 +24,12 @@ def validation_output():
 
 
 @pytest.fixture
-def config_builder_with_validation():
+def config_builder_with_validation(stub_model_configs):
     """Fixture providing a DataDesignerConfigBuilder with a validation column."""
     with patch("data_designer.config.config_builder.fetch_seed_dataset_column_names") as mock_fetch:
         mock_fetch.return_value = ["code"]
 
-        builder = DataDesignerConfigBuilder()
+        builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
 
         # Add a validation column configuration
         builder.add_column(
