@@ -17,7 +17,7 @@ from data_designer.config.columns import SamplerColumnConfig
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.datastore import DatastoreSettings
-from data_designer.config.models import InferenceParameters, ModelConfig
+from data_designer.config.models import InferenceParameters, ModelConfig, ModelProvider
 
 
 @pytest.fixture
@@ -140,6 +140,17 @@ def stub_model_configs() -> list[ModelConfig]:
                 top_p=0.9,
                 max_tokens=2048,
             ),
+        )
+    ]
+
+
+@pytest.fixture
+def stub_model_providers() -> list[ModelProvider]:
+    return [
+        ModelProvider(
+            name="provider-1",
+            endpoint="https://api.provider-1.com/v1",
+            api_key="PROVIDER_1_API_KEY",
         )
     ]
 

@@ -51,6 +51,7 @@ from ..config.sampler_params import (
 )
 from ..config.seed import DatastoreSeedDatasetReference, IndexRange, PartitionBlock, SamplingStrategy, SeedConfig
 from ..config.utils.code_lang import CodeLang
+from ..config.utils.info import InfoType
 from ..config.utils.misc import can_run_data_designer_locally
 from ..config.validator_params import (
     CodeValidatorParams,
@@ -90,6 +91,7 @@ __all__ = [
     "ExpressionColumnConfig",
     "GaussianSamplerParams",
     "IndexRange",
+    "InfoType",
     "ImageContext",
     "ImageFormat",
     "InferenceParameters",

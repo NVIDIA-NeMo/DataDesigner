@@ -18,6 +18,7 @@ from data_designer.config.models import (
 from data_designer.config.preview_results import PreviewResults
 from data_designer.config.seed import LocalSeedDatasetReference
 from data_designer.config.utils.constants import DEFAULT_NUM_RECORDS
+from data_designer.config.utils.info import InterfaceInfo
 from data_designer.config.utils.io_helpers import write_seed_dataset
 from data_designer.engine.analysis.dataset_profiler import (
     DataDesignerDatasetProfiler,
@@ -83,8 +84,8 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             if blob_storage_path is None
             else init_managed_blob_storage(str(blob_storage_path))
         )
-        model_providers = model_providers or self.get_default_model_providers()
-        self._model_provider_registry = resolve_model_provider_registry(model_providers)
+        self._model_providers = model_providers or self.get_default_model_providers()
+        self._model_provider_registry = resolve_model_provider_registry(self._model_providers)
 
     @staticmethod
     def make_seed_reference_from_file(file_path: str | Path) -> LocalSeedDatasetReference:
@@ -121,6 +122,10 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         """
         write_seed_dataset(dataframe, Path(file_path))
         return cls.make_seed_reference_from_file(file_path)
+
+    @property
+    def info(self) -> InterfaceInfo:
+        return InterfaceInfo(model_providers=self._model_providers)
 
     def create(
         self,

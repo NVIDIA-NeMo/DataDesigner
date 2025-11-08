@@ -10,6 +10,7 @@ import pandas as pd
 
 from .models import ModelConfig, ModelProvider
 from .utils.constants import DEFAULT_NUM_RECORDS
+from .utils.info import InterfaceInfo
 
 if TYPE_CHECKING:
     from .analysis.dataset_profiler import DatasetProfilerResults
@@ -47,3 +48,7 @@ class DataDesignerInterface(ABC, Generic[ResultsT]):
 
     @abstractmethod
     def get_default_model_providers(self) -> list[ModelProvider]: ...
+
+    @property
+    @abstractmethod
+    def info(self) -> InterfaceInfo: ...

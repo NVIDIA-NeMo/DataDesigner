@@ -22,7 +22,7 @@ from rich.text import Text
 
 from ..base import ConfigBase
 from ..columns import DataDesignerColumnType
-from ..models import ModelConfig
+from ..models import ModelConfig, ModelProvider
 from ..sampler_params import SamplerType
 from .code_lang import code_lang_to_syntax_lexer
 from .errors import DatasetSampleDisplayError
@@ -275,6 +275,17 @@ def display_model_configs_table(model_configs: list[ModelConfig]) -> None:
             str(model_config.inference_parameters.top_p),
         )
     group = Group(Rule(title="Model Configs"), table_model_configs)
+    console.print(group)
+
+
+def display_model_providers_table(model_providers: list[ModelProvider]) -> None:
+    table_model_providers = Table(expand=True)
+    table_model_providers.add_column("Name")
+    table_model_providers.add_column("Endpoint")
+    table_model_providers.add_column("API Key")
+    for model_provider in model_providers:
+        table_model_providers.add_row(model_provider.name, model_provider.endpoint, model_provider.api_key)
+    group = Group(Rule(title="Model Providers"), table_model_providers)
     console.print(group)
 
 

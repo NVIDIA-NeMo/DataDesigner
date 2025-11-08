@@ -1,31 +1,97 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from ..models import ModelConfig
+from abc import ABC, abstractmethod
+from enum import Enum
+from typing import Literal, TypeVar, overload
+
+from ..models import ModelConfig, ModelProvider
 from ..sampler_params import SamplerType
 from .type_helpers import get_sampler_params
-from .visualization import display_model_configs_table, display_sampler_table
+from .visualization import display_model_configs_table, display_model_providers_table, display_sampler_table
 
 
-class DataDesignerInfo:
-    def __init__(self, model_configs: list[ModelConfig] | None = None):
+class InfoType(str, Enum):
+    SAMPLERS = "SAMPLERS"
+    MODEL_CONFIGS = "MODEL_CONFIGS"
+    MODEL_PROVIDERS = "MODEL_PROVIDERS"
+
+
+ConfigBuilderInfoType = Literal[InfoType.SAMPLERS, InfoType.MODEL_CONFIGS]
+DataDesignerInfoType = Literal[InfoType.MODEL_PROVIDERS]
+InfoTypeT = TypeVar("InfoTypeT", bound=InfoType)
+
+
+class InfoDisplay(ABC):
+    """Base class for info display classes that provide type-safe display methods."""
+
+    @abstractmethod
+    def display(self, info_type: InfoTypeT, **kwargs) -> None:
+        """Display information based on the provided info type.
+
+        Args:
+            info_type: Type of information to display.
+        """
+        ...
+
+
+class ConfigBuilderInfo(InfoDisplay):
+    def __init__(self, model_configs: list[ModelConfig]):
         self._sampler_params = get_sampler_params()
-        self._model_configs = model_configs or []
-
-    @property
-    def sampler_table(self) -> None:
-        display_sampler_table(self._sampler_params)
-
-    @property
-    def sampler_types(self) -> list[str]:
-        return [s.value for s in SamplerType]
-
-    def set_model_configs(self, model_configs: list[ModelConfig]) -> None:
         self._model_configs = model_configs
 
-    def display_sampler(self, sampler_type: SamplerType) -> None:
-        title = f"{SamplerType(sampler_type).value.replace('_', ' ').title()} Sampler"
-        display_sampler_table({sampler_type: self._sampler_params[sampler_type]}, title=title)
+    @overload
+    def display(self, info_type: Literal[InfoType.SAMPLERS], **kwargs) -> None: ...
 
-    def display_model_configs(self) -> None:
-        display_model_configs_table(model_configs=self._model_configs)
+    @overload
+    def display(self, info_type: Literal[InfoType.MODEL_CONFIGS], **kwargs) -> None: ...
+
+    def display(self, info_type: ConfigBuilderInfoType, **kwargs) -> None:
+        """Display information based on the provided info type.
+
+        Args:
+            info_type: Type of information to display. Only SAMPLERS and MODEL_CONFIGS are supported.
+
+        Raises:
+            ValueError: If an unsupported info_type is provided.
+        """
+        if info_type == InfoType.SAMPLERS:
+            self._display_sampler_info(sampler_type=kwargs.get("sampler_type"))
+        elif info_type == InfoType.MODEL_CONFIGS:
+            display_model_configs_table(self._model_configs)
+        else:
+            raise ValueError(
+                f"Unsupported info_type: {info_type!r}. "
+                f"ConfigBuilderInfo only supports {InfoType.SAMPLERS.value!r} and {InfoType.MODEL_CONFIGS.value!r}."
+            )
+
+    def _display_sampler_info(self, sampler_type: SamplerType | None) -> None:
+        if sampler_type is not None:
+            title = f"{SamplerType(sampler_type).value.replace('_', ' ').title()} Sampler"
+            display_sampler_table({sampler_type: self._sampler_params[sampler_type]}, title=title)
+        else:
+            display_sampler_table(self._sampler_params)
+
+
+class InterfaceInfo(InfoDisplay):
+    def __init__(self, model_providers: list[ModelProvider]):
+        self._model_providers = model_providers
+
+    @overload
+    def display(self, info_type: Literal[InfoType.MODEL_PROVIDERS], **kwargs) -> None: ...
+
+    def display(self, info_type: DataDesignerInfoType, **kwargs) -> None:
+        """Display information based on the provided info type.
+
+        Args:
+            info_type: Type of information to display. Only MODEL_PROVIDERS is supported.
+
+        Raises:
+            ValueError: If an unsupported info_type is provided.
+        """
+        if info_type == InfoType.MODEL_PROVIDERS:
+            display_model_providers_table(self._model_providers)
+        else:
+            raise ValueError(
+                f"Unsupported info_type: {info_type!r}. InterfaceInfo only supports {InfoType.MODEL_PROVIDERS.value!r}."
+            )
