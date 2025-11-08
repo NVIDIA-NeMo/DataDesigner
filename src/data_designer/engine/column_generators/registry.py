@@ -34,27 +34,12 @@ class ColumnGeneratorRegistry(TaskRegistry[DataDesignerColumnType, ColumnGenerat
 
 def create_builtin_column_generator_registry() -> ColumnGeneratorRegistry:
     registry = ColumnGeneratorRegistry()
-    registry.register(DataDesignerColumnType.LLM_TEXT, LLMTextCellGenerator, LLMTextColumnConfig, False)
-    registry.register(DataDesignerColumnType.LLM_CODE, LLMCodeCellGenerator, LLMCodeColumnConfig, False)
-    registry.register(DataDesignerColumnType.LLM_JUDGE, LLMJudgeCellGenerator, LLMJudgeColumnConfig, False)
-    registry.register(DataDesignerColumnType.EXPRESSION, ExpressionColumnGenerator, ExpressionColumnConfig, False)
-    registry.register(DataDesignerColumnType.SAMPLER, SamplerColumnGenerator, SamplerMultiColumnConfig, False)
-    registry.register(
-        DataDesignerColumnType.SEED_DATASET,
-        SeedDatasetColumnGenerator,
-        SeedDatasetMultiColumnConfig,
-        False,
-    )
-    registry.register(
-        DataDesignerColumnType.VALIDATION,
-        ValidationColumnGenerator,
-        ValidationColumnConfig,
-        False,
-    )
-    registry.register(
-        DataDesignerColumnType.LLM_STRUCTURED,
-        LLMStructuredCellGenerator,
-        LLMStructuredColumnConfig,
-        False,
-    )
+    registry.register(DataDesignerColumnType.LLM_TEXT, LLMTextCellGenerator, LLMTextColumnConfig)
+    registry.register(DataDesignerColumnType.LLM_CODE, LLMCodeCellGenerator, LLMCodeColumnConfig)
+    registry.register(DataDesignerColumnType.LLM_JUDGE, LLMJudgeCellGenerator, LLMJudgeColumnConfig)
+    registry.register(DataDesignerColumnType.EXPRESSION, ExpressionColumnGenerator, ExpressionColumnConfig)
+    registry.register(DataDesignerColumnType.SAMPLER, SamplerColumnGenerator, SamplerMultiColumnConfig)
+    registry.register(DataDesignerColumnType.SEED_DATASET, SeedDatasetColumnGenerator, SeedDatasetMultiColumnConfig)
+    registry.register(DataDesignerColumnType.VALIDATION, ValidationColumnGenerator, ValidationColumnConfig)
+    registry.register(DataDesignerColumnType.LLM_STRUCTURED, LLMStructuredCellGenerator, LLMStructuredColumnConfig)
     return registry

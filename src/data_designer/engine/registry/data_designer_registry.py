@@ -33,7 +33,6 @@ class DataDesignerRegistry:
                 DataDesignerColumnType(plugin.name),
                 plugin.task_cls,
                 plugin.config_cls,
-                raise_on_collision=True,
             )
 
     @property
