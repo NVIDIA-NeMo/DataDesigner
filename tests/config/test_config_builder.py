@@ -32,6 +32,7 @@ from data_designer.config.sampler_constraints import ColumnInequalityConstraint,
 from data_designer.config.sampler_params import SamplerType, UUIDSamplerParams
 from data_designer.config.seed import DatastoreSeedDatasetReference, SamplingStrategy
 from data_designer.config.utils.code_lang import CodeLang
+from data_designer.config.utils.info import ConfigBuilderInfo
 from data_designer.config.validator_params import CodeValidatorParams
 
 
@@ -97,7 +98,7 @@ def test_from_config(stub_data_designer_builder_config_str, mock_fetch_seed_data
 
 def test_info(stub_data_designer_builder):
     assert stub_data_designer_builder.info is not None
-    assert isinstance(stub_data_designer_builder.info.sampler_types, list)
+    assert isinstance(stub_data_designer_builder.info, ConfigBuilderInfo)
 
 
 def test_add_column_with_types(stub_empty_builder):

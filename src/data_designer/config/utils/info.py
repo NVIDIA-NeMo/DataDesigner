@@ -61,7 +61,7 @@ class ConfigBuilderInfo(InfoDisplay):
             display_model_configs_table(self._model_configs)
         else:
             raise ValueError(
-                f"Unsupported info_type: {info_type!r}. "
+                f"Unsupported info_type: {str(info_type)!r}. "
                 f"ConfigBuilderInfo only supports {InfoType.SAMPLERS.value!r} and {InfoType.MODEL_CONFIGS.value!r}."
             )
 
@@ -93,5 +93,5 @@ class InterfaceInfo(InfoDisplay):
             display_model_providers_table(self._model_providers)
         else:
             raise ValueError(
-                f"Unsupported info_type: {info_type!r}. InterfaceInfo only supports {InfoType.MODEL_PROVIDERS.value!r}."
+                f"Unsupported info_type: {str(info_type)!r}. InterfaceInfo only supports {InfoType.MODEL_PROVIDERS.value!r}."
             )
