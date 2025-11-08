@@ -21,6 +21,7 @@ from .column_types import (
     DataDesignerColumnType,
     column_type_is_llm_generated,
     get_column_config_from_kwargs,
+    get_column_display_order,
 )
 from .data_designer_config import DataDesignerConfig
 from .dataset_builders import BuildStage
@@ -55,7 +56,7 @@ from .utils.type_helpers import resolve_string_enum
 from .utils.validation import ViolationLevel, rich_print_violations, validate_data_designer_config
 
 if can_run_data_designer_locally():
-    from data_designer.plugins.manager import PluginManager, PluginType
+    from data_designer.plugins.manager import PluginManager
 
     plugin_manager = PluginManager()
 
@@ -629,24 +630,7 @@ class DataDesignerConfigBuilder:
             "seed_dataset": (None if self._seed_config is None else f"'{self._seed_config.dataset}'"),
         }
 
-        for column_type in [
-            DataDesignerColumnType.SEED_DATASET,
-            DataDesignerColumnType.SAMPLER,
-            DataDesignerColumnType.LLM_TEXT,
-            DataDesignerColumnType.LLM_CODE,
-            DataDesignerColumnType.LLM_STRUCTURED,
-            DataDesignerColumnType.LLM_JUDGE,
-            DataDesignerColumnType.VALIDATION,
-            DataDesignerColumnType.EXPRESSION,
-            *(
-                []
-                if not can_run_data_designer_locally()
-                else [
-                    DataDesignerColumnType(name)
-                    for name in plugin_manager.get_plugin_names(PluginType.COLUMN_GENERATOR)
-                ]
-            ),
-        ]:
+        for column_type in get_column_display_order():
             columns = self.get_columns_of_type(column_type)
             if len(columns) > 0:
                 column_label = f"{kebab_to_snake(column_type.value)}_columns"

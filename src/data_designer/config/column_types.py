@@ -23,6 +23,9 @@ from .utils.type_helpers import SAMPLER_PARAMS, create_str_enum_from_discriminat
 if can_run_data_designer_locally():
     from data_designer.plugins.manager import PluginManager, PluginType
 
+    plugin_manager = PluginManager().discover()
+
+
 ColumnConfigT: TypeAlias = Union[
     ExpressionColumnConfig,
     LLMCodeColumnConfig,
@@ -36,9 +39,8 @@ ColumnConfigT: TypeAlias = Union[
 
 
 if can_run_data_designer_locally():
-    pm = PluginManager()
-    if pm.num_plugins(PluginType.COLUMN_GENERATOR) > 0:
-        ColumnConfigT = pm.update_type_union(ColumnConfigT, PluginType.COLUMN_GENERATOR)
+    if plugin_manager.num_plugins(PluginType.COLUMN_GENERATOR) > 0:
+        ColumnConfigT = plugin_manager.update_type_union(ColumnConfigT, PluginType.COLUMN_GENERATOR)
 
 
 DataDesignerColumnType = create_str_enum_from_discriminated_type_union(
@@ -59,12 +61,15 @@ COLUMN_TYPE_EMOJI_MAP = {
     DataDesignerColumnType.SAMPLER: "🎲",
     DataDesignerColumnType.VALIDATION: "🔍",
 }
+if can_run_data_designer_locally():
+    for plugin in plugin_manager.get_plugins(PluginType.COLUMN_GENERATOR):
+        COLUMN_TYPE_EMOJI_MAP[DataDesignerColumnType(plugin.name)] = plugin.emoji
 
 
 def column_type_used_in_execution_dag(column_type: Union[str, DataDesignerColumnType]) -> bool:
     """Return True if the column type is used in the workflow execution DAG."""
     column_type = resolve_string_enum(column_type, DataDesignerColumnType)
-    return column_type in {
+    dag_column_types = {
         DataDesignerColumnType.EXPRESSION,
         DataDesignerColumnType.LLM_CODE,
         DataDesignerColumnType.LLM_JUDGE,
@@ -72,17 +77,26 @@ def column_type_used_in_execution_dag(column_type: Union[str, DataDesignerColumn
         DataDesignerColumnType.LLM_TEXT,
         DataDesignerColumnType.VALIDATION,
     }
+    if can_run_data_designer_locally():
+        for plugin in plugin_manager.get_plugins(PluginType.COLUMN_GENERATOR):
+            dag_column_types.add(DataDesignerColumnType(plugin.name))
+    return column_type in dag_column_types
 
 
 def column_type_is_llm_generated(column_type: Union[str, DataDesignerColumnType]) -> bool:
     """Return True if the column type is an LLM-generated column."""
     column_type = resolve_string_enum(column_type, DataDesignerColumnType)
-    return column_type in {
+    llm_generated_column_types = {
         DataDesignerColumnType.LLM_TEXT,
         DataDesignerColumnType.LLM_CODE,
         DataDesignerColumnType.LLM_STRUCTURED,
         DataDesignerColumnType.LLM_JUDGE,
     }
+    if can_run_data_designer_locally():
+        for plugin in plugin_manager.get_plugins(PluginType.COLUMN_GENERATOR):
+            if "model_registry" in (plugin.task_cls.metadata().required_resources or []):
+                llm_generated_column_types.add(DataDesignerColumnType(plugin.name))
+    return column_type in llm_generated_column_types
 
 
 def get_column_config_from_kwargs(name: str, column_type: DataDesignerColumnType, **kwargs) -> ColumnConfigT:
@@ -113,12 +127,16 @@ def get_column_config_from_kwargs(name: str, column_type: DataDesignerColumnType
         return SamplerColumnConfig(name=name, **_resolve_sampler_kwargs(name, kwargs))
     elif column_type == DataDesignerColumnType.SEED_DATASET:
         return SeedDatasetColumnConfig(name=name, **kwargs)
+    elif can_run_data_designer_locally() and column_type.value in plugin_manager.get_plugin_names(
+        PluginType.COLUMN_GENERATOR
+    ):
+        return plugin_manager.get_plugin(column_type.value).config_cls(name=name, **kwargs)
     raise InvalidColumnTypeError(f"🛑 {column_type} is not a valid column type.")  # pragma: no cover
 
 
 def get_column_display_order() -> list[DataDesignerColumnType]:
     """Return the preferred display order of the column types."""
-    return [
+    display_order = [
         DataDesignerColumnType.SEED_DATASET,
         DataDesignerColumnType.SAMPLER,
         DataDesignerColumnType.LLM_TEXT,
@@ -128,6 +146,10 @@ def get_column_display_order() -> list[DataDesignerColumnType]:
         DataDesignerColumnType.VALIDATION,
         DataDesignerColumnType.EXPRESSION,
     ]
+    if can_run_data_designer_locally():
+        for plugin in plugin_manager.get_plugins(PluginType.COLUMN_GENERATOR):
+            display_order.append(DataDesignerColumnType(plugin.name))
+    return display_order
 
 
 def _resolve_sampler_kwargs(name: str, kwargs: dict) -> dict:

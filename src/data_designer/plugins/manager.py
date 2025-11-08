@@ -15,18 +15,6 @@ from data_designer.plugins.plugin import Plugin, PluginType
 logger = logging.getLogger(__name__)
 
 
-def _get_default_plugin_directory() -> Path:
-    """Get the default plugin directory from environment or user's home directory.
-
-    This function is called at runtime rather than at module import time,
-    allowing tests to override the plugin directory via environment variables.
-    """
-    env_dir = os.getenv("DATA_DESIGNER_PLUGIN_DIR")
-    if env_dir:
-        return Path(env_dir)
-    return Path.home() / ".data_designer" / "plugins"
-
-
 class PluginManager:
     def __init__(self):
         self.registry = _PluginRegistry()
@@ -49,7 +37,9 @@ class PluginManager:
         return type_union
 
     def discover(self, plugin_dir: Optional[Path] = None) -> Self:
-        plugin_dir = Path(plugin_dir or _get_default_plugin_directory())
+        plugin_dir = Path(
+            plugin_dir or os.getenv("DATA_DESIGNER_PLUGIN_DIR", Path.home() / ".data_designer" / "plugins")
+        )
 
         if not plugin_dir.exists():
             return self
