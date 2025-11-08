@@ -54,6 +54,11 @@ from .utils.misc import (
 from .utils.type_helpers import resolve_string_enum
 from .utils.validation import ViolationLevel, rich_print_violations, validate_data_designer_config
 
+if can_run_data_designer_locally():
+    from data_designer.plugins.manager import PluginManager, PluginType
+
+    plugin_manager = PluginManager()
+
 logger = logging.getLogger(__name__)
 
 
@@ -633,6 +638,14 @@ class DataDesignerConfigBuilder:
             DataDesignerColumnType.LLM_JUDGE,
             DataDesignerColumnType.VALIDATION,
             DataDesignerColumnType.EXPRESSION,
+            *(
+                []
+                if not can_run_data_designer_locally()
+                else [
+                    DataDesignerColumnType(name)
+                    for name in plugin_manager.get_plugin_names(PluginType.COLUMN_GENERATOR)
+                ]
+            ),
         ]:
             columns = self.get_columns_of_type(column_type)
             if len(columns) > 0:

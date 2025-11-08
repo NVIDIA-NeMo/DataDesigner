@@ -9,7 +9,7 @@ from data_designer.engine.configurable_task import ConfigurableTask
 
 
 class PluginType(str, Enum):
-    COLUMN_GENERATOR = "column_generator"
+    COLUMN_GENERATOR = "column-generator"
 
     @property
     def discriminator_field(self) -> str:
@@ -23,6 +23,11 @@ class Plugin(BaseModel):
     task_cls: Type[ConfigurableTask]
     config_cls: Type[ConfigBase]
     plugin_type: PluginType
+    emoji: str = "🔌"
+
+    @property
+    def enum_key(self) -> str:
+        return self.name.replace("-", "_").upper()
 
     @property
     def name(self) -> str:

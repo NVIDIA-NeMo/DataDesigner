@@ -1,5 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+from ..logging import LoggingConfig, configure_logging
+
+configure_logging(LoggingConfig.default())
 
 from ..config.analysis.column_profilers import JudgeScoreProfilerConfig
 from ..config.column_configs import (
@@ -58,7 +61,6 @@ from ..config.validator_params import (
     RemoteValidatorParams,
     ValidatorType,
 )
-from ..logging import LoggingConfig, configure_logging
 
 local_library_imports = []
 try:
@@ -131,6 +133,3 @@ __all__ = [
 ]
 
 __all__.extend(local_library_imports)
-
-
-configure_logging(LoggingConfig.default())
