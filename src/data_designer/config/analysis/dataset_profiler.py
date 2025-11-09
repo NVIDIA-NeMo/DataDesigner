@@ -3,7 +3,7 @@
 
 from functools import cached_property
 from pathlib import Path
-from typing import Optional, Union
+from typing import Annotated, Optional, Union
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -18,7 +18,7 @@ from .utils.reporting import ReportSection, generate_analysis_report
 class DatasetProfilerResults(BaseModel):
     num_records: int
     target_num_records: int
-    column_statistics: list[ColumnStatisticsT] = Field(..., min_length=1)
+    column_statistics: list[Annotated[ColumnStatisticsT, Field(discriminator="column_type")]] = Field(..., min_length=1)
     side_effect_column_names: Optional[list[str]] = None
     column_profiles: Optional[list[ColumnProfilerResultsT]] = None
 

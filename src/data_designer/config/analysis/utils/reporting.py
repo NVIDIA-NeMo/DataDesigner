@@ -27,7 +27,6 @@ from .errors import AnalysisReportError
 if TYPE_CHECKING:
     from ...analysis.dataset_profiler import DatasetProfilerResults
 
-
 HEADER_STYLE = "dim"
 RULE_STYLE = f"bold {ColorPalette.NVIDIA_GREEN.value}"
 ACCENT_STYLE = f"bold {ColorPalette.BLUE.value}"

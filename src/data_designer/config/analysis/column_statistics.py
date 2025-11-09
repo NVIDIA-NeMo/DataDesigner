@@ -5,16 +5,22 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Annotated, Any, Literal, Optional, Union
+from typing import Any, Literal, Optional, Union
 
 from pandas import Series
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, create_model, field_validator, model_validator
 from typing_extensions import Self, TypeAlias
 
 from ..column_types import DataDesignerColumnType
 from ..sampler_params import SamplerType
 from ..utils.constants import EPSILON
+from ..utils.misc import can_run_data_designer_locally
 from ..utils.numerical_helpers import is_float, is_int, prepare_number_for_reporting
+
+if can_run_data_designer_locally():
+    from data_designer.plugins.manager import PluginManager, PluginType
+
+    plugin_manager = PluginManager()
 
 
 class MissingValue(str, Enum):
@@ -238,17 +244,42 @@ class NumericalDistribution(BaseModel):
         )
 
 
-ColumnStatisticsT: TypeAlias = Annotated[
-    Union[
-        GeneralColumnStatistics,
-        LLMTextColumnStatistics,
-        LLMCodeColumnStatistics,
-        LLMStructuredColumnStatistics,
-        LLMJudgedColumnStatistics,
-        SamplerColumnStatistics,
-        SeedDatasetColumnStatistics,
-        ValidationColumnStatistics,
-        ExpressionColumnStatistics,
-    ],
-    Field(discriminator="column_type"),
+ColumnStatisticsT: TypeAlias = Union[
+    GeneralColumnStatistics,
+    LLMTextColumnStatistics,
+    LLMCodeColumnStatistics,
+    LLMStructuredColumnStatistics,
+    LLMJudgedColumnStatistics,
+    SamplerColumnStatistics,
+    SeedDatasetColumnStatistics,
+    ValidationColumnStatistics,
+    ExpressionColumnStatistics,
 ]
+
+
+DEFAULT_COLUMN_STATISTICS_MAP = {
+    DataDesignerColumnType.EXPRESSION: ExpressionColumnStatistics,
+    DataDesignerColumnType.LLM_CODE: LLMCodeColumnStatistics,
+    DataDesignerColumnType.LLM_JUDGE: LLMJudgedColumnStatistics,
+    DataDesignerColumnType.LLM_STRUCTURED: LLMStructuredColumnStatistics,
+    DataDesignerColumnType.LLM_TEXT: LLMTextColumnStatistics,
+    DataDesignerColumnType.SAMPLER: SamplerColumnStatistics,
+    DataDesignerColumnType.SEED_DATASET: SeedDatasetColumnStatistics,
+    DataDesignerColumnType.VALIDATION: ValidationColumnStatistics,
+}
+
+if can_run_data_designer_locally() and plugin_manager.num_plugins(PluginType.COLUMN_GENERATOR) > 0:
+    for plugin in plugin_manager.get_plugins(PluginType.COLUMN_GENERATOR):
+        # Dynamically create a statistics class for this plugin using Pydantic's create_model
+        plugin_stats_cls_name = f"{plugin.enum_key.title().replace('_', '')}ColumnStatistics"
+
+        # Create the class with proper Pydantic field
+        plugin_stats_cls = create_model(
+            plugin_stats_cls_name,
+            __base__=GeneralColumnStatistics,
+            column_type=(Literal[plugin.name], plugin.name),
+        )
+
+        # Add the plugin statistics class to the union
+        ColumnStatisticsT |= plugin_stats_cls
+        DEFAULT_COLUMN_STATISTICS_MAP[DataDesignerColumnType(plugin.name)] = plugin_stats_cls

@@ -11,16 +11,9 @@ from pydantic import BaseModel
 from typing_extensions import Self
 
 from data_designer.config.analysis.column_statistics import (
+    DEFAULT_COLUMN_STATISTICS_MAP,
     ColumnStatisticsT,
-    ExpressionColumnStatistics,
     GeneralColumnStatistics,
-    LLMCodeColumnStatistics,
-    LLMJudgedColumnStatistics,
-    LLMStructuredColumnStatistics,
-    LLMTextColumnStatistics,
-    SamplerColumnStatistics,
-    SeedDatasetColumnStatistics,
-    ValidationColumnStatistics,
 )
 from data_designer.config.column_types import ColumnConfigT, DataDesignerColumnType
 from data_designer.config.sampler_params import SamplerType, is_numerical_sampler_type
@@ -132,18 +125,6 @@ class ValidationColumnStatisticsCalculator(GeneralColumnStatisticsCalculator):
 
 
 class ExpressionColumnStatisticsCalculator(GeneralColumnStatisticsCalculator): ...
-
-
-DEFAULT_COLUMN_STATISTICS_MAP = {
-    DataDesignerColumnType.EXPRESSION: ExpressionColumnStatistics,
-    DataDesignerColumnType.LLM_CODE: LLMCodeColumnStatistics,
-    DataDesignerColumnType.LLM_JUDGE: LLMJudgedColumnStatistics,
-    DataDesignerColumnType.LLM_STRUCTURED: LLMStructuredColumnStatistics,
-    DataDesignerColumnType.LLM_TEXT: LLMTextColumnStatistics,
-    DataDesignerColumnType.SAMPLER: SamplerColumnStatistics,
-    DataDesignerColumnType.SEED_DATASET: SeedDatasetColumnStatistics,
-    DataDesignerColumnType.VALIDATION: ValidationColumnStatistics,
-}
 
 
 ColumnStatisticsCalculatorT: TypeAlias = Union[
