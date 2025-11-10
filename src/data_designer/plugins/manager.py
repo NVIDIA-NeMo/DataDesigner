@@ -1,11 +1,7 @@
-import importlib.util
-import inspect
+from importlib.metadata import entry_points
 import logging
-import os
-from pathlib import Path
-import sys
 import threading
-from typing import Iterator, Optional, Type, TypeAlias
+from typing import Type, TypeAlias
 
 from typing_extensions import Self
 
@@ -16,8 +12,15 @@ logger = logging.getLogger(__name__)
 
 
 class PluginManager:
+    _instance = None
+    _plugins_discovered = False
+    _lock = threading.Lock()
+
     def __init__(self):
         self.registry = _PluginRegistry()
+        if not self._plugins_discovered:
+            self.discover()
+            self._plugins_discovered = True
 
     def get_plugin(self, plugin_name: str) -> Plugin:
         return self.registry.get(plugin_name)
@@ -36,53 +39,33 @@ class PluginManager:
             type_union |= plugin.config_cls
         return type_union
 
-    def discover(self, plugin_dir: Optional[Path] = None) -> Self:
-        plugin_dir = Path(
-            plugin_dir or os.getenv("DATA_DESIGNER_PLUGIN_DIR", Path.home() / ".data_designer" / "plugins")
-        )
-
-        if not plugin_dir.exists():
-            return self
-
-        for file_path in plugin_dir.rglob("*.py"):
-            if file_path.name.startswith("_"):
-                continue
-
-            for plugin in self._iter_plugins_from_file(file_path, plugin_dir):
+    def discover(self) -> Self:
+        for ep in entry_points(group="data_designer.plugins"):
+            try:
+                plugin = ep.load()
                 if isinstance(plugin, Plugin):
-                    self.registry.register_plugin(plugin)
+                    with self._lock:
+                        self.registry.register_plugin(plugin)
                     logger.info(
                         f"🔌 Plugin discovered ➜ {plugin.plugin_type.value.replace('-', ' ')} "
                         f"{plugin.name.upper().replace('-', '_')} is now available ⚡️"
                     )
+            except Exception as e:
+                logger.warning(f"Failed to load plugin from entry point '{ep.name}': {e}")
 
         return self
 
-    def _iter_plugins_from_file(self, file_path: Path, plugin_dir: Path) -> Optional[Iterator[Plugin]]:
-        label = str(file_path.relative_to(plugin_dir)).replace("/", "_").replace(".", "_")
-        module_name = f"_plugin_{label}"
-
-        try:
-            spec = importlib.util.spec_from_file_location(module_name, file_path)
-            if spec is None or spec.loader is None:
-                return
-
-            module = importlib.util.module_from_spec(spec)
-            sys.modules[module_name] = module
-            spec.loader.exec_module(module)
-
-            for _, obj in inspect.getmembers(module):
-                if isinstance(obj, Plugin):
-                    yield obj
-
-        except Exception:
-            return
+    def __new__(cls, *args, **kwargs):
+        """Plugin manager is a singleton."""
+        if not cls._instance:
+            with cls._lock:
+                if not cls._instance:
+                    cls._instance = super().__new__(cls)
+        return cls._instance
 
 
 class _PluginRegistry:
     _plugins: dict[str, Plugin] = {}
-    _instance = None
-    _lock = threading.Lock()
 
     def get(self, plugin_name: str) -> Plugin:
         if plugin_name not in self._plugins:
@@ -90,20 +73,10 @@ class _PluginRegistry:
         return self._plugins[plugin_name]
 
     def register_plugin(self, plugin: Plugin) -> None:
-        with self._lock:
-            if plugin.name in self._plugins:
-                raise PluginRegistrationError(f"Plugin '{plugin.name}' already registered.")
-            self._plugins[plugin.name] = plugin
+        if plugin.name in self._plugins:
+            raise PluginRegistrationError(f"Plugin '{plugin.name}' already registered.")
+        self._plugins[plugin.name] = plugin
 
     def clear(self) -> None:
         """Clear all registered plugins. Primarily for testing purposes."""
-        with self._lock:
-            self._plugins.clear()
-
-    def __new__(cls, *args, **kwargs):
-        """Plugin registry is a singleton."""
-        if not cls._instance:
-            with cls._lock:
-                if not cls._instance:
-                    cls._instance = super().__new__(cls)
-        return cls._instance
+        self._plugins.clear()

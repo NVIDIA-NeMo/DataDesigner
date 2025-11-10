@@ -26,6 +26,10 @@ class Plugin(BaseModel):
     emoji: str = "🔌"
 
     @property
+    def config_type_as_class_name(self) -> str:
+        return self.enum_key.title().replace("_", "")
+
+    @property
     def enum_key(self) -> str:
         return self.name.replace("-", "_").upper()
 
