@@ -14,7 +14,7 @@ from data_designer.engine.registry.base import TaskRegistry
 class ColumnProfilerRegistry(TaskRegistry[ColumnProfilerType, ColumnProfiler, ConfigBase]): ...
 
 
-def create_default_column_profiler_registry() -> ColumnProfilerRegistry:
+def create_builtin_column_profiler_registry() -> ColumnProfilerRegistry:
     registry = ColumnProfilerRegistry()
     registry.register(ColumnProfilerType.JUDGE_SCORE, JudgeScoreProfiler, JudgeScoreProfilerConfig, False)
     return registry

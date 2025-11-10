@@ -5,12 +5,12 @@ from data_designer.config.processors import DropColumnsProcessorConfig, Processo
 from data_designer.engine.processing.processors.drop_columns import DropColumnsProcessor
 from data_designer.engine.processing.processors.registry import (
     ProcessorRegistry,
-    create_default_processor_registry,
+    create_builtin_processor_registry,
 )
 
 
 def test_create_default_processor_registry():
-    registry = create_default_processor_registry()
+    registry = create_builtin_processor_registry()
 
     assert isinstance(registry, ProcessorRegistry)
     assert ProcessorType.DROP_COLUMNS in ProcessorRegistry._registry
