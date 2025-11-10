@@ -22,9 +22,10 @@ from rich.text import Text
 
 from ..base import ConfigBase
 from ..columns import DataDesignerColumnType
-from ..models import ModelConfig, ModelProvider
+from ..models import ModelConfig, ModelProvider, get_nvidia_api_key, get_openai_api_key
 from ..sampler_params import SamplerType
 from .code_lang import code_lang_to_syntax_lexer
+from .constants import NVIDIA_API_KEY_ENV_VAR_NAME, OPENAI_API_KEY_ENV_VAR_NAME
 from .errors import DatasetSampleDisplayError
 
 if TYPE_CHECKING:
@@ -274,7 +275,15 @@ def display_model_configs_table(model_configs: list[ModelConfig]) -> None:
             str(model_config.inference_parameters.temperature),
             str(model_config.inference_parameters.top_p),
         )
-    group = Group(Rule(title="Model Configs"), table_model_configs)
+    group_args: list = [Rule(title="Model Configs"), table_model_configs]
+    if len(model_configs) == 0:
+        subtitle = Text(
+            "‼️ No model configs found. Please provide at least one model config to the config builder",
+            style="dim",
+            justify="center",
+        )
+        group_args.insert(1, subtitle)
+    group = Group(*group_args)
     console.print(group)
 
 
@@ -284,7 +293,18 @@ def display_model_providers_table(model_providers: list[ModelProvider]) -> None:
     table_model_providers.add_column("Endpoint")
     table_model_providers.add_column("API Key")
     for model_provider in model_providers:
-        table_model_providers.add_row(model_provider.name, model_provider.endpoint, model_provider.api_key)
+        api_key = model_provider.api_key
+        if model_provider.api_key == OPENAI_API_KEY_ENV_VAR_NAME:
+            if get_openai_api_key() is not None:
+                api_key = get_openai_api_key()[:1] + "********"
+            else:
+                api_key = f"* {OPENAI_API_KEY_ENV_VAR_NAME!r} not set in environment variables * "
+        elif model_provider.api_key == NVIDIA_API_KEY_ENV_VAR_NAME:
+            if get_nvidia_api_key() is not None:
+                api_key = get_nvidia_api_key()[:1] + "********"
+            else:
+                api_key = f"* {NVIDIA_API_KEY_ENV_VAR_NAME!r} not set in environment variables *"
+        table_model_providers.add_row(model_provider.name, model_provider.endpoint, api_key)
     group = Group(Rule(title="Model Providers"), table_model_providers)
     console.print(group)
 

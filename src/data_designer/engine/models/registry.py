@@ -71,7 +71,9 @@ class ModelRegistry:
     def run_health_check(self) -> None:
         logger.info("🩺 Running health checks for models...")
         for model in self._models.values():
-            logger.info(f"  |-- 👀 Checking '{model.model_name}'...")
+            logger.info(
+                f"  |-- 👀 Checking {model.model_name!r} in provider named {model.model_provider_name!r} for model alias {model.model_alias!r}..."
+            )
             try:
                 model.generate(
                     prompt="Hello!",
