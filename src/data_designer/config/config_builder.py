@@ -47,18 +47,9 @@ from .seed import (
 from .utils.constants import DEFAULT_REPR_HTML_STYLE, REPR_HTML_TEMPLATE
 from .utils.info import ConfigBuilderInfo
 from .utils.io_helpers import serialize_data, smart_load_yaml
-from .utils.misc import (
-    can_run_data_designer_locally,
-    json_indent_list_of_strings,
-    kebab_to_snake,
-)
+from .utils.misc import can_run_data_designer_locally, json_indent_list_of_strings, kebab_to_snake
 from .utils.type_helpers import resolve_string_enum
 from .utils.validation import ViolationLevel, rich_print_violations, validate_data_designer_config
-
-if can_run_data_designer_locally():
-    from data_designer.plugins.manager import PluginManager
-
-    plugin_manager = PluginManager()
 
 logger = logging.getLogger(__name__)
 
