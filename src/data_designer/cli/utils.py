@@ -1,0 +1,172 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+from pathlib import Path
+
+import yaml
+
+from data_designer.config.errors import InvalidConfigError, InvalidFileFormatError, InvalidFilePathError
+
+
+def get_default_config_dir() -> Path:
+    """Get the default configuration directory for Data Designer.
+
+    Returns:
+        Path to ~/.data-designer/
+    """
+    return Path.home() / ".data-designer"
+
+
+def ensure_config_dir_exists(config_dir: Path) -> None:
+    """Create configuration directory if it doesn't exist.
+
+    Args:
+        config_dir: Directory path to create
+    """
+    config_dir.mkdir(parents=True, exist_ok=True)
+
+
+def load_config_file(file_path: Path) -> dict:
+    """Load a YAML configuration file.
+
+    Args:
+        file_path: Path to the YAML file
+
+    Returns:
+        Parsed YAML content as dictionary
+
+    Raises:
+        InvalidFilePathError: If file doesn't exist
+        InvalidFileFormatError: If YAML is malformed
+        InvalidConfigError: If file is empty
+    """
+    if not file_path.exists():
+        raise InvalidFilePathError(f"Configuration file not found: {file_path}")
+
+    try:
+        with open(file_path) as f:
+            content = yaml.safe_load(f)
+
+        if content is None:
+            raise InvalidConfigError(f"Configuration file is empty: {file_path}")
+
+        return content
+
+    except yaml.YAMLError as e:
+        raise InvalidFileFormatError(f"Invalid YAML format in {file_path}: {e}")
+
+
+def save_config_file(file_path: Path, config: dict) -> None:
+    """Save configuration to a YAML file.
+
+    Args:
+        file_path: Path where to save the file
+        config: Configuration dictionary to save
+
+    Raises:
+        IOError: If file cannot be written
+    """
+    # Ensure parent directory exists
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(file_path, "w") as f:
+        yaml.safe_dump(
+            config,
+            f,
+            default_flow_style=False,
+            sort_keys=False,
+            indent=2,
+            allow_unicode=True,
+        )
+
+
+def get_model_provider_path(config_dir: Path | None = None) -> Path:
+    """Get the path to the model provider configuration file.
+
+    Args:
+        config_dir: Optional custom config directory. Defaults to ~/.data-designer/
+
+    Returns:
+        Path to model_providers.yaml
+    """
+    if config_dir is None:
+        config_dir = get_default_config_dir()
+    return config_dir / "model_providers.yaml"
+
+
+def get_model_config_path(config_dir: Path | None = None) -> Path:
+    """Get the path to the model configuration file.
+
+    Args:
+        config_dir: Optional custom config directory. Defaults to ~/.data-designer/
+
+    Returns:
+        Path to model_configs.yaml
+    """
+    if config_dir is None:
+        config_dir = get_default_config_dir()
+    return config_dir / "model_configs.yaml"
+
+
+def validate_url(url: str) -> bool:
+    """Validate that a string is a valid URL.
+
+    Args:
+        url: URL string to validate
+
+    Returns:
+        True if valid URL, False otherwise
+    """
+    if not url:
+        return False
+
+    # Basic validation - must start with http:// or https://
+    if not url.startswith(("http://", "https://")):
+        return False
+
+    # Must have at least a domain after the protocol
+    parts = url.split("://", 1)
+    if len(parts) != 2 or not parts[1]:
+        return False
+
+    return True
+
+
+def validate_numeric_range(value: str, min_value: float, max_value: float) -> tuple[bool, float | None]:
+    """Validate that a string is a valid number within a range.
+
+    Args:
+        value: String to validate and convert
+        min_value: Minimum allowed value (inclusive)
+        max_value: Maximum allowed value (inclusive)
+
+    Returns:
+        Tuple of (is_valid, parsed_value)
+        If invalid, parsed_value is None
+    """
+    try:
+        num = float(value)
+        if min_value <= num <= max_value:
+            return True, num
+        return False, None
+    except ValueError:
+        return False, None
+
+
+def validate_positive_int(value: str) -> tuple[bool, int | None]:
+    """Validate that a string is a valid positive integer.
+
+    Args:
+        value: String to validate and convert
+
+    Returns:
+        Tuple of (is_valid, parsed_value)
+        If invalid, parsed_value is None
+    """
+    try:
+        num = int(value)
+        if num > 0:
+            return True, num
+        return False, None
+    except ValueError:
+        return False, None
