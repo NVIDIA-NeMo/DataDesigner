@@ -83,7 +83,7 @@ class _PluginRegistry:
 
     def register_plugin(self, plugin: Plugin) -> None:
         if plugin.name in self._plugins:
-            raise PluginRegistrationError(f"Plugin '{plugin.name}' already registered.")
+            raise PluginRegistrationError(f"Plugin {plugin.name!r} already registered.")
         self._plugins[plugin.name] = plugin
 
     def clear(self) -> None:
