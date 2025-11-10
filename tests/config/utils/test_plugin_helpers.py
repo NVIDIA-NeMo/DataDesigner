@@ -214,13 +214,13 @@ def test_inject_into_column_config_type_union_with_plugins(mock_plugin_manager: 
         pass
 
     with patch("data_designer.config.utils.plugin_helpers.plugin_manager", mock_plugin_manager):
-        mock_plugin_manager.update_type_union.return_value = str | int
+        mock_plugin_manager.add_plugin_types.return_value = str | int
 
         with patch("data_designer.config.utils.plugin_helpers.PluginType", MockPluginType):
             result = inject_into_column_config_type_union(BaseType)
 
     assert result == str | int
-    mock_plugin_manager.update_type_union.assert_called_once_with(BaseType, MockPluginType.COLUMN_GENERATOR)
+    mock_plugin_manager.add_plugin_types.assert_called_once_with(BaseType, MockPluginType.COLUMN_GENERATOR)
 
 
 def test_inject_into_column_config_type_union_plugin_manager_disabled() -> None:

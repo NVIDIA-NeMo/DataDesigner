@@ -12,8 +12,8 @@ import pytest
 from data_designer.config.base import ConfigBase
 from data_designer.config.column_configs import SingleColumnConfig
 from data_designer.engine.configurable_task import ConfigurableTask, ConfigurableTaskMetadata
-from data_designer.plugins.errors import PluginNotFoundError, PluginRegistrationError
-from data_designer.plugins.manager import PluginManager, _PluginRegistry
+from data_designer.plugins.errors import PluginNotFoundError
+from data_designer.plugins.manager import PluginManager
 from data_designer.plugins.plugin import Plugin, PluginType
 
 # =============================================================================
@@ -75,19 +75,11 @@ def plugin_b() -> Plugin:
 @pytest.fixture(autouse=True)
 def clean_plugin_manager() -> None:
     """Reset PluginManager singleton state before and after each test."""
-    original_instance = PluginManager._instance
-    original_discovered = PluginManager._plugins_discovered
-    original_plugins = _PluginRegistry._plugins.copy()
-
-    PluginManager._instance = None
-    PluginManager._plugins_discovered = False
-    _PluginRegistry._plugins = {}
+    PluginManager.reset()
 
     yield
 
-    PluginManager._instance = original_instance
-    PluginManager._plugins_discovered = original_discovered
-    _PluginRegistry._plugins = original_plugins
+    PluginManager.reset()
 
 
 @pytest.fixture
@@ -115,51 +107,6 @@ def mock_entry_points(plugin_a: Plugin, plugin_b: Plugin) -> list[MagicMock]:
     mock_ep_b.load.return_value = plugin_b
 
     return [mock_ep_a, mock_ep_b]
-
-
-# =============================================================================
-# _PluginRegistry Tests
-# =============================================================================
-
-
-def test_plugin_registry_register_and_get(plugin_a: Plugin) -> None:
-    """Test plugin registration and retrieval."""
-    registry = _PluginRegistry()
-
-    registry.register_plugin(plugin_a)
-
-    assert registry.get("test-plugin-a") == plugin_a
-
-
-def test_plugin_registry_duplicate_raises_error(plugin_a: Plugin) -> None:
-    """Test duplicate registration raises PluginRegistrationError."""
-    registry = _PluginRegistry()
-    registry.register_plugin(plugin_a)
-
-    with pytest.raises(PluginRegistrationError, match="Plugin 'test-plugin-a' already registered"):
-        registry.register_plugin(plugin_a)
-
-
-def test_plugin_registry_get_nonexistent_raises_error() -> None:
-    """Test nonexistent plugin raises PluginNotFoundError."""
-    registry = _PluginRegistry()
-
-    with pytest.raises(PluginNotFoundError, match="Plugin 'nonexistent' not found"):
-        registry.get("nonexistent")
-
-
-def test_plugin_registry_clear(plugin_a: Plugin, plugin_b: Plugin) -> None:
-    """Test clear() removes all plugins."""
-    registry = _PluginRegistry()
-    registry.register_plugin(plugin_a)
-    registry.register_plugin(plugin_b)
-
-    registry.clear()
-
-    with pytest.raises(PluginNotFoundError):
-        registry.get("test-plugin-a")
-    with pytest.raises(PluginNotFoundError):
-        registry.get("test-plugin-b")
 
 
 # =============================================================================
@@ -326,7 +273,7 @@ def test_plugin_manager_update_type_union(mock_plugin_discovery, mock_entry_poin
         manager = PluginManager()
 
         type_union: type = ConfigBase
-        updated_union = manager.update_type_union(type_union, PluginType.COLUMN_GENERATOR)
+        updated_union = manager.add_plugin_types(type_union, PluginType.COLUMN_GENERATOR)
 
         assert StubPluginConfigA in updated_union.__args__
         assert StubPluginConfigB in updated_union.__args__

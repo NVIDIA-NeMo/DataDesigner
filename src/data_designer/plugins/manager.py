@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from copy import deepcopy
 from importlib.metadata import entry_points
 import logging
 import os
@@ -23,17 +24,42 @@ class PluginManager:
     _plugins_discovered = False
     _lock = threading.Lock()
 
+    _plugins: dict[str, Plugin] = {}
+
     def __init__(self):
-        self.registry = _PluginRegistry()
         if not self._plugins_discovered:
             self.discover()
             self._plugins_discovered = True
 
+    @classmethod
+    def reset(cls) -> None:
+        cls._instance = None
+        cls._plugins_discovered = False
+        cls._plugins = {}
+
+    def add_plugin(self, plugin: Plugin) -> None:
+        if plugin.name in self._plugins:
+            raise PluginRegistrationError(f"Plugin {plugin.name!r} already added.")
+        self._plugins[plugin.name] = plugin
+
+    def add_plugin_types(self, type_union: Type[TypeAlias], plugin_type: PluginType) -> Type[TypeAlias]:
+        for plugin in self.get_plugins(plugin_type):
+            type_union |= plugin.config_cls
+        return type_union
+
+    def clear_plugins(self) -> None:
+        self._plugins.clear()
+
+    def copy_plugins(self) -> dict[str, Plugin]:
+        return deepcopy(self._plugins)
+
     def get_plugin(self, plugin_name: str) -> Plugin:
-        return self.registry.get(plugin_name)
+        if plugin_name not in self._plugins:
+            raise PluginNotFoundError(f"Plugin {plugin_name!r} not found.")
+        return self._plugins[plugin_name]
 
     def get_plugins(self, plugin_type: PluginType) -> list[Plugin]:
-        return [plugin for plugin in self.registry._plugins.values() if plugin.plugin_type == plugin_type]
+        return [plugin for plugin in self._plugins.values() if plugin.plugin_type == plugin_type]
 
     def get_plugin_names(self, plugin_type: PluginType) -> list[str]:
         return [plugin.name for plugin in self.get_plugins(plugin_type)]
@@ -41,10 +67,8 @@ class PluginManager:
     def num_plugins(self, plugin_type: PluginType) -> int:
         return len(self.get_plugins(plugin_type))
 
-    def update_type_union(self, type_union: Type[TypeAlias], plugin_type: PluginType) -> Type[TypeAlias]:
-        for plugin in self.get_plugins(plugin_type):
-            type_union |= plugin.config_cls
-        return type_union
+    def set_plugins(self, plugins: dict[str, Plugin]) -> None:
+        self._plugins = plugins
 
     def discover(self) -> Self:
         if PLUGINS_DISABLED:
@@ -54,7 +78,7 @@ class PluginManager:
                 plugin = ep.load()
                 if isinstance(plugin, Plugin):
                     with self._lock:
-                        self.registry.register_plugin(plugin)
+                        self.add_plugin(plugin)
                     logger.info(
                         f"🔌 Plugin discovered ➜ {plugin.plugin_type.value.replace('-', ' ')} "
                         f"{plugin.name.upper().replace('-', '_')} is now available ⚡️"
@@ -71,21 +95,3 @@ class PluginManager:
                 if not cls._instance:
                     cls._instance = super().__new__(cls)
         return cls._instance
-
-
-class _PluginRegistry:
-    _plugins: dict[str, Plugin] = {}
-
-    def get(self, plugin_name: str) -> Plugin:
-        if plugin_name not in self._plugins:
-            raise PluginNotFoundError(f"Plugin {plugin_name!r} not found.")
-        return self._plugins[plugin_name]
-
-    def register_plugin(self, plugin: Plugin) -> None:
-        if plugin.name in self._plugins:
-            raise PluginRegistrationError(f"Plugin {plugin.name!r} already registered.")
-        self._plugins[plugin.name] = plugin
-
-    def clear(self) -> None:
-        """Clear all registered plugins. Primarily for testing purposes."""
-        self._plugins.clear()

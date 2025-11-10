@@ -81,5 +81,5 @@ def inject_into_column_config_type_union(column_config_type: Type[TypeAlias]) ->
         The column config type with plugins injected.
     """
     if plugin_manager:
-        column_config_type = plugin_manager.update_type_union(column_config_type, PluginType.COLUMN_GENERATOR)
+        column_config_type = plugin_manager.add_plugin_types(column_config_type, PluginType.COLUMN_GENERATOR)
     return column_config_type
