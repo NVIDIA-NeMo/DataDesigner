@@ -60,7 +60,7 @@ class PluginManager:
                         f"{plugin.name.upper().replace('-', '_')} is now available ⚡️"
                     )
             except Exception as e:
-                logger.warning(f"🛑 Failed to load plugin from entry point '{ep.name}': {e}")
+                logger.warning(f"🛑 Failed to load plugin from entry point {ep.name!r}: {e}")
 
         return self
 
