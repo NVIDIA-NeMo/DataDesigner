@@ -78,7 +78,7 @@ class _PluginRegistry:
 
     def get(self, plugin_name: str) -> Plugin:
         if plugin_name not in self._plugins:
-            raise PluginNotFoundError(f"Plugin '{plugin_name}' not found.")
+            raise PluginNotFoundError(f"Plugin {plugin_name!r} not found.")
         return self._plugins[plugin_name]
 
     def register_plugin(self, plugin: Plugin) -> None:
