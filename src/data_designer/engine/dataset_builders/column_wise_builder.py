@@ -1,20 +1,26 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from collections.abc import Callable
 import functools
 import json
 import logging
 from pathlib import Path
 import time
+from typing import Callable
 
 import pandas as pd
 
-from data_designer.config.columns import ColumnConfigT
+from data_designer.config.columns import ColumnConfigT, column_type_is_llm_generated
+from data_designer.config.dataset_builders import BuildStage
+from data_designer.config.processors import (
+    DropColumnsProcessorConfig,
+    ProcessorConfig,
+    ProcessorType,
+)
 from data_designer.engine.column_generators.generators.base import ColumnGenerator, GenerationStrategy
 from data_designer.engine.column_generators.generators.llm_generators import WithLLMGeneration
-from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage, BatchStage
-from data_designer.engine.dataset_builders.errors import DatasetGenerationError
+from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
+from data_designer.engine.dataset_builders.errors import DatasetGenerationError, DatasetProcessingError
 from data_designer.engine.dataset_builders.multi_column_configs import (
     DatasetBuilderColumnConfigT,
     MultiColumnConfig,
@@ -26,7 +32,7 @@ from data_designer.engine.dataset_builders.utils.concurrency import (
 from data_designer.engine.dataset_builders.utils.dataset_batch_manager import (
     DatasetBatchManager,
 )
-from data_designer.engine.processing.processors.configs import DropColumnsProcessorConfig
+from data_designer.engine.processing.processors.base import Processor
 from data_designer.engine.processing.processors.drop_columns import DropColumnsProcessor
 from data_designer.engine.registry.data_designer_registry import DataDesignerRegistry
 from data_designer.engine.resources.resource_provider import ResourceProvider
@@ -38,6 +44,7 @@ class ColumnWiseDatasetBuilder:
     def __init__(
         self,
         column_configs: list[DatasetBuilderColumnConfigT],
+        processor_configs: list[ProcessorConfig],
         resource_provider: ResourceProvider,
         registry: DataDesignerRegistry | None = None,
     ):
@@ -46,6 +53,7 @@ class ColumnWiseDatasetBuilder:
         self._records_to_drop: set[int] = set()
         self._registry = registry or DataDesignerRegistry()
         self._column_configs = column_configs
+        self._processors: dict[BuildStage, list[Processor]] = self._initialize_processors(processor_configs)
         self._validate_column_configs()
 
     @property
@@ -56,10 +64,10 @@ class ColumnWiseDatasetBuilder:
     def single_column_configs(self) -> list[ColumnConfigT]:
         configs = []
         for config in self._column_configs:
-            if isinstance(config, ColumnConfigT):
-                configs.append(config)
-            elif isinstance(config, MultiColumnConfig):
+            if isinstance(config, MultiColumnConfig):
                 configs.extend(config.columns)
+            else:
+                configs.append(config)
         return configs
 
     def build(
@@ -79,8 +87,12 @@ class ColumnWiseDatasetBuilder:
         for batch_idx in range(1, self.batch_manager.num_batches + 1):
             logger.info(f"⏳ Processing batch {batch_idx} of {self.batch_manager.num_batches}")
             self._run_batch(generators)
-            df_batch = self.batch_manager.get_current_batch(as_dataframe=True)
-            self._write_processed_batch(self.drop_columns_if_needed(df_batch, save_dropped_columns=True))
+            df_batch = self._run_processors(
+                stage=BuildStage.POST_BATCH,
+                dataframe=self.batch_manager.get_current_batch(as_dataframe=True),
+                current_batch_number=batch_idx,
+            )
+            self._write_processed_batch(df_batch)
             self.batch_manager.finish_batch(on_batch_complete)
         self.batch_manager.finish()
 
@@ -99,7 +111,11 @@ class ColumnWiseDatasetBuilder:
         start_time = time.perf_counter()
         self.batch_manager.start(num_records=num_records, buffer_size=num_records)
         self._run_batch(generators, save_partial_results=False)
-        dataset = self.batch_manager.get_current_batch(as_dataframe=True)
+        dataset = self._run_processors(
+            stage=BuildStage.POST_BATCH,
+            dataframe=self.batch_manager.get_current_batch(as_dataframe=True),
+            current_batch_number=None,  # preview mode does not have a batch number
+        )
         self.batch_manager.reset()
 
         model_usage_stats = self._resource_provider.model_registry.get_model_usage_stats(
@@ -108,29 +124,6 @@ class ColumnWiseDatasetBuilder:
         logger.info(f"📊 Model usage summary:\n{json.dumps(model_usage_stats, indent=4)}")
 
         return dataset
-
-    def drop_columns_if_needed(self, dataframe: pd.DataFrame, *, save_dropped_columns: bool = False) -> pd.DataFrame:
-        if len(columns_to_drop := [config.name for config in self.single_column_configs if config.drop]) == 0:
-            return dataframe
-        try:
-            dropped_column_parquet_file_name = (
-                None
-                if not save_dropped_columns
-                else self.artifact_storage.create_batch_file_path(
-                    batch_number=self.batch_manager.get_current_batch_number(),
-                    batch_stage=BatchStage.DROPPED_COLUMNS,
-                ).name
-            )
-            df = DropColumnsProcessor(
-                config=DropColumnsProcessorConfig(
-                    column_names=columns_to_drop,
-                    dropped_column_parquet_file_name=dropped_column_parquet_file_name,
-                ),
-                resource_provider=self._resource_provider,
-            ).process(dataframe)
-            return df
-        except Exception as e:
-            raise DatasetGenerationError(f"🛑 Failed to drop columns {columns_to_drop}: {e}")
 
     def _initialize_generators(self) -> list[ColumnGenerator]:
         return [
@@ -178,7 +171,7 @@ class ColumnWiseDatasetBuilder:
         self.batch_manager.update_records(df.to_dict(orient="records"))
 
     def _run_model_health_check_if_needed(self) -> bool:
-        if any(config.column_type.has_prompt_templates for config in self.single_column_configs):
+        if any(column_type_is_llm_generated(config.column_type) for config in self.single_column_configs):
             self._resource_provider.model_registry.run_health_check()
 
     def _fan_out_with_threads(self, generator: WithLLMGeneration, max_workers: int) -> None:
@@ -189,7 +182,7 @@ class ColumnWiseDatasetBuilder:
             )
 
         logger.info(
-            f"🐙 Processing {generator.config.column_type.value} column '{generator.config.name}' "
+            f"🐙 Processing {generator.config.column_type} column '{generator.config.name}' "
             f"with {max_workers} concurrent workers"
         )
         with ConcurrentThreadExecutor(
@@ -217,6 +210,51 @@ class ColumnWiseDatasetBuilder:
             type(self._column_configs[0])
         ).can_generate_from_scratch:
             raise DatasetGenerationError("🛑 The first column config must be a from-scratch column generator.")
+
+    def _initialize_processors(self, processor_configs: list[ProcessorConfig]) -> dict[BuildStage, list[Processor]]:
+        # Check columns marked for drop
+        columns_to_drop = [config.name for config in self.single_column_configs if config.drop]
+
+        processors: dict[BuildStage, list[Processor]] = {stage: [] for stage in BuildStage}
+        for config in processor_configs:
+            processors[config.build_stage].append(
+                self._registry.processors.get_for_config_type(type(config))(
+                    config=config,
+                    resource_provider=self._resource_provider,
+                )
+            )
+
+            # Manually included "drop columns" processor takes precedence (can e.g., pick stages other than post-batch)
+            if config.processor_type == ProcessorType.DROP_COLUMNS:
+                for column in config.column_names:
+                    if column in columns_to_drop:
+                        columns_to_drop.remove(column)
+
+        # If there are still columns marked for drop, add the "drop columns" processor to drop them
+        if len(columns_to_drop) > 0:
+            processors[BuildStage.POST_BATCH].append(  # as post-batch by default
+                DropColumnsProcessor(
+                    config=DropColumnsProcessorConfig(
+                        column_names=columns_to_drop,
+                        build_stage=BuildStage.POST_BATCH,
+                    ),
+                    resource_provider=self._resource_provider,
+                )
+            )
+
+        return processors
+
+    def _run_processors(
+        self, stage: BuildStage, dataframe: pd.DataFrame, current_batch_number: int | None = None
+    ) -> pd.DataFrame:
+        for processor in self._processors[stage]:
+            try:
+                dataframe = processor.process(dataframe, current_batch_number=current_batch_number)
+            except Exception as e:
+                raise DatasetProcessingError(
+                    f"🛑 Failed to process dataset with processor {processor.metadata().name} in stage {stage}: {e}"
+                ) from e
+        return dataframe
 
     def _worker_error_callback(self, exc: Exception, *, context: dict | None = None) -> None:
         """If a worker fails, we can handle the exception here."""

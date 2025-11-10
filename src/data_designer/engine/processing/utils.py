@@ -3,7 +3,7 @@
 
 import json
 import logging
-from typing import Any, TypeVar, overload
+from typing import Any, TypeVar, Union, overload
 
 import pandas as pd
 
@@ -25,7 +25,7 @@ def concat_datasets(datasets: list[pd.DataFrame]) -> pd.DataFrame:
 # Overloads to help static type checker better understand
 # the input/output types of the deserialize_json_values function.
 @overload
-def deserialize_json_values(data: str) -> dict[str, Any] | list[Any] | Any: ...
+def deserialize_json_values(data: str) -> Union[dict[str, Any], list[Any], Any]: ...
 
 
 @overload

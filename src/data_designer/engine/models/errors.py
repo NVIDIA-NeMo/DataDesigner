@@ -44,7 +44,8 @@ def get_exception_primary_cause(exception: BaseException) -> BaseException:
     """
     if exception.__cause__ is None:
         return exception
-    return get_exception_primary_cause(exception.__cause__)
+    else:
+        return get_exception_primary_cause(exception.__cause__)
 
 
 class GenerationValidationFailureError(Exception): ...

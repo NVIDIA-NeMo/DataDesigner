@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from enum import Enum
-from typing import Literal, TypeAlias
+from typing import Literal, Optional, Union
 
 import pandas as pd
 from pydantic import Field, field_validator, model_validator
-from typing_extensions import Self
+from typing_extensions import Self, TypeAlias
 
 from .base import ConfigBase
 from .utils.constants import (
@@ -41,12 +41,12 @@ class SamplerType(str, Enum):
 
 
 class CategorySamplerParams(ConfigBase):
-    values: list[str | int | float] = Field(
+    values: list[Union[str, int, float]] = Field(
         ...,
         min_length=1,
         description="List of possible categorical values that can be sampled from.",
     )
-    weights: list[float] | None = Field(
+    weights: Optional[list[float]] = Field(
         default=None,
         description=(
             "List of unnormalized probability weights to assigned to each value, in order. "
@@ -87,7 +87,7 @@ class DatetimeSamplerParams(ConfigBase):
 
 class SubcategorySamplerParams(ConfigBase):
     category: str = Field(..., description="Name of parent category to this subcategory.")
-    values: dict[str, list[str | int | float]] = Field(
+    values: dict[str, list[Union[str, int, float]]] = Field(
         ...,
         description="Mapping from each value of parent category to a list of subcategory values.",
     )
@@ -127,7 +127,7 @@ class TimeDeltaSamplerParams(ConfigBase):
 
 
 class UUIDSamplerParams(ConfigBase):
-    prefix: str | None = Field(default=None, description="String prepended to the front of the UUID.")
+    prefix: Optional[str] = Field(default=None, description="String prepended to the front of the UUID.")
     short_form: bool = Field(
         default=False,
         description="If true, all UUIDs sampled will be truncated at 8 characters.",
@@ -153,7 +153,7 @@ class ScipySamplerParams(ConfigBase):
         ...,
         description="Parameters of the scipy.stats distribution given in `dist_name`.",
     )
-    decimal_places: int | None = Field(
+    decimal_places: Optional[int] = Field(
         default=None, description="Number of decimal places to round the sampled values to."
     )
 
@@ -191,7 +191,7 @@ class BernoulliMixtureSamplerParams(ConfigBase):
 class GaussianSamplerParams(ConfigBase):
     mean: float = Field(..., description="Mean of the Gaussian distribution")
     stddev: float = Field(..., description="Standard deviation of the Gaussian distribution")
-    decimal_places: int | None = Field(
+    decimal_places: Optional[int] = Field(
         default=None, description="Number of decimal places to round the sampled values to."
     )
 
@@ -203,7 +203,7 @@ class PoissonSamplerParams(ConfigBase):
 class UniformSamplerParams(ConfigBase):
     low: float = Field(..., description="Lower bound of the uniform distribution, inclusive.")
     high: float = Field(..., description="Upper bound of the uniform distribution, inclusive.")
-    decimal_places: int | None = Field(
+    decimal_places: Optional[int] = Field(
         default=None, description="Number of decimal places to round the sampled values to."
     )
 
@@ -223,11 +223,11 @@ class PersonSamplerParams(ConfigBase):
             "that a synthetic person will be sampled from. E.g, en_US, en_GB, fr_FR, ..."
         ),
     )
-    sex: SexT | None = Field(
+    sex: Optional[SexT] = Field(
         default=None,
         description="If specified, then only synthetic people of the specified sex will be sampled.",
     )
-    city: str | list[str] | None = Field(
+    city: Optional[Union[str, list[str]]] = Field(
         default=None,
         description="If specified, then only synthetic people from these cities will be sampled.",
     )
@@ -238,7 +238,7 @@ class PersonSamplerParams(ConfigBase):
         max_length=2,
     )
 
-    state: str | list[str] | None = Field(
+    state: Optional[Union[str, list[str]]] = Field(
         default=None,
         description=(
             "Only supported for 'en_US' locale. If specified, then only synthetic people "
@@ -265,7 +265,8 @@ class PersonSamplerParams(ConfigBase):
     def people_gen_key(self) -> str:
         if self.locale in LOCALES_WITH_MANAGED_DATASETS and self.sample_dataset_when_available:
             return f"{self.locale}_with_personas" if self.with_synthetic_personas else self.locale
-        return f"{self.locale}_faker"
+        else:
+            return f"{self.locale}_faker"
 
     @field_validator("age_range")
     @classmethod
@@ -321,21 +322,21 @@ class PersonSamplerParams(ConfigBase):
         return self
 
 
-SamplerParamsT: TypeAlias = (
-    SubcategorySamplerParams
-    | CategorySamplerParams
-    | DatetimeSamplerParams
-    | PersonSamplerParams
-    | TimeDeltaSamplerParams
-    | UUIDSamplerParams
-    | BernoulliSamplerParams
-    | BernoulliMixtureSamplerParams
-    | BinomialSamplerParams
-    | GaussianSamplerParams
-    | PoissonSamplerParams
-    | UniformSamplerParams
-    | ScipySamplerParams
-)
+SamplerParamsT: TypeAlias = Union[
+    SubcategorySamplerParams,
+    CategorySamplerParams,
+    DatetimeSamplerParams,
+    PersonSamplerParams,
+    TimeDeltaSamplerParams,
+    UUIDSamplerParams,
+    BernoulliSamplerParams,
+    BernoulliMixtureSamplerParams,
+    BinomialSamplerParams,
+    GaussianSamplerParams,
+    PoissonSamplerParams,
+    UniformSamplerParams,
+    ScipySamplerParams,
+]
 
 
 def is_numerical_sampler_type(sampler_type: SamplerType) -> bool:

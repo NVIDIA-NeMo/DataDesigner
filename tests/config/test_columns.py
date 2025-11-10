@@ -15,7 +15,10 @@ from data_designer.config.columns import (
     Score,
     SeedDatasetColumnConfig,
     ValidationColumnConfig,
+    column_type_is_llm_generated,
+    column_type_used_in_execution_dag,
     get_column_config_from_kwargs,
+    get_column_display_order,
 )
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.sampler_params import SamplerType, UUIDSamplerParams
@@ -29,7 +32,7 @@ stub_model_alias = "test_model"
 
 
 def test_data_designer_column_type_get_display_order():
-    assert DataDesignerColumnType.get_display_order() == [
+    assert get_column_display_order() == [
         DataDesignerColumnType.SEED_DATASET,
         DataDesignerColumnType.SAMPLER,
         DataDesignerColumnType.LLM_TEXT,
@@ -41,26 +44,26 @@ def test_data_designer_column_type_get_display_order():
     ]
 
 
-def test_data_designer_column_type_has_prompt_templates():
-    assert DataDesignerColumnType.LLM_TEXT.has_prompt_templates
-    assert DataDesignerColumnType.LLM_CODE.has_prompt_templates
-    assert DataDesignerColumnType.LLM_STRUCTURED.has_prompt_templates
-    assert DataDesignerColumnType.LLM_JUDGE.has_prompt_templates
-    assert not DataDesignerColumnType.SAMPLER.has_prompt_templates
-    assert not DataDesignerColumnType.VALIDATION.has_prompt_templates
-    assert not DataDesignerColumnType.EXPRESSION.has_prompt_templates
-    assert not DataDesignerColumnType.SEED_DATASET.has_prompt_templates
+def test_data_designer_column_type_is_llm_generated():
+    assert column_type_is_llm_generated(DataDesignerColumnType.LLM_TEXT)
+    assert column_type_is_llm_generated(DataDesignerColumnType.LLM_CODE)
+    assert column_type_is_llm_generated(DataDesignerColumnType.LLM_STRUCTURED)
+    assert column_type_is_llm_generated(DataDesignerColumnType.LLM_JUDGE)
+    assert not column_type_is_llm_generated(DataDesignerColumnType.SAMPLER)
+    assert not column_type_is_llm_generated(DataDesignerColumnType.VALIDATION)
+    assert not column_type_is_llm_generated(DataDesignerColumnType.EXPRESSION)
+    assert not column_type_is_llm_generated(DataDesignerColumnType.SEED_DATASET)
 
 
-def test_data_designer_column_type_is_dag_column_type():
-    assert DataDesignerColumnType.EXPRESSION.is_dag_column_type
-    assert DataDesignerColumnType.LLM_CODE.is_dag_column_type
-    assert DataDesignerColumnType.LLM_JUDGE.is_dag_column_type
-    assert DataDesignerColumnType.LLM_STRUCTURED.is_dag_column_type
-    assert DataDesignerColumnType.LLM_TEXT.is_dag_column_type
-    assert DataDesignerColumnType.VALIDATION.is_dag_column_type
-    assert not DataDesignerColumnType.SAMPLER.is_dag_column_type
-    assert not DataDesignerColumnType.SEED_DATASET.is_dag_column_type
+def test_data_designer_column_type_is_in_dag():
+    assert column_type_used_in_execution_dag(DataDesignerColumnType.EXPRESSION)
+    assert column_type_used_in_execution_dag(DataDesignerColumnType.LLM_CODE)
+    assert column_type_used_in_execution_dag(DataDesignerColumnType.LLM_JUDGE)
+    assert column_type_used_in_execution_dag(DataDesignerColumnType.LLM_STRUCTURED)
+    assert column_type_used_in_execution_dag(DataDesignerColumnType.LLM_TEXT)
+    assert column_type_used_in_execution_dag(DataDesignerColumnType.VALIDATION)
+    assert not column_type_used_in_execution_dag(DataDesignerColumnType.SAMPLER)
+    assert not column_type_used_in_execution_dag(DataDesignerColumnType.SEED_DATASET)
 
 
 def test_sampler_column_config():

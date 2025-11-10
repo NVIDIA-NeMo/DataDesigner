@@ -35,7 +35,7 @@ def get_validator_from_params(validator_type: ValidatorType, validator_params: V
     if validator_type == ValidatorType.CODE:
         if validator_params.code_lang == CodeLang.PYTHON:
             return PythonValidator(validator_params)
-        if validator_params.code_lang in SQL_DIALECTS:
+        elif validator_params.code_lang in SQL_DIALECTS:
             return SQLValidator(validator_params)
     elif validator_type == ValidatorType.REMOTE:
         return RemoteValidator(validator_params)

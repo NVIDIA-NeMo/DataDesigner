@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+from typing import Optional, Union
 
 from pygments import highlight
 from pygments.formatters import HtmlFormatter
@@ -14,11 +15,19 @@ from typing_extensions import Self
 
 from .analysis.column_profilers import ColumnProfilerConfigT
 from .base import ExportableConfigBase
-from .columns import ColumnConfigT, DataDesignerColumnType, SeedDatasetColumnConfig, get_column_config_from_kwargs
+from .columns import (
+    ColumnConfigT,
+    DataDesignerColumnType,
+    SeedDatasetColumnConfig,
+    column_type_is_llm_generated,
+    get_column_config_from_kwargs,
+)
 from .data_designer_config import DataDesignerConfig
+from .dataset_builders import BuildStage
 from .datastore import DatastoreSettings, fetch_seed_dataset_column_names
 from .errors import BuilderConfigurationError, InvalidColumnTypeError, InvalidConfigError
 from .models import ModelConfig, load_model_configs
+from .processors import ProcessorConfig, ProcessorType, get_processor_config_from_kwargs
 from .sampler_constraints import (
     ColumnConstraintT,
     ColumnInequalityConstraint,
@@ -27,7 +36,9 @@ from .sampler_constraints import (
 )
 from .seed import (
     DatastoreSeedDatasetReference,
+    IndexRange,
     LocalSeedDatasetReference,
+    PartitionBlock,
     SamplingStrategy,
     SeedConfig,
     SeedDatasetReference,
@@ -60,7 +71,7 @@ class BuilderConfig(ExportableConfigBase):
     """
 
     data_designer: DataDesignerConfig
-    datastore_settings: DatastoreSettings | None
+    datastore_settings: Optional[DatastoreSettings]
 
 
 class DataDesignerConfigBuilder:
@@ -70,7 +81,7 @@ class DataDesignerConfigBuilder:
     """
 
     @classmethod
-    def from_config(cls, config: dict | str | Path | BuilderConfig) -> Self:
+    def from_config(cls, config: Union[dict, str, Path, BuilderConfig]) -> Self:
         """Create a DataDesignerConfigBuilder from an existing configuration.
 
         Args:
@@ -113,11 +124,15 @@ class DataDesignerConfigBuilder:
                     datastore_settings=builder_config.datastore_settings,
                 )
                 builder.set_seed_datastore_settings(builder_config.datastore_settings)
-            builder.with_seed_dataset(seed_dataset_reference, sampling_strategy=config.seed_config.sampling_strategy)
+            builder.with_seed_dataset(
+                seed_dataset_reference,
+                sampling_strategy=config.seed_config.sampling_strategy,
+                selection_strategy=config.seed_config.selection_strategy,
+            )
 
         return builder
 
-    def __init__(self, model_configs: list[ModelConfig] | str | Path | None = None):
+    def __init__(self, model_configs: Optional[Union[list[ModelConfig], str, Path]] = None):
         """Initialize a new DataDesignerConfigBuilder instance.
 
         Args:
@@ -128,11 +143,12 @@ class DataDesignerConfigBuilder:
         """
         self._column_configs = {}
         self._model_configs = load_model_configs(model_configs)
-        self._seed_config: SeedConfig | None = None
+        self._processor_configs: list[ProcessorConfig] = []
+        self._seed_config: Optional[SeedConfig] = None
         self._constraints: list[ColumnConstraintT] = []
         self._profilers: list[ColumnProfilerConfigT] = []
         self._info = DataDesignerInfo()
-        self._datastore_settings: DatastoreSettings | None = None
+        self._datastore_settings: Optional[DatastoreSettings] = None
 
     @property
     def model_configs(self) -> list[ModelConfig]:
@@ -193,10 +209,10 @@ class DataDesignerConfigBuilder:
 
     def add_column(
         self,
-        column_config: ColumnConfigT | None = None,
+        column_config: Optional[ColumnConfigT] = None,
         *,
-        name: str | None = None,
-        column_type: DataDesignerColumnType | None = None,
+        name: Optional[str] = None,
+        column_type: Optional[DataDesignerColumnType] = None,
         **kwargs,
     ) -> Self:
         """Add a Data Designer column configuration to the current Data Designer configuration.
@@ -233,9 +249,9 @@ class DataDesignerConfigBuilder:
 
     def add_constraint(
         self,
-        constraint: ColumnConstraintT | None = None,
+        constraint: Optional[ColumnConstraintT] = None,
         *,
-        constraint_type: ConstraintType | None = None,
+        constraint_type: Optional[ConstraintType] = None,
         **kwargs,
     ) -> Self:
         """Add a constraint to the current Data Designer configuration.
@@ -281,6 +297,43 @@ class DataDesignerConfigBuilder:
             )
 
         self._constraints.append(constraint)
+        return self
+
+    def add_processor(
+        self,
+        processor_config: Optional[ProcessorConfig] = None,
+        *,
+        processor_type: Optional[ProcessorType] = None,
+        **kwargs,
+    ) -> Self:
+        """Add a processor to the current Data Designer configuration.
+
+        You can either provide a processor config object directly, or provide a processor type and
+        additional keyword arguments to construct the processor config object.
+
+        Args:
+            processor_config: The processor configuration object to add.
+            processor_type: The type of processor to add.
+            **kwargs: Additional keyword arguments to pass to the processor constructor.
+
+        Returns:
+            The current Data Designer config builder instance.
+        """
+        if processor_config is None:
+            if processor_type is None:
+                raise BuilderConfigurationError(
+                    "🛑 You must provide either a 'processor_config' object or 'processor_type' "
+                    "with additional keyword arguments."
+                )
+            processor_config = get_processor_config_from_kwargs(processor_type=processor_type, **kwargs)
+
+        # Checks elsewhere fail if DropColumnsProcessor drops a column but it is not marked for drop
+        if processor_config.processor_type == ProcessorType.DROP_COLUMNS:
+            for column in processor_config.column_names:
+                if column in self._column_configs:
+                    self._column_configs[column].drop = True
+
+        self._processor_configs.append(processor_config)
         return self
 
     def add_profiler(self, profiler_config: ColumnProfilerConfigT) -> Self:
@@ -331,6 +384,7 @@ class DataDesignerConfigBuilder:
             columns=list(self._column_configs.values()),
             constraints=self._constraints or None,
             profilers=self._profilers or None,
+            processors=self._processor_configs or None,
         )
 
     def delete_constraints(self, target_column: str) -> Self:
@@ -401,7 +455,7 @@ class DataDesignerConfigBuilder:
         Returns:
             A list of column configurations that use LLM generation.
         """
-        return [c for c in self._column_configs.values() if c.column_type.has_prompt_templates]
+        return [c for c in self._column_configs.values() if column_type_is_llm_generated(c.column_type)]
 
     def get_columns_of_type(self, column_type: DataDesignerColumnType) -> list[ColumnConfigT]:
         """Get all column configurations of the specified type.
@@ -427,7 +481,15 @@ class DataDesignerConfigBuilder:
         column_type = resolve_string_enum(column_type, DataDesignerColumnType)
         return [c for c in self._column_configs.values() if c.column_type != column_type]
 
-    def get_seed_config(self) -> SeedConfig | None:
+    def get_processor_configs(self) -> dict[BuildStage, list[ProcessorConfig]]:
+        """Get processor configuration objects.
+
+        Returns:
+            A dictionary of processor configuration objects by dataset builder stage.
+        """
+        return self._processor_configs
+
+    def get_seed_config(self) -> Optional[SeedConfig]:
         """Get the seed config for the current Data Designer configuration.
 
         Returns:
@@ -435,7 +497,7 @@ class DataDesignerConfigBuilder:
         """
         return self._seed_config
 
-    def get_seed_datastore_settings(self) -> DatastoreSettings | None:
+    def get_seed_datastore_settings(self) -> Optional[DatastoreSettings]:
         """Get most recent datastore settings for the current Data Designer configuration.
 
         Returns:
@@ -454,7 +516,7 @@ class DataDesignerConfigBuilder:
         """
         return len(self.get_columns_of_type(column_type))
 
-    def set_seed_datastore_settings(self, datastore_settings: DatastoreSettings | None) -> Self:
+    def set_seed_datastore_settings(self, datastore_settings: Optional[DatastoreSettings]) -> Self:
         """Set the datastore settings for the seed dataset.
 
         Args:
@@ -477,7 +539,9 @@ class DataDesignerConfigBuilder:
         """
 
         violations = validate_data_designer_config(
-            columns=list(self._column_configs.values()), allowed_references=self.allowed_references
+            columns=list(self._column_configs.values()),
+            processor_configs=self._processor_configs,
+            allowed_references=self.allowed_references,
         )
         rich_print_violations(violations)
         if raise_exceptions and len([v for v in violations if v.level == ViolationLevel.ERROR]) > 0:
@@ -493,6 +557,7 @@ class DataDesignerConfigBuilder:
         dataset_reference: SeedDatasetReference,
         *,
         sampling_strategy: SamplingStrategy = SamplingStrategy.ORDERED,
+        selection_strategy: Optional[Union[IndexRange, PartitionBlock]] = None,
     ) -> Self:
         """Add a seed dataset to the current Data Designer configuration.
 
@@ -508,7 +573,11 @@ class DataDesignerConfigBuilder:
         Returns:
             The current Data Designer config builder instance.
         """
-        self._seed_config = SeedConfig(dataset=dataset_reference.dataset, sampling_strategy=sampling_strategy)
+        self._seed_config = SeedConfig(
+            dataset=dataset_reference.dataset,
+            sampling_strategy=sampling_strategy,
+            selection_strategy=selection_strategy,
+        )
         self.set_seed_datastore_settings(
             dataset_reference.datastore_settings if hasattr(dataset_reference, "datastore_settings") else None
         )
@@ -516,7 +585,7 @@ class DataDesignerConfigBuilder:
             self._column_configs[column_name] = SeedDatasetColumnConfig(name=column_name)
         return self
 
-    def write_config(self, path: str | Path, indent: int | None = 2, **kwargs) -> None:
+    def write_config(self, path: Union[str, Path], indent: Optional[int] = 2, **kwargs) -> None:
         """Write the current configuration to a file.
 
         Args:

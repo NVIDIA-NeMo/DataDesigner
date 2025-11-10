@@ -67,7 +67,7 @@ def dataset_profiler(
     artifact_storage: ArtifactStorage,
 ) -> DataDesignerDatasetProfiler:
     # Ensure the final dataset path exists
-    with open(stub_dataset_path / "column_configs.json") as f:
+    with open(stub_dataset_path / "column_configs.json", "r") as f:
         column_configs = json.load(f)
 
     model_config = Mock(spec=ModelConfig)

@@ -5,7 +5,7 @@ import logging
 
 import networkx as nx
 
-from data_designer.config.columns import ColumnConfigT
+from data_designer.config.columns import ColumnConfigT, column_type_used_in_execution_dag
 from data_designer.engine.dataset_builders.utils.errors import DAGCircularDependencyError
 
 logger = logging.getLogger(__name__)
@@ -14,8 +14,12 @@ logger = logging.getLogger(__name__)
 def topologically_sort_column_configs(column_configs: list[ColumnConfigT]) -> list[ColumnConfigT]:
     dag = nx.DiGraph()
 
-    non_dag_column_config_list = [col for col in column_configs if not col.column_type.is_dag_column_type]
-    dag_column_config_dict = {col.name: col for col in column_configs if col.column_type.is_dag_column_type}
+    non_dag_column_config_list = [
+        col for col in column_configs if not column_type_used_in_execution_dag(col.column_type)
+    ]
+    dag_column_config_dict = {
+        col.name: col for col in column_configs if column_type_used_in_execution_dag(col.column_type)
+    }
 
     if len(dag_column_config_dict) == 0:
         return non_dag_column_config_list

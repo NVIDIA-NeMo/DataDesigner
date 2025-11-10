@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional, Union
 
 from rich.align import Align
 from rich.console import Console, Group
@@ -15,7 +15,7 @@ from rich.table import Column, Table
 from rich.text import Text
 
 from ...analysis.column_statistics import CategoricalHistogramData
-from ...columns import COLUMN_TYPE_EMOJI_MAP, DataDesignerColumnType
+from ...columns import COLUMN_TYPE_EMOJI_MAP, DataDesignerColumnType, get_column_display_order
 from ...utils.visualization import (
     ColorPalette,
     convert_to_row_element,
@@ -44,13 +44,13 @@ class ReportSection(str, Enum):
 DEFAULT_INCLUDE_SECTIONS = [
     ReportSection.OVERVIEW,
     ReportSection.COLUMN_PROFILERS,
-] + DataDesignerColumnType.get_display_order()
+] + get_column_display_order()
 
 
 def generate_analysis_report(
     analysis: DatasetProfilerResults,
-    save_path: str | Path | None = None,
-    include_sections: list[ReportSection | DataDesignerColumnType] | None = None,
+    save_path: Optional[Union[str, Path]] = None,
+    include_sections: Optional[list[Union[ReportSection, DataDesignerColumnType]]] = None,
 ) -> None:
     """Generate an analysis report for dataset profiling results.
 
@@ -166,7 +166,7 @@ def create_judge_score_summary_table(
     layout = Table.grid(Column(), Column(), expand=True, padding=(0, 2))
 
     histogram_table = create_rich_histogram_table(
-        {str(s): c for s, c in zip(histogram.categories, histogram.counts, strict=False)},
+        {str(s): c for s, c in zip(histogram.categories, histogram.counts)},
         ("score", "count"),
         name_style=HIST_NAME_STYLE,
         value_style=HIST_VALUE_STYLE,

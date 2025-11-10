@@ -3,15 +3,56 @@
 
 from enum import Enum
 import inspect
-from typing import Any
+from typing import Any, Literal, Type, Union, get_args, get_origin
 
 from pydantic import BaseModel
 
 from .. import sampler_params
-from .errors import InvalidEnumValueError
+from .errors import InvalidDiscriminatorFieldError, InvalidEnumValueError, InvalidTypeUnionError
 
 
-def get_sampler_params() -> dict[str, type[BaseModel]]:
+class StrEnum(str, Enum):
+    pass
+
+
+def create_str_enum_from_discriminated_type_union(
+    enum_name: str,
+    type_union: Type[Union[BaseModel, ...]],
+    discriminator_field_name: str,
+) -> StrEnum:
+    """Create a string enum from a type union.
+
+    The type union is assumed to be a union of configs (Pydantic models) that have a discriminator field,
+    which must be a Literal string type - e.g., Literal["expression"].
+
+    Args:
+        enum_name: Name of the StrEnum.
+        type_union: Type union of configs (Pydantic models).
+        discriminator_field_name: Name of the discriminator field.
+
+    Returns:
+        StrEnum with values being the discriminator field values of the configs in the type union.
+
+    Example:
+        DataDesignerColumnType = create_str_enum_from_discriminated_type_union(
+            enum_name="DataDesignerColumnType",
+            type_union=ColumnConfigT,
+            discriminator_field_name="column_type",
+        )
+    """
+    discriminator_field_values = []
+    for model in type_union.__args__:
+        if not issubclass(model, BaseModel):
+            raise InvalidTypeUnionError(f"🛑 {model} must be a subclass of pydantic.BaseModel.")
+        if discriminator_field_name not in model.model_fields:
+            raise InvalidDiscriminatorFieldError(f"🛑 '{discriminator_field_name}' is not a field of {model}.")
+        if get_origin(model.model_fields[discriminator_field_name].annotation) is not Literal:
+            raise InvalidDiscriminatorFieldError(f"🛑 '{discriminator_field_name}' must be a Literal type.")
+        discriminator_field_values.extend(get_args(model.model_fields[discriminator_field_name].annotation))
+    return StrEnum(enum_name, {v.replace("-", "_").upper(): v for v in set(discriminator_field_values)})
+
+
+def get_sampler_params() -> dict[str, Type[BaseModel]]:
     """Returns a dictionary of sampler parameter classes."""
     params_cls_list = [
         params_cls
@@ -38,7 +79,7 @@ def get_sampler_params() -> dict[str, type[BaseModel]]:
     return params_cls_dict
 
 
-def resolve_string_enum(enum_instance: Any, enum_type: type[Enum]) -> Enum:
+def resolve_string_enum(enum_instance: Any, enum_type: Type[Enum]) -> Enum:
     if not issubclass(enum_type, Enum):
         raise InvalidEnumValueError(f"🛑 `enum_type` must be a subclass of Enum. You provided: {enum_type}")
     invalid_enum_value_error = InvalidEnumValueError(
@@ -47,7 +88,7 @@ def resolve_string_enum(enum_instance: Any, enum_type: type[Enum]) -> Enum:
     )
     if isinstance(enum_instance, enum_type):
         return enum_instance
-    if isinstance(enum_instance, str):
+    elif isinstance(enum_instance, str):
         try:
             return enum_type(enum_instance)
         except ValueError:

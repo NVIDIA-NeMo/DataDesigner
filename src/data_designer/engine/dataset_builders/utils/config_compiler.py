@@ -3,6 +3,7 @@
 
 from data_designer.config.columns import DataDesignerColumnType
 from data_designer.config.data_designer_config import DataDesignerConfig
+from data_designer.config.processors import ProcessorConfig
 from data_designer.engine.dataset_builders.multi_column_configs import (
     DatasetBuilderColumnConfigT,
     SamplerMultiColumnConfig,
@@ -35,6 +36,7 @@ def compile_dataset_builder_column_configs(config: DataDesignerConfig) -> list[D
                 columns=seed_column_configs,
                 dataset=config.seed_config.dataset,
                 sampling_strategy=config.seed_config.sampling_strategy,
+                selection_strategy=config.seed_config.selection_strategy,
             )
         )
 
@@ -50,3 +52,9 @@ def compile_dataset_builder_column_configs(config: DataDesignerConfig) -> list[D
         compiled_column_configs.extend(generated_column_configs)
 
     return compiled_column_configs
+
+
+def compile_dataset_builder_processor_configs(
+    config: DataDesignerConfig,
+) -> list[ProcessorConfig]:
+    return config.processors or []

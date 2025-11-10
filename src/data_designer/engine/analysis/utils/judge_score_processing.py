@@ -3,7 +3,7 @@
 
 from collections import defaultdict
 import logging
-from typing import Any
+from typing import Any, Optional, Union
 
 import pandas as pd
 
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 def extract_judge_score_distributions(
     column_config: LLMJudgeColumnConfig, df: pd.DataFrame
-) -> JudgeScoreDistributions | MissingValue:
+) -> Union[JudgeScoreDistributions, MissingValue]:
     scores = defaultdict(list)
     reasoning = defaultdict(list)
 
@@ -79,10 +79,10 @@ def extract_judge_score_distributions(
 
 
 def sample_scores_and_reasoning(
-    scores: list[int | str],
+    scores: list[Union[int, str]],
     reasoning: list[str],
     num_samples: int,
-    random_seed: int | None = None,
+    random_seed: Optional[int] = None,
 ) -> list[JudgeScoreSample]:
     if len(scores) != len(reasoning):
         raise ValueError("scores and reasoning must have the same length")
@@ -96,10 +96,7 @@ def sample_scores_and_reasoning(
     df_samples = pd.DataFrame({"score": scores, "reasoning": reasoning})
 
     if len(scores) <= num_samples:
-        return [
-            JudgeScoreSample(score=score, reasoning=reasoning)
-            for score, reasoning in zip(scores, reasoning, strict=False)
-        ]
+        return [JudgeScoreSample(score=score, reasoning=reasoning) for score, reasoning in zip(scores, reasoning)]
 
     # Sample maintaining original proportions from each category (int or str)
     # Calculate the frequency of each score category

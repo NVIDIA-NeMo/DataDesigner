@@ -3,7 +3,9 @@
 
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import TypeAlias
+from typing import Union
+
+from typing_extensions import TypeAlias
 
 from .base import ConfigBase
 
@@ -46,4 +48,4 @@ class ColumnInequalityConstraint(Constraint):
         return ConstraintType.COLUMN_INEQUALITY
 
 
-ColumnConstraintT: TypeAlias = ScalarInequalityConstraint | ColumnInequalityConstraint
+ColumnConstraintT: TypeAlias = Union[ScalarInequalityConstraint, ColumnInequalityConstraint]

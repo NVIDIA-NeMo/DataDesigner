@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import json
+from typing import Optional, Union
 
 from jinja2 import TemplateSyntaxError, meta
 from jinja2.sandbox import ImmutableSandboxedEnvironment
@@ -57,7 +58,9 @@ def get_prompt_template_keywords(template: str) -> set[str]:
     return keywords
 
 
-def json_indent_list_of_strings(column_names: list[str], *, indent: int | str | None = None) -> list[str] | str | None:
+def json_indent_list_of_strings(
+    column_names: list[str], *, indent: Optional[Union[int, str]] = None
+) -> Optional[Union[list[str], str]]:
     """Convert a list of column names to a JSON string if the list is long.
 
     This function helps keep Data Designer's __repr__ output clean and readable.

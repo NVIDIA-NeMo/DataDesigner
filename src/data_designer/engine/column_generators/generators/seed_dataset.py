@@ -7,12 +7,13 @@ import logging
 import duckdb
 import pandas as pd
 
-from data_designer.config.seed import SamplingStrategy
+from data_designer.config.seed import IndexRange, PartitionBlock, SamplingStrategy
 from data_designer.engine.column_generators.generators.base import (
     FromScratchColumnGenerator,
     GenerationStrategy,
     GeneratorMetadata,
 )
+from data_designer.engine.column_generators.utils.errors import SeedDatasetError
 from data_designer.engine.dataset_builders.multi_column_configs import SeedDatasetMultiColumnConfig
 from data_designer.engine.processing.utils import concat_datasets
 from data_designer.engine.resources.resource_provider import ResourceType
@@ -58,19 +59,67 @@ class SeedDatasetColumnGenerator(FromScratchColumnGenerator[SeedDatasetMultiColu
         self._df_remaining = None
         self._dataset_uri = self.resource_provider.datastore.get_dataset_uri(self.config.dataset)
         self._seed_dataset_size = self.duckdb_conn.execute(f"SELECT COUNT(*) FROM '{self._dataset_uri}'").fetchone()[0]
+        self._index_range = self._resolve_index_range()
+
+    def _validate_selection_strategy(self) -> None:
+        err_msg = None
+        if self.config.selection_strategy is not None:
+            if (
+                isinstance(self.config.selection_strategy, IndexRange)
+                and self.config.selection_strategy.end >= self._seed_dataset_size
+            ):
+                err_msg = f"Selection strategy 'end' index {self.config.selection_strategy.end} is out of bounds for dataset size {self._seed_dataset_size}"
+            elif (
+                isinstance(self.config.selection_strategy, PartitionBlock)
+                and self.config.selection_strategy.num_partitions > self._seed_dataset_size
+            ):
+                err_msg = f"Selection strategy 'num_partitions' {self.config.selection_strategy.num_partitions} is out of bounds for dataset size {self._seed_dataset_size}"
+            if err_msg is not None:
+                raise SeedDatasetError(err_msg)
+
+    def _resolve_index_range(self) -> IndexRange | None:
+        self._validate_selection_strategy()
+        index_range = None
+        if self.config.selection_strategy is not None:
+            if isinstance(self.config.selection_strategy, IndexRange):
+                index_range = self.config.selection_strategy
+            elif isinstance(self.config.selection_strategy, PartitionBlock):
+                index_range = self.config.selection_strategy.to_index_range(self._seed_dataset_size)
+        return index_range
 
     def _reset_batch_reader(self, num_records: int) -> None:
         shuffle = self.config.sampling_strategy == SamplingStrategy.SHUFFLE
         shuffle_query = " ORDER BY RANDOM()" if shuffle else ""
-        self._batch_reader = self.duckdb_conn.query(f"SELECT * FROM '{self._dataset_uri}'{shuffle_query}").record_batch(
-            batch_size=num_records
-        )
+
+        if self._index_range is not None:
+            # Use LIMIT and OFFSET for efficient index range filtering
+            # IndexRange uses 0-based indexing [start, end] inclusive
+            # OFFSET skips the first 'start' rows (0-based)
+            # LIMIT takes 'end - start + 1' rows to include both start and end (inclusive)
+            offset_value = self._index_range.start
+            limit_value = self._index_range.end - self._index_range.start + 1
+            read_query = f"""
+                SELECT * FROM '{self._dataset_uri}'
+                LIMIT {limit_value} OFFSET {offset_value}
+            """
+
+            read_query = f"SELECT * FROM ({read_query}){shuffle_query}"
+        else:
+            read_query = f"SELECT * FROM '{self._dataset_uri}'{shuffle_query}"
+        self._batch_reader = self.duckdb_conn.query(read_query).record_batch(batch_size=num_records)
 
     def _sample_records(self, num_records: int) -> pd.DataFrame:
         logger.info(f"🌱 Sampling {num_records} records from seed dataset")
         logger.info(f"  |-- seed dataset size: {self._seed_dataset_size} records")
         logger.info(f"  |-- sampling strategy: {self.config.sampling_strategy}")
-
+        if self._index_range is not None:
+            if isinstance(self.config.selection_strategy, IndexRange):
+                logger.info(f"  |-- selection: rows [{self._index_range.start} to {self._index_range.end}] inclusive")
+            else:
+                logger.info(
+                    f"  |-- selection: partition {self.config.selection_strategy.index + 1} of {self.config.selection_strategy.num_partitions}"
+                )
+            logger.info(f"  |-- seed dataset size after selection: {self._index_range.size} records")
         df_batch = pd.DataFrame()
         df_sample = pd.DataFrame() if self._df_remaining is None else self._df_remaining
         num_zero_record_responses = 0

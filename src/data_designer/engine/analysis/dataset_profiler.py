@@ -83,7 +83,7 @@ class DataDesignerDatasetProfiler:
             profiler = self._create_column_profiler(profiler_config)
             applicable_column_types = profiler.metadata().applicable_column_types
             for c in self.config.column_configs:
-                if c.column_type.value in applicable_column_types:
+                if c.column_type in applicable_column_types:
                     params = ColumnConfigWithDataFrame(column_config=c, df=dataset)
                     column_profiles.append(profiler.profile(params))
             if len(column_profiles) == 0:
