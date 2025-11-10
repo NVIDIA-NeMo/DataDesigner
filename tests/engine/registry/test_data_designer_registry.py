@@ -24,7 +24,7 @@ def stub_default_registries():
         "data_designer.engine.registry.data_designer_registry.create_builtin_column_generator_registry"
     ) as mock_gen:
         with patch(
-            "data_designer.engine.registry.data_designer_registry.create_default_column_profiler_registry"
+            "data_designer.engine.registry.data_designer_registry.create_builtin_column_profiler_registry"
         ) as mock_prof:
             mock_gen_registry = Mock()
             mock_prof_registry = Mock()
