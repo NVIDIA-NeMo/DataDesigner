@@ -3,7 +3,7 @@
 
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Literal, TypeVar, overload
+from typing import Literal, TypeVar
 
 from ..models import ModelConfig, ModelProvider
 from ..sampler_params import SamplerType
@@ -40,12 +40,6 @@ class ConfigBuilderInfo(InfoDisplay):
         self._sampler_params = get_sampler_params()
         self._model_configs = model_configs
 
-    @overload
-    def display(self, info_type: Literal[InfoType.SAMPLERS], **kwargs) -> None: ...
-
-    @overload
-    def display(self, info_type: Literal[InfoType.MODEL_CONFIGS], **kwargs) -> None: ...
-
     def display(self, info_type: ConfigBuilderInfoType, **kwargs) -> None:
         """Display information based on the provided info type.
 
@@ -76,9 +70,6 @@ class ConfigBuilderInfo(InfoDisplay):
 class InterfaceInfo(InfoDisplay):
     def __init__(self, model_providers: list[ModelProvider]):
         self._model_providers = model_providers
-
-    @overload
-    def display(self, info_type: Literal[InfoType.MODEL_PROVIDERS], **kwargs) -> None: ...
 
     def display(self, info_type: DataDesignerInfoType, **kwargs) -> None:
         """Display information based on the provided info type.
