@@ -17,14 +17,8 @@ from .column_configs import (
 )
 from .errors import InvalidColumnTypeError, InvalidConfigError
 from .sampler_params import SamplerType
-from .utils.misc import can_run_data_designer_locally
+from .utils import plugin_helpers
 from .utils.type_helpers import SAMPLER_PARAMS, create_str_enum_from_discriminated_type_union, resolve_string_enum
-
-if can_run_data_designer_locally():
-    from data_designer.plugins.manager import PluginManager, PluginType
-
-    plugin_manager = PluginManager().discover()
-
 
 ColumnConfigT: TypeAlias = Union[
     ExpressionColumnConfig,
@@ -36,19 +30,13 @@ ColumnConfigT: TypeAlias = Union[
     SeedDatasetColumnConfig,
     ValidationColumnConfig,
 ]
-
-
-if can_run_data_designer_locally():
-    if plugin_manager.num_plugins(PluginType.COLUMN_GENERATOR) > 0:
-        ColumnConfigT = plugin_manager.update_type_union(ColumnConfigT, PluginType.COLUMN_GENERATOR)
-
+ColumnConfigT = plugin_helpers.inject_into_column_config_type_union(ColumnConfigT)
 
 DataDesignerColumnType = create_str_enum_from_discriminated_type_union(
     enum_name="DataDesignerColumnType",
     type_union=ColumnConfigT,
     discriminator_field_name="column_type",
 )
-
 
 COLUMN_TYPE_EMOJI_MAP = {
     "general": "⚛️",  # possible analysis column type
@@ -61,9 +49,9 @@ COLUMN_TYPE_EMOJI_MAP = {
     DataDesignerColumnType.SAMPLER: "🎲",
     DataDesignerColumnType.VALIDATION: "🔍",
 }
-if can_run_data_designer_locally():
-    for plugin in plugin_manager.get_plugins(PluginType.COLUMN_GENERATOR):
-        COLUMN_TYPE_EMOJI_MAP[DataDesignerColumnType(plugin.name)] = plugin.emoji
+COLUMN_TYPE_EMOJI_MAP.update(
+    {DataDesignerColumnType(p.name): p.emoji for p in plugin_helpers.get_plugin_column_configs()}
+)
 
 
 def column_type_used_in_execution_dag(column_type: Union[str, DataDesignerColumnType]) -> bool:
@@ -77,9 +65,7 @@ def column_type_used_in_execution_dag(column_type: Union[str, DataDesignerColumn
         DataDesignerColumnType.LLM_TEXT,
         DataDesignerColumnType.VALIDATION,
     }
-    if can_run_data_designer_locally():
-        for plugin in plugin_manager.get_plugins(PluginType.COLUMN_GENERATOR):
-            dag_column_types.add(DataDesignerColumnType(plugin.name))
+    dag_column_types.update(plugin_helpers.get_plugin_column_types(DataDesignerColumnType))
     return column_type in dag_column_types
 
 
@@ -92,10 +78,12 @@ def column_type_is_llm_generated(column_type: Union[str, DataDesignerColumnType]
         DataDesignerColumnType.LLM_STRUCTURED,
         DataDesignerColumnType.LLM_JUDGE,
     }
-    if can_run_data_designer_locally():
-        for plugin in plugin_manager.get_plugins(PluginType.COLUMN_GENERATOR):
-            if "model_registry" in (plugin.task_cls.metadata().required_resources or []):
-                llm_generated_column_types.add(DataDesignerColumnType(plugin.name))
+    llm_generated_column_types.update(
+        plugin_helpers.get_plugin_column_types(
+            DataDesignerColumnType,
+            required_resources=["model_registry"],
+        )
+    )
     return column_type in llm_generated_column_types
 
 
@@ -113,24 +101,22 @@ def get_column_config_from_kwargs(name: str, column_type: DataDesignerColumnType
     column_type = resolve_string_enum(column_type, DataDesignerColumnType)
     if column_type == DataDesignerColumnType.LLM_TEXT:
         return LLMTextColumnConfig(name=name, **kwargs)
-    elif column_type == DataDesignerColumnType.LLM_CODE:
+    if column_type == DataDesignerColumnType.LLM_CODE:
         return LLMCodeColumnConfig(name=name, **kwargs)
-    elif column_type == DataDesignerColumnType.LLM_STRUCTURED:
+    if column_type == DataDesignerColumnType.LLM_STRUCTURED:
         return LLMStructuredColumnConfig(name=name, **kwargs)
-    elif column_type == DataDesignerColumnType.LLM_JUDGE:
+    if column_type == DataDesignerColumnType.LLM_JUDGE:
         return LLMJudgeColumnConfig(name=name, **kwargs)
-    elif column_type == DataDesignerColumnType.VALIDATION:
+    if column_type == DataDesignerColumnType.VALIDATION:
         return ValidationColumnConfig(name=name, **kwargs)
-    elif column_type == DataDesignerColumnType.EXPRESSION:
+    if column_type == DataDesignerColumnType.EXPRESSION:
         return ExpressionColumnConfig(name=name, **kwargs)
-    elif column_type == DataDesignerColumnType.SAMPLER:
+    if column_type == DataDesignerColumnType.SAMPLER:
         return SamplerColumnConfig(name=name, **_resolve_sampler_kwargs(name, kwargs))
-    elif column_type == DataDesignerColumnType.SEED_DATASET:
+    if column_type == DataDesignerColumnType.SEED_DATASET:
         return SeedDatasetColumnConfig(name=name, **kwargs)
-    elif can_run_data_designer_locally() and column_type.value in plugin_manager.get_plugin_names(
-        PluginType.COLUMN_GENERATOR
-    ):
-        return plugin_manager.get_plugin(column_type.value).config_cls(name=name, **kwargs)
+    if plugin := plugin_helpers.get_plugin_column_config_if_available(column_type.value):
+        return plugin.config_cls(name=name, **kwargs)
     raise InvalidColumnTypeError(f"🛑 {column_type} is not a valid column type.")  # pragma: no cover
 
 
@@ -146,9 +132,7 @@ def get_column_display_order() -> list[DataDesignerColumnType]:
         DataDesignerColumnType.VALIDATION,
         DataDesignerColumnType.EXPRESSION,
     ]
-    if can_run_data_designer_locally():
-        for plugin in plugin_manager.get_plugins(PluginType.COLUMN_GENERATOR):
-            display_order.append(DataDesignerColumnType(plugin.name))
+    display_order.extend(plugin_helpers.get_plugin_column_types(DataDesignerColumnType))
     return display_order
 
 
@@ -170,7 +154,9 @@ def _resolve_sampler_kwargs(name: str, kwargs: dict) -> dict:
     else:
         # params is neither dict nor expected type
         raise InvalidConfigError(
-            f"🛑 Invalid params for sampler column '{name}'. Expected a dictionary or an instance of {expected_params_class.__name__}."
+            f"🛑 Invalid params for sampler column '{name}'. "
+            f"Expected a dictionary or an instance of {expected_params_class.__name__}. "
+            f"You provided {params_value=}."
         )
 
     return {
