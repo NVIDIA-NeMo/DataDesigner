@@ -91,7 +91,7 @@ version-file = "src/data_designer/_version.py"
 testpaths = ["tests"]
 asyncio_default_fixture_loop_scope = "session"
 env = [
-    "DATA_DESIGNER_PLUGIN_DIR=/tmp/pytest-no-plugins",
+    "DISABLE_DATA_DESIGNER_PLUGINS=true",
 ]
 
 [tool.uv]

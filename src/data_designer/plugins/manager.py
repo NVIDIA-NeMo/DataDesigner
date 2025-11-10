@@ -1,5 +1,6 @@
 from importlib.metadata import entry_points
 import logging
+import os
 import threading
 from typing import Type, TypeAlias
 
@@ -9,6 +10,9 @@ from data_designer.plugins.errors import PluginNotFoundError, PluginRegistration
 from data_designer.plugins.plugin import Plugin, PluginType
 
 logger = logging.getLogger(__name__)
+
+
+PLUGINS_DISABLED = os.getenv("DISABLE_DATA_DESIGNER_PLUGINS", "false").lower() == "true"
 
 
 class PluginManager:
@@ -40,6 +44,8 @@ class PluginManager:
         return type_union
 
     def discover(self) -> Self:
+        if PLUGINS_DISABLED:
+            return self
         for ep in entry_points(group="data_designer.plugins"):
             try:
                 plugin = ep.load()
