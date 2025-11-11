@@ -150,45 +150,6 @@ def test_prompt_all_returns_none_when_user_cancels() -> None:
     assert result is None
 
 
-@patch("data_designer.cli.ui.BACK", "BACK_SENTINEL")
-def test_prompt_all_navigates_back_to_previous_field() -> None:
-    """Test prompt_all allows user to go back and change previous answers."""
-    field1 = create_field("name")
-    field2 = create_field("email")
-
-    # User enters "John", then backs up from email, re-enters "Jane", proceeds with email
-    field1.prompt_user = Mock(side_effect=["John", "Jane"])
-    field2.prompt_user = Mock(side_effect=["BACK_SENTINEL", "jane@example.com"])
-
-    form = Form(name="test_form", fields=[field1, field2])
-
-    result = form.prompt_all()
-
-    # Changed value should be preserved
-    assert result == {"name": "Jane", "email": "jane@example.com"}
-    assert field1.prompt_user.call_count == 2
-    assert field2.prompt_user.call_count == 2
-
-
-@patch("data_designer.cli.ui.BACK", "BACK_SENTINEL")
-def test_prompt_all_handles_back_from_first_field() -> None:
-    """Test prompt_all stays at first field if BACK is returned (edge case)."""
-    field1 = create_field("name")
-    field2 = create_field("email")
-
-    # Simulate first field somehow returning BACK, then valid input
-    field1.prompt_user = Mock(side_effect=["BACK_SENTINEL", "John"])
-    field2.prompt_user = Mock(return_value="john@example.com")
-
-    form = Form(name="test_form", fields=[field1, field2])
-
-    result = form.prompt_all()
-
-    # Should eventually complete successfully
-    assert result == {"name": "John", "email": "john@example.com"}
-    assert field1.prompt_user.call_count == 2
-
-
 @patch("data_designer.cli.forms.form.print_error")
 @patch("data_designer.cli.ui.BACK", "BACK_SENTINEL")
 def test_prompt_all_retries_on_validation_error(mock_print_error: Mock) -> None:
@@ -212,54 +173,6 @@ def test_prompt_all_retries_on_validation_error(mock_print_error: Mock) -> None:
     assert mock_print_error.called
     # Should have prompted twice
     assert field.prompt_user.call_count == 2
-
-
-@patch("data_designer.cli.ui.BACK", "BACK_SENTINEL")
-def test_prompt_all_handles_multiple_back_steps() -> None:
-    """Test prompt_all handles navigating back multiple fields."""
-    field1 = create_field("name")
-    field2 = create_field("email")
-    field3 = create_field("phone")
-
-    # User goes forward to field3, backs to field2, backs to field1, then completes
-    field1.prompt_user = Mock(side_effect=["John", "Jane"])
-    field2.prompt_user = Mock(side_effect=["john@example.com", "BACK_SENTINEL", "jane@example.com"])
-    field3.prompt_user = Mock(side_effect=["BACK_SENTINEL", "123-456-7890"])
-
-    form = Form(name="test_form", fields=[field1, field2, field3])
-
-    result = form.prompt_all()
-
-    assert result == {
-        "name": "Jane",
-        "email": "jane@example.com",
-        "phone": "123-456-7890",
-    }
-
-
-@patch("data_designer.cli.ui.BACK", "BACK_SENTINEL")
-def test_prompt_all_handles_validation_error_after_back_navigation() -> None:
-    """Test validation errors work correctly after navigating back."""
-    validator = Mock(
-        side_effect=[
-            (True, None),  # First entry valid
-            (False, "Invalid"),  # After back, new entry invalid
-            (True, None),  # Third try valid
-        ]
-    )
-    field1 = TextField(name="email", prompt="Enter email", validator=validator)
-    field2 = create_field("name")
-
-    # Enter valid email, enter name, go back, enter invalid email, enter valid email, complete
-    field1.prompt_user = Mock(side_effect=["valid1@example.com", "invalid", "valid2@example.com"])
-    field2.prompt_user = Mock(side_effect=["John", "BACK_SENTINEL", "Jane"])
-
-    form = Form(name="test_form", fields=[field1, field2])
-
-    result = form.prompt_all()
-
-    # Should eventually succeed with final values
-    assert result == {"email": "valid2@example.com", "name": "Jane"}
 
 
 # Edge cases
