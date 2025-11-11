@@ -21,7 +21,7 @@ class ProcessorType(str, Enum):
 class ProcessorConfig(ConfigBase, ABC):
     build_stage: BuildStage = Field(
         default=BuildStage.POST_BATCH,
-        description=f"The stage at which the processor will run. Supported stages: {', '.join(SUPPORTED_STAGES)}"
+        description=f"The stage at which the processor will run. Supported stages: {', '.join(SUPPORTED_STAGES)}",
     )
 
     @field_validator("build_stage")

@@ -1,14 +1,14 @@
 from data_designer.essentials import (
-    DataDesignerConfigBuilder,
-    ModelConfig,
-    InferenceParameters,
-    SamplerColumnConfig,
     CategorySamplerParams,
-    SubcategorySamplerParams,
-    PersonSamplerParams,
-    LLMTextColumnConfig,
-    Score,
     DataDesigner,
+    DataDesignerConfigBuilder,
+    InferenceParameters,
+    LLMTextColumnConfig,
+    ModelConfig,
+    PersonSamplerParams,
+    SamplerColumnConfig,
+    Score,
+    SubcategorySamplerParams,
     ToJsonlProcessorConfig,
 )
 
@@ -40,10 +40,7 @@ ESI_LEVELS = [
 
 # Unique record ID
 config_builder.add_column(
-    name="record_id",
-    column_type="sampler",
-    sampler_type="uuid",
-    params={"short_form": True, "uppercase": True}
+    name="record_id", column_type="sampler", sampler_type="uuid", params={"short_form": True, "uppercase": True}
 )
 
 # ESI level (balanced sampling)
@@ -121,9 +118,7 @@ config_builder.add_column(
     SamplerColumnConfig(
         name="writing_style",
         sampler_type="category",
-        params=CategorySamplerParams(
-            values=["Draft", "Adequate", "Polished"]
-        ),
+        params=CategorySamplerParams(values=["Draft", "Adequate", "Polished"]),
     )
 )
 
@@ -159,8 +154,8 @@ clinical_coherence_rubric = Score(
         "4": "Note is well-aligned, with only minor details that might be slightly inconsistent.",
         "3": "Note is generally consistent, but some key clinical indicators are missing or don't fully match the ESI level.",
         "2": "Note shows significant inconsistency between the clinical details and the assigned ESI level.",
-        "1": "Note is clinically incoherent and does not reflect the assigned ESI level or scenario at all."
-    }
+        "1": "Note is clinically incoherent and does not reflect the assigned ESI level or scenario at all.",
+    },
 )
 
 # Rubric: ESI level complexity (reduced to 3 levels: Simple, Moderate, Complex)
@@ -170,8 +165,8 @@ esi_level_complexity_rubric = Score(
     options={
         "Complex": "Note contains subtle or conflicting information, requiring clinical reasoning to distinguish between ESI levels.",
         "Moderate": "Note requires some clinical inference; indicators are present but not always immediately obvious.",
-        "Simple": "Note uses clear, direct, or textbook indicators that make the ESI level obvious."
-    }
+        "Simple": "Note uses clear, direct, or textbook indicators that make the ESI level obvious.",
+    },
 )
 
 jsonl_entry_template = {
@@ -183,22 +178,17 @@ jsonl_entry_template = {
                 f" The possible levels are: {', '.join([repr(level) for level in ESI_LEVELS])}."
                 " Carefully analyze the clinical details in the triage note, focusing on patient acuity, resource needs, and risk of rapid deterioration."
                 " Respond with only the selected ESI level description, exactly matching one of the listed possibilities. Do not provide extra text or explanation."
-            )
+            ),
         },
         {
             "role": "user",
             "content": (
                 "Triage Note: {{ content }}\n"
                 "Classify the ESI level for this note based on the provided definitions."
-                " Respond in JSON format only: { \"esi_level_description\": \"...\" }"
-            )
+                ' Respond in JSON format only: { "esi_level_description": "..." }'
+            ),
         },
-        {
-            "role": "assistant",
-            "content": (
-                '{ "esi_level_description": "{{ esi_level_description }}" }'
-            )
-        },
+        {"role": "assistant", "content": ('{ "esi_level_description": "{{ esi_level_description }}" }')},
     ],
 }
 
@@ -213,5 +203,7 @@ config_builder.add_processor(
     )
 )
 
-dd = DataDesigner(artifact_path="./artifacts", blob_storage_path="/Users/amanoel/Data/nemotron-personas-datasets_v0.0.6")
+dd = DataDesigner(
+    artifact_path="./artifacts", blob_storage_path="/Users/amanoel/Data/nemotron-personas-datasets_v0.0.6"
+)
 preview = dd.preview(config_builder, num_records=10)

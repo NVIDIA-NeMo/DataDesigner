@@ -3,10 +3,10 @@
 
 import json
 import logging
+from pathlib import Path
 import tempfile
 
 import pandas as pd
-from pathlib import Path
 
 from data_designer.config.processors import ToJsonlProcessorConfig
 from data_designer.engine.configurable_task import ConfigurableTaskMetadata
