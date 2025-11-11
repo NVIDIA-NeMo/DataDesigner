@@ -17,6 +17,7 @@ def list_command(
     config_dir: str | None = typer.Option(None, "--config-dir", help="Custom configuration directory"),
 ) -> None:
     """List current Data Designer configurations.
+
     Args:
         config_dir: Optional custom configuration directory
 
