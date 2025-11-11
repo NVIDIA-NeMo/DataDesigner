@@ -7,7 +7,14 @@ from pathlib import Path
 from rich.table import Table
 import typer
 
-from data_designer.cli.ui import console, print_error, print_header, print_info, print_warning
+from data_designer.cli.ui import (
+    console,
+    print_error,
+    print_header,
+    print_info,
+    print_success,
+    print_warning,
+)
 from data_designer.cli.utils import get_default_config_dir, get_model_config_path, get_model_provider_path
 from data_designer.config.errors import InvalidConfigError, InvalidFileFormatError, InvalidFilePathError
 from data_designer.config.models import ModelConfig
@@ -27,7 +34,7 @@ def list_command(
         config_path = get_default_config_dir()
 
     if not output_json:
-        print_header("Data Designer Configuration")
+        print_header("Data Designer Configurations")
         print_info(f"Configuration directory: {config_path}")
         console.print()
 
@@ -51,9 +58,7 @@ def list_command(
         # Display summary
         console.print()
         if providers_data or models_data:
-            print_info("Configuration loaded successfully")
-        else:
-            print_warning("No configuration files found. Run 'data-designer config' to see available commands.")
+            print_success("Configuration loaded successfully")
 
 
 def load_providers(provider_path: Path, as_json: bool) -> dict | None:
@@ -122,10 +127,13 @@ def load_providers(provider_path: Path, as_json: bool) -> dict | None:
 
     except InvalidFilePathError:
         if not as_json:
-            print_warning(f"Provider configuration not found: {provider_path}")
-            print_info("Run 'data-designer config providers' to create it")
+            print_warning("Providers have not been configured. Run 'data-designer config providers' to configure them.")
             console.print()
-        return {"file": str(provider_path), "valid": False, "error": "File not found"} if as_json else None
+        return (
+            {"file": str(provider_path), "valid": False, "error": "Providers have not been configured"}
+            if as_json
+            else None
+        )
 
     except (InvalidFileFormatError, InvalidConfigError) as e:
         if not as_json:
@@ -219,10 +227,11 @@ def load_models(model_path: Path, as_json: bool) -> dict | None:
 
     except InvalidFilePathError:
         if not as_json:
-            print_warning(f"Model configuration not found: {model_path}")
-            print_info("Run 'data-designer config models' to create it")
+            print_warning("Models have not been configured. Run 'data-designer config models' to configure them.")
             console.print()
-        return {"file": str(model_path), "valid": False, "error": "File not found"} if as_json else None
+        return (
+            {"file": str(model_path), "valid": False, "error": "Models have not been configured"} if as_json else None
+        )
 
     except (InvalidFileFormatError, InvalidConfigError) as e:
         if not as_json:

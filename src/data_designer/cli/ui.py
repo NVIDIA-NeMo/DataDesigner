@@ -332,11 +332,15 @@ def display_config_preview(config: dict, title: str = "Configuration Preview") -
         allow_unicode=True,
     )
 
+    # Calculate panel width to account for padding
+    panel_width = _console.width - LEFT_PADDING - RIGHT_PADDING
+
     panel = Panel(
         yaml_str,
         title=title,
         title_align="left",
         border_style=NordColor.NORD14.value,
+        width=panel_width,
     )
     _print_with_padding(panel)
 
@@ -347,7 +351,7 @@ def print_success(message: str) -> None:
     Args:
         message: Success message to display
     """
-    _print_with_padding(f"[bold green]✓[/bold green] {message}")
+    _print_with_padding(f"✅  {message}")
 
 
 def print_error(message: str) -> None:
@@ -356,7 +360,7 @@ def print_error(message: str) -> None:
     Args:
         message: Error message to display
     """
-    _print_with_padding(f"[bold red]✗[/bold red] {message}")
+    _print_with_padding(f"❌  {message}")
 
 
 def print_warning(message: str) -> None:
@@ -365,7 +369,7 @@ def print_warning(message: str) -> None:
     Args:
         message: Warning message to display
     """
-    _print_with_padding(f"[bold yellow]⚠[/bold yellow] {message}")
+    _print_with_padding(f"⚠️   {message}")
 
 
 def print_info(message: str) -> None:
@@ -374,7 +378,16 @@ def print_info(message: str) -> None:
     Args:
         message: Info message to display
     """
-    _print_with_padding(f"[bold blue]ℹ[/bold blue] {message}")
+    _print_with_padding(f"📰  {message}")
+
+
+def print_text(message: str) -> None:
+    """Print a text message.
+
+    Args:
+        message: Text message to display
+    """
+    _print_with_padding(message)
 
 
 def print_header(text: str) -> None:
@@ -384,13 +397,24 @@ def print_header(text: str) -> None:
         text: Header text
     """
     _console.print()
-    # Add padding to the rule by adjusting its width
+    # Create a manual rule that respects padding
     padding_str = " " * LEFT_PADDING
-    _console.print(padding_str, end="")
-    _console.rule(
-        f"[bold {NordColor.NORD8.value}]{text}[/bold {NordColor.NORD8.value}]",
-        style=NordColor.NORD8.value,
-    )
+    available_width = _console.width - LEFT_PADDING - RIGHT_PADDING
+
+    # Format the title text
+    title_text = f" {text} "
+    title_length = len(title_text)
+
+    # Calculate how many rule characters on each side
+    # (available_width - title_length) / 2
+    rule_chars = max(0, (available_width - title_length) // 2)
+    remaining = max(0, available_width - title_length - (rule_chars * 2))
+
+    # Build the rule string
+    rule_line = "─" * rule_chars + title_text + "─" * (rule_chars + remaining)
+
+    # Print with padding and styling
+    _console.print(f"{padding_str}[bold {NordColor.NORD8.value}]{rule_line}[/bold {NordColor.NORD8.value}]")
     _console.print()
 
 
@@ -407,11 +431,13 @@ def _print_with_padding(content: str | Panel) -> None:
     Args:
         content: Content to print (string or Panel)
     """
+    from rich.padding import Padding
+
     padding = " " * LEFT_PADDING
     if isinstance(content, Panel):
-        # For panels, we can't add padding inside, so we print padding before
-        _console.print(padding, end="")
-        _console.print(content)
+        # For panels, wrap in Rich's Padding to properly handle alignment
+        padded_content = Padding(content, (0, 0, 0, LEFT_PADDING))
+        _console.print(padded_content)
     else:
         # For strings, handle multi-line text
         if "\n" in str(content):
