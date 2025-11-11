@@ -52,7 +52,7 @@ COLUMN_TYPE_EMOJI_MAP = {
     DataDesignerColumnType.VALIDATION: "🔍",
 }
 COLUMN_TYPE_EMOJI_MAP.update(
-    {DataDesignerColumnType(p.name): p.emoji for p in plugin_manager.get_plugin_column_configs()}
+    {DataDesignerColumnType(p.name): p.emoji for p in plugin_manager.get_column_generator_plugins()}
 )
 
 
@@ -117,7 +117,7 @@ def get_column_config_from_kwargs(name: str, column_type: DataDesignerColumnType
         return SamplerColumnConfig(name=name, **_resolve_sampler_kwargs(name, kwargs))
     if column_type == DataDesignerColumnType.SEED_DATASET:
         return SeedDatasetColumnConfig(name=name, **kwargs)
-    if plugin := plugin_manager.get_plugin_column_config_if_available(column_type.value):
+    if plugin := plugin_manager.get_column_generator_plugin_if_exists(column_type.value):
         return plugin.config_cls(name=name, **kwargs)
     raise InvalidColumnTypeError(f"🛑 {column_type} is not a valid column type.")  # pragma: no cover
 

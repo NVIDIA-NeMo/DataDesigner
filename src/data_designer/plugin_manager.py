@@ -26,21 +26,16 @@ class PluginManager:
             self._plugins_available = False
             self._plugin_registry = None
 
-    def get_plugin_column_configs(self) -> list[Plugin]:
-        """Get all plugin column configs.
+    def get_column_generator_plugins(self) -> list[Plugin]:
+        """Get all column generator plugins.
 
         Returns:
-            A list of all plugin column configs.
+            A list of all column generator plugins.
         """
-        if self._plugins_available:
-            return [
-                self._plugin_registry.get_plugin(plugin_name)
-                for plugin_name in self._plugin_registry.get_plugin_names(PluginType.COLUMN_GENERATOR)
-            ]
-        return []
+        return self._plugin_registry.get_plugins(PluginType.COLUMN_GENERATOR) if self._plugins_available else []
 
-    def get_plugin_column_config_if_available(self, plugin_name: str) -> Plugin | None:
-        """Get a plugin column config by name if available.
+    def get_column_generator_plugin_if_exists(self, plugin_name: str) -> Plugin | None:
+        """Get a column generator plugin by name if it exists.
 
         Args:
             plugin_name: The name of the plugin to retrieve.
@@ -48,10 +43,8 @@ class PluginManager:
         Returns:
             The plugin if found, otherwise None.
         """
-        if self._plugins_available:
-            for name in self._plugin_registry.get_plugin_names(PluginType.COLUMN_GENERATOR):
-                if plugin_name == name:
-                    return self._plugin_registry.get_plugin(plugin_name)
+        if self._plugins_available and self._plugin_registry.plugin_exists(plugin_name):
+            return self._plugin_registry.get_plugin(plugin_name)
         return None
 
     def get_plugin_column_types(self, enum_type: Type[Enum], required_resources: list[str] | None = None) -> list[Enum]:

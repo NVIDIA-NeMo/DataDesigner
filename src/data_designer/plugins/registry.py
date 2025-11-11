@@ -67,6 +67,9 @@ class PluginRegistry:
     def num_plugins(self, plugin_type: PluginType) -> int:
         return len(self.get_plugins(plugin_type))
 
+    def plugin_exists(self, plugin_name: str) -> bool:
+        return plugin_name in self._plugins
+
     def set_plugins(self, plugins: dict[str, Plugin]) -> None:
         self._plugins = plugins
 

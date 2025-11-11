@@ -73,67 +73,68 @@ def mock_plugins() -> list[Mock]:
     ]
 
 
-def test_get_plugin_column_configs_with_plugins(mock_plugin_registry: MagicMock, mock_plugins: list[Mock]) -> None:
+def test_get_column_generator_plugins_with_plugins(mock_plugin_registry: MagicMock, mock_plugins: list[Mock]) -> None:
     """Test getting plugin column configs when plugins are available."""
-    mock_plugin_registry.get_plugin_names.return_value = ["plugin-one", "plugin-two"]
-    mock_plugin_registry.get_plugin.side_effect = lambda name: next(p for p in mock_plugins if p.name == name)
+    mock_plugin_registry.get_plugins.return_value = [mock_plugins[0], mock_plugins[1]]
 
     with mock_plugin_system(mock_plugin_registry):
         manager = PluginManager()
-        result = manager.get_plugin_column_configs()
+        result = manager.get_column_generator_plugins()
 
     assert len(result) == 2
     assert [p.name for p in result] == ["plugin-one", "plugin-two"]
-    mock_plugin_registry.get_plugin_names.assert_called_once_with(MockPluginType.COLUMN_GENERATOR)
+    mock_plugin_registry.get_plugins.assert_called_once_with(MockPluginType.COLUMN_GENERATOR)
 
 
 @pytest.mark.parametrize("plugins_available", [True, False])
-def test_get_plugin_column_configs_empty(mock_plugin_registry: MagicMock, plugins_available: bool) -> None:
+def test_get_column_generator_plugins_empty(mock_plugin_registry: MagicMock, plugins_available: bool) -> None:
     """Test getting plugin column configs when no plugins are registered or system is disabled."""
     if plugins_available:
-        mock_plugin_registry.get_plugin_names.return_value = []
+        mock_plugin_registry.get_plugins.return_value = []
         with mock_plugin_system(mock_plugin_registry):
             manager = PluginManager()
-            result = manager.get_plugin_column_configs()
+            result = manager.get_column_generator_plugins()
     else:
         with patch("data_designer.plugin_manager.can_run_data_designer_locally", return_value=False):
             manager = PluginManager()
-            result = manager.get_plugin_column_configs()
+            result = manager.get_column_generator_plugins()
 
     assert result == []
 
 
-def test_get_plugin_column_config_if_available_found(mock_plugin_registry: MagicMock, mock_plugins: list[Mock]) -> None:
+def test_get_column_generator_plugin_if_exists_found(mock_plugin_registry: MagicMock, mock_plugins: list[Mock]) -> None:
     """Test getting a specific plugin by name when it exists."""
-    mock_plugin_registry.get_plugin_names.return_value = ["plugin-one", "plugin-two"]
+    mock_plugin_registry.plugin_exists.return_value = True
     mock_plugin_registry.get_plugin.return_value = mock_plugins[0]
 
     with mock_plugin_system(mock_plugin_registry):
         manager = PluginManager()
-        result = manager.get_plugin_column_config_if_available("plugin-one")
+        result = manager.get_column_generator_plugin_if_exists("plugin-one")
 
     assert result is not None
     assert result.name == "plugin-one"
+    mock_plugin_registry.plugin_exists.assert_called_once_with("plugin-one")
     mock_plugin_registry.get_plugin.assert_called_once_with("plugin-one")
 
 
-def test_get_plugin_column_config_if_available_not_found(mock_plugin_registry: MagicMock) -> None:
+def test_get_column_generator_plugin_if_exists_not_found(mock_plugin_registry: MagicMock) -> None:
     """Test getting a specific plugin by name when it doesn't exist."""
-    mock_plugin_registry.get_plugin_names.return_value = ["plugin-one", "plugin-two"]
+    mock_plugin_registry.plugin_exists.return_value = False
 
     with mock_plugin_system(mock_plugin_registry):
         manager = PluginManager()
-        result = manager.get_plugin_column_config_if_available("plugin-three")
+        result = manager.get_column_generator_plugin_if_exists("plugin-three")
 
     assert result is None
+    mock_plugin_registry.plugin_exists.assert_called_once_with("plugin-three")
     mock_plugin_registry.get_plugin.assert_not_called()
 
 
-def test_get_plugin_column_config_if_available_when_disabled() -> None:
+def test_get_column_generator_plugin_if_exists_when_disabled() -> None:
     """Test getting a specific plugin when plugin system is disabled."""
     with patch("data_designer.plugin_manager.can_run_data_designer_locally", return_value=False):
         manager = PluginManager()
-        result = manager.get_plugin_column_config_if_available("plugin-one")
+        result = manager.get_column_generator_plugin_if_exists("plugin-one")
 
     assert result is None
 
