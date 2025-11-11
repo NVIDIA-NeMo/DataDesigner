@@ -81,7 +81,7 @@ class PluginManager:
                         self.add_plugin(plugin)
                     logger.info(
                         f"🔌 Plugin discovered ➜ {plugin.plugin_type.value.replace('-', ' ')} "
-                        f"{plugin.name.upper().replace('-', '_')} is now available ⚡️"
+                        f"{plugin.enum_key_name} is now available ⚡️"
                     )
             except Exception as e:
                 logger.warning(f"🛑 Failed to load plugin from entry point {ep.name!r}: {e}")

@@ -19,7 +19,7 @@ class PluginType(str, Enum):
         if self == PluginType.COLUMN_GENERATOR:
             return "column_type"
         else:
-            raise ValueError(f"Invalid plugin type: {self}")
+            raise ValueError(f"Invalid plugin type: {self.value}")
 
 
 class Plugin(BaseModel):
@@ -30,10 +30,10 @@ class Plugin(BaseModel):
 
     @property
     def config_type_as_class_name(self) -> str:
-        return self.enum_key.title().replace("_", "")
+        return self.enum_key_name.title().replace("_", "")
 
     @property
-    def enum_key(self) -> str:
+    def enum_key_name(self) -> str:
         return self.name.replace("-", "_").upper()
 
     @property
