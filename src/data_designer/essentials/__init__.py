@@ -34,7 +34,7 @@ from ..config.models import (
     UniformDistribution,
     UniformDistributionParams,
 )
-from ..config.processors import DropColumnsProcessorConfig, ProcessorType
+from ..config.processors import DropColumnsProcessorConfig, ProcessorType, ToJsonlProcessorConfig
 from ..config.sampler_constraints import ColumnInequalityConstraint, ScalarInequalityConstraint
 from ..config.sampler_params import (
     BernoulliMixtureSamplerParams,
@@ -126,6 +126,7 @@ __all__ = [
     "SeedDatasetColumnConfig",
     "SubcategorySamplerParams",
     "TimeDeltaSamplerParams",
+    "ToJsonlProcessorConfig",
     "UniformDistribution",
     "UniformDistributionParams",
     "UniformSamplerParams",
