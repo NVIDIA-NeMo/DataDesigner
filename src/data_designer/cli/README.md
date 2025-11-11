@@ -234,36 +234,3 @@ data-designer config list
 # Delete configuration files (with confirmation)
 data-designer config reset
 ```
-
-## Future Enhancements
-
-Potential improvements to consider:
-
-1. **Import/Export**: Bulk import/export of configurations
-2. **Validation**: Test provider connections before saving
-3. **Templates**: Save and reuse configuration templates
-4. **Profiles**: Switch between different configuration sets
-5. **Cloud Sync**: Sync configurations across machines
-6. **Auto-Discovery**: Detect and suggest available models from providers
-
-## Development Guidelines
-
-When working with the CLI module:
-
-1. **Follow the layers**: Don't bypass layers (e.g., controllers should not directly access repositories)
-2. **Type annotations**: All functions must have type hints
-3. **Error handling**: Use try/except at controller layer, raise ValueError at service layer
-4. **User feedback**: Always provide clear success/error messages
-5. **Testing**: Write tests for each layer independently
-6. **Documentation**: Update this README when adding new features
-
-## Related Files
-
-- [../../interface/data_designer.py](../../interface/data_designer.py): Main DataDesigner class that uses CLI configurations
-- [../../config/models.py](../../config/models.py): ModelConfig and ModelProvider Pydantic models
-- [../essentials/\_\_init\_\_.py](../../essentials/__init__.py): User-facing API that imports CLI configurations
-
-## License
-
-SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-SPDX-License-Identifier: Apache-2.0
