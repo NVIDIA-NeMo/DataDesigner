@@ -7,19 +7,11 @@ from pathlib import Path
 from rich.table import Table
 import typer
 
-from data_designer.cli.ui import (
-    console,
-    print_error,
-    print_header,
-    print_info,
-    print_success,
-    print_warning,
-)
-from data_designer.cli.utils import get_default_config_dir, get_model_config_path, get_model_provider_path
-from data_designer.config.errors import InvalidConfigError, InvalidFileFormatError, InvalidFilePathError
-from data_designer.config.models import ModelConfig
+from data_designer.cli.constants import DEFAULT_CONFIG_DIR
+from data_designer.cli.repositories.model_repository import ModelRepository
+from data_designer.cli.repositories.provider_repository import ProviderRepository
+from data_designer.cli.ui import console, print_error, print_header, print_info, print_success, print_warning
 from data_designer.config.utils.constants import NordColor
-from data_designer.engine.model_provider import ModelProviderRegistry
 
 
 def list_command(
@@ -31,20 +23,20 @@ def list_command(
     if config_dir:
         config_path = Path(config_dir).expanduser().resolve()
     else:
-        config_path = get_default_config_dir()
+        config_path = DEFAULT_CONFIG_DIR
 
     if not output_json:
         print_header("Data Designer Configurations")
         print_info(f"Configuration directory: {config_path}")
         console.print()
 
-    # Load and display providers
-    provider_path = get_model_provider_path(config_path)
-    providers_data = load_providers(provider_path, output_json)
+    # Create repositories
+    provider_repo = ProviderRepository(config_path)
+    model_repo = ModelRepository(config_path)
 
-    # Load and display models
-    model_path = get_model_config_path(config_path)
-    models_data = load_models(model_path, output_json)
+    # Load configurations
+    providers_data = load_providers(provider_repo, output_json)
+    models_data = load_models(model_repo, output_json)
 
     # Output as JSON if requested
     if output_json:
@@ -61,27 +53,34 @@ def list_command(
             print_success("Configuration loaded successfully")
 
 
-def load_providers(provider_path: Path, as_json: bool) -> dict | None:
+def load_providers(provider_repo: ProviderRepository, as_json: bool) -> dict | None:
     """Load and display model providers.
 
     Args:
-        provider_path: Path to provider configuration file
+        provider_repo: Provider repository
         as_json: If True, return data for JSON output instead of displaying
 
     Returns:
         Provider data if as_json=True, None otherwise
     """
     try:
-        from data_designer.cli.utils import load_config_file
+        registry = provider_repo.load()
 
-        config = load_config_file(provider_path)
-
-        # Validate with Pydantic
-        registry = ModelProviderRegistry.model_validate(config)
+        if not registry:
+            if not as_json:
+                print_warning(
+                    "Providers have not been configured. Run 'data-designer config providers' to configure them."
+                )
+                console.print()
+            return (
+                {"file": str(provider_repo.config_file), "valid": False, "error": "Providers have not been configured"}
+                if as_json
+                else None
+            )
 
         if as_json:
             return {
-                "file": str(provider_path),
+                "file": str(provider_repo.config_file),
                 "providers": [
                     {
                         "name": p.name,
@@ -125,53 +124,39 @@ def load_providers(provider_path: Path, as_json: bool) -> dict | None:
         console.print()
         return None
 
-    except InvalidFilePathError:
-        if not as_json:
-            print_warning("Providers have not been configured. Run 'data-designer config providers' to configure them.")
-            console.print()
-        return (
-            {"file": str(provider_path), "valid": False, "error": "Providers have not been configured"}
-            if as_json
-            else None
-        )
-
-    except (InvalidFileFormatError, InvalidConfigError) as e:
-        if not as_json:
-            print_error(f"Invalid provider configuration: {e}")
-            console.print()
-        return {"file": str(provider_path), "valid": False, "error": str(e)} if as_json else None
-
     except Exception as e:
         if not as_json:
             print_error(f"Error loading provider configuration: {e}")
             console.print()
-        return {"file": str(provider_path), "valid": False, "error": str(e)} if as_json else None
+        return {"file": str(provider_repo.config_file), "valid": False, "error": str(e)} if as_json else None
 
 
-def load_models(model_path: Path, as_json: bool) -> dict | None:
+def load_models(model_repo: ModelRepository, as_json: bool) -> dict | None:
     """Load and display model configurations.
 
     Args:
-        model_path: Path to model configuration file
+        model_repo: Model repository
         as_json: If True, return data for JSON output instead of displaying
 
     Returns:
         Model data if as_json=True, None otherwise
     """
     try:
-        from data_designer.cli.utils import load_config_file
+        registry = model_repo.load()
 
-        config = load_config_file(model_path)
-
-        # Validate model configs
-        if "model_configs" not in config:
-            raise InvalidConfigError("Missing 'model_configs' key in configuration")
-
-        model_configs = [ModelConfig.model_validate(mc) for mc in config["model_configs"]]
+        if not registry:
+            if not as_json:
+                print_warning("Models have not been configured. Run 'data-designer config models' to configure them.")
+                console.print()
+            return (
+                {"file": str(model_repo.config_file), "valid": False, "error": "Models have not been configured"}
+                if as_json
+                else None
+            )
 
         if as_json:
             return {
-                "file": str(model_path),
+                "file": str(model_repo.config_file),
                 "models": [
                     {
                         "alias": mc.alias,
@@ -185,7 +170,7 @@ def load_models(model_path: Path, as_json: bool) -> dict | None:
                             "timeout": mc.inference_parameters.timeout,
                         },
                     }
-                    for mc in model_configs
+                    for mc in registry.model_configs
                 ],
                 "valid": True,
             }
@@ -199,7 +184,7 @@ def load_models(model_path: Path, as_json: bool) -> dict | None:
         table.add_column("Top P", style=NordColor.NORD15.value, justify="right")
         table.add_column("Max Tokens", style=NordColor.NORD15.value, justify="right")
 
-        for mc in model_configs:
+        for mc in registry.model_configs:
             # Handle distribution-based parameters
             temp_display = (
                 f"{mc.inference_parameters.temperature:.2f}"
@@ -225,22 +210,8 @@ def load_models(model_path: Path, as_json: bool) -> dict | None:
         console.print()
         return None
 
-    except InvalidFilePathError:
-        if not as_json:
-            print_warning("Models have not been configured. Run 'data-designer config models' to configure them.")
-            console.print()
-        return (
-            {"file": str(model_path), "valid": False, "error": "Models have not been configured"} if as_json else None
-        )
-
-    except (InvalidFileFormatError, InvalidConfigError) as e:
-        if not as_json:
-            print_error(f"Invalid model configuration: {e}")
-            console.print()
-        return {"file": str(model_path), "valid": False, "error": str(e)} if as_json else None
-
     except Exception as e:
         if not as_json:
             print_error(f"Error loading model configuration: {e}")
             console.print()
-        return {"file": str(model_path), "valid": False, "error": str(e)} if as_json else None
+        return {"file": str(model_repo.config_file), "valid": False, "error": str(e)} if as_json else None

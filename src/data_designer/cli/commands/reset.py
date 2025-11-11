@@ -5,6 +5,9 @@ from pathlib import Path
 
 import typer
 
+from data_designer.cli.constants import DEFAULT_CONFIG_DIR
+from data_designer.cli.repositories.model_repository import ModelRepository
+from data_designer.cli.repositories.provider_repository import ProviderRepository
 from data_designer.cli.ui import (
     confirm_action,
     console,
@@ -13,11 +16,6 @@ from data_designer.cli.ui import (
     print_info,
     print_success,
     print_text,
-)
-from data_designer.cli.utils import (
-    get_default_config_dir,
-    get_model_config_path,
-    get_model_provider_path,
 )
 
 
@@ -31,17 +29,18 @@ def reset_command(
     if output_dir:
         config_dir = Path(output_dir).expanduser().resolve()
     else:
-        config_dir = get_default_config_dir()
+        config_dir = DEFAULT_CONFIG_DIR
 
     print_info(f"Configuration directory: {config_dir}")
     console.print()
 
-    # Check which config files exist
-    provider_path = get_model_provider_path(config_dir)
-    model_path = get_model_config_path(config_dir)
+    # Create repositories
+    provider_repo = ProviderRepository(config_dir)
+    model_repo = ModelRepository(config_dir)
 
-    provider_exists = provider_path.exists()
-    model_exists = model_path.exists()
+    # Check which config files exist
+    provider_exists = provider_repo.exists()
+    model_exists = model_repo.exists()
 
     if not provider_exists and not model_exists:
         print_success("There are no configurations to reset! Nothing to do!")
@@ -53,10 +52,10 @@ def reset_command(
     console.print()
 
     if provider_exists:
-        print_text(f"  |-- ⚙️  Model providers: {provider_path}")
+        print_text(f"  |-- ⚙️  Model providers: {provider_repo.config_file}")
 
     if model_exists:
-        print_text(f"  |-- 🤖 Model configs: {model_path}")
+        print_text(f"  |-- 🤖 Model configs: {model_repo.config_file}")
 
     console.print()
     console.print()
@@ -70,9 +69,11 @@ def reset_command(
 
     # Ask for confirmation and delete model providers
     if provider_exists:
-        if confirm_action(f"Delete model providers configuration in {str(provider_path)!r}?", default=False):
+        if confirm_action(
+            f"Delete model providers configuration in {str(provider_repo.config_file)!r}?", default=False
+        ):
             try:
-                provider_path.unlink()
+                provider_repo.delete()
                 print_success("Deleted model providers configuration")
                 deleted_count += 1
             except Exception as e:
@@ -85,9 +86,9 @@ def reset_command(
 
     # Ask for confirmation and delete model configs
     if model_exists:
-        if confirm_action(f"Delete model configs configuration in {str(model_path)!r}?", default=False):
+        if confirm_action(f"Delete model configs configuration in {str(model_repo.config_file)!r}?", default=False):
             try:
-                model_path.unlink()
+                model_repo.delete()
                 print_success("Deleted model configs configuration")
                 deleted_count += 1
             except Exception as e:

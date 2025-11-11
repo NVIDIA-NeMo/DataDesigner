@@ -7,22 +7,12 @@ import pytest
 
 from data_designer.cli.utils import (
     ensure_config_dir_exists,
-    get_default_config_dir,
-    get_model_config_path,
-    get_model_provider_path,
     load_config_file,
     save_config_file,
     validate_numeric_range,
-    validate_positive_int,
     validate_url,
 )
 from data_designer.config.errors import InvalidConfigError, InvalidFileFormatError, InvalidFilePathError
-
-
-def test_get_default_config_dir() -> None:
-    """Test getting default config directory."""
-    config_dir = get_default_config_dir()
-    assert config_dir == Path.home() / ".data-designer"
 
 
 def test_ensure_config_dir_exists(tmp_path: Path) -> None:
@@ -78,26 +68,6 @@ def test_load_config_file_empty(tmp_path: Path) -> None:
         load_config_file(config_file)
 
 
-def test_get_model_provider_path() -> None:
-    """Test getting model provider path."""
-    default_path = get_model_provider_path()
-    assert default_path == get_default_config_dir() / "model_providers.yaml"
-
-    custom_dir = Path("/custom/dir")
-    custom_path = get_model_provider_path(custom_dir)
-    assert custom_path == custom_dir / "model_providers.yaml"
-
-
-def test_get_model_config_path() -> None:
-    """Test getting model config path."""
-    default_path = get_model_config_path()
-    assert default_path == get_default_config_dir() / "model_configs.yaml"
-
-    custom_dir = Path("/custom/dir")
-    custom_path = get_model_config_path(custom_dir)
-    assert custom_path == custom_dir / "model_configs.yaml"
-
-
 def test_validate_url() -> None:
     """Test URL validation."""
     # Valid URLs
@@ -139,35 +109,5 @@ def test_validate_numeric_range() -> None:
 
     # Invalid values - not numeric
     is_valid, value = validate_numeric_range("abc", 0.0, 1.0)
-    assert not is_valid
-    assert value is None
-
-
-def test_validate_positive_int() -> None:
-    """Test positive integer validation."""
-    # Valid values
-    is_valid, value = validate_positive_int("1")
-    assert is_valid
-    assert value == 1
-
-    is_valid, value = validate_positive_int("100")
-    assert is_valid
-    assert value == 100
-
-    # Invalid values - not positive
-    is_valid, value = validate_positive_int("0")
-    assert not is_valid
-    assert value is None
-
-    is_valid, value = validate_positive_int("-1")
-    assert not is_valid
-    assert value is None
-
-    # Invalid values - not integer
-    is_valid, value = validate_positive_int("1.5")
-    assert not is_valid
-    assert value is None
-
-    is_valid, value = validate_positive_int("abc")
     assert not is_valid
     assert value is None

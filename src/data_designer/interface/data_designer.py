@@ -65,6 +65,9 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             This will be used as the dataset folder name in the artifact path.
         model_providers: Optional list of model providers for LLM generation. If None,
             uses default providers.
+        config_dir: Optional custom configuration directory for loading default model
+            configs and providers. If None, uses the default directory (~/.data-designer).
+            This is useful when the CLI has been configured to use a custom directory.
         secret_resolver: Resolver for handling secrets and credentials. Defaults to
             EnvironmentResolver which reads secrets from environment variables.
         blob_storage_path: Path to the blob storage directory. Note this parameter
@@ -76,11 +79,13 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         artifact_path: Path | str | None = None,
         *,
         model_providers: list[ModelProvider] | None = None,
+        config_dir: Path | str | None = None,
         secret_resolver: SecretResolver = EnvironmentResolver(),
         blob_storage_path: Path | str | None = None,
     ):
         self._secret_resolver = secret_resolver
         self._artifact_path = Path(artifact_path) if artifact_path is not None else Path.cwd() / "artifacts"
+        self._config_dir = Path(config_dir) if config_dir is not None else None
         self._buffer_size = DEFAULT_BUFFER_SIZE
         self._blob_storage = (
             init_managed_blob_storage()
@@ -230,7 +235,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         )
 
     def get_default_model_configs(self) -> list[ModelConfig]:
-        model_configs = get_default_model_configs()
+        model_configs = get_default_model_configs(self._config_dir)
         if len(model_configs) == 0:
             logger.warning(
                 f"‼️ Neither {NVIDIA_API_KEY_ENV_VAR_NAME!r} nor {OPENAI_API_KEY_ENV_VAR_NAME!r} environment variables are set. Please set at least one of them if you want to use the default model configs."
@@ -238,7 +243,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         return model_configs
 
     def get_default_model_providers(self) -> list[ModelProvider]:
-        return get_default_providers()
+        return get_default_providers(self._config_dir)
 
     def set_buffer_size(self, buffer_size: int) -> None:
         """Set the buffer size for dataset generation.

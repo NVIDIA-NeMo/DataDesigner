@@ -68,10 +68,8 @@ def test_get_default_openai_model_configs_no_api_key(mock_get_openai_api_key):
     assert len(openai_model_configs) == 0
 
 
-@patch("data_designer.config.default_model_settings.get_model_config_path")
-def test_get_user_defined_default_model_configs(mock_get_model_config_path, tmp_path: Path):
-    model_configs_path = tmp_path / "model_configs.yaml"
-    mock_get_model_config_path.return_value = model_configs_path
+def test_get_user_defined_default_model_configs(tmp_path: Path) -> None:
+    """Test getting user-defined model configs from custom config directory."""
     (tmp_path / "model_configs.yaml").write_text(
         """
         model_configs:
@@ -89,7 +87,7 @@ def test_get_user_defined_default_model_configs(mock_get_model_config_path, tmp_
             top_p: 0.9
         """
     )
-    user_defined_model_configs = get_user_defined_default_model_configs()
+    user_defined_model_configs = get_user_defined_default_model_configs(tmp_path)
     assert len(user_defined_model_configs) == 2
     assert user_defined_model_configs[0].alias == "test-model-1"
     assert user_defined_model_configs[0].model == "test/model-id"
@@ -101,10 +99,9 @@ def test_get_user_defined_default_model_configs(mock_get_model_config_path, tmp_
     assert user_defined_model_configs[1].inference_parameters is not None
 
 
-@patch("data_designer.config.default_model_settings.get_model_config_path")
-def test_get_user_defined_default_model_configs_no_user_defined_configs(mock_get_model_config_path, tmp_path: Path):
-    mock_get_model_config_path.return_value = tmp_path / "model_configs.yaml"
-    assert len(get_user_defined_default_model_configs()) == 0
+def test_get_user_defined_default_model_configs_no_user_defined_configs(tmp_path: Path) -> None:
+    """Test getting user-defined model configs when file doesn't exist."""
+    assert len(get_user_defined_default_model_configs(tmp_path)) == 0
 
 
 @patch("data_designer.config.default_model_settings.get_default_nvidia_model_configs")
@@ -156,10 +153,8 @@ def test_get_default_model_configs_with_user_defined_configs(mock_get_user_defin
     assert model_configs[0].provider == "model-provider"
 
 
-@patch("data_designer.config.default_model_settings.get_model_provider_path")
-def test_get_user_defined_default_providers(mock_get_model_provider_path, tmp_path: Path):
-    model_providers_path = tmp_path / "model_providers.yaml"
-    mock_get_model_provider_path.return_value = model_providers_path
+def test_get_user_defined_default_providers(tmp_path: Path) -> None:
+    """Test getting user-defined providers from custom config directory."""
     (tmp_path / "model_providers.yaml").write_text(
         """
         providers:
@@ -171,7 +166,7 @@ def test_get_user_defined_default_providers(mock_get_model_provider_path, tmp_pa
           api_key: test-api-key-2
         """
     )
-    user_defined_providers = get_user_defined_default_providers()
+    user_defined_providers = get_user_defined_default_providers(tmp_path)
     assert len(user_defined_providers) == 2
     assert user_defined_providers[0].name == "test-provider-1"
     assert user_defined_providers[0].endpoint == "https://api.test-provider-1.com/v1"
@@ -181,10 +176,9 @@ def test_get_user_defined_default_providers(mock_get_model_provider_path, tmp_pa
     assert user_defined_providers[1].api_key == "test-api-key-2"
 
 
-@patch("data_designer.config.default_model_settings.get_model_provider_path")
-def test_get_user_defined_default_providers_no_user_defined_providers(mock_get_model_provider_path, tmp_path: Path):
-    mock_get_model_provider_path.return_value = tmp_path / "model_providers.yaml"
-    assert len(get_user_defined_default_providers()) == 0
+def test_get_user_defined_default_providers_no_user_defined_providers(tmp_path: Path) -> None:
+    """Test getting user-defined providers when file doesn't exist."""
+    assert len(get_user_defined_default_providers(tmp_path)) == 0
 
 
 @patch("data_designer.config.default_model_settings.get_user_defined_default_providers")

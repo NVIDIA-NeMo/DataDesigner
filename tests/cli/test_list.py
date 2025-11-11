@@ -84,4 +84,4 @@ def test_list_command_missing_configs(tmp_path: Path) -> None:
     result = runner.invoke(app, ["config", "list", "--config-dir", str(tmp_path)])
 
     assert result.exit_code == 0  # Should not error, just warn
-    assert "not found" in result.output.lower()
+    assert "have not been configured" in result.output.lower()

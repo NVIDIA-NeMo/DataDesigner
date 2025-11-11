@@ -3,9 +3,11 @@
 
 import logging
 import os
+from pathlib import Path
 from typing import Optional
 
-from data_designer.cli.utils import get_model_config_path, get_model_provider_path, load_config_file
+from data_designer.cli.constants import DEFAULT_CONFIG_DIR, MODEL_CONFIGS_FILE_NAME, MODEL_PROVIDERS_FILE_NAME
+from data_designer.cli.utils import load_config_file
 
 from .models import InferenceParameters, ModelConfig, ModelProvider
 from .utils.constants import (
@@ -95,8 +97,19 @@ def get_default_openai_model_configs() -> list[ModelConfig]:
     ]
 
 
-def get_user_defined_default_model_configs() -> list[ModelConfig]:
-    pre_defined_model_config_path = get_model_config_path()
+def get_user_defined_default_model_configs(config_dir: Path | None = None) -> list[ModelConfig]:
+    """Get user-defined default model configurations from a config file.
+
+    Args:
+        config_dir: Optional custom configuration directory. If None, uses DEFAULT_CONFIG_DIR.
+
+    Returns:
+        List of user-defined model configurations, or empty list if not found.
+    """
+    if config_dir is None:
+        config_dir = DEFAULT_CONFIG_DIR
+
+    pre_defined_model_config_path = config_dir / MODEL_CONFIGS_FILE_NAME
     if pre_defined_model_config_path.exists():
         config_dict = load_config_file(pre_defined_model_config_path)
         if "model_configs" in config_dict:
@@ -105,15 +118,37 @@ def get_user_defined_default_model_configs() -> list[ModelConfig]:
     return []
 
 
-def get_default_model_configs() -> list[ModelConfig]:
-    user_defined_default_model_configs = get_user_defined_default_model_configs()
+def get_default_model_configs(config_dir: Path | None = None) -> list[ModelConfig]:
+    """Get default model configurations.
+
+    First checks for user-defined configurations in the config directory.
+    If not found, returns built-in NVIDIA and OpenAI configurations.
+
+    Args:
+        config_dir: Optional custom configuration directory. If None, uses DEFAULT_CONFIG_DIR.
+
+    Returns:
+        List of default model configurations.
+    """
+    user_defined_default_model_configs = get_user_defined_default_model_configs(config_dir)
     if len(user_defined_default_model_configs) > 0:
         return user_defined_default_model_configs
     return get_default_nvidia_model_configs() + get_default_openai_model_configs()
 
 
-def get_user_defined_default_providers() -> list[ModelProvider]:
-    pre_defined_model_provider_path = get_model_provider_path()
+def get_user_defined_default_providers(config_dir: Path | None = None) -> list[ModelProvider]:
+    """Get user-defined default model providers from a config file.
+
+    Args:
+        config_dir: Optional custom configuration directory. If None, uses DEFAULT_CONFIG_DIR.
+
+    Returns:
+        List of user-defined model providers, or empty list if not found.
+    """
+    if config_dir is None:
+        config_dir = DEFAULT_CONFIG_DIR
+
+    pre_defined_model_provider_path = config_dir / MODEL_PROVIDERS_FILE_NAME
     if pre_defined_model_provider_path.exists():
         config_dict = load_config_file(pre_defined_model_provider_path)
         if "providers" in config_dict:
@@ -122,8 +157,19 @@ def get_user_defined_default_providers() -> list[ModelProvider]:
     return []
 
 
-def get_default_providers() -> list[ModelProvider]:
-    user_defined_default_providers = get_user_defined_default_providers()
+def get_default_providers(config_dir: Path | None = None) -> list[ModelProvider]:
+    """Get default model providers.
+
+    First checks for user-defined providers in the config directory.
+    If not found, returns built-in NVIDIA and OpenAI providers.
+
+    Args:
+        config_dir: Optional custom configuration directory. If None, uses DEFAULT_CONFIG_DIR.
+
+    Returns:
+        List of default model providers.
+    """
+    user_defined_default_providers = get_user_defined_default_providers(config_dir)
     if len(user_defined_default_providers) > 0:
         return user_defined_default_providers
     return [

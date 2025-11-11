@@ -378,7 +378,7 @@ def print_info(message: str) -> None:
     Args:
         message: Info message to display
     """
-    _print_with_padding(f"📰  {message}")
+    _print_with_padding(f"💡  {message}")
 
 
 def print_text(message: str) -> None:
