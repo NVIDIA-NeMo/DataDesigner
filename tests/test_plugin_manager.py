@@ -209,14 +209,14 @@ def test_inject_into_column_config_type_union_with_plugins(mock_plugin_registry:
     class BaseType:
         pass
 
-    mock_plugin_registry.add_plugin_types.return_value = str | int
+    mock_plugin_registry.add_plugin_types_to_union.return_value = str | int
 
     with mock_plugin_system(mock_plugin_registry):
         manager = PluginManager()
         result = manager.inject_into_column_config_type_union(BaseType)
 
     assert result == str | int
-    mock_plugin_registry.add_plugin_types.assert_called_once_with(BaseType, MockPluginType.COLUMN_GENERATOR)
+    mock_plugin_registry.add_plugin_types_to_union.assert_called_once_with(BaseType, MockPluginType.COLUMN_GENERATOR)
 
 
 def test_inject_into_column_config_type_union_when_disabled() -> None:

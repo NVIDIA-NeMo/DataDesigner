@@ -20,10 +20,10 @@ if can_run_data_designer_locally():
 class PluginManager:
     def __init__(self):
         if can_run_data_designer_locally():
-            self._plugins_available = True
+            self._plugins_supported = True
             self._plugin_registry = PluginRegistry()
         else:
-            self._plugins_available = False
+            self._plugins_supported = False
             self._plugin_registry = None
 
     def get_column_generator_plugins(self) -> list[Plugin]:
@@ -32,7 +32,7 @@ class PluginManager:
         Returns:
             A list of all column generator plugins.
         """
-        return self._plugin_registry.get_plugins(PluginType.COLUMN_GENERATOR) if self._plugins_available else []
+        return self._plugin_registry.get_plugins(PluginType.COLUMN_GENERATOR) if self._plugins_supported else []
 
     def get_column_generator_plugin_if_exists(self, plugin_name: str) -> Plugin | None:
         """Get a column generator plugin by name if it exists.
@@ -43,7 +43,7 @@ class PluginManager:
         Returns:
             The plugin if found, otherwise None.
         """
-        if self._plugins_available and self._plugin_registry.plugin_exists(plugin_name):
+        if self._plugins_supported and self._plugin_registry.plugin_exists(plugin_name):
             return self._plugin_registry.get_plugin(plugin_name)
         return None
 
@@ -58,7 +58,7 @@ class PluginManager:
             A list of plugin column types.
         """
         type_list = []
-        if self._plugins_available:
+        if self._plugins_supported:
             for plugin in self._plugin_registry.get_plugins(PluginType.COLUMN_GENERATOR):
                 if required_resources:
                     task_required_resources = plugin.task_cls.metadata().required_resources or []
@@ -76,6 +76,8 @@ class PluginManager:
         Returns:
             The column config type with plugins injected.
         """
-        if self._plugins_available:
-            column_config_type = self._plugin_registry.add_plugin_types(column_config_type, PluginType.COLUMN_GENERATOR)
+        if self._plugins_supported:
+            column_config_type = self._plugin_registry.add_plugin_types_to_union(
+                column_config_type, PluginType.COLUMN_GENERATOR
+            )
         return column_config_type

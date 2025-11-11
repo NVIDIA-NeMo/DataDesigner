@@ -1,7 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from copy import deepcopy
 from importlib.metadata import entry_points
 import logging
 import os
@@ -10,7 +9,7 @@ from typing import Type, TypeAlias
 
 from typing_extensions import Self
 
-from data_designer.plugins.errors import PluginNotFoundError, PluginRegistrationError
+from data_designer.plugins.errors import PluginNotFoundError
 from data_designer.plugins.plugin import Plugin, PluginType
 
 logger = logging.getLogger(__name__)
@@ -27,26 +26,22 @@ class PluginRegistry:
     _plugins: dict[str, Plugin] = {}
 
     def __init__(self):
-        if not self._plugins_discovered:
-            self.discover()
-            self._plugins_discovered = True
+        with self._lock:
+            if not self._plugins_discovered:
+                self._discover()
 
     @classmethod
     def reset(cls) -> None:
-        cls._instance = None
-        cls._plugins_discovered = False
-        cls._plugins = {}
+        with cls._lock:
+            cls._instance = None
+            cls._plugins_discovered = False
+            cls._plugins = {}
 
-    def add_plugin_types(self, type_union: Type[TypeAlias], plugin_type: PluginType) -> Type[TypeAlias]:
+    def add_plugin_types_to_union(self, type_union: Type[TypeAlias], plugin_type: PluginType) -> Type[TypeAlias]:
         for plugin in self.get_plugins(plugin_type):
-            type_union |= plugin.config_cls
+            if plugin.config_cls not in type_union.__args__:
+                type_union |= plugin.config_cls
         return type_union
-
-    def clear_plugins(self) -> None:
-        self._plugins.clear()
-
-    def copy_plugins(self) -> dict[str, Plugin]:
-        return deepcopy(self._plugins)
 
     def get_plugin(self, plugin_name: str) -> Plugin:
         if plugin_name not in self._plugins:
@@ -65,31 +60,22 @@ class PluginRegistry:
     def plugin_exists(self, plugin_name: str) -> bool:
         return plugin_name in self._plugins
 
-    def set_plugins(self, plugins: dict[str, Plugin]) -> None:
-        self._plugins = plugins
-
-    def discover(self) -> Self:
+    def _discover(self) -> Self:
         if PLUGINS_DISABLED:
             return self
         for ep in entry_points(group="data_designer.plugins"):
             try:
                 plugin = ep.load()
                 if isinstance(plugin, Plugin):
-                    with self._lock:
-                        self.register(plugin)
                     logger.info(
                         f"🔌 Plugin discovered ➜ {plugin.plugin_type.display_name} "
                         f"{plugin.enum_key_name} is now available ⚡️"
                     )
+                    self._plugins[plugin.name] = plugin
             except Exception as e:
                 logger.warning(f"🛑 Failed to load plugin from entry point {ep.name!r}: {e}")
-
+        self._plugins_discovered = True
         return self
-
-    def register(self, plugin: Plugin) -> None:
-        if plugin.name in self._plugins:
-            raise PluginRegistrationError(f"Plugin {plugin.name!r} already registered.")
-        self._plugins[plugin.name] = plugin
 
     def __new__(cls, *args, **kwargs):
         """Plugin manager is a singleton."""
