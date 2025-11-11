@@ -11,9 +11,9 @@ from pandas import Series
 from pydantic import BaseModel, ConfigDict, create_model, field_validator, model_validator
 from typing_extensions import Self, TypeAlias
 
+from ...plugin_manager import PluginManager
 from ..column_types import DataDesignerColumnType
 from ..sampler_params import SamplerType
-from ..utils import plugin_helpers
 from ..utils.constants import EPSILON
 from ..utils.numerical_helpers import is_float, is_int, prepare_number_for_reporting
 
@@ -263,7 +263,7 @@ DEFAULT_COLUMN_STATISTICS_MAP = {
     DataDesignerColumnType.VALIDATION: ValidationColumnStatistics,
 }
 
-for plugin in plugin_helpers.get_plugin_column_configs():
+for plugin in PluginManager().get_plugin_column_configs():
     # Dynamically create a statistics class for this plugin using Pydantic's create_model
     plugin_stats_cls_name = f"{plugin.config_type_as_class_name}ColumnStatistics"
 

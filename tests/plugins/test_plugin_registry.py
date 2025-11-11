@@ -13,8 +13,8 @@ from data_designer.config.base import ConfigBase
 from data_designer.config.column_configs import SingleColumnConfig
 from data_designer.engine.configurable_task import ConfigurableTask, ConfigurableTaskMetadata
 from data_designer.plugins.errors import PluginNotFoundError
-from data_designer.plugins.manager import PluginManager
 from data_designer.plugins.plugin import Plugin, PluginType
+from data_designer.plugins.registry import PluginRegistry
 
 # =============================================================================
 # Test Stubs
@@ -73,13 +73,13 @@ def plugin_b() -> Plugin:
 
 
 @pytest.fixture(autouse=True)
-def clean_plugin_manager() -> None:
-    """Reset PluginManager singleton state before and after each test."""
-    PluginManager.reset()
+def clean_plugin_registry() -> None:
+    """Reset PluginRegistry singleton state before and after each test."""
+    PluginRegistry.reset()
 
     yield
 
-    PluginManager.reset()
+    PluginRegistry.reset()
 
 
 @pytest.fixture
@@ -88,8 +88,8 @@ def mock_plugin_discovery():
 
     @contextmanager
     def _mock_discovery(entry_points_list):
-        with patch("data_designer.plugins.manager.PLUGINS_DISABLED", False):
-            with patch("data_designer.plugins.manager.entry_points", return_value=entry_points_list):
+        with patch("data_designer.plugins.registry.PLUGINS_DISABLED", False):
+            with patch("data_designer.plugins.registry.entry_points", return_value=entry_points_list):
                 yield
 
     return _mock_discovery
@@ -110,27 +110,27 @@ def mock_entry_points(plugin_a: Plugin, plugin_b: Plugin) -> list[MagicMock]:
 
 
 # =============================================================================
-# PluginManager Singleton Tests
+# PluginRegistry Singleton Tests
 # =============================================================================
 
 
-def test_plugin_manager_is_singleton(mock_plugin_discovery) -> None:
-    """Test PluginManager returns same instance."""
+def test_plugin_registry_is_singleton(mock_plugin_discovery) -> None:
+    """Test PluginRegistry returns same instance."""
     with mock_plugin_discovery([]):
-        manager1 = PluginManager()
-        manager2 = PluginManager()
+        manager1 = PluginRegistry()
+        manager2 = PluginRegistry()
 
         assert manager1 is manager2
 
 
-def test_plugin_manager_singleton_thread_safety(mock_plugin_discovery) -> None:
-    """Test PluginManager singleton creation is thread-safe."""
-    instances: list[PluginManager] = []
+def test_plugin_registry_singleton_thread_safety(mock_plugin_discovery) -> None:
+    """Test PluginRegistry singleton creation is thread-safe."""
+    instances: list[PluginRegistry] = []
 
     with mock_plugin_discovery([]):
 
         def create_manager() -> None:
-            instances.append(PluginManager())
+            instances.append(PluginRegistry())
 
         threads = [threading.Thread(target=create_manager) for _ in range(10)]
         for thread in threads:
@@ -142,24 +142,24 @@ def test_plugin_manager_singleton_thread_safety(mock_plugin_discovery) -> None:
 
 
 # =============================================================================
-# PluginManager Discovery Tests
+# PluginRegistry Discovery Tests
 # =============================================================================
 
 
-def test_plugin_manager_discovers_plugins(
+def test_plugin_registry_discovers_plugins(
     mock_plugin_discovery, mock_entry_points: list[MagicMock], plugin_a: Plugin, plugin_b: Plugin
 ) -> None:
-    """Test PluginManager discovers and loads plugins from entry points."""
+    """Test PluginRegistry discovers and loads plugins from entry points."""
     with mock_plugin_discovery(mock_entry_points):
-        manager = PluginManager()
+        manager = PluginRegistry()
 
         assert manager.num_plugins(PluginType.COLUMN_GENERATOR) == 2
         assert manager.get_plugin("test-plugin-a") == plugin_a
         assert manager.get_plugin("test-plugin-b") == plugin_b
 
 
-def test_plugin_manager_skips_invalid_plugins(mock_plugin_discovery, plugin_a: Plugin) -> None:
-    """Test PluginManager skips non-Plugin objects during discovery."""
+def test_plugin_registry_skips_invalid_plugins(mock_plugin_discovery, plugin_a: Plugin) -> None:
+    """Test PluginRegistry skips non-Plugin objects during discovery."""
     mock_ep_valid = MagicMock(spec=EntryPoint)
     mock_ep_valid.name = "test-plugin-a"
     mock_ep_valid.load.return_value = plugin_a
@@ -169,14 +169,14 @@ def test_plugin_manager_skips_invalid_plugins(mock_plugin_discovery, plugin_a: P
     mock_ep_invalid.load.return_value = "not a plugin"
 
     with mock_plugin_discovery([mock_ep_valid, mock_ep_invalid]):
-        manager = PluginManager()
+        manager = PluginRegistry()
 
         assert manager.num_plugins(PluginType.COLUMN_GENERATOR) == 1
         assert manager.get_plugin("test-plugin-a") == plugin_a
 
 
-def test_plugin_manager_handles_loading_errors(mock_plugin_discovery, plugin_a: Plugin) -> None:
-    """Test PluginManager gracefully handles plugin loading errors."""
+def test_plugin_registry_handles_loading_errors(mock_plugin_discovery, plugin_a: Plugin) -> None:
+    """Test PluginRegistry gracefully handles plugin loading errors."""
     mock_ep_valid = MagicMock(spec=EntryPoint)
     mock_ep_valid.name = "test-plugin-a"
     mock_ep_valid.load.return_value = plugin_a
@@ -186,57 +186,57 @@ def test_plugin_manager_handles_loading_errors(mock_plugin_discovery, plugin_a: 
     mock_ep_error.load.side_effect = Exception("Loading failed")
 
     with mock_plugin_discovery([mock_ep_valid, mock_ep_error]):
-        manager = PluginManager()
+        manager = PluginRegistry()
 
         assert manager.num_plugins(PluginType.COLUMN_GENERATOR) == 1
         assert manager.get_plugin("test-plugin-a") == plugin_a
 
 
-def test_plugin_manager_discovery_runs_once() -> None:
-    """Test discovery runs once even with multiple PluginManager instances."""
+def test_plugin_registry_discovery_runs_once() -> None:
+    """Test discovery runs once even with multiple PluginRegistry instances."""
     mock_entry_points = MagicMock(return_value=[])
 
-    with patch("data_designer.plugins.manager.PLUGINS_DISABLED", False):
-        with patch("data_designer.plugins.manager.entry_points", mock_entry_points):
-            PluginManager()
-            PluginManager()
-            PluginManager()
+    with patch("data_designer.plugins.registry.PLUGINS_DISABLED", False):
+        with patch("data_designer.plugins.registry.entry_points", mock_entry_points):
+            PluginRegistry()
+            PluginRegistry()
+            PluginRegistry()
 
             assert mock_entry_points.call_count == 1
 
 
-def test_plugin_manager_respects_disabled_flag() -> None:
-    """Test PluginManager respects DISABLE_DATA_DESIGNER_PLUGINS flag."""
+def test_plugin_registry_respects_disabled_flag() -> None:
+    """Test PluginRegistry respects DISABLE_DATA_DESIGNER_PLUGINS flag."""
     mock_entry_points = MagicMock(return_value=[])
 
-    with patch("data_designer.plugins.manager.PLUGINS_DISABLED", True):
-        with patch("data_designer.plugins.manager.entry_points", mock_entry_points):
-            manager = PluginManager()
+    with patch("data_designer.plugins.registry.PLUGINS_DISABLED", True):
+        with patch("data_designer.plugins.registry.entry_points", mock_entry_points):
+            manager = PluginRegistry()
 
             assert mock_entry_points.call_count == 0
             assert manager.num_plugins(PluginType.COLUMN_GENERATOR) == 0
 
 
 # =============================================================================
-# PluginManager Query Methods Tests
+# PluginRegistry Query Methods Tests
 # =============================================================================
 
 
-def test_plugin_manager_get_plugin_raises_error(mock_plugin_discovery) -> None:
+def test_plugin_registry_get_plugin_raises_error(mock_plugin_discovery) -> None:
     """Test get_plugin() raises error for nonexistent plugin."""
     with mock_plugin_discovery([]):
-        manager = PluginManager()
+        manager = PluginRegistry()
 
         with pytest.raises(PluginNotFoundError, match="Plugin 'nonexistent' not found"):
             manager.get_plugin("nonexistent")
 
 
-def test_plugin_manager_get_plugins_by_type(
+def test_plugin_registry_get_plugins_by_type(
     mock_plugin_discovery, mock_entry_points: list[MagicMock], plugin_a: Plugin, plugin_b: Plugin
 ) -> None:
     """Test get_plugins() filters by plugin type."""
     with mock_plugin_discovery(mock_entry_points):
-        manager = PluginManager()
+        manager = PluginRegistry()
         plugins = manager.get_plugins(PluginType.COLUMN_GENERATOR)
 
         assert len(plugins) == 2
@@ -244,33 +244,33 @@ def test_plugin_manager_get_plugins_by_type(
         assert plugin_b in plugins
 
 
-def test_plugin_manager_get_plugins_empty(mock_plugin_discovery) -> None:
+def test_plugin_registry_get_plugins_empty(mock_plugin_discovery) -> None:
     """Test get_plugins() returns empty list when no plugins match."""
     with mock_plugin_discovery([]):
-        manager = PluginManager()
+        manager = PluginRegistry()
         plugins = manager.get_plugins(PluginType.COLUMN_GENERATOR)
 
         assert plugins == []
 
 
-def test_plugin_manager_get_plugin_names(mock_plugin_discovery, mock_entry_points: list[MagicMock]) -> None:
+def test_plugin_registry_get_plugin_names(mock_plugin_discovery, mock_entry_points: list[MagicMock]) -> None:
     """Test get_plugin_names() returns plugin names by type."""
     with mock_plugin_discovery(mock_entry_points):
-        manager = PluginManager()
+        manager = PluginRegistry()
         names = manager.get_plugin_names(PluginType.COLUMN_GENERATOR)
 
         assert set(names) == {"test-plugin-a", "test-plugin-b"}
 
 
 # =============================================================================
-# PluginManager Type Union Tests
+# PluginRegistry Type Union Tests
 # =============================================================================
 
 
-def test_plugin_manager_update_type_union(mock_plugin_discovery, mock_entry_points: list[MagicMock]) -> None:
+def test_plugin_registry_update_type_union(mock_plugin_discovery, mock_entry_points: list[MagicMock]) -> None:
     """Test update_type_union() adds plugin config types to union."""
     with mock_plugin_discovery(mock_entry_points):
-        manager = PluginManager()
+        manager = PluginRegistry()
 
         type_union: type = ConfigBase
         updated_union = manager.add_plugin_types(type_union, PluginType.COLUMN_GENERATOR)

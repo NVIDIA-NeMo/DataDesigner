@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 PLUGINS_DISABLED = os.getenv("DISABLE_DATA_DESIGNER_PLUGINS", "false").lower() == "true"
 
 
-class PluginManager:
+class PluginRegistry:
     _instance = None
     _plugins_discovered = False
     _lock = threading.Lock()
