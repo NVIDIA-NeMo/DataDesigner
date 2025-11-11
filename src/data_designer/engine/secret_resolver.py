@@ -39,7 +39,9 @@ class EnvironmentResolver(SecretResolver):
         try:
             return os.environ[secret]
         except KeyError:
-            raise SecretResolutionError(f"No env var found with name {secret!r}")
+            raise SecretResolutionError(
+                f"Environment variable with name {secret!r} is required but not set. Please set it in your environment and try again."
+            )
 
 
 class PlaintextResolver(SecretResolver):

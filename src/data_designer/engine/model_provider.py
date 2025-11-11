@@ -6,14 +6,8 @@ from typing import Self
 
 from pydantic import BaseModel, field_validator, model_validator
 
+from data_designer.config.models import ModelProvider
 from data_designer.engine.errors import NoModelProvidersError, UnknownProviderError
-
-
-class ModelProvider(BaseModel):
-    name: str
-    endpoint: str
-    provider_type: str = "openai"
-    api_key: str | None = None
 
 
 class ModelProviderRegistry(BaseModel):
@@ -70,21 +64,10 @@ class ModelProviderRegistry(BaseModel):
             raise UnknownProviderError(f"No provider named {name!r} registered")
 
 
-def resolve_model_provider_registry(model_providers: list[ModelProvider] | None = None) -> ModelProviderRegistry:
-    if model_providers:
-        if len(model_providers) == 0:
-            raise NoModelProvidersError("At least one model provider must be defined")
-        return ModelProviderRegistry(
-            providers=model_providers,
-            default=model_providers[0].name,
-        )
+def resolve_model_provider_registry(model_providers: list[ModelProvider]) -> ModelProviderRegistry:
+    if len(model_providers) == 0:
+        raise NoModelProvidersError("At least one model provider must be defined")
     return ModelProviderRegistry(
-        providers=[
-            ModelProvider(
-                name="nvidia",
-                endpoint="https://integrate.api.nvidia.com/v1",
-                api_key="NVIDIA_API_KEY",
-            )
-        ],
-        default="nvidia",
+        providers=model_providers,
+        default=model_providers[0].name,
     )

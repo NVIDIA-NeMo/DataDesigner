@@ -44,7 +44,7 @@ from .seed import (
     SeedDatasetReference,
 )
 from .utils.constants import DEFAULT_REPR_HTML_STYLE, REPR_HTML_TEMPLATE
-from .utils.info import DataDesignerInfo
+from .utils.info import ConfigBuilderInfo
 from .utils.io_helpers import serialize_data, smart_load_yaml
 from .utils.misc import (
     can_run_data_designer_locally,
@@ -132,14 +132,13 @@ class DataDesignerConfigBuilder:
 
         return builder
 
-    def __init__(self, model_configs: Optional[Union[list[ModelConfig], str, Path]] = None):
+    def __init__(self, model_configs: Union[list[ModelConfig], str, Path]):
         """Initialize a new DataDesignerConfigBuilder instance.
 
         Args:
-            model_configs: Optional model configurations. Can be:
+            model_configs: Model configurations. Can be:
                 - A list of ModelConfig objects
                 - A string or Path to a model configuration file
-                - None to use default model configurations
         """
         self._column_configs = {}
         self._model_configs = load_model_configs(model_configs)
@@ -147,7 +146,6 @@ class DataDesignerConfigBuilder:
         self._seed_config: Optional[SeedConfig] = None
         self._constraints: list[ColumnConstraintT] = []
         self._profilers: list[ColumnProfilerConfigT] = []
-        self._info = DataDesignerInfo()
         self._datastore_settings: Optional[DatastoreSettings] = None
 
     @property
@@ -173,13 +171,13 @@ class DataDesignerConfigBuilder:
         return list(self._column_configs.keys()) + list(set(side_effect_columns))
 
     @property
-    def info(self) -> DataDesignerInfo:
-        """Get the DataDesignerInfo object for this builder.
+    def info(self) -> ConfigBuilderInfo:
+        """Get the ConfigBuilderInfo object for this builder.
 
         Returns:
-            An object containing metadata about the configuration.
+            An object containing information about the configuration.
         """
-        return self._info
+        return ConfigBuilderInfo(model_configs=self._model_configs)
 
     def add_model_config(self, model_config: ModelConfig) -> Self:
         """Add a model configuration to the current Data Designer configuration.

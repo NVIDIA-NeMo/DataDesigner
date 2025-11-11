@@ -85,5 +85,5 @@ def test_composite_resolver_error(stub_secrets_file: Path):
         resolver.resolve("QUUX")
 
     # The composite error message aggregates the individual resolvers' error messages
-    assert "env var" in str(excinfo.value)
+    assert "Environment variable" in str(excinfo.value)
     assert "secret" in str(excinfo.value)
