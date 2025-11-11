@@ -21,7 +21,7 @@ from rich.table import Table
 from rich.text import Text
 
 from ..base import ConfigBase
-from ..columns import DataDesignerColumnType
+from ..column_types import DataDesignerColumnType
 from ..models import ModelConfig, ModelProvider, get_nvidia_api_key, get_openai_api_key
 from ..sampler_params import SamplerType
 from .code_lang import code_lang_to_syntax_lexer

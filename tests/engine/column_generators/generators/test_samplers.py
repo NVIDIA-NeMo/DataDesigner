@@ -3,7 +3,7 @@
 
 import pytest
 
-from data_designer.config.columns import SamplerColumnConfig
+from data_designer.config.column_configs import SamplerColumnConfig
 from data_designer.config.sampler_params import (
     BernoulliMixtureSamplerParams,
     BernoulliSamplerParams,

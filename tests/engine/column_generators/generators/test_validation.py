@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 import pandas as pd
 import pytest
 
-from data_designer.config.columns import ValidationColumnConfig
+from data_designer.config.column_configs import ValidationColumnConfig
 from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.validator_params import (
     CodeValidatorParams,

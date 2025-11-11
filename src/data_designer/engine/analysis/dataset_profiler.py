@@ -11,10 +11,10 @@ from pydantic import Field, field_validator
 from data_designer.config.analysis.column_profilers import ColumnProfilerConfigT
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
 from data_designer.config.base import ConfigBase
-from data_designer.config.columns import (
+from data_designer.config.column_configs import SingleColumnConfig
+from data_designer.config.column_types import (
     COLUMN_TYPE_EMOJI_MAP,
     ColumnConfigT,
-    SingleColumnConfig,
 )
 from data_designer.engine.analysis.column_profilers.base import ColumnConfigWithDataFrame, ColumnProfiler
 from data_designer.engine.analysis.column_statistics import get_column_statistics_calculator

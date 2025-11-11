@@ -6,7 +6,7 @@ from unittest.mock import Mock
 import pandas as pd
 import pytest
 
-from data_designer.config.columns import LLMTextColumnConfig, SamplerColumnConfig
+from data_designer.config.column_configs import LLMTextColumnConfig, SamplerColumnConfig
 from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.processors import DropColumnsProcessorConfig
 from data_designer.engine.dataset_builders.column_wise_builder import (

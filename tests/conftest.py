@@ -13,7 +13,7 @@ import yaml
 
 from data_designer.config.analysis.column_statistics import GeneralColumnStatistics
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
-from data_designer.config.columns import SamplerColumnConfig
+from data_designer.config.column_configs import SamplerColumnConfig
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.datastore import DatastoreSettings

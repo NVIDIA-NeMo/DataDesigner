@@ -59,6 +59,7 @@ dev = [
   "pytest>=8.3.3",
   "pytest-asyncio>=0.24.0",
   "pytest-cov>=7.0.0",
+  "pytest-env>=1.2.0",
   "pytest-httpx>=0.35.0",
 ]
 docs = [
@@ -89,6 +90,9 @@ version-file = "src/data_designer/_version.py"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_default_fixture_loop_scope = "session"
+env = [
+    "DISABLE_DATA_DESIGNER_PLUGINS=true",
+]
 
 [tool.uv]
 package = true

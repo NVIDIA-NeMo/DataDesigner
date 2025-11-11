@@ -3,12 +3,8 @@
 
 import pytest
 
-from data_designer.config.columns import (
-    DataDesignerColumnType,
-    LLMTextColumnConfig,
-    SamplerColumnConfig,
-    SeedDatasetColumnConfig,
-)
+from data_designer.config.column_configs import LLMTextColumnConfig, SamplerColumnConfig, SeedDatasetColumnConfig
+from data_designer.config.column_types import DataDesignerColumnType
 from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.seed import SamplingStrategy, SeedConfig
 from data_designer.engine.dataset_builders.utils.config_compiler import (

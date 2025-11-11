@@ -15,12 +15,13 @@ from typing_extensions import Self
 
 from .analysis.column_profilers import ColumnProfilerConfigT
 from .base import ExportableConfigBase
-from .columns import (
+from .column_configs import SeedDatasetColumnConfig
+from .column_types import (
     ColumnConfigT,
     DataDesignerColumnType,
-    SeedDatasetColumnConfig,
     column_type_is_llm_generated,
     get_column_config_from_kwargs,
+    get_column_display_order,
 )
 from .data_designer_config import DataDesignerConfig
 from .dataset_builders import BuildStage
@@ -46,11 +47,7 @@ from .seed import (
 from .utils.constants import DEFAULT_REPR_HTML_STYLE, REPR_HTML_TEMPLATE
 from .utils.info import ConfigBuilderInfo
 from .utils.io_helpers import serialize_data, smart_load_yaml
-from .utils.misc import (
-    can_run_data_designer_locally,
-    json_indent_list_of_strings,
-    kebab_to_snake,
-)
+from .utils.misc import can_run_data_designer_locally, json_indent_list_of_strings, kebab_to_snake
 from .utils.type_helpers import resolve_string_enum
 from .utils.validation import ViolationLevel, rich_print_violations, validate_data_designer_config
 
@@ -624,16 +621,7 @@ class DataDesignerConfigBuilder:
             "seed_dataset": (None if self._seed_config is None else f"'{self._seed_config.dataset}'"),
         }
 
-        for column_type in [
-            DataDesignerColumnType.SEED_DATASET,
-            DataDesignerColumnType.SAMPLER,
-            DataDesignerColumnType.LLM_TEXT,
-            DataDesignerColumnType.LLM_CODE,
-            DataDesignerColumnType.LLM_STRUCTURED,
-            DataDesignerColumnType.LLM_JUDGE,
-            DataDesignerColumnType.VALIDATION,
-            DataDesignerColumnType.EXPRESSION,
-        ]:
+        for column_type in get_column_display_order():
             columns = self.get_columns_of_type(column_type)
             if len(columns) > 0:
                 column_label = f"{kebab_to_snake(column_type.value)}_columns"

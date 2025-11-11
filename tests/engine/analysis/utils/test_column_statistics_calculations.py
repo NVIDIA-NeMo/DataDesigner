@@ -16,7 +16,7 @@ from data_designer.config.analysis.column_statistics import (
     MissingValue,
     NumericalDistribution,
 )
-from data_designer.config.columns import LLMTextColumnConfig
+from data_designer.config.column_configs import LLMTextColumnConfig
 from data_designer.config.utils.numerical_helpers import prepare_number_for_reporting
 from data_designer.engine.analysis.utils.column_statistics_calculations import (
     calculate_column_distribution,

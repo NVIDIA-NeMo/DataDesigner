@@ -3,7 +3,7 @@
 
 from unittest.mock import Mock, patch
 
-from data_designer.config.columns import (
+from data_designer.config.column_configs import (
     ExpressionColumnConfig,
     LLMCodeColumnConfig,
     LLMJudgeColumnConfig,

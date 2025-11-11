@@ -9,10 +9,7 @@ from data_designer.engine.column_generators.registry import (
     ColumnGeneratorRegistry,
     create_default_column_generator_registry,
 )
-from data_designer.engine.processing.processors.registry import (
-    ProcessorRegistry,
-    create_default_processor_registry,
-)
+from data_designer.engine.processing.processors.registry import ProcessorRegistry, create_default_processor_registry
 
 
 class DataDesignerRegistry:
