@@ -112,6 +112,16 @@ def get_default_model_configs() -> list[ModelConfig]:
     return get_default_nvidia_model_configs() + get_default_openai_model_configs()
 
 
+def get_user_defined_default_providers() -> list[ModelProvider]:
+    pre_defined_model_provider_path = get_model_provider_path()
+    if pre_defined_model_provider_path.exists():
+        config_dict = load_config_file(pre_defined_model_provider_path)
+        if "providers" in config_dict:
+            logger.info(f"♻️ Found user-defined default model providers in {str(pre_defined_model_provider_path)!r}")
+            return [ModelProvider.model_validate(p) for p in config_dict["providers"]]
+    return []
+
+
 def get_default_providers() -> list[ModelProvider]:
     user_defined_default_providers = get_user_defined_default_providers()
     if len(user_defined_default_providers) > 0:
@@ -128,16 +138,6 @@ def get_default_providers() -> list[ModelProvider]:
             api_key=OPENAI_API_KEY_ENV_VAR_NAME,
         ),
     ]
-
-
-def get_user_defined_default_providers() -> list[ModelProvider]:
-    pre_defined_model_provider_path = get_model_provider_path()
-    if pre_defined_model_provider_path.exists():
-        config_dict = load_config_file(pre_defined_model_provider_path)
-        if "providers" in config_dict:
-            logger.info(f"♻️ Found user-defined default model providers in {str(pre_defined_model_provider_path)!r}")
-            return [ModelProvider.model_validate(p) for p in config_dict["providers"]]
-    return []
 
 
 def get_nvidia_api_key() -> Optional[str]:

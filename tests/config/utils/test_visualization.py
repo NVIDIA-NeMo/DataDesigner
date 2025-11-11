@@ -8,7 +8,7 @@ import pytest
 
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.utils.code_lang import CodeLang
-from data_designer.config.utils.visualization import display_sample_record
+from data_designer.config.utils.visualization import display_sample_record, mask_api_key
 from data_designer.config.validator_params import CodeValidatorParams
 
 
@@ -57,3 +57,9 @@ def test_display_sample_record_twice_no_errors(validation_output, config_builder
 
     # If we reach this point without exceptions, the test passes
     assert True
+
+
+def test_mask_api_key():
+    assert mask_api_key("sk-1234567890") == "s****************"
+    assert mask_api_key("") == "****************"
+    assert mask_api_key("nv-some-api-key") == "n****************"
