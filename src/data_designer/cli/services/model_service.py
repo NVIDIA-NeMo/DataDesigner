@@ -29,7 +29,6 @@ class ModelService:
         """
         registry = self.repository.load() or ModelConfigRegistry(model_configs=[])
 
-        # Business rule: No duplicate aliases
         if any(m.alias == model.alias for m in registry.model_configs):
             raise ValueError(f"Model alias '{model.alias}' already exists")
 
@@ -54,12 +53,10 @@ class ModelService:
         if index is None:
             raise ValueError(f"Model '{original_alias}' not found")
 
-        # Business rule: Alias change must not conflict
         if updated_model.alias != original_alias:
             if any(m.alias == updated_model.alias for m in registry.model_configs):
                 raise ValueError(f"Model alias '{updated_model.alias}' already exists")
 
-        # Update
         registry.model_configs[index] = updated_model
         self.repository.save(registry)
 
@@ -76,10 +73,8 @@ class ModelService:
         if not any(m.alias == alias for m in registry.model_configs):
             raise ValueError(f"Model '{alias}' not found")
 
-        # Remove model
         registry.model_configs = [m for m in registry.model_configs if m.alias != alias]
 
-        # Business rule: Delete file if no models left
         if registry.model_configs:
             self.repository.save(registry)
         else:

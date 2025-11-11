@@ -1,8 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from data_designer.cli.repositories.provider_repository import ProviderRepository
-from data_designer.engine.model_provider import ModelProvider, ModelProviderRegistry
+from data_designer.cli.repositories.provider_repository import ModelProviderRegistry, ProviderRepository
+from data_designer.config.models import ModelProvider
 
 
 class ProviderService:
@@ -27,22 +27,12 @@ class ProviderService:
         Raises:
             ValueError: If provider name already exists
         """
-        registry = self.repository.load()
+        registry = self.repository.load() or ModelProviderRegistry(providers=[], default=None)
 
-        if registry:
-            # Business rule: No duplicate names
-            if any(p.name == provider.name for p in registry.providers):
-                raise ValueError(f"Provider '{provider.name}' already exists")
+        if any(p.name == provider.name for p in registry.providers):
+            raise ValueError(f"Provider '{provider.name}' already exists")
 
-            registry.providers.append(provider)
-        else:
-            # Create new registry with first provider
-            registry = ModelProviderRegistry(providers=[provider], default=provider.name)
-
-        # Business rule: First provider is default (for existing registries adding first provider)
-        if len(registry.providers) == 1 and registry.default is None:
-            registry.default = provider.name
-
+        registry.providers.append(provider)
         self.repository.save(registry)
 
     def update(self, original_name: str, updated_provider: ModelProvider) -> None:
@@ -63,15 +53,12 @@ class ProviderService:
         if index is None:
             raise ValueError(f"Provider '{original_name}' not found")
 
-        # Business rule: Name change must not conflict
         if updated_provider.name != original_name:
             if any(p.name == updated_provider.name for p in registry.providers):
                 raise ValueError(f"Provider name '{updated_provider.name}' already exists")
 
-        # Update
         registry.providers[index] = updated_provider
 
-        # Business rule: Update default if name changed
         if registry.default == original_name and updated_provider.name != original_name:
             registry.default = updated_provider.name
 
@@ -90,14 +77,11 @@ class ProviderService:
         if not any(p.name == name for p in registry.providers):
             raise ValueError(f"Provider '{name}' not found")
 
-        # Remove provider
         registry.providers = [p for p in registry.providers if p.name != name]
 
-        # Business rule: Update default if deleted
         if registry.default == name:
             registry.default = registry.providers[0].name if registry.providers else None
 
-        # Business rule: Delete file if no providers left
         if registry.providers:
             self.repository.save(registry)
         else:

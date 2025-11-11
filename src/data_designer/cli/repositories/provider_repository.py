@@ -3,10 +3,19 @@
 
 from pathlib import Path
 
+from pydantic import BaseModel
+
 from data_designer.cli.constants import MODEL_PROVIDERS_FILE_NAME
 from data_designer.cli.repositories.base import ConfigRepository
 from data_designer.cli.utils import load_config_file, save_config_file
-from data_designer.engine.model_provider import ModelProviderRegistry
+from data_designer.config.models import ModelProvider
+
+
+class ModelProviderRegistry(BaseModel):
+    """Registry for model provider configurations."""
+
+    providers: list[ModelProvider]
+    default: str | None = None
 
 
 class ProviderRepository(ConfigRepository[ModelProviderRegistry]):

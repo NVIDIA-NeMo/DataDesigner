@@ -3,21 +3,18 @@
 
 from pathlib import Path
 
+from pydantic import BaseModel
+
 from data_designer.cli.constants import MODEL_CONFIGS_FILE_NAME
 from data_designer.cli.repositories.base import ConfigRepository
 from data_designer.cli.utils import load_config_file, save_config_file
 from data_designer.config.models import ModelConfig
 
 
-class ModelConfigRegistry:
+class ModelConfigRegistry(BaseModel):
     """Registry for model configurations."""
 
-    def __init__(self, model_configs: list[ModelConfig]):
-        self.model_configs = model_configs
-
-    def model_dump(self, **kwargs) -> dict:
-        """Dump to dictionary format."""
-        return {"model_configs": [mc.model_dump(**kwargs) for mc in self.model_configs]}
+    model_configs: list[ModelConfig]
 
 
 class ModelRepository(ConfigRepository[ModelConfigRegistry]):
@@ -35,10 +32,7 @@ class ModelRepository(ConfigRepository[ModelConfigRegistry]):
 
         try:
             config_dict = load_config_file(self.config_file)
-            if "model_configs" not in config_dict:
-                return None
-            model_configs = [ModelConfig.model_validate(mc) for mc in config_dict["model_configs"]]
-            return ModelConfigRegistry(model_configs)
+            return ModelConfigRegistry.model_validate(config_dict)
         except Exception:
             return None
 

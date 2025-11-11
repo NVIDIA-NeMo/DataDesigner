@@ -3,33 +3,12 @@
 
 from typing import Any
 
+from data_designer.cli.constants import PREDEFINED_PROVIDERS
 from data_designer.cli.forms.builder import FormBuilder
 from data_designer.cli.forms.field import SelectField, TextField
 from data_designer.cli.forms.form import Form
 from data_designer.cli.utils import validate_url
 from data_designer.engine.model_provider import ModelProvider
-
-# Predefined provider templates
-PREDEFINED_PROVIDERS = {
-    "nvidia": {
-        "name": "nvidia",
-        "endpoint": "https://integrate.api.nvidia.com/v1",
-        "provider_type": "openai",
-        "api_key": "NVIDIA_API_KEY",
-    },
-    "openai": {
-        "name": "openai",
-        "endpoint": "https://api.openai.com/v1",
-        "provider_type": "openai",
-        "api_key": "OPENAI_API_KEY",
-    },
-    "anthropic": {
-        "name": "anthropic",
-        "endpoint": "https://api.anthropic.com/v1",
-        "provider_type": "openai",
-        "api_key": "ANTHROPIC_API_KEY",
-    },
-}
 
 
 class ProviderFormBuilder(FormBuilder[ModelProvider]):
