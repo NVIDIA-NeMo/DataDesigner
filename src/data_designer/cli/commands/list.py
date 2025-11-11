@@ -20,10 +20,7 @@ def list_command(
 ) -> None:
     """List current Data Designer configurations."""
     # Determine config directory
-    if config_dir:
-        config_path = Path(config_dir).expanduser().resolve()
-    else:
-        config_path = DEFAULT_CONFIG_DIR
+    config_path = Path(config_dir).expanduser().resolve() if config_dir else DEFAULT_CONFIG_DIR
 
     if not output_json:
         print_header("Data Designer Configurations")

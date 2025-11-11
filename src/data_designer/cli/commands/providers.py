@@ -11,13 +11,13 @@ from data_designer.cli.utils import ensure_config_dir_exists
 
 
 def providers_command(
-    output_dir: str | None = typer.Option(None, "--output-dir", help="Custom output directory"),
+    config_dir: str | None = typer.Option(None, "--config-dir", help="Custom configuration directory"),
 ) -> None:
     """Configure model providers interactively."""
     # Determine config directory
-    config_dir = Path(output_dir).expanduser().resolve() if output_dir else DEFAULT_CONFIG_DIR
-    ensure_config_dir_exists(config_dir)
+    config_path = Path(config_dir).expanduser().resolve() if config_dir else DEFAULT_CONFIG_DIR
+    ensure_config_dir_exists(config_path)
 
     # Create and run controller
-    controller = ProviderController(config_dir)
+    controller = ProviderController(config_path)
     controller.run()

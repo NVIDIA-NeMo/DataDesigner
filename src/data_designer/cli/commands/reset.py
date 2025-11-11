@@ -20,23 +20,20 @@ from data_designer.cli.ui import (
 
 
 def reset_command(
-    output_dir: str | None = typer.Option(None, "--output-dir", help="Custom output directory"),
+    config_dir: str | None = typer.Option(None, "--config-dir", help="Custom configuration directory"),
 ) -> None:
     """Reset configuration files by deleting them after confirmation."""
     print_header("Reset Configuration")
 
-    # Determine output directory
-    if output_dir:
-        config_dir = Path(output_dir).expanduser().resolve()
-    else:
-        config_dir = DEFAULT_CONFIG_DIR
+    # Determine configuration directory
+    config_path = Path(config_dir).expanduser().resolve() if config_dir else DEFAULT_CONFIG_DIR
 
-    print_info(f"Configuration directory: {config_dir}")
+    print_info(f"Configuration directory: {config_path}")
     console.print()
 
     # Create repositories
-    provider_repo = ProviderRepository(config_dir)
-    model_repo = ModelRepository(config_dir)
+    provider_repo = ProviderRepository(config_path)
+    model_repo = ModelRepository(config_path)
 
     # Check which config files exist
     provider_exists = provider_repo.exists()
