@@ -21,6 +21,18 @@ class ModelService:
         models = self.list_all()
         return next((m for m in models if m.alias == alias), None)
 
+    def find_by_provider(self, provider_name: str) -> list[ModelConfig]:
+        """Find all models associated with a provider.
+
+        Args:
+            provider_name: Name of the provider to search for
+
+        Returns:
+            List of models associated with the provider
+        """
+        models = self.list_all()
+        return [m for m in models if m.provider == provider_name]
+
     def add(self, model: ModelConfig) -> None:
         """Add a new model.
 
@@ -74,6 +86,29 @@ class ModelService:
             raise ValueError(f"Model '{alias}' not found")
 
         registry.model_configs = [m for m in registry.model_configs if m.alias != alias]
+
+        if registry.model_configs:
+            self.repository.save(registry)
+        else:
+            self.repository.delete()
+
+    def delete_by_aliases(self, aliases: list[str]) -> None:
+        """Delete multiple models by their aliases.
+
+        Args:
+            aliases: List of model aliases to delete
+
+        Raises:
+            ValueError: If no models configured
+        """
+        if not aliases:
+            return
+
+        registry = self.repository.load()
+        if not registry:
+            raise ValueError("No models configured")
+
+        registry.model_configs = [m for m in registry.model_configs if m.alias not in aliases]
 
         if registry.model_configs:
             self.repository.save(registry)

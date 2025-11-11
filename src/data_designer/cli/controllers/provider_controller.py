@@ -5,7 +5,9 @@ import copy
 from pathlib import Path
 
 from data_designer.cli.forms.provider_builder import ProviderFormBuilder
+from data_designer.cli.repositories.model_repository import ModelRepository
 from data_designer.cli.repositories.provider_repository import ProviderRepository
+from data_designer.cli.services.model_service import ModelService
 from data_designer.cli.services.provider_service import ProviderService
 from data_designer.cli.ui import (
     confirm_action,
@@ -15,6 +17,7 @@ from data_designer.cli.ui import (
     print_header,
     print_info,
     print_success,
+    print_warning,
     select_with_arrows,
 )
 from data_designer.engine.model_provider import ModelProvider
@@ -27,6 +30,8 @@ class ProviderController:
         self.config_dir = config_dir
         self.repository = ProviderRepository(config_dir)
         self.service = ProviderService(self.repository)
+        self.model_repository = ModelRepository(config_dir)
+        self.model_service = ModelService(self.model_repository)
 
     def run(self) -> None:
         """Main entry point for provider configuration."""
@@ -182,14 +187,45 @@ class ProviderController:
         if selected_name is None:
             return
 
+        # Check for associated models
+        associated_models = self.model_service.find_by_provider(selected_name)
+
         # Confirm deletion
         console.print()
-        if confirm_action(f"Delete provider '{selected_name}'?", default=False):
-            try:
-                self.service.delete(selected_name)
-                print_success(f"Provider '{selected_name}' deleted successfully")
-            except ValueError as e:
-                print_error(f"Failed to delete provider: {e}")
+
+        if associated_models:
+            # Notify user about associated models
+            model_count = len(associated_models)
+            model_aliases = ", ".join([f"'{m.alias}'" for m in associated_models])
+
+            print_warning(f"Provider '{selected_name}' has {model_count} associated model config(s): {model_aliases}")
+            console.print()
+
+            # Ask if user wants to delete provider and associated models
+            if confirm_action(
+                f"Delete provider '{selected_name}' and its {model_count} associated model config(s)?", default=False
+            ):
+                try:
+                    # Delete associated models first
+                    model_aliases_to_delete = [m.alias for m in associated_models]
+                    self.model_service.delete_by_aliases(model_aliases_to_delete)
+
+                    # Then delete the provider
+                    self.service.delete(selected_name)
+
+                    print_success(
+                        f"Provider '{selected_name}' and {model_count} associated model(s) deleted successfully"
+                    )
+                except ValueError as e:
+                    print_error(f"Failed to delete provider and associated models: {e}")
+        else:
+            # No associated models, proceed with simple deletion
+            if confirm_action(f"Delete provider '{selected_name}'?", default=False):
+                try:
+                    self.service.delete(selected_name)
+                    print_success(f"Provider '{selected_name}' deleted successfully")
+                except ValueError as e:
+                    print_error(f"Failed to delete provider: {e}")
 
     def _handle_delete_all(self) -> None:
         """Handle deleting all providers."""
@@ -198,20 +234,48 @@ class ProviderController:
             print_error("No providers to delete")
             return
 
+        # Check for associated models across all providers
+        all_models = self.model_service.list_all()
+        provider_names_set = {p.name for p in providers}
+        associated_models = [m for m in all_models if m.provider in provider_names_set]
+
         # List providers to be deleted
         console.print()
         provider_count = len(providers)
         provider_names = ", ".join([f"'{p.name}'" for p in providers])
 
-        if confirm_action(
-            f"⚠️  Delete ALL ({provider_count}) provider(s): {provider_names}?\n   This action cannot be undone.",
-            default=False,
-        ):
-            try:
-                self.repository.delete()
-                print_success(f"All ({provider_count}) provider(s) deleted successfully")
-            except Exception as e:
-                print_error(f"Failed to delete all providers: {e}")
+        if associated_models:
+            model_count = len(associated_models)
+            print_warning(f"Deleting all providers will also affect {model_count} associated model config(s)")
+            console.print()
+
+            if confirm_action(
+                f"⚠️  Delete ALL ({provider_count}) provider(s): {provider_names} and {model_count} associated model(s)?\n   This action cannot be undone.",
+                default=False,
+            ):
+                try:
+                    # Delete all associated models first
+                    model_aliases_to_delete = [m.alias for m in associated_models]
+                    self.model_service.delete_by_aliases(model_aliases_to_delete)
+
+                    # Then delete all providers
+                    self.repository.delete()
+
+                    print_success(
+                        f"All ({provider_count}) provider(s) and {model_count} associated model(s) deleted successfully"
+                    )
+                except Exception as e:
+                    print_error(f"Failed to delete all providers and associated models: {e}")
+        else:
+            if confirm_action(
+                f"⚠️  Delete ALL ({provider_count}) provider(s): {provider_names}?\n   This action cannot be undone.",
+                default=False,
+            ):
+                try:
+                    self.repository.delete()
+                    print_success(f"All ({provider_count}) provider(s) deleted successfully")
+                except Exception as e:
+                    print_error(f"Failed to delete all providers: {e}")
 
     def _handle_change_default(self) -> None:
         """Handle changing the default provider."""
