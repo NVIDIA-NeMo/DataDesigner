@@ -14,12 +14,12 @@ from data_designer.engine.column_generators.generators.seed_dataset import SeedD
 from data_designer.engine.column_generators.generators.validation import ValidationColumnGenerator
 from data_designer.engine.column_generators.registry import (
     ColumnGeneratorRegistry,
-    create_builtin_column_generator_registry,
+    create_default_column_generator_registry,
 )
 
 
 def test_column_generator_registry_create_default_registry_with_generators():
-    registry = create_builtin_column_generator_registry()
+    registry = create_default_column_generator_registry()
 
     assert isinstance(registry, ColumnGeneratorRegistry)
 

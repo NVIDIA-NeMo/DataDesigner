@@ -10,7 +10,7 @@ from data_designer.engine.analysis.column_profilers.judge_score_profiler import 
 )
 from data_designer.engine.analysis.column_profilers.registry import (
     ColumnProfilerRegistry,
-    create_builtin_column_profiler_registry,
+    create_default_column_profiler_registry,
 )
 from data_designer.engine.registry.errors import NotFoundInRegistryError
 
@@ -52,7 +52,7 @@ def test_get_nonexistent_profiler():
 
 
 def test_create_default_registry():
-    registry = create_builtin_column_profiler_registry()
+    registry = create_default_column_profiler_registry()
 
     assert isinstance(registry, ColumnProfilerRegistry)
     assert ColumnProfilerType.JUDGE_SCORE in ColumnProfilerRegistry._registry

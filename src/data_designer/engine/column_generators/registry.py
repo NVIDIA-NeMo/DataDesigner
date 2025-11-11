@@ -27,12 +27,14 @@ from data_designer.engine.dataset_builders.multi_column_configs import (
     SeedDatasetMultiColumnConfig,
 )
 from data_designer.engine.registry.base import TaskRegistry
+from data_designer.plugins.plugin import PluginType
+from data_designer.plugins.registry import PluginRegistry
 
 
 class ColumnGeneratorRegistry(TaskRegistry[DataDesignerColumnType, ColumnGenerator, ConfigBase]): ...
 
 
-def create_builtin_column_generator_registry() -> ColumnGeneratorRegistry:
+def create_default_column_generator_registry(with_plugins: bool = True) -> ColumnGeneratorRegistry:
     registry = ColumnGeneratorRegistry()
     registry.register(DataDesignerColumnType.LLM_TEXT, LLMTextCellGenerator, LLMTextColumnConfig)
     registry.register(DataDesignerColumnType.LLM_CODE, LLMCodeCellGenerator, LLMCodeColumnConfig)
@@ -42,4 +44,13 @@ def create_builtin_column_generator_registry() -> ColumnGeneratorRegistry:
     registry.register(DataDesignerColumnType.SEED_DATASET, SeedDatasetColumnGenerator, SeedDatasetMultiColumnConfig)
     registry.register(DataDesignerColumnType.VALIDATION, ValidationColumnGenerator, ValidationColumnConfig)
     registry.register(DataDesignerColumnType.LLM_STRUCTURED, LLMStructuredCellGenerator, LLMStructuredColumnConfig)
+
+    if with_plugins:
+        for plugin in PluginRegistry().get_plugins(PluginType.COLUMN_GENERATOR):
+            registry.register(
+                DataDesignerColumnType(plugin.name),
+                plugin.task_cls,
+                plugin.config_cls,
+            )
+
     return registry

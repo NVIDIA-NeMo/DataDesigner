@@ -14,7 +14,7 @@ from data_designer.engine.registry.base import TaskRegistry
 class ProcessorRegistry(TaskRegistry[str, Processor, ConfigBase]): ...
 
 
-def create_builtin_processor_registry() -> ProcessorRegistry:
+def create_default_processor_registry() -> ProcessorRegistry:
     registry = ProcessorRegistry()
     registry.register(ProcessorType.DROP_COLUMNS, DropColumnsProcessor, DropColumnsProcessorConfig, False)
     return registry
