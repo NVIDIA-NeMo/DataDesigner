@@ -21,6 +21,10 @@ class PluginType(str, Enum):
         else:
             raise ValueError(f"Invalid plugin type: {self.value}")
 
+    @property
+    def display_name(self) -> str:
+        return self.value.replace("-", " ")
+
 
 class Plugin(BaseModel):
     task_cls: Type[ConfigurableTask]

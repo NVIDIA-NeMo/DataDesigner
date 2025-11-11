@@ -37,11 +37,6 @@ class PluginRegistry:
         cls._plugins_discovered = False
         cls._plugins = {}
 
-    def add_plugin(self, plugin: Plugin) -> None:
-        if plugin.name in self._plugins:
-            raise PluginRegistrationError(f"Plugin {plugin.name!r} already added.")
-        self._plugins[plugin.name] = plugin
-
     def add_plugin_types(self, type_union: Type[TypeAlias], plugin_type: PluginType) -> Type[TypeAlias]:
         for plugin in self.get_plugins(plugin_type):
             type_union |= plugin.config_cls
@@ -81,15 +76,20 @@ class PluginRegistry:
                 plugin = ep.load()
                 if isinstance(plugin, Plugin):
                     with self._lock:
-                        self.add_plugin(plugin)
+                        self.register(plugin)
                     logger.info(
-                        f"🔌 Plugin discovered ➜ {plugin.plugin_type.value.replace('-', ' ')} "
+                        f"🔌 Plugin discovered ➜ {plugin.plugin_type.display_name} "
                         f"{plugin.enum_key_name} is now available ⚡️"
                     )
             except Exception as e:
                 logger.warning(f"🛑 Failed to load plugin from entry point {ep.name!r}: {e}")
 
         return self
+
+    def register(self, plugin: Plugin) -> None:
+        if plugin.name in self._plugins:
+            raise PluginRegistrationError(f"Plugin {plugin.name!r} already registered.")
+        self._plugins[plugin.name] = plugin
 
     def __new__(cls, *args, **kwargs):
         """Plugin manager is a singleton."""
