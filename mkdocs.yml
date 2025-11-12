@@ -2,85 +2,90 @@ site_name: NeMo Data Designer
 repo_url: https://github.com/NVIDIA-NeMo/DataDesigner
 
 nav:
-    - Getting Started:
-        - Welcome to Data Designer: welcome.md
-        - Installation: installation.md
-    - Tutorials:
-        - The Basics: examples/1-the-basics.ipynb
-    - Code Reference:
-        - config_builder: code_reference/config_builder.md
-        - column_configs: code_reference/column_configs.md
-        - data_designer_config: code_reference/data_designer_config.md
-    - NeMo Microservices Documentation: https://docs.nvidia.com/nemo/microservices/latest/design-synthetic-data-from-scratch-or-seeds/
+  - Getting Started:
+      - Welcome to Data Designer: welcome.md
+      - Installation: installation.md
+  - Tutorials:
+      - The Basics: notebooks/1-the-basics.ipynb
+  - Code Reference:
+      - column_configs: code_reference/column_configs.md
+      - config_builder: code_reference/config_builder.md
+      - data_designer_config: code_reference/data_designer_config.md
+  - NeMo Microservices Documentation: https://docs.nvidia.com/nemo/microservices/latest/design-synthetic-data-from-scratch-or-seeds/
 
 theme:
-    name: material
-    custom_dir: docs/overrides
-    font:
-      text: Roboto
-      code: Fira Code
-    icon:
-        logo: material/palette
-        repo: fontawesome/brands/github-alt
-    favicon: assets/palette-favicon.png
-    palette:
-        - media: "(prefers-color-scheme: light)"
-          scheme: default
-          primary: black
-          toggle:
-              icon: material/lightbulb-outline
-              name: Switch to dark mode
-        - media: "(prefers-color-scheme: dark)"
-          scheme: slate
-          primary: black
-          toggle:
-              icon: material/lightbulb
-              name: Switch to light mode
-    features:
-        - navigation.tabs
-        - navigation.sections
-        - navigation.expand
-        - navigation.path
-        - navigation.indexes
-        - content.code.copy
-        - content.code.select
-        - content.code.annotate
+  name: material
+  font:
+    text: Roboto
+    code: Fira Code
+  icon:
+      logo: material/palette
+      repo: fontawesome/brands/github-alt
+  favicon: assets/palette-favicon.png
+  palette:
+      - media: "(prefers-color-scheme: light)"
+        scheme: default
+        primary: black
+        toggle:
+            icon: material/lightbulb-outline
+            name: Switch to dark mode
+      - media: "(prefers-color-scheme: dark)"
+        scheme: slate
+        primary: black
+        toggle:
+            icon: material/lightbulb
+            name: Switch to light mode
+  features:
+      - navigation.tabs
+      - navigation.sections
+      - navigation.expand
+      - navigation.path
+      - navigation.indexes
+      - content.code.copy
+      - content.code.select
+      - content.code.annotate
+
+watch:
+  - src/data_designer
+  - docs/
 
 plugins:
-    - search
-    - redirects:
-        redirect_maps:
-            index.md: welcome.md
-    - mkdocs-jupyter:
-          execute: false
-          include_requirejs: true
-          ignore_h1_titles: True
-    - mkdocstrings:
-        handlers:
-            python:
-                options:
-                    show_symbol_type_heading: true
-                    show_symbol_type_toc: true
-                    show_root_toc_entry: true
-                    show_object_full_path: false
-                    filters: ["!^_"]
-                    docstring_options:
-                        ignore_init_summary: true
-                    merge_init_into_class: true
-                    docstring_section_style: table
-                    summary: true
+  - search
+  - redirects:
+      redirect_maps:
+          index.md: welcome.md
+  - mkdocs-jupyter:
+        execute: false
+        include_requirejs: true
+        ignore_h1_titles: True
+  - mkdocstrings:
+      handlers:
+          python:
+              options:
+                  show_symbol_type_heading: true
+                  show_symbol_type_toc: true
+                  show_root_toc_entry: true
+                  show_object_full_path: false
+                  filters: ["!^_"]
+                  docstring_options:
+                      ignore_init_summary: false
+                  merge_init_into_class: true
+                  docstring_section_style: table
+                  summary: true
 
 extra_css:
-    - css/style.css
-    - css/mkdocstrings.css
+  - css/style.css
+  - css/mkdocstrings.css
 
 extra_javascript:
-    - js/toc-toggle.js
+  - js/toc-toggle.js
 
 markdown_extensions:
-    - pymdownx.highlight:
-          use_pygments: true
-    - pymdownx.superfences
-    - attr_list
-    - md_in_html
-    - admonition
+  - pymdownx.highlight:
+        pygments_lang_class: true
+        use_pygments: true
+  - tables
+  - pymdownx.superfences
+  - attr_list
+  - md_in_html
+  - admonition

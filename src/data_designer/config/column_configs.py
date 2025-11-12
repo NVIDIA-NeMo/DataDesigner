@@ -21,14 +21,14 @@ class SingleColumnConfig(ConfigBase, ABC):
     """Abstract base class for all single-column configuration types.
 
     This class serves as the foundation for all column configurations in DataDesigner,
-    defining the common interface and attributes that all column types must implement.
+    defining shared fields and properties across all column types.
 
     Attributes:
-        name: The unique name of the column to be generated.
+        name: Unique name of the column to be generated.
         drop: If True, the column will be generated but removed from the final dataset.
             Useful for intermediate columns that are dependencies for other columns.
-        column_type: A discriminator field that identifies the specific column type.
-            Used for polymorphic deserialization of column configurations.
+        column_type: Discriminator field that identifies the specific column type.
+            Subclasses must override this field to specify the column type with a `Literal` value.
     """
 
     name: str
@@ -37,69 +37,72 @@ class SingleColumnConfig(ConfigBase, ABC):
 
     @property
     def required_columns(self) -> list[str]:
-        """Get the list of column names that must exist before this column can be generated.
+        """Returns a list of column names that must exist before this column can be generated.
 
         Returns:
-            A list of column names that this column depends on. Empty list indicates
+            List of column names that this column depends on. Empty list indicates
             no dependencies. Override in subclasses to specify dependencies.
         """
         return []
 
     @property
     def side_effect_columns(self) -> list[str]:
-        """Get the list of additional columns that will be created as side effects.
+        """Returns a list of additional columns that this column will create as a side effect.
 
         Some column types generate additional metadata or auxiliary columns alongside
         the primary column (e.g., reasoning traces for LLM columns).
 
         Returns:
-            A list of column names that will be generated as side effects. Empty list
+            List of column names that this column will create as a side effect. Empty list
             indicates no side effect columns. Override in subclasses to specify side effects.
         """
         return []
 
 
 class SamplerColumnConfig(SingleColumnConfig):
-    """Configuration for columns generated using built-in samplers and distributions.
+    """Configuration for columns generated using numerical samplers.
 
-    Sampler columns provide efficient data generation using pre-built generators for
+    Sampler columns provide efficient data generation using numerical samplers for
     common data types and distributions. Supported samplers include UUID generation,
-    datetime/timedelta sampling, person/entity generation, categorical sampling,
+    datetime/timedelta sampling, person generation, category / subcategory sampling,
     and various statistical distributions (uniform, gaussian, binomial, poisson, scipy).
 
     Attributes:
-        sampler_type: The type of sampler to use. Available types include:
+        sampler_type: Type of sampler to use. Available types include:
             "uuid", "category", "subcategory", "uniform", "gaussian", "bernoulli",
             "bernoulli_mixture", "binomial", "poisson", "scipy", "person", "datetime", "timedelta".
-        params: Parameters specific to the chosen sampler type. Type varies based on
-            sampler_type (e.g., CategorySamplerParams, UniformSamplerParams, PersonSamplerParams).
-        conditional_params: Optional mapping for conditional sampling. Keys are condition
-            values from other columns, values are parameter objects to use when that
-            condition is met. Enables different sampling behavior based on other columns.
-        convert_to: Optional type conversion to apply after sampling (e.g., "str", "int", "float").
+        params: Parameters specific to the chosen sampler type. Type varies based on the `sampler_type`
+            (e.g., `CategorySamplerParams`, `UniformSamplerParams`, `PersonSamplerParams`).
+        conditional_params: Optional dictionary for conditional parameters. The dict keys
+            are the conditions that must be met (e.g., "age > 21") for the conditional parameters
+            to be used. The values of dict are the parameters to use when the condition is met.
+        convert_to: Optional type conversion to apply after sampling. Must be one of "float", "int", or "str".
             Useful for converting numerical samples to strings or other types.
         column_type: Discriminator field, always "sampler" for this configuration type.
 
+    !!! tip "Displaying available samplers and their parameters"
+        The config builder has an `info` attribute that can be used to display the
+        available samplers and their parameters:
+        ```python
+        config_builder.info.display("samplers")
+        ```
+
     Example:
         ```python
-        # Generate categorical colors
-        SamplerColumnConfig(
-            name="color",
-            sampler_type="category",
-            params=CategorySamplerParams(
-                values=["red", "blue", "green"],
-                weights=[0.5, 0.3, 0.2]
-            )
+        from data_designer.essentials import (
+            CategorySamplerParams,
+            DataDesignerConfigBuilder,
+            SamplerColumnConfig,
+            SamplerType,
         )
 
-        # Generate synthetic people
-        SamplerColumnConfig(
-            name="person",
-            sampler_type="person",
-            params=PersonSamplerParams(
-                locale="en_US",
-                age_range=[25, 65],
-                state=["CA", "NY"]
+        config_builder = DataDesignerConfigBuilder(model_configs=[...your model configs...])
+
+        config_builder.add_column(
+            SamplerColumnConfig(
+                name="color",
+                sampler_type=SamplerType.CATEGORY,
+                params=CategorySamplerParams(values=["red", "blue", "green"], weights=[0.5, 0.3, 0.2]),
             )
         )
         ```
@@ -121,24 +124,36 @@ class LLMTextColumnConfig(SingleColumnConfig):
     when models support extended thinking.
 
     Attributes:
-        prompt: The prompt template for text generation. Supports Jinja2 syntax to
+        prompt: Prompt template for text generation. Supports Jinja2 syntax to
             reference other columns (e.g., "Write a story about {{ character_name }}").
             Must be a valid Jinja2 template.
-        model_alias: The alias of the model configuration to use for generation.
-            Must match a model alias defined in the DataDesigner configuration.
-        system_prompt: Optional system-level prompt to set model behavior and constraints.
+        model_alias: Alias of the model configuration to use for generation.
+            Must match a model alias defined when initializing the DataDesignerConfigBuilder.
+        system_prompt: Optional system prompt to set model behavior and constraints.
             Also supports Jinja2 templating. If provided, must be a valid Jinja2 template.
+            Do not put any output parsing instructions in the system prompt. Instead,
+            use the appropriate column type for the output you want to generate - e.g.,
+            `LLMStructuredColumnConfig` for structured output, `LLMCodeColumnConfig` for code.
         multi_modal_context: Optional list of image contexts for multi-modal generation.
             Enables vision-capable models to generate text based on image inputs.
         column_type: Discriminator field, always "llm-text" for this configuration type.
 
     Example:
         ```python
-        LLMTextColumnConfig(
-            name="product_description",
-            prompt="Write a compelling product description for: {{ product_name }}",
-            model_alias="gpt4",
-            system_prompt="You are an expert marketing copywriter."
+        from data_designer.essentials import (
+            DataDesignerConfigBuilder,
+            LLMTextColumnConfig,
+        )
+
+        config_builder = DataDesignerConfigBuilder(model_configs=[...your model configs...])
+
+        # Assumes we have a "color" column in the dataset.
+        config_builder.add_column(
+            LLMTextColumnConfig(
+                name="poem",
+                model_alias="your-model-alias",
+                prompt="Write a poem about the color {{ color }}",
+            )
         )
         ```
     """
@@ -163,11 +178,12 @@ class LLMTextColumnConfig(SingleColumnConfig):
 
     @property
     def side_effect_columns(self) -> list[str]:
-        """Get the reasoning trace column generated alongside the main column.
+        """Returns the reasoning trace column, which may be generated alongside the main column.
+
+        Reasoning traces are only returned if the served model parses and returns reasoning content.
 
         Returns:
-            List containing the reasoning trace column name, which captures the model's
-            thinking process when extended thinking is enabled.
+            List containing the reasoning trace column name.
         """
         return [f"{self.name}{REASONING_TRACE_COLUMN_POSTFIX}"]
 
@@ -192,10 +208,10 @@ class LLMCodeColumnConfig(LLMTextColumnConfig):
 
     Extends LLMTextColumnConfig to generate code snippets in specific programming languages
     or SQL dialects. The generated code is automatically extracted from markdown code blocks
-    and validated for the specified language. Inherits all prompt templating capabilities.
+    for the specified language. Inherits all prompt templating capabilities.
 
     Attributes:
-        code_lang: The programming language or SQL dialect for code generation. Supported
+        code_lang: Programming language or SQL dialect for code generation. Supported
             values include: "python", "javascript", "typescript", "java", "kotlin", "go",
             "rust", "ruby", "scala", "swift", "sql:sqlite", "sql:postgres", "sql:mysql",
             "sql:tsql", "sql:bigquery", "sql:ansi". See CodeLang enum for complete list.
@@ -203,12 +219,22 @@ class LLMCodeColumnConfig(LLMTextColumnConfig):
 
     Example:
         ```python
-        LLMCodeColumnConfig(
-            name="solution_code",
-            prompt="Write a Python function to {{ task_description }}",
-            model_alias="claude-sonnet",
-            code_lang="python",
-            system_prompt="You are an expert Python developer."
+        from data_designer.essentials import (
+            CodeLang,
+            DataDesignerConfigBuilder,
+            LLMCodeColumnConfig,
+        )
+
+        config_builder = DataDesignerConfigBuilder(model_configs=[...your model configs...])
+
+        # Assumes we have a "color" column in the dataset.
+        config_builder.add_column(
+            LLMCodeColumnConfig(
+                name="get_hex_color_code",
+                prompt="Write a Python python function that returns hex color code for the color {{ color }}",
+                model_alias="your-code-model-alias",
+                code_lang=CodeLang.PYTHON,
+            )
         )
         ```
     """
@@ -222,44 +248,39 @@ class LLMStructuredColumnConfig(LLMTextColumnConfig):
 
     Extends LLMTextColumnConfig to generate structured data conforming to a specified schema.
     Uses JSON schema or Pydantic models to define the expected output structure, enabling
-    type-safe and validated structured data generation. Inherits prompt templating capabilities.
+    type-safe and validated structured output generation. Inherits prompt templating capabilities.
 
     Attributes:
         output_format: The schema defining the expected output structure. Can be either:
-            - A JSON schema dictionary with keys like "type", "properties", "required"
-            - A Pydantic BaseModel class (automatically converted to JSON schema)
+            - A Pydantic BaseModel class (recommended)
+            - A JSON schema dictionary
         column_type: Discriminator field, always "llm-structured" for this configuration type.
 
     Example:
         ```python
-        # Using Pydantic model
         from pydantic import BaseModel
 
+        from data_designer.essentials import (
+            DataDesignerConfigBuilder,
+            LLMStructuredColumnConfig,
+        )
+
+        config_builder = DataDesignerConfigBuilder(model_configs=[...your model configs...])
+
+        # Define output format as a Pydantic model.
         class PersonInfo(BaseModel):
             age: int
             occupation: str
             hobbies: list[str]
 
-        LLMStructuredColumnConfig(
-            name="person_details",
-            prompt="Generate details for {{ name }}",
-            model_alias="gpt4",
-            output_format=PersonInfo
-        )
-
-        # Using JSON schema dict
-        LLMStructuredColumnConfig(
-            name="product_info",
-            prompt="Generate product details",
-            model_alias="gpt4",
-            output_format={
-                "type": "object",
-                "properties": {
-                    "price": {"type": "number"},
-                    "category": {"type": "string"}
-                },
-                "required": ["price", "category"]
-            }
+        # Assumes we have a "color" column in the dataset.
+        config_builder.add_column(
+            LLMStructuredColumnConfig(
+                name="person_info",
+                prompt="Generate the info for a person who's favorite color is {{ color }}",
+                model_alias="your-model-alias",
+                output_format=PersonInfo
+            )
         )
         ```
     """
@@ -280,7 +301,7 @@ class LLMStructuredColumnConfig(LLMTextColumnConfig):
 
 
 class Score(ConfigBase):
-    """Configuration for a scoring dimension in LLM judge evaluations.
+    """Configuration for a "score" in an LLM judge evaluation.
 
     Defines a single scoring criterion with its possible values and descriptions. Multiple
     Score objects can be combined in an LLMJudgeColumnConfig to create multi-dimensional
@@ -296,7 +317,9 @@ class Score(ConfigBase):
 
     Example:
         ```python
-        Score(
+        from data_designer.essentials import Score
+
+        score = Score(
             name="Accuracy",
             description="Evaluate the factual correctness of the response",
             options={
@@ -316,37 +339,47 @@ class Score(ConfigBase):
 
 
 class LLMJudgeColumnConfig(LLMTextColumnConfig):
-    """Configuration for LLM-based quality assessment and scoring columns.
+    """Configuration for LLM-as-a-judge quality assessment and scoring columns.
 
     Extends LLMTextColumnConfig to create judge columns that evaluate and score other
-    generated content based on defined criteria. Useful for quality assessment, preference
-    ranking, and multi-dimensional evaluation of generated data. Each score dimension
-    produces a separate sub-column in the output.
+    generated content based on the defined criteria. Useful for quality assessment, preference
+    ranking, and multi-dimensional evaluation of generated data.
 
     Attributes:
         scores: List of Score objects defining the evaluation dimensions. Each score
             represents a different aspect to evaluate (e.g., accuracy, relevance, fluency).
-            Must contain at least one score. Each score generates a separate column.
+            Must contain at least one score.
         column_type: Discriminator field, always "llm-judge" for this configuration type.
 
     Example:
         ```python
-        LLMJudgeColumnConfig(
-            name="response_quality",
-            prompt="Evaluate the quality of this response: {{ generated_text }}",
-            model_alias="gpt4",
-            scores=[
-                Score(
-                    name="relevance",
-                    description="How relevant is the response to the question?",
-                    options={1: "Not relevant", 2: "Somewhat relevant", 3: "Very relevant"}
-                ),
-                Score(
-                    name="clarity",
-                    description="How clear and well-written is the response?",
-                    options={1: "Unclear", 2: "Acceptable", 3: "Very clear"}
-                )
-            ]
+        from data_designer.essentials import (
+            DataDesignerConfigBuilder,
+            LLMJudgeColumnConfig,
+            Score,
+        )
+
+        config_builder = DataDesignerConfigBuilder(model_configs=[...your model configs...])
+
+        # Assumes we have a "response" column in the dataset.
+        config_builder.add_column(
+            LLMJudgeColumnConfig(
+                name="response_quality",
+                prompt="Evaluate the quality of this response: {{ response }}",
+                model_alias="your-model-alias",
+                scores=[
+                    Score(
+                        name="relevance",
+                        description="How relevant is the response to the question?",
+                        options={1: "Not relevant", 2: "Somewhat relevant", 3: "Very relevant"},
+                    ),
+                    Score(
+                        name="clarity",
+                        description="How clear and well-written is the response?",
+                        options={1: "Unclear", 2: "Acceptable", 3: "Very clear"},
+                    ),
+                ],
+            )
         )
         ```
     """
@@ -363,35 +396,47 @@ class ExpressionColumnConfig(SingleColumnConfig):
     features without requiring LLM generation. The expression is evaluated row-by-row.
 
     Attributes:
-        name: The unique name of the derived column.
-        expr: The Jinja2 expression to evaluate. Can reference other column values using
+        expr: Jinja2 expression to evaluate. Can reference other column values using
             {{ column_name }} syntax. Supports filters, conditionals, and arithmetic.
             Must be a valid, non-empty Jinja2 template.
-        dtype: The data type to cast the result to. One of "int", "float", "str", or "bool".
+        dtype: Data type to cast the result to. Must be one of "int", "float", "str", or "bool".
             Defaults to "str". Type conversion is applied after expression evaluation.
         column_type: Discriminator field, always "expression" for this configuration type.
 
     Example:
         ```python
-        # Simple concatenation
-        ExpressionColumnConfig(
-            name="full_name",
-            expr="{{ first_name }} {{ last_name }}",
-            dtype="str"
+        from data_designer.essentials import (
+            DataDesignerConfigBuilder,
+            ExpressionColumnConfig,
         )
 
-        # Arithmetic expression
-        ExpressionColumnConfig(
-            name="total_price",
-            expr="{{ quantity }} * {{ unit_price }}",
-            dtype="float"
+        config_builder = DataDesignerConfigBuilder(model_configs=[...your model configs...])
+
+        # Assumes we have "first_name" and "last_name" columns in the dataset.
+        config_builder.add_column(
+            ExpressionColumnConfig(
+                name="full_name",
+                expr="{{ first_name }} {{ last_name }}",
+                dtype="str",
+            )
         )
 
-        # Conditional logic
-        ExpressionColumnConfig(
-            name="discount_tier",
-            expr="{% if total > 1000 %}premium{% elif total > 500 %}standard{% else %}basic{% endif %}",
-            dtype="str"
+        # Arithmetic expression - assumes "quantity" and "unit_price" columns exist.
+        config_builder.add_column(
+            ExpressionColumnConfig(
+                name="total_price",
+                expr="{{ quantity }} * {{ unit_price }}",
+                dtype="float",
+            )
+        )
+
+        # Conditional logic - assumes "total" column exists.
+        config_builder.add_column(
+            ExpressionColumnConfig(
+                name="discount_tier",
+                expr="{% if total > 1000 %}premium{% elif total > 500 %}standard{% else %}basic{% endif %}",
+                dtype="str",
+            )
         )
         ```
     """
@@ -403,11 +448,7 @@ class ExpressionColumnConfig(SingleColumnConfig):
 
     @property
     def required_columns(self) -> list[str]:
-        """Get columns referenced in the expression template.
-
-        Returns:
-            List of column names referenced in the Jinja2 expression.
-        """
+        """Returns the columns referenced in the expression template."""
         return list(get_prompt_template_keywords(self.expr))
 
     @model_validator(mode="after")
@@ -431,48 +472,69 @@ class ExpressionColumnConfig(SingleColumnConfig):
 
 
 class ValidationColumnConfig(SingleColumnConfig):
-    """Configuration for validation columns that check data quality and correctness.
+    """Configuration for validation columns that validate existing columns.
 
     Validation columns execute validation logic against specified target columns and return
-    structured results indicating pass/fail status and validation details. Supports multiple
-    validation strategies including code execution (Python/SQL), local callable functions,
+    structured results indicating pass/fail status with validation details. Supports multiple
+    validation strategies: code execution (Python/SQL), local callable functions (library only),
     and remote HTTP endpoints.
 
     Attributes:
-        target_columns: List of column names to validate. These columns will be passed to
-            the validator for quality assessment.
+        target_columns: List of column names to validate. These columns are passed to the
+            validator for validation. All target columns must exist in the dataset
+            before validation runs.
         validator_type: The type of validator to use. Options:
-            - "code": Execute code (Python or SQL) for validation
-            - "local_callable": Call a local Python function with the data
-            - "remote": Send data to a remote HTTP endpoint for validation
-        validator_params: Parameters specific to the validator type. Type varies:
-            - CodeValidatorParams: Specifies code language (python or SQL dialect)
-            - LocalCallableValidatorParams: Provides validation function and output schema
-            - RemoteValidatorParams: Configures endpoint URL, timeout, retries, parallelism
+            - "code": Execute code (Python or SQL) for validation. The code receives a
+              DataFrame with target columns and must return a DataFrame with validation results.
+            - "local_callable": Call a local Python function with the data. Only supported
+              when running DataDesigner locally.
+            - "remote": Send data to a remote HTTP endpoint for validation. Useful for
+        validator_params: Parameters specific to the validator type. Type varies by validator:
+            - CodeValidatorParams: Specifies code language (python or SQL dialect like
+              "sql:postgres", "sql:mysql").
+            - LocalCallableValidatorParams: Provides validation function (Callable[[pd.DataFrame],
+              pd.DataFrame]) and optional output schema for validation results.
+            - RemoteValidatorParams: Configures endpoint URL, HTTP timeout, retry behavior
+              (max_retries, retry_backoff), and parallel request limits (max_parallel_requests).
         batch_size: Number of records to process in each validation batch. Defaults to 10.
-            Larger batches may be more efficient but use more memory.
+            Larger batches are more efficient but use more memory. Adjust based on validator
+            complexity and available resources.
         column_type: Discriminator field, always "validation" for this configuration type.
 
     Example:
         ```python
-        # Code validator (Python)
-        ValidationColumnConfig(
-            name="email_validation",
-            target_columns=["email"],
-            validator_type="code",
-            validator_params=CodeValidatorParams(code_lang="python"),
-            batch_size=50
+        from data_designer.essentials import (
+            CodeValidatorParams,
+            DataDesignerConfigBuilder,
+            RemoteValidatorParams,
+            ValidationColumnConfig,
         )
 
-        # Remote validator
-        ValidationColumnConfig(
-            name="content_moderation",
-            target_columns=["user_text"],
-            validator_type="remote",
-            validator_params=RemoteValidatorParams(
-                endpoint_url="https://api.example.com/validate",
-                timeout=30.0,
-                max_retries=3
+        config_builder = DataDesignerConfigBuilder(model_configs=[...your model configs...])
+
+        # Code validator (Python) - assumes we have an "email" column in the dataset.
+        config_builder.add_column(
+            ValidationColumnConfig(
+                name="email_validation",
+                target_columns=["email"],
+                validator_type="code",
+                validator_params=CodeValidatorParams(code_lang="python"),
+                batch_size=50
+            )
+        )
+
+        # Remote validator - assumes we have a "user_text" column in the dataset.
+        config_builder.add_column(
+            ValidationColumnConfig(
+                name="content_moderation",
+                target_columns=["user_text"],
+                validator_type="remote",
+                validator_params=RemoteValidatorParams(
+                    endpoint_url="https://api.example.com/validate",
+                    timeout=30.0,
+                    max_retries=3,
+                    max_parallel_requests=10
+                )
             )
         )
         ```
@@ -486,45 +548,19 @@ class ValidationColumnConfig(SingleColumnConfig):
 
     @property
     def required_columns(self) -> list[str]:
-        """Get the columns that need to be validated.
-
-        Returns:
-            List of target column names that must exist before validation runs.
-        """
+        """Returns the columns that need to be validated."""
         return self.target_columns
 
 
 class SeedDatasetColumnConfig(SingleColumnConfig):
     """Configuration for columns sourced from seed datasets.
 
-    Seed dataset columns pull data from existing datasets provided during DataDesigner
-    initialization. This enables generation workflows that start from real data and
-    augment or transform it with additional synthetic columns. The seed dataset is
-    specified at the DataDesigner level, and columns are referenced by name.
+    This config marks columns that come from seed data. It is typically created
+    automatically when calling `with_seed_dataset()` on the builder, rather than
+    being instantiated directly by users.
 
     Attributes:
         column_type: Discriminator field, always "seed-dataset" for this configuration type.
-
-    Note:
-        The actual seed dataset and column mapping is specified when creating the
-        DataDesigner instance, not in this column configuration. This config simply
-        marks that the column comes from the seed data.
-
-    Example:
-        ```python
-        # Assuming seed_df contains columns: "user_id", "age", "country"
-        # Mark "user_id" as coming from seed dataset
-        SeedDatasetColumnConfig(
-            name="user_id"
-        )
-
-        # Then add synthetic columns that reference the seed column
-        LLMTextColumnConfig(
-            name="user_description",
-            prompt="Describe a user who is {{ age }} years old from {{ country }}",
-            model_alias="gpt4"
-        )
-        ```
     """
 
     column_type: Literal["seed-dataset"] = "seed-dataset"
