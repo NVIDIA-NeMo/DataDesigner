@@ -38,7 +38,7 @@ def test_config_builder_unsupported_info_type(stub_model_configs):
     info = ConfigBuilderInfo(model_configs=stub_model_configs)
     with pytest.raises(
         ValueError,
-        match="Unsupported info_type: 'unsupported_type'. ConfigBuilderInfo only supports 'SAMPLERS' and 'MODEL_CONFIGS'.",
+        match="Unsupported info_type: 'unsupported_type'. ConfigBuilderInfo only supports 'samplers' and 'model_configs'.",
     ):
         info.display("unsupported_type")
 
@@ -53,6 +53,6 @@ def test_interface_model_providers_info(mock_display_model_providers_table, stub
 def test_interface_unsupported_info_type(stub_model_providers):
     info = InterfaceInfo(model_providers=stub_model_providers)
     with pytest.raises(
-        ValueError, match="Unsupported info_type: 'unsupported_type'. InterfaceInfo only supports 'MODEL_PROVIDERS'."
+        ValueError, match="Unsupported info_type: 'unsupported_type'. InterfaceInfo only supports 'model_providers'."
     ):
         info.display("unsupported_type")

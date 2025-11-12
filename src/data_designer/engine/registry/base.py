@@ -35,7 +35,7 @@ class TaskRegistry(Generic[EnumNameT, TaskT, TaskConfigT]):
         name: EnumNameT,
         task: Type[TaskT],
         config: Type[TaskConfigT],
-        raise_on_collision: bool = True,
+        raise_on_collision: bool = False,
     ) -> None:
         if cls._has_been_registered(name):
             if not raise_on_collision:

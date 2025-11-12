@@ -6,7 +6,7 @@ from typing import Type
 
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
-from data_designer.config.columns import Score
+from data_designer.config.column_configs import Score
 
 SCORING_FORMAT = "* {score}: {description}"
 SCORE_FIELD_DESCRIPTION_FORMAT = "Score Descriptions for {enum_name}:\n{scoring}"

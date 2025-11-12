@@ -11,7 +11,7 @@ from data_designer.config.analysis.column_statistics import ColumnDistributionTy
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
 from data_designer.config.analysis.utils.errors import AnalysisReportError
 from data_designer.config.analysis.utils.reporting import ReportSection, generate_analysis_report
-from data_designer.config.columns import DataDesignerColumnType
+from data_designer.config.column_types import DataDesignerColumnType
 
 
 @pytest.fixture

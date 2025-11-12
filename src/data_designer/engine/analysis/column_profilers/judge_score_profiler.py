@@ -20,7 +20,7 @@ from data_designer.config.analysis.column_statistics import (
     MissingValue,
     NumericalDistribution,
 )
-from data_designer.config.columns import COLUMN_TYPE_EMOJI_MAP, DataDesignerColumnType
+from data_designer.config.column_types import COLUMN_TYPE_EMOJI_MAP, DataDesignerColumnType
 from data_designer.engine.analysis.column_profilers.base import (
     ColumnConfigWithDataFrame,
     ColumnProfiler,

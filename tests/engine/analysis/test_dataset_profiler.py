@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
-from data_designer.config.columns import SamplerColumnConfig
+from data_designer.config.column_configs import SamplerColumnConfig
 from data_designer.config.sampler_params import CategorySamplerParams, SamplerType
 from data_designer.engine.analysis.column_profilers.judge_score_profiler import JudgeScoreProfilerConfig
 from data_designer.engine.analysis.dataset_profiler import (

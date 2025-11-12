@@ -4,7 +4,7 @@
 import pandas as pd
 
 from data_designer.config.analysis.column_statistics import ColumnDistributionType
-from data_designer.config.columns import DataDesignerColumnType
+from data_designer.config.column_types import DataDesignerColumnType
 from data_designer.config.sampler_params import SamplerType
 from data_designer.engine.analysis.column_profilers.base import ColumnConfigWithDataFrame
 from data_designer.engine.analysis.column_statistics import get_column_statistics_calculator

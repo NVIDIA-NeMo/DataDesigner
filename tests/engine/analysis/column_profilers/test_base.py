@@ -5,7 +5,9 @@ import pandas as pd
 from pydantic import ValidationError
 import pytest
 
-from data_designer.config.columns import DataDesignerColumnType, SamplerColumnConfig, SamplerType
+from data_designer.config.column_configs import SamplerColumnConfig
+from data_designer.config.column_types import DataDesignerColumnType
+from data_designer.config.sampler_params import SamplerType
 from data_designer.engine.analysis.column_profilers.base import (
     ColumnConfigWithDataFrame,
     ColumnProfilerMetadata,

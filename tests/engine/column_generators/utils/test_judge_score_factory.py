@@ -6,7 +6,7 @@ from enum import Enum
 from pydantic import BaseModel
 import pytest
 
-from data_designer.config.columns import Score
+from data_designer.config.column_configs import Score
 from data_designer.engine.column_generators.utils.judge_score_factory import (
     SCORE_FIELD_DESCRIPTION_FORMAT,
     SCORING_FORMAT,

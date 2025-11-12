@@ -86,3 +86,5 @@ src/data_designer/_version.py
 .scratch/
 
 .claude/
+
+docs/examples/artifacts/

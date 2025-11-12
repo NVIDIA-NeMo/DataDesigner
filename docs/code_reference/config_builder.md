@@ -1,0 +1,10 @@
+# Data Designer's Config Builder
+
+The `config_builder` module provides a high-level interface for constructing Data Designer configurations through the [DataDesignerConfigBuilder](#data_designer.config.config_builder.DataDesignerConfigBuilder) class, enabling programmatic creation of [DataDesignerConfig](data_designer_config.md#data_designer.config.data_designer_config.DataDesignerConfig) objects by incrementally adding column configurations, constraints, processors, and profilers.
+
+You can use the builder to create Data Designer configurations from scratch or from existing configurations stored in YAML/JSON files via [`from_config()`](#data_designer.config.config_builder.DataDesignerConfigBuilder.from_config). The builder includes validation capabilities to catch configuration errors early and can work with seed datasets from local sources or external datastores. Once configured, use [`build()`](#data_designer.config.config_builder.DataDesignerConfigBuilder.build) to generate the final configuration object or [`write_config()`](#data_designer.config.config_builder.DataDesignerConfigBuilder.write_config) to serialize it to disk.
+
+!!! info "Model configs are required"
+    [DataDesignerConfigBuilder](#data_designer.config.config_builder.DataDesignerConfigBuilder) requires a list of model configurations at initialization. This tells the builder which model aliases can be referenced by LLM-generated columns (such as [`LLMTextColumnConfig`](column_configs.md#data_designer.config.column_configs.LLMTextColumnConfig), [`LLMCodeColumnConfig`](column_configs.md#data_designer.config.column_configs.LLMCodeColumnConfig), [`LLMStructuredColumnConfig`](column_configs.md#data_designer.config.column_configs.LLMStructuredColumnConfig), and [`LLMJudgeColumnConfig`](column_configs.md#data_designer.config.column_configs.LLMJudgeColumnConfig)). Each model configuration specifies the model alias, model provider, model ID, and inference parameters that will be used during data generation.
+
+::: data_designer.config.config_builder

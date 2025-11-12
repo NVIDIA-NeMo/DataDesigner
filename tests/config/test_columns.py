@@ -4,8 +4,7 @@
 from pydantic import ValidationError
 import pytest
 
-from data_designer.config.columns import (
-    DataDesignerColumnType,
+from data_designer.config.column_configs import (
     ExpressionColumnConfig,
     LLMCodeColumnConfig,
     LLMJudgeColumnConfig,
@@ -15,6 +14,9 @@ from data_designer.config.columns import (
     Score,
     SeedDatasetColumnConfig,
     ValidationColumnConfig,
+)
+from data_designer.config.column_types import (
+    DataDesignerColumnType,
     column_type_is_llm_generated,
     column_type_used_in_execution_dag,
     get_column_config_from_kwargs,

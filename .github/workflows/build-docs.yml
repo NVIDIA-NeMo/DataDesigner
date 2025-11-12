@@ -1,9 +1,8 @@
 name: build_docs
-# Disable for now while the repo is private
-# on:
-#   push:
-#     branches:
-#       - main
+on:
+  push:
+    branches:
+      - main
 jobs:
   deploy:
     runs-on: ubuntu-latest

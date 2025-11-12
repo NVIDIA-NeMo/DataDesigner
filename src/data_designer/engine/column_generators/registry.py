@@ -2,8 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from data_designer.config.base import ConfigBase
-from data_designer.config.columns import (
-    DataDesignerColumnType,
+from data_designer.config.column_configs import (
     ExpressionColumnConfig,
     LLMCodeColumnConfig,
     LLMJudgeColumnConfig,
@@ -11,6 +10,7 @@ from data_designer.config.columns import (
     LLMTextColumnConfig,
     ValidationColumnConfig,
 )
+from data_designer.config.column_types import DataDesignerColumnType
 from data_designer.engine.column_generators.generators.base import ColumnGenerator
 from data_designer.engine.column_generators.generators.expression import ExpressionColumnGenerator
 from data_designer.engine.column_generators.generators.llm_generators import (
@@ -27,34 +27,30 @@ from data_designer.engine.dataset_builders.multi_column_configs import (
     SeedDatasetMultiColumnConfig,
 )
 from data_designer.engine.registry.base import TaskRegistry
+from data_designer.plugins.plugin import PluginType
+from data_designer.plugins.registry import PluginRegistry
 
 
 class ColumnGeneratorRegistry(TaskRegistry[DataDesignerColumnType, ColumnGenerator, ConfigBase]): ...
 
 
-def create_default_column_generator_registry() -> ColumnGeneratorRegistry:
+def create_default_column_generator_registry(with_plugins: bool = True) -> ColumnGeneratorRegistry:
     registry = ColumnGeneratorRegistry()
-    registry.register(DataDesignerColumnType.LLM_TEXT, LLMTextCellGenerator, LLMTextColumnConfig, False)
-    registry.register(DataDesignerColumnType.LLM_CODE, LLMCodeCellGenerator, LLMCodeColumnConfig, False)
-    registry.register(DataDesignerColumnType.LLM_JUDGE, LLMJudgeCellGenerator, LLMJudgeColumnConfig, False)
-    registry.register(DataDesignerColumnType.EXPRESSION, ExpressionColumnGenerator, ExpressionColumnConfig, False)
-    registry.register(DataDesignerColumnType.SAMPLER, SamplerColumnGenerator, SamplerMultiColumnConfig, False)
-    registry.register(
-        DataDesignerColumnType.SEED_DATASET,
-        SeedDatasetColumnGenerator,
-        SeedDatasetMultiColumnConfig,
-        False,
-    )
-    registry.register(
-        DataDesignerColumnType.VALIDATION,
-        ValidationColumnGenerator,
-        ValidationColumnConfig,
-        False,
-    )
-    registry.register(
-        DataDesignerColumnType.LLM_STRUCTURED,
-        LLMStructuredCellGenerator,
-        LLMStructuredColumnConfig,
-        False,
-    )
+    registry.register(DataDesignerColumnType.LLM_TEXT, LLMTextCellGenerator, LLMTextColumnConfig)
+    registry.register(DataDesignerColumnType.LLM_CODE, LLMCodeCellGenerator, LLMCodeColumnConfig)
+    registry.register(DataDesignerColumnType.LLM_JUDGE, LLMJudgeCellGenerator, LLMJudgeColumnConfig)
+    registry.register(DataDesignerColumnType.EXPRESSION, ExpressionColumnGenerator, ExpressionColumnConfig)
+    registry.register(DataDesignerColumnType.SAMPLER, SamplerColumnGenerator, SamplerMultiColumnConfig)
+    registry.register(DataDesignerColumnType.SEED_DATASET, SeedDatasetColumnGenerator, SeedDatasetMultiColumnConfig)
+    registry.register(DataDesignerColumnType.VALIDATION, ValidationColumnGenerator, ValidationColumnConfig)
+    registry.register(DataDesignerColumnType.LLM_STRUCTURED, LLMStructuredCellGenerator, LLMStructuredColumnConfig)
+
+    if with_plugins:
+        for plugin in PluginRegistry().get_plugins(PluginType.COLUMN_GENERATOR):
+            registry.register(
+                DataDesignerColumnType(plugin.name),
+                plugin.task_cls,
+                plugin.config_cls,
+            )
+
     return registry

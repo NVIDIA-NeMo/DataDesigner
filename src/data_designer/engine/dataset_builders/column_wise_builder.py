@@ -10,7 +10,7 @@ from typing import Callable
 
 import pandas as pd
 
-from data_designer.config.columns import ColumnConfigT, column_type_is_llm_generated
+from data_designer.config.column_types import ColumnConfigT, column_type_is_llm_generated
 from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.processors import (
     DropColumnsProcessorConfig,

@@ -3,8 +3,7 @@
 
 import pytest
 
-from data_designer.config.columns import (
-    DataDesignerColumnType,
+from data_designer.config.column_configs import (
     ExpressionColumnConfig,
     LLMCodeColumnConfig,
     LLMJudgeColumnConfig,
@@ -13,6 +12,7 @@ from data_designer.config.columns import (
     Score,
     ValidationColumnConfig,
 )
+from data_designer.config.column_types import DataDesignerColumnType
 from data_designer.config.sampler_params import SamplerType
 from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.validator_params import CodeValidatorParams

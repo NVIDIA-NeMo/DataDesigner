@@ -14,7 +14,7 @@ from data_designer.config.analysis.column_statistics import (
     MissingValue,
     NumericalDistribution,
 )
-from data_designer.config.columns import LLMJudgeColumnConfig, Score
+from data_designer.config.column_configs import LLMJudgeColumnConfig, Score
 from data_designer.engine.analysis.column_profilers.base import ColumnConfigWithDataFrame
 from data_designer.engine.analysis.column_profilers.judge_score_profiler import (
     JudgeScoreProfiler,
