@@ -5,7 +5,8 @@ from enum import StrEnum
 import json
 import logging
 
-from data_designer.config.columns import DataDesignerColumnType, SingleColumnConfig
+from data_designer.config.column_configs import SingleColumnConfig
+from data_designer.config.column_types import DataDesignerColumnType
 from data_designer.config.models import ModelConfig
 from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.utils.misc import get_prompt_template_keywords

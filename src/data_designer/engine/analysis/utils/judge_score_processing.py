@@ -14,7 +14,7 @@ from data_designer.config.analysis.column_statistics import (
     MissingValue,
     NumericalDistribution,
 )
-from data_designer.config.columns import LLMJudgeColumnConfig
+from data_designer.config.column_configs import LLMJudgeColumnConfig
 
 logger = logging.getLogger(__name__)
 

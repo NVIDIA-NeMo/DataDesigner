@@ -68,8 +68,7 @@ def test_get_default_openai_model_configs_no_api_key(mock_get_openai_api_key):
     assert len(openai_model_configs) == 0
 
 
-def test_get_user_defined_default_model_configs(tmp_path: Path) -> None:
-    """Test getting user-defined model configs from custom config directory."""
+def test_get_user_defined_default_model_configs(tmp_path: Path):
     (tmp_path / "model_configs.yaml").write_text(
         """
         model_configs:
@@ -99,9 +98,8 @@ def test_get_user_defined_default_model_configs(tmp_path: Path) -> None:
     assert user_defined_model_configs[1].inference_parameters is not None
 
 
-def test_get_user_defined_default_model_configs_no_user_defined_configs(tmp_path: Path) -> None:
-    """Test getting user-defined model configs when file doesn't exist."""
-    assert len(get_user_defined_default_model_configs(tmp_path)) == 0
+def test_get_user_defined_default_model_configs_no_user_defined_configs(tmp_path: Path):
+    assert len(get_user_defined_default_model_configs()) == 0
 
 
 @patch("data_designer.config.default_model_settings.get_default_nvidia_model_configs")
@@ -153,8 +151,7 @@ def test_get_default_model_configs_with_user_defined_configs(mock_get_user_defin
     assert model_configs[0].provider == "model-provider"
 
 
-def test_get_user_defined_default_providers(tmp_path: Path) -> None:
-    """Test getting user-defined providers from custom config directory."""
+def test_get_user_defined_default_providers(tmp_path: Path):
     (tmp_path / "model_providers.yaml").write_text(
         """
         providers:
@@ -176,9 +173,8 @@ def test_get_user_defined_default_providers(tmp_path: Path) -> None:
     assert user_defined_providers[1].api_key == "test-api-key-2"
 
 
-def test_get_user_defined_default_providers_no_user_defined_providers(tmp_path: Path) -> None:
-    """Test getting user-defined providers when file doesn't exist."""
-    assert len(get_user_defined_default_providers(tmp_path)) == 0
+def test_get_user_defined_default_providers_no_user_defined_providers(tmp_path: Path):
+    assert len(get_user_defined_default_providers()) == 0
 
 
 @patch("data_designer.config.default_model_settings.get_user_defined_default_providers")

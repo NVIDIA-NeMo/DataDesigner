@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 import pandas as pd
 import pytest
 
-from data_designer.config.columns import ExpressionColumnConfig
+from data_designer.config.column_configs import ExpressionColumnConfig
 from data_designer.engine.column_generators.generators.expression import ExpressionColumnGenerator
 from data_designer.engine.column_generators.utils.errors import ExpressionTemplateRenderError
 from data_designer.engine.resources.resource_provider import ResourceProvider

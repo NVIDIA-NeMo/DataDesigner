@@ -3,7 +3,7 @@
 
 from copy import deepcopy
 
-from data_designer.config.columns import SamplerColumnConfig
+from data_designer.config.column_configs import SamplerColumnConfig
 from data_designer.config.sampler_constraints import ColumnConstraintT
 from data_designer.config.sampler_params import SamplerParamsT
 from data_designer.engine.dataset_builders.multi_column_configs import SamplerMultiColumnConfig

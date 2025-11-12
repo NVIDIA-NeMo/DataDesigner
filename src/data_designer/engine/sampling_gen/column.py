@@ -6,7 +6,7 @@ from typing import Any
 from pydantic import field_serializer, model_validator
 from typing_extensions import Self
 
-from data_designer.config.columns import SamplerColumnConfig
+from data_designer.config.column_configs import SamplerColumnConfig
 from data_designer.config.sampler_params import SamplerParamsT, SamplerType
 from data_designer.engine.sampling_gen.data_sources.base import DataSource
 from data_designer.engine.sampling_gen.data_sources.sources import SamplerRegistry

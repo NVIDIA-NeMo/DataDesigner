@@ -5,7 +5,7 @@ from unittest.mock import Mock
 
 import pandas as pd
 
-from data_designer.config.columns import ExpressionColumnConfig
+from data_designer.config.column_configs import ExpressionColumnConfig
 from data_designer.engine.column_generators.generators.base import (
     ColumnGenerator,
     FromScratchColumnGenerator,

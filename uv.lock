@@ -769,14 +769,14 @@ dev = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
+    { name = "pytest-env" },
     { name = "pytest-httpx" },
 ]
 docs = [
     { name = "mkdocs" },
-    { name = "mkdocs-gen-files" },
-    { name = "mkdocs-literate-nav" },
+    { name = "mkdocs-jupyter" },
     { name = "mkdocs-material" },
-    { name = "mkdocs-section-index" },
+    { name = "mkdocs-redirects" },
     { name = "mkdocstrings" },
     { name = "mkdocstrings-python" },
 ]
@@ -828,14 +828,14 @@ dev = [
     { name = "pytest", specifier = ">=8.3.3" },
     { name = "pytest-asyncio", specifier = ">=0.24.0" },
     { name = "pytest-cov", specifier = ">=7.0.0" },
+    { name = "pytest-env", specifier = ">=1.2.0" },
     { name = "pytest-httpx", specifier = ">=0.35.0" },
 ]
 docs = [
     { name = "mkdocs", specifier = ">=1.6.1" },
-    { name = "mkdocs-gen-files", specifier = ">=0.5.0" },
-    { name = "mkdocs-literate-nav", specifier = ">=0.6.2" },
+    { name = "mkdocs-jupyter", specifier = ">=0.25.1" },
     { name = "mkdocs-material", specifier = ">=9.6.22" },
-    { name = "mkdocs-section-index", specifier = ">=0.3.10" },
+    { name = "mkdocs-redirects", specifier = ">=1.2.2" },
     { name = "mkdocstrings", specifier = ">=0.30.1" },
     { name = "mkdocstrings-python", specifier = ">=1.18.2" },
 ]
@@ -1380,7 +1380,7 @@ wheels = [
 
 [[package]]
 name = "ipykernel"
-version = "7.1.0"
+version = "6.31.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "appnope", marker = "sys_platform == 'darwin'" },
@@ -1398,9 +1398,9 @@ dependencies = [
     { name = "tornado" },
     { name = "traitlets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b9/a4/4948be6eb88628505b83a1f2f40d90254cab66abf2043b3c40fa07dfce0f/ipykernel-7.1.0.tar.gz", hash = "sha256:58a3fc88533d5930c3546dc7eac66c6d288acde4f801e2001e65edc5dc9cf0db", size = 174579, upload-time = "2025-10-27T09:46:39.471Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a5/1d/d5ba6edbfe6fae4c3105bca3a9c889563cc752c7f2de45e333164c7f4846/ipykernel-6.31.0.tar.gz", hash = "sha256:2372ce8bc1ff4f34e58cafed3a0feb2194b91fc7cad0fc72e79e47b45ee9e8f6", size = 167493, upload-time = "2025-10-20T11:42:39.948Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a3/17/20c2552266728ceba271967b87919664ecc0e33efca29c3efc6baf88c5f9/ipykernel-7.1.0-py3-none-any.whl", hash = "sha256:763b5ec6c5b7776f6a8d7ce09b267693b4e5ce75cb50ae696aaefb3c85e1ea4c", size = 117968, upload-time = "2025-10-27T09:46:37.805Z" },
+    { url = "https://files.pythonhosted.org/packages/f6/d8/502954a4ec0efcf264f99b65b41c3c54e65a647d9f0d6f62cd02227d242c/ipykernel-6.31.0-py3-none-any.whl", hash = "sha256:abe5386f6ced727a70e0eb0cf1da801fa7c5fa6ff82147747d5a0406cd8c94af", size = 117003, upload-time = "2025-10-20T11:42:37.502Z" },
 ]
 
 [[package]]
@@ -2008,6 +2008,23 @@ wheels = [
 ]
 
 [[package]]
+name = "jupytext"
+version = "1.18.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "markdown-it-py" },
+    { name = "mdit-py-plugins" },
+    { name = "nbformat" },
+    { name = "packaging" },
+    { name = "pyyaml" },
+    { name = "tomli", marker = "python_full_version < '3.11'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/9b/5d/82a614a49493fa84b2019a3e03020a8b9927208ae177b81f7e0b30330c82/jupytext-1.18.1.tar.gz", hash = "sha256:5c0962ca8d222db45cbe1848b4805dbbe3ddb957603fc96651b6cd7fd403fafb", size = 4270997, upload-time = "2025-10-19T15:06:30.992Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/bd/0d/2d240e7098e0cafba4d25e9530e7596b1bb1bd4476e41b10346bcaaa36d6/jupytext-1.18.1-py3-none-any.whl", hash = "sha256:24f999400726a1c658beae55e15fdd2a6255ab1a418697864cd779874e6011ab", size = 167143, upload-time = "2025-10-19T15:06:28.975Z" },
+]
+
+[[package]]
 name = "lark"
 version = "1.3.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2290,6 +2307,18 @@ wheels = [
 ]
 
 [[package]]
+name = "mdit-py-plugins"
+version = "0.5.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "markdown-it-py" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b2/fd/a756d36c0bfba5f6e39a1cdbdbfdd448dc02692467d83816dff4592a1ebc/mdit_py_plugins-0.5.0.tar.gz", hash = "sha256:f4918cb50119f50446560513a8e311d574ff6aaed72606ddae6d35716fe809c6", size = 44655, upload-time = "2025-08-11T07:25:49.083Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fb/86/dd6e5db36df29e76c7a7699123569a4a18c1623ce68d826ed96c62643cae/mdit_py_plugins-0.5.0-py3-none-any.whl", hash = "sha256:07a08422fc1936a5d26d146759e9155ea466e842f5ab2f7d2266dd084c8dab1f", size = 57205, upload-time = "2025-08-11T07:25:47.597Z" },
+]
+
+[[package]]
 name = "mdurl"
 version = "0.1.2"
 source = { registry = "https://pypi.org/simple" }
@@ -2358,18 +2387,6 @@ wheels = [
 ]
 
 [[package]]
-name = "mkdocs-gen-files"
-version = "0.5.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "mkdocs" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/48/85/2d634462fd59136197d3126ca431ffb666f412e3db38fd5ce3a60566303e/mkdocs_gen_files-0.5.0.tar.gz", hash = "sha256:4c7cf256b5d67062a788f6b1d035e157fc1a9498c2399be9af5257d4ff4d19bc", size = 7539, upload-time = "2023-04-27T19:48:04.894Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/e7/0f/1e55b3fd490ad2cecb6e7b31892d27cb9fc4218ec1dab780440ba8579e74/mkdocs_gen_files-0.5.0-py3-none-any.whl", hash = "sha256:7ac060096f3f40bd19039e7277dd3050be9a453c8ac578645844d4d91d7978ea", size = 8380, upload-time = "2023-04-27T19:48:07.059Z" },
-]
-
-[[package]]
 name = "mkdocs-get-deps"
 version = "0.2.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2384,15 +2401,20 @@ wheels = [
 ]
 
 [[package]]
-name = "mkdocs-literate-nav"
-version = "0.6.2"
+name = "mkdocs-jupyter"
+version = "0.25.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
+    { name = "ipykernel" },
+    { name = "jupytext" },
     { name = "mkdocs" },
+    { name = "mkdocs-material" },
+    { name = "nbconvert" },
+    { name = "pygments" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f6/5f/99aa379b305cd1c2084d42db3d26f6de0ea9bf2cc1d10ed17f61aff35b9a/mkdocs_literate_nav-0.6.2.tar.gz", hash = "sha256:760e1708aa4be86af81a2b56e82c739d5a8388a0eab1517ecfd8e5aa40810a75", size = 17419, upload-time = "2025-03-18T21:53:09.711Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6c/23/6ffb8d2fd2117aa860a04c6fe2510b21bc3c3c085907ffdd851caba53152/mkdocs_jupyter-0.25.1.tar.gz", hash = "sha256:0e9272ff4947e0ec683c92423a4bfb42a26477c103ab1a6ab8277e2dcc8f7afe", size = 1626747, upload-time = "2024-10-15T14:56:32.373Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/8a/84/b5b14d2745e4dd1a90115186284e9ee1b4d0863104011ab46abb7355a1c3/mkdocs_literate_nav-0.6.2-py3-none-any.whl", hash = "sha256:0a6489a26ec7598477b56fa112056a5e3a6c15729f0214bea8a4dbc55bd5f630", size = 13261, upload-time = "2025-03-18T21:53:08.1Z" },
+    { url = "https://files.pythonhosted.org/packages/08/37/5f1fd5c3f6954b3256f8126275e62af493b96fb6aef6c0dbc4ee326032ad/mkdocs_jupyter-0.25.1-py3-none-any.whl", hash = "sha256:3f679a857609885d322880e72533ef5255561bbfdb13cfee2a1e92ef4d4ad8d8", size = 1456197, upload-time = "2024-10-15T14:56:29.854Z" },
 ]
 
 [[package]]
@@ -2427,15 +2449,15 @@ wheels = [
 ]
 
 [[package]]
-name = "mkdocs-section-index"
-version = "0.3.10"
+name = "mkdocs-redirects"
+version = "1.2.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "mkdocs" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/93/40/4aa9d3cfa2ac6528b91048847a35f005b97ec293204c02b179762a85b7f2/mkdocs_section_index-0.3.10.tar.gz", hash = "sha256:a82afbda633c82c5568f0e3b008176b9b365bf4bd8b6f919d6eff09ee146b9f8", size = 14446, upload-time = "2025-04-05T20:56:45.387Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f1/a8/6d44a6cf07e969c7420cb36ab287b0669da636a2044de38a7d2208d5a758/mkdocs_redirects-1.2.2.tar.gz", hash = "sha256:3094981b42ffab29313c2c1b8ac3969861109f58b2dd58c45fc81cd44bfa0095", size = 7162, upload-time = "2024-11-07T14:57:21.109Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/01/53/76c109e6f822a6d19befb0450c87330b9a6ce52353de6a9dda7892060a1f/mkdocs_section_index-0.3.10-py3-none-any.whl", hash = "sha256:bc27c0d0dc497c0ebaee1fc72839362aed77be7318b5ec0c30628f65918e4776", size = 8796, upload-time = "2025-04-05T20:56:43.975Z" },
+    { url = "https://files.pythonhosted.org/packages/c4/ec/38443b1f2a3821bbcb24e46cd8ba979154417794d54baf949fefde1c2146/mkdocs_redirects-1.2.2-py3-none-any.whl", hash = "sha256:7dbfa5647b79a3589da4401403d69494bd1f4ad03b9c15136720367e1f340ed5", size = 6142, upload-time = "2024-11-07T14:57:19.143Z" },
 ]
 
 [[package]]
@@ -3522,6 +3544,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/5e/f7/c933acc76f5208b3b00089573cf6a2bc26dc80a8aece8f52bb7d6b1855ca/pytest_cov-7.0.0.tar.gz", hash = "sha256:33c97eda2e049a0c5298e91f519302a1334c26ac65c1a483d6206fd458361af1", size = 54328, upload-time = "2025-09-09T10:57:02.113Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ee/49/1377b49de7d0c1ce41292161ea0f721913fa8722c19fb9c1e3aa0367eecb/pytest_cov-7.0.0-py3-none-any.whl", hash = "sha256:3b8e9558b16cc1479da72058bdecf8073661c7f57f7d3c5f22a1c23507f2d861", size = 22424, upload-time = "2025-09-09T10:57:00.695Z" },
+]
+
+[[package]]
+name = "pytest-env"
+version = "1.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pytest" },
+    { name = "tomli", marker = "python_full_version < '3.11'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/13/12/9c87d0ca45d5992473208bcef2828169fa7d39b8d7fc6e3401f5c08b8bf7/pytest_env-1.2.0.tar.gz", hash = "sha256:475e2ebe8626cee01f491f304a74b12137742397d6c784ea4bc258f069232b80", size = 8973, upload-time = "2025-10-09T19:15:47.42Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/27/98/822b924a4a3eb58aacba84444c7439fce32680592f394de26af9c76e2569/pytest_env-1.2.0-py3-none-any.whl", hash = "sha256:d7e5b7198f9b83c795377c09feefa45d56083834e60d04767efd64819fc9da00", size = 6251, upload-time = "2025-10-09T19:15:46.077Z" },
 ]
 
 [[package]]

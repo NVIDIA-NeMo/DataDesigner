@@ -4,13 +4,13 @@
 import functools
 import logging
 
-from data_designer.config.columns import (
-    COLUMN_TYPE_EMOJI_MAP,
+from data_designer.config.column_configs import (
     LLMCodeColumnConfig,
     LLMJudgeColumnConfig,
     LLMStructuredColumnConfig,
     LLMTextColumnConfig,
 )
+from data_designer.config.column_types import COLUMN_TYPE_EMOJI_MAP
 from data_designer.config.models import InferenceParameters, ModelConfig
 from data_designer.config.utils.constants import REASONING_TRACE_COLUMN_POSTFIX
 from data_designer.engine.column_generators.generators.base import (

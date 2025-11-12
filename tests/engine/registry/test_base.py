@@ -94,12 +94,13 @@ def test_register_task_scenarios(
         TaskRegistry.register(stub_test_enum.TASK_A, stub_test_task_class, stub_test_config_class)
 
         with pytest.raises(expected_error, match="task_a has already been registered!"):
-            TaskRegistry.register(stub_test_enum.TASK_A, stub_test_task_class, stub_test_config_class)
+            TaskRegistry.register(
+                stub_test_enum.TASK_A, stub_test_task_class, stub_test_config_class, raise_on_collision=True
+            )
     elif test_case == "register_task_collision_no_raise":
         TaskRegistry.register(stub_test_enum.TASK_A, stub_test_task_class, stub_test_config_class)
-        TaskRegistry.register(
-            stub_test_enum.TASK_A, stub_test_task_class, stub_test_config_class, raise_on_collision=False
-        )
+        # Default behavior is raise_on_collision=False, so no need to pass it explicitly
+        TaskRegistry.register(stub_test_enum.TASK_A, stub_test_task_class, stub_test_config_class)
 
 
 @pytest.mark.parametrize(

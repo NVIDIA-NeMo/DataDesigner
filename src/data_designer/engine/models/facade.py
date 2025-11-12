@@ -11,7 +11,7 @@ from typing import Any
 from litellm.types.router import DeploymentTypedDict, LiteLLM_Params
 from litellm.types.utils import ModelResponse
 
-from data_designer.config.models import ModelConfig
+from data_designer.config.models import ModelConfig, ModelProvider
 from data_designer.engine.model_provider import ModelProviderRegistry
 from data_designer.engine.models.errors import (
     GenerationValidationFailureError,
@@ -46,8 +46,12 @@ class ModelFacade:
         return self._model_config.model
 
     @property
+    def model_provider(self) -> ModelProvider:
+        return self._model_provider_registry.get_provider(self._model_config.provider)
+
+    @property
     def model_provider_name(self) -> str:
-        return self._model_provider_registry.get_provider(self._model_config.provider).name
+        return self.model_provider.name
 
     @property
     def model_alias(self) -> str:
@@ -63,6 +67,8 @@ class ModelFacade:
             extra={"model": self.model_name, "messages": messages, "sensitive": True},
         )
         response = None
+        if self.model_provider.extra_body:
+            kwargs["extra_body"] = {**kwargs.get("extra_body", {}), **self.model_provider.extra_body}
         try:
             response = self._router.completion(self.model_name, messages, **kwargs)
             logger.debug(

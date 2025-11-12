@@ -14,7 +14,8 @@ from data_designer.config.analysis.column_statistics import (
     ColumnDistributionType,
     NumericalDistribution,
 )
-from data_designer.config.columns import ColumnConfigT, LLMJudgeColumnConfig, Score
+from data_designer.config.column_configs import LLMJudgeColumnConfig, Score
+from data_designer.config.column_types import ColumnConfigT
 from data_designer.config.models import ModelConfig
 from data_designer.engine.analysis.dataset_profiler import (
     DataDesignerDatasetProfiler,

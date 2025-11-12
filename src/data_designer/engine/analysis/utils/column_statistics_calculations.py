@@ -20,7 +20,7 @@ from data_designer.config.analysis.column_statistics import (
     MissingValue,
     NumericalDistribution,
 )
-from data_designer.config.columns import (
+from data_designer.config.column_configs import (
     LLMTextColumnConfig,
     SingleColumnConfig,
     ValidationColumnConfig,
