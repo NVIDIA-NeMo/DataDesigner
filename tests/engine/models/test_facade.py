@@ -147,4 +147,9 @@ def test_completion_with_kwargs(stub_model_facade, stub_expected_response):
     result = stub_model_facade.completion(messages, **kwargs)
 
     assert result == stub_expected_response
-    assert captured_kwargs == kwargs
+    # The completion method adds extra_headers with User-Agent to the kwargs
+    expected_kwargs = {
+        "extra_headers": {"User-Agent": "data-designer"},
+        **kwargs,
+    }
+    assert captured_kwargs == expected_kwargs

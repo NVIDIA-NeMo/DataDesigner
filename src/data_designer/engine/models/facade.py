@@ -64,6 +64,7 @@ class ModelFacade:
         )
         response = None
         try:
+            kwargs.setdefault("extra_headers", {})["User-Agent"] = "data-designer"
             response = self._router.completion(self.model_name, messages, **kwargs)
             logger.debug(
                 f"Received completion from model {self.model_name!r}",
