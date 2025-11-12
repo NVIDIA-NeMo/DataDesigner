@@ -9,22 +9,18 @@
     position: relative;
 }
 
+/* Make "NeMo" green using a gradient background trick */
 .md-header__topic:first-child .md-ellipsis::after {
     content: "NeMo Data Designer";
     visibility: visible;
     position: absolute;
     left: 0;
     top: 0;
-}
-
-/* Make "NeMo" green using a gradient background trick */
-.md-header__topic:first-child .md-ellipsis::after {
     background: linear-gradient(90deg, #76B900 0%, #76B900 4.8ch, currentColor 4.8ch, currentColor 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
 }
-
 
 /* Prevent selection of prompt and output markers */
 .highlight .gp,
@@ -142,11 +138,10 @@ h2 {
   }
 
   .tile {
-    display: flex;
+    display: inline-block;
     text-align: center;
     width: 120px;
     height: 120px;
-    display: inline-block;
     margin: 10px;
     padding: 5px;
     border-radius: .5rem;
