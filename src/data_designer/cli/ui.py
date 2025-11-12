@@ -14,6 +14,7 @@ from prompt_toolkit.layout.containers import HSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.styles import Style
 from rich.console import Console
+from rich.padding import Padding
 from rich.panel import Panel
 
 from data_designer.config.utils.constants import RICH_CONSOLE_THEME, NordColor
@@ -431,7 +432,6 @@ def _print_with_padding(content: str | Panel) -> None:
     Args:
         content: Content to print (string or Panel)
     """
-    from rich.padding import Padding
 
     padding = " " * LEFT_PADDING
     if isinstance(content, Panel):
