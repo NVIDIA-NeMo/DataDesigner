@@ -221,7 +221,8 @@ class ModelProvider(ConfigBase):
     name: str
     endpoint: str
     provider_type: str = "openai"
-    api_key: str | None = None
+    api_key: Optional[str] = None
+    extra_body: Optional[dict[str, Any]] = None
 
 
 def load_model_configs(model_configs: Union[list[ModelConfig], str, Path]) -> list[ModelConfig]:
