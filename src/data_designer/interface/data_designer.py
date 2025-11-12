@@ -8,12 +8,11 @@ import pandas as pd
 
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
 from data_designer.config.config_builder import DataDesignerConfigBuilder
+from data_designer.config.default_model_settings import get_default_model_configs, get_default_providers
 from data_designer.config.interface import DataDesignerInterface
 from data_designer.config.models import (
     ModelConfig,
     ModelProvider,
-    get_default_model_configs,
-    get_default_providers,
 )
 from data_designer.config.preview_results import PreviewResults
 from data_designer.config.seed import LocalSeedDatasetReference

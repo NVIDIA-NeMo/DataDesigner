@@ -22,7 +22,8 @@ from rich.text import Text
 
 from ..base import ConfigBase
 from ..columns import DataDesignerColumnType
-from ..models import ModelConfig, ModelProvider, get_nvidia_api_key, get_openai_api_key
+from ..default_model_settings import get_nvidia_api_key, get_openai_api_key
+from ..models import ModelConfig, ModelProvider
 from ..sampler_params import SamplerType
 from .code_lang import code_lang_to_syntax_lexer
 from .constants import NVIDIA_API_KEY_ENV_VAR_NAME, OPENAI_API_KEY_ENV_VAR_NAME
@@ -296,17 +297,23 @@ def display_model_providers_table(model_providers: list[ModelProvider]) -> None:
         api_key = model_provider.api_key
         if model_provider.api_key == OPENAI_API_KEY_ENV_VAR_NAME:
             if get_openai_api_key() is not None:
-                api_key = get_openai_api_key()[:1] + "********"
+                api_key = mask_api_key(get_openai_api_key())
             else:
                 api_key = f"* {OPENAI_API_KEY_ENV_VAR_NAME!r} not set in environment variables * "
         elif model_provider.api_key == NVIDIA_API_KEY_ENV_VAR_NAME:
             if get_nvidia_api_key() is not None:
-                api_key = get_nvidia_api_key()[:1] + "********"
+                api_key = mask_api_key(get_nvidia_api_key())
             else:
                 api_key = f"* {NVIDIA_API_KEY_ENV_VAR_NAME!r} not set in environment variables *"
+        else:
+            api_key = mask_api_key(model_provider.api_key)
         table_model_providers.add_row(model_provider.name, model_provider.endpoint, api_key)
     group = Group(Rule(title="Model Providers"), table_model_providers)
     console.print(group)
+
+
+def mask_api_key(api_key: str) -> str:
+    return api_key[:1] + "****************"
 
 
 def convert_to_row_element(elem):
