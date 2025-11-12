@@ -207,3 +207,5 @@ dd = DataDesigner(
     artifact_path="./artifacts", blob_storage_path="/Users/amanoel/Data/nemotron-personas-datasets_v0.0.6"
 )
 preview = dd.preview(config_builder, num_records=10)
+
+dd.create(config_builder, num_records=20)

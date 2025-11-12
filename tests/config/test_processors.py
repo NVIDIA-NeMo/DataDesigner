@@ -9,6 +9,7 @@ from data_designer.config.processors import (
     DropColumnsProcessorConfig,
     ProcessorConfig,
     ProcessorType,
+    ToJsonlProcessorConfig,
     get_processor_config_from_kwargs,
 )
 
@@ -46,13 +47,90 @@ def test_drop_columns_processor_config_serialization():
     assert config_restored.column_names == config.column_names
 
 
+def test_to_jsonl_processor_config_creation():
+    config = ToJsonlProcessorConfig(
+        build_stage=BuildStage.POST_BATCH,
+        template={"text": "{{ col1 }}"},
+        folder_name="jsonl_output",
+        fraction_per_file={"train.jsonl": 0.8, "validation.jsonl": 0.2},
+    )
+
+    assert config.build_stage == BuildStage.POST_BATCH
+    assert config.template == {"text": "{{ col1 }}"}
+    assert config.folder_name == "jsonl_output"
+    assert config.fraction_per_file == {"train.jsonl": 0.8, "validation.jsonl": 0.2}
+    assert config.processor_type == ProcessorType.TO_JSONL
+    assert isinstance(config, ProcessorConfig)
+
+
+def test_to_jsonl_processor_config_validation():
+    # Test unsupported stage raises error
+    with pytest.raises(ValidationError, match="Invalid dataset builder stage"):
+        ToJsonlProcessorConfig(
+            build_stage=BuildStage.PRE_BATCH,
+            template={"text": "{{ col1 }}"},
+            folder_name="jsonl_output",
+            fraction_per_file={"train.jsonl": 0.8, "validation.jsonl": 0.2},
+        )
+
+    # Test missing required field raises error
+    with pytest.raises(ValidationError, match="Field required"):
+        ToJsonlProcessorConfig(build_stage=BuildStage.POST_BATCH, template={"text": "{{ col1 }}"})
+
+    # Test invalid fraction per file raises error
+    with pytest.raises(ValidationError, match="The fractions must sum to 1."):
+        ToJsonlProcessorConfig(
+            build_stage=BuildStage.POST_BATCH,
+            template={"text": "{{ col1 }}"},
+            folder_name="jsonl_output",
+            fraction_per_file={"train.jsonl": 0.8, "validation.jsonl": 0.3},
+        )
+
+
+def test_to_jsonl_processor_config_serialization():
+    config = ToJsonlProcessorConfig(
+        build_stage=BuildStage.POST_BATCH,
+        template={"text": "{{ col1 }}"},
+        folder_name="jsonl_output",
+        fraction_per_file={"train.jsonl": 0.8, "validation.jsonl": 0.2},
+    )
+
+    # Serialize to dict
+    config_dict = config.model_dump()
+    assert config_dict["build_stage"] == "post_batch"
+    assert config_dict["template"] == {"text": "{{ col1 }}"}
+    assert config_dict["folder_name"] == "jsonl_output"
+    assert config_dict["fraction_per_file"] == {"train.jsonl": 0.8, "validation.jsonl": 0.2}
+
+    # Deserialize from dict
+    config_restored = ToJsonlProcessorConfig.model_validate(config_dict)
+    assert config_restored.build_stage == config.build_stage
+    assert config_restored.template == config.template
+    assert config_restored.folder_name == config.folder_name
+    assert config_restored.fraction_per_file == config.fraction_per_file
+
+
 def test_get_processor_config_from_kwargs():
     # Test successful creation
-    config = get_processor_config_from_kwargs(
+    config_drop_columns = get_processor_config_from_kwargs(
         ProcessorType.DROP_COLUMNS, build_stage=BuildStage.POST_BATCH, column_names=["col1"]
     )
-    assert isinstance(config, DropColumnsProcessorConfig)
-    assert config.column_names == ["col1"]
+    assert isinstance(config_drop_columns, DropColumnsProcessorConfig)
+    assert config_drop_columns.column_names == ["col1"]
+    assert config_drop_columns.processor_type == ProcessorType.DROP_COLUMNS
+
+    config_to_jsonl = get_processor_config_from_kwargs(
+        ProcessorType.TO_JSONL,
+        build_stage=BuildStage.POST_BATCH,
+        template={"text": "{{ col1 }}"},
+        folder_name="jsonl_output",
+        fraction_per_file={"train.jsonl": 0.8, "validation.jsonl": 0.2},
+    )
+    assert isinstance(config_to_jsonl, ToJsonlProcessorConfig)
+    assert config_to_jsonl.template == {"text": "{{ col1 }}"}
+    assert config_to_jsonl.folder_name == "jsonl_output"
+    assert config_to_jsonl.fraction_per_file == {"train.jsonl": 0.8, "validation.jsonl": 0.2}
+    assert config_to_jsonl.processor_type == ProcessorType.TO_JSONL
 
     # Test with unknown processor type returns None
     from enum import Enum
