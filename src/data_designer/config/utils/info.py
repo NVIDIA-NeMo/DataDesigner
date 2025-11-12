@@ -12,9 +12,9 @@ from .visualization import display_model_configs_table, display_model_providers_
 
 
 class InfoType(str, Enum):
-    SAMPLERS = "SAMPLERS"
-    MODEL_CONFIGS = "MODEL_CONFIGS"
-    MODEL_PROVIDERS = "MODEL_PROVIDERS"
+    SAMPLERS = "samplers"
+    MODEL_CONFIGS = "model_configs"
+    MODEL_PROVIDERS = "model_providers"
 
 
 ConfigBuilderInfoType = Literal[InfoType.SAMPLERS, InfoType.MODEL_CONFIGS]
