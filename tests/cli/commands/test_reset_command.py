@@ -9,7 +9,7 @@ import pytest
 import typer
 
 from data_designer.cli.commands.reset import reset_command
-from data_designer.cli.constants import DEFAULT_CONFIG_DIR
+from data_designer.config.utils.constants import DATA_DESIGNER_HOME_DIR
 
 # Type alias for the factory function
 MockRepositoryFactory = Callable[
@@ -106,7 +106,7 @@ def test_reset_no_config_files_exist(
     mock_model_repo.return_value = mock_model_instance
 
     with pytest.raises(typer.Exit) as exc_info:
-        reset_command(config_dir=None)
+        reset_command()
 
     assert exc_info.value.exit_code == 0
     mock_confirm.assert_not_called()
@@ -131,7 +131,7 @@ def test_reset_both_files_exist_user_confirms_both(
     mock_model_repo.return_value = mock_model_instance
     mock_confirm.return_value = True
 
-    reset_command(config_dir=None)
+    reset_command()
 
     assert mock_confirm.call_count == 2
     mock_provider_instance.delete.assert_called_once()
@@ -155,7 +155,7 @@ def test_reset_both_files_exist_user_declines_both(
     mock_model_repo.return_value = mock_model_instance
     mock_confirm.return_value = False
 
-    reset_command(config_dir=None)
+    reset_command()
 
     assert mock_confirm.call_count == 2
     mock_provider_instance.delete.assert_not_called()
@@ -179,34 +179,11 @@ def test_reset_mixed_confirmation(
     mock_model_repo.return_value = mock_model_instance
     mock_confirm.side_effect = [True, False]
 
-    reset_command(config_dir=None)
+    reset_command()
 
     assert mock_confirm.call_count == 2
     mock_provider_instance.delete.assert_called_once()
     mock_model_instance.delete.assert_not_called()
-
-
-@patch("data_designer.cli.commands.reset.ModelRepository")
-@patch("data_designer.cli.commands.reset.ProviderRepository")
-def test_reset_with_custom_config_dir(
-    mock_provider_repo: Mock,
-    mock_model_repo: Mock,
-    mock_repositories_factory: MockRepositoryFactory,
-) -> None:
-    """Test reset with a custom configuration directory."""
-    custom_dir = "/custom/config/path"
-    _, mock_provider_instance, _, mock_model_instance = mock_repositories_factory(
-        provider_exists=False, model_exists=False
-    )
-    mock_provider_repo.return_value = mock_provider_instance
-    mock_model_repo.return_value = mock_model_instance
-
-    with pytest.raises(typer.Exit):
-        reset_command(config_dir=custom_dir)
-
-    expected_path = Path(custom_dir).expanduser().resolve()
-    mock_provider_repo.assert_called_once_with(expected_path)
-    mock_model_repo.assert_called_once_with(expected_path)
 
 
 @pytest.mark.parametrize(
@@ -243,7 +220,7 @@ def test_reset_deletion_failures(
     mock_confirm.return_value = True
 
     with pytest.raises(typer.Exit) as exc_info:
-        reset_command(config_dir=None)
+        reset_command()
 
     assert exc_info.value.exit_code == 1
     assert mock_provider_instance.delete.call_count == expected_provider_calls
@@ -280,7 +257,7 @@ def test_reset_single_file_exists(
     mock_model_repo.return_value = mock_model_instance
     mock_confirm.return_value = True
 
-    reset_command(config_dir=None)
+    reset_command()
 
     assert mock_confirm.call_count == expected_confirms
     assert mock_provider_instance.delete.call_count == expected_provider_deletes
@@ -304,7 +281,7 @@ def test_reset_uses_default_config_dir_when_none_provided(
     mock_model_repo.return_value = mock_model_instance
 
     with pytest.raises(typer.Exit):
-        reset_command(config_dir=None)
+        reset_command()
 
-    mock_provider_repo.assert_called_once_with(DEFAULT_CONFIG_DIR)
-    mock_model_repo.assert_called_once_with(DEFAULT_CONFIG_DIR)
+    mock_provider_repo.assert_called_once_with(DATA_DESIGNER_HOME_DIR)
+    mock_model_repo.assert_called_once_with(DATA_DESIGNER_HOME_DIR)

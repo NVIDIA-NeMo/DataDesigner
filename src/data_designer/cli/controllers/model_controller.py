@@ -3,7 +3,6 @@
 
 from pathlib import Path
 
-from data_designer.cli.constants import BUILTIN_PROVIDERS
 from data_designer.cli.forms.model_builder import ModelFormBuilder
 from data_designer.cli.repositories.model_repository import ModelRepository
 from data_designer.cli.repositories.provider_repository import ProviderRepository
@@ -77,10 +76,8 @@ class ModelController:
             handler(available_providers)
 
     def _get_available_providers(self) -> list[str]:
-        """Get list of available providers (configured + built-in)."""
-        configured_providers = [p.name for p in self.provider_service.list_all()]
-        # Combine configured with built-in, removing duplicates
-        return list(set(configured_providers + BUILTIN_PROVIDERS))
+        """Get list of available providers."""
+        return [p.name for p in self.provider_service.list_all()]
 
     def _show_existing_config(self) -> None:
         """Display current configuration."""

@@ -8,7 +8,11 @@ import pandas as pd
 
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
 from data_designer.config.config_builder import DataDesignerConfigBuilder
-from data_designer.config.default_model_settings import get_default_model_configs, get_default_providers
+from data_designer.config.default_model_settings import (
+    get_default_model_configs,
+    get_default_providers,
+    resolve_seed_default_model_settings,
+)
 from data_designer.config.interface import DataDesignerInterface
 from data_designer.config.models import (
     ModelConfig,
@@ -18,8 +22,6 @@ from data_designer.config.preview_results import PreviewResults
 from data_designer.config.seed import LocalSeedDatasetReference
 from data_designer.config.utils.constants import (
     DEFAULT_NUM_RECORDS,
-    NVIDIA_API_KEY_ENV_VAR_NAME,
-    OPENAI_API_KEY_ENV_VAR_NAME,
 )
 from data_designer.config.utils.info import InterfaceInfo
 from data_designer.config.utils.io_helpers import write_seed_dataset
@@ -65,9 +67,6 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             This will be used as the dataset folder name in the artifact path.
         model_providers: Optional list of model providers for LLM generation. If None,
             uses default providers.
-        config_dir: Optional custom configuration directory for loading default model
-            configs and providers. If None, uses the default directory (~/.data-designer).
-            This is useful when the CLI has been configured to use a custom directory.
         secret_resolver: Resolver for handling secrets and credentials. Defaults to
             EnvironmentResolver which reads secrets from environment variables.
         blob_storage_path: Path to the blob storage directory. Note this parameter
@@ -79,13 +78,11 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         artifact_path: Path | str | None = None,
         *,
         model_providers: list[ModelProvider] | None = None,
-        config_dir: Path | str | None = None,
         secret_resolver: SecretResolver = EnvironmentResolver(),
         blob_storage_path: Path | str | None = None,
     ):
         self._secret_resolver = secret_resolver
         self._artifact_path = Path(artifact_path) if artifact_path is not None else Path.cwd() / "artifacts"
-        self._config_dir = Path(config_dir) if config_dir is not None else None
         self._buffer_size = DEFAULT_BUFFER_SIZE
         self._blob_storage = (
             init_managed_blob_storage()
@@ -133,6 +130,11 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
 
     @property
     def info(self) -> InterfaceInfo:
+        """Get information about the Data Designer interface.
+
+        Returns:
+            InterfaceInfo object with information about the Data Designer interface.
+        """
         return InterfaceInfo(model_providers=self._model_providers)
 
     def create(
@@ -235,15 +237,20 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         )
 
     def get_default_model_configs(self) -> list[ModelConfig]:
-        model_configs = get_default_model_configs(self._config_dir)
-        if len(model_configs) == 0:
-            logger.warning(
-                f"‼️ Neither {NVIDIA_API_KEY_ENV_VAR_NAME!r} nor {OPENAI_API_KEY_ENV_VAR_NAME!r} environment variables are set. Please set at least one of them if you want to use the default model configs."
-            )
-        return model_configs
+        """Get the default model configurations.
+
+        Returns:
+            List of default model configurations.
+        """
+        return get_default_model_configs()
 
     def get_default_model_providers(self) -> list[ModelProvider]:
-        return get_default_providers(self._config_dir)
+        """Get the default model providers.
+
+        Returns:
+            List of default model providers.
+        """
+        return get_default_providers()
 
     def set_buffer_size(self, buffer_size: int) -> None:
         """Set the buffer size for dataset generation.
@@ -304,3 +311,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
                 )
             ),
         )
+
+
+# Resolve default model settings on import to ensure they are available when the library is used.
+_ = resolve_seed_default_model_settings()

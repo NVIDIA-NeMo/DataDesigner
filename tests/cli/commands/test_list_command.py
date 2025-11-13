@@ -6,18 +6,15 @@ from unittest.mock import patch
 from rich.table import Table
 
 from data_designer.cli.commands.list import display_models, display_providers, list_command
-from data_designer.cli.constants import DEFAULT_CONFIG_DIR
 
 
 @patch("data_designer.cli.commands.list.display_providers")
 @patch("data_designer.cli.commands.list.display_models")
 def test_list_command(mock_display_models, mock_display_providers):
     """Test list command."""
-    list_command(config_dir=None)
+    list_command()
     mock_display_providers.assert_called_once()
-    mock_display_providers.call_args[0][0].config_dir == DEFAULT_CONFIG_DIR
     mock_display_models.assert_called_once()
-    mock_display_models.call_args[0][0].config_dir == DEFAULT_CONFIG_DIR
 
 
 @patch("data_designer.cli.commands.list.console.print")

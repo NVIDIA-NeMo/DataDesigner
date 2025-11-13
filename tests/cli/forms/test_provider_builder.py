@@ -95,32 +95,18 @@ def test_endpoint_field_accepts_http_url() -> None:
     assert endpoint_field.value == "http://localhost:8000/v1"
 
 
-# Form creation tests - conditional form logic
-def test_create_form_returns_config_type_selection_for_new_provider() -> None:
-    """Test create_form returns config type selection when creating new provider."""
+# Form creation tests
+def test_create_form_returns_manual_form_for_new_provider() -> None:
+    """Test create_form returns manual configuration form for new provider."""
     builder = ProviderFormBuilder()
 
     form = builder.create_form(initial_data=None)
 
-    # Should have config_type selection field
-    config_type_field = form.get_field("config_type")
-    assert config_type_field is not None
-    # Should not have manual configuration fields yet
-    assert form.get_field("name") is None
-    assert form.get_field("endpoint") is None
-
-
-def test_create_form_returns_manual_form_when_all_predefined_used() -> None:
-    """Test create_form skips config type selection when all predefined providers used."""
-    # Assume all predefined providers are already used
-    builder = ProviderFormBuilder(existing_names={"nvidia", "openai", "anthropic"})
-
-    form = builder.create_form(initial_data=None)
-
-    # Should skip directly to manual form
+    # Should return manual form directly
     assert form.get_field("name") is not None
     assert form.get_field("endpoint") is not None
-    assert form.get_field("config_type") is None
+    assert form.get_field("provider_type") is not None
+    assert form.get_field("api_key") is not None
 
 
 def test_create_form_returns_manual_form_for_updates() -> None:
@@ -137,7 +123,8 @@ def test_create_form_returns_manual_form_for_updates() -> None:
     # Should return manual form with fields populated
     assert form.get_field("name") is not None
     assert form.get_field("endpoint") is not None
-    assert form.get_field("config_type") is None
+    assert form.get_field("provider_type") is not None
+    assert form.get_field("api_key") is not None
 
 
 # build_config tests

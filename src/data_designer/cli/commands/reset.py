@@ -1,11 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from pathlib import Path
-
 import typer
 
-from data_designer.cli.constants import DEFAULT_CONFIG_DIR
 from data_designer.cli.repositories.model_repository import ModelRepository
 from data_designer.cli.repositories.provider_repository import ProviderRepository
 from data_designer.cli.ui import (
@@ -17,23 +14,20 @@ from data_designer.cli.ui import (
     print_success,
     print_text,
 )
+from data_designer.config.utils.constants import DATA_DESIGNER_HOME_DIR
 
 
-def reset_command(
-    config_dir: str | None = typer.Option(None, "--config-dir", help="Custom configuration directory"),
-) -> None:
+def reset_command() -> None:
     """Reset configuration files by deleting them after confirmation."""
     print_header("Reset Configuration")
 
     # Determine configuration directory
-    config_path = Path(config_dir).expanduser().resolve() if config_dir else DEFAULT_CONFIG_DIR
-
-    print_info(f"Configuration directory: {config_path}")
+    print_info(f"Configuration directory: {DATA_DESIGNER_HOME_DIR}")
     console.print()
 
     # Create repositories
-    provider_repo = ProviderRepository(config_path)
-    model_repo = ModelRepository(config_path)
+    provider_repo = ProviderRepository(DATA_DESIGNER_HOME_DIR)
+    model_repo = ModelRepository(DATA_DESIGNER_HOME_DIR)
 
     # Check which config files exist
     provider_exists = provider_repo.exists()

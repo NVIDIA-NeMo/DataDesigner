@@ -5,10 +5,10 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from data_designer.cli.constants import MODEL_CONFIGS_FILE_NAME
 from data_designer.cli.repositories.base import ConfigRepository
 from data_designer.cli.utils import load_config_file, save_config_file
 from data_designer.config.models import ModelConfig
+from data_designer.config.utils.constants import MODEL_CONFIGS_FILE_NAME
 
 
 class ModelConfigRegistry(BaseModel):

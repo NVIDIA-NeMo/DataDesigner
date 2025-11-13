@@ -1,39 +1,28 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from pathlib import Path
-
 from rich.table import Table
-import typer
 
-from data_designer.cli.constants import DEFAULT_CONFIG_DIR
 from data_designer.cli.repositories.model_repository import ModelRepository
 from data_designer.cli.repositories.provider_repository import ProviderRepository
 from data_designer.cli.ui import console, print_error, print_header, print_info, print_warning
-from data_designer.config.utils.constants import NordColor
+from data_designer.config.utils.constants import DATA_DESIGNER_HOME_DIR, NordColor
 
 
-def list_command(
-    config_dir: str | None = typer.Option(None, "--config-dir", help="Custom configuration directory"),
-) -> None:
+def list_command() -> None:
     """List current Data Designer configurations.
-
-    Args:
-        config_dir: Optional custom configuration directory
 
     Returns:
         None
     """
     # Determine config directory
-    config_path = Path(config_dir).expanduser().resolve() if config_dir else DEFAULT_CONFIG_DIR
-
     print_header("Data Designer Configurations")
-    print_info(f"Configuration directory: {config_path}")
+    print_info(f"Configuration directory: {DATA_DESIGNER_HOME_DIR}")
     console.print()
 
     # Display providers
-    display_providers(ProviderRepository(config_path))
-    display_models(ModelRepository(config_path))
+    display_providers(ProviderRepository(DATA_DESIGNER_HOME_DIR))
+    display_models(ModelRepository(DATA_DESIGNER_HOME_DIR))
 
 
 def display_providers(provider_repo: ProviderRepository) -> None:

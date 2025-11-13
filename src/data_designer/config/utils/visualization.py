@@ -312,8 +312,27 @@ def display_model_providers_table(model_providers: list[ModelProvider]) -> None:
     console.print(group)
 
 
-def mask_api_key(api_key: str) -> str:
-    return api_key[:1] + "****************"
+def mask_api_key(api_key: str | None) -> str:
+    """Mask API keys for display.
+
+    Environment variable names (all uppercase) are kept visible.
+    Actual API keys are masked to show only the last 4 characters.
+
+    Args:
+        api_key: The API key to mask.
+
+    Returns:
+        Masked API key string or "(not set)" if None.
+    """
+    if not api_key:
+        return "(not set)"
+
+    # Keep environment variable names visible
+    if api_key.isupper():
+        return api_key
+
+    # Mask actual API keys
+    return "***" + api_key[-4:] if len(api_key) > 4 else "***"
 
 
 def convert_to_row_element(elem):

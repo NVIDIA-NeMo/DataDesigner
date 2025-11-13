@@ -60,6 +60,18 @@ def test_display_sample_record_twice_no_errors(validation_output, config_builder
 
 
 def test_mask_api_key():
-    assert mask_api_key("sk-1234567890") == "s****************"
-    assert mask_api_key("") == "****************"
-    assert mask_api_key("nv-some-api-key") == "n****************"
+    # Actual API keys are masked to show last 4 characters
+    assert mask_api_key("sk-1234567890") == "***7890"
+    assert mask_api_key("nv-some-api-key") == "***-key"
+
+    # Short API keys (4 or fewer chars) show only asterisks
+    assert mask_api_key("sk-1") == "***"
+    assert mask_api_key("key") == "***"
+
+    # Environment variable names (all uppercase) are kept visible
+    assert mask_api_key("OPENAI_API_KEY") == "OPENAI_API_KEY"
+    assert mask_api_key("NVIDIA_API_KEY") == "NVIDIA_API_KEY"
+
+    # None or empty returns "(not set)"
+    assert mask_api_key(None) == "(not set)"
+    assert mask_api_key("") == "(not set)"
