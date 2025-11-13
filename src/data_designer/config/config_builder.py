@@ -316,13 +316,19 @@ class DataDesignerConfigBuilder:
         Returns:
             The current Data Designer config builder instance.
         """
+        num_processors_of_type = len([p for p in self._processor_configs if p.processor_type == processor_type])
+
         if processor_config is None:
             if processor_type is None:
                 raise BuilderConfigurationError(
                     "🛑 You must provide either a 'processor_config' object or 'processor_type' "
                     "with additional keyword arguments."
                 )
-            processor_config = get_processor_config_from_kwargs(processor_type=processor_type, **kwargs)
+            processor_config = get_processor_config_from_kwargs(
+                processor_type=processor_type, name=f"{processor_type.value}-{num_processors_of_type + 1}", **kwargs
+            )
+        elif processor_config.name is None:
+            processor_config.name = f"{processor_config.processor_type}-{num_processors_of_type + 1}"
 
         # Checks elsewhere fail if DropColumnsProcessor drops a column but it is not marked for drop
         if processor_config.processor_type == ProcessorType.DROP_COLUMNS:
