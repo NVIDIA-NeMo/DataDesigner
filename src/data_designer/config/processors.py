@@ -15,10 +15,13 @@ SUPPORTED_STAGES = [BuildStage.POST_BATCH]
 
 class ProcessorType(str, Enum):
     DROP_COLUMNS = "drop_columns"
-    TO_JSONL = "to_jsonl"
+    JSONL_EXPORT = "jsonl_export"
 
 
 class ProcessorConfig(ConfigBase, ABC):
+    name: str | None = Field(
+        default=None, description="The name of the processor. If not provided, a default name will be generated."
+    )
     build_stage: BuildStage = Field(
         default=BuildStage.POST_BATCH,
         description=f"The stage at which the processor will run. Supported stages: {', '.join(SUPPORTED_STAGES)}",
@@ -36,8 +39,8 @@ class ProcessorConfig(ConfigBase, ABC):
 def get_processor_config_from_kwargs(processor_type: ProcessorType, **kwargs) -> ProcessorConfig:
     if processor_type == ProcessorType.DROP_COLUMNS:
         return DropColumnsProcessorConfig(**kwargs)
-    elif processor_type == ProcessorType.TO_JSONL:
-        return ToJsonlProcessorConfig(**kwargs)
+    elif processor_type == ProcessorType.JSONL_EXPORT:
+        return JsonlExportProcessorConfig(**kwargs)
 
 
 class DropColumnsProcessorConfig(ProcessorConfig):
@@ -45,14 +48,13 @@ class DropColumnsProcessorConfig(ProcessorConfig):
     processor_type: Literal[ProcessorType.DROP_COLUMNS] = ProcessorType.DROP_COLUMNS
 
 
-class ToJsonlProcessorConfig(ProcessorConfig):
-    template: dict = Field(..., description="The template to use for each entry in the dataset.")
-    folder_name: str = Field(..., description="Folder where JSONL files will be saved.")
+class JsonlExportProcessorConfig(ProcessorConfig):
+    template: str = Field(..., description="The template to use for each entry in the dataset, as a single string.")
     fraction_per_file: dict[str, float] = Field(
         default={"train.jsonl": 0.8, "validation.jsonl": 0.2},
         description="Fraction of the dataset to save in each file. The keys are the filenames and the values are the fractions.",
     )
-    processor_type: Literal[ProcessorType.TO_JSONL] = ProcessorType.TO_JSONL
+    processor_type: Literal[ProcessorType.JSONL_EXPORT] = ProcessorType.JSONL_EXPORT
 
     @field_validator("fraction_per_file")
     def validate_fraction_per_file(cls, v: dict[str, float]) -> dict[str, float]:

@@ -1,15 +1,19 @@
+import json
+
 from data_designer.essentials import (
+    BuildStage,
     CategorySamplerParams,
     DataDesigner,
     DataDesignerConfigBuilder,
     InferenceParameters,
+    JsonlExportProcessorConfig,
     LLMTextColumnConfig,
     ModelConfig,
     PersonSamplerParams,
+    ProcessorType,
     SamplerColumnConfig,
     Score,
     SubcategorySamplerParams,
-    ToJsonlProcessorConfig,
 )
 
 # define model aliases
@@ -192,10 +196,12 @@ jsonl_entry_template = {
     ],
 }
 
+template_as_str = json.dumps(jsonl_entry_template)
 config_builder.add_processor(
-    ToJsonlProcessorConfig(
-        template=jsonl_entry_template,
-        folder_name="jsonl_files",
+    JsonlExportProcessorConfig(
+        processor_type=ProcessorType.JSONL_EXPORT,
+        build_stage=BuildStage.POST_BATCH,
+        template=template_as_str,
         fraction_per_file={
             "train.jsonl": 0.8,
             "validation.jsonl": 0.2,

@@ -33,7 +33,7 @@ class ArtifactStorage(BaseModel):
     final_dataset_folder_name: str = "parquet-files"
     partial_results_folder_name: str = "tmp-partial-parquet-files"
     dropped_columns_folder_name: str = "dropped-columns-parquet-files"
-    outputs_folder_name: str = "outputs"
+    processors_outputs_folder_name: str = "processors-files"
 
     @property
     def artifact_path_exists(self) -> bool:
@@ -72,8 +72,8 @@ class ArtifactStorage(BaseModel):
         return self.base_dataset_path / self.partial_results_folder_name
 
     @property
-    def outputs_path(self) -> Path:
-        return self.base_dataset_path / self.outputs_folder_name
+    def processors_outputs_path(self) -> Path:
+        return self.base_dataset_path / self.processors_outputs_folder_name
 
     @field_validator("artifact_path")
     def validate_artifact_path(cls, v: Union[Path, str]) -> Path:
@@ -196,10 +196,10 @@ class ArtifactStorage(BaseModel):
             json.dump(metadata, file)
         return self.metadata_file_path
 
-    def move_to_outputs(self, from_path: Path, to_folder_name: str) -> Path:
-        self.mkdir_if_needed(self.outputs_path / to_folder_name)
-        shutil.move(from_path, self.outputs_path / to_folder_name / from_path.name)
-        return self.outputs_path / to_folder_name / from_path.name
+    def move_processor_output(self, from_path: Path, folder_name: str) -> Path:
+        self.mkdir_if_needed(self.processors_outputs_path / folder_name)
+        shutil.move(from_path, self.processors_outputs_path / folder_name / from_path.name)
+        return self.processors_outputs_path / folder_name / from_path.name
 
     def _get_stage_path(self, stage: BatchStage) -> Path:
         return getattr(self, resolve_string_enum(stage, BatchStage).value)
