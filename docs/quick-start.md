@@ -28,6 +28,7 @@ from data_designer.essentials import (
     CategorySamplerParams,
     DataDesigner,
     DataDesignerConfigBuilder,
+    InfoType,
     LLMTextColumnConfig,
     SamplerColumnConfig,
     SamplerType,
@@ -41,9 +42,15 @@ os.environ["NVIDIA_API_KEY"] = "your-api-key-here"
 # This automatically configures the default model providers
 data_designer = DataDesigner()
 
+# Print out all the model providers available
+data_designer.info.display(InfoType.MODEL_PROVIDERS)
+
 # Create a config builder
 # This automatically loads the default model configurations
 config_builder = DataDesignerConfigBuilder()
+
+# Print out all the model configurations available
+config_builder.info.display(InfoType.MODEL_CONFIGS)
 
 # Add a sampler column to randomly select a language
 config_builder.add_column(
@@ -71,17 +78,8 @@ preview_results = data_designer.preview(config_builder=config_builder)
 
 # Display a sample record
 preview_results.display_sample_record()
-
-# Congratulations, you successfully run one iteration designing your synthetic data.
-# Follow along to learn more.
 ```
 
+🎉 Congratulations, you successfully ran one iteration designing your synthetic data. Follow along to learn more.
+
 To learn more about the default providers and model configurations available, see the [Default Model Settings](models/default-model-settings.md) guide.
-
-## Next Steps
-
-- **[Default Model Settings](models/default-model-settings.md)**: Learn about built-in providers and model configurations
-- **[Installation Guide](installation.md)**: Detailed installation instructions
-- **[Configuration Guide](code_reference/config_builder.md)**: Learn about all available column types and configuration options
-- **[Notebooks](notebooks/1-the-basics.ipynb)**: Interactive tutorials covering advanced features
-- **[Column Configurations](code_reference/column_configs.md)**: Explore sampler types, LLM columns, validators, and more
