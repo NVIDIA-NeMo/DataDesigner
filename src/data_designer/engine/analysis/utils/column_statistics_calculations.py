@@ -9,8 +9,6 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from pandas import Series
-from pandas.core.dtypes.common import is_integer_dtype, is_numeric_dtype
 import pyarrow as pa
 import tiktoken
 
@@ -178,67 +176,6 @@ def convert_pyarrow_dtype_to_simple_dtype(pyarrow_dtype: pa.DataType) -> str:
     if "date" in pyarrow_dtype_str:
         return "date"
     return pyarrow_dtype_str
-
-
-def determine_column_distribution_type(column: Series) -> ColumnDistributionType:
-    """Based on the logic used by Gretel's SQS report to determine column data type."""
-    if len(column) == 0:
-        return ColumnDistributionType.OTHER
-
-    if isinstance(column.iloc[0], np.ndarray):
-        return ColumnDistributionType.OTHER
-
-    if isinstance(column.iloc[0], dict):
-        return ColumnDistributionType.OTHER
-
-    try:
-        non_na_data = column.dropna()
-        non_na_count = int(non_na_data.count())
-        unique_count = int(non_na_data.nunique())
-    except Exception:
-        column = column.astype(str)
-        non_na_data = column.dropna()
-        non_na_count = int(non_na_data.count())
-        unique_count = int(non_na_data.nunique())
-
-    if non_na_count == 0:
-        return ColumnDistributionType.OTHER
-
-    if is_numeric_dtype(non_na_data.dtype):
-        # Float values that are within 1e-8 of an integer are considered integers
-        # Floats are considered numerical.
-        if not np.allclose(non_na_data, non_na_data.astype(int), atol=1e-8):
-            return ColumnDistributionType.NUMERICAL
-        # We can visualize numeric data with histograms, but we will not use it for diversity calculations
-        min_value = int(non_na_data.min())
-        if unique_count <= 10 and min_value >= 0:
-            return ColumnDistributionType.CATEGORICAL
-        if unique_count == non_na_count and is_integer_dtype(non_na_data.dtype):
-            # All unique integer values, potentially an ID column
-            return ColumnDistributionType.OTHER
-        return ColumnDistributionType.NUMERICAL
-
-    # Check if the column is a date-like column before checking for categorical or text columns.
-    try:
-        pd.to_datetime(non_na_data, format="%Y-%m-%d")
-        return ColumnDistributionType.OTHER
-    except Exception:
-        pass
-
-    diff = non_na_count - unique_count
-    diff_percent = diff / non_na_count
-    if diff_percent >= 0.9 or (diff_percent >= 0.7 and len(non_na_data) <= 50):
-        return ColumnDistributionType.CATEGORICAL
-
-    space_count = sum(str(entry).strip().count(" ") for entry in non_na_data)
-    if space_count / non_na_count > TEXT_FIELD_AVG_SPACE_COUNT_THRESHOLD:
-        return ColumnDistributionType.TEXT
-
-    if pd.api.types.is_string_dtype(non_na_data.dtype) and unique_count <= 10:
-        # Check for string columns with a small number of unique values (categorical)
-        return ColumnDistributionType.CATEGORICAL
-
-    return ColumnDistributionType.OTHER
 
 
 def ensure_hashable(x: Any) -> str:

@@ -148,12 +148,7 @@ class SamplerColumnStatistics(GeneralColumnStatistics):
 
 
 class SeedDatasetColumnStatistics(GeneralColumnStatistics):
-    distribution_type: ColumnDistributionType
-    distribution: Optional[Union[CategoricalDistribution, NumericalDistribution, MissingValue]]
     column_type: Literal[DataDesignerColumnType.SEED_DATASET.value] = DataDesignerColumnType.SEED_DATASET.value
-
-    def create_report_row_data(self) -> dict[str, str]:
-        return self._general_display_row
 
 
 class ExpressionColumnStatistics(GeneralColumnStatistics):
