@@ -34,7 +34,7 @@ from ..config.models import (
     UniformDistribution,
     UniformDistributionParams,
 )
-from ..config.processors import DropColumnsProcessorConfig, ProcessorType, ToJsonlProcessorConfig
+from ..config.processors import DropColumnsProcessorConfig, JsonlExportProcessorConfig, ProcessorType
 from ..config.sampler_constraints import ColumnInequalityConstraint, ScalarInequalityConstraint
 from ..config.sampler_params import (
     BernoulliMixtureSamplerParams,
@@ -99,6 +99,7 @@ __all__ = [
     "ImageFormat",
     "InferenceParameters",
     "JudgeScoreProfilerConfig",
+    "JsonlExportProcessorConfig",
     "LLMCodeColumnConfig",
     "LLMJudgeColumnConfig",
     "LLMStructuredColumnConfig",
@@ -126,7 +127,6 @@ __all__ = [
     "SeedDatasetColumnConfig",
     "SubcategorySamplerParams",
     "TimeDeltaSamplerParams",
-    "ToJsonlProcessorConfig",
     "UniformDistribution",
     "UniformDistributionParams",
     "UniformSamplerParams",
