@@ -13,6 +13,7 @@ from data_designer.config.default_model_settings import (
     get_builtin_model_providers,
     get_default_inference_parameters,
     get_default_model_configs,
+    get_default_provider_name,
     get_default_providers,
     resolve_seed_default_model_settings,
 )
@@ -93,6 +94,28 @@ def test_get_default_providers_path_does_not_exist():
     with patch("data_designer.config.default_model_settings.MODEL_PROVIDERS_FILE_PATH", new=Path("non_existent_path")):
         with pytest.raises(FileNotFoundError, match=r"Default model providers file not found at 'non_existent_path'"):
             get_default_providers()
+
+
+def test_get_default_provider_name_with_default_key(tmp_path: Path):
+    providers_file_path = tmp_path / "providers.yaml"
+    providers_file_path.write_text(
+        json.dumps(dict(providers=[p.model_dump() for p in get_builtin_model_providers()], default="nvidia"))
+    )
+    with patch("data_designer.config.default_model_settings.MODEL_PROVIDERS_FILE_PATH", new=providers_file_path):
+        assert get_default_provider_name() == "nvidia"
+
+
+def test_get_default_provider_name_without_default_key(tmp_path: Path):
+    providers_file_path = tmp_path / "providers.yaml"
+    providers_file_path.write_text(json.dumps({"providers": [p.model_dump() for p in get_builtin_model_providers()]}))
+    with patch("data_designer.config.default_model_settings.MODEL_PROVIDERS_FILE_PATH", new=providers_file_path):
+        assert get_default_provider_name() is None
+
+
+def test_get_default_provider_name_path_does_not_exist():
+    with patch("data_designer.config.default_model_settings.MODEL_PROVIDERS_FILE_PATH", new=Path("non_existent_path")):
+        with pytest.raises(FileNotFoundError, match=r"Default model providers file not found at 'non_existent_path'"):
+            get_default_provider_name()
 
 
 def test_get_nvidia_api_key():
