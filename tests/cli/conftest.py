@@ -13,23 +13,24 @@ from data_designer.config.models import InferenceParameters, ModelConfig, ModelP
 
 
 @pytest.fixture
-def stub_model_configs() -> list[ModelConfig]:
+def stub_inference_parameters() -> InferenceParameters:
+    return InferenceParameters(temperature=0.7, top_p=0.9, max_tokens=2048, max_parallel_requests=4)
+
+
+@pytest.fixture
+def stub_model_configs(stub_inference_parameters: InferenceParameters) -> list[ModelConfig]:
     return [
         ModelConfig(
             alias="test-alias-1",
             model="test-model-1",
             provider="test-provider-1",
-            inference_parameters=InferenceParameters(
-                temperature=0.7, top_p=0.9, max_tokens=2048, max_parallel_requests=4
-            ),
+            inference_parameters=stub_inference_parameters,
         ),
         ModelConfig(
             alias="test-alias-2",
             model="test-model-2",
             provider="test-provider-1",
-            inference_parameters=InferenceParameters(
-                temperature=0.7, top_p=0.9, max_tokens=2048, max_parallel_requests=4
-            ),
+            inference_parameters=stub_inference_parameters,
         ),
     ]
 

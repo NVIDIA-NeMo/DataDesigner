@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 import json
 from pathlib import Path
 from unittest.mock import patch
@@ -11,11 +14,10 @@ from data_designer.config.default_model_settings import (
     get_default_inference_parameters,
     get_default_model_configs,
     get_default_providers,
-    get_nvidia_api_key,
-    get_openai_api_key,
     resolve_seed_default_model_settings,
 )
 from data_designer.config.models import InferenceParameters
+from data_designer.config.utils.visualization import get_nvidia_api_key, get_openai_api_key
 
 
 def test_get_default_inference_parameters():
@@ -94,12 +96,12 @@ def test_get_default_providers_path_does_not_exist():
 
 
 def test_get_nvidia_api_key():
-    with patch("data_designer.config.default_model_settings.os.getenv", return_value="nvidia_api_key"):
+    with patch("data_designer.config.utils.visualization.os.getenv", return_value="nvidia_api_key"):
         assert get_nvidia_api_key() == "nvidia_api_key"
 
 
 def test_get_openai_api_key():
-    with patch("data_designer.config.default_model_settings.os.getenv", return_value="openai_api_key"):
+    with patch("data_designer.config.utils.visualization.os.getenv", return_value="openai_api_key"):
         assert get_openai_api_key() == "openai_api_key"
 
 

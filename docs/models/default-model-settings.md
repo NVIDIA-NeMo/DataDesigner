@@ -4,7 +4,7 @@ Data Designer ships with pre-configured model providers and model configurations
 
 ## Model Providers
 
-Data Designer includes two default model providers that are automatically configured when the Data Designer libray initiates for the first time:
+Data Designer includes two default model providers that are configured automatically:
 
 ### NVIDIA Provider (`nvidia`)
 
@@ -52,7 +52,7 @@ The following model configurations are automatically available when `OPENAI_API_
 
 ### How Default Model Providers and Configurations Work
 
-When the Data Designer library is initialized, default model configurations and providers are stored in the Data Designer home directory for easy access and customization if they do not already exist. By default they are saved to the following paths:
+When the Data Designer library or the CLI is initialized, default model configurations and providers are stored in the Data Designer home directory for easy access and customization if they do not already exist. These configuration files serve as the single source of truth for model settings. By default they are saved to the following paths:
 
 - **Model Configs**: `~/.data-designer/model_configs.yaml`
 - **Model Providers**: `~/.data-designer/model_providers.yaml`
@@ -64,9 +64,9 @@ You can customize the home directory location by setting the `DATA_DESIGNER_HOME
 export DATA_DESIGNER_HOME_DIR="/path/to/your/custom/directory"
 ```
 
-These configuration files serve as the single source of truth for model settings. If they don't exist when the Data Designer library starts, they are automatically created with the default model configurations and providers listed below. You can modify these files in two ways:
+These configuration files can be modified in two ways:
 
-1. **Using the CLI**: Run CLI commands to add, update, or remove model configurations and providers
+1. **Using the CLI**: Run CLI commands to add, update, or delete model configurations and providers
 2. **Manual editing**: Directly edit the YAML files with your preferred text editor
 
 Both methods operate on the same files, ensuring consistency across your entire Data Designer setup.

@@ -6,13 +6,11 @@ from pathlib import Path
 import pytest
 
 from data_designer.cli.utils import (
-    ensure_config_dir_exists,
-    load_config_file,
-    save_config_file,
     validate_numeric_range,
     validate_url,
 )
 from data_designer.config.errors import InvalidConfigError, InvalidFileFormatError, InvalidFilePathError
+from data_designer.config.utils.io_helpers import ensure_config_dir_exists, load_config_file, save_config_file
 
 
 def test_ensure_config_dir_exists(tmp_path: Path) -> None:
