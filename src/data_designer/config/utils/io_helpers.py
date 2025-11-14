@@ -21,6 +21,71 @@ logger = logging.getLogger(__name__)
 VALID_DATASET_FILE_EXTENSIONS = {".parquet", ".csv", ".json", ".jsonl"}
 
 
+def ensure_config_dir_exists(config_dir: Path) -> None:
+    """Create configuration directory if it doesn't exist.
+
+    Args:
+        config_dir: Directory path to create
+    """
+    config_dir.mkdir(parents=True, exist_ok=True)
+
+
+def load_config_file(file_path: Path) -> dict:
+    """Load a YAML configuration file.
+
+    Args:
+        file_path: Path to the YAML file
+
+    Returns:
+        Parsed YAML content as dictionary
+
+    Raises:
+        InvalidFilePathError: If file doesn't exist
+        InvalidFileFormatError: If YAML is malformed
+        InvalidConfigError: If file is empty
+    """
+    from ..errors import InvalidConfigError
+
+    if not file_path.exists():
+        raise InvalidFilePathError(f"Configuration file not found: {file_path}")
+
+    try:
+        with open(file_path) as f:
+            content = yaml.safe_load(f)
+
+        if content is None:
+            raise InvalidConfigError(f"Configuration file is empty: {file_path}")
+
+        return content
+
+    except yaml.YAMLError as e:
+        raise InvalidFileFormatError(f"Invalid YAML format in {file_path}: {e}")
+
+
+def save_config_file(file_path: Path, config: dict) -> None:
+    """Save configuration to a YAML file.
+
+    Args:
+        file_path: Path where to save the file
+        config: Configuration dictionary to save
+
+    Raises:
+        IOError: If file cannot be written
+    """
+    # Ensure parent directory exists
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(file_path, "w") as f:
+        yaml.safe_dump(
+            config,
+            f,
+            default_flow_style=False,
+            sort_keys=False,
+            indent=2,
+            allow_unicode=True,
+        )
+
+
 def read_parquet_dataset(path: Path) -> pd.DataFrame:
     """Read a parquet dataset from a path.
 

@@ -4,7 +4,6 @@
 import logging
 from typing import Literal
 
-from ..cli.utils import load_config_file, save_config_file
 from .models import InferenceParameters, ModelConfig, ModelProvider
 from .utils.constants import (
     MODEL_CONFIGS_FILE_PATH,
@@ -13,6 +12,7 @@ from .utils.constants import (
     PREDEFINED_PROVIDERS_MODEL_MAP,
 )
 from .utils.info import ConfigBuilderInfo, InfoType, InterfaceInfo
+from .utils.io_helpers import load_config_file, save_config_file
 
 logger = logging.getLogger(__name__)
 
