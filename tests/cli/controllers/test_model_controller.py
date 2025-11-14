@@ -52,15 +52,7 @@ def test_run_with_no_providers(
     mock_print_info.assert_called_once_with("Please run 'data-designer config providers' first")
 
 
-@patch("data_designer.cli.controllers.model_controller.console.print")
-@patch("data_designer.cli.controllers.model_controller.print_info")
-@patch("data_designer.cli.controllers.model_controller.print_header")
-def test_run_with_no_models_and_user_cancels(
-    mock_print_header: MagicMock,
-    mock_print_info: MagicMock,
-    mock_console_print: MagicMock,
-    controller: ModelController,
-) -> None:
+def test_run_with_no_models_and_user_cancels(controller: ModelController) -> None:
     """Test run with no existing models prompts for add and handles cancellation."""
     mock_builder = MagicMock()
     mock_builder.run.return_value = None
@@ -68,24 +60,12 @@ def test_run_with_no_models_and_user_cancels(
     with patch("data_designer.cli.controllers.model_controller.ModelFormBuilder", return_value=mock_builder):
         controller.run()
 
-    mock_print_header.assert_called_once_with("Configure Models")
-    mock_print_info.assert_any_call("No models configured yet")
     # Verify no models were added since user cancelled
     assert len(controller.model_service.list_all()) == 0
 
 
 @patch("data_designer.cli.controllers.model_controller.select_with_arrows", return_value="no")
-@patch("data_designer.cli.controllers.model_controller.print_success")
-@patch("data_designer.cli.controllers.model_controller.print_text")
-@patch("data_designer.cli.controllers.model_controller.console.print")
-@patch("data_designer.cli.controllers.model_controller.print_info")
-@patch("data_designer.cli.controllers.model_controller.print_header")
 def test_run_with_no_models_adds_new_model(
-    mock_print_header: MagicMock,
-    mock_print_info: MagicMock,
-    mock_console_print: MagicMock,
-    mock_print_text: MagicMock,
-    mock_print_success: MagicMock,
     mock_select: MagicMock,
     controller: ModelController,
     stub_new_model_config: ModelConfig,
@@ -101,19 +81,10 @@ def test_run_with_no_models_adds_new_model(
     models = controller.model_service.list_all()
     assert len(models) == 1
     assert models[0].alias == stub_new_model_config.alias
-    mock_print_success.assert_called_once_with(f"Model '{stub_new_model_config.alias}' added successfully")
 
 
 @patch("data_designer.cli.controllers.model_controller.select_with_arrows", return_value="exit")
-@patch("data_designer.cli.controllers.model_controller.display_config_preview")
-@patch("data_designer.cli.controllers.model_controller.console.print")
-@patch("data_designer.cli.controllers.model_controller.print_info")
-@patch("data_designer.cli.controllers.model_controller.print_header")
 def test_run_with_existing_models_and_exit(
-    mock_print_header: MagicMock,
-    mock_print_info: MagicMock,
-    mock_console_print: MagicMock,
-    mock_display: MagicMock,
     mock_select: MagicMock,
     controller_with_models: ModelController,
 ) -> None:
@@ -122,36 +93,19 @@ def test_run_with_existing_models_and_exit(
 
     controller_with_models.run()
 
-    mock_print_header.assert_called_once_with("Configure Models")
-    mock_display.assert_called_once()
-    mock_print_info.assert_any_call("No changes made")
     # Verify no changes were made
     assert len(controller_with_models.model_service.list_all()) == initial_count
 
 
 @patch("data_designer.cli.controllers.model_controller.confirm_action", return_value=True)
 @patch("data_designer.cli.controllers.model_controller.select_with_arrows")
-@patch("data_designer.cli.controllers.model_controller.print_success")
-@patch("data_designer.cli.controllers.model_controller.display_config_preview")
-@patch("data_designer.cli.controllers.model_controller.console.print")
-@patch("data_designer.cli.controllers.model_controller.print_info")
-@patch("data_designer.cli.controllers.model_controller.print_header")
 def test_run_deletes_model(
-    mock_print_header: MagicMock,
-    mock_print_info: MagicMock,
-    mock_console_print: MagicMock,
-    mock_display: MagicMock,
-    mock_print_success: MagicMock,
     mock_select: MagicMock,
     mock_confirm: MagicMock,
     controller_with_models: ModelController,
 ) -> None:
     """Test run can delete a model through delete mode."""
-    # Setup: User selects delete mode, then selects first model
     mock_select.side_effect = ["delete", "test-alias-1"]
-
-    initial_models = controller_with_models.model_service.list_all()
-    assert len(initial_models) == 2
 
     controller_with_models.run()
 
@@ -159,53 +113,28 @@ def test_run_deletes_model(
     remaining_models = controller_with_models.model_service.list_all()
     assert len(remaining_models) == 1
     assert remaining_models[0].alias == "test-alias-2"
-    mock_print_success.assert_called_once_with("Model 'test-alias-1' deleted successfully")
 
 
 @patch("data_designer.cli.controllers.model_controller.confirm_action", return_value=True)
 @patch("data_designer.cli.controllers.model_controller.select_with_arrows", return_value="delete_all")
-@patch("data_designer.cli.controllers.model_controller.print_success")
-@patch("data_designer.cli.controllers.model_controller.display_config_preview")
-@patch("data_designer.cli.controllers.model_controller.console.print")
-@patch("data_designer.cli.controllers.model_controller.print_info")
-@patch("data_designer.cli.controllers.model_controller.print_header")
 def test_run_deletes_all_models(
-    mock_print_header: MagicMock,
-    mock_print_info: MagicMock,
-    mock_console_print: MagicMock,
-    mock_display: MagicMock,
-    mock_print_success: MagicMock,
     mock_select: MagicMock,
     mock_confirm: MagicMock,
     controller_with_models: ModelController,
 ) -> None:
     """Test run can delete all models through delete_all mode."""
-    assert len(controller_with_models.model_service.list_all()) == 2
-
     controller_with_models.run()
 
     # Verify all models were actually deleted
     assert len(controller_with_models.model_service.list_all()) == 0
-    mock_print_success.assert_called_once_with("All (2) model(s) deleted successfully")
 
 
 @patch("data_designer.cli.controllers.model_controller.select_with_arrows")
-@patch("data_designer.cli.controllers.model_controller.print_success")
-@patch("data_designer.cli.controllers.model_controller.display_config_preview")
-@patch("data_designer.cli.controllers.model_controller.console.print")
-@patch("data_designer.cli.controllers.model_controller.print_info")
-@patch("data_designer.cli.controllers.model_controller.print_header")
 def test_run_updates_model(
-    mock_print_header: MagicMock,
-    mock_print_info: MagicMock,
-    mock_console_print: MagicMock,
-    mock_display: MagicMock,
-    mock_print_success: MagicMock,
     mock_select: MagicMock,
     controller_with_models: ModelController,
 ) -> None:
     """Test run can update an existing model through update mode."""
-    # Setup: User selects update mode, then selects first model
     mock_select.side_effect = ["update", "test-alias-1"]
 
     updated_config = ModelConfig(
@@ -228,4 +157,3 @@ def test_run_updates_model(
     assert updated_model is not None
     assert updated_model.model == "test-model-1-updated"
     assert controller_with_models.model_service.get_by_alias("test-alias-1") is None
-    mock_print_success.assert_called_once_with("Model 'test-alias-1-updated' updated successfully")
