@@ -4,7 +4,7 @@ Data Designer ships with pre-configured model providers and model configurations
 
 ## Model Providers
 
-Data Designer includes two default model providers that are automatically configured when you create a `DataDesigner` instance:
+Data Designer includes two default model providers that are automatically configured when the Data Designer libray initiates for the first time:
 
 ### NVIDIA Provider (`nvidia`)
 
@@ -24,17 +24,6 @@ The NVIDIA provider gives you access to state-of-the-art models including Nemotr
 
 The OpenAI provider gives you access to GPT models and other OpenAI offerings.
 
-### How Default Providers Work
-
-When you create a `DataDesigner` instance without specifying model providers, both providers are automatically configured if their respective API keys are set in your environment:
-
-```python
-from data_designer.essentials import DataDesigner
-
-# Both providers are automatically configured based on available API keys
-data_designer = DataDesigner()
-```
-
 ## Model Configurations
 
 Data Designer provides pre-configured model aliases for common use cases. When you create a `DataDesignerConfigBuilder` without specifying `model_configs`, these default configurations are automatically available.
@@ -49,25 +38,6 @@ The following model configurations are automatically available when `NVIDIA_API_
 | `nvidia-reasoning` | `openai/gpt-oss-20b` | Reasoning and analysis tasks | 0.35 | 0.95 |
 | `nvidia-vision` | `nvidia/nemotron-nano-12b-v2-vl` | Vision and image understanding | 0.85 | 0.95 |
 
-**Usage Example:**
-
-```python
-from data_designer.essentials import (
-    DataDesignerConfigBuilder,
-    LLMTextColumnConfig,
-)
-
-config_builder = DataDesignerConfigBuilder()
-
-# Use the pre-configured nvidia-text model
-config_builder.add_column(
-    LLMTextColumnConfig(
-        name="description",
-        model_alias="nvidia-text",
-        prompt="Generate a product description",
-    )
-)
-```
 
 ### OpenAI Models
 
@@ -79,30 +49,32 @@ The following model configurations are automatically available when `OPENAI_API_
 | `openai-reasoning` | `gpt-5` | Reasoning and analysis tasks | 0.35 | 0.95 |
 | `openai-vision` | `gpt-5` | Vision and image understanding | 0.85 | 0.95 |
 
-**Usage Example:**
 
-```python
-from data_designer.essentials import (
-    DataDesignerConfigBuilder,
-    LLMTextColumnConfig,
-)
+### How Default Model Providers and Configurations Work
 
-config_builder = DataDesignerConfigBuilder()
+When the Data Designer library is initialized, default model configurations and providers are stored in the Data Designer home directory for easy access and customization if they do not already exist. By default they are saved to the following paths:
 
-# Use the pre-configured openai-reasoning model
-config_builder.add_column(
-    LLMTextColumnConfig(
-        name="analysis",
-        model_alias="openai-reasoning",
-        prompt="Analyze the following data: {{data}}",
-    )
-)
+- **Model Configs**: `~/.data-designer/model_configs.yaml`
+- **Model Providers**: `~/.data-designer/model_providers.yaml`
+
+You can customize the home directory location by setting the `DATA_DESIGNER_HOME_DIR` environment variable:
+
+```bash
+# In your .bashrc, .zshrc, or similar
+export DATA_DESIGNER_HOME_DIR="/path/to/your/custom/directory"
 ```
+
+These configuration files serve as the single source of truth for model settings. If they don't exist when the Data Designer library starts, they are automatically created with the default model configurations and providers listed below. You can modify these files in two ways:
+
+1. **Using the CLI**: Run CLI commands to add, update, or remove model configurations and providers
+2. **Manual editing**: Directly edit the YAML files with your preferred text editor
+
+Both methods operate on the same files, ensuring consistency across your entire Data Designer setup.
 
 ## Important Notes
 
 !!! warning "API Key Requirements"
-    If neither `NVIDIA_API_KEY` nor `OPENAI_API_KEY` is set, you'll need to provide custom model configurations to use Data Designer. The default configurations will not be available without at least one API key.
+    While default model configurations are always available, you need to set the appropriate API key environment variable (`NVIDIA_API_KEY` or `OPENAI_API_KEY`) to actually use the corresponding models for data generation. Without a valid API key, any attempt to generate data using that provider's models will fail.
 
 !!! tip "Environment Variables"
     Store your API keys in environment variables rather than hardcoding them in your scripts:
