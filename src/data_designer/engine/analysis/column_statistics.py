@@ -24,7 +24,6 @@ from data_designer.engine.analysis.utils.column_statistics_calculations import (
     calculate_general_column_info,
     calculate_token_stats,
     calculate_validation_column_info,
-    determine_column_distribution_type,
 )
 
 logger = logging.getLogger(__name__)
@@ -105,18 +104,7 @@ class SamplerColumnStatisticsCalculator(GeneralColumnStatisticsCalculator):
         )
 
 
-class SeedDatasetColumnStatisticsCalculator(GeneralColumnStatisticsCalculator):
-    def calculate_seed_dataset_distribution(self) -> dict[str, Any]:
-        dist_type = determine_column_distribution_type(self.df[self.column_config.name])
-        make_dist = dist_type in [ColumnDistributionType.CATEGORICAL, ColumnDistributionType.NUMERICAL]
-        return (
-            calculate_column_distribution(self.column_config, self.df, dist_type)
-            if make_dist
-            else {
-                "distribution_type": dist_type,
-                "distribution": None,
-            }
-        )
+class SeedDatasetColumnStatisticsCalculator(GeneralColumnStatisticsCalculator): ...
 
 
 class ValidationColumnStatisticsCalculator(GeneralColumnStatisticsCalculator):

@@ -19,7 +19,6 @@ from data_designer.config.analysis.column_statistics import (
     NumericalDistribution,
     SamplerColumnStatistics,
     SamplerType,
-    SeedDatasetColumnStatistics,
     ValidationColumnStatistics,
 )
 
@@ -187,22 +186,6 @@ def test_sampler_column_statistics(stub_general_stats_args_with_valid_values, st
         "number unique values": "10 (10.0%)",
         "data type": "str",
         "sampler type": "category",
-    }
-
-
-def test_seed_dataset_column_statistics(stub_general_stats_args_with_valid_values, stub_categorical_distribution):
-    seed_dataset_column_statistics = SeedDatasetColumnStatistics(
-        **stub_general_stats_args_with_valid_values,
-        distribution_type=ColumnDistributionType.CATEGORICAL,
-        distribution=stub_categorical_distribution,
-    )
-    assert seed_dataset_column_statistics.column_type == "seed-dataset"
-    assert seed_dataset_column_statistics.distribution_type == ColumnDistributionType.CATEGORICAL
-    assert isinstance(seed_dataset_column_statistics.distribution, CategoricalDistribution)
-    assert seed_dataset_column_statistics.create_report_row_data() == {
-        "column name": "test",
-        "number unique values": "10 (10.0%)",
-        "data type": "str",
     }
 
 

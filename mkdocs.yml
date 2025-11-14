@@ -4,9 +4,12 @@ repo_url: https://github.com/NVIDIA-NeMo/DataDesigner
 nav:
   - Getting Started:
       - Welcome to Data Designer: welcome.md
+      - Quick Start: quick-start.md
       - Installation: installation.md
   - Tutorials:
       - The Basics: notebooks/1-the-basics.ipynb
+  - Models:
+      - Default Model Settings: models/default-model-settings.md
   - Code Reference:
       - column_configs: code_reference/column_configs.md
       - config_builder: code_reference/config_builder.md

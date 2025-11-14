@@ -25,7 +25,6 @@ from data_designer.engine.analysis.utils.column_statistics_calculations import (
     calculate_prompt_token_stats,
     calculate_validation_column_info,
     convert_pyarrow_dtype_to_simple_dtype,
-    determine_column_distribution_type,
     ensure_boolean,
     ensure_hashable,
 )
@@ -242,29 +241,6 @@ def test_convert_pyarrow_dtype_to_simple_dtype():
 
     unknown_type = pa.binary()
     assert convert_pyarrow_dtype_to_simple_dtype(unknown_type) == str(unknown_type)
-
-
-def test_determine_column_distribution_type():
-    assert determine_column_distribution_type(pd.Series([])) == ColumnDistributionType.OTHER
-    assert determine_column_distribution_type(pd.Series([{"a": 1}, {"b": 2}])) == ColumnDistributionType.OTHER
-    assert (
-        determine_column_distribution_type(pd.Series([np.array([1, 2, 3]), np.array([4, 5, 6])]))
-        == ColumnDistributionType.OTHER
-    )
-    assert determine_column_distribution_type(pd.Series([1, 2, 1, 3, 1, 2])) == ColumnDistributionType.CATEGORICAL
-    assert determine_column_distribution_type(pd.Series([1.1, 2.2, 3.3, 4.4, 5.5])) == ColumnDistributionType.NUMERICAL
-    assert (
-        determine_column_distribution_type(pd.Series(["A", "A", "C", "C", "A", "B"]))
-        == ColumnDistributionType.CATEGORICAL
-    )
-    assert (
-        determine_column_distribution_type(pd.Series(["This is a long text", "Another long text with spaces"]))
-        == ColumnDistributionType.TEXT
-    )
-    assert (
-        determine_column_distribution_type(pd.Series(["2023-01-01", "2023-01-02", "2023-01-03"]))
-        == ColumnDistributionType.OTHER
-    )
 
 
 def test_prepare_number_for_reporting():

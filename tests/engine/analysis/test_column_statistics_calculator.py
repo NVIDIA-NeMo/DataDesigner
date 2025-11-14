@@ -71,25 +71,3 @@ def test_sampler_column_statistics(stub_df, column_configs):
                 assert isinstance(stats.distribution.mean, float)
                 assert isinstance(stats.distribution.stddev, float)
                 assert isinstance(stats.distribution.median, float)
-
-
-def test_seed_dataset_column_statistics(stub_df, column_configs):
-    for column_config in column_configs:
-        if column_config.column_type == DataDesignerColumnType.SEED_DATASET:
-            column_config_with_df = ColumnConfigWithDataFrame(column_config=column_config, df=stub_df)
-            stats = get_column_statistics_calculator(column_config.column_type)(
-                column_config_with_df=column_config_with_df
-            ).calculate()
-            assert stats.column_name == column_config.name
-            assert stats.column_type == column_config.column_type
-            if stats.distribution_type == ColumnDistributionType.CATEGORICAL:
-                assert hasattr(stats.distribution, "histogram")
-                assert isinstance(stats.distribution.most_common_value, (int, str))
-                assert isinstance(stats.distribution.least_common_value, (int, str))
-            elif stats.distribution_type == ColumnDistributionType.NUMERICAL:
-                assert not hasattr(stats.distribution, "histogram")
-                assert isinstance(stats.distribution.min, (int, float))
-                assert isinstance(stats.distribution.max, (int, float))
-                assert isinstance(stats.distribution.mean, float)
-                assert isinstance(stats.distribution.stddev, float)
-                assert isinstance(stats.distribution.median, float)
