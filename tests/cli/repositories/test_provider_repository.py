@@ -4,9 +4,9 @@
 from pathlib import Path
 
 from data_designer.cli.repositories.provider_repository import ModelProviderRegistry, ProviderRepository
-from data_designer.cli.utils import save_config_file
 from data_designer.config.models import ModelProvider
 from data_designer.config.utils.constants import MODEL_PROVIDERS_FILE_NAME
+from data_designer.config.utils.io_helpers import save_config_file
 
 
 def test_config_file(tmp_path: Path):

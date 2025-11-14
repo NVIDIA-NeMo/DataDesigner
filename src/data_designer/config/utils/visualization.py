@@ -7,6 +7,7 @@ from collections import OrderedDict
 from enum import Enum
 from functools import cached_property
 import json
+import os
 from typing import TYPE_CHECKING, Optional, Union
 
 import numpy as np
@@ -22,7 +23,6 @@ from rich.text import Text
 
 from ..base import ConfigBase
 from ..column_types import DataDesignerColumnType
-from ..default_model_settings import get_nvidia_api_key, get_openai_api_key
 from ..models import ModelConfig, ModelProvider
 from ..sampler_params import SamplerType
 from .code_lang import code_lang_to_syntax_lexer
@@ -34,6 +34,14 @@ if TYPE_CHECKING:
 
 
 console = Console()
+
+
+def get_nvidia_api_key() -> Optional[str]:
+    return os.getenv(NVIDIA_API_KEY_ENV_VAR_NAME)
+
+
+def get_openai_api_key() -> Optional[str]:
+    return os.getenv(OPENAI_API_KEY_ENV_VAR_NAME)
 
 
 class ColorPalette(str, Enum):
