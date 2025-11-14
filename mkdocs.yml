@@ -10,6 +10,7 @@ nav:
       - The Basics: notebooks/1-the-basics.ipynb
   - Models:
       - Default Model Settings: models/default-model-settings.md
+      - Configure with the CLI: models/configure-model-settings-with-the-cli.md
   - Code Reference:
       - column_configs: code_reference/column_configs.md
       - config_builder: code_reference/config_builder.md
