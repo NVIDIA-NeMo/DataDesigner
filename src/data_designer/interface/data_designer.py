@@ -25,6 +25,7 @@ from data_designer.config.utils.constants import (
 )
 from data_designer.config.utils.info import InterfaceInfo
 from data_designer.config.utils.io_helpers import write_seed_dataset
+from data_designer.config.utils.misc import can_run_data_designer_locally
 from data_designer.engine.analysis.dataset_profiler import (
     DataDesignerDatasetProfiler,
     DatasetProfilerConfig,
@@ -52,6 +53,11 @@ from data_designer.logging import RandomEmoji
 DEFAULT_BUFFER_SIZE = 1000
 
 logger = logging.getLogger(__name__)
+
+
+# Resolve default model settings on import to ensure they are available when the library is used.
+if can_run_data_designer_locally():
+    resolve_seed_default_model_settings()
 
 
 class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
@@ -311,7 +317,3 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
                 )
             ),
         )
-
-
-# Resolve default model settings on import to ensure they are available when the library is used.
-_ = resolve_seed_default_model_settings()
