@@ -8,15 +8,6 @@ import yaml
 from data_designer.config.errors import InvalidConfigError, InvalidFileFormatError, InvalidFilePathError
 
 
-def get_default_config_dir() -> Path:
-    """Get the default configuration directory for Data Designer.
-
-    Returns:
-        Path to ~/.data-designer/
-    """
-    return Path.home() / ".data-designer"
-
-
 def ensure_config_dir_exists(config_dir: Path) -> None:
     """Create configuration directory if it doesn't exist.
 
@@ -80,34 +71,6 @@ def save_config_file(file_path: Path, config: dict) -> None:
         )
 
 
-def get_model_provider_path(config_dir: Path | None = None) -> Path:
-    """Get the path to the model provider configuration file.
-
-    Args:
-        config_dir: Optional custom config directory. Defaults to ~/.data-designer/
-
-    Returns:
-        Path to model_providers.yaml
-    """
-    if config_dir is None:
-        config_dir = get_default_config_dir()
-    return config_dir / "model_providers.yaml"
-
-
-def get_model_config_path(config_dir: Path | None = None) -> Path:
-    """Get the path to the model configuration file.
-
-    Args:
-        config_dir: Optional custom config directory. Defaults to ~/.data-designer/
-
-    Returns:
-        Path to model_configs.yaml
-    """
-    if config_dir is None:
-        config_dir = get_default_config_dir()
-    return config_dir / "model_configs.yaml"
-
-
 def validate_url(url: str) -> bool:
     """Validate that a string is a valid URL.
 
@@ -147,25 +110,6 @@ def validate_numeric_range(value: str, min_value: float, max_value: float) -> tu
     try:
         num = float(value)
         if min_value <= num <= max_value:
-            return True, num
-        return False, None
-    except ValueError:
-        return False, None
-
-
-def validate_positive_int(value: str) -> tuple[bool, int | None]:
-    """Validate that a string is a valid positive integer.
-
-    Args:
-        value: String to validate and convert
-
-    Returns:
-        Tuple of (is_valid, parsed_value)
-        If invalid, parsed_value is None
-    """
-    try:
-        num = int(value)
-        if num > 0:
             return True, num
         return False, None
     except ValueError:

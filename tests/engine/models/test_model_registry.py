@@ -57,16 +57,29 @@ def test_public_props(stub_model_configs, stub_model_registry):
     assert stub_model_registry.model_configs == {
         model_config.alias: model_config for model_config in stub_model_configs
     }
+    # With lazy initialization, models dict is empty until requested
+    assert len(stub_model_registry.models) == 0
+
+    # Request models to trigger lazy initialization
+    stub_model_registry.get_model(model_alias="stub-text")
+    stub_model_registry.get_model(model_alias="stub-reasoning")
+
     assert len(stub_model_registry.models) == 2
     assert all(isinstance(model, ModelFacade) for model in stub_model_registry.models.values())
 
 
 def test_register_model_configs(stub_model_registry, stub_new_model_config):
     stub_model_registry.register_model_configs([stub_new_model_config])
+
+    # Verify configs are registered
+    assert len(stub_model_registry.model_configs) == 3
+
+    # Trigger lazy initialization by requesting models
+    assert stub_model_registry.get_model(model_alias="stub-text").model_name == "stub-model-text"
+    assert stub_model_registry.get_model(model_alias="stub-reasoning").model_name == "stub-model-reasoning"
+    assert stub_model_registry.get_model(model_alias="stub-vision").model_name == "stub-model-vision"
+
     assert len(stub_model_registry.models) == 3
-    assert stub_model_registry.models["stub-text"].model_name == "stub-model-text"
-    assert stub_model_registry.models["stub-reasoning"].model_name == "stub-model-reasoning"
-    assert stub_model_registry.models["stub-vision"].model_name == "stub-model-vision"
     assert all(isinstance(model, ModelFacade) for model in stub_model_registry.models.values())
 
 
@@ -74,7 +87,7 @@ def test_register_model_configs(stub_model_registry, stub_new_model_config):
     "method_name,alias,expected_model_name,expected_error",
     [
         ("get_model", "stub-text", "stub-model-text", None),
-        ("get_model", "invalid-alias", None, "No model with alias 'invalid-alias' found!"),
+        ("get_model", "invalid-alias", None, "No model config with alias 'invalid-alias' found!"),
         ("get_model_config", "stub-text", "stub-model-text", None),
         ("get_model_config", "invalid-alias", None, "No model config with alias 'invalid-alias' found!"),
     ],
@@ -108,11 +121,15 @@ def test_get_model_usage_stats(
         usage_stats = stub_empty_model_registry.get_model_usage_stats(total_time_elapsed=10)
         assert usage_stats == {}
     elif test_case == "with_usage":
-        stub_model_registry.models["stub-text"].usage_stats.extend(
+        # Trigger lazy initialization
+        text_model = stub_model_registry.get_model(model_alias="stub-text")
+        reasoning_model = stub_model_registry.get_model(model_alias="stub-reasoning")
+
+        text_model.usage_stats.extend(
             token_usage=TokenUsageStats(prompt_tokens=10, completion_tokens=100),
             request_usage=RequestUsageStats(successful_requests=10, failed_requests=0),
         )
-        stub_model_registry.models["stub-reasoning"].usage_stats.extend(
+        reasoning_model.usage_stats.extend(
             token_usage=TokenUsageStats(prompt_tokens=5, completion_tokens=200),
             request_usage=RequestUsageStats(successful_requests=100, failed_requests=10),
         )
@@ -130,7 +147,9 @@ def test_get_model_usage_stats(
             assert usage_stats["stub-model-text"]["requests_per_minute"] == 60
     else:  # mixed_usage
         stub_model_registry.register_model_configs([stub_no_usage_config])
-        stub_model_registry.models["stub-text"].usage_stats.extend(
+        # Trigger lazy initialization
+        text_model = stub_model_registry.get_model(model_alias="stub-text")
+        text_model.usage_stats.extend(
             token_usage=TokenUsageStats(prompt_tokens=10, completion_tokens=100),
             request_usage=RequestUsageStats(successful_requests=10, failed_requests=0),
         )
@@ -157,11 +176,14 @@ def test_run_health_check(
     if mock_side_effect:
         mock_completion.side_effect = mock_side_effect
 
+    # Pass model aliases for health check
+    model_aliases = {"stub-text", "stub-reasoning"}
+
     if expected_exception:
         with pytest.raises(expected_exception):
-            stub_model_registry.run_health_check()
+            stub_model_registry.run_health_check(model_aliases)
     else:
-        stub_model_registry.run_health_check()
+        stub_model_registry.run_health_check(model_aliases)
 
     assert mock_completion.call_count == expected_call_count
 

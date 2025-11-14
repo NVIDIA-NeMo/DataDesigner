@@ -8,7 +8,11 @@ import pandas as pd
 
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
 from data_designer.config.config_builder import DataDesignerConfigBuilder
-from data_designer.config.default_model_settings import get_default_model_configs, get_default_providers
+from data_designer.config.default_model_settings import (
+    get_default_model_configs,
+    get_default_providers,
+    resolve_seed_default_model_settings,
+)
 from data_designer.config.interface import DataDesignerInterface
 from data_designer.config.models import (
     ModelConfig,
@@ -18,11 +22,10 @@ from data_designer.config.preview_results import PreviewResults
 from data_designer.config.seed import LocalSeedDatasetReference
 from data_designer.config.utils.constants import (
     DEFAULT_NUM_RECORDS,
-    NVIDIA_API_KEY_ENV_VAR_NAME,
-    OPENAI_API_KEY_ENV_VAR_NAME,
 )
 from data_designer.config.utils.info import InterfaceInfo
 from data_designer.config.utils.io_helpers import write_seed_dataset
+from data_designer.config.utils.misc import can_run_data_designer_locally
 from data_designer.engine.analysis.dataset_profiler import (
     DataDesignerDatasetProfiler,
     DatasetProfilerConfig,
@@ -50,6 +53,11 @@ from data_designer.logging import RandomEmoji
 DEFAULT_BUFFER_SIZE = 1000
 
 logger = logging.getLogger(__name__)
+
+
+# Resolve default model settings on import to ensure they are available when the library is used.
+if can_run_data_designer_locally():
+    resolve_seed_default_model_settings()
 
 
 class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
@@ -128,6 +136,11 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
 
     @property
     def info(self) -> InterfaceInfo:
+        """Get information about the Data Designer interface.
+
+        Returns:
+            InterfaceInfo object with information about the Data Designer interface.
+        """
         return InterfaceInfo(model_providers=self._model_providers)
 
     def create(
@@ -230,14 +243,19 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         )
 
     def get_default_model_configs(self) -> list[ModelConfig]:
-        model_configs = get_default_model_configs()
-        if len(model_configs) == 0:
-            logger.warning(
-                f"‼️ Neither {NVIDIA_API_KEY_ENV_VAR_NAME!r} nor {OPENAI_API_KEY_ENV_VAR_NAME!r} environment variables are set. Please set at least one of them if you want to use the default model configs."
-            )
-        return model_configs
+        """Get the default model configurations.
+
+        Returns:
+            List of default model configurations.
+        """
+        return get_default_model_configs()
 
     def get_default_model_providers(self) -> list[ModelProvider]:
+        """Get the default model providers.
+
+        Returns:
+            List of default model providers.
+        """
         return get_default_providers()
 
     def set_buffer_size(self, buffer_size: int) -> None:
