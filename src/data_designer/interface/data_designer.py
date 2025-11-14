@@ -10,6 +10,7 @@ from data_designer.config.analysis.dataset_profiler import DatasetProfilerResult
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.default_model_settings import (
     get_default_model_configs,
+    get_default_provider_name,
     get_default_providers,
     resolve_seed_default_model_settings,
 )
@@ -22,6 +23,8 @@ from data_designer.config.preview_results import PreviewResults
 from data_designer.config.seed import LocalSeedDatasetReference
 from data_designer.config.utils.constants import (
     DEFAULT_NUM_RECORDS,
+    MODEL_CONFIGS_FILE_PATH,
+    MODEL_PROVIDERS_FILE_PATH,
 )
 from data_designer.config.utils.info import InterfaceInfo
 from data_designer.config.utils.io_helpers import write_seed_dataset
@@ -96,7 +99,9 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             else init_managed_blob_storage(str(blob_storage_path))
         )
         self._model_providers = model_providers or self.get_default_model_providers()
-        self._model_provider_registry = resolve_model_provider_registry(self._model_providers)
+        self._model_provider_registry = resolve_model_provider_registry(
+            self._model_providers, get_default_provider_name()
+        )
 
     @staticmethod
     def make_seed_reference_from_file(file_path: str | Path) -> LocalSeedDatasetReference:
@@ -248,6 +253,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         Returns:
             List of default model configurations.
         """
+        logger.info(f"♻️ Using default model configs from {str(MODEL_CONFIGS_FILE_PATH)!r}")
         return get_default_model_configs()
 
     def get_default_model_providers(self) -> list[ModelProvider]:
@@ -256,6 +262,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         Returns:
             List of default model providers.
         """
+        logger.info(f"♻️ Using default model providers from {str(MODEL_PROVIDERS_FILE_PATH)!r}")
         return get_default_providers()
 
     def set_buffer_size(self, buffer_size: int) -> None:
