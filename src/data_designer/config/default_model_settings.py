@@ -2,7 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 
+from functools import lru_cache
 import logging
+from pathlib import Path
 from typing import Any, Literal, Optional
 
 from .models import InferenceParameters, ModelConfig, ModelProvider
@@ -76,14 +78,14 @@ def get_default_model_configs() -> list[ModelConfig]:
 
 
 def get_default_providers() -> list[ModelProvider]:
-    config_dict = _get_default_providers_file_content()
+    config_dict = _get_default_providers_file_content(MODEL_PROVIDERS_FILE_PATH)
     if "providers" in config_dict:
         return [ModelProvider.model_validate(p) for p in config_dict["providers"]]
     return []
 
 
 def get_default_provider_name() -> Optional[str]:
-    return _get_default_providers_file_content().get("default")
+    return _get_default_providers_file_content(MODEL_PROVIDERS_FILE_PATH).get("default")
 
 
 def resolve_seed_default_model_settings() -> None:
@@ -108,7 +110,9 @@ def resolve_seed_default_model_settings() -> None:
         )
 
 
-def _get_default_providers_file_content() -> dict[str, Any]:
-    if MODEL_PROVIDERS_FILE_PATH.exists():
-        return load_config_file(MODEL_PROVIDERS_FILE_PATH)
-    raise FileNotFoundError(f"Default model providers file not found at {str(MODEL_PROVIDERS_FILE_PATH)!r}")
+@lru_cache(maxsize=1)
+def _get_default_providers_file_content(file_path: Path) -> dict[str, Any]:
+    """Load and cache the default providers file content."""
+    if file_path.exists():
+        return load_config_file(file_path)
+    raise FileNotFoundError(f"Default model providers file not found at {str(file_path)!r}")
