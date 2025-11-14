@@ -70,6 +70,10 @@ class ColumnWiseDatasetBuilder:
                 configs.append(config)
         return configs
 
+    @functools.cached_property
+    def llm_generated_column_configs(self) -> list[ColumnConfigT]:
+        return [config for config in self.single_column_configs if column_type_is_llm_generated(config.column_type)]
+
     def build(
         self,
         *,
@@ -172,7 +176,9 @@ class ColumnWiseDatasetBuilder:
 
     def _run_model_health_check_if_needed(self) -> bool:
         if any(column_type_is_llm_generated(config.column_type) for config in self.single_column_configs):
-            self._resource_provider.model_registry.run_health_check()
+            self._resource_provider.model_registry.run_health_check(
+                set(config.model_alias for config in self.llm_generated_column_configs)
+            )
 
     def _fan_out_with_threads(self, generator: WithLLMGeneration, max_workers: int) -> None:
         if generator.generation_strategy != GenerationStrategy.CELL_BY_CELL:

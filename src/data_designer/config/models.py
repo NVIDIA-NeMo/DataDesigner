@@ -4,7 +4,6 @@
 from abc import ABC, abstractmethod
 from enum import Enum
 import logging
-import os
 from pathlib import Path
 from typing import Any, Generic, List, Optional, TypeVar, Union
 
@@ -19,10 +18,6 @@ from .utils.constants import (
     MAX_TOP_P,
     MIN_TEMPERATURE,
     MIN_TOP_P,
-    NVIDIA_API_KEY_ENV_VAR_NAME,
-    NVIDIA_PROVIDER_NAME,
-    OPENAI_API_KEY_ENV_VAR_NAME,
-    OPENAI_PROVIDER_NAME,
 )
 from .utils.io_helpers import smart_load_yaml
 
@@ -234,107 +229,3 @@ def load_model_configs(model_configs: Union[list[ModelConfig], str, Path]) -> li
             "The list of model configs must be provided under model_configs in the configuration file."
         )
     return [ModelConfig.model_validate(mc) for mc in json_config["model_configs"]]
-
-
-def get_default_text_alias_inference_parameters() -> InferenceParameters:
-    return InferenceParameters(
-        temperature=0.85,
-        top_p=0.95,
-    )
-
-
-def get_default_reasoning_alias_inference_parameters() -> InferenceParameters:
-    return InferenceParameters(
-        temperature=0.35,
-        top_p=0.95,
-    )
-
-
-def get_default_vision_alias_inference_parameters() -> InferenceParameters:
-    return InferenceParameters(
-        temperature=0.85,
-        top_p=0.95,
-    )
-
-
-def get_default_nvidia_model_configs() -> list[ModelConfig]:
-    if not get_nvidia_api_key():
-        logger.warning(
-            f"🔑 {NVIDIA_API_KEY_ENV_VAR_NAME!r} environment variable is not set. Please set it to your API key from 'https://build.nvidia.com' if you want to use the default NVIDIA model configs."
-        )
-        return []
-    return [
-        ModelConfig(
-            alias=f"{NVIDIA_PROVIDER_NAME}-text",
-            model="nvidia/nvidia-nemotron-nano-9b-v2",
-            provider=NVIDIA_PROVIDER_NAME,
-            inference_parameters=get_default_text_alias_inference_parameters(),
-        ),
-        ModelConfig(
-            alias=f"{NVIDIA_PROVIDER_NAME}-reasoning",
-            model="openai/gpt-oss-20b",
-            provider=NVIDIA_PROVIDER_NAME,
-            inference_parameters=get_default_reasoning_alias_inference_parameters(),
-        ),
-        ModelConfig(
-            alias=f"{NVIDIA_PROVIDER_NAME}-vision",
-            model="nvidia/nemotron-nano-12b-v2-vl",
-            provider=NVIDIA_PROVIDER_NAME,
-            inference_parameters=get_default_vision_alias_inference_parameters(),
-        ),
-    ]
-
-
-def get_default_openai_model_configs() -> list[ModelConfig]:
-    if not get_openai_api_key():
-        logger.warning(
-            f"🔑 {OPENAI_API_KEY_ENV_VAR_NAME!r} environment variable is not set. Please set it to your API key from 'https://platform.openai.com/api-keys' if you want to use the default OpenAI model configs."
-        )
-        return []
-    return [
-        ModelConfig(
-            alias=f"{OPENAI_PROVIDER_NAME}-text",
-            model="gpt-4.1",
-            provider=OPENAI_PROVIDER_NAME,
-            inference_parameters=get_default_text_alias_inference_parameters(),
-        ),
-        ModelConfig(
-            alias=f"{OPENAI_PROVIDER_NAME}-reasoning",
-            model="gpt-5",
-            provider=OPENAI_PROVIDER_NAME,
-            inference_parameters=get_default_reasoning_alias_inference_parameters(),
-        ),
-        ModelConfig(
-            alias=f"{OPENAI_PROVIDER_NAME}-vision",
-            model="gpt-5",
-            provider=OPENAI_PROVIDER_NAME,
-            inference_parameters=get_default_vision_alias_inference_parameters(),
-        ),
-    ]
-
-
-def get_default_model_configs() -> list[ModelConfig]:
-    return get_default_nvidia_model_configs() + get_default_openai_model_configs()
-
-
-def get_default_providers() -> list[ModelProvider]:
-    return [
-        ModelProvider(
-            name=NVIDIA_PROVIDER_NAME,
-            endpoint="https://integrate.api.nvidia.com/v1",
-            api_key=NVIDIA_API_KEY_ENV_VAR_NAME,
-        ),
-        ModelProvider(
-            name=OPENAI_PROVIDER_NAME,
-            endpoint="https://api.openai.com/v1",
-            api_key=OPENAI_API_KEY_ENV_VAR_NAME,
-        ),
-    ]
-
-
-def get_nvidia_api_key() -> Optional[str]:
-    return os.getenv(NVIDIA_API_KEY_ENV_VAR_NAME)
-
-
-def get_openai_api_key() -> Optional[str]:
-    return os.getenv(OPENAI_API_KEY_ENV_VAR_NAME)
