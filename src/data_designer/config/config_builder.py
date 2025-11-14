@@ -26,6 +26,7 @@ from .column_types import (
 from .data_designer_config import DataDesignerConfig
 from .dataset_builders import BuildStage
 from .datastore import DatastoreSettings, fetch_seed_dataset_column_names
+from .default_model_settings import get_default_model_configs, resolve_seed_default_model_settings
 from .errors import BuilderConfigurationError, InvalidColumnTypeError, InvalidConfigError
 from .models import ModelConfig, load_model_configs
 from .processors import ProcessorConfig, ProcessorType, get_processor_config_from_kwargs
@@ -52,6 +53,10 @@ from .utils.type_helpers import resolve_string_enum
 from .utils.validation import ViolationLevel, rich_print_violations, validate_data_designer_config
 
 logger = logging.getLogger(__name__)
+
+# Resolve default model settings on import to ensure they are available when the library is used.
+if can_run_data_designer_locally():
+    resolve_seed_default_model_settings()
 
 
 class BuilderConfig(ExportableConfigBase):
@@ -129,16 +134,20 @@ class DataDesignerConfigBuilder:
 
         return builder
 
-    def __init__(self, model_configs: Union[list[ModelConfig], str, Path]):
+    def __init__(self, model_configs: Optional[Union[list[ModelConfig], str, Path]] = None):
         """Initialize a new DataDesignerConfigBuilder instance.
 
         Args:
             model_configs: Model configurations. Can be:
+                - None to use default model configurations in local mode
                 - A list of ModelConfig objects
                 - A string or Path to a model configuration file
         """
+        if not can_run_data_designer_locally() and (model_configs is None or len(model_configs) == 0):
+            raise BuilderConfigurationError("🛑 Model configurations are required!")
+
         self._column_configs = {}
-        self._model_configs = load_model_configs(model_configs)
+        self._model_configs = load_model_configs(model_configs or get_default_model_configs())
         self._processor_configs: list[ProcessorConfig] = []
         self._seed_config: Optional[SeedConfig] = None
         self._constraints: list[ColumnConstraintT] = []

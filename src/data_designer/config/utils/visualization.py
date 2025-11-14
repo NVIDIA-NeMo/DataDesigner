@@ -7,6 +7,7 @@ from collections import OrderedDict
 from enum import Enum
 from functools import cached_property
 import json
+import os
 from typing import TYPE_CHECKING, Optional, Union
 
 import numpy as np
@@ -22,7 +23,7 @@ from rich.text import Text
 
 from ..base import ConfigBase
 from ..column_types import DataDesignerColumnType
-from ..models import ModelConfig, ModelProvider, get_nvidia_api_key, get_openai_api_key
+from ..models import ModelConfig, ModelProvider
 from ..sampler_params import SamplerType
 from .code_lang import code_lang_to_syntax_lexer
 from .constants import NVIDIA_API_KEY_ENV_VAR_NAME, OPENAI_API_KEY_ENV_VAR_NAME
@@ -33,6 +34,14 @@ if TYPE_CHECKING:
 
 
 console = Console()
+
+
+def get_nvidia_api_key() -> Optional[str]:
+    return os.getenv(NVIDIA_API_KEY_ENV_VAR_NAME)
+
+
+def get_openai_api_key() -> Optional[str]:
+    return os.getenv(OPENAI_API_KEY_ENV_VAR_NAME)
 
 
 class ColorPalette(str, Enum):
@@ -296,17 +305,42 @@ def display_model_providers_table(model_providers: list[ModelProvider]) -> None:
         api_key = model_provider.api_key
         if model_provider.api_key == OPENAI_API_KEY_ENV_VAR_NAME:
             if get_openai_api_key() is not None:
-                api_key = get_openai_api_key()[:1] + "********"
+                api_key = mask_api_key(get_openai_api_key())
             else:
                 api_key = f"* {OPENAI_API_KEY_ENV_VAR_NAME!r} not set in environment variables * "
         elif model_provider.api_key == NVIDIA_API_KEY_ENV_VAR_NAME:
             if get_nvidia_api_key() is not None:
-                api_key = get_nvidia_api_key()[:1] + "********"
+                api_key = mask_api_key(get_nvidia_api_key())
             else:
                 api_key = f"* {NVIDIA_API_KEY_ENV_VAR_NAME!r} not set in environment variables *"
+        else:
+            api_key = mask_api_key(model_provider.api_key)
         table_model_providers.add_row(model_provider.name, model_provider.endpoint, api_key)
     group = Group(Rule(title="Model Providers"), table_model_providers)
     console.print(group)
+
+
+def mask_api_key(api_key: str | None) -> str:
+    """Mask API keys for display.
+
+    Environment variable names (all uppercase) are kept visible.
+    Actual API keys are masked to show only the last 4 characters.
+
+    Args:
+        api_key: The API key to mask.
+
+    Returns:
+        Masked API key string or "(not set)" if None.
+    """
+    if not api_key:
+        return "(not set)"
+
+    # Keep environment variable names visible
+    if api_key.isupper():
+        return api_key
+
+    # Mask actual API keys
+    return "***" + api_key[-4:] if len(api_key) > 4 else "***"
 
 
 def convert_to_row_element(elem):

@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from enum import Enum
+import os
+from pathlib import Path
 
 from rich.theme import Theme
 
@@ -258,8 +260,50 @@ AVAILABLE_LOCALES = [
     "zu_ZA",
 ]
 
+DATA_DESIGNER_HOME_DIR_ENV_VAR = "DATA_DESIGNER_HOME_DIR"
+
+DATA_DESIGNER_HOME_DIR = Path(os.getenv(DATA_DESIGNER_HOME_DIR_ENV_VAR, Path.home() / ".data-designer"))
+
+MODEL_CONFIGS_FILE_NAME = "model_configs.yaml"
+
+MODEL_CONFIGS_FILE_PATH = DATA_DESIGNER_HOME_DIR / MODEL_CONFIGS_FILE_NAME
+
+MODEL_PROVIDERS_FILE_NAME = "model_providers.yaml"
+
+MODEL_PROVIDERS_FILE_PATH = DATA_DESIGNER_HOME_DIR / MODEL_PROVIDERS_FILE_NAME
+
 NVIDIA_PROVIDER_NAME = "nvidia"
+
 NVIDIA_API_KEY_ENV_VAR_NAME = "NVIDIA_API_KEY"
 
 OPENAI_PROVIDER_NAME = "openai"
+
 OPENAI_API_KEY_ENV_VAR_NAME = "OPENAI_API_KEY"
+
+PREDEFINED_PROVIDERS = [
+    {
+        "name": NVIDIA_PROVIDER_NAME,
+        "endpoint": "https://integrate.api.nvidia.com/v1",
+        "provider_type": "openai",
+        "api_key": NVIDIA_API_KEY_ENV_VAR_NAME,
+    },
+    {
+        "name": OPENAI_PROVIDER_NAME,
+        "endpoint": "https://api.openai.com/v1",
+        "provider_type": "openai",
+        "api_key": OPENAI_API_KEY_ENV_VAR_NAME,
+    },
+]
+
+PREDEFINED_PROVIDERS_MODEL_MAP = {
+    NVIDIA_PROVIDER_NAME: {
+        "text": "nvidia/nvidia-nemotron-nano-9b-v2",
+        "reasoning": "openai/gpt-oss-20b",
+        "vision": "nvidia/nemotron-nano-12b-v2-vl",
+    },
+    OPENAI_PROVIDER_NAME: {
+        "text": "gpt-4.1",
+        "reasoning": "gpt-5",
+        "vision": "gpt-5",
+    },
+}

@@ -47,10 +47,15 @@ class ModelRegistry:
         self._set_model_configs(list(self._model_configs.values()) + model_configs)
 
     def get_model(self, *, model_alias: str) -> ModelFacade:
+        # Check if model config exists first
+        if model_alias not in self._model_configs:
+            raise ValueError(f"No model config with alias {model_alias!r} found!")
+
+        # Lazy initialization: only create model facade when first requested
         if model_alias not in self._models:
-            raise ValueError(f"No model with alias {model_alias!r} found!")
-        model = self._models[model_alias]
-        return model
+            self._models[model_alias] = self._get_model(self._model_configs[model_alias])
+
+        return self._models[model_alias]
 
     def get_model_config(self, *, model_alias: str) -> ModelConfig:
         if model_alias not in self._model_configs:
@@ -68,9 +73,10 @@ class ModelRegistry:
         model_config = self.get_model_config(model_alias=model_alias)
         return self._model_provider_registry.get_provider(model_config.provider)
 
-    def run_health_check(self) -> None:
+    def run_health_check(self, model_aliases: set[str]) -> None:
         logger.info("🩺 Running health checks for models...")
-        for model in self._models.values():
+        for model_alias in model_aliases:
+            model = self.get_model(model_alias=model_alias)
             logger.info(
                 f"  |-- 👀 Checking {model.model_name!r} in provider named {model.model_provider_name!r} for model alias {model.model_alias!r}..."
             )
@@ -92,7 +98,7 @@ class ModelRegistry:
     def _set_model_configs(self, model_configs: list[ModelConfig]) -> None:
         model_configs = model_configs or []
         self._model_configs = {mc.alias: mc for mc in model_configs}
-        self._models = {mc.alias: self._get_model(mc) for mc in model_configs}
+        # Models are now lazily initialized in get_model() when first requested
 
     def _get_model(self, model_config: ModelConfig) -> ModelFacade:
         return ModelFacade(model_config, self._secret_resolver, self._model_provider_registry)
