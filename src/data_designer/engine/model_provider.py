@@ -64,12 +64,10 @@ class ModelProviderRegistry(BaseModel):
             raise UnknownProviderError(f"No provider named {name!r} registered")
 
 
-def resolve_model_provider_registry(
-    model_providers: list[ModelProvider], default_provider_name: str | None = None
-) -> ModelProviderRegistry:
+def resolve_model_provider_registry(model_providers: list[ModelProvider]) -> ModelProviderRegistry:
     if len(model_providers) == 0:
         raise NoModelProvidersError("At least one model provider must be defined")
     return ModelProviderRegistry(
         providers=model_providers,
-        default=default_provider_name or model_providers[0].name,
+        default=model_providers[0].name,
     )
