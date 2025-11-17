@@ -242,7 +242,11 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         except Exception as e:
             raise DataDesignerProfilingError(f"🛑 Error profiling preview dataset: {e}")
 
-        if len(processed_dataset) > 0 and isinstance(analysis, DatasetProfilerResults) and len(analysis.column_statistics) > 0:
+        if (
+            len(processed_dataset) > 0
+            and isinstance(analysis, DatasetProfilerResults)
+            and len(analysis.column_statistics) > 0
+        ):
             logger.info(f"{RandomEmoji.success()} Preview complete!")
 
         return PreviewResults(
