@@ -5,13 +5,14 @@ nav:
   - Getting Started:
       - Welcome to Data Designer: welcome.md
       - Installation: installation.md
+  - Concepts:
+      - Columns: concepts/columns.md
   - Tutorials:
       - The Basics: notebooks/1-the-basics.ipynb
   - Code Reference:
       - column_configs: code_reference/column_configs.md
       - config_builder: code_reference/config_builder.md
       - data_designer_config: code_reference/data_designer_config.md
-  - NeMo Microservices Documentation: https://docs.nvidia.com/nemo/microservices/latest/design-synthetic-data-from-scratch-or-seeds/
 
 theme:
   name: material
@@ -19,22 +20,22 @@ theme:
     text: Roboto
     code: Fira Code
   icon:
-      logo: material/palette
+      logo: fontawesome/solid/palette
       repo: fontawesome/brands/github-alt
   favicon: assets/palette-favicon.png
   palette:
-      - media: "(prefers-color-scheme: light)"
-        scheme: default
-        primary: black
-        toggle:
-            icon: material/lightbulb-outline
-            name: Switch to dark mode
       - media: "(prefers-color-scheme: dark)"
         scheme: slate
         primary: black
         toggle:
-            icon: material/lightbulb
+            icon: material/lightbulb-outline
             name: Switch to light mode
+      - media: "(prefers-color-scheme: light)"
+        scheme: default
+        primary: black
+        toggle:
+            icon: material/lightbulb
+            name: Switch to dark mode
   features:
       - navigation.tabs
       - navigation.sections
@@ -45,15 +46,19 @@ theme:
       - content.code.select
       - content.code.annotate
 
+extra:
+  version:
+    provider: mike
+
 watch:
   - src/data_designer
   - docs/
 
 plugins:
   - search
-  - redirects:
-      redirect_maps:
-          index.md: welcome.md
+  - mike:
+      alias_type: symlink
+      canonical_version: latest
   - mkdocs-jupyter:
         execute: false
         include_requirejs: true
