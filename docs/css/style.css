@@ -96,6 +96,20 @@ body.show-toc .md-sidebar.md-sidebar--secondary {
     display: block !important;
 }
 
+/* Add color to TOC links on Concepts pages */
+body.show-toc .md-sidebar--secondary .md-nav__link {
+    transition: color 0.2s ease;
+}
+
+body.show-toc .md-sidebar--secondary .md-nav__link:hover {
+    color: #76B900 !important;
+}
+
+body.show-toc .md-sidebar--secondary .md-nav__link--active {
+    color: #76B900 !important;
+    font-weight: 500;
+}
+
 /* Hide footer */
 .md-footer {
     display: none !important;
