@@ -3,7 +3,7 @@
 
 from enum import Enum
 import inspect
-from typing import Any, Literal, Type, Union, get_args, get_origin
+from typing import Any, Literal, Type, get_args, get_origin
 
 from pydantic import BaseModel
 
@@ -17,7 +17,7 @@ class StrEnum(str, Enum):
 
 def create_str_enum_from_discriminated_type_union(
     enum_name: str,
-    type_union: Type[Union[BaseModel, ...]],
+    type_union: type,
     discriminator_field_name: str,
 ) -> StrEnum:
     """Create a string enum from a type union.
