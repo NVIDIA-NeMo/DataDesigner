@@ -382,7 +382,7 @@ def test_preview_raises_error_when_profiler_fails(
         # Mock builder to succeed
         mock_builder = MagicMock()
         mock_builder.build_preview.return_value = pd.DataFrame({"col": [1, 2, 3]})
-        mock_builder.drop_columns_if_needed.return_value = pd.DataFrame({"col": [1, 2, 3]})
+        mock_builder.process_preview.return_value = pd.DataFrame({"col": [1, 2, 3]})
         mock_builder_method.return_value = mock_builder
 
         # Mock profiler to fail
