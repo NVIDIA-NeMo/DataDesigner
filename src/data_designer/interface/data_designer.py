@@ -234,11 +234,14 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             raise DataDesignerGenerationError(f"🛑 Error generating preview dataset: {e}")
 
         dropped_columns = raw_dataset.columns.difference(processed_dataset.columns)
-        dataset_with_dropped_columns = pd.concat([processed_dataset, raw_dataset[dropped_columns]], axis=1)
+        if len(dropped_columns) > 0:
+            dataset_for_profiler = pd.concat([processed_dataset, raw_dataset[dropped_columns]], axis=1)
+        else:
+            dataset_for_profiler = processed_dataset
 
         try:
             profiler = self._create_dataset_profiler(config_builder, resource_provider)
-            analysis = profiler.profile_dataset(num_records, dataset_with_dropped_columns)
+            analysis = profiler.profile_dataset(num_records, dataset_for_profiler)
         except Exception as e:
             raise DataDesignerProfilingError(f"🛑 Error profiling preview dataset: {e}")
 
