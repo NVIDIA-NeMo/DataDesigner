@@ -402,7 +402,6 @@ def test_preview_raises_error_when_profiler_fails(
 
 def test_preview_with_dropped_columns(stub_artifact_path, stub_model_providers, stub_model_configs):
     """Test that preview correctly handles dropped columns and maintains consistency."""
-    # Create config builder with sampler columns
     config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
     config_builder.add_column(
         SamplerColumnConfig(
@@ -416,12 +415,10 @@ def test_preview_with_dropped_columns(stub_artifact_path, stub_model_providers, 
         SamplerColumnConfig(name="uniform", sampler_type="uniform", params={"low": 1, "high": 100})
     )
 
-    # Add processor to drop the "category" column
     config_builder.add_processor(
         DropColumnsProcessorConfig(build_stage=BuildStage.POST_BATCH, column_names=["category"])
     )
 
-    # Create DataDesigner and generate preview
     data_designer = DataDesigner(
         artifact_path=stub_artifact_path,
         model_providers=stub_model_providers,
@@ -431,31 +428,23 @@ def test_preview_with_dropped_columns(stub_artifact_path, stub_model_providers, 
     num_records = 5
     preview_results = data_designer.preview(config_builder, num_records=num_records)
 
-    # Get the preview dataset
     preview_dataset = preview_results.dataset
 
-    # Verify that the dropped column is not in the preview dataset
     assert "category" not in preview_dataset.columns, "Dropped column 'category' should not be in preview dataset"
 
-    # Verify that other columns are present
     assert "uuid" in preview_dataset.columns, "Column 'uuid' should be in preview dataset"
     assert "uniform" in preview_dataset.columns, "Column 'uniform' should be in preview dataset"
 
-    # Verify the dataset has the correct number of records
     assert len(preview_dataset) == num_records, f"Preview dataset should have {num_records} records"
 
-    # Verify analysis was generated properly
     analysis = preview_results.analysis
     assert analysis is not None, "Analysis should be generated"
 
-    # Verify that only non-dropped columns are in the analysis statistics
     column_names_in_analysis = [stat.column_name for stat in analysis.column_statistics]
     assert "uuid" in column_names_in_analysis, "Column 'uuid' should be in analysis"
     assert "uniform" in column_names_in_analysis, "Column 'uniform' should be in analysis"
     assert "category" not in column_names_in_analysis, "Dropped column 'category' should not be in analysis statistics"
 
-    # Verify that the dropped column is tracked as a side effect column
-    # The dropped columns are added back to dataset_for_profiler, so they should appear as side effects
     assert analysis.side_effect_column_names is not None, "Side effect column names should be tracked"
     assert "category" in analysis.side_effect_column_names, (
         "Dropped column 'category' should be tracked in side_effect_column_names"
