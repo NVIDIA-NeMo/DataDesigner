@@ -86,26 +86,6 @@ class SamplerColumnConfig(SingleColumnConfig):
         ```python
         config_builder.info.display("samplers")
         ```
-
-    Example:
-        ```python
-        from data_designer.essentials import (
-            CategorySamplerParams,
-            DataDesignerConfigBuilder,
-            SamplerColumnConfig,
-            SamplerType,
-        )
-
-        config_builder = DataDesignerConfigBuilder(model_configs=[...your model configs...])
-
-        config_builder.add_column(
-            SamplerColumnConfig(
-                name="color",
-                sampler_type=SamplerType.CATEGORY,
-                params=CategorySamplerParams(values=["red", "blue", "green"], weights=[0.5, 0.3, 0.2]),
-            )
-        )
-        ```
     """
 
     sampler_type: SamplerType
@@ -137,25 +117,6 @@ class LLMTextColumnConfig(SingleColumnConfig):
         multi_modal_context: Optional list of image contexts for multi-modal generation.
             Enables vision-capable models to generate text based on image inputs.
         column_type: Discriminator field, always "llm-text" for this configuration type.
-
-    Example:
-        ```python
-        from data_designer.essentials import (
-            DataDesignerConfigBuilder,
-            LLMTextColumnConfig,
-        )
-
-        config_builder = DataDesignerConfigBuilder(model_configs=[...your model configs...])
-
-        # Assumes we have a "color" column in the dataset.
-        config_builder.add_column(
-            LLMTextColumnConfig(
-                name="poem",
-                model_alias="your-model-alias",
-                prompt="Write a poem about the color {{ color }}",
-            )
-        )
-        ```
     """
 
     prompt: str
@@ -216,27 +177,6 @@ class LLMCodeColumnConfig(LLMTextColumnConfig):
             "rust", "ruby", "scala", "swift", "sql:sqlite", "sql:postgres", "sql:mysql",
             "sql:tsql", "sql:bigquery", "sql:ansi". See CodeLang enum for complete list.
         column_type: Discriminator field, always "llm-code" for this configuration type.
-
-    Example:
-        ```python
-        from data_designer.essentials import (
-            CodeLang,
-            DataDesignerConfigBuilder,
-            LLMCodeColumnConfig,
-        )
-
-        config_builder = DataDesignerConfigBuilder(model_configs=[...your model configs...])
-
-        # Assumes we have a "color" column in the dataset.
-        config_builder.add_column(
-            LLMCodeColumnConfig(
-                name="get_hex_color_code",
-                prompt="Write a Python python function that returns hex color code for the color {{ color }}",
-                model_alias="your-code-model-alias",
-                code_lang=CodeLang.PYTHON,
-            )
-        )
-        ```
     """
 
     code_lang: CodeLang
@@ -255,34 +195,6 @@ class LLMStructuredColumnConfig(LLMTextColumnConfig):
             - A Pydantic BaseModel class (recommended)
             - A JSON schema dictionary
         column_type: Discriminator field, always "llm-structured" for this configuration type.
-
-    Example:
-        ```python
-        from pydantic import BaseModel
-
-        from data_designer.essentials import (
-            DataDesignerConfigBuilder,
-            LLMStructuredColumnConfig,
-        )
-
-        config_builder = DataDesignerConfigBuilder(model_configs=[...your model configs...])
-
-        # Define output format as a Pydantic model.
-        class PersonInfo(BaseModel):
-            age: int
-            occupation: str
-            hobbies: list[str]
-
-        # Assumes we have a "color" column in the dataset.
-        config_builder.add_column(
-            LLMStructuredColumnConfig(
-                name="person_info",
-                prompt="Generate the info for a person who's favorite color is {{ color }}",
-                model_alias="your-model-alias",
-                output_format=PersonInfo
-            )
-        )
-        ```
     """
 
     output_format: Union[dict, Type[BaseModel]]
@@ -314,23 +226,6 @@ class Score(ConfigBase):
         options: Dictionary mapping score values to their descriptions. Keys can be integers
             (e.g., 1-5 scale) or strings (e.g., "Poor", "Good", "Excellent"). Values are
             descriptions explaining what each score level means.
-
-    Example:
-        ```python
-        from data_designer.essentials import Score
-
-        score = Score(
-            name="Accuracy",
-            description="Evaluate the factual correctness of the response",
-            options={
-                1: "Contains multiple factual errors",
-                2: "Contains minor factual errors",
-                3: "Mostly accurate with small issues",
-                4: "Accurate with no errors",
-                5: "Perfectly accurate with excellent detail"
-            }
-        )
-        ```
     """
 
     name: str = Field(..., description="A clear name for this score.")
@@ -350,38 +245,6 @@ class LLMJudgeColumnConfig(LLMTextColumnConfig):
             represents a different aspect to evaluate (e.g., accuracy, relevance, fluency).
             Must contain at least one score.
         column_type: Discriminator field, always "llm-judge" for this configuration type.
-
-    Example:
-        ```python
-        from data_designer.essentials import (
-            DataDesignerConfigBuilder,
-            LLMJudgeColumnConfig,
-            Score,
-        )
-
-        config_builder = DataDesignerConfigBuilder(model_configs=[...your model configs...])
-
-        # Assumes we have a "response" column in the dataset.
-        config_builder.add_column(
-            LLMJudgeColumnConfig(
-                name="response_quality",
-                prompt="Evaluate the quality of this response: {{ response }}",
-                model_alias="your-model-alias",
-                scores=[
-                    Score(
-                        name="relevance",
-                        description="How relevant is the response to the question?",
-                        options={1: "Not relevant", 2: "Somewhat relevant", 3: "Very relevant"},
-                    ),
-                    Score(
-                        name="clarity",
-                        description="How clear and well-written is the response?",
-                        options={1: "Unclear", 2: "Acceptable", 3: "Very clear"},
-                    ),
-                ],
-            )
-        )
-        ```
     """
 
     scores: list[Score] = Field(..., min_length=1)
@@ -402,43 +265,6 @@ class ExpressionColumnConfig(SingleColumnConfig):
         dtype: Data type to cast the result to. Must be one of "int", "float", "str", or "bool".
             Defaults to "str". Type conversion is applied after expression evaluation.
         column_type: Discriminator field, always "expression" for this configuration type.
-
-    Example:
-        ```python
-        from data_designer.essentials import (
-            DataDesignerConfigBuilder,
-            ExpressionColumnConfig,
-        )
-
-        config_builder = DataDesignerConfigBuilder(model_configs=[...your model configs...])
-
-        # Assumes we have "first_name" and "last_name" columns in the dataset.
-        config_builder.add_column(
-            ExpressionColumnConfig(
-                name="full_name",
-                expr="{{ first_name }} {{ last_name }}",
-                dtype="str",
-            )
-        )
-
-        # Arithmetic expression - assumes "quantity" and "unit_price" columns exist.
-        config_builder.add_column(
-            ExpressionColumnConfig(
-                name="total_price",
-                expr="{{ quantity }} * {{ unit_price }}",
-                dtype="float",
-            )
-        )
-
-        # Conditional logic - assumes "total" column exists.
-        config_builder.add_column(
-            ExpressionColumnConfig(
-                name="discount_tier",
-                expr="{% if total > 1000 %}premium{% elif total > 500 %}standard{% else %}basic{% endif %}",
-                dtype="str",
-            )
-        )
-        ```
     """
 
     name: str
@@ -500,44 +326,6 @@ class ValidationColumnConfig(SingleColumnConfig):
             Larger batches are more efficient but use more memory. Adjust based on validator
             complexity and available resources.
         column_type: Discriminator field, always "validation" for this configuration type.
-
-    Example:
-        ```python
-        from data_designer.essentials import (
-            CodeValidatorParams,
-            DataDesignerConfigBuilder,
-            RemoteValidatorParams,
-            ValidationColumnConfig,
-        )
-
-        config_builder = DataDesignerConfigBuilder(model_configs=[...your model configs...])
-
-        # Code validator (Python) - assumes we have an "email" column in the dataset.
-        config_builder.add_column(
-            ValidationColumnConfig(
-                name="email_validation",
-                target_columns=["email"],
-                validator_type="code",
-                validator_params=CodeValidatorParams(code_lang="python"),
-                batch_size=50
-            )
-        )
-
-        # Remote validator - assumes we have a "user_text" column in the dataset.
-        config_builder.add_column(
-            ValidationColumnConfig(
-                name="content_moderation",
-                target_columns=["user_text"],
-                validator_type="remote",
-                validator_params=RemoteValidatorParams(
-                    endpoint_url="https://api.example.com/validate",
-                    timeout=30.0,
-                    max_retries=3,
-                    max_parallel_requests=10
-                )
-            )
-        )
-        ```
     """
 
     target_columns: list[str]
