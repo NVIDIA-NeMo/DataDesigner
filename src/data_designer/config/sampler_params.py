@@ -25,6 +25,7 @@ class SamplerType(str, Enum):
     BINOMIAL = "binomial"
     CATEGORY = "category"
     DATETIME = "datetime"
+    FAKER_PERSON = "faker_person"
     GAUSSIAN = "gaussian"
     PERSON = "person"
     POISSON = "poisson"
@@ -251,11 +252,6 @@ class PersonSamplerParams(ConfigBase):
         description="If True, then append synthetic persona columns to each generated person.",
     )
 
-    sample_dataset_when_available: bool = Field(
-        default=True,
-        description="If True, sample person data from managed dataset when available. Otherwise, use Faker.",
-    )
-
     @property
     def generator_kwargs(self) -> list[str]:
         """Keyword arguments to pass to the person generator."""
@@ -263,10 +259,101 @@ class PersonSamplerParams(ConfigBase):
 
     @property
     def people_gen_key(self) -> str:
-        if self.locale in LOCALES_WITH_MANAGED_DATASETS and self.sample_dataset_when_available:
-            return f"{self.locale}_with_personas" if self.with_synthetic_personas else self.locale
-        else:
-            return f"{self.locale}_faker"
+        return f"{self.locale}_with_personas" if self.with_synthetic_personas else self.locale
+
+    @field_validator("age_range")
+    @classmethod
+    def _validate_age_range(cls, value: list[int]) -> list[int]:
+        msg_prefix = "'age_range' must be a list of two integers, representing the min and max age."
+        if value[0] < MIN_AGE:
+            raise ValueError(
+                f"{msg_prefix} The first integer (min age) must be greater than or equal to {MIN_AGE}, "
+                f"but the first integer provided was {value[0]}."
+            )
+        if value[1] > MAX_AGE:
+            raise ValueError(
+                f"{msg_prefix} The second integer (max age) must be less than or equal to {MAX_AGE}, "
+                f"but the second integer provided was {value[1]}."
+            )
+        if value[0] >= value[1]:
+            raise ValueError(
+                f"{msg_prefix} The first integer (min age) must be less than the second integer (max age), "
+                f"but the first integer provided was {value[0]} and the second integer provided was {value[1]}."
+            )
+        return value
+
+    @field_validator("locale")
+    @classmethod
+    def _validate_locale(cls, value: str) -> str:
+        if value not in AVAILABLE_LOCALES:
+            raise ValueError(
+                f"Locale {value!r} is not a supported locale. Supported locales: {', '.join(AVAILABLE_LOCALES)}"
+            )
+        return value
+
+    @model_validator(mode="after")
+    def _validate_locale_with_managed_datasets(self) -> Self:
+        if self.locale not in LOCALES_WITH_MANAGED_DATASETS:
+            raise ValueError(
+                "Person sampling from managed datasets is only supported for the following "
+                f"locales: {', '.join(LOCALES_WITH_MANAGED_DATASETS)}."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_state(self) -> Self:
+        if self.state is not None:
+            orig_state_value = self.state
+            if self.locale != "en_US":
+                raise ValueError("'state' is only supported for 'en_US' locale.")
+            if not isinstance(self.state, list):
+                self.state = [self.state]
+            self.state = [state.upper() for state in self.state]
+            for state in self.state:
+                if state not in US_STATES_AND_MAJOR_TERRITORIES:
+                    raise ValueError(f"State {orig_state_value!r} is not a supported state.")
+        return self
+
+
+class FakerPersonSamplerParams(ConfigBase):
+    locale: str = Field(
+        default="en_US",
+        description=(
+            "Locale string, determines the language and geographic locale "
+            "that a synthetic person will be sampled from. E.g, en_US, en_GB, fr_FR, ..."
+        ),
+    )
+    sex: Optional[SexT] = Field(
+        default=None,
+        description="If specified, then only synthetic people of the specified sex will be sampled.",
+    )
+    city: Optional[Union[str, list[str]]] = Field(
+        default=None,
+        description="If specified, then only synthetic people from these cities will be sampled.",
+    )
+    age_range: list[int] = Field(
+        default=DEFAULT_AGE_RANGE,
+        description="If specified, then only synthetic people within this age range will be sampled.",
+        min_length=2,
+        max_length=2,
+    )
+
+    state: Optional[Union[str, list[str]]] = Field(
+        default=None,
+        description=(
+            "Only supported for 'en_US' locale. If specified, then only synthetic people "
+            "from these states will be sampled. States must be given as two-letter abbreviations."
+        ),
+    )
+
+    @property
+    def generator_kwargs(self) -> list[str]:
+        """Keyword arguments to pass to the person generator."""
+        return [f for f in list(FakerPersonSamplerParams.model_fields) if f != "locale"]
+
+    @property
+    def people_gen_key(self) -> str:
+        return f"{self.locale}_faker"
 
     @field_validator("age_range")
     @classmethod
@@ -312,21 +399,13 @@ class PersonSamplerParams(ConfigBase):
                     raise ValueError(f"State {orig_state_value!r} is not a supported state.")
         return self
 
-    @model_validator(mode="after")
-    def _validate_with_synthetic_personas(self) -> Self:
-        if self.with_synthetic_personas and self.locale not in LOCALES_WITH_MANAGED_DATASETS:
-            raise ValueError(
-                "'with_synthetic_personas' is only supported for the following "
-                f"locales: {', '.join(LOCALES_WITH_MANAGED_DATASETS)}."
-            )
-        return self
-
 
 SamplerParamsT: TypeAlias = Union[
     SubcategorySamplerParams,
     CategorySamplerParams,
     DatetimeSamplerParams,
     PersonSamplerParams,
+    FakerPersonSamplerParams,
     TimeDeltaSamplerParams,
     UUIDSamplerParams,
     BernoulliSamplerParams,

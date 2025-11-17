@@ -13,6 +13,7 @@ from data_designer.config.sampler_params import (
     BinomialSamplerParams,
     CategorySamplerParams,
     DatetimeSamplerParams,
+    FakerPersonSamplerParams,
     GaussianSamplerParams,
     PersonSamplerParams,
     PoissonSamplerParams,
@@ -150,6 +151,32 @@ class PersonSampler(PassthroughMixin, Sampler[PersonSamplerParams]):
             if field == "state" and self.params.locale == "en_US":
                 self._fixed_kwargs["region"] = self.params.state
             elif getattr(self.params, field) is not None:
+                self._fixed_kwargs[field] = getattr(self.params, field)
+        if people_gen_resource := kwargs.get("people_gen_resource"):
+            if self.params.people_gen_key not in people_gen_resource:
+                raise ValueError(f"Person generator with key {self.params.people_gen_key} not found.")
+            self.set_generator(people_gen_resource[self.params.people_gen_key])
+
+    def set_generator(self, generator: PeopleGen) -> None:
+        self._generator = generator
+
+    def sample(self, num_samples: int) -> NumpyArray1dT:
+        if self._generator is None:
+            raise ValueError("Generator not set. Please setup generator before sampling.")
+
+        samples = np.array(self._generator.generate(num_samples, **self._fixed_kwargs))
+        if len(samples) < num_samples:
+            raise ValueError(f"Only {len(samples)} samples could be generated given constraints {self._fixed_kwargs}.")
+        return samples
+
+
+@SamplerRegistry.register(SamplerType.FAKER_PERSON)
+class FakerPersonSampler(PassthroughMixin, Sampler[FakerPersonSamplerParams]):
+    def _setup(self, **kwargs) -> None:
+        self._generator = None
+        self._fixed_kwargs = {}
+        for field in self.params.generator_kwargs:
+            if getattr(self.params, field) is not None:
                 self._fixed_kwargs[field] = getattr(self.params, field)
         if people_gen_resource := kwargs.get("people_gen_resource"):
             if self.params.people_gen_key not in people_gen_resource:

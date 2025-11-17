@@ -132,7 +132,6 @@ class PeopleGenFromDataset(PeopleGen):
 
     def _generate_from_dataset(self, n: int, **kwargs) -> pd.DataFrame:
         kw = deepcopy(kwargs)
-        kw.pop("sample_dataset_when_available", None)
         with_synthetic_personas = kw.pop("with_synthetic_personas", False)
         kw["age"] = self._get_ages(kw.pop("age_range", DEFAULT_AGE_RANGE))
 
@@ -179,7 +178,7 @@ def create_people_gen_resource(
     for column in schema.get_columns_by_sampler_type("person"):
         for params in [column.params, *list(column.conditional_params.values())]:
             if params.people_gen_key not in people_gen_resource:
-                if params.locale in LOCALES_WITH_MANAGED_DATASETS and params.sample_dataset_when_available:
+                if params.locale in LOCALES_WITH_MANAGED_DATASETS:
                     try:
                         engine = person_generator_loader(locale=params.locale)
                         people_gen_resource[params.people_gen_key] = PeopleGenFromDataset(
@@ -189,7 +188,6 @@ def create_people_gen_resource(
                         raise DatasetNotAvailableForLocaleError(
                             f"🛑 Failed to load dataset-based person generator for locale {params.locale}. "
                             "Please check if you have access to person data for this locale. "
-                            "If not, set `sample_dataset_when_available` to False for this column."
                         ) from e
                 else:
                     people_gen_resource[params.people_gen_key] = PeopleGenFaker(

@@ -95,7 +95,7 @@ class DuckDBDatasetRepository(ManagedDatasetRepository):
             and startup time for faster queries.
         """
         self._data_catalog = data_catalog
-        self._data_sets_root = datasets_root
+        self._datasets_root = datasets_root
         self._blob_storage = blob_storage
         self._config = self._default_config if config is None else config
         self._use_cache = use_cache
@@ -129,13 +129,13 @@ class DuckDBDatasetRepository(ManagedDatasetRepository):
                 for table in self.data_catalog:
                     key = table.source if table.schema == "main" else f"{table.schema}/{table.source}"
                     if self._use_cache:
-                        tmp_root = Path(tempfile.gettempdir()) / "gretel_ds_cache"
+                        tmp_root = Path(tempfile.gettempdir()) / "dd_cache"
                         local_path = tmp_root / key
                         local_path.parent.mkdir(parents=True, exist_ok=True)
                         if not local_path.exists():
                             start = time.time()
                             logger.debug("Caching database %s to %s", table.name, local_path)
-                            with self._blob_storage.get_blob(f"{self._data_sets_root}/{key}") as src_fd:
+                            with self._blob_storage.get_blob(f"{self._datasets_root}/{key}") as src_fd:
                                 with open(local_path, "wb") as dst_fd:
                                     dst_fd.write(src_fd.read())
                             logger.debug(
@@ -145,7 +145,7 @@ class DuckDBDatasetRepository(ManagedDatasetRepository):
                             )
                         data_path = local_path.as_posix()
                     else:
-                        data_path = self._blob_storage.uri_for_key(f"{self._data_sets_root}/{key}")
+                        data_path = self._blob_storage.uri_for_key(f"{self._datasets_root}/{key}")
                     if table.schema != "main":
                         self.db.sql(f"CREATE SCHEMA IF NOT EXISTS {table.schema}")
                     logger.debug(f"Registering dataset {table.name} from {data_path}")

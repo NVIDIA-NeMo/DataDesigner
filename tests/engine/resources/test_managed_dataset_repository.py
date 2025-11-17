@@ -66,7 +66,7 @@ def test_duckdb_dataset_repository_init_default_config(mock_duckdb, stub_blob_st
         mock_duckdb.connect.assert_called_once_with(config={"threads": 2, "memory_limit": "4 gb"})
 
         assert repo._data_catalog == DEFAULT_DATA_CATALOG
-        assert repo._data_sets_root == DATASETS_ROOT
+        assert repo._datasets_root == DATASETS_ROOT
         assert repo._blob_storage == stub_blob_storage
         assert repo._config == {"threads": 2, "memory_limit": "4 gb"}
         assert repo._use_cache is True
@@ -94,7 +94,7 @@ def test_duckdb_dataset_repository_init_custom_config(mock_duckdb, stub_blob_sto
         mock_duckdb.connect.assert_called_once_with(config=custom_config)
 
         assert repo._data_catalog == stub_test_data_catalog
-        assert repo._data_sets_root == "custom_root"
+        assert repo._datasets_root == "custom_root"
         assert repo._config == custom_config
         assert repo._use_cache is False
 

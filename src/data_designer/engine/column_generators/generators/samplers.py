@@ -14,10 +14,10 @@ from data_designer.engine.column_generators.generators.base import (
     GenerationStrategy,
     GeneratorMetadata,
 )
+from data_designer.engine.column_generators.generators.errors import MissingBlobStorageError
 from data_designer.engine.dataset_builders.multi_column_configs import SamplerMultiColumnConfig
 from data_designer.engine.processing.utils import concat_datasets
 from data_designer.engine.resources.managed_dataset_generator import ManagedDatasetGenerator
-from data_designer.engine.resources.resource_provider import ResourceType
 from data_designer.engine.sampling_gen.data_sources.sources import SamplerType
 from data_designer.engine.sampling_gen.entities.person import load_person_data_sampler
 from data_designer.engine.sampling_gen.generator import DatasetGenerator as SamplingDatasetGenerator
@@ -32,7 +32,7 @@ class SamplerColumnGenerator(FromScratchColumnGenerator[SamplerMultiColumnConfig
             name="sampler_column_generator",
             description="Generate columns using sampling-based method.",
             generation_strategy=GenerationStrategy.FULL_COLUMN,
-            required_resources=[ResourceType.BLOB_STORAGE],
+            required_resources=None,
         )
 
     def generate(self, data: pd.DataFrame) -> pd.DataFrame:
@@ -45,11 +45,16 @@ class SamplerColumnGenerator(FromScratchColumnGenerator[SamplerMultiColumnConfig
 
     @property
     def _needs_person_generator(self) -> bool:
+        # If blob storage is not available, we can't use sample from managed datasets.
+        if self.resource_provider.blob_storage is None:
+            return False
         columns = [c for c in self.config.columns if c.sampler_type == SamplerType.PERSON]
         return any(c.params.locale in LOCALES_WITH_MANAGED_DATASETS for c in columns)
 
     @property
     def _person_generator_loader(self) -> Callable[[bool], ManagedDatasetGenerator]:
+        if self.resource_provider.blob_storage is None:
+            raise MissingBlobStorageError("Blob storage is required to sample person data from managed datasets.")
         return partial(load_person_data_sampler, blob_storage=self.resource_provider.blob_storage)
 
     def _create_sampling_dataset_generator(self) -> SamplingDatasetGenerator:

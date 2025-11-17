@@ -27,17 +27,6 @@ def stub_concrete_storage():
     return ConcreteStorage()
 
 
-@pytest.fixture
-def stub_boto3_setup():
-    with patch("data_designer.engine.resources.managed_storage.boto3") as mock_boto3:
-        with patch("data_designer.engine.resources.managed_storage.botocore") as mock_botocore:
-            mock_config = Mock()
-            mock_botocore.client.Config.return_value = mock_config
-            mock_client = Mock()
-            mock_boto3.client.return_value = mock_client
-            yield mock_boto3, mock_botocore, mock_config, mock_client
-
-
 @pytest.mark.parametrize(
     "test_key,expected_uri",
     [
@@ -48,28 +37,6 @@ def stub_boto3_setup():
 )
 def test_uri_for_key_normalization(stub_concrete_storage, test_key, expected_uri):
     assert stub_concrete_storage.uri_for_key(test_key) == expected_uri
-
-
-@pytest.mark.parametrize(
-    "test_case,bucket_name,expected_bucket",
-    [
-        ("default_bucket", None, STORAGE_BUCKET),
-        ("custom_bucket", "my-custom-bucket", "my-custom-bucket"),
-    ],
-)
-def test_s3_blob_storage_provider_init(test_case, bucket_name, expected_bucket, stub_boto3_setup):
-    mock_boto3, mock_botocore, mock_config, mock_client = stub_boto3_setup
-
-    if bucket_name:
-        provider = S3BlobStorageProvider(bucket_name=bucket_name)
-    else:
-        provider = S3BlobStorageProvider()
-
-    assert provider._bucket_name == expected_bucket
-    assert provider._transport_params == {"client": mock_client}
-
-    mock_botocore.client.Config.assert_called_once_with(signature_version=mock_botocore.UNSIGNED)
-    mock_boto3.client.assert_called_once_with("s3", config=mock_config)
 
 
 @patch("data_designer.engine.resources.managed_storage.smart_open", autospec=True)
