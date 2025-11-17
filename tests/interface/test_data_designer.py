@@ -457,6 +457,6 @@ def test_preview_with_dropped_columns(stub_artifact_path, stub_model_providers, 
     # Verify that the dropped column is tracked as a side effect column
     # The dropped columns are added back to dataset_for_profiler, so they should appear as side effects
     assert analysis.side_effect_column_names is not None, "Side effect column names should be tracked"
-    assert (
-        "category" in analysis.side_effect_column_names
-    ), "Dropped column 'category' should be tracked in side_effect_column_names"
+    assert "category" in analysis.side_effect_column_names, (
+        "Dropped column 'category' should be tracked in side_effect_column_names"
+    )
