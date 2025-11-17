@@ -1,7 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from enum import StrEnum
 import json
 import logging
 from pathlib import Path
@@ -12,7 +11,7 @@ import pandas as pd
 from pydantic import BaseModel, field_validator, model_validator
 
 from data_designer.config.utils.io_helpers import read_parquet_dataset
-from data_designer.config.utils.type_helpers import resolve_string_enum
+from data_designer.config.utils.type_helpers import StrEnum, resolve_string_enum
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
 
 logger = logging.getLogger(__name__)

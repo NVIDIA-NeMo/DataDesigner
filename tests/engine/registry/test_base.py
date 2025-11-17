@@ -1,12 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from enum import StrEnum
 import threading
 
 import pytest
 
 from data_designer.config.base import ConfigBase
+from data_designer.config.utils.type_helpers import StrEnum
 from data_designer.engine.configurable_task import ConfigurableTask
 from data_designer.engine.registry.base import TaskRegistry
 from data_designer.engine.registry.errors import NotFoundInRegistryError, RegistryItemNotTypeError
@@ -93,7 +93,7 @@ def test_register_task_scenarios(
     elif test_case == "register_task_collision_raises":
         TaskRegistry.register(stub_test_enum.TASK_A, stub_test_task_class, stub_test_config_class)
 
-        with pytest.raises(expected_error, match="task_a has already been registered!"):
+        with pytest.raises(expected_error, match="has already been registered!"):
             TaskRegistry.register(
                 stub_test_enum.TASK_A, stub_test_task_class, stub_test_config_class, raise_on_collision=True
             )

@@ -1,10 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from enum import StrEnum
-
 from data_designer.config.base import ConfigBase
 from data_designer.config.models import ModelConfig
+from data_designer.config.utils.type_helpers import StrEnum
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.engine.model_provider import ModelProviderRegistry
 from data_designer.engine.models.registry import ModelRegistry, create_model_registry
