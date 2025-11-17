@@ -86,7 +86,7 @@ test:
 serve-docs-locally:
 	@echo "📝 Building and serving docs..."
 	uv sync --group docs
-	uv run mkdocs serve
+	uv run mkdocs serve --livereload
 
 check-license-headers:
 	@echo "🔍 Checking license headers in all files..."

@@ -3,10 +3,11 @@ repo_url: https://github.com/NVIDIA-NeMo/DataDesigner
 
 nav:
   - Getting Started:
-      - Welcome to Data Designer: welcome.md
+      - Welcome to Data Designer: index.md
       - Installation: installation.md
   - Concepts:
       - Columns: concepts/columns.md
+      - Plugins: concepts/plugins.md
   - Tutorials:
       - The Basics: notebooks/1-the-basics.ipynb
   - Code Reference:
@@ -41,7 +42,6 @@ theme:
       - navigation.sections
       - navigation.expand
       - navigation.path
-      - navigation.indexes
       - content.code.copy
       - content.code.select
       - content.code.annotate
