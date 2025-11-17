@@ -128,7 +128,7 @@ class ColumnWiseDatasetBuilder:
     def process_preview(self, dataset: pd.DataFrame) -> pd.DataFrame:
         return self._run_processors(
             stage=BuildStage.POST_BATCH,
-            dataframe=dataset,
+            dataframe=dataset.copy(),
             current_batch_number=None,  # preview mode does not have a batch number
         )
 

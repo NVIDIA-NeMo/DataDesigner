@@ -228,23 +228,25 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         builder = self._create_dataset_builder(config_builder, resource_provider)
 
         try:
-            dataset = builder.build_preview(num_records=num_records)
+            raw_dataset = builder.build_preview(num_records=num_records)
+            processed_dataset = builder.process_preview(raw_dataset)
         except Exception as e:
             raise DataDesignerGenerationError(f"🛑 Error generating preview dataset: {e}")
 
+        dropped_columns = raw_dataset.columns.difference(processed_dataset.columns)
+        dataset_with_dropped_columns = pd.concat([processed_dataset, raw_dataset[dropped_columns]], axis=1)
+
         try:
             profiler = self._create_dataset_profiler(config_builder, resource_provider)
-            analysis = profiler.profile_dataset(num_records, dataset)
+            analysis = profiler.profile_dataset(num_records, dataset_with_dropped_columns)
         except Exception as e:
             raise DataDesignerProfilingError(f"🛑 Error profiling preview dataset: {e}")
 
-        dataset = builder.process_preview(dataset)
-
-        if len(dataset) > 0 and isinstance(analysis, DatasetProfilerResults) and len(analysis.column_statistics) > 0:
+        if len(processed_dataset) > 0 and isinstance(analysis, DatasetProfilerResults) and len(analysis.column_statistics) > 0:
             logger.info(f"{RandomEmoji.success()} Preview complete!")
 
         return PreviewResults(
-            dataset=dataset,
+            dataset=processed_dataset,
             analysis=analysis,
             config_builder=config_builder,
         )
