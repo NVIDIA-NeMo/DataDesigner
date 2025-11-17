@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from functools import cached_property
-from typing import Self
 
 from pydantic import BaseModel, field_validator, model_validator
+from typing_extensions import Self
 
 from data_designer.config.models import ModelProvider
 from data_designer.engine.errors import NoModelProvidersError, UnknownProviderError
