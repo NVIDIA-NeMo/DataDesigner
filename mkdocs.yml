@@ -5,6 +5,7 @@ nav:
   - Getting Started:
       - Welcome to Data Designer: index.md
       - Installation: installation.md
+      - Contributing: CONTRIBUTING.md
   - Concepts:
       - Columns: concepts/columns.md
       - Plugins: concepts/plugins.md
@@ -91,6 +92,8 @@ markdown_extensions:
         use_pygments: true
   - tables
   - pymdownx.superfences
+  - pymdownx.tabbed:
+        alternate_style: true
   - attr_list
   - md_in_html
   - admonition
