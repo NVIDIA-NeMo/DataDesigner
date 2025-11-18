@@ -5,6 +5,7 @@ nav:
   - Getting Started:
       - Welcome to Data Designer: index.md
       - Installation: installation.md
+      - Quick Start: quick-start.md
       - Contributing: CONTRIBUTING.md
   - Concepts:
       - Columns: concepts/columns.md

@@ -4,7 +4,7 @@ Get started with Data Designer using the default model providers and configurati
 
 ## Prerequisites
 
-Before you begin, you'll need an API key from one of the supported providers:
+Before you begin, you'll need an API key from one of the default providers:
 
 - **NVIDIA API Key**: Get yours from [build.nvidia.com](https://build.nvidia.com)
 - **OpenAI API Key** (optional): Get yours from [platform.openai.com](https://platform.openai.com/api-keys)

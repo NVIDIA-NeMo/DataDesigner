@@ -1,6 +1,6 @@
 # Configuring Model Settings Using The CLI
 
-The Data Designer CLI provides an interactive interface for managing model providers and model configurations stored in your Data Designer home directory (default: `~/.data-designer/`).
+The Data Designer CLI provides an interactive interface for creating and managing default model providers and model configurations stored in your Data Designer home directory (default: `~/.data-designer/`).
 
 ## Configuration Files
 
@@ -35,6 +35,17 @@ data-designer config list
 # Reset all configurations
 data-designer config reset
 ```
+
+!!! tip "Getting help"
+    See available commands
+    ```bash
+    data-designer --help
+    ```
+
+    See available sub-commands
+    ```bash
+    data-designer config --help
+    ```
 
 ## Managing Model Providers
 

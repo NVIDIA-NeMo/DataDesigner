@@ -70,6 +70,18 @@ While `InferenceParameters` is required when creating a `ModelConfig`, all field
     - `0.6-0.9`: Balanced diversity
     - `0.95-1.0`: Maximum diversity, including less likely tokens
 
+!!! tip "Adjusting Temperature and Top P Together"
+    When tuning both parameters simultaneously, consider these combinations:
+
+    - **For deterministic/structured outputs**: Low temperature (`0.0-0.3`) + moderate-to-high top_p (`0.8-0.95`)
+        - The low temperature ensures focus, while top_p allows some token diversity
+    - **For balanced generation**: Moderate temperature (`0.5-0.7`) + high top_p (`0.9-0.95`)
+        - This is a good starting point for most use cases
+    - **For creative outputs**: Higher temperature (`0.8-1.0`) + high top_p (`0.95-1.0`)
+        - Both parameters work together to maximize diversity
+
+    **Avoid**: Setting both very low (overly restrictive) or adjusting both dramatically at once. When experimenting, adjust one parameter at a time to understand its individual effect.
+
 ## Distribution-Based Inference Parameters
 
 For `temperature` and `top_p`, you can specify distributions instead of fixed values. This allows Data Designer to sample different values for each generation request, introducing controlled variability into your synthetic data.
@@ -151,6 +163,7 @@ model_configs = [
     ModelConfig(
         alias="creative-model",
         model="nvidia/nvidia-nemotron-nano-9b-v2",
+        provider="nvidia",
         inference_parameters=InferenceParameters(
             temperature=0.9,
             top_p=0.95,
@@ -161,6 +174,7 @@ model_configs = [
     ModelConfig(
         alias="critic-model",
         model="nvidia/nvidia-nemotron-nano-9b-v2",
+        provider="nvidia",
         inference_parameters=InferenceParameters(
             temperature=0.25,
             top_p=0.95,
@@ -171,6 +185,7 @@ model_configs = [
     ModelConfig(
         alias="reasoning-model",
         model="openai/gpt-oss-20b",
+        provider="nvidia",
         inference_parameters=InferenceParameters(
             temperature=0.3,
             top_p=0.9,
@@ -181,6 +196,7 @@ model_configs = [
     ModelConfig(
         alias="vision-model",
         model="nvidia/nemotron-nano-12b-v2-vl",
+        provider="nvidia",
         inference_parameters=InferenceParameters(
             temperature=0.7,
             top_p=0.95,
@@ -191,7 +207,7 @@ model_configs = [
 ```
 
 !!! tip "Experiment with max_tokens for Task-Specific model configurations"
-    Different tasks may require different token budgets. For example, reasoning models often need more tokens to "think through" problems before generating a response. Note that `max_tokens` includes **both input and output tokens** (the total context window used), so factor in your prompt length, any context data, and the expected response length when setting this parameter.
+    The number of tokens required to generate a single data entry can vary significantly with use case. For example, reasoning models often need more tokens to "think through" problems before generating a response. Note that `max_tokens` includes **both input and output tokens** (the total context window used), so factor in your prompt length, any context data, and the expected response length when setting this parameter.
 ### Using Distribution-Based Parameters
 
 ```python

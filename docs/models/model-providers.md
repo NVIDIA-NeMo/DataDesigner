@@ -1,10 +1,10 @@
 # Model Providers
 
-Model providers are external services that host and serve LLM models. Data Designer uses the `ModelProvider` class to configure connections to these services.
+Model providers are external services that host and serve models. Data Designer uses the `ModelProvider` class to configure connections to these services.
 
 ## Overview
 
-A `ModelProvider` defines how Data Designer connects to an LLM provider's API endpoint. When you create a `ModelConfig`, you reference a provider by name, and Data Designer uses that provider's settings to make API calls to the appropriate endpoint.
+A `ModelProvider` defines how Data Designer connects to a provider's API endpoint. When you create a `ModelConfig`, you reference a provider by name, and Data Designer uses that provider's settings to make API calls to the appropriate endpoint.
 
 ## ModelProvider Configuration
 
