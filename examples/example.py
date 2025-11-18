@@ -1,37 +1,20 @@
 import json
 
 from data_designer.essentials import (
-    BuildStage,
     CategorySamplerParams,
     DataDesigner,
     DataDesignerConfigBuilder,
-    InferenceParameters,
-    JsonlExportProcessorConfig,
     LLMTextColumnConfig,
-    ModelConfig,
+    OutputFormatProcessorConfig,
     PersonSamplerParams,
-    ProcessorType,
     SamplerColumnConfig,
     Score,
     SubcategorySamplerParams,
 )
 
 # define model aliases
-model_alias_generator = "content_generator"
-model_configs = [
-    ModelConfig(
-        alias=model_alias_generator,
-        provider="nvidia",
-        model="deepseek-ai/deepseek-r1-distill-qwen-14b",
-        inference_parameters=InferenceParameters(
-            max_tokens=8000,
-            temperature=0.7,
-            top_p=0.95,
-        ),
-    )
-]
-
-config_builder = DataDesignerConfigBuilder(model_configs=model_configs)
+model_alias_generator = "nvidia-text"
+config_builder = DataDesignerConfigBuilder()
 
 # ESI levels
 ESI_LEVELS = [
@@ -198,14 +181,9 @@ jsonl_entry_template = {
 
 template_as_str = json.dumps(jsonl_entry_template)
 config_builder.add_processor(
-    JsonlExportProcessorConfig(
-        processor_type=ProcessorType.JSONL_EXPORT,
-        build_stage=BuildStage.POST_BATCH,
+    OutputFormatProcessorConfig(
+        name="jsonl_output",
         template=template_as_str,
-        fraction_per_file={
-            "train.jsonl": 0.8,
-            "validation.jsonl": 0.2,
-        },
     )
 )
 
@@ -214,4 +192,5 @@ dd = DataDesigner(
 )
 preview = dd.preview(config_builder, num_records=10)
 
-dd.create(config_builder, num_records=20)
+results = dd.create(config_builder, num_records=20)
+results.write_processor_outputs_to_disk("./processor_outputs", "jsonl")

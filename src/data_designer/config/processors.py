@@ -15,7 +15,7 @@ SUPPORTED_STAGES = [BuildStage.POST_BATCH]
 
 class ProcessorType(str, Enum):
     DROP_COLUMNS = "drop_columns"
-    JSONL_EXPORT = "jsonl_export"
+    OUTPUT_FORMAT = "output_format"
 
 
 class ProcessorConfig(ConfigBase, ABC):
@@ -39,8 +39,8 @@ class ProcessorConfig(ConfigBase, ABC):
 def get_processor_config_from_kwargs(processor_type: ProcessorType, **kwargs) -> ProcessorConfig:
     if processor_type == ProcessorType.DROP_COLUMNS:
         return DropColumnsProcessorConfig(**kwargs)
-    elif processor_type == ProcessorType.JSONL_EXPORT:
-        return JsonlExportProcessorConfig(**kwargs)
+    elif processor_type == ProcessorType.OUTPUT_FORMAT:
+        return OutputFormatProcessorConfig(**kwargs)
 
 
 class DropColumnsProcessorConfig(ProcessorConfig):
@@ -48,16 +48,6 @@ class DropColumnsProcessorConfig(ProcessorConfig):
     processor_type: Literal[ProcessorType.DROP_COLUMNS] = ProcessorType.DROP_COLUMNS
 
 
-class JsonlExportProcessorConfig(ProcessorConfig):
+class OutputFormatProcessorConfig(ProcessorConfig):
     template: str = Field(..., description="The template to use for each entry in the dataset, as a single string.")
-    fraction_per_file: dict[str, float] = Field(
-        default={"train.jsonl": 0.8, "validation.jsonl": 0.2},
-        description="Fraction of the dataset to save in each file. The keys are the filenames and the values are the fractions.",
-    )
-    processor_type: Literal[ProcessorType.JSONL_EXPORT] = ProcessorType.JSONL_EXPORT
-
-    @field_validator("fraction_per_file")
-    def validate_fraction_per_file(cls, v: dict[str, float]) -> dict[str, float]:
-        if sum(v.values()) != 1:
-            raise ValueError("The fractions must sum to 1.")
-        return v
+    processor_type: Literal[ProcessorType.OUTPUT_FORMAT] = ProcessorType.OUTPUT_FORMAT
