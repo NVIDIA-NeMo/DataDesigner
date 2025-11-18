@@ -57,6 +57,9 @@ When the Data Designer library or the CLI is initialized, default model configur
 - **Model Configs**: `~/.data-designer/model_configs.yaml`
 - **Model Providers**: `~/.data-designer/model_providers.yaml`
 
+!!! tip Tip
+    While these files provide a convenient way to specify settings for your model providers and configuration you use most often, they can always be set programatically in your SDG workflow.
+
 You can customize the home directory location by setting the `DATA_DESIGNER_HOME_DIR` environment variable:
 
 ```bash
