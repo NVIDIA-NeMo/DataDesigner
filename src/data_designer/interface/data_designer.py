@@ -80,7 +80,8 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         managed_assets_path: Path to the managed assets directory. This is used to point
             to the location of managed datasets and other assets used during dataset generation.
             If not provided, will check for an environment variable called DATA_DESIGNER_MANAGED_ASSETS_PATH.
-            If not found, features that require managed assets will be disabled.
+            If the environment variable is not set, will use the default managed assets directory, which
+            is defined in `data_designer.config.utils.constants`.
     """
 
     def __init__(
