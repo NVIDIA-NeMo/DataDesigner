@@ -84,7 +84,7 @@ data-designer config models
 
 Create a new model configuration with the following fields:
 
-- **Alias**: A unique name for referencing this model
+- **Alias**: A unique name for referencing this model in a column configuration.
 - **Model ID**: The model identifier (e.g., `nvidia/nvidia-nemotron-nano-9b-v2`)
 - **Provider**: Select from available providers (if multiple exist)
 - **Temperature**: Sampling temperature (0.0 to 2.0)
