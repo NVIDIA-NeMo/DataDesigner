@@ -5,10 +5,6 @@ from datetime import date, timedelta
 import random
 from typing import Any, Literal, TypeAlias
 
-from data_designer.config.utils.constants import LOCALES_WITH_MANAGED_DATASETS, PERSONAS_DATA_CATALOG_NAME
-from data_designer.engine.resources.managed_assets import DatasetManager, LocalDatasetManager
-from data_designer.engine.resources.managed_dataset_generator import ManagedDatasetGenerator
-from data_designer.engine.resources.managed_dataset_repository import DuckDBDatasetRepository
 from data_designer.engine.sampling_gen.entities.dataset_based_person_fields import (
     PERSONA_FIELDS,
     PII_FIELDS,
@@ -18,7 +14,6 @@ from data_designer.engine.sampling_gen.entities.email_address_utils import get_e
 from data_designer.engine.sampling_gen.entities.errors import MissingPersonFieldsError
 from data_designer.engine.sampling_gen.entities.national_id_utils import generate_ssn
 from data_designer.engine.sampling_gen.entities.phone_number import PhoneNumber
-from data_designer.engine.sampling_gen.errors import DatasetNotAvailableForLocaleError
 
 SexT: TypeAlias = Literal["Male", "Female"]
 
@@ -123,20 +118,6 @@ def generate_and_insert_derived_fields(person_record: dict[str, Any]) -> dict[st
         **{k: v for k, v in person_record.items() if k in ["state", "phone_number", "email_address", "national_id"]},
         **{k: v for k, v in person_record.items() if k in PERSONA_FIELDS},
     }
-
-
-def load_person_data_sampler(dataset_manager: DatasetManager, locale: str) -> ManagedDatasetGenerator:
-    if locale not in LOCALES_WITH_MANAGED_DATASETS:
-        raise DatasetNotAvailableForLocaleError(f"Locale {locale} is not supported by the managed dataset generator.")
-
-    return ManagedDatasetGenerator(
-        dataset_repo=DuckDBDatasetRepository(
-            dataset_manager,
-            data_catalog_names=[PERSONAS_DATA_CATALOG_NAME],
-            use_cache=not isinstance(dataset_manager, LocalDatasetManager),
-        ),
-        dataset_name=locale,
-    )
 
 
 def _verify_required_fields(person_record: dict[str, Any]) -> None:

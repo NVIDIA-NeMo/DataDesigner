@@ -9,8 +9,8 @@ import pytest
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.engine.models.facade import ModelFacade
 from data_designer.engine.models.registry import ModelRegistry
-from data_designer.engine.resources.managed_assets import DatasetManager
 from data_designer.engine.resources.resource_provider import ResourceProvider
+from data_designer.engine.resources.sampler_dataset_repository import SamplerDatasetRepository
 
 
 @pytest.fixture
@@ -34,7 +34,7 @@ def stub_resource_provider(tmp_path, stub_model_facade):
     mock_model_registry.model_configs = {}  # Add empty model_configs dict
     mock_provider.model_registry = mock_model_registry
     mock_provider.artifact_storage = ArtifactStorage(artifact_path=tmp_path)
-    mock_provider.dataset_manager = Mock(spec=DatasetManager)
+    mock_provider.sampler_dataset_repository = Mock(spec=SamplerDatasetRepository)
     mock_provider.datastore = Mock()
     return mock_provider
 

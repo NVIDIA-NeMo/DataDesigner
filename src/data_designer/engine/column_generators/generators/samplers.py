@@ -40,7 +40,7 @@ class SamplerColumnGenerator(FromScratchColumnGenerator[SamplerMultiColumnConfig
     def _create_sampling_dataset_generator(self) -> SamplingDatasetGenerator:
         return SamplingDatasetGenerator(
             sampler_columns=self.config,
-            dataset_manager=self.resource_provider.dataset_manager,
+            sampler_dataset_repository=self.resource_provider.sampler_dataset_repository,
         )
 
     def _has_person_samplers(self) -> bool:
@@ -63,5 +63,5 @@ class SamplerColumnGenerator(FromScratchColumnGenerator[SamplerMultiColumnConfig
         return self._create_sampling_dataset_generator()
 
     def _validate(self) -> None:
-        if self.resource_provider.dataset_manager is None and self._has_person_samplers():
+        if self.resource_provider.sampler_dataset_repository is None and self._has_person_samplers():
             raise ValueError("The Dataset Manager is required to use the Person Sampler.")

@@ -20,5 +20,5 @@ class DatasetNotAvailableForLocaleError(SamplingGenError):
     """Exception for all errors related to the dataset not being available for a given locale."""
 
 
-class ManagedDatasetRepositoryError(SamplingGenError):
-    """Exception for all errors related to the managed dataset repository."""
+class ManagedDatasetGeneratorError(SamplingGenError):
+    """Exception for all errors related to the managed dataset generator."""

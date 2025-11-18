@@ -18,7 +18,7 @@ from data_designer.engine.sampling_gen.utils import check_random_state
 
 if TYPE_CHECKING:
     from data_designer.engine.dataset_builders.multi_column_configs import SamplerMultiColumnConfig
-    from data_designer.engine.resources.managed_assets import DatasetManager
+    from data_designer.engine.resources.sampler_dataset_repository import SamplerDatasetRepository
     from data_designer.engine.sampling_gen.column import ConditionalDataColumn
 
 
@@ -32,7 +32,7 @@ class DatasetGenerator:
     Args:
         sampler_columns: Sampler columns to generate.
         random_state: Random number generator or seed for reproducibility.
-        dataset_manager: A dataset manager for sampling person data from managed datasets.
+        sampler_dataset_repository: A sampler dataset manager for sampling person data from managed datasets.
 
     Note:
         The generator leverages the schema's DAG to topologically sort the columns
@@ -43,7 +43,7 @@ class DatasetGenerator:
     def __init__(
         self,
         sampler_columns: SamplerMultiColumnConfig,
-        dataset_manager: DatasetManager,
+        sampler_dataset_repository: SamplerDatasetRepository,
         random_state: RadomStateT | None = None,
         *,
         max_rejections_factor: int = 5,
@@ -58,7 +58,7 @@ class DatasetGenerator:
         self._dag = self.schema.dag.to_networkx()
         self._shared_sampler_kwargs = {
             "random_state": self.rng,
-            "people_gen_resource": create_people_gen_resource(self.schema, dataset_manager),
+            "people_gen_resource": create_people_gen_resource(self.schema, sampler_dataset_repository),
         }
 
     def _round_if_needed(self, column: ConditionalDataColumn, df: pd.DataFrame) -> pd.DataFrame:

@@ -8,7 +8,7 @@ from unittest.mock import Mock
 import pandas as pd
 import pytest
 
-from data_designer.engine.resources.managed_assets import LocalDatasetManager
+from data_designer.engine.resources.sampler_dataset_repository import LocalSamplerDatasetRepository
 
 
 @pytest.fixture
@@ -18,8 +18,8 @@ def stub_temp_dir():
 
 
 @pytest.fixture
-def stub_local_dataset_manager(stub_temp_dir):
-    return LocalDatasetManager(stub_temp_dir)
+def stub_local_dataset_repository(stub_temp_dir):
+    return LocalSamplerDatasetRepository(stub_temp_dir)
 
 
 @pytest.fixture

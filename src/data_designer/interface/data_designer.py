@@ -23,7 +23,7 @@ from data_designer.config.preview_results import PreviewResults
 from data_designer.config.seed import LocalSeedDatasetReference
 from data_designer.config.utils.constants import (
     DEFAULT_NUM_RECORDS,
-    MANAGED_ASSETS_PATH,
+    MANAGED_ASSETS_DIR,
     MODEL_CONFIGS_FILE_PATH,
     MODEL_PROVIDERS_FILE_PATH,
     PERSONAS_DATA_CATALOG_NAME,
@@ -40,8 +40,8 @@ from data_designer.engine.dataset_builders.column_wise_builder import ColumnWise
 from data_designer.engine.dataset_builders.utils.config_compiler import compile_dataset_builder_column_configs
 from data_designer.engine.model_provider import resolve_model_provider_registry
 from data_designer.engine.models.registry import create_model_registry
-from data_designer.engine.resources.managed_assets import LocalDatasetManager
 from data_designer.engine.resources.resource_provider import ResourceProvider
+from data_designer.engine.resources.sampler_dataset_repository import LocalSamplerDatasetRepository
 from data_designer.engine.resources.seed_dataset_data_store import HfHubSeedDatasetDataStore, LocalSeedDatasetDataStore
 from data_designer.engine.secret_resolver import EnvironmentResolver, SecretResolver
 from data_designer.interface.errors import (
@@ -94,7 +94,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         self._secret_resolver = secret_resolver
         self._artifact_path = Path(artifact_path) if artifact_path is not None else Path.cwd() / "artifacts"
         self._buffer_size = DEFAULT_BUFFER_SIZE
-        self._managed_assets_path = Path(managed_assets_path or MANAGED_ASSETS_PATH)
+        self._managed_assets_path = Path(managed_assets_path or MANAGED_ASSETS_DIR)
         self._model_providers = model_providers or self.get_default_model_providers()
         self._model_provider_registry = resolve_model_provider_registry(
             self._model_providers, get_default_provider_name()
@@ -322,7 +322,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
                 model_provider_registry=self._model_provider_registry,
                 secret_resolver=self._secret_resolver,
             ),
-            dataset_manager=self._resolve_nemotron_personas_datasets(),
+            sampler_dataset_repository=self._resolve_sampler_dataset_repository(),
             datastore=(
                 LocalSeedDatasetDataStore()
                 if (settings := config_builder.get_seed_datastore_settings()) is None
@@ -333,6 +333,6 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             ),
         )
 
-    def _resolve_nemotron_personas_datasets(self) -> LocalDatasetManager | None:
-        dataset_manager = LocalDatasetManager(self._managed_assets_path)
-        return dataset_manager if dataset_manager.has_access_to_data_catalog(PERSONAS_DATA_CATALOG_NAME) else None
+    def _resolve_sampler_dataset_repository(self) -> LocalSamplerDatasetRepository | None:
+        dataset_repository = LocalSamplerDatasetRepository(self._managed_assets_path)
+        return dataset_repository if dataset_repository.has_access_to_data_catalog(PERSONAS_DATA_CATALOG_NAME) else None

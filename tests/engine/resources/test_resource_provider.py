@@ -53,7 +53,7 @@ def test_create_resource_provider_function_exists():
         "secret_resolver",
         "model_provider_registry",
         "datastore",
-        "dataset_manager",
+        "sampler_dataset_repository",
     ]
 
     for param in expected_params:

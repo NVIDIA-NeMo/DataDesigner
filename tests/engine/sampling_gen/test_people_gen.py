@@ -65,9 +65,11 @@ def test_people_with_personas_pgm(stub_people_gen_with_personas):
 
 def test_create_people_gen_resource_with_valid_locale():
     """Test that create_people_gen_resource succeeds with a valid locale."""
-    mock_dataset_manager = Mock()
-    mock_dataset_manager.has_access_to_table.return_value = True
-    mock_dataset_manager.get_table.return_value = Mock(name="en_us_v1")
+    mock_dataset_repository = Mock()
+    mock_dataset_repository.has_access_to_table.return_value = True
+    mock_table = Mock(name="en_us")
+    mock_dataset_repository.get_table.return_value = mock_table
+    mock_dataset_repository.get_all_tables.return_value = [mock_table]
 
     params = PersonSamplerParams(locale="en_US", age_range=[18, 65])
     column = ConditionalDataColumn(
@@ -77,16 +79,17 @@ def test_create_people_gen_resource_with_valid_locale():
     )
     schema = DataSchema(columns=[column])
 
-    result = create_people_gen_resource(schema, mock_dataset_manager)
+    result = create_people_gen_resource(schema, mock_dataset_repository)
 
-    mock_dataset_manager.has_access_to_table.assert_called_once_with("en_us", exact_match=False)
+    mock_dataset_repository.has_access_to_table.assert_called_once_with("en_us")
     assert params.people_gen_key in result
 
 
 def test_create_people_gen_resource_raises_error_for_unavailable_locale():
     """Test that create_people_gen_resource raises DatasetNotAvailableForLocaleError for unavailable locale."""
-    mock_dataset_manager = Mock()
-    mock_dataset_manager.has_access_to_table.return_value = False
+    mock_dataset_repository = Mock()
+    mock_dataset_repository.has_access_to_table.return_value = False
+    mock_dataset_repository.get_all_tables.return_value = []
 
     params = PersonSamplerParams(locale="en_US", age_range=[18, 65])
     column = ConditionalDataColumn(
@@ -97,21 +100,21 @@ def test_create_people_gen_resource_raises_error_for_unavailable_locale():
     schema = DataSchema(columns=[column])
 
     with pytest.raises(DatasetNotAvailableForLocaleError) as exc_info:
-        create_people_gen_resource(schema, mock_dataset_manager)
+        create_people_gen_resource(schema, mock_dataset_repository)
 
     assert "en_US" in str(exc_info.value)
     assert "not available" in str(exc_info.value).lower()
-    mock_dataset_manager.has_access_to_table.assert_called_once_with("en_us", exact_match=False)
+    mock_dataset_repository.has_access_to_table.assert_called_once_with("en_us")
 
 
 def test_create_people_gen_resource_validates_all_conditional_params():
     """Test that create_people_gen_resource validates locales in conditional params."""
-    mock_dataset_manager = Mock()
+    mock_dataset_repository = Mock()
 
     def has_access_side_effect(table_name: str, exact_match: bool = False) -> bool:
         return table_name == "en_us"
 
-    mock_dataset_manager.has_access_to_table.side_effect = has_access_side_effect
+    mock_dataset_repository.has_access_to_table.side_effect = has_access_side_effect
 
     base_params = PersonSamplerParams(locale="en_US", age_range=[18, 65])
     conditional_params = {"condition": PersonSamplerParams(locale="ja_JP", age_range=[25, 45])}
@@ -125,7 +128,7 @@ def test_create_people_gen_resource_validates_all_conditional_params():
     schema = DataSchema(columns=[column])
 
     with pytest.raises(DatasetNotAvailableForLocaleError) as exc_info:
-        create_people_gen_resource(schema, mock_dataset_manager)
+        create_people_gen_resource(schema, mock_dataset_repository)
 
     assert "ja_JP" in str(exc_info.value)
     assert "not available" in str(exc_info.value).lower()
@@ -133,11 +136,21 @@ def test_create_people_gen_resource_validates_all_conditional_params():
 
 def test_create_people_gen_resource_multiple_columns():
     """Test that create_people_gen_resource handles multiple person columns correctly."""
-    mock_dataset_manager = Mock()
-    mock_dataset_manager.has_access_to_table.return_value = True
-    mock_dataset_manager.get_table.side_effect = lambda catalog_name, table_name, exact_match: Mock(
-        name=f"{table_name}_v1"
-    )
+    mock_dataset_repository = Mock()
+    mock_dataset_repository.has_access_to_table.return_value = True
+
+    mock_table_us = Mock(name="en_us")
+    mock_table_jp = Mock(name="ja_jp")
+
+    def get_table_side_effect(table_name: str):
+        if table_name == "en_us":
+            return mock_table_us
+        elif table_name == "ja_jp":
+            return mock_table_jp
+        return Mock(name=table_name)
+
+    mock_dataset_repository.get_table.side_effect = get_table_side_effect
+    mock_dataset_repository.get_all_tables.return_value = [mock_table_us, mock_table_jp]
 
     params1 = PersonSamplerParams(locale="en_US", age_range=[18, 65])
     params2 = PersonSamplerParams(locale="ja_JP", age_range=[25, 45])
@@ -154,18 +167,18 @@ def test_create_people_gen_resource_multiple_columns():
     )
     schema = DataSchema(columns=[column1, column2])
 
-    result = create_people_gen_resource(schema, mock_dataset_manager)
+    result = create_people_gen_resource(schema, mock_dataset_repository)
 
-    assert mock_dataset_manager.has_access_to_table.call_count == 2
+    assert mock_dataset_repository.has_access_to_table.call_count == 2
     assert params1.people_gen_key in result
     assert params2.people_gen_key in result
 
 
 def test_create_people_gen_resource_with_personas():
     """Test that create_people_gen_resource correctly handles with_synthetic_personas parameter."""
-    mock_dataset_manager = Mock()
-    mock_dataset_manager.has_access_to_table.return_value = True
-    mock_dataset_manager.get_table.return_value = Mock(name="en_us_v1")
+    mock_dataset_repository = Mock()
+    mock_dataset_repository.has_access_to_table.return_value = True
+    mock_dataset_repository.get_table.return_value = Mock(name="en_us_v1")
 
     params = PersonSamplerParams(locale="en_US", age_range=[18, 65], with_synthetic_personas=True)
     column = ConditionalDataColumn(
@@ -175,7 +188,7 @@ def test_create_people_gen_resource_with_personas():
     )
     schema = DataSchema(columns=[column])
 
-    result = create_people_gen_resource(schema, mock_dataset_manager)
+    result = create_people_gen_resource(schema, mock_dataset_repository)
 
     assert params.people_gen_key == "en_US_with_personas"
     assert params.people_gen_key in result

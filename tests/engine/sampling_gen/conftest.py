@@ -182,6 +182,13 @@ def mock_person_generator_loader(locale: str = "en_US", with_synthetic_personas:
                             record[k] = v
             return pd.DataFrame(random.choices(records, k=size))
 
+        def generate_samples_from_table(self, table_name: str, size: int = 1, evidence: dict | None = None):
+            """Mock the generate_samples_from_table method for compatibility with refactored code."""
+            kwargs = {}
+            if evidence:
+                kwargs["evidence"] = evidence
+            return self.generate_samples(size=size, **kwargs)
+
     return MockPersonGenerator()
 
 
@@ -305,12 +312,12 @@ def stub_schema_builder():
 
 
 @pytest.fixture
-def stub_dataset_manager(stub_people_gen_resource, monkeypatch):
+def stub_dataset_repository(stub_people_gen_resource, monkeypatch):
     """Mock DatasetManager for testing by patching create_people_gen_resource."""
     from data_designer.engine.sampling_gen import generator
 
     # Patch the create_people_gen_resource function in the generator module
-    def mock_create_people_gen_resource(schema, dataset_manager):
+    def mock_create_people_gen_resource(schema, dataset_repository):
         return stub_people_gen_resource
 
     # Patch in both modules to be sure

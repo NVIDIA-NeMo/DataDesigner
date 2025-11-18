@@ -17,9 +17,13 @@ from data_designer.engine.resources.catalogs import DataCatalog, NemotronPersona
 logger = logging.getLogger(__name__)
 
 
-class SamplerDatasetManager(ABC):
-    def __init__(self, managed_assets_path: Path | str = None):
-        self.managed_assets_path = Path(managed_assets_path or MANAGED_ASSETS_DIR)
+class SamplerDatasetRepository(ABC):
+    def __init__(self, managed_assets_dir: Path | str = None):
+        self._managed_assets_dir = str(managed_assets_dir or MANAGED_ASSETS_DIR)
+
+    @property
+    def managed_assets_path(self) -> Path:
+        return Path(self._managed_assets_dir)
 
     @abstractmethod
     def get_data_catalog(self, name: str) -> DataCatalog: ...
@@ -45,9 +49,9 @@ class SamplerDatasetManager(ABC):
         return any(table.name == table_name for table in self.get_all_tables())
 
 
-class LocalSamplerDatasetManager(SamplerDatasetManager):
-    def __init__(self, managed_assets_path: Path | str = None):
-        super().__init__(managed_assets_path)
+class LocalSamplerDatasetRepository(SamplerDatasetRepository):
+    def __init__(self, managed_assets_dir: Path | str = None):
+        super().__init__(managed_assets_dir)
         self._data_catalogs = self._create_default_data_catalogs()
 
     def get_data_catalog(self, name: str) -> DataCatalog:
