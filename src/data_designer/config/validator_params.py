@@ -20,6 +20,13 @@ class ValidatorType(str, Enum):
 
 
 class CodeValidatorParams(ConfigBase):
+    """Configuration for code validation. Supports Python and SQL code validation.
+
+    Attributes:
+        code_lang: The language of the code to validate. Supported values include: `python`,
+            `sql:sqlite`, `sql:postgres`, `sql:mysql`, `sql:tsql`, `sql:bigquery`, `sql:ansi`.
+    """
+
     code_lang: CodeLang = Field(description="The language of the code to validate")
 
     @model_validator(mode="after")
@@ -32,6 +39,15 @@ class CodeValidatorParams(ConfigBase):
 
 
 class LocalCallableValidatorParams(ConfigBase):
+    """Configuration for local callable validation. Expects a function to be passed that validates the data.
+
+    Attributes:
+        validation_function: Function (`Callable[[pd.DataFrame], pd.DataFrame]`) to validate the
+            data. Output must contain a column `is_valid` of type `bool`.
+        output_schema: The JSON schema for the local callable validator's output. If not provided,
+            the output will not be validated.
+    """
+
     validation_function: Any = Field(
         description="Function (Callable[[pd.DataFrame], pd.DataFrame]) to validate the data"
     )
@@ -51,6 +67,18 @@ class LocalCallableValidatorParams(ConfigBase):
 
 
 class RemoteValidatorParams(ConfigBase):
+    """Configuration for remote validation. Sends data to a remote endpoint for validation.
+
+    Attributes:
+        endpoint_url: The URL of the remote endpoint.
+        output_schema: The JSON schema for the remote validator's output. If not provided,
+            the output will not be validated.
+        timeout: The timeout for the HTTP request in seconds. Defaults to 30.0.
+        max_retries: The maximum number of retry attempts. Defaults to 3.
+        retry_backoff: The backoff factor for the retry delay in seconds. Defaults to 2.0.
+        max_parallel_requests: The maximum number of parallel requests to make. Defaults to 4.
+    """
+
     endpoint_url: str = Field(description="URL of the remote endpoint")
     output_schema: Optional[dict[str, Any]] = Field(
         default=None, description="Expected schema for remote validator's output"

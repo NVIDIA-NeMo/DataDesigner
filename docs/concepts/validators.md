@@ -27,8 +27,7 @@ The Python code validator runs generated Python code through **Ruff**, a fast Py
 **Configuration:**
 
 ```python
-from data_designer.config.validator_params import CodeValidatorParams
-from data_designer.config.utils.code_lang import CodeLang
+from data_designer.essentials import CodeValidatorParams, CodeLang
 
 validator_params = CodeValidatorParams(code_lang=CodeLang.PYTHON)
 ```
@@ -78,8 +77,7 @@ The SQL code validator uses **SQLFluff**, a dialect-aware SQL linter that checks
 **Configuration:**
 
 ```python
-from data_designer.config.validator_params import CodeValidatorParams
-from data_designer.config.utils.code_lang import CodeLang
+from data_designer.essentials import CodeValidatorParams, CodeLang
 
 # Supports multiple SQL dialects
 validator_params = CodeValidatorParams(code_lang=CodeLang.SQL_POSTGRES)
@@ -113,12 +111,12 @@ The validator focuses on parsing errors (PRS codes) that indicate malformed SQL.
 
 ### 🔧 Local Callable Validator
 
-The local callable validator executes custom Python functions for flexible validation logic. This validator is **only available when running Data Designer locally**—it cannot be serialized to YAML or used in remote execution environments.
+The local callable validator executes custom Python functions for flexible validation logic.
 
 **Configuration:**
 
 ```python
-from data_designer.config.validator_params import LocalCallableValidatorParams
+from data_designer.essentials import LocalCallableValidatorParams
 import pandas as pd
 
 def my_validation_function(df: pd.DataFrame) -> pd.DataFrame:
@@ -178,7 +176,7 @@ The remote validator sends data to HTTP endpoints for validation-as-a-service. U
 **Configuration:**
 
 ```python
-from data_designer.config.validator_params import RemoteValidatorParams
+from data_designer.essentials import RemoteValidatorParams
 
 validator_params = RemoteValidatorParams(
     endpoint_url="https://api.example.com/validate",
@@ -254,9 +252,11 @@ Set `max_parallel_requests` to control concurrency. Higher values improve throug
 Add validation columns to your configuration using the builder's `add_column` method:
 
 ```python
-from data_designer.essentials import DataDesignerConfigBuilder
-from data_designer.config.validator_params import CodeValidatorParams
-from data_designer.config.utils.code_lang import CodeLang
+from data_designer.essentials import (
+    DataDesignerConfigBuilder,
+    CodeValidatorParams,
+    CodeLang,
+)
 
 builder = DataDesignerConfigBuilder()
 
@@ -276,90 +276,25 @@ builder.add_column(
     target_columns=["sorting_algorithm"],
     validator_type="code",
     validator_params=CodeValidatorParams(code_lang=CodeLang.PYTHON),
-    batch_size=10  # Process 10 records per batch
+    batch_size=10,
+    drop=False,
 )
 ```
 
 The `target_columns` parameter specifies which columns to validate. All target columns are passed to the validator together (except for code validators, which process each column separately).
 
-### Multiple Column Validation
-
-Validate multiple columns simultaneously:
+Alternatively, a `ValidationColumnConfig` object can be passed:
 
 ```python
 builder.add_column(
-    name="multi_column_validation",
-    column_type="validation",
-    target_columns=["column_a", "column_b", "column_c"],
-    validator_type="remote",
-    validator_params=RemoteValidatorParams(
-        endpoint_url="https://api.example.com/validate"
+    ValidationColumnConfig(
+        name="code_validation",
+        target_columns=["sorting_algorithm"],
+        validator_type="code",
+        validator_params=CodeValidatorParams(code_lang=CodeLang.PYTHON),
+        batch_size=10,
+        drop=False,
     )
-)
-```
-
-**Note**: Code validators always process each target column separately, even when multiple columns are specified. Other validators receive all target columns together.
-
-### SQL Validation Example
-
-```python
-# Generate SQL queries
-builder.add_column(
-    name="analytics_query",
-    column_type="llm-code",
-    prompt="Write a SQL query to calculate {{ metric }} grouped by {{ dimension }}.",
-    code_lang="sql:postgres",
-    model_alias="my-model"
-)
-
-# Validate SQL syntax
-builder.add_column(
-    name="query_validation",
-    column_type="validation",
-    target_columns=["analytics_query"],
-    validator_type="code",
-    validator_params=CodeValidatorParams(code_lang=CodeLang.SQL_POSTGRES),
-    batch_size=5
-)
-```
-
-### Filtering with Validation Results
-
-Use validation results to filter your dataset:
-
-```python
-# After generation
-result = designer.run()
-df = result.data
-
-# Keep only valid code
-valid_code = df[df["code_validation"].apply(lambda x: x["is_valid"])]
-
-# Filter by quality score
-high_quality = df[df["code_validation"].apply(lambda x: x.get("python_linter_score", 0) >= 8.0)]
-
-# Check severity levels
-no_errors = df[df["code_validation"].apply(
-    lambda x: x.get("python_linter_severity") not in ["error", "fatal"]
-)]
-```
-
-## Validation Column Configuration
-
-Validation columns are configured using `ValidationColumnConfig`:
-
-```python
-from data_designer.config.column_configs import ValidationColumnConfig
-from data_designer.config.validator_params import CodeValidatorParams
-from data_designer.config.utils.code_lang import CodeLang
-
-config = ValidationColumnConfig(
-    name="my_validation",
-    target_columns=["code_column"],
-    validator_type="code",
-    validator_params=CodeValidatorParams(code_lang=CodeLang.PYTHON),
-    batch_size=10,
-    drop=False  # Include validation results in output
 )
 ```
 
@@ -387,83 +322,27 @@ Adjust based on:
 - Network bandwidth (for remote validators)
 - Server rate limits
 
-## Common Patterns
+If the validation logic uses information from other samples, only samples in the batch will be considered.
 
-### Quality Scoring Pipeline
+### Multiple Column Validation
 
-```python
-# Generate code
-builder.add_column(
-    name="implementation",
-    column_type="llm-code",
-    prompt="Implement {{ task }}",
-    code_lang="python",
-    model_alias="code-model"
-)
-
-# Validate code quality
-builder.add_column(
-    name="quality_check",
-    column_type="validation",
-    target_columns=["implementation"],
-    validator_type="code",
-    validator_params=CodeValidatorParams(code_lang=CodeLang.PYTHON)
-)
-
-# Score with LLM judge
-builder.add_column(
-    name="human_readability",
-    column_type="llm-judge",
-    prompt="Rate the readability of this code:\n{{ implementation }}",
-    scores=[
-        Score(
-            name="readability",
-            description="Code readability",
-            options={"1": "Poor", "2": "Fair", "3": "Good", "4": "Excellent"}
-        )
-    ],
-    model_alias="judge-model"
-)
-```
-
-### Multi-Stage Validation
+Validate multiple columns simultaneously:
 
 ```python
-# Stage 1: Syntax validation
-builder.add_column(
-    name="syntax_check",
-    column_type="validation",
-    target_columns=["query"],
-    validator_type="code",
-    validator_params=CodeValidatorParams(code_lang=CodeLang.SQL_POSTGRES)
-)
+from data_designer.essentials import RemoteValidatorParams
 
-# Stage 2: Semantic validation (remote service)
 builder.add_column(
-    name="semantic_check",
+    name="multi_column_validation",
     column_type="validation",
-    target_columns=["query"],
+    target_columns=["column_a", "column_b", "column_c"],
     validator_type="remote",
     validator_params=RemoteValidatorParams(
-        endpoint_url="https://api.example.com/validate-sql-semantics"
+        endpoint_url="https://api.example.com/validate"
     )
 )
 ```
 
-### Development vs. Production
-
-Use `drop=True` to include validation during development but exclude from production:
-
-```python
-builder.add_column(
-    name="debug_validation",
-    column_type="validation",
-    target_columns=["generated_content"],
-    validator_type="code",
-    validator_params=CodeValidatorParams(code_lang=CodeLang.PYTHON),
-    drop=True  # Generate but don't include in final output
-)
-```
+**Note**: Code validators always process each target column separately, even when multiple columns are specified. Other validators receive all target columns together.
 
 ## Best Practices
 
@@ -516,88 +395,12 @@ builder.add_column(name="quality_score", column_type="llm-judge", ...)  # Human-
 Always provide `output_schema` for local callable and remote validators to catch unexpected output formats:
 
 ```python
+from data_designer.essentials import LocalCallableValidatorParams
+
 validator_params = LocalCallableValidatorParams(
     validation_function=my_function,
     output_schema={...}  # Define expected structure
 )
-```
-
-## Advanced Usage
-
-### Custom Validation Logic (Local Callable)
-
-```python
-import pandas as pd
-from data_designer.config.validator_params import LocalCallableValidatorParams
-
-def validate_email_domain(df: pd.DataFrame) -> pd.DataFrame:
-    """Check if emails use allowed domains."""
-    allowed_domains = ["@company.com", "@company.org"]
-
-    result = pd.DataFrame()
-    result["is_valid"] = df["email"].apply(
-        lambda email: any(domain in email for domain in allowed_domains)
-    )
-    result["domain"] = df["email"].apply(lambda email: email.split("@")[1] if "@" in email else "")
-    result["error"] = result["is_valid"].apply(
-        lambda valid: "" if valid else f"Domain must be one of {allowed_domains}"
-    )
-    return result
-
-builder.add_column(
-    name="email_validation",
-    column_type="validation",
-    target_columns=["email"],
-    validator_type="local_callable",
-    validator_params=LocalCallableValidatorParams(
-        validation_function=validate_email_domain
-    )
-)
-```
-
-### Remote Validator with Authentication
-
-For endpoints requiring authentication, configure your HTTP client in the remote service:
-
-```python
-# Note: Current implementation doesn't support auth headers directly
-# You may need to implement a proxy service that adds authentication
-validator_params = RemoteValidatorParams(
-    endpoint_url="https://api.example.com/validate",
-    max_parallel_requests=2,  # Respect rate limits
-    timeout=60.0  # Longer timeout for complex validation
-)
-```
-
-## Validation Output Structure
-
-All validators return results conforming to this structure:
-
-```python
-{
-    "is_valid": bool | None,  # Pass/fail status (None if validation couldn't run)
-    # ... additional validator-specific fields
-}
-```
-
-The `is_valid` field is required; all other fields are validator-specific metadata.
-
-### Accessing Validation Results
-
-```python
-result = designer.run()
-df = result.data
-
-# Access validation column
-validation_results = df["my_validation"]
-
-# Extract specific fields
-is_valid = validation_results.apply(lambda x: x["is_valid"])
-scores = validation_results.apply(lambda x: x.get("python_linter_score", None))
-
-# Convert to separate columns for easier analysis
-df["is_valid"] = is_valid
-df["linter_score"] = scores
 ```
 
 ## Limitations
@@ -620,7 +423,5 @@ df["linter_score"] = scores
 
 ## See Also
 
-- [Columns Concept](columns.md): Understanding column types and dependencies
-- [Column Configuration Reference](../code_reference/column_configs.md): Detailed API documentation
-- [Validator Parameters Reference](../code_reference/column_configs.md): Configuration object schemas
+- [Validator Parameters Reference](../code_reference/validator_params.md): Configuration object schemas
 

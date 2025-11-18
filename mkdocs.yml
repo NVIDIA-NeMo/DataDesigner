@@ -24,6 +24,7 @@ nav:
       - column_configs: code_reference/column_configs.md
       - config_builder: code_reference/config_builder.md
       - data_designer_config: code_reference/data_designer_config.md
+      - validator_params: code_reference/validator_params.md
 
 theme:
   name: material
