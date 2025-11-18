@@ -2,8 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from functools import cached_property
 import logging
 from pathlib import Path
 import tempfile
@@ -13,49 +11,10 @@ import time
 import duckdb
 import pandas as pd
 
-from data_designer.config.utils.constants import LOCALES_WITH_MANAGED_DATASETS
-from data_designer.engine.resources.managed_storage import LocalBlobStorageProvider, ManagedBlobStorage
+from data_designer.config.utils.constants import PERSONAS_DATA_CATALOG_NAME
+from data_designer.engine.resources.managed_assets import DataCatalog, DatasetManager, LocalDatasetManager
 
 logger = logging.getLogger(__name__)
-
-DATASETS_ROOT = "datasets"
-"""
-Path in object storage to managed datasets
-"""
-
-
-@dataclass
-class Table:
-    """
-    Managed datasets are organized by dataset by table under a root
-    table path in object storage.
-    """
-
-    source: str
-    """
-    Table source path
-    """
-
-    schema: str = "main"
-    """
-    Specifies the schema to use when registering the table.
-
-    Note: this is not the schema of the table, but rather the _database_
-    schema to associated with the table.
-    """
-
-    @cached_property
-    def name(self) -> str:
-        return Path(self.source).stem
-
-
-DataCatalog = list[Table]
-
-
-# For now we hardcode the remote data catalog in code. This make it easier
-# initialize the data catalog. Eventually we can make this work more
-# dynamically once this data catalog pattern becomes more widely adopted.
-DEFAULT_DATA_CATALOG: DataCatalog = [Table(f"{locale}.parquet") for locale in LOCALES_WITH_MANAGED_DATASETS]
 
 
 class ManagedDatasetRepository(ABC):
@@ -72,33 +31,30 @@ class DuckDBDatasetRepository(ManagedDatasetRepository):
     Provides a duckdb based sql interface over Gretel managed datasets.
     """
 
-    _default_config = {"threads": 2, "memory_limit": "4 gb"}
+    _default_config = {"threads": 1, "memory_limit": "2 gb"}
 
     def __init__(
         self,
-        blob_storage: ManagedBlobStorage,
+        dataset_manager: DatasetManager,
+        data_catalog_names: list[str],
         config: dict | None = None,
-        data_catalog: DataCatalog = DEFAULT_DATA_CATALOG,
-        datasets_root: str = DATASETS_ROOT,
         use_cache: bool = True,
     ):
         """
         Create a new DuckDB backed dataset repository
 
         Args:
-            blob_storage: A managed blob storage provider
+            dataset_manager: A dataset manager
+            data_catalog_names: A list of data catalog names to register with the DuckDB instance
             config: DuckDB configuration options,
             https://duckdb.org/docs/configuration/overview.html#configuration-reference
-            data_catalog: A list of tables to register with the DuckDB instance
-            datasets_root: The root path in blob storage to managed datasets
             use_cache: Whether to cache datasets locally. Trades off disk memory
             and startup time for faster queries.
         """
-        self._data_catalog = data_catalog
-        self._datasets_root = datasets_root
-        self._blob_storage = blob_storage
+        self._dataset_manager = dataset_manager
         self._config = self._default_config if config is None else config
         self._use_cache = use_cache
+        self._data_catalog_names = data_catalog_names
 
         # Configure database and register tables
         self.db = duckdb.connect(config=self._config)
@@ -126,16 +82,15 @@ class DuckDBDatasetRepository(ManagedDatasetRepository):
             if self._registration_event.is_set():
                 return
             try:
-                for table in self.data_catalog:
-                    key = table.source if table.schema == "main" else f"{table.schema}/{table.source}"
+                for table in self._dataset_manager.get_data_catalogs(self._data_catalog_names, flatten=True):
                     if self._use_cache:
                         tmp_root = Path(tempfile.gettempdir()) / "dd_cache"
-                        local_path = tmp_root / key
+                        local_path = tmp_root / table.name
                         local_path.parent.mkdir(parents=True, exist_ok=True)
                         if not local_path.exists():
                             start = time.time()
                             logger.debug("Caching database %s to %s", table.name, local_path)
-                            with self._blob_storage.get_blob(f"{self._datasets_root}/{key}") as src_fd:
+                            with self._dataset_manager.table_reader(table.source) as src_fd:
                                 with open(local_path, "wb") as dst_fd:
                                     dst_fd.write(src_fd.read())
                             logger.debug(
@@ -145,11 +100,9 @@ class DuckDBDatasetRepository(ManagedDatasetRepository):
                             )
                         data_path = local_path.as_posix()
                     else:
-                        data_path = self._blob_storage.uri_for_key(f"{self._datasets_root}/{key}")
-                    if table.schema != "main":
-                        self.db.sql(f"CREATE SCHEMA IF NOT EXISTS {table.schema}")
+                        data_path = table.source
                     logger.debug(f"Registering dataset {table.name} from {data_path}")
-                    self.db.sql(f"CREATE VIEW {table.schema}.{table.name} AS FROM '{data_path}'")
+                    self.db.sql(f"CREATE VIEW '{table.name}' AS FROM '{data_path}'")
 
                 logger.debug("DuckDBDatasetRepository registration complete")
 
@@ -180,13 +133,15 @@ class DuckDBDatasetRepository(ManagedDatasetRepository):
 
     @property
     def data_catalog(self) -> DataCatalog:
-        return self._data_catalog
+        return self._dataset_manager.get_data_catalog()
 
 
-def load_managed_dataset_repository(blob_storage: ManagedBlobStorage) -> ManagedDatasetRepository:
+def create_dataset_repository(
+    dataset_manager: DatasetManager,
+    data_catalog_names: list[str] | None = None,
+) -> ManagedDatasetRepository:
     return DuckDBDatasetRepository(
-        blob_storage,
-        {"threads": 1, "memory_limit": "2 gb"},
-        # Only cache if not using local storage.
-        use_cache=not isinstance(blob_storage, LocalBlobStorageProvider),
+        dataset_manager,
+        data_catalog_names=data_catalog_names or [PERSONAS_DATA_CATALOG_NAME],
+        use_cache=not isinstance(dataset_manager, LocalDatasetManager),
     )

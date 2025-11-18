@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import networkx as nx
@@ -19,7 +18,7 @@ from data_designer.engine.sampling_gen.utils import check_random_state
 
 if TYPE_CHECKING:
     from data_designer.engine.dataset_builders.multi_column_configs import SamplerMultiColumnConfig
-    from data_designer.engine.resources.managed_dataset_generator import ManagedDatasetGenerator
+    from data_designer.engine.resources.managed_assets import DatasetManager
     from data_designer.engine.sampling_gen.column import ConditionalDataColumn
 
 
@@ -33,8 +32,7 @@ class DatasetGenerator:
     Args:
         sampler_columns: Sampler columns to generate.
         random_state: Random number generator or seed for reproducibility.
-        person_generator_loader: A function that loads a person generator. If None,
-            person generation will not be supported.
+        dataset_manager: A dataset manager for sampling person data from managed datasets.
 
     Note:
         The generator leverages the schema's DAG to topologically sort the columns
@@ -44,29 +42,23 @@ class DatasetGenerator:
 
     def __init__(
         self,
-        sampler_columns: SamplerMultiColumnConfig | None,
+        sampler_columns: SamplerMultiColumnConfig,
+        dataset_manager: DatasetManager,
         random_state: RadomStateT | None = None,
-        person_generator_loader: Callable[[bool], ManagedDatasetGenerator] | None = None,
         *,
-        schema: DataSchema | None = None,
         max_rejections_factor: int = 5,
     ):
-        # This is temporary while we need the legacy and refactored code to coexist.
-        if schema is not None:
-            self.schema = schema
-            self.max_rejections_factor = max_rejections_factor
-        else:
-            self.schema = DataSchema(
-                columns=[column.model_dump() for column in sampler_columns.columns],
-                constraints=sampler_columns.constraints,
-            )
-            self.max_rejections_factor = sampler_columns.max_rejections_factor
+        self.schema = DataSchema(
+            columns=[column.model_dump() for column in sampler_columns.columns],
+            constraints=sampler_columns.constraints,
+        )
+        self.max_rejections_factor = sampler_columns.max_rejections_factor
 
         self.rng = check_random_state(random_state)
         self._dag = self.schema.dag.to_networkx()
         self._shared_sampler_kwargs = {
             "random_state": self.rng,
-            "people_gen_resource": create_people_gen_resource(self.schema, person_generator_loader),
+            "people_gen_resource": create_people_gen_resource(self.schema, dataset_manager),
         }
 
     def _round_if_needed(self, column: ConditionalDataColumn, df: pd.DataFrame) -> pd.DataFrame:

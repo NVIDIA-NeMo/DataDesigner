@@ -9,8 +9,8 @@ from data_designer.engine.resources.managed_dataset_repository import ManagedDat
 
 
 class ManagedDatasetGenerator:
-    def __init__(self, managed_datasets: ManagedDatasetRepository, dataset_name: str):
-        self.managed_datasets = managed_datasets
+    def __init__(self, dataset_repo: ManagedDatasetRepository, dataset_name: str):
+        self.dataset_repo = dataset_repo
         self.dataset_name = dataset_name
 
     def generate_samples(
@@ -19,7 +19,7 @@ class ManagedDatasetGenerator:
         evidence: dict[str, Any | list[Any]] = {},
         seed: int | None = None,
     ) -> pd.DataFrame:
-        query = f"select * from {self.dataset_name}"
+        query = f"select * from '{self.dataset_name}'"
         # Build the WHERE clause if there are filters
         # NOTE: seed is not used because it's not straightforward
         # to make randomization both fast and repeatable
@@ -34,4 +34,4 @@ class ManagedDatasetGenerator:
             if where_conditions:
                 query += " where " + " and ".join(where_conditions)
         query += f" order by random() limit {size}"
-        return self.managed_datasets.query(query)
+        return self.dataset_repo.query(query)

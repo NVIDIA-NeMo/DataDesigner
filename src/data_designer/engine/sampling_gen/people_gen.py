@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Callable
 from copy import deepcopy
 import random
 from typing import TYPE_CHECKING, Any, Union
@@ -13,21 +12,24 @@ import uuid
 from faker import Faker
 import pandas as pd
 
+from data_designer.config.sampler_params import SamplerParamsT
 from data_designer.config.utils.constants import (
     AVAILABLE_LOCALES,
     DEFAULT_AGE_RANGE,
-    LOCALES_WITH_MANAGED_DATASETS,
+    PERSONAS_DATA_CATALOG_NAME,
 )
 from data_designer.engine.resources.managed_dataset_generator import ManagedDatasetGenerator
+from data_designer.engine.resources.managed_dataset_repository import create_dataset_repository
 from data_designer.engine.sampling_gen.entities.dataset_based_person_fields import PERSONA_FIELDS, PII_FIELDS
 from data_designer.engine.sampling_gen.entities.person import (
     convert_age_to_birth_date,
     generate_and_insert_derived_fields,
 )
-from data_designer.engine.sampling_gen.errors import DatasetNotAvailableForLocaleError
+from data_designer.engine.sampling_gen.errors import DatasetNotAvailableForLocaleError, ManagedDatasetRepositoryError
 from data_designer.engine.sampling_gen.person_constants import faker_constants
 
 if TYPE_CHECKING:
+    from data_designer.engine.resources.managed_assets import DatasetManager
     from data_designer.engine.sampling_gen.schema import DataSchema
 
 
@@ -110,7 +112,6 @@ class PeopleGenFaker(PeopleGen):
         person.update(self._generate_address_fields(**kwargs))
         person.update({"age": self._generate_age(**kwargs)})
         person.update({"birth_date": convert_age_to_birth_date(person["age"]).isoformat()})
-        person.update({"country": self.try_fake_else_none("country")})
         person.update({"marital_status": self._generate_marital_status(**kwargs)})
         person.update({"education_level": self._generate_education_level(**kwargs)})
         person.update({"unit": ""})
@@ -155,10 +156,7 @@ class PeopleGenFromDataset(PeopleGen):
         ]
 
 
-def create_people_gen_resource(
-    schema: DataSchema,
-    person_generator_loader: Callable[[bool], ManagedDatasetGenerator] | None = None,
-) -> dict[str, PeopleGen]:
+def create_people_gen_resource(schema: DataSchema, dataset_manager: DatasetManager) -> dict[str, PeopleGen]:
     """Creates resource of unique people generators needed to generate the dataset.
 
     The resource is a dictionary of person generators, where the keys are the following:
@@ -168,30 +166,49 @@ def create_people_gen_resource(
 
     Args:
         schema: Schema of the dataset that we will generate.
-        person_generator_loader: Function that loads a managed dataset generator.
+        dataset_manager: Dataset manager for sampling person data from managed datasets.
 
     Returns:
         Dictionary of unique people generators needed to generate the dataset.
     """
     people_gen_resource = {}
 
+    # ------------------------------------------------------------
+    # Preload dataset-based person generators
+    # ------------------------------------------------------------
     for column in schema.get_columns_by_sampler_type("person"):
-        for params in [column.params, *list(column.conditional_params.values())]:
+        for params in [column.params, *list[SamplerParamsT](column.conditional_params.values())]:
+            if not dataset_manager.has_access_to_table(params.locale.lower(), exact_match=False):
+                raise DatasetNotAvailableForLocaleError(
+                    f"🛑 Locale {params.locale} is not available in the dataset manager. "
+                    "Please check if you have access to person data for this locale. "
+                )
             if params.people_gen_key not in people_gen_resource:
-                if params.locale in LOCALES_WITH_MANAGED_DATASETS:
-                    try:
-                        engine = person_generator_loader(locale=params.locale)
-                        people_gen_resource[params.people_gen_key] = PeopleGenFromDataset(
-                            engine=engine, locale=params.locale
-                        )
-                    except Exception as e:
-                        raise DatasetNotAvailableForLocaleError(
-                            f"🛑 Failed to load dataset-based person generator for locale {params.locale}. "
-                            "Please check if you have access to person data for this locale. "
-                        ) from e
-                else:
-                    people_gen_resource[params.people_gen_key] = PeopleGenFaker(
-                        engine=Faker(params.locale), locale=params.locale
+                try:
+                    engine = ManagedDatasetGenerator(
+                        dataset_repo=create_dataset_repository(dataset_manager),
+                        dataset_name=dataset_manager.get_table(
+                            catalog_name=PERSONAS_DATA_CATALOG_NAME,
+                            table_name=params.locale.lower(),
+                            exact_match=False,
+                        ).name,
                     )
+                    people_gen_resource[params.people_gen_key] = PeopleGenFromDataset(
+                        engine=engine, locale=params.locale
+                    )
+                except Exception as e:
+                    raise ManagedDatasetRepositoryError(
+                        f"🛑 Failed to load dataset-based person generator for locale {params.locale}. "
+                        "Please check if you have access to person data for this locale. "
+                    ) from e
 
+    # ------------------------------------------------------------
+    # Preload faker-based person generators
+    # ------------------------------------------------------------
+    for column in schema.get_columns_by_sampler_type("faker_person"):
+        for params in [column.params, *list[SamplerParamsT](column.conditional_params.values())]:
+            if params.people_gen_key not in people_gen_resource:
+                people_gen_resource[params.people_gen_key] = PeopleGenFaker(
+                    engine=Faker(params.locale), locale=params.locale
+                )
     return people_gen_resource

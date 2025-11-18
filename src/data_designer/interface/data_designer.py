@@ -2,13 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
-import os
 from pathlib import Path
 
 import pandas as pd
 
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
-from data_designer.config.column_types import ColumnConfigT, DataDesignerColumnType
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.default_model_settings import (
     get_default_model_configs,
@@ -22,13 +20,13 @@ from data_designer.config.models import (
     ModelProvider,
 )
 from data_designer.config.preview_results import PreviewResults
-from data_designer.config.sampler_params import SamplerType
 from data_designer.config.seed import LocalSeedDatasetReference
 from data_designer.config.utils.constants import (
-    BLOB_STORAGE_ENV_VAR_NAME,
     DEFAULT_NUM_RECORDS,
+    MANAGED_ASSETS_PATH,
     MODEL_CONFIGS_FILE_PATH,
     MODEL_PROVIDERS_FILE_PATH,
+    PERSONAS_DATA_CATALOG_NAME,
 )
 from data_designer.config.utils.info import InterfaceInfo
 from data_designer.config.utils.io_helpers import write_seed_dataset
@@ -42,16 +40,14 @@ from data_designer.engine.dataset_builders.column_wise_builder import ColumnWise
 from data_designer.engine.dataset_builders.utils.config_compiler import compile_dataset_builder_column_configs
 from data_designer.engine.model_provider import resolve_model_provider_registry
 from data_designer.engine.models.registry import create_model_registry
-from data_designer.engine.resources.managed_storage import ManagedBlobStorage
+from data_designer.engine.resources.managed_assets import LocalDatasetManager
 from data_designer.engine.resources.resource_provider import ResourceProvider
 from data_designer.engine.resources.seed_dataset_data_store import HfHubSeedDatasetDataStore, LocalSeedDatasetDataStore
-from data_designer.engine.resources.utils import init_managed_blob_storage
 from data_designer.engine.secret_resolver import EnvironmentResolver, SecretResolver
 from data_designer.interface.errors import (
     DataDesignerGenerationError,
     DataDesignerProfilingError,
     InvalidBufferValueError,
-    MissingBlobStorageError,
 )
 from data_designer.interface.results import DatasetCreationResults
 from data_designer.logging import RandomEmoji
@@ -81,10 +77,10 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             uses default providers.
         secret_resolver: Resolver for handling secrets and credentials. Defaults to
             EnvironmentResolver which reads secrets from environment variables.
-        blob_storage_path: Path to the blob storage directory. This is used to point
+        managed_assets_path: Path to the managed assets directory. This is used to point
             to the location of managed datasets and other assets used during dataset generation.
-            If not provided, will check for an environment variable called DATA_DESIGNER_BLOB_STORAGE.
-            If not found, features that require blob storage will be disabled.
+            If not provided, will check for an environment variable called DATA_DESIGNER_MANAGED_ASSETS_PATH.
+            If not found, features that require managed assets will be disabled.
     """
 
     def __init__(
@@ -93,12 +89,12 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         *,
         model_providers: list[ModelProvider] | None = None,
         secret_resolver: SecretResolver = EnvironmentResolver(),
-        blob_storage_path: Path | str | None = None,
+        managed_assets_path: Path | str | None = None,
     ):
         self._secret_resolver = secret_resolver
         self._artifact_path = Path(artifact_path) if artifact_path is not None else Path.cwd() / "artifacts"
         self._buffer_size = DEFAULT_BUFFER_SIZE
-        self._blob_storage = self._resolve_blob_storage(blob_storage_path)
+        self._managed_assets_path = Path(managed_assets_path or MANAGED_ASSETS_PATH)
         self._model_providers = model_providers or self.get_default_model_providers()
         self._model_provider_registry = resolve_model_provider_registry(
             self._model_providers, get_default_provider_name()
@@ -326,7 +322,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
                 model_provider_registry=self._model_provider_registry,
                 secret_resolver=self._secret_resolver,
             ),
-            blob_storage=self._blob_storage,
+            dataset_manager=self._resolve_nemotron_personas_datasets(),
             datastore=(
                 LocalSeedDatasetDataStore()
                 if (settings := config_builder.get_seed_datastore_settings()) is None
@@ -337,17 +333,6 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             ),
         )
 
-    def _resolve_blob_storage(self, blob_storage_path: Path | str | None) -> ManagedBlobStorage | None:
-        return (
-            None
-            if (blob_storage_path or os.getenv(BLOB_STORAGE_ENV_VAR_NAME)) is None
-            else init_managed_blob_storage(str(blob_storage_path))
-        )
-
-    def _validate_managed_dataset_access(self, columns: list[ColumnConfigT]) -> None:
-        for column in columns:
-            if column.column_type == DataDesignerColumnType.SAMPLER and column.sampler_type == SamplerType.PERSON:
-                if self._blob_storage is None:
-                    raise MissingBlobStorageError(
-                        "🛑Blob storage is required to sample person data from managed datasets."
-                    )
+    def _resolve_nemotron_personas_datasets(self) -> LocalDatasetManager | None:
+        dataset_manager = LocalDatasetManager(self._managed_assets_path)
+        return dataset_manager if dataset_manager.has_access_to_data_catalog(PERSONAS_DATA_CATALOG_NAME) else None
