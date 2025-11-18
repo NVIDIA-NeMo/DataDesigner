@@ -106,7 +106,7 @@ class DuckDBDatasetGenerator(ManagedDatasetGenerator):
                 # Signal that registration is complete so any waiting queries can proceed.
                 self._registration_event.set()
 
-    def query(self, sql: str) -> pd.DataFrame:
+    def query(self, sql: str, parameters: list[Any]) -> pd.DataFrame:
         # Ensure dataset registration has completed. Possible future optimization:
         # pull datasets in parallel and only wait here if the query requires a
         # table that isn't cached.
@@ -119,7 +119,7 @@ class DuckDBDatasetGenerator(ManagedDatasetGenerator):
         # more details here: https://duckdb.org/docs/stable/guides/python/multiple_threads.html
         cursor = self.db.cursor()
         try:
-            df = cursor.sql(sql).df()
+            df = cursor.execute(sql, parameters).df()
         finally:
             cursor.close()
         return df
@@ -129,24 +129,22 @@ class DuckDBDatasetGenerator(ManagedDatasetGenerator):
         table_name: str,
         size: int = 1,
         evidence: dict[str, Any | list[Any]] = {},
-        seed: int | None = None,
     ) -> pd.DataFrame:
         query = f"select * from '{table_name}'"
-        # Build the WHERE clause if there are filters
-        # NOTE: seed is not used because it's not straightforward
-        # to make randomization both fast and repeatable
+        parameters = []
         if evidence:
             where_conditions = []
             for column, values in evidence.items():
                 if values:
                     values = values if isinstance(values, list) else [values]
-                    formatted_values = [f"'{val}'" for val in values]
+                    formatted_values = ["?"] * len(values)
                     condition = f"{column} IN ({', '.join(formatted_values)})"
                     where_conditions.append(condition)
+                    parameters.extend(values)
             if where_conditions:
                 query += " where " + " and ".join(where_conditions)
         query += f" order by random() limit {size}"
-        return self.query(query)
+        return self.query(query, parameters)
 
 
 def create_managed_dataset_generator(dataset_repository: SamplerDatasetRepository) -> ManagedDatasetGenerator:

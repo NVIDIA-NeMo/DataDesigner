@@ -87,17 +87,17 @@ def test_duckdb_dataset_repository_query_basic(mock_duckdb, stub_dataset_reposit
 
     mock_duckdb.connect.return_value = mock_db
     mock_db.cursor.return_value = mock_cursor
-    mock_cursor.sql.return_value.df.return_value = mock_df
+    mock_cursor.execute.return_value.df.return_value = mock_df
 
     with patch("data_designer.engine.resources.managed_dataset_generator.threading.Thread"):
         repo = DuckDBDatasetGenerator(stub_dataset_repository)
 
         repo._registration_event.set()
 
-        result = repo.query("SELECT * FROM test")
+        result = repo.query("SELECT * FROM test", [])
 
         mock_db.cursor.assert_called_once()
-        mock_cursor.sql.assert_called_once_with("SELECT * FROM test")
+        mock_cursor.execute.assert_called_once_with("SELECT * FROM test", [])
         mock_cursor.close.assert_called_once()
 
         pd.testing.assert_frame_equal(result, mock_df)
@@ -111,7 +111,7 @@ def test_duckdb_dataset_repository_query_waits_for_registration(mock_duckdb, stu
 
     mock_duckdb.connect.return_value = mock_db
     mock_db.cursor.return_value = mock_cursor
-    mock_cursor.sql.return_value.df.return_value = mock_df
+    mock_cursor.execute.return_value.df.return_value = mock_df
 
     with patch("data_designer.engine.resources.managed_dataset_generator.threading.Thread"):
         repo = DuckDBDatasetGenerator(stub_dataset_repository)
@@ -123,9 +123,9 @@ def test_duckdb_dataset_repository_query_waits_for_registration(mock_duckdb, stu
 
         repo._registration_event.wait = mock_wait
 
-        result = repo.query("SELECT * FROM test")
+        result = repo.query("SELECT * FROM test", [])
 
-        mock_cursor.sql.assert_called_once_with("SELECT * FROM test")
+        mock_cursor.execute.assert_called_once_with("SELECT * FROM test", [])
         pd.testing.assert_frame_equal(result, mock_df)
 
 
@@ -136,13 +136,13 @@ def test_duckdb_dataset_repository_query_cursor_cleanup(mock_duckdb, stub_datase
 
     mock_duckdb.connect.return_value = mock_db
     mock_db.cursor.return_value = mock_cursor
-    mock_cursor.sql.side_effect = Exception("Query failed")
+    mock_cursor.execute.side_effect = Exception("Query failed")
 
     with patch("data_designer.engine.resources.managed_dataset_generator.threading.Thread"):
         repo = DuckDBDatasetGenerator(stub_dataset_repository)
         repo._registration_event.set()
 
         with pytest.raises(Exception, match="Query failed"):
-            repo.query("SELECT * FROM test")
+            repo.query("SELECT * FROM test", [])
 
         mock_cursor.close.assert_called_once()

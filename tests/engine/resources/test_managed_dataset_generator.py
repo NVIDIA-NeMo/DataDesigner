@@ -30,58 +30,60 @@ def test_managed_dataset_generator_init(mock_duckdb, stub_dataset_repository):
 
 
 @pytest.mark.parametrize(
-    "size,evidence,seed,expected_query_pattern",
+    "size,evidence,expected_query_pattern,expected_params",
     [
-        (2, None, None, "select * from 'en_US' order by random() limit 2"),
+        (2, None, "select * from 'en_US' order by random() limit 2", []),
         (
             1,
             {"name": "John"},
-            None,
-            "select * from 'en_US' where name IN ('John') order by random() limit 1",
+            "select * from 'en_US' where name IN (?) order by random() limit 1",
+            ["John"],
         ),
         (
             3,
             {"name": ["John", "Jane"], "age": [25]},
-            None,
-            "select * from 'en_US' where name IN ('John', 'Jane') and age IN ('25') order by random() limit 3",
+            "select * from 'en_US' where name IN (?, ?) and age IN (?) order by random() limit 3",
+            ["John", "Jane", 25],
         ),
         (
             1,
             {"name": [], "age": None},
-            None,
             "select * from 'en_US' order by random() limit 1",
+            [],
         ),
-        (1, None, 12345, "select * from 'en_US' order by random() limit 1"),
         (
             None,
             None,
-            None,
             "select * from 'en_US' order by random() limit 1",
+            [],
         ),
     ],
 )
 @patch("data_designer.engine.resources.managed_dataset_generator.duckdb", autospec=True)
-def test_generate_samples_scenarios(mock_duckdb, stub_dataset_repository, size, evidence, seed, expected_query_pattern):
+def test_generate_samples_scenarios(
+    mock_duckdb, stub_dataset_repository, size, evidence, expected_query_pattern, expected_params
+):
     mock_db = Mock()
     mock_cursor = Mock()
     mock_df = pd.DataFrame({"col1": [1, 2, 3]})
 
     mock_duckdb.connect.return_value = mock_db
     mock_db.cursor.return_value = mock_cursor
-    mock_cursor.sql.return_value.df.return_value = mock_df
+    mock_cursor.execute.return_value.df.return_value = mock_df
 
     with patch("data_designer.engine.resources.managed_dataset_generator.threading.Thread"):
         generator = DuckDBDatasetGenerator(stub_dataset_repository)
         generator._registration_event.set()
 
         if size is None:
-            result = generator.generate_samples_from_table(table_name="en_US", evidence=evidence, seed=seed)
+            result = generator.generate_samples_from_table(table_name="en_US", evidence=evidence)
         else:
-            result = generator.generate_samples_from_table(table_name="en_US", size=size, evidence=evidence, seed=seed)
+            result = generator.generate_samples_from_table(table_name="en_US", size=size, evidence=evidence)
 
-        mock_cursor.sql.assert_called_once()
-        call_args = mock_cursor.sql.call_args[0][0]
-        assert expected_query_pattern in call_args
+        mock_cursor.execute.assert_called_once()
+        call_args = mock_cursor.execute.call_args[0]
+        assert expected_query_pattern == call_args[0]
+        assert expected_params == call_args[1]
 
         assert isinstance(result, pd.DataFrame)
 
@@ -94,7 +96,7 @@ def test_generate_samples_different_locale(mock_duckdb, stub_dataset_repository)
 
     mock_duckdb.connect.return_value = mock_db
     mock_db.cursor.return_value = mock_cursor
-    mock_cursor.sql.return_value.df.return_value = mock_df
+    mock_cursor.execute.return_value.df.return_value = mock_df
 
     with patch("data_designer.engine.resources.managed_dataset_generator.threading.Thread"):
         generator = DuckDBDatasetGenerator(stub_dataset_repository)
@@ -103,6 +105,6 @@ def test_generate_samples_different_locale(mock_duckdb, stub_dataset_repository)
         result = generator.generate_samples_from_table(table_name="ja_JP", size=1)
 
         expected_query = "select * from 'ja_JP' order by random() limit 1"
-        mock_cursor.sql.assert_called_once_with(expected_query)
+        mock_cursor.execute.assert_called_once_with(expected_query, [])
 
         assert isinstance(result, pd.DataFrame)
