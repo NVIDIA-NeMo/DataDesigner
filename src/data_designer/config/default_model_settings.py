@@ -1,8 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+
+from functools import lru_cache
 import logging
-from typing import Literal
+from pathlib import Path
+from typing import Any, Literal, Optional
 
 from .models import InferenceParameters, ModelConfig, ModelProvider
 from .utils.constants import (
@@ -70,18 +73,19 @@ def get_default_model_configs() -> list[ModelConfig]:
     if MODEL_CONFIGS_FILE_PATH.exists():
         config_dict = load_config_file(MODEL_CONFIGS_FILE_PATH)
         if "model_configs" in config_dict:
-            logger.info(f"♻️ Using default model configs from {str(MODEL_CONFIGS_FILE_PATH)!r}")
             return [ModelConfig.model_validate(mc) for mc in config_dict["model_configs"]]
     raise FileNotFoundError(f"Default model configs file not found at {str(MODEL_CONFIGS_FILE_PATH)!r}")
 
 
 def get_default_providers() -> list[ModelProvider]:
-    if MODEL_PROVIDERS_FILE_PATH.exists():
-        config_dict = load_config_file(MODEL_PROVIDERS_FILE_PATH)
-        if "providers" in config_dict:
-            logger.info(f"♻️ Using default model providers from {str(MODEL_PROVIDERS_FILE_PATH)!r}")
-            return [ModelProvider.model_validate(p) for p in config_dict["providers"]]
-    raise FileNotFoundError(f"Default model providers file not found at {str(MODEL_PROVIDERS_FILE_PATH)!r}")
+    config_dict = _get_default_providers_file_content(MODEL_PROVIDERS_FILE_PATH)
+    if "providers" in config_dict:
+        return [ModelProvider.model_validate(p) for p in config_dict["providers"]]
+    return []
+
+
+def get_default_provider_name() -> Optional[str]:
+    return _get_default_providers_file_content(MODEL_PROVIDERS_FILE_PATH).get("default")
 
 
 def resolve_seed_default_model_settings() -> None:
@@ -104,3 +108,11 @@ def resolve_seed_default_model_settings() -> None:
         save_config_file(
             MODEL_PROVIDERS_FILE_PATH, {"providers": [p.model_dump() for p in get_builtin_model_providers()]}
         )
+
+
+@lru_cache(maxsize=1)
+def _get_default_providers_file_content(file_path: Path) -> dict[str, Any]:
+    """Load and cache the default providers file content."""
+    if file_path.exists():
+        return load_config_file(file_path)
+    raise FileNotFoundError(f"Default model providers file not found at {str(file_path)!r}")

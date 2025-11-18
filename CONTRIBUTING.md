@@ -23,11 +23,11 @@ This guide will help you get started with the contribution process.
 
 Whether you're new to the project or ready to dive in, the resources below will help you get oriented and productive quickly:
 
-1. **[README.md](README.md)** – best place to start to learn the basics of the project
+1. **[README.md](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/README.md)** – best place to start to learn the basics of the project
 
-2. **[AGENTS.md](AGENTS.md)** – context and instructions to help AI coding agents work on Data Designer (it's also useful for human developers!)
+2. **[AGENTS.md](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/AGENTS.md)** – context and instructions to help AI coding agents work on Data Designer (it's also useful for human developers!)
 
-3. **[Documentation](docs/)** – detailed documentation on Data Designer's capabilities and usage
+3. **[Documentation](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/docs/)** – detailed documentation on Data Designer's capabilities and usage
 
 ## Ways to Contribute
 

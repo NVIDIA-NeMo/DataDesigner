@@ -115,11 +115,7 @@ class ColumnWiseDatasetBuilder:
         start_time = time.perf_counter()
         self.batch_manager.start(num_records=num_records, buffer_size=num_records)
         self._run_batch(generators, save_partial_results=False)
-        dataset = self._run_processors(
-            stage=BuildStage.POST_BATCH,
-            dataframe=self.batch_manager.get_current_batch(as_dataframe=True),
-            current_batch_number=None,  # preview mode does not have a batch number
-        )
+        dataset = self.batch_manager.get_current_batch(as_dataframe=True)
         self.batch_manager.reset()
 
         model_usage_stats = self._resource_provider.model_registry.get_model_usage_stats(
@@ -128,6 +124,13 @@ class ColumnWiseDatasetBuilder:
         logger.info(f"📊 Model usage summary:\n{json.dumps(model_usage_stats, indent=4)}")
 
         return dataset
+
+    def process_preview(self, dataset: pd.DataFrame) -> pd.DataFrame:
+        return self._run_processors(
+            stage=BuildStage.POST_BATCH,
+            dataframe=dataset.copy(),
+            current_batch_number=None,  # preview mode does not have a batch number
+        )
 
     def _initialize_generators(self) -> list[ColumnGenerator]:
         return [

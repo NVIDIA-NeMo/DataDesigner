@@ -1,11 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from enum import StrEnum
 import threading
 from typing import Any, Generic, Type, TypeVar
 
 from data_designer.config.base import ConfigBase
+from data_designer.config.utils.type_helpers import StrEnum
 from data_designer.engine.configurable_task import ConfigurableTask
 from data_designer.engine.registry.errors import NotFoundInRegistryError, RegistryItemNotTypeError
 

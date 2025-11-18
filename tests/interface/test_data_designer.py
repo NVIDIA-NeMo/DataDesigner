@@ -8,7 +8,11 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
+from data_designer.config.column_configs import SamplerColumnConfig
+from data_designer.config.config_builder import DataDesignerConfigBuilder
+from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.errors import InvalidFileFormatError
+from data_designer.config.processors import DropColumnsProcessorConfig
 from data_designer.config.seed import LocalSeedDatasetReference
 from data_designer.engine.model_provider import ModelProvider
 from data_designer.engine.secret_resolver import PlaintextResolver
@@ -382,7 +386,7 @@ def test_preview_raises_error_when_profiler_fails(
         # Mock builder to succeed
         mock_builder = MagicMock()
         mock_builder.build_preview.return_value = pd.DataFrame({"col": [1, 2, 3]})
-        mock_builder.drop_columns_if_needed.return_value = pd.DataFrame({"col": [1, 2, 3]})
+        mock_builder.process_preview.return_value = pd.DataFrame({"col": [1, 2, 3]})
         mock_builder_method.return_value = mock_builder
 
         # Mock profiler to fail
@@ -394,3 +398,54 @@ def test_preview_raises_error_when_profiler_fails(
             DataDesignerProfilingError, match="🛑 Error profiling preview dataset: Profiler failed in preview"
         ):
             data_designer.preview(stub_sampler_only_config_builder, num_records=3)
+
+
+def test_preview_with_dropped_columns(stub_artifact_path, stub_model_providers, stub_model_configs):
+    """Test that preview correctly handles dropped columns and maintains consistency."""
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config_builder.add_column(
+        SamplerColumnConfig(
+            name="uuid", sampler_type="uuid", params={"prefix": "id_", "short_form": True, "uppercase": False}
+        )
+    )
+    config_builder.add_column(
+        SamplerColumnConfig(name="category", sampler_type="category", params={"values": ["a", "b", "c"]})
+    )
+    config_builder.add_column(
+        SamplerColumnConfig(name="uniform", sampler_type="uniform", params={"low": 1, "high": 100})
+    )
+
+    config_builder.add_processor(
+        DropColumnsProcessorConfig(build_stage=BuildStage.POST_BATCH, column_names=["category"])
+    )
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+    )
+
+    num_records = 5
+    preview_results = data_designer.preview(config_builder, num_records=num_records)
+
+    preview_dataset = preview_results.dataset
+
+    assert "category" not in preview_dataset.columns, "Dropped column 'category' should not be in preview dataset"
+
+    assert "uuid" in preview_dataset.columns, "Column 'uuid' should be in preview dataset"
+    assert "uniform" in preview_dataset.columns, "Column 'uniform' should be in preview dataset"
+
+    assert len(preview_dataset) == num_records, f"Preview dataset should have {num_records} records"
+
+    analysis = preview_results.analysis
+    assert analysis is not None, "Analysis should be generated"
+
+    column_names_in_analysis = [stat.column_name for stat in analysis.column_statistics]
+    assert "uuid" in column_names_in_analysis, "Column 'uuid' should be in analysis"
+    assert "uniform" in column_names_in_analysis, "Column 'uniform' should be in analysis"
+    assert "category" not in column_names_in_analysis, "Dropped column 'category' should not be in analysis statistics"
+
+    assert analysis.side_effect_column_names is not None, "Side effect column names should be tracked"
+    assert "category" in analysis.side_effect_column_names, (
+        "Dropped column 'category' should be tracked in side_effect_column_names"
+    )

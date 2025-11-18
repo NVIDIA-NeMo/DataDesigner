@@ -2,9 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from abc import ABC, abstractmethod
-from typing import Iterator, Optional, Self
+from typing import Iterator, Optional
 
 from pydantic import BaseModel, ConfigDict
+from typing_extensions import Self
 
 
 class ValidationOutput(BaseModel):

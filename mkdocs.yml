@@ -3,11 +3,16 @@ repo_url: https://github.com/NVIDIA-NeMo/DataDesigner
 
 nav:
   - Getting Started:
-      - Welcome to Data Designer: welcome.md
-      - Quick Start: quick-start.md
+      - Welcome to Data Designer: index.md
       - Installation: installation.md
+      - Contributing: CONTRIBUTING.md
+  - Concepts:
+      - Columns: concepts/columns.md
+      - Plugins: concepts/plugins.md
   - Tutorials:
       - The Basics: notebooks/1-the-basics.ipynb
+      - Structured Outputs and Jinja Expressions: notebooks/2-structured-outputs-and-jinja-expressions.ipynb
+      - Seeding with an External Dataset: notebooks/3-seeding-with-a-dataset.ipynb
   - Models:
       - Default Model Settings: models/default-model-settings.md
       - Configure with the CLI: models/configure-model-settings-with-the-cli.md
@@ -17,7 +22,6 @@ nav:
       - column_configs: code_reference/column_configs.md
       - config_builder: code_reference/config_builder.md
       - data_designer_config: code_reference/data_designer_config.md
-  - NeMo Microservices Documentation: https://docs.nvidia.com/nemo/microservices/latest/design-synthetic-data-from-scratch-or-seeds/
 
 theme:
   name: material
@@ -25,31 +29,34 @@ theme:
     text: Roboto
     code: Fira Code
   icon:
-      logo: material/palette
+      logo: fontawesome/solid/palette
       repo: fontawesome/brands/github-alt
   favicon: assets/palette-favicon.png
   palette:
-      - media: "(prefers-color-scheme: light)"
-        scheme: default
-        primary: black
-        toggle:
-            icon: material/lightbulb-outline
-            name: Switch to dark mode
       - media: "(prefers-color-scheme: dark)"
         scheme: slate
         primary: black
         toggle:
-            icon: material/lightbulb
+            icon: material/lightbulb-outline
             name: Switch to light mode
+      - media: "(prefers-color-scheme: light)"
+        scheme: default
+        primary: black
+        toggle:
+            icon: material/lightbulb
+            name: Switch to dark mode
   features:
       - navigation.tabs
       - navigation.sections
       - navigation.expand
       - navigation.path
-      - navigation.indexes
       - content.code.copy
       - content.code.select
       - content.code.annotate
+
+extra:
+  version:
+    provider: mike
 
 watch:
   - src/data_designer
@@ -57,9 +64,9 @@ watch:
 
 plugins:
   - search
-  - redirects:
-      redirect_maps:
-          index.md: welcome.md
+  - mike:
+      alias_type: symlink
+      canonical_version: latest
   - mkdocs-jupyter:
         execute: false
         include_requirejs: true
@@ -92,6 +99,8 @@ markdown_extensions:
         use_pygments: true
   - tables
   - pymdownx.superfences
+  - pymdownx.tabbed:
+        alternate_style: true
   - attr_list
   - md_in_html
   - admonition

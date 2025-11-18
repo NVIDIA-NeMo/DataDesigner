@@ -70,3 +70,11 @@ div.doc-contents:not(.first) {
       translate: calc(var(--tree-thickness) * -1) calc(var(--tree-thickness) * -1);
     }
   }
+
+  .doc-symbol-toc.doc-symbol-module::after {
+    content: "module";
+  }
+
+  .doc-symbol-toc.doc-symbol-method::after {
+    content: "method";
+  }

@@ -74,6 +74,7 @@ docs = [
   "mkdocs-material>=9.6.22",
   "mkdocs-jupyter>=0.25.1",
   "mkdocs-redirects>=1.2.2",
+  "mike>=2.1.3",
 ]
 notebooks = [
   "jupyter>=1.0.0",

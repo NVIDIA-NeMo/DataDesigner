@@ -4,6 +4,7 @@
 import pytest
 
 from data_designer.config.base import ConfigBase
+from data_designer.config.utils.type_helpers import StrEnum
 from data_designer.engine.configurable_task import ConfigurableTask
 
 
@@ -29,8 +30,6 @@ def stub_task_class():
 
 @pytest.fixture
 def stub_enum():
-    from enum import StrEnum
-
     class MockEnum(StrEnum):
         TEST_TASK = "test_task"
         ANOTHER_TASK = "another_task"
