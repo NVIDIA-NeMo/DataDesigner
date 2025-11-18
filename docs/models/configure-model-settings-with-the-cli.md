@@ -125,7 +125,7 @@ data-designer config reset
 The CLI will show which configuration files exist and ask for confirmation before deleting them.
 
 !!! danger "Destructive Operation"
-    This command permanently deletes all configuration files. You'll need to reconfigure everything from scratch.
+    This command permanently deletes all configuration files and resets to the default model providers and configurations. You'll need to reconfigure your custom configurations from scratch.
 
 ## See Also
 
