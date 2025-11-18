@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
+from pathlib import Path
+from typing import Literal
 
 import pandas as pd
 
@@ -53,3 +55,20 @@ class DatasetCreationResults(WithRecordSamplerMixin):
             A pandas DataFrame containing the full generated dataset.
         """
         return self.artifact_storage.load_dataset()
+
+    def write_processor_outputs_to_disk(self, output_folder: Path | str, extension: Literal["jsonl", "csv"]) -> None:
+        """Write the processor outputs to disk.
+
+        Returns:
+            None
+        """
+        output_folder = Path(output_folder)
+        output_folder.mkdir(parents=True, exist_ok=True)
+        for subfolder in self.artifact_storage.processors_outputs_path.iterdir():
+            output_file_path = output_folder / f"{subfolder.name}.{extension}"
+            with open(output_file_path, "w") as f:
+                for file_path in subfolder.glob("*.parquet"):
+                    # TODO: faster way to convert than reading and writing row by row?
+                    dataframe = pd.read_parquet(file_path)
+                    for _, row in dataframe.iterrows():
+                        f.write(row["formatted_output"].replace("\n", "\\n") + "\n")

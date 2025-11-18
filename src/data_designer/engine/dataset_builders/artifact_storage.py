@@ -25,6 +25,7 @@ class BatchStage(StrEnum):
     PARTIAL_RESULT = "partial_results_path"
     FINAL_RESULT = "final_dataset_path"
     DROPPED_COLUMNS = "dropped_columns_dataset_path"
+    PROCESSORS_OUTPUTS = "processors_outputs_path"
 
 
 class ArtifactStorage(BaseModel):
@@ -89,6 +90,7 @@ class ArtifactStorage(BaseModel):
             self.final_dataset_folder_name,
             self.partial_results_folder_name,
             self.dropped_columns_folder_name,
+            self.processors_outputs_folder_name,
         ]
 
         for name in folder_names:
@@ -174,9 +176,10 @@ class ArtifactStorage(BaseModel):
         batch_number: int,
         dataframe: pd.DataFrame,
         batch_stage: BatchStage,
+        subfolder: str = "",
     ) -> Path:
         file_path = self.create_batch_file_path(batch_number, batch_stage=batch_stage)
-        self.write_parquet_file(file_path.name, dataframe, batch_stage)
+        self.write_parquet_file(file_path.name, dataframe, batch_stage, subfolder=subfolder)
         return file_path
 
     def write_parquet_file(
@@ -184,9 +187,10 @@ class ArtifactStorage(BaseModel):
         parquet_file_name: str,
         dataframe: pd.DataFrame,
         batch_stage: BatchStage,
+        subfolder: str = "",
     ) -> Path:
-        self.mkdir_if_needed(self._get_stage_path(batch_stage))
-        file_path = self._get_stage_path(batch_stage) / parquet_file_name
+        self.mkdir_if_needed(self._get_stage_path(batch_stage) / subfolder)
+        file_path = self._get_stage_path(batch_stage) / subfolder / parquet_file_name
         dataframe.to_parquet(file_path, index=False)
         return file_path
 
@@ -195,11 +199,6 @@ class ArtifactStorage(BaseModel):
         with open(self.metadata_file_path, "w") as file:
             json.dump(metadata, file)
         return self.metadata_file_path
-
-    def move_processor_output(self, from_path: Path, folder_name: str) -> Path:
-        self.mkdir_if_needed(self.processors_outputs_path / folder_name)
-        shutil.move(from_path, self.processors_outputs_path / folder_name / from_path.name)
-        return self.processors_outputs_path / folder_name / from_path.name
 
     def _get_stage_path(self, stage: BatchStage) -> Path:
         return getattr(self, resolve_string_enum(stage, BatchStage).value)
