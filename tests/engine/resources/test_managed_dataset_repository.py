@@ -6,69 +6,55 @@ from unittest.mock import Mock, patch
 import pandas as pd
 import pytest
 
-from data_designer.engine.resources.managed_dataset_repository import (
-    DATASETS_ROOT,
-    DEFAULT_DATA_CATALOG,
-    DuckDBDatasetRepository,
-    Table,
-    load_managed_dataset_repository,
-)
-from data_designer.engine.resources.managed_storage import ManagedBlobStorage
+from data_designer.engine.resources.managed_assets import DatasetManager, Table
+from data_designer.engine.resources.managed_dataset_repository import DuckDBDatasetRepository
 
 
-def test_table_creation_default_schema():
-    table = Table("test_file.parquet")
+def test_table_creation():
+    table = Table("test_file.parquet", "test_file")
 
     assert table.source == "test_file.parquet"
-    assert table.schema == "main"
-    assert table.name == "test_file"
-
-
-def test_table_creation_custom_schema():
-    table = Table("test_file.parquet", schema="custom")
-
-    assert table.source == "test_file.parquet"
-    assert table.schema == "custom"
     assert table.name == "test_file"
 
 
 def test_table_name_property():
-    table = Table("path/to/test_file.parquet")
+    table = Table("path/to/test_file.parquet", "test_file")
     assert table.name == "test_file"
 
-    table2 = Table("another_file.csv")
+    table2 = Table("another_file.csv", "another_file")
     assert table2.name == "another_file"
 
 
 @pytest.fixture
-def stub_blob_storage():
-    mock_storage = Mock(spec=ManagedBlobStorage)
-    mock_storage.uri_for_key.return_value = "file://test/path"
-    return mock_storage
+def stub_dataset_manager():
+    mock_manager = Mock(spec=DatasetManager)
+    mock_table1 = Table("test1.parquet", "test1")
+    mock_table2 = Table("test2.parquet", "test2")
+    mock_manager.get_data_catalogs.return_value = [mock_table1, mock_table2]
+    return mock_manager
 
 
 @pytest.fixture
 def stub_test_data_catalog():
     return [
-        Table("test1.parquet"),
-        Table("test2.parquet", schema="custom"),
+        Table("test1.parquet", "test1"),
+        Table("test2.parquet", "test2"),
     ]
 
 
 @patch("data_designer.engine.resources.managed_dataset_repository.duckdb", autospec=True)
-def test_duckdb_dataset_repository_init_default_config(mock_duckdb, stub_blob_storage):
+def test_duckdb_dataset_repository_init_default_config(mock_duckdb, stub_dataset_manager):
     mock_db = Mock()
     mock_duckdb.connect.return_value = mock_db
 
     with patch("data_designer.engine.resources.managed_dataset_repository.threading.Thread") as mock_thread:
-        repo = DuckDBDatasetRepository(stub_blob_storage)
+        repo = DuckDBDatasetRepository(stub_dataset_manager, data_catalog_names=["test_catalog"])
 
-        mock_duckdb.connect.assert_called_once_with(config={"threads": 2, "memory_limit": "4 gb"})
+        mock_duckdb.connect.assert_called_once_with(config={"threads": 1, "memory_limit": "2 gb"})
 
-        assert repo._data_catalog == DEFAULT_DATA_CATALOG
-        assert repo._datasets_root == DATASETS_ROOT
-        assert repo._blob_storage == stub_blob_storage
-        assert repo._config == {"threads": 2, "memory_limit": "4 gb"}
+        assert repo._dataset_manager == stub_dataset_manager
+        assert repo._data_catalog_names == ["test_catalog"]
+        assert repo._config == {"threads": 1, "memory_limit": "2 gb"}
         assert repo._use_cache is True
         assert repo.db == mock_db
 
@@ -76,7 +62,7 @@ def test_duckdb_dataset_repository_init_default_config(mock_duckdb, stub_blob_st
 
 
 @patch("data_designer.engine.resources.managed_dataset_repository.duckdb", autospec=True)
-def test_duckdb_dataset_repository_init_custom_config(mock_duckdb, stub_blob_storage, stub_test_data_catalog):
+def test_duckdb_dataset_repository_init_custom_config(mock_duckdb, stub_dataset_manager):
     mock_db = Mock()
     mock_duckdb.connect.return_value = mock_db
 
@@ -84,34 +70,34 @@ def test_duckdb_dataset_repository_init_custom_config(mock_duckdb, stub_blob_sto
 
     with patch("data_designer.engine.resources.managed_dataset_repository.threading.Thread"):
         repo = DuckDBDatasetRepository(
-            stub_blob_storage,
+            stub_dataset_manager,
+            data_catalog_names=["catalog1", "catalog2"],
             config=custom_config,
-            data_catalog=stub_test_data_catalog,
-            datasets_root="custom_root",
             use_cache=False,
         )
 
         mock_duckdb.connect.assert_called_once_with(config=custom_config)
 
-        assert repo._data_catalog == stub_test_data_catalog
-        assert repo._datasets_root == "custom_root"
+        assert repo._dataset_manager == stub_dataset_manager
+        assert repo._data_catalog_names == ["catalog1", "catalog2"]
         assert repo._config == custom_config
         assert repo._use_cache is False
 
 
 @patch("data_designer.engine.resources.managed_dataset_repository.duckdb", autospec=True)
-def test_duckdb_dataset_repository_data_catalog_property(mock_duckdb, stub_blob_storage, stub_test_data_catalog):
+def test_duckdb_dataset_repository_data_catalog_property(mock_duckdb, stub_dataset_manager, stub_test_data_catalog):
     mock_db = Mock()
     mock_duckdb.connect.return_value = mock_db
+    stub_dataset_manager.get_data_catalog.return_value = stub_test_data_catalog
 
     with patch("data_designer.engine.resources.managed_dataset_repository.threading.Thread"):
-        repo = DuckDBDatasetRepository(stub_blob_storage, data_catalog=stub_test_data_catalog)
+        repo = DuckDBDatasetRepository(stub_dataset_manager, data_catalog_names=["test_catalog"])
 
         assert repo.data_catalog == stub_test_data_catalog
 
 
 @patch("data_designer.engine.resources.managed_dataset_repository.duckdb", autospec=True)
-def test_duckdb_dataset_repository_query_basic(mock_duckdb, stub_blob_storage):
+def test_duckdb_dataset_repository_query_basic(mock_duckdb, stub_dataset_manager):
     mock_db = Mock()
     mock_cursor = Mock()
     mock_df = pd.DataFrame({"col1": [1, 2, 3]})
@@ -121,7 +107,7 @@ def test_duckdb_dataset_repository_query_basic(mock_duckdb, stub_blob_storage):
     mock_cursor.sql.return_value.df.return_value = mock_df
 
     with patch("data_designer.engine.resources.managed_dataset_repository.threading.Thread"):
-        repo = DuckDBDatasetRepository(stub_blob_storage)
+        repo = DuckDBDatasetRepository(stub_dataset_manager, data_catalog_names=["test_catalog"])
 
         repo._registration_event.set()
 
@@ -135,7 +121,7 @@ def test_duckdb_dataset_repository_query_basic(mock_duckdb, stub_blob_storage):
 
 
 @patch("data_designer.engine.resources.managed_dataset_repository.duckdb", autospec=True)
-def test_duckdb_dataset_repository_query_waits_for_registration(mock_duckdb, stub_blob_storage):
+def test_duckdb_dataset_repository_query_waits_for_registration(mock_duckdb, stub_dataset_manager):
     mock_db = Mock()
     mock_cursor = Mock()
     mock_df = pd.DataFrame({"col1": [1, 2, 3]})
@@ -145,7 +131,7 @@ def test_duckdb_dataset_repository_query_waits_for_registration(mock_duckdb, stu
     mock_cursor.sql.return_value.df.return_value = mock_df
 
     with patch("data_designer.engine.resources.managed_dataset_repository.threading.Thread"):
-        repo = DuckDBDatasetRepository(stub_blob_storage)
+        repo = DuckDBDatasetRepository(stub_dataset_manager, data_catalog_names=["test_catalog"])
 
         repo._registration_event.clear()
 
@@ -161,7 +147,7 @@ def test_duckdb_dataset_repository_query_waits_for_registration(mock_duckdb, stu
 
 
 @patch("data_designer.engine.resources.managed_dataset_repository.duckdb", autospec=True)
-def test_duckdb_dataset_repository_query_cursor_cleanup(mock_duckdb, stub_blob_storage):
+def test_duckdb_dataset_repository_query_cursor_cleanup(mock_duckdb, stub_dataset_manager):
     mock_db = Mock()
     mock_cursor = Mock()
 
@@ -170,42 +156,10 @@ def test_duckdb_dataset_repository_query_cursor_cleanup(mock_duckdb, stub_blob_s
     mock_cursor.sql.side_effect = Exception("Query failed")
 
     with patch("data_designer.engine.resources.managed_dataset_repository.threading.Thread"):
-        repo = DuckDBDatasetRepository(stub_blob_storage)
+        repo = DuckDBDatasetRepository(stub_dataset_manager, data_catalog_names=["test_catalog"])
         repo._registration_event.set()
 
         with pytest.raises(Exception, match="Query failed"):
             repo.query("SELECT * FROM test")
 
         mock_cursor.close.assert_called_once()
-
-
-def test_load_managed_dataset_repository_with_local_storage():
-    with patch("data_designer.engine.resources.managed_dataset_repository.DuckDBDatasetRepository") as mock_repo_class:
-        mock_repo = Mock()
-        mock_repo_class.return_value = mock_repo
-
-        result = load_managed_dataset_repository(stub_blob_storage)
-
-        mock_repo_class.assert_called_once_with(
-            stub_blob_storage,
-            {"threads": 1, "memory_limit": "2 gb"},
-            use_cache=True,  # Mock is not LocalBlobStorageProvider, so use_cache=True
-        )
-
-        assert result == mock_repo
-
-
-def test_load_managed_dataset_repository_with_non_local_storage():
-    with patch("data_designer.engine.resources.managed_dataset_repository.DuckDBDatasetRepository") as mock_repo_class:
-        mock_repo = Mock()
-        mock_repo_class.return_value = mock_repo
-
-        result = load_managed_dataset_repository(stub_blob_storage)
-
-        mock_repo_class.assert_called_once_with(
-            stub_blob_storage,
-            {"threads": 1, "memory_limit": "2 gb"},
-            use_cache=True,  # Should be True for non-local storage
-        )
-
-        assert result == mock_repo

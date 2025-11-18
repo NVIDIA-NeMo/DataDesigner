@@ -13,7 +13,6 @@ from data_designer.config.sampler_params import (
     UUIDSamplerParams,
     is_numerical_sampler_type,
 )
-from data_designer.config.utils.constants import LOCALES_WITH_MANAGED_DATASETS
 
 
 @pytest.fixture
@@ -74,7 +73,6 @@ def test_person_sampler_params(stub_person_sampler_params):
         "age_range",
         "state",
         "with_synthetic_personas",
-        "sample_dataset_when_available",
     ]
     assert stub_person_sampler_params.people_gen_key == "en_US"
 
@@ -109,16 +107,23 @@ def test_person_sampler_state_validation():
     with pytest.raises(ValidationError, match="State 'invalid' is not a supported state."):
         PersonSamplerParams(locale="en_US", state="invalid", age_range=[18, 30])
 
+    # Test that state is only supported for en_US locale (use a managed locale like ja_JP)
     with pytest.raises(ValidationError, match="'state' is only supported for 'en_US' locale."):
-        PersonSamplerParams(locale="en_GB", state="NY", age_range=[18, 30])
+        PersonSamplerParams(locale="ja_JP", state="NY", age_range=[18, 30])
 
 
 def test_person_sampler_with_synthetic_personas_validation():
+    # PersonSamplerParams only works with managed locales, so trying to use en_GB will fail at locale validation
     with pytest.raises(
         ValidationError,
-        match=f"'with_synthetic_personas' is only supported for the following locales: {', '.join(LOCALES_WITH_MANAGED_DATASETS)}.",
+        match="Person sampling from managed datasets is only supported for the following locales",
     ):
         PersonSamplerParams(locale="en_GB", with_synthetic_personas=True, age_range=[18, 30])
+
+    # For managed locales, with_synthetic_personas should work fine
+    params = PersonSamplerParams(locale="en_US", with_synthetic_personas=True, age_range=[18, 30])
+    assert params.with_synthetic_personas is True
+    assert params.people_gen_key == "en_US_with_personas"
 
 
 def test_is_numerical_sampler_type():

@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from decimal import Decimal
-from functools import partial
 
 import pandas as pd
 import pytest
@@ -18,38 +17,40 @@ PGM_LOCALE = "en_US"
 NUM_SAMPLES = 100
 
 
-def test_dataset_generator(stub_sampler_columns, stub_person_generator_loader):
-    generator = DatasetGenerator(
-        sampler_columns=stub_sampler_columns, person_generator_loader=stub_person_generator_loader
-    )
+def test_dataset_generator(stub_sampler_columns, stub_dataset_manager):
+    generator = DatasetGenerator(sampler_columns=stub_sampler_columns, dataset_manager=stub_dataset_manager)
     dataset = generator.generate(NUM_SAMPLES)
     assert dataset.shape == (NUM_SAMPLES, len(stub_sampler_columns.columns))
 
 
-def test_float_column_stays_float(stub_schema_builder):
+def test_float_column_stays_float(stub_schema_builder, stub_dataset_manager):
     stub_schema_builder.add_column(
         name="col_1",
         sampler_type=SamplerType.GAUSSIAN,
         params={"mean": 0, "stddev": 1},
     )
-    generator = DatasetGenerator(sampler_columns=stub_schema_builder.to_sampler_columns())
+    generator = DatasetGenerator(
+        sampler_columns=stub_schema_builder.to_sampler_columns(), dataset_manager=stub_dataset_manager
+    )
     dataset = generator.generate(NUM_SAMPLES)
     assert dataset["col_1"].dtype == "float64"
 
 
-def test_dataset_column_convert_to_int(stub_schema_builder):
+def test_dataset_column_convert_to_int(stub_schema_builder, stub_dataset_manager):
     stub_schema_builder.add_column(
         name="col_1",
         sampler_type=SamplerType.GAUSSIAN,
         params={"mean": 0, "stddev": 1},
         convert_to="int",
     )
-    generator = DatasetGenerator(sampler_columns=stub_schema_builder.to_sampler_columns())
+    generator = DatasetGenerator(
+        sampler_columns=stub_schema_builder.to_sampler_columns(), dataset_manager=stub_dataset_manager
+    )
     dataset = generator.generate(NUM_SAMPLES)
     assert dataset["col_1"].dtype == "int64"
 
 
-def test_datetime_formats(stub_schema_builder):
+def test_datetime_formats(stub_schema_builder, stub_dataset_manager):
     stub_schema_builder.add_column(
         name="year",
         sampler_type=SamplerType.DATETIME,
@@ -62,14 +63,16 @@ def test_datetime_formats(stub_schema_builder):
         params={"start": "2020-01-01", "end": "2025-01-01", "unit": "s"},
     )
 
-    generator = DatasetGenerator(sampler_columns=stub_schema_builder.to_sampler_columns())
+    generator = DatasetGenerator(
+        sampler_columns=stub_schema_builder.to_sampler_columns(), dataset_manager=stub_dataset_manager
+    )
     dataset = generator.generate(100)
 
     assert dataset["year"].str.match(r"\d{4}").all()
     assert dataset["datetime"].str.match(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}").all()
 
 
-def test_timedelta(stub_schema_builder):
+def test_timedelta(stub_schema_builder, stub_dataset_manager):
     stub_schema_builder.add_column(
         name="reference_date",
         sampler_type=SamplerType.DATETIME,
@@ -91,7 +94,9 @@ def test_timedelta(stub_schema_builder):
         },
     )
 
-    generator = DatasetGenerator(sampler_columns=stub_schema_builder.to_sampler_columns())
+    generator = DatasetGenerator(
+        sampler_columns=stub_schema_builder.to_sampler_columns(), dataset_manager=stub_dataset_manager
+    )
     dataset = generator.generate(100)
 
     assert dataset["new_date"].str.match(r"\d{4}-\d{2}-\d{2}").all()
@@ -108,7 +113,9 @@ def test_timedelta(stub_schema_builder):
         (SamplerType.BINOMIAL, {"n": 10, "p": 0.5}),
     ],
 )
-def test_discrete_samplers_return_int_without_convert_to(stub_schema_builder, sampler_type, params):
+def test_discrete_samplers_return_int_without_convert_to(
+    stub_schema_builder, stub_dataset_manager, sampler_type, params
+):
     stub_schema_builder.add_column(
         name="col_1",
         sampler_type=sampler_type,
@@ -117,12 +124,14 @@ def test_discrete_samplers_return_int_without_convert_to(stub_schema_builder, sa
 
     # Add constraint to ensure he hit rejection sampling.
     stub_schema_builder.add_constraint(ScalarInequalityConstraint(target_column="col_1", operator="gt", rhs=2))
-    generator = DatasetGenerator(sampler_columns=stub_schema_builder.to_sampler_columns())
+    generator = DatasetGenerator(
+        sampler_columns=stub_schema_builder.to_sampler_columns(), dataset_manager=stub_dataset_manager
+    )
     dataset = generator.generate(NUM_SAMPLES)
     assert dataset["col_1"].dtype == "int64"
 
 
-def test_dataset_column_convert_datetime_format(stub_schema_builder):
+def test_dataset_column_convert_datetime_format(stub_schema_builder, stub_dataset_manager):
     stub_schema_builder.add_column(
         name="col_1",
         sampler_type=SamplerType.DATETIME,
@@ -133,14 +142,16 @@ def test_dataset_column_convert_datetime_format(stub_schema_builder):
         },
         convert_to="%m/%d/%Y",
     )
-    generator = DatasetGenerator(sampler_columns=stub_schema_builder.to_sampler_columns())
+    generator = DatasetGenerator(
+        sampler_columns=stub_schema_builder.to_sampler_columns(), dataset_manager=stub_dataset_manager
+    )
     dataset = generator.generate(NUM_SAMPLES)
     assert dataset["col_1"].dtype == "object"
     assert dataset["col_1"].str.contains(r"\d{2}/\d{2}/\d{4}").all()
     assert pd.to_datetime(dataset["col_1"], format="%m/%d/%Y").notna().all()
 
 
-def test_dataset_with_conditionals(stub_schema_builder):
+def test_dataset_with_conditionals(stub_schema_builder, stub_dataset_manager):
     stub_schema_builder.add_column(
         name="col_1",
         sampler_type=SamplerType.UNIFORM,
@@ -156,13 +167,15 @@ def test_dataset_with_conditionals(stub_schema_builder):
             "values": ["low", "high"],
         },
     )
-    generator = DatasetGenerator(sampler_columns=stub_schema_builder.to_sampler_columns())
+    generator = DatasetGenerator(
+        sampler_columns=stub_schema_builder.to_sampler_columns(), dataset_manager=stub_dataset_manager
+    )
     dataset = generator.generate(NUM_SAMPLES)
     assert dataset.query("col_2 == 'low'")["col_1"].between(0, 1).all()
     assert dataset.query("col_2 == 'high'")["col_1"].between(2, 5).all()
 
 
-def test_dataset_with_constraints(stub_schema_builder):
+def test_dataset_with_constraints(stub_schema_builder, stub_dataset_manager):
     stub_schema_builder.add_column(
         name="col_1",
         sampler_type=SamplerType.UNIFORM,
@@ -174,12 +187,15 @@ def test_dataset_with_constraints(stub_schema_builder):
         params={"low": 0.3, "high": 1},
     )
     stub_schema_builder.add_constraint(ColumnInequalityConstraint(target_column="col_1", operator="lt", rhs="col_2"))
-    generator = DatasetGenerator(sampler_columns=stub_schema_builder.to_sampler_columns(max_rejections_factor=10))
+    generator = DatasetGenerator(
+        sampler_columns=stub_schema_builder.to_sampler_columns(max_rejections_factor=10),
+        dataset_manager=stub_dataset_manager,
+    )
     dataset = generator.generate(NUM_SAMPLES)
     assert (dataset["col_1"] < dataset["col_2"]).all()
 
 
-def test_subcategory_generation(stub_schema_builder):
+def test_subcategory_generation(stub_schema_builder, stub_dataset_manager):
     subcategory_values = {
         "electronics": ["laptop", "smartphone", "tablet"],
         "clothing": ["shirt", "pants", "shoes", "hat"],
@@ -202,7 +218,9 @@ def test_subcategory_generation(stub_schema_builder):
         },
     )
 
-    generator = DatasetGenerator(sampler_columns=stub_schema_builder.to_sampler_columns())
+    generator = DatasetGenerator(
+        sampler_columns=stub_schema_builder.to_sampler_columns(), dataset_manager=stub_dataset_manager
+    )
     df = generator.generate(NUM_SAMPLES)
 
     assert df.shape == (NUM_SAMPLES, len(stub_schema_builder.to_sampler_columns().columns))
@@ -210,19 +228,19 @@ def test_subcategory_generation(stub_schema_builder):
         assert df.query(f"department == '{cat}'")["products"].isin(vals).all()
 
 
-def test_generation_with_people(stub_schema_builder, stub_person_generator_loader):
+def test_generation_with_people(stub_schema_builder, stub_dataset_manager):
     stub_schema_builder.add_column(name="random_number", sampler_type="uniform", params={"low": 0, "high": 100})
 
     stub_schema_builder.add_column(
         name="some_dude",
-        sampler_type="person",
+        sampler_type="faker_person",
         params={"locale": TEST_LOCALE_1, "sex": "Male"},
         conditional_params={"random_number > 50": {"locale": TEST_LOCALE_2, "sex": "Male"}},
     )
 
     stub_schema_builder.add_column(
         name="some_lady",
-        sampler_type="person",
+        sampler_type="faker_person",
         params={"locale": TEST_LOCALE_1, "sex": "Female"},
         conditional_params={"random_number > 50": {"locale": TEST_LOCALE_2, "sex": "Female"}},
     )
@@ -241,8 +259,7 @@ def test_generation_with_people(stub_schema_builder, stub_person_generator_loade
 
     generator = DatasetGenerator(
         sampler_columns=stub_schema_builder.to_sampler_columns(),
-        # TODO: Revamp how we mock person generation. We shouldn't need to write hacks like this partial.
-        person_generator_loader=partial(stub_person_generator_loader, with_synthetic_personas=True),
+        dataset_manager=stub_dataset_manager,
     )
 
     df = generator.generate(NUM_SAMPLES)
@@ -257,13 +274,13 @@ def test_generation_with_people(stub_schema_builder, stub_person_generator_loade
         assert df[col].apply(lambda x: x["sex"] == sex).all()
 
 
-def test_person_with_age_range(stub_schema_builder, stub_person_generator_loader):
+def test_person_with_age_range(stub_schema_builder, stub_dataset_manager):
     age_min = 18
     age_max = 30
 
     stub_schema_builder.add_column(
         name="some_dude",
-        sampler_type="person",
+        sampler_type="faker_person",
         params={
             "locale": TEST_LOCALE_1,
             "sex": "Male",
@@ -283,7 +300,7 @@ def test_person_with_age_range(stub_schema_builder, stub_person_generator_loader
 
     generator = DatasetGenerator(
         sampler_columns=stub_schema_builder.to_sampler_columns(),
-        person_generator_loader=stub_person_generator_loader,
+        dataset_manager=stub_dataset_manager,
     )
     df = generator.generate(NUM_SAMPLES)
 
@@ -293,7 +310,7 @@ def test_person_with_age_range(stub_schema_builder, stub_person_generator_loader
     assert df["some_lady"].apply(lambda x: x["age"]).max() <= age_max
 
 
-def test_person_with_state(stub_schema_builder, stub_person_generator_loader):
+def test_person_with_state(stub_schema_builder, stub_dataset_manager):
     stub_schema_builder.add_column(
         name="some_dude",
         sampler_type="person",
@@ -308,7 +325,7 @@ def test_person_with_state(stub_schema_builder, stub_person_generator_loader):
 
     generator = DatasetGenerator(
         sampler_columns=stub_schema_builder.to_sampler_columns(),
-        person_generator_loader=stub_person_generator_loader,
+        dataset_manager=stub_dataset_manager,
     )
     df = generator.generate(NUM_SAMPLES)
 
@@ -316,16 +333,16 @@ def test_person_with_state(stub_schema_builder, stub_person_generator_loader):
     assert df["some_lady"].apply(lambda x: x["state"]).isin(["NV", "NY"]).all()
 
 
-def test_error_person_with_state_and_non_en_us_locale(stub_schema_builder):
+def test_error_person_with_state_and_non_en_us_locale(stub_schema_builder, stub_dataset_manager):
     with pytest.raises(ValueError):
         stub_schema_builder.add_column(
             name="some_dude",
-            sampler_type="person",
+            sampler_type="faker_person",
             params={"locale": "en_GB", "sex": "Male", "state": ["CA", "NV", "DC"]},
         )
 
 
-def test_bernoulli_mixture(stub_schema_builder):
+def test_bernoulli_mixture(stub_schema_builder, stub_dataset_manager):
     stub_schema_builder.add_column(
         name="agi",
         sampler_type=SamplerType.CATEGORY,
@@ -350,14 +367,14 @@ def test_bernoulli_mixture(stub_schema_builder):
     )
 
     sampler_columns = stub_schema_builder.to_sampler_columns()
-    generator = DatasetGenerator(sampler_columns=sampler_columns)
+    generator = DatasetGenerator(sampler_columns=sampler_columns, dataset_manager=stub_dataset_manager)
     df = generator.generate(NUM_SAMPLES)
 
     assert df.shape == (NUM_SAMPLES, len(sampler_columns.columns))
     assert df.query("agi == '<50000'")["bern_x"].sum() < df.query("agi == '>50000'")["bern_x"].sum()
 
 
-def test_decimal_places(stub_schema_builder):
+def test_decimal_places(stub_schema_builder, stub_dataset_manager):
     stub_schema_builder.add_column(
         name="col_1",
         sampler_type=SamplerType.GAUSSIAN,
@@ -368,13 +385,15 @@ def test_decimal_places(stub_schema_builder):
         sampler_type=SamplerType.UNIFORM,
         params={"low": 0.1, "high": 1, "decimal_places": 3},
     )
-    generator = DatasetGenerator(sampler_columns=stub_schema_builder.to_sampler_columns())
+    generator = DatasetGenerator(
+        sampler_columns=stub_schema_builder.to_sampler_columns(), dataset_manager=stub_dataset_manager
+    )
     df = generator.generate(NUM_SAMPLES)
     assert df["col_1"].apply(lambda x: abs(Decimal(str(x)).as_tuple().exponent) <= 2).all()
     assert df["col_2"].apply(lambda x: abs(Decimal(str(x)).as_tuple().exponent) <= 3).all()
 
 
-def test_e2e_example(stub_schema_builder, stub_person_generator_loader):
+def test_e2e_example(stub_schema_builder, stub_dataset_manager):
     stub_schema_builder.add_column(
         name="employee_id",
         sampler_type="uuid",
@@ -484,7 +503,7 @@ def test_e2e_example(stub_schema_builder, stub_person_generator_loader):
     )
 
     sampler_columns = stub_schema_builder.to_sampler_columns()
-    generator = DatasetGenerator(sampler_columns=sampler_columns, person_generator_loader=stub_person_generator_loader)
+    generator = DatasetGenerator(sampler_columns=sampler_columns, dataset_manager=stub_dataset_manager)
     df = generator.generate(NUM_SAMPLES)
 
     assert df.shape == (NUM_SAMPLES, len(sampler_columns.columns))
@@ -504,7 +523,7 @@ def test_e2e_example(stub_schema_builder, stub_person_generator_loader):
     assert (some_lady["sex"] == "Female").all()
 
 
-def test_max_rejections_factor_error(stub_schema_builder):
+def test_max_rejections_factor_error(stub_schema_builder, stub_dataset_manager):
     stub_schema_builder.add_column(
         name="col_1",
         sampler_type=SamplerType.UNIFORM,
@@ -516,7 +535,10 @@ def test_max_rejections_factor_error(stub_schema_builder):
         params={"low": 0, "high": 1},
     )
     stub_schema_builder.add_constraint(ColumnInequalityConstraint(target_column="col_1", operator="lt", rhs="col_2"))
-    generator = DatasetGenerator(sampler_columns=stub_schema_builder.to_sampler_columns(max_rejections_factor=1))
+    generator = DatasetGenerator(
+        sampler_columns=stub_schema_builder.to_sampler_columns(max_rejections_factor=1),
+        dataset_manager=stub_dataset_manager,
+    )
 
     with pytest.raises(
         RejectionSamplingError,

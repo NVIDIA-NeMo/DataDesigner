@@ -8,7 +8,7 @@ from unittest.mock import Mock
 import pandas as pd
 import pytest
 
-from data_designer.engine.resources.managed_storage import LocalBlobStorageProvider
+from data_designer.engine.resources.managed_assets import LocalDatasetManager
 
 
 @pytest.fixture
@@ -18,8 +18,8 @@ def stub_temp_dir():
 
 
 @pytest.fixture
-def stub_local_blob_storage(stub_temp_dir):
-    return LocalBlobStorageProvider(stub_temp_dir)
+def stub_local_dataset_manager(stub_temp_dir):
+    return LocalDatasetManager(stub_temp_dir)
 
 
 @pytest.fixture

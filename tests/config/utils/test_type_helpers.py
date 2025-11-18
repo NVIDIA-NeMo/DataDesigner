@@ -137,6 +137,7 @@ def test_get_sampler_params():
         "binomial",
         "category",
         "datetime",
+        "faker_person",
         "gaussian",
         "person",
         "poisson",

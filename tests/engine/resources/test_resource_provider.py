@@ -53,7 +53,7 @@ def test_create_resource_provider_function_exists():
         "secret_resolver",
         "model_provider_registry",
         "datastore",
-        "blob_storage",
+        "dataset_manager",
     ]
 
     for param in expected_params:

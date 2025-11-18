@@ -3,6 +3,7 @@
 
 from collections import defaultdict
 import random
+from unittest.mock import Mock
 
 from faker import Faker
 import pandas as pd
@@ -214,15 +215,13 @@ def stub_default_samplers(stub_people_gen_resource) -> list[DataSource]:
             {"prefix": "ZZZ-", "short_form": True, "uppercase": True},
         ),
         (
-            SamplerType.PERSON,
+            SamplerType.FAKER_PERSON,
             {
                 "locale": "en_GB",
                 "sex": None,
                 "city": None,
                 "age_range": [18, 100],
                 "state": None,
-                "with_synthetic_personas": False,
-                "sample_dataset_when_available": True,
             },
         ),
         (
@@ -234,7 +233,6 @@ def stub_default_samplers(stub_people_gen_resource) -> list[DataSource]:
                 "age_range": [18, 100],
                 "state": None,
                 "with_synthetic_personas": False,
-                "sample_dataset_when_available": True,
             },
         ),
     ]
@@ -273,10 +271,12 @@ def stub_person_generator_loader():
 
 
 @pytest.fixture
-def stub_people_gen_resource(stub_people_gen_pgm):
+def stub_people_gen_resource(stub_people_gen_pgm, stub_people_gen_with_personas):
     return {
         "en_US": stub_people_gen_pgm,
+        "en_US_with_personas": stub_people_gen_with_personas,
         "en_GB_faker": PeopleGenFaker(Faker("en_GB"), "en_GB"),
+        "fr_FR_faker": PeopleGenFaker(Faker("fr_FR"), "fr_FR"),
     }
 
 
@@ -303,3 +303,22 @@ def stub_sampler_columns(stub_default_samplers):
 @pytest.fixture
 def stub_schema_builder():
     return SchemaBuilder()
+
+
+@pytest.fixture
+def stub_dataset_manager(stub_people_gen_resource, monkeypatch):
+    """Mock DatasetManager for testing by patching create_people_gen_resource."""
+    from data_designer.engine.sampling_gen import generator
+
+    # Patch the create_people_gen_resource function in the generator module
+    def mock_create_people_gen_resource(schema, dataset_manager):
+        return stub_people_gen_resource
+
+    # Patch in both modules to be sure
+    monkeypatch.setattr(
+        "data_designer.engine.sampling_gen.people_gen.create_people_gen_resource", mock_create_people_gen_resource
+    )
+    monkeypatch.setattr(generator, "create_people_gen_resource", mock_create_people_gen_resource)
+
+    # Return a simple mock that won't be used for anything
+    return Mock()
