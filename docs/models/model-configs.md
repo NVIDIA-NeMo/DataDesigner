@@ -14,14 +14,12 @@ The `ModelConfig` class has the following fields:
 |-------|------|----------|-------------|
 | `alias` | `str` | Yes | Unique identifier for this model configuration (e.g., `"my-text-model"`, `"reasoning-model"`) |
 | `model` | `str` | Yes | Model identifier as recognized by the provider (e.g., `"nvidia/nvidia-nemotron-nano-9b-v2"`, `"gpt-4"`) |
-| `inference_parameters` | `InferenceParameters` | Yes | Controls model behavior during generation (temperature, top_p, max_tokens, etc.). Can be empty: `InferenceParameters()` to pick up defaults |
+| `inference_parameters` | `InferenceParameters` | No | Controls model behavior during generation (temperature, top_p, max_tokens, etc). Defaults from constructing an empty `InferenceParameters` object are picked up when not provided.|
 | `provider` | `str` | No | Reference to the name of the Provider to use (e.g., `"nvidia"`, `"openai"`). If not specified, one set as the default provider, which may resolve to the first provider if there are more than one |
 
 ## InferenceParameters
 
 The `InferenceParameters` class controls how the model generates responses. It provides fine-grained control over generation behavior and supports both static values and dynamic distribution-based sampling.
-
-While `InferenceParameters` is required when creating a `ModelConfig`, all fields within it are optional. You can create an empty `InferenceParameters()` to use all provider defaults.
 
 ### Fields
 
