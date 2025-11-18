@@ -15,7 +15,6 @@ from .utils.constants import (
     LOCALES_WITH_MANAGED_DATASETS,
     MAX_AGE,
     MIN_AGE,
-    US_STATES_AND_MAJOR_TERRITORIES,
 )
 
 
@@ -238,13 +237,18 @@ class PersonSamplerParams(ConfigBase):
         min_length=2,
         max_length=2,
     )
-
-    state: Optional[Union[str, list[str]]] = Field(
+    select_field_values: Optional[dict[str, list[str]]] = Field(
         default=None,
         description=(
-            "Only supported for 'en_US' locale. If specified, then only synthetic people "
-            "from these states will be sampled. States must be given as two-letter abbreviations."
+            "Sample synthetic people with the specified field values. This is meant to be a flexible argument for "
+            "selecting a subset of the population from the managed dataset. Note that this sampler does not support "
+            "rare combinations of field values and will likely fail if your desired subset is not well-represented "
+            "in the managed Nemotron Personas dataset. We generally recommend using the `sex`, `city`, and `age_range` "
+            "arguments to filter the population when possible."
         ),
+        examples=[
+            {"state": ["NY", "CA", "OH", "TX", "NV"], "education_level": ["high_school", "some_college", "bachelors"]}
+        ],
     )
 
     with_synthetic_personas: bool = Field(
@@ -300,20 +304,6 @@ class PersonSamplerParams(ConfigBase):
             )
         return self
 
-    @model_validator(mode="after")
-    def _validate_state(self) -> Self:
-        if self.state is not None:
-            orig_state_value = self.state
-            if self.locale != "en_US":
-                raise ValueError("'state' is only supported for 'en_US' locale.")
-            if not isinstance(self.state, list):
-                self.state = [self.state]
-            self.state = [state.upper() for state in self.state]
-            for state in self.state:
-                if state not in US_STATES_AND_MAJOR_TERRITORIES:
-                    raise ValueError(f"State {orig_state_value!r} is not a supported state.")
-        return self
-
 
 class FakerPersonSamplerParams(ConfigBase):
     locale: str = Field(
@@ -336,14 +326,6 @@ class FakerPersonSamplerParams(ConfigBase):
         description="If specified, then only synthetic people within this age range will be sampled.",
         min_length=2,
         max_length=2,
-    )
-
-    state: Optional[Union[str, list[str]]] = Field(
-        default=None,
-        description=(
-            "Only supported for 'en_US' locale. If specified, then only synthetic people "
-            "from these states will be sampled. States must be given as two-letter abbreviations."
-        ),
     )
 
     @property
@@ -384,20 +366,6 @@ class FakerPersonSamplerParams(ConfigBase):
                 f"Locale {value!r} is not a supported locale. Supported locales: {', '.join(AVAILABLE_LOCALES)}"
             )
         return value
-
-    @model_validator(mode="after")
-    def _validate_state(self) -> Self:
-        if self.state is not None:
-            orig_state_value = self.state
-            if self.locale != "en_US":
-                raise ValueError("'state' is only supported for 'en_US' locale.")
-            if not isinstance(self.state, list):
-                self.state = [self.state]
-            self.state = [state.upper() for state in self.state]
-            for state in self.state:
-                if state not in US_STATES_AND_MAJOR_TERRITORIES:
-                    raise ValueError(f"State {orig_state_value!r} is not a supported state.")
-        return self
 
 
 SamplerParamsT: TypeAlias = Union[

@@ -11,6 +11,7 @@ from data_designer.config.sampler_params import (
     BernoulliSamplerParams,
     CategorySamplerParams,
     DatetimeSamplerParams,
+    FakerPersonSamplerParams,
     GaussianSamplerParams,
     PersonSamplerParams,
     SamplerType,
@@ -33,6 +34,7 @@ from data_designer.engine.sampling_gen.data_sources.sources import (
     BernoulliSampler,
     CategorySampler,
     DatetimeSampler,
+    FakerPersonSampler,
     GaussianSampler,
     PersonSampler,
     SamplerRegistry,
@@ -269,6 +271,52 @@ def test_person_sampler_sample_without_generator():
 
     with pytest.raises(ValueError, match="Generator not set"):
         sampler.sample(2)
+
+
+def test_faker_person_sampler_setup_with_generator(stub_people_gen):
+    params = FakerPersonSamplerParams(locale="en_GB")
+    people_gen_resource = {"en_GB_faker": stub_people_gen}
+
+    sampler = FakerPersonSampler(params=params, people_gen_resource=people_gen_resource)
+    assert sampler._generator == stub_people_gen
+
+
+def test_faker_person_sampler_setup_without_generator():
+    params = FakerPersonSamplerParams(locale="en_GB")
+
+    sampler = FakerPersonSampler(params=params)
+    assert sampler._generator is None
+
+
+def test_faker_person_sampler_sample_with_generator(stub_people_gen):
+    params = FakerPersonSamplerParams(locale="en_GB")
+
+    sampler = FakerPersonSampler(params=params)
+    sampler.set_generator(stub_people_gen)
+
+    result = sampler.sample(2)
+    assert len(result) == 2
+
+
+def test_faker_person_sampler_sample_without_generator():
+    params = FakerPersonSamplerParams(locale="en_GB")
+
+    sampler = FakerPersonSampler(params=params)
+
+    with pytest.raises(ValueError, match="Generator not set"):
+        sampler.sample(2)
+
+
+def test_faker_person_sampler_with_fixed_kwargs(stub_people_gen):
+    params = FakerPersonSamplerParams(locale="en_GB", sex="Female", city="London", age_range=[25, 35])
+    people_gen_resource = {"en_GB_faker": stub_people_gen}
+
+    sampler = FakerPersonSampler(params=params, people_gen_resource=people_gen_resource)
+
+    # Verify that fixed kwargs are set correctly
+    assert sampler._fixed_kwargs["sex"] == "Female"
+    assert sampler._fixed_kwargs["city"] == "London"
+    assert sampler._fixed_kwargs["age_range"] == [25, 35]
 
 
 def test_time_delta_sampler_get_required_column_names():

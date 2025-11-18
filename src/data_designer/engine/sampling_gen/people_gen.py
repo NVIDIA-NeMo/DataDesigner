@@ -16,7 +16,6 @@ from data_designer.config.sampler_params import SamplerParamsT
 from data_designer.config.utils.constants import (
     AVAILABLE_LOCALES,
     DEFAULT_AGE_RANGE,
-    PERSONAS_DATA_CATALOG_NAME,
 )
 from data_designer.engine.resources.managed_dataset_generator import ManagedDatasetGenerator
 from data_designer.engine.resources.managed_dataset_repository import create_dataset_repository
@@ -178,7 +177,7 @@ def create_people_gen_resource(schema: DataSchema, dataset_manager: DatasetManag
     # ------------------------------------------------------------
     for column in schema.get_columns_by_sampler_type("person"):
         for params in [column.params, *list[SamplerParamsT](column.conditional_params.values())]:
-            if not dataset_manager.has_access_to_table(params.locale.lower(), exact_match=False):
+            if not dataset_manager.has_access_to_table(params.locale.lower()):
                 raise DatasetNotAvailableForLocaleError(
                     f"🛑 Locale {params.locale} is not available in the dataset manager. "
                     "Please check if you have access to person data for this locale. "
@@ -187,11 +186,7 @@ def create_people_gen_resource(schema: DataSchema, dataset_manager: DatasetManag
                 try:
                     engine = ManagedDatasetGenerator(
                         dataset_repo=create_dataset_repository(dataset_manager),
-                        dataset_name=dataset_manager.get_table(
-                            catalog_name=PERSONAS_DATA_CATALOG_NAME,
-                            table_name=params.locale.lower(),
-                            exact_match=False,
-                        ).name,
+                        dataset_name=dataset_manager.get_table(table_name=params.locale.lower()).name,
                     )
                     people_gen_resource[params.people_gen_key] = PeopleGenFromDataset(
                         engine=engine, locale=params.locale

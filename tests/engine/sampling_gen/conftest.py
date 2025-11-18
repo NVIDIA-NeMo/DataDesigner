@@ -221,7 +221,6 @@ def stub_default_samplers(stub_people_gen_resource) -> list[DataSource]:
                 "sex": None,
                 "city": None,
                 "age_range": [18, 100],
-                "state": None,
             },
         ),
         (
@@ -231,7 +230,7 @@ def stub_default_samplers(stub_people_gen_resource) -> list[DataSource]:
                 "sex": None,
                 "city": None,
                 "age_range": [18, 100],
-                "state": None,
+                "select_field_values": None,
                 "with_synthetic_personas": False,
             },
         ),

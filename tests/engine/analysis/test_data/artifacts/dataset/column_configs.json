@@ -22,7 +22,7 @@
           "sex": null,
           "city": null,
           "age_range": [18, 114],
-          "state": null,
+          "select_field_values": null,
           "with_synthetic_personas": true
         },
         "conditional_params": {},

@@ -7,6 +7,7 @@ import pytest
 from data_designer.config.sampler_params import (
     CategorySamplerParams,
     DatetimeSamplerParams,
+    FakerPersonSamplerParams,
     PersonSamplerParams,
     SamplerType,
     TimeDeltaSamplerParams,
@@ -18,6 +19,11 @@ from data_designer.config.sampler_params import (
 @pytest.fixture
 def stub_person_sampler_params():
     return PersonSamplerParams(locale="en_US", sex="Female", city="New York", age_range=[18, 30])
+
+
+@pytest.fixture
+def stub_faker_person_sampler_params():
+    return FakerPersonSamplerParams(locale="en_GB", sex="Male", city="London", age_range=[20, 40])
 
 
 def test_category_sampler_params():
@@ -65,13 +71,13 @@ def test_person_sampler_params(stub_person_sampler_params):
     assert stub_person_sampler_params.sex == "Female"
     assert stub_person_sampler_params.city == "New York"
     assert stub_person_sampler_params.age_range == [18, 30]
-    assert stub_person_sampler_params.state is None
+    assert stub_person_sampler_params.select_field_values is None
     assert stub_person_sampler_params.with_synthetic_personas is False
     assert stub_person_sampler_params.generator_kwargs == [
         "sex",
         "city",
         "age_range",
-        "state",
+        "select_field_values",
         "with_synthetic_personas",
     ]
     assert stub_person_sampler_params.people_gen_key == "en_US"
@@ -103,13 +109,21 @@ def test_person_sampler_locale_validation():
         PersonSamplerParams(locale="invalid", age_range=[18, 30])
 
 
-def test_person_sampler_state_validation():
-    with pytest.raises(ValidationError, match="State 'invalid' is not a supported state."):
-        PersonSamplerParams(locale="en_US", state="invalid", age_range=[18, 30])
+def test_person_sampler_select_field_values_validation():
+    # Test that invalid field names raise an error
+    # This validation happens in PersonSampler.__init__, not in PersonSamplerParams
+    # so we can create the params object but would need to test the sampler initialization separately
+    # For now, just test that select_field_values accepts dict input
+    params = PersonSamplerParams(locale="en_US", select_field_values={"state": ["NY", "CA"]}, age_range=[18, 30])
+    assert params.select_field_values == {"state": ["NY", "CA"]}
 
-    # Test that state is only supported for en_US locale (use a managed locale like ja_JP)
-    with pytest.raises(ValidationError, match="'state' is only supported for 'en_US' locale."):
-        PersonSamplerParams(locale="ja_JP", state="NY", age_range=[18, 30])
+    # Test that select_field_values can be used with other fields
+    params = PersonSamplerParams(
+        locale="en_US",
+        select_field_values={"education_level": ["bachelors", "masters"]},
+        age_range=[18, 30],
+    )
+    assert params.select_field_values == {"education_level": ["bachelors", "masters"]}
 
 
 def test_person_sampler_with_synthetic_personas_validation():
@@ -124,6 +138,50 @@ def test_person_sampler_with_synthetic_personas_validation():
     params = PersonSamplerParams(locale="en_US", with_synthetic_personas=True, age_range=[18, 30])
     assert params.with_synthetic_personas is True
     assert params.people_gen_key == "en_US_with_personas"
+
+
+def test_faker_person_sampler_params(stub_faker_person_sampler_params):
+    assert stub_faker_person_sampler_params.locale == "en_GB"
+    assert stub_faker_person_sampler_params.sex == "Male"
+    assert stub_faker_person_sampler_params.city == "London"
+    assert stub_faker_person_sampler_params.age_range == [20, 40]
+    assert stub_faker_person_sampler_params.generator_kwargs == [
+        "sex",
+        "city",
+        "age_range",
+    ]
+    assert stub_faker_person_sampler_params.people_gen_key == "en_GB_faker"
+
+
+def test_faker_person_sampler_age_range_validation():
+    with pytest.raises(
+        ValidationError,
+        match="The first integer \\(min age\\) must be greater than or equal to 0, but the first integer provided was -1",
+    ):
+        FakerPersonSamplerParams(locale="en_GB", age_range=[-1, 15])
+    with pytest.raises(
+        ValidationError,
+        match="The second integer \\(max age\\) must be less than or equal to 114, but the second integer provided was 1000",
+    ):
+        FakerPersonSamplerParams(locale="en_GB", age_range=[18, 1000])
+    with pytest.raises(
+        ValidationError, match="The first integer \\(min age\\) must be less than the second integer \\(max age\\)"
+    ):
+        FakerPersonSamplerParams(locale="en_GB", age_range=[18, 17])
+
+
+def test_faker_person_sampler_locale_validation():
+    with pytest.raises(ValidationError, match="Locale 'invalid' is not a supported locale."):
+        FakerPersonSamplerParams(locale="invalid", age_range=[18, 30])
+
+    # FakerPersonSamplerParams should work with any valid locale (not just managed locales)
+    params = FakerPersonSamplerParams(locale="en_GB", age_range=[18, 30])
+    assert params.locale == "en_GB"
+    assert params.people_gen_key == "en_GB_faker"
+
+    params = FakerPersonSamplerParams(locale="fr_FR", age_range=[18, 30])
+    assert params.locale == "fr_FR"
+    assert params.people_gen_key == "fr_FR_faker"
 
 
 def test_is_numerical_sampler_type():

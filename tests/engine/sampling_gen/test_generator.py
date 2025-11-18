@@ -314,13 +314,13 @@ def test_person_with_state(stub_schema_builder, stub_dataset_manager):
     stub_schema_builder.add_column(
         name="some_dude",
         sampler_type="person",
-        params={"locale": PGM_LOCALE, "sex": "Male", "state": "CA"},
+        params={"locale": PGM_LOCALE, "sex": "Male", "select_field_values": {"state": ["CA"]}},
     )
 
     stub_schema_builder.add_column(
         name="some_lady",
         sampler_type="person",
-        params={"locale": PGM_LOCALE, "sex": "Female", "state": ["NV", "NY"]},
+        params={"locale": PGM_LOCALE, "sex": "Female", "select_field_values": {"state": ["NV", "NY"]}},
     )
 
     generator = DatasetGenerator(
@@ -333,12 +333,13 @@ def test_person_with_state(stub_schema_builder, stub_dataset_manager):
     assert df["some_lady"].apply(lambda x: x["state"]).isin(["NV", "NY"]).all()
 
 
-def test_error_person_with_state_and_non_en_us_locale(stub_schema_builder, stub_dataset_manager):
-    with pytest.raises(ValueError):
+def test_error_person_with_invalid_field_name(stub_schema_builder, stub_dataset_manager):
+    # Test that invalid field names in select_field_values raise an error during column construction
+    with pytest.raises(ValueError, match="Invalid field name: invalid_field"):
         stub_schema_builder.add_column(
             name="some_dude",
-            sampler_type="faker_person",
-            params={"locale": "en_GB", "sex": "Male", "state": ["CA", "NV", "DC"]},
+            sampler_type="person",
+            params={"locale": PGM_LOCALE, "sex": "Male", "select_field_values": {"invalid_field": ["value"]}},
         )
 
 
