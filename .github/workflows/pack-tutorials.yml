@@ -3,8 +3,6 @@ name: Pack Tutorials
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
 
 jobs:
   pack-tutorials:
