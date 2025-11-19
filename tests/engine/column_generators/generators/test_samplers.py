@@ -11,7 +11,7 @@ from data_designer.config.sampler_params import (
     CategorySamplerParams,
     DatetimeSamplerParams,
     GaussianSamplerParams,
-    PersonSamplerParams,
+    PersonFromFakerSamplerParams,
     PoissonSamplerParams,
     SamplerType,
     ScipySamplerParams,
@@ -29,8 +29,8 @@ def stub_sampler_column_configs():
     return [
         SamplerColumnConfig(
             name="person",
-            sampler_type=SamplerType.PERSON,
-            params=PersonSamplerParams(
+            sampler_type=SamplerType.PERSON_FROM_FAKER,
+            params=PersonFromFakerSamplerParams(
                 # non en_US uses Faker
                 locale="en_GB",
                 age_range=[25, 70],

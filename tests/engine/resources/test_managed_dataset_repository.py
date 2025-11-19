@@ -118,17 +118,17 @@ def test_duckdb_dataset_repository_query_basic(mock_duckdb, stub_blob_storage):
 
     mock_duckdb.connect.return_value = mock_db
     mock_db.cursor.return_value = mock_cursor
-    mock_cursor.sql.return_value.df.return_value = mock_df
+    mock_cursor.execute.return_value.df.return_value = mock_df
 
     with patch("data_designer.engine.resources.managed_dataset_repository.threading.Thread"):
         repo = DuckDBDatasetRepository(stub_blob_storage)
 
         repo._registration_event.set()
 
-        result = repo.query("SELECT * FROM test")
+        result = repo.query("SELECT * FROM test", [])
 
         mock_db.cursor.assert_called_once()
-        mock_cursor.sql.assert_called_once_with("SELECT * FROM test")
+        mock_cursor.execute.assert_called_once_with("SELECT * FROM test", [])
         mock_cursor.close.assert_called_once()
 
         pd.testing.assert_frame_equal(result, mock_df)
@@ -142,7 +142,7 @@ def test_duckdb_dataset_repository_query_waits_for_registration(mock_duckdb, stu
 
     mock_duckdb.connect.return_value = mock_db
     mock_db.cursor.return_value = mock_cursor
-    mock_cursor.sql.return_value.df.return_value = mock_df
+    mock_cursor.execute.return_value.df.return_value = mock_df
 
     with patch("data_designer.engine.resources.managed_dataset_repository.threading.Thread"):
         repo = DuckDBDatasetRepository(stub_blob_storage)
@@ -154,9 +154,9 @@ def test_duckdb_dataset_repository_query_waits_for_registration(mock_duckdb, stu
 
         repo._registration_event.wait = mock_wait
 
-        result = repo.query("SELECT * FROM test")
+        result = repo.query("SELECT * FROM test", [])
 
-        mock_cursor.sql.assert_called_once_with("SELECT * FROM test")
+        mock_cursor.execute.assert_called_once_with("SELECT * FROM test", [])
         pd.testing.assert_frame_equal(result, mock_df)
 
 
@@ -167,44 +167,48 @@ def test_duckdb_dataset_repository_query_cursor_cleanup(mock_duckdb, stub_blob_s
 
     mock_duckdb.connect.return_value = mock_db
     mock_db.cursor.return_value = mock_cursor
-    mock_cursor.sql.side_effect = Exception("Query failed")
+    mock_cursor.execute.side_effect = Exception("Query failed")
 
     with patch("data_designer.engine.resources.managed_dataset_repository.threading.Thread"):
         repo = DuckDBDatasetRepository(stub_blob_storage)
         repo._registration_event.set()
 
         with pytest.raises(Exception, match="Query failed"):
-            repo.query("SELECT * FROM test")
+            repo.query("SELECT * FROM test", [])
 
         mock_cursor.close.assert_called_once()
 
 
-def test_load_managed_dataset_repository_with_local_storage():
+def test_load_managed_dataset_repository_with_local_storage(stub_blob_storage):
     with patch("data_designer.engine.resources.managed_dataset_repository.DuckDBDatasetRepository") as mock_repo_class:
         mock_repo = Mock()
         mock_repo_class.return_value = mock_repo
 
-        result = load_managed_dataset_repository(stub_blob_storage)
+        locales = ["en_US", "ja_JP"]
+        result = load_managed_dataset_repository(stub_blob_storage, locales)
 
         mock_repo_class.assert_called_once_with(
             stub_blob_storage,
-            {"threads": 1, "memory_limit": "2 gb"},
+            config={"threads": 1, "memory_limit": "2 gb"},
+            data_catalog=[Table("en_US.parquet"), Table("ja_JP.parquet")],
             use_cache=True,  # Mock is not LocalBlobStorageProvider, so use_cache=True
         )
 
         assert result == mock_repo
 
 
-def test_load_managed_dataset_repository_with_non_local_storage():
+def test_load_managed_dataset_repository_with_non_local_storage(stub_blob_storage):
     with patch("data_designer.engine.resources.managed_dataset_repository.DuckDBDatasetRepository") as mock_repo_class:
         mock_repo = Mock()
         mock_repo_class.return_value = mock_repo
 
-        result = load_managed_dataset_repository(stub_blob_storage)
+        locales = ["en_US"]
+        result = load_managed_dataset_repository(stub_blob_storage, locales)
 
         mock_repo_class.assert_called_once_with(
             stub_blob_storage,
-            {"threads": 1, "memory_limit": "2 gb"},
+            config={"threads": 1, "memory_limit": "2 gb"},
+            data_catalog=[Table("en_US.parquet")],
             use_cache=True,  # Should be True for non-local storage
         )
 

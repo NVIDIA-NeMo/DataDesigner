@@ -139,6 +139,7 @@ def test_get_sampler_params():
         "datetime",
         "gaussian",
         "person",
+        "person_from_faker",
         "poisson",
         "scipy",
         "subcategory",

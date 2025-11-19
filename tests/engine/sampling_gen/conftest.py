@@ -214,15 +214,12 @@ def stub_default_samplers(stub_people_gen_resource) -> list[DataSource]:
             {"prefix": "ZZZ-", "short_form": True, "uppercase": True},
         ),
         (
-            SamplerType.PERSON,
+            SamplerType.PERSON_FROM_FAKER,
             {
                 "locale": "en_GB",
                 "sex": None,
                 "city": None,
                 "age_range": [18, 100],
-                "state": None,
-                "with_synthetic_personas": False,
-                "sample_dataset_when_available": True,
             },
         ),
         (
@@ -232,9 +229,7 @@ def stub_default_samplers(stub_people_gen_resource) -> list[DataSource]:
                 "sex": None,
                 "city": None,
                 "age_range": [18, 100],
-                "state": None,
                 "with_synthetic_personas": False,
-                "sample_dataset_when_available": True,
             },
         ),
     ]

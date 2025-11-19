@@ -594,13 +594,13 @@ def test_get_column_config_from_kwargs():
     assert sampler_column_no_params.params.short_form is False
     assert sampler_column_no_params.params.uppercase is False
 
-    # PERSON type with params provided
+    # PERSON type with params provided (must use locale with managed dataset)
     person_sampler_column = get_column_config_from_kwargs(
         name="test_person_sampler",
         column_type=DataDesignerColumnType.SAMPLER,
         sampler_type=SamplerType.PERSON,
         params={
-            "locale": "en_GB",
+            "locale": "en_US",
             "sex": "Male",
             "city": "New York",
             "age_range": [18, 30],
@@ -609,7 +609,7 @@ def test_get_column_config_from_kwargs():
     assert isinstance(person_sampler_column, SamplerColumnConfig)
     assert person_sampler_column.name == "test_person_sampler"
     assert person_sampler_column.sampler_type == SamplerType.PERSON
-    assert person_sampler_column.params.locale == "en_GB"
+    assert person_sampler_column.params.locale == "en_US"
     assert person_sampler_column.params.sex == "Male"
     assert person_sampler_column.params.city == "New York"
 

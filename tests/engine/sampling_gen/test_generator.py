@@ -213,20 +213,22 @@ def test_subcategory_generation(stub_schema_builder):
 def test_generation_with_people(stub_schema_builder, stub_person_generator_loader):
     stub_schema_builder.add_column(name="random_number", sampler_type="uniform", params={"low": 0, "high": 100})
 
+    # Use person_from_faker for non-managed locales
     stub_schema_builder.add_column(
         name="some_dude",
-        sampler_type="person",
+        sampler_type="person_from_faker",
         params={"locale": TEST_LOCALE_1, "sex": "Male"},
         conditional_params={"random_number > 50": {"locale": TEST_LOCALE_2, "sex": "Male"}},
     )
 
     stub_schema_builder.add_column(
         name="some_lady",
-        sampler_type="person",
+        sampler_type="person_from_faker",
         params={"locale": TEST_LOCALE_1, "sex": "Female"},
         conditional_params={"random_number > 50": {"locale": TEST_LOCALE_2, "sex": "Female"}},
     )
 
+    # Use person for managed locale (en_US)
     stub_schema_builder.add_column(
         name="american_dude",
         sampler_type="person",
@@ -261,9 +263,10 @@ def test_person_with_age_range(stub_schema_builder, stub_person_generator_loader
     age_min = 18
     age_max = 30
 
+    # Use person_from_faker for non-managed locale
     stub_schema_builder.add_column(
         name="some_dude",
-        sampler_type="person",
+        sampler_type="person_from_faker",
         params={
             "locale": TEST_LOCALE_1,
             "sex": "Male",
@@ -271,6 +274,7 @@ def test_person_with_age_range(stub_schema_builder, stub_person_generator_loader
         },
     )
 
+    # Use person for managed locale (en_US)
     stub_schema_builder.add_column(
         name="some_lady",
         sampler_type="person",
@@ -297,13 +301,13 @@ def test_person_with_state(stub_schema_builder, stub_person_generator_loader):
     stub_schema_builder.add_column(
         name="some_dude",
         sampler_type="person",
-        params={"locale": PGM_LOCALE, "sex": "Male", "state": "CA"},
+        params={"locale": PGM_LOCALE, "sex": "Male", "select_field_values": {"state": ["CA"]}},
     )
 
     stub_schema_builder.add_column(
         name="some_lady",
         sampler_type="person",
-        params={"locale": PGM_LOCALE, "sex": "Female", "state": ["NV", "NY"]},
+        params={"locale": PGM_LOCALE, "sex": "Female", "select_field_values": {"state": ["NV", "NY"]}},
     )
 
     generator = DatasetGenerator(
@@ -317,11 +321,12 @@ def test_person_with_state(stub_schema_builder, stub_person_generator_loader):
 
 
 def test_error_person_with_state_and_non_en_us_locale(stub_schema_builder):
+    # PersonSamplerParams now only supports locales with managed datasets
     with pytest.raises(ValueError):
         stub_schema_builder.add_column(
             name="some_dude",
             sampler_type="person",
-            params={"locale": "en_GB", "sex": "Male", "state": ["CA", "NV", "DC"]},
+            params={"locale": "en_GB", "sex": "Male", "select_field_values": {"state": ["CA", "NV", "DC"]}},
         )
 
 

@@ -37,43 +37,38 @@ def test_managed_dataset_generator_init(dataset_name, stub_repository):
 
 
 @pytest.mark.parametrize(
-    "size,evidence,seed,expected_query_pattern",
+    "size,evidence,expected_query_pattern",
     [
-        (2, None, None, "select * from en_US order by random() limit 2"),
+        (2, None, "select * from en_US order by random() limit 2"),
         (
             1,
             {"name": "John"},
-            None,
-            "select * from en_US where name IN ('John') order by random() limit 1",
+            "select * from en_US where name IN (?) order by random() limit 1",
         ),
         (
             3,
             {"name": ["John", "Jane"], "age": [25]},
-            None,
-            "select * from en_US where name IN ('John', 'Jane') and age IN ('25') order by random() limit 3",
+            "select * from en_US where name IN (?, ?) and age IN (?) order by random() limit 3",
         ),
         (
             1,
             {"name": [], "age": None},
-            None,
             "select * from en_US order by random() limit 1",
         ),
-        (1, None, 12345, "select * from en_US order by random() limit 1"),
         (
-            None,
             None,
             None,
             "select * from en_US order by random() limit 1",
         ),
     ],
 )
-def test_generate_samples_scenarios(size, evidence, seed, expected_query_pattern, stub_repository):
+def test_generate_samples_scenarios(size, evidence, expected_query_pattern, stub_repository):
     generator = ManagedDatasetGenerator(stub_repository, dataset_name="en_US")
 
     if size is None:
-        result = generator.generate_samples(evidence=evidence, seed=seed)
+        result = generator.generate_samples(evidence=evidence)
     else:
-        result = generator.generate_samples(size=size, evidence=evidence, seed=seed)
+        result = generator.generate_samples(size=size, evidence=evidence)
 
     stub_repository.query.assert_called_once()
     call_args = stub_repository.query.call_args[0][0]
@@ -87,8 +82,10 @@ def test_generate_samples_different_locale(stub_repository):
 
     result = generator.generate_samples(size=1)
 
+    stub_repository.query.assert_called_once()
+    call_args = stub_repository.query.call_args[0][0]
     expected_query = "select * from ja_JP order by random() limit 1"
-    stub_repository.query.assert_called_once_with(expected_query)
+    assert expected_query in call_args
 
     assert isinstance(result, pd.DataFrame)
 
@@ -108,7 +105,7 @@ def test_load_person_data_sampler_scenarios(mock_load_repo, locale, stub_blob_st
 
     result = load_person_data_sampler(stub_blob_storage, locale=locale)
 
-    mock_load_repo.assert_called_once_with(stub_blob_storage)
+    mock_load_repo.assert_called_once_with(stub_blob_storage, [locale])
 
     assert isinstance(result, ManagedDatasetGenerator)
     assert result.managed_datasets == mock_repo

@@ -17,7 +17,11 @@ def test_init(stub_default_samplers):
         assert column.sampler_type == sampler_type
         assert column.conditional_params == {}
         assert column.conditions == ["..."]
-        assert column.params.model_dump(mode="json") == params
+        # Check that the dumped params contains all the original params (may have additional fields with default values)
+        dumped_params = column.params.model_dump(mode="json")
+        for key, value in params.items():
+            assert key in dumped_params
+            assert dumped_params[key] == value
 
 
 def test_conditional_params():
