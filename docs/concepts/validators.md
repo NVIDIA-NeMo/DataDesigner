@@ -168,12 +168,15 @@ The `output_schema` parameter is optional but recommended—it validates the fun
 
 ### 🌐 Remote Validator
 
-The remote validator sends data to HTTP endpoints for validation-as-a-service. Use this for:
+The remote validator sends data to HTTP endpoints for validation-as-a-service. This is useful for when you have validation software that needs to run on external compute and you can expose it through a service. Some examples are:
 
 - External linting services
 - Security scanners
 - Domain-specific validators
 - Proprietary validation systems
+
+!!! note "Authentication"
+    Currently, the remote validator is only able to perform unauthenticated API calls. When implementing your own service, you can rely on network isolation for security. If you need to reach a service that requires authentication, you should implement a local proxy.
 
 **Configuration:**
 
@@ -255,39 +258,26 @@ Add validation columns to your configuration using the builder's `add_column` me
 
 ```python
 from data_designer.essentials import (
-    DataDesignerConfigBuilder,
     CodeValidatorParams,
     CodeLang,
+    DataDesignerConfigBuilder,
+    LLMCodeColumnConfig,
+    ValidationColumnConfig,
 )
 
 builder = DataDesignerConfigBuilder()
 
 # Generate Python code
 builder.add_column(
-    name="sorting_algorithm",
-    column_type="llm-code",
-    prompt="Write a Python function to sort a list using bubble sort.",
-    code_lang="python",
-    model_alias="my-model"
+    LLMCodeColumnConfig(
+        name="sorting_algorithm",
+        prompt="Write a Python function to sort a list using bubble sort.",
+        code_lang="python",
+        model_alias="my-model"
+    )
 )
 
 # Validate the generated code
-builder.add_column(
-    name="code_validation",
-    column_type="validation",
-    target_columns=["sorting_algorithm"],
-    validator_type="code",
-    validator_params=CodeValidatorParams(code_lang=CodeLang.PYTHON),
-    batch_size=10,
-    drop=False,
-)
-```
-
-The `target_columns` parameter specifies which columns to validate. All target columns are passed to the validator together (except for code validators, which process each column separately).
-
-Alternatively, a `ValidationColumnConfig` object can be passed:
-
-```python
 builder.add_column(
     ValidationColumnConfig(
         name="code_validation",
@@ -300,14 +290,11 @@ builder.add_column(
 )
 ```
 
+The `target_columns` parameter specifies which columns to validate. All target columns are passed to the validator together (except for code validators, which process each column separately).
+
 ### Configuration Parameters
 
-- **`name`**: Column name for validation results
-- **`target_columns`**: List of columns to validate (must exist before validation runs)
-- **`validator_type`**: Validator strategy (`"code"`, `"local_callable"`, or `"remote"`)
-- **`validator_params`**: Type-specific configuration object
-- **`batch_size`**: Records per validation batch (default: 10)
-- **`drop`**: Whether to exclude validation results from final output (default: `False`)
+See more about parameters used to instantiate `ValidationColumnConfig` in the [code reference](/code_reference/column_configs/#data_designer.config.column_configs.ValidationColumnConfig).
 
 ### Batch Size Considerations
 
@@ -331,15 +318,16 @@ If the validation logic uses information from other samples, only samples in the
 Validate multiple columns simultaneously:
 
 ```python
-from data_designer.essentials import RemoteValidatorParams
+from data_designer.essentials import RemoteValidatorParams, ValidationColumnConfig
 
 builder.add_column(
-    name="multi_column_validation",
-    column_type="validation",
-    target_columns=["column_a", "column_b", "column_c"],
-    validator_type="remote",
-    validator_params=RemoteValidatorParams(
-        endpoint_url="https://api.example.com/validate"
+    ValidationColumnConfig(
+        name="multi_column_validation",
+        target_columns=["column_a", "column_b", "column_c"],
+        validator_type="remote",
+        validator_params=RemoteValidatorParams(
+            endpoint_url="https://api.example.com/validate"
+        )
     )
 )
 ```
