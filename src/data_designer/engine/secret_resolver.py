@@ -57,6 +57,15 @@ class CompositeResolver(SecretResolver):
             raise SecretResolutionError("Must provide at least one SecretResolver to CompositeResolver")
         self._resolvers = resolvers
 
+    @property
+    def resolvers(self) -> Sequence[SecretResolver]:
+        """Get the sequence of resolvers in this composite resolver.
+
+        Returns:
+            Sequence of SecretResolver instances used to resolve secrets.
+        """
+        return self._resolvers
+
     def resolve(self, secret: str) -> str:
         errors = []
         for resolver in self._resolvers:

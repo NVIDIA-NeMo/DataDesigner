@@ -208,7 +208,7 @@ class InferenceParameters(ConfigBase):
 class ModelConfig(ConfigBase):
     alias: str
     model: str
-    inference_parameters: InferenceParameters
+    inference_parameters: InferenceParameters = Field(default_factory=InferenceParameters)
     provider: Optional[str] = None
 
 

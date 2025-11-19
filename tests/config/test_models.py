@@ -45,6 +45,12 @@ def test_image_context_validate_image_format():
         ImageContext(column_name="image_base64", data_type=ModalityDataType.BASE64)
 
 
+def test_inference_parameters_default_construction():
+    empty_inference_parameters = InferenceParameters()
+    assert empty_inference_parameters.generate_kwargs == {}
+    assert empty_inference_parameters.max_parallel_requests == 4
+
+
 def test_inference_parameters_generate_kwargs():
     assert InferenceParameters(
         temperature=0.95,
@@ -203,8 +209,8 @@ def test_generation_parameters_max_tokens_validation():
 
 def test_load_model_configs():
     stub_model_configs = [
-        ModelConfig(alias="test", model="test", inference_parameters=InferenceParameters()),
-        ModelConfig(alias="test2", model="test2", inference_parameters=InferenceParameters()),
+        ModelConfig(alias="test", model="test"),
+        ModelConfig(alias="test2", model="test2"),
     ]
     stub_model_configs_dict_list = [mc.model_dump() for mc in stub_model_configs]
     assert load_model_configs([]) == []
@@ -240,3 +246,8 @@ def test_load_model_configs():
             tmp_file.write(json.dumps(invalid_model_configs).encode("utf-8"))
             tmp_file.flush()
             load_model_configs(tmp_file.name)
+
+
+def test_model_config_default_construction():
+    model_config = ModelConfig(alias="test", model="test")
+    assert model_config.inference_parameters == InferenceParameters()

@@ -44,7 +44,12 @@ from data_designer.engine.resources.seed_dataset_data_store import (
     HfHubSeedDatasetDataStore,
     LocalSeedDatasetDataStore,
 )
-from data_designer.engine.secret_resolver import EnvironmentResolver, SecretResolver
+from data_designer.engine.secret_resolver import (
+    CompositeResolver,
+    EnvironmentResolver,
+    PlaintextResolver,
+    SecretResolver,
+)
 from data_designer.interface.errors import (
     DataDesignerGenerationError,
     DataDesignerProfilingError,
@@ -87,10 +92,10 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         artifact_path: Path | str | None = None,
         *,
         model_providers: list[ModelProvider] | None = None,
-        secret_resolver: SecretResolver = EnvironmentResolver(),
+        secret_resolver: SecretResolver | None = None,
         blob_storage_path: Path | str | None = None,
     ):
-        self._secret_resolver = secret_resolver
+        self._secret_resolver = secret_resolver or CompositeResolver([EnvironmentResolver(), PlaintextResolver()])
         self._artifact_path = Path(artifact_path) if artifact_path is not None else Path.cwd() / "artifacts"
         self._buffer_size = DEFAULT_BUFFER_SIZE
         self._blob_storage = (
@@ -275,6 +280,15 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         """
         logger.info(f"♻️ Using default model providers from {str(MODEL_PROVIDERS_FILE_PATH)!r}")
         return get_default_providers()
+
+    @property
+    def secret_resolver(self) -> SecretResolver:
+        """Get the secret resolver used by this DataDesigner instance.
+
+        Returns:
+            The SecretResolver instance handling credentials and secrets.
+        """
+        return self._secret_resolver
 
     def set_buffer_size(self, buffer_size: int) -> None:
         """Set the buffer size for dataset generation.

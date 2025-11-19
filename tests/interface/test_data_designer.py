@@ -15,7 +15,7 @@ from data_designer.config.errors import InvalidFileFormatError
 from data_designer.config.processors import DropColumnsProcessorConfig
 from data_designer.config.seed import LocalSeedDatasetReference
 from data_designer.engine.model_provider import ModelProvider
-from data_designer.engine.secret_resolver import PlaintextResolver
+from data_designer.engine.secret_resolver import CompositeResolver, EnvironmentResolver, PlaintextResolver
 from data_designer.interface.data_designer import DataDesigner
 from data_designer.interface.errors import (
     DataDesignerGenerationError,
@@ -49,6 +49,18 @@ def test_init_with_custom_secret_resolver(stub_artifact_path, stub_model_provide
         secret_resolver=PlaintextResolver(),
     )
     assert designer is not None
+
+
+def test_init_with_default_composite_secret_resolver(stub_artifact_path, stub_model_providers):
+    """Test DataDesigner initialization with default composite secret resolver."""
+    designer = DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
+    assert designer is not None
+    assert isinstance(designer.secret_resolver, CompositeResolver)
+    # Verify the composite resolver is properly configured with the expected resolvers
+    resolvers = designer.secret_resolver.resolvers
+    assert len(resolvers) == 2
+    assert isinstance(resolvers[0], EnvironmentResolver)
+    assert isinstance(resolvers[1], PlaintextResolver)
 
 
 def test_init_with_string_path(stub_artifact_path, stub_model_providers):
