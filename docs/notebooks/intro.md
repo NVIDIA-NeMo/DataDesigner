@@ -6,7 +6,8 @@ Welcome to the Data Designer tutorial series! These hands-on notebooks will guid
 
 ### Local Setup Best Practices
 
-To run these notebooks locally, we recommend using a virtual environment to manage dependencies:
+The notebooks can be downloaded using the link on the top of each of them.
+To run them locally, we recommend using a virtual environment to manage dependencies:
 
 === "uv (Recommended)"
 
