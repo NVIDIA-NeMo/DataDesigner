@@ -14,6 +14,7 @@ from data_designer.config.sampler_params import (
     CategorySamplerParams,
     DatetimeSamplerParams,
     GaussianSamplerParams,
+    PersonFromFakerSamplerParams,
     PersonSamplerParams,
     PoissonSamplerParams,
     SamplerParamsT,
@@ -34,6 +35,7 @@ from data_designer.engine.sampling_gen.data_sources.base import (
     TypeConversionMixin,
 )
 from data_designer.engine.sampling_gen.data_sources.errors import InvalidSamplerParamsError
+from data_designer.engine.sampling_gen.entities.dataset_based_person_fields import PERSONA_FIELDS, PII_FIELDS
 from data_designer.engine.sampling_gen.people_gen import PeopleGen
 
 ONE_BILLION = 10**9
@@ -145,11 +147,42 @@ class PersonSampler(PassthroughMixin, Sampler[PersonSamplerParams]):
         self._generator = None
         self._fixed_kwargs = {}
         for field in self.params.generator_kwargs:
-            # For en_US, we need to map the state to the region, since this
-            # is the field name in the census-based person dataset.
-            if field == "state" and self.params.locale == "en_US":
-                self._fixed_kwargs["region"] = self.params.state
-            elif getattr(self.params, field) is not None:
+            if getattr(self.params, field) is not None:
+                attr = getattr(self.params, field)
+                if field == "select_field_values":
+                    for key, value in attr.items():
+                        if key == "state" and self.params.locale == "en_US":
+                            key = "region"  # This is the field name in the census-based person dataset.
+                        if key not in PII_FIELDS + PERSONA_FIELDS:
+                            raise ValueError(f"Invalid field name: {key}")
+                        self._fixed_kwargs[key] = value
+                else:
+                    self._fixed_kwargs[field] = attr
+        if people_gen_resource := kwargs.get("people_gen_resource"):
+            if self.params.people_gen_key not in people_gen_resource:
+                raise ValueError(f"Person generator with key {self.params.people_gen_key} not found.")
+            self.set_generator(people_gen_resource[self.params.people_gen_key])
+
+    def set_generator(self, generator: PeopleGen) -> None:
+        self._generator = generator
+
+    def sample(self, num_samples: int) -> NumpyArray1dT:
+        if self._generator is None:
+            raise ValueError("Generator not set. Please setup generator before sampling.")
+
+        samples = np.array(self._generator.generate(num_samples, **self._fixed_kwargs))
+        if len(samples) < num_samples:
+            raise ValueError(f"Only {len(samples)} samples could be generated given constraints {self._fixed_kwargs}.")
+        return samples
+
+
+@SamplerRegistry.register(SamplerType.PERSON_FROM_FAKER)
+class PersonFromFakerSampler(PassthroughMixin, Sampler[PersonFromFakerSamplerParams]):
+    def _setup(self, **kwargs) -> None:
+        self._generator = None
+        self._fixed_kwargs = {}
+        for field in self.params.generator_kwargs:
+            if getattr(self.params, field) is not None:
                 self._fixed_kwargs[field] = getattr(self.params, field)
         if people_gen_resource := kwargs.get("people_gen_resource"):
             if self.params.people_gen_key not in people_gen_resource:

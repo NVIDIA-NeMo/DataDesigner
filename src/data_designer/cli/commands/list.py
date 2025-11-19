@@ -6,7 +6,7 @@ from rich.table import Table
 from data_designer.cli.repositories.model_repository import ModelRepository
 from data_designer.cli.repositories.provider_repository import ProviderRepository
 from data_designer.cli.ui import console, print_error, print_header, print_info, print_warning
-from data_designer.config.utils.constants import DATA_DESIGNER_HOME_DIR, NordColor
+from data_designer.config.utils.constants import DATA_DESIGNER_HOME, NordColor
 
 
 def list_command() -> None:
@@ -17,12 +17,12 @@ def list_command() -> None:
     """
     # Determine config directory
     print_header("Data Designer Configurations")
-    print_info(f"Configuration directory: {DATA_DESIGNER_HOME_DIR}")
+    print_info(f"Configuration directory: {DATA_DESIGNER_HOME}")
     console.print()
 
     # Display providers
-    display_providers(ProviderRepository(DATA_DESIGNER_HOME_DIR))
-    display_models(ModelRepository(DATA_DESIGNER_HOME_DIR))
+    display_providers(ProviderRepository(DATA_DESIGNER_HOME))
+    display_models(ModelRepository(DATA_DESIGNER_HOME))
 
 
 def display_providers(provider_repo: ProviderRepository) -> None:

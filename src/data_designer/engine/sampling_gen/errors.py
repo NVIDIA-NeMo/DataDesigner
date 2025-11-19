@@ -18,3 +18,7 @@ class DataConversionError(SamplingGenError):
 
 class DatasetNotAvailableForLocaleError(SamplingGenError):
     """Exception for all errors related to the dataset not being available for a given locale."""
+
+
+class ManagedDatasetGeneratorError(SamplingGenError):
+    """Exception for all errors related to the managed dataset generator."""

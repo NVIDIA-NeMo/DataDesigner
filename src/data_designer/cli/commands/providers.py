@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from data_designer.cli.controllers.provider_controller import ProviderController
-from data_designer.config.utils.constants import DATA_DESIGNER_HOME_DIR
+from data_designer.config.utils.constants import DATA_DESIGNER_HOME
 
 
 def providers_command() -> None:
     """Configure model providers interactively."""
-    controller = ProviderController(DATA_DESIGNER_HOME_DIR)
+    controller = ProviderController(DATA_DESIGNER_HOME)
     controller.run()

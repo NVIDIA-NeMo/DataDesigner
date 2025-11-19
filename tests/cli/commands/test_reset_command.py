@@ -9,7 +9,7 @@ import pytest
 import typer
 
 from data_designer.cli.commands.reset import reset_command
-from data_designer.config.utils.constants import DATA_DESIGNER_HOME_DIR
+from data_designer.config.utils.constants import DATA_DESIGNER_HOME
 
 # Type alias for the factory function
 MockRepositoryFactory = Callable[
@@ -283,5 +283,5 @@ def test_reset_uses_default_config_dir_when_none_provided(
     with pytest.raises(typer.Exit):
         reset_command()
 
-    mock_provider_repo.assert_called_once_with(DATA_DESIGNER_HOME_DIR)
-    mock_model_repo.assert_called_once_with(DATA_DESIGNER_HOME_DIR)
+    mock_provider_repo.assert_called_once_with(DATA_DESIGNER_HOME)
+    mock_model_repo.assert_called_once_with(DATA_DESIGNER_HOME)

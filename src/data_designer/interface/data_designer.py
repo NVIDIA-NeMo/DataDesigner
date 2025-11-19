@@ -23,6 +23,7 @@ from data_designer.config.preview_results import PreviewResults
 from data_designer.config.seed import LocalSeedDatasetReference
 from data_designer.config.utils.constants import (
     DEFAULT_NUM_RECORDS,
+    MANAGED_ASSETS_PATH,
     MODEL_CONFIGS_FILE_PATH,
     MODEL_PROVIDERS_FILE_PATH,
 )
@@ -83,8 +84,11 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             uses default providers.
         secret_resolver: Resolver for handling secrets and credentials. Defaults to
             EnvironmentResolver which reads secrets from environment variables.
-        blob_storage_path: Path to the blob storage directory. Note this parameter
-            is temporary and will be removed after we update person sampling for the library.
+        managed_assets_path: Path to the managed assets directory. This is used to point
+            to the location of managed datasets and other assets used during dataset generation.
+            If not provided, will check for an environment variable called DATA_DESIGNER_MANAGED_ASSETS_PATH.
+            If the environment variable is not set, will use the default managed assets directory, which
+            is defined in `data_designer.config.utils.constants`.
     """
 
     def __init__(
@@ -93,16 +97,13 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         *,
         model_providers: list[ModelProvider] | None = None,
         secret_resolver: SecretResolver | None = None,
-        blob_storage_path: Path | str | None = None,
+        managed_assets_path: Path | str | None = None,
     ):
         self._secret_resolver = secret_resolver or CompositeResolver([EnvironmentResolver(), PlaintextResolver()])
         self._artifact_path = Path(artifact_path) if artifact_path is not None else Path.cwd() / "artifacts"
         self._buffer_size = DEFAULT_BUFFER_SIZE
-        self._blob_storage = (
-            init_managed_blob_storage()
-            if blob_storage_path is None
-            else init_managed_blob_storage(str(blob_storage_path))
-        )
+        self._managed_assets_path = Path(managed_assets_path or MANAGED_ASSETS_PATH)
+        self._blob_storage = init_managed_blob_storage(self._managed_assets_path)
         self._model_providers = model_providers or self.get_default_model_providers()
         self._model_provider_registry = resolve_model_provider_registry(
             self._model_providers, get_default_provider_name()
@@ -339,7 +340,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
                 model_provider_registry=self._model_provider_registry,
                 secret_resolver=self._secret_resolver,
             ),
-            blob_storage=self._blob_storage,
+            blob_storage=init_managed_blob_storage(str(self._managed_assets_path)),
             datastore=(
                 LocalSeedDatasetDataStore()
                 if (settings := config_builder.get_seed_datastore_settings()) is None

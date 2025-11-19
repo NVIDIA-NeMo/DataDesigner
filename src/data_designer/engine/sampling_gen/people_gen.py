@@ -13,18 +13,14 @@ import uuid
 from faker import Faker
 import pandas as pd
 
-from data_designer.config.utils.constants import (
-    AVAILABLE_LOCALES,
-    DEFAULT_AGE_RANGE,
-    LOCALES_WITH_MANAGED_DATASETS,
-)
+from data_designer.config.utils.constants import AVAILABLE_LOCALES, DEFAULT_AGE_RANGE
 from data_designer.engine.resources.managed_dataset_generator import ManagedDatasetGenerator
 from data_designer.engine.sampling_gen.entities.dataset_based_person_fields import PERSONA_FIELDS, PII_FIELDS
 from data_designer.engine.sampling_gen.entities.person import (
     convert_age_to_birth_date,
     generate_and_insert_derived_fields,
 )
-from data_designer.engine.sampling_gen.errors import DatasetNotAvailableForLocaleError
+from data_designer.engine.sampling_gen.errors import ManagedDatasetGeneratorError
 from data_designer.engine.sampling_gen.person_constants import faker_constants
 
 if TYPE_CHECKING:
@@ -132,7 +128,6 @@ class PeopleGenFromDataset(PeopleGen):
 
     def _generate_from_dataset(self, n: int, **kwargs) -> pd.DataFrame:
         kw = deepcopy(kwargs)
-        kw.pop("sample_dataset_when_available", None)
         with_synthetic_personas = kw.pop("with_synthetic_personas", False)
         kw["age"] = self._get_ages(kw.pop("age_range", DEFAULT_AGE_RANGE))
 
@@ -176,24 +171,33 @@ def create_people_gen_resource(
     """
     people_gen_resource = {}
 
+    # ------------------------------------------------------------
+    # Preload dataset-based person generators
+    # ------------------------------------------------------------
+
     for column in schema.get_columns_by_sampler_type("person"):
         for params in [column.params, *list(column.conditional_params.values())]:
             if params.people_gen_key not in people_gen_resource:
-                if params.locale in LOCALES_WITH_MANAGED_DATASETS and params.sample_dataset_when_available:
-                    try:
-                        engine = person_generator_loader(locale=params.locale)
-                        people_gen_resource[params.people_gen_key] = PeopleGenFromDataset(
-                            engine=engine, locale=params.locale
-                        )
-                    except Exception as e:
-                        raise DatasetNotAvailableForLocaleError(
-                            f"🛑 Failed to load dataset-based person generator for locale {params.locale}. "
-                            "Please check if you have access to person data for this locale. "
-                            "If not, set `sample_dataset_when_available` to False for this column."
-                        ) from e
-                else:
-                    people_gen_resource[params.people_gen_key] = PeopleGenFaker(
-                        engine=Faker(params.locale), locale=params.locale
+                try:
+                    engine = person_generator_loader(locale=params.locale)
+                    people_gen_resource[params.people_gen_key] = PeopleGenFromDataset(
+                        engine=engine, locale=params.locale
                     )
+                except Exception as e:
+                    raise ManagedDatasetGeneratorError(
+                        f"🛑 Failed to load dataset-based person generator for locale {params.locale}. "
+                        "Please check if you have access to person data for this locale. "
+                    ) from e
+
+    # ------------------------------------------------------------
+    # Preload faker-based person generators
+    # ------------------------------------------------------------
+
+    for column in schema.get_columns_by_sampler_type("person_from_faker"):
+        for params in [column.params, *list(column.conditional_params.values())]:
+            if params.people_gen_key not in people_gen_resource:
+                people_gen_resource[params.people_gen_key] = PeopleGenFaker(
+                    engine=Faker(params.locale), locale=params.locale
+                )
 
     return people_gen_resource

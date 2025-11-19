@@ -14,7 +14,7 @@ from data_designer.cli.ui import (
     print_success,
     print_text,
 )
-from data_designer.config.utils.constants import DATA_DESIGNER_HOME_DIR
+from data_designer.config.utils.constants import DATA_DESIGNER_HOME
 
 
 def reset_command() -> None:
@@ -22,12 +22,12 @@ def reset_command() -> None:
     print_header("Reset Configuration")
 
     # Determine configuration directory
-    print_info(f"Configuration directory: {DATA_DESIGNER_HOME_DIR}")
+    print_info(f"Configuration directory: {DATA_DESIGNER_HOME}")
     console.print()
 
     # Create repositories
-    provider_repo = ProviderRepository(DATA_DESIGNER_HOME_DIR)
-    model_repo = ModelRepository(DATA_DESIGNER_HOME_DIR)
+    provider_repo = ProviderRepository(DATA_DESIGNER_HOME)
+    model_repo = ModelRepository(DATA_DESIGNER_HOME)
 
     # Check which config files exist
     provider_exists = provider_repo.exists()
