@@ -34,7 +34,10 @@ from data_designer.engine.sampling_gen.data_sources.base import (
     ScipyStatsSampler,
     TypeConversionMixin,
 )
-from data_designer.engine.sampling_gen.data_sources.errors import InvalidSamplerParamsError
+from data_designer.engine.sampling_gen.data_sources.errors import (
+    InvalidSamplerParamsError,
+    PersonSamplerConstraintsTooStrictError,
+)
 from data_designer.engine.sampling_gen.entities.dataset_based_person_fields import PERSONA_FIELDS, PII_FIELDS
 from data_designer.engine.sampling_gen.people_gen import PeopleGen
 
@@ -172,7 +175,11 @@ class PersonSampler(PassthroughMixin, Sampler[PersonSamplerParams]):
 
         samples = np.array(self._generator.generate(num_samples, **self._fixed_kwargs))
         if len(samples) < num_samples:
-            raise ValueError(f"Only {len(samples)} samples could be generated given constraints {self._fixed_kwargs}.")
+            raise PersonSamplerConstraintsTooStrictError(
+                f"🛑 Only {len(samples)} samples could be generated with the given settings: {self._fixed_kwargs!r}. "
+                "This is likely because the filter values are too strict. Person sampling does not support "
+                "rare combinations of field values. Please loosen the constraints and try again."
+            )
         return samples
 
 

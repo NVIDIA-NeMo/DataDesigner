@@ -5,3 +5,6 @@ from data_designer.engine.sampling_gen.errors import SamplingGenError
 
 
 class InvalidSamplerParamsError(SamplingGenError): ...
+
+
+class PersonSamplerConstraintsTooStrictError(SamplingGenError): ...
