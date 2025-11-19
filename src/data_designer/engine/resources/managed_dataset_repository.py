@@ -9,6 +9,7 @@ from pathlib import Path
 import tempfile
 import threading
 import time
+from typing import Any
 
 import duckdb
 import pandas as pd
@@ -60,7 +61,7 @@ DEFAULT_DATA_CATALOG: DataCatalog = [Table(f"{locale}.parquet") for locale in LO
 
 class ManagedDatasetRepository(ABC):
     @abstractmethod
-    def query(self, sql: str) -> pd.DataFrame: ...
+    def query(self, sql: str, parameters: list[Any]) -> pd.DataFrame: ...
 
     @property
     @abstractmethod
@@ -160,7 +161,7 @@ class DuckDBDatasetRepository(ManagedDatasetRepository):
                 # Signal that registration is complete so any waiting queries can proceed.
                 self._registration_event.set()
 
-    def query(self, sql: str) -> pd.DataFrame:
+    def query(self, sql: str, parameters: list[Any]) -> pd.DataFrame:
         # Ensure dataset registration has completed. Possible future optimization:
         # pull datasets in parallel and only wait here if the query requires a
         # table that isn't cached.
@@ -173,7 +174,7 @@ class DuckDBDatasetRepository(ManagedDatasetRepository):
         # more details here: https://duckdb.org/docs/stable/guides/python/multiple_threads.html
         cursor = self.db.cursor()
         try:
-            df = cursor.sql(sql).df()
+            df = cursor.execute(sql, parameters).df()
         finally:
             cursor.close()
         return df

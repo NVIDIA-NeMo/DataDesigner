@@ -17,21 +17,19 @@ class ManagedDatasetGenerator:
         self,
         size: int = 1,
         evidence: dict[str, Any | list[Any]] = {},
-        seed: int | None = None,
     ) -> pd.DataFrame:
+        parameters = []
         query = f"select * from {self.dataset_name}"
-        # Build the WHERE clause if there are filters
-        # NOTE: seed is not used because it's not straightforward
-        # to make randomization both fast and repeatable
         if evidence:
             where_conditions = []
             for column, values in evidence.items():
                 if values:
                     values = values if isinstance(values, list) else [values]
-                    formatted_values = [f"'{val}'" for val in values]
+                    formatted_values = ["?"] * len(values)
                     condition = f"{column} IN ({', '.join(formatted_values)})"
                     where_conditions.append(condition)
+                    parameters.extend(values)
             if where_conditions:
                 query += " where " + " and ".join(where_conditions)
         query += f" order by random() limit {size}"
-        return self.managed_datasets.query(query)
+        return self.managed_datasets.query(query, parameters)
