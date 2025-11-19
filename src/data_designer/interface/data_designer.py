@@ -103,7 +103,6 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         self._artifact_path = Path(artifact_path) if artifact_path is not None else Path.cwd() / "artifacts"
         self._buffer_size = DEFAULT_BUFFER_SIZE
         self._managed_assets_path = Path(managed_assets_path or MANAGED_ASSETS_PATH)
-        self._blob_storage = init_managed_blob_storage(self._managed_assets_path)
         self._model_providers = model_providers or self.get_default_model_providers()
         self._model_provider_registry = resolve_model_provider_registry(
             self._model_providers, get_default_provider_name()
