@@ -288,15 +288,6 @@ class PersonSamplerParams(ConfigBase):
             )
         return value
 
-    @field_validator("locale")
-    @classmethod
-    def _validate_locale(cls, value: str) -> str:
-        if value not in AVAILABLE_LOCALES:
-            raise ValueError(
-                f"Locale {value!r} is not a supported locale. Supported locales: {', '.join(AVAILABLE_LOCALES)}"
-            )
-        return value
-
     @model_validator(mode="after")
     def _validate_locale_with_managed_datasets(self) -> Self:
         if self.locale not in LOCALES_WITH_MANAGED_DATASETS:
