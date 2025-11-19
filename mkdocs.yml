@@ -3,7 +3,7 @@ repo_url: https://github.com/NVIDIA-NeMo/DataDesigner
 
 nav:
   - Getting Started:
-      - Welcome to Data Designer: index.md
+      - Welcome: index.md
       - Installation: installation.md
       - Quick Start: quick-start.md
       - Contributing: CONTRIBUTING.md
