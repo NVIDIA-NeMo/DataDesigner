@@ -1,6 +1,6 @@
 # Validators
 
-Validators are quality assurance mechanisms in Data Designer that check generated content against rules and return structured pass/fail results. They enable automated verification of data correctness, code quality, and adherence to specifications.
+Validators are quality assurance mechanisms in Data Designer that check generated content against rules and return structured pass/fail results. They enable automated verification of data for correctness, code quality, and adherence to specifications.
 
 !!! note "Quality Gates for Generated Data"
     Validators act as **quality gates** in your generation pipeline. Use them to filter invalid records, score code quality, verify format compliance, or integrate with external validation services.
@@ -12,7 +12,7 @@ Validation columns execute validation logic against target columns and produce s
 - **`is_valid`**: Boolean pass/fail status
 - **Additional metadata**: Error messages, scores, severity levels, and custom fields
 
-Validators support three execution strategies:
+Validators currently support three execution strategies:
 
 1. **Code validation**: Lint and check Python or SQL code using industry-standard tools
 2. **Local callable validation**: Execute custom Python functions for flexible validation logic
@@ -27,7 +27,7 @@ The Python code validator runs generated Python code through **Ruff**, a fast Py
 **Configuration:**
 
 ```python
-from data_designer.essentials import CodeValidatorParams, CodeLang
+from data_designer.essentials import CodeLang, CodeValidatorParams
 
 validator_params = CodeValidatorParams(code_lang=CodeLang.PYTHON)
 ```
@@ -77,7 +77,7 @@ The SQL code validator uses **SQLFluff**, a dialect-aware SQL linter that checks
 **Configuration:**
 
 ```python
-from data_designer.essentials import CodeValidatorParams, CodeLang
+from data_designer.essentials import CodeLang, CodeValidatorParams
 
 # Supports multiple SQL dialects
 validator_params = CodeValidatorParams(code_lang=CodeLang.SQL_POSTGRES)
@@ -116,8 +116,9 @@ The local callable validator executes custom Python functions for flexible valid
 **Configuration:**
 
 ```python
-from data_designer.essentials import LocalCallableValidatorParams
 import pandas as pd
+
+from data_designer.essentials import LocalCallableValidatorParams
 
 def my_validation_function(df: pd.DataFrame) -> pd.DataFrame:
     """Validate that values are positive.
