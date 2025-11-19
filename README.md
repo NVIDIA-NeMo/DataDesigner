@@ -1,9 +1,36 @@
 # 🎨 NeMo Data Designer
-[![CI](https://github.com/NVIDIA-NeMo/DataDesigner/actions/workflows/ci.yml/badge.svg)](https://github.com/NVIDIA-NeMo/DataDesigner/actions/workflows/ci.yml) [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-Create synthetic datasets from scratch.
+[![CI](https://github.com/NVIDIA-NeMo/DataDesigner/actions/workflows/ci.yml/badge.svg)](https://github.com/NVIDIA-NeMo/DataDesigner/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
-## Installation
+**Generate high-quality synthetic datasets from scratch or using your own seed data.**
+
+---
+
+## Welcome!
+
+Data Designer helps you create synthetic datasets that go beyond simple LLM prompting. Whether you need diverse statistical distributions, meaningful correlations between fields, or validated high-quality outputs, Data Designer provides a flexible framework for building production-grade synthetic data.
+
+## What can you do with Data Designer?
+
+- **Generate diverse data** using statistical samplers, LLMs, or existing seed datasets
+- **Control relationships** between fields with dependency-aware generation
+- **Validate quality** with built-in Python, SQL, and remote validators
+- **Score outputs** using LLM-as-a-judge for quality assessment
+- **Iterate quickly** with preview mode before full-scale generation
+
+---
+
+## Quick Start
+
+### 1. Install
+
+```bash
+pip install data-designer
+```
+
+Or install from source:
 
 ```bash
 git clone https://github.com/NVIDIA-NeMo/DataDesigner.git
@@ -11,112 +38,87 @@ cd DataDesigner
 make install
 ```
 
-Test your installation:
+### 2. Set your API key
+
+Get your API key from [build.nvidia.com](https://build.nvidia.com) or [OpenAI](https://platform.openai.com/api-keys):
 
 ```bash
-make test
+export NVIDIA_API_KEY="your-api-key-here"
+# Or use OpenAI
+export OPENAI_API_KEY="your-openai-api-key-here"
 ```
 
-## Example Usage
+### 3. Generate your first dataset
 
 ```python
 from data_designer.essentials import (
     CategorySamplerParams,
     DataDesigner,
     DataDesignerConfigBuilder,
-    InferenceParameters,
     LLMTextColumnConfig,
-    ModelConfig,
     PersonSamplerParams,
     SamplerColumnConfig,
     SamplerType,
-    SubcategorySamplerParams,
-    UniformSamplerParams,
 )
 
-data_designer = DataDesigner(artifact_path="./artifacts")
+# Initialize with default settings
+data_designer = DataDesigner()
+config_builder = DataDesignerConfigBuilder()
 
-# The model ID is from build.nvidia.com.
-MODEL_ID = "nvidia/nvidia-nemotron-nano-9b-v2"
-
-# We choose this alias to be descriptive for our use case.
-MODEL_ALIAS = "nemotron-nano-v2"
-
-# This sets reasoning to False for the nemotron-nano-v2 model.
-SYSTEM_PROMPT = "/no_think"
-
-model_configs = [
-    ModelConfig(
-        alias=MODEL_ALIAS,
-        model=MODEL_ID,
-        inference_parameters=InferenceParameters(
-            temperature=0.5,
-            top_p=1.0,
-            max_tokens=1024,
-        ),
-    )
-]
-
-config_builder = DataDesignerConfigBuilder(model_configs=model_configs)
-
-
-config_builder.add_column(
-    SamplerColumnConfig(
-        name="customer",
-        sampler_type=SamplerType.PERSON,
-        params=PersonSamplerParams(age_range=[18, 70]),
-    )
-)
-
-
+# Add a product category
 config_builder.add_column(
     SamplerColumnConfig(
         name="product_category",
         sampler_type=SamplerType.CATEGORY,
         params=CategorySamplerParams(
-            values=[
-                "Electronics",
-                "Clothing",
-                "Home & Kitchen",
-                "Books",
-                "Home Office",
-            ],
+            values=["Electronics", "Clothing", "Home & Kitchen", "Books"],
         ),
     )
 )
 
+# Generate personalized customer reviews
 config_builder.add_column(
     LLMTextColumnConfig(
-        name="customer_review",
-        prompt=(
-            "You are a customer named {{ customer.first_name }} from {{ customer.city }}, "
-            "{{ customer.state }}. Tell me about your experience working in the "
-            "{{ product_category }} department of our company."
-        ),
-        system_prompt=SYSTEM_PROMPT,
-        model_alias=MODEL_ALIAS,
+        name="review",
+        model_alias="nvidia-text",
+        prompt="""Write a brief product review for a {{ product_category }} item you recently purchased.""",
     )
 )
 
-preview = data_designer.preview(config_builder)
-
+# Preview your dataset
+preview = data_designer.preview(config_builder=config_builder)
 preview.display_sample_record()
 ```
 
-## A note about about Person Sampling
+**That's it!** You've created a dataset.
 
-> **Note:** The below usage is only temporary. The library's support for the Nemotron-Personas datasets will be evolve as we prepare to open source.
+---
 
-The PII and persona managed datasets have been updated for 25.11. If you want to use our Nemotron-Personas datasets for person / persona sampling, you need to do the following.
+## What's next?
 
-Download the datasets from NGC:
+### 📚 Learn more
+
+- **[Quick Start Guide](docs/quick-start.md)** – Detailed walkthrough with more examples
+- **[Tutorial Notebooks](docs/notebooks/)** – Step-by-step interactive tutorials
+- **[Column Types](docs/concepts/columns.md)** – Explore samplers, LLM columns, validators, and more
+- **[Model Configuration](docs/models/model-configs.md)** – Configure custom models and providers
+
+### 🔧 Configure models via CLI
+
 ```bash
-ngc registry resource download-version --org nvidian nvidian/nemo-llm/nemotron-personas-datasets:0.0.6-slim
+data-designer config providers # Configure model providers
+data-designer config models    # Set up your model configurations
+data-designer config list      # View current settings
 ```
 
-The "slim" version is smaller for fast development. Remove the "-slim" to get the full datasets.
+### 🤝 Get involved
 
-Tell `DataDesigner` where to find the datasets:
-```python
-data_designer = DataDesigner(artifact_path="./artifacts", blob_storage_path="/path/to/nemotron-personas-datasets")
-```
+- **[Contributing Guide](docs/CONTRIBUTING.md)** – Help improve Data Designer
+- **[GitHub Issues](https://github.com/NVIDIA-NeMo/DataDesigner/issues)** – Report bugs or request features
+- **[GitHub Discussions](https://github.com/NVIDIA-NeMo/DataDesigner/discussions)** – Ask questions and share ideas
+
+---
+
+## License
+
+Apache License 2.0 – see [LICENSE](LICENSE) for details.
