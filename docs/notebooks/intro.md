@@ -69,7 +69,7 @@ To run these notebooks locally, we recommend using a virtual environment to mana
 
     # Create and activate a virtual environment
     python -m venv venv
-    source venv/bin/activate  # On Windows: venv\Scripts\activate
+    source venv/bin/activate
 
     # Install data-designer and jupyter
     pip install data-designer jupyter

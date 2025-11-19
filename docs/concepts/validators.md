@@ -20,9 +20,9 @@ Validators currently support three execution strategies:
 
 ## Validator Types
 
-### 🐍 Code Validator (Python)
+### 🐍 Python Code Validator
 
-The Python code validator runs generated Python code through **Ruff**, a fast Python linter that checks for syntax errors, undefined variables, and code quality issues.
+The Python code validator runs generated Python code through [Ruff](https://github.com/astral-sh/ruff), a fast Python linter that checks for syntax errors, undefined variables, and code quality issues.
 
 **Configuration:**
 
@@ -70,19 +70,20 @@ A record is marked valid if it has no messages or only messages at warning/conve
 }
 ```
 
-### 🗄️ Code Validator (SQL)
+### 🗄️ SQL Code Validator
 
-The SQL code validator uses **SQLFluff**, a dialect-aware SQL linter that checks query syntax and structure.
+The SQL code validator uses [SQLFluff](https://github.com/sqlfluff/sqlfluff), a dialect-aware SQL linter that checks query syntax and structure.
 
 **Configuration:**
 
 ```python
 from data_designer.essentials import CodeLang, CodeValidatorParams
 
-# Supports multiple SQL dialects
 validator_params = CodeValidatorParams(code_lang=CodeLang.SQL_POSTGRES)
-# Or: SQL_ANSI, SQL_MYSQL, SQL_SQLITE, SQL_TSQL, SQL_BIGQUERY
 ```
+
+!!! tip "Multiple Dialects"
+    The SQL code validator supports multiple dialects: `SQL_POSTGRES`, `SQL_ANSI`, `SQL_MYSQL`, `SQL_SQLITE`, `SQL_TSQL` and `SQL_BIGQUERY`.
 
 **Validation Output:**
 
@@ -343,84 +344,7 @@ builder.add_column(
 )
 ```
 
-**Note**: Code validators always process each target column separately, even when multiple columns are specified. Other validators receive all target columns together.
-
-## Best Practices
-
-### 1. Validate Early
-
-Place validation columns immediately after generation to catch issues early:
-
-```python
-builder.add_column(name="code", ...)
-builder.add_column(name="code_validation", target_columns=["code"], ...)  # Immediate validation
-builder.add_column(name="documentation", prompt="Document {{ code }}", ...)  # Use validated code
-```
-
-### 2. Use Appropriate Batch Sizes
-
-- Start with small batches (5-10) for expensive validators
-- Increase batch size if validation is fast and memory permits
-- Monitor memory usage and adjust accordingly
-
-### 3. Handle Validation in Analysis
-
-Always check validation results before using generated data:
-
-```python
-result = designer.run()
-df = result.data
-
-# Log validation statistics
-validation_col = df["my_validation"]
-total = len(validation_col)
-valid = validation_col.apply(lambda x: x["is_valid"]).sum()
-print(f"Validation: {valid}/{total} passed ({100*valid/total:.1f}%)")
-
-# Filter to valid records only
-clean_data = df[validation_col.apply(lambda x: x["is_valid"])]
-```
-
-### 4. Combine Multiple Validators
-
-Use different validators for different quality aspects:
-
-```python
-builder.add_column(name="syntax_check", validator_type="code", ...)  # Syntax correctness
-builder.add_column(name="security_check", validator_type="remote", ...)  # Security scan
-builder.add_column(name="quality_score", column_type="llm-judge", ...)  # Human-like quality
-```
-
-### 5. Schema Validation for Custom Validators
-
-Always provide `output_schema` for local callable and remote validators to catch unexpected output formats:
-
-```python
-from data_designer.essentials import LocalCallableValidatorParams
-
-validator_params = LocalCallableValidatorParams(
-    validation_function=my_function,
-    output_schema={...}  # Define expected structure
-)
-```
-
-## Limitations
-
-### Code Validators
-
-- **Python**: Validates syntax and basic semantics; doesn't execute code or check runtime correctness
-- **SQL**: Validates query structure; doesn't check against actual database schemas
-
-### Local Callable Validators
-
-- **Not serializable**: Cannot be saved to YAML or used in distributed environments
-- **No sandboxing**: Validation functions run in the same process; be cautious with untrusted code
-
-### Remote Validators
-
-- **Network dependency**: Requires stable internet connection and responsive endpoints
-- **Latency**: Slower than local validators due to network overhead
-- **Authentication**: Limited support for complex authentication schemes
+**Note**: Code validators always process each target column separately, even when multiple columns are specified. Local callable and remote validators receive all target columns together.
 
 ## See Also
 
