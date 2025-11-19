@@ -194,7 +194,7 @@ Each personality trait contains:
 
 ## Person Sampling with Faker
 
-If you do not have access to Data Designer's managed Nemotron-Personas datasets or you need locale that is not covered, Data Designer provides a Faker-based person sampler (`sampler_type="person_from_faker"`) that uses the [Faker library](https://faker.readthedocs.io/en/stable/) to generate person data.
+If you do not have access to Data Designer's managed Nemotron-Personas datasets or you need a locale that is not covered by Nemotron-Personas, Data Designer provides a Faker-based person sampler (`sampler_type="person_from_faker"`) that uses the [Faker library](https://faker.readthedocs.io/en/stable/) to generate person data.
 
 **Important:** This sampler generates random personal details that are **not grounded in real-world demographic data**. It's best suited for testing, prototyping, or when you need basic person attributes in locales not yet covered by Nemotron-Personas.
 
