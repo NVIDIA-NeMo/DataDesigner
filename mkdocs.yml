@@ -3,14 +3,15 @@ repo_url: https://github.com/NVIDIA-NeMo/DataDesigner
 
 nav:
   - Getting Started:
-      - Welcome to Data Designer: index.md
+      - Welcome: index.md
       - Installation: installation.md
       - Quick Start: quick-start.md
       - Contributing: CONTRIBUTING.md
   - Concepts:
       - Columns: concepts/columns.md
       - Validators: concepts/validators.md
-      - Plugins: concepts/plugins.md
+      - Persons: concepts/persons.md
+      # - Plugins: concepts/plugins.md
   - Tutorials:
       - Overview: notebooks/intro.md
       - The Basics: notebooks/1-the-basics.ipynb
@@ -25,6 +26,7 @@ nav:
       - column_configs: code_reference/column_configs.md
       - config_builder: code_reference/config_builder.md
       - data_designer_config: code_reference/data_designer_config.md
+      - sampler_params: code_reference/sampler_params.md
       - validator_params: code_reference/validator_params.md
 
 theme:
