@@ -129,7 +129,7 @@ class DuckDBDatasetRepository(ManagedDatasetRepository):
                 for table in self.data_catalog:
                     key = table.source if table.schema == "main" else f"{table.schema}/{table.source}"
                     if self._use_cache:
-                        tmp_root = Path(tempfile.gettempdir()) / "gretel_ds_cache"
+                        tmp_root = Path(tempfile.gettempdir()) / "dd_cache"
                         local_path = tmp_root / key
                         local_path.parent.mkdir(parents=True, exist_ok=True)
                         if not local_path.exists():
@@ -183,10 +183,11 @@ class DuckDBDatasetRepository(ManagedDatasetRepository):
         return self._data_catalog
 
 
-def load_managed_dataset_repository(blob_storage: ManagedBlobStorage) -> ManagedDatasetRepository:
+def load_managed_dataset_repository(blob_storage: ManagedBlobStorage, locales: list[str]) -> ManagedDatasetRepository:
     return DuckDBDatasetRepository(
         blob_storage,
-        {"threads": 1, "memory_limit": "2 gb"},
+        config={"threads": 1, "memory_limit": "2 gb"},
+        data_catalog=[Table(f"{locale}.parquet") for locale in locales],
         # Only cache if not using local storage.
         use_cache=not isinstance(blob_storage, LocalBlobStorageProvider),
     )

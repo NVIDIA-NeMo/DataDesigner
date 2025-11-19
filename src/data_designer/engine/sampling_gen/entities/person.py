@@ -130,7 +130,7 @@ def load_person_data_sampler(blob_storage: ManagedBlobStorage, locale: str) -> M
         raise DatasetNotAvailableForLocaleError(f"Locale {locale} is not supported by the managed dataset generator.")
 
     return ManagedDatasetGenerator(
-        managed_datasets=load_managed_dataset_repository(blob_storage),
+        managed_datasets=load_managed_dataset_repository(blob_storage, [locale]),
         dataset_name=locale,
     )
 
