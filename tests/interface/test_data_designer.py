@@ -31,6 +31,14 @@ def stub_artifact_path(tmp_path):
 
 
 @pytest.fixture
+def stub_managed_assets_path(tmp_path):
+    """Temporary directory for managed assets."""
+    managed_path = tmp_path / "managed-assets"
+    managed_path.mkdir(parents=True, exist_ok=True)
+    return managed_path
+
+
+@pytest.fixture
 def stub_model_providers():
     return [
         ModelProvider(
@@ -283,7 +291,7 @@ def test_multiple_seed_references_can_be_created():
 
 
 def test_create_dataset_e2e_using_only_sampler_columns(
-    stub_sampler_only_config_builder, stub_artifact_path, stub_model_providers
+    stub_sampler_only_config_builder, stub_artifact_path, stub_model_providers, stub_managed_assets_path
 ):
     column_names = [config.name for config in stub_sampler_only_config_builder.get_column_configs()]
 
@@ -293,6 +301,7 @@ def test_create_dataset_e2e_using_only_sampler_columns(
         artifact_path=stub_artifact_path,
         model_providers=stub_model_providers,
         secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
     )
 
     results = data_designer.create(stub_sampler_only_config_builder, num_records=num_records)
@@ -313,13 +322,14 @@ def test_create_dataset_e2e_using_only_sampler_columns(
 
 
 def test_create_raises_error_when_builder_fails(
-    stub_artifact_path, stub_model_providers, stub_sampler_only_config_builder
+    stub_artifact_path, stub_model_providers, stub_sampler_only_config_builder, stub_managed_assets_path
 ):
     """Test that create method raises DataDesignerCreateError when builder.build fails."""
     data_designer = DataDesigner(
         artifact_path=stub_artifact_path,
         model_providers=stub_model_providers,
         secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
     )
 
     with patch.object(data_designer, "_create_dataset_builder") as mock_builder_method:
@@ -332,13 +342,14 @@ def test_create_raises_error_when_builder_fails(
 
 
 def test_create_raises_error_when_profiler_fails(
-    stub_artifact_path, stub_model_providers, stub_sampler_only_config_builder
+    stub_artifact_path, stub_model_providers, stub_sampler_only_config_builder, stub_managed_assets_path
 ):
     """Test that create method raises DataDesignerCreateError when profiler.profile_dataset fails."""
     data_designer = DataDesigner(
         artifact_path=stub_artifact_path,
         model_providers=stub_model_providers,
         secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
     )
 
     with (
@@ -361,13 +372,14 @@ def test_create_raises_error_when_profiler_fails(
 
 
 def test_preview_raises_error_when_builder_fails(
-    stub_artifact_path, stub_model_providers, stub_sampler_only_config_builder
+    stub_artifact_path, stub_model_providers, stub_sampler_only_config_builder, stub_managed_assets_path
 ):
     """Test that preview method raises DataDesignerPreviewError when builder.build_preview fails."""
     data_designer = DataDesigner(
         artifact_path=stub_artifact_path,
         model_providers=stub_model_providers,
         secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
     )
 
     with patch.object(data_designer, "_create_dataset_builder") as mock_builder_method:
@@ -382,13 +394,14 @@ def test_preview_raises_error_when_builder_fails(
 
 
 def test_preview_raises_error_when_profiler_fails(
-    stub_artifact_path, stub_model_providers, stub_sampler_only_config_builder
+    stub_artifact_path, stub_model_providers, stub_sampler_only_config_builder, stub_managed_assets_path
 ):
     """Test that preview method raises DataDesignerPreviewError when profiler.profile_dataset fails."""
     data_designer = DataDesigner(
         artifact_path=stub_artifact_path,
         model_providers=stub_model_providers,
         secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
     )
 
     with (
@@ -412,7 +425,9 @@ def test_preview_raises_error_when_profiler_fails(
             data_designer.preview(stub_sampler_only_config_builder, num_records=3)
 
 
-def test_preview_with_dropped_columns(stub_artifact_path, stub_model_providers, stub_model_configs):
+def test_preview_with_dropped_columns(
+    stub_artifact_path, stub_model_providers, stub_model_configs, stub_managed_assets_path
+):
     """Test that preview correctly handles dropped columns and maintains consistency."""
     config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
     config_builder.add_column(
@@ -435,6 +450,7 @@ def test_preview_with_dropped_columns(stub_artifact_path, stub_model_providers, 
         artifact_path=stub_artifact_path,
         model_providers=stub_model_providers,
         secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
     )
 
     num_records = 5
