@@ -1,0 +1,36 @@
+name: Pack Tutorials
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  pack-tutorials:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Checkout the repository
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Step 2: Zip the subfolder
+      - name: Create ZIP of subfolder
+        run: |
+          SUBFOLDER="docs/tutorials"
+          ZIP_NAME="${SUBFOLDER}.zip"
+          
+          if [ ! -d "$SUBFOLDER" ]; then
+            echo "Error: Subfolder '$SUBFOLDER' does not exist."
+            exit 1
+          fi
+          
+          zip -r "$ZIP_NAME" "$SUBFOLDER"
+
+      # Step 3: Upload the ZIP as an artifact
+      - name: Upload ZIP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tutorials
+          path: tutorials.zip
