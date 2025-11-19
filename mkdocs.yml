@@ -10,7 +10,8 @@ nav:
   - Concepts:
       - Columns: concepts/columns.md
       - Validators: concepts/validators.md
-      - Plugins: concepts/plugins.md
+      - Persons: concepts/persons.md
+      # - Plugins: concepts/plugins.md
   - Tutorials:
       - Overview: notebooks/intro.md
       - The Basics: notebooks/1-the-basics.ipynb
