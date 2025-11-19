@@ -16,7 +16,7 @@ Data Designer helps you create synthetic datasets that go beyond simple LLM prom
 
 - **Generate diverse data** using statistical samplers, LLMs, or existing seed datasets
 - **Control relationships** between fields with dependency-aware generation
-- **Validate quality** with built-in Python, SQL, and remote validators
+- **Validate quality** with built-in Python, SQL, and custom local and remote validators
 - **Score outputs** using LLM-as-a-judge for quality assessment
 - **Iterate quickly** with preview mode before full-scale generation
 
