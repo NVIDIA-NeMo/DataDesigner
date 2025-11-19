@@ -98,10 +98,10 @@ preview.display_sample_record()
 
 ### 📚 Learn more
 
-- **[Quick Start Guide](docs/quick-start.md)** – Detailed walkthrough with more examples
-- **[Tutorial Notebooks](docs/notebooks/)** – Step-by-step interactive tutorials
-- **[Column Types](docs/concepts/columns.md)** – Explore samplers, LLM columns, validators, and more
-- **[Model Configuration](docs/models/model-configs.md)** – Configure custom models and providers
+- **[Quick Start Guide](https://nvidia-nemo.github.io/DataDesigner)** – Detailed walkthrough with more examples
+- **[Tutorial Notebooks](https://nvidia-nemo.github.io/DataDesigner/notebooks/1-the-basics/)** – Step-by-step interactive tutorials
+- **[Column Types](https://nvidia-nemo.github.io/DataDesigner/concepts/columns/)** – Explore samplers, LLM columns, validators, and more
+- **[Model Configuration](https://nvidia-nemo.github.io/DataDesigner/models/model-configs/)** – Configure custom models and providers
 
 ### 🔧 Configure models via CLI
 
@@ -113,7 +113,7 @@ data-designer config list      # View current settings
 
 ### 🤝 Get involved
 
-- **[Contributing Guide](docs/CONTRIBUTING.md)** – Help improve Data Designer
+- **[Contributing Guide](https://nvidia-nemo.github.io/DataDesigner/CONTRIBUTING.md)** – Help improve Data Designer
 - **[GitHub Issues](https://github.com/NVIDIA-NeMo/DataDesigner/issues)** – Report bugs or request features
 - **[GitHub Discussions](https://github.com/NVIDIA-NeMo/DataDesigner/discussions)** – Ask questions and share ideas
 
