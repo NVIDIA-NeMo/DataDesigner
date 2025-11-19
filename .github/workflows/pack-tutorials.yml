@@ -17,7 +17,7 @@ jobs:
       - name: Create ZIP of subfolder
         run: |
           SUBFOLDER="docs/notebooks"
-          ZIP_NAME="${SUBFOLDER}.zip"
+          ZIP_NAME="tutorials.zip"
           
           if [ ! -d "$SUBFOLDER" ]; then
             echo "Error: Subfolder '$SUBFOLDER' does not exist."
