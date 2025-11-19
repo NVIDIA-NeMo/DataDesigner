@@ -37,32 +37,36 @@ def test_managed_dataset_generator_init(dataset_name, stub_repository):
 
 
 @pytest.mark.parametrize(
-    "size,evidence,expected_query_pattern",
+    "size,evidence,expected_query_pattern,expected_parameters",
     [
-        (2, None, "select * from en_US order by random() limit 2"),
+        (2, None, "select * from en_US order by random() limit 2", []),
         (
             1,
             {"name": "John"},
             "select * from en_US where name IN (?) order by random() limit 1",
+            ["John"],
         ),
         (
             3,
             {"name": ["John", "Jane"], "age": [25]},
             "select * from en_US where name IN (?, ?) and age IN (?) order by random() limit 3",
+            ["John", "Jane", 25],
         ),
         (
             1,
             {"name": [], "age": None},
             "select * from en_US order by random() limit 1",
+            [],
         ),
         (
             None,
             None,
             "select * from en_US order by random() limit 1",
+            [],
         ),
     ],
 )
-def test_generate_samples_scenarios(size, evidence, expected_query_pattern, stub_repository):
+def test_generate_samples_scenarios(size, evidence, expected_query_pattern, expected_parameters, stub_repository):
     generator = ManagedDatasetGenerator(stub_repository, dataset_name="en_US")
 
     if size is None:
@@ -70,9 +74,7 @@ def test_generate_samples_scenarios(size, evidence, expected_query_pattern, stub
     else:
         result = generator.generate_samples(size=size, evidence=evidence)
 
-    stub_repository.query.assert_called_once()
-    call_args = stub_repository.query.call_args[0][0]
-    assert expected_query_pattern in call_args
+    stub_repository.query.assert_called_once_with(expected_query_pattern, expected_parameters)
 
     assert isinstance(result, pd.DataFrame)
 
