@@ -27,7 +27,7 @@ Whether you're new to the project or ready to dive in, the resources below will 
 
 2. **[AGENTS.md](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/AGENTS.md)** – context and instructions to help AI coding agents work on Data Designer (it's also useful for human developers!)
 
-3. **[Documentation](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/docs/)** – detailed documentation on Data Designer's capabilities and usage
+3. **[Documentation](https://nvidia-nemo.github.io/DataDesigner/)** – detailed documentation on Data Designer's capabilities and usage
 
 ## Ways to Contribute
 
@@ -40,7 +40,7 @@ Found a bug? Before reporting, please
 2. Search for duplicates in the [issue tracker](https://github.com/NVIDIA-NeMo/DataDesigner/issues)
 
 When [creating a bug report](https://github.com/NVIDIA-NeMo/DataDesigner/issues/new), please include:
-- Data Designer version: `python -c "import data_designer; print(data_designer.__version__)"`
+- Data Designer version
 - Python version and operating system
 - Minimal reproducible example
 - Expected vs. actual behavior

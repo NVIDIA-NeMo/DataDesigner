@@ -12,16 +12,16 @@ nav:
       - Validators: concepts/validators.md
       - Persons: concepts/persons.md
       # - Plugins: concepts/plugins.md
-  - Tutorials:
-      - Overview: notebooks/intro.md
-      - The Basics: notebooks/1-the-basics.ipynb
-      - Structured Outputs and Jinja Expressions: notebooks/2-structured-outputs-and-jinja-expressions.ipynb
-      - Seeding with an External Dataset: notebooks/3-seeding-with-a-dataset.ipynb
   - Models:
       - Default Model Settings: models/default-model-settings.md
       - Configure with the CLI: models/configure-model-settings-with-the-cli.md
       - Model Providers: models/model-providers.md
       - Model Configs: models/model-configs.md
+  - Tutorials:
+      - Overview: notebooks/intro.md
+      - The Basics: notebooks/1-the-basics.ipynb
+      - Structured Outputs and Jinja Expressions: notebooks/2-structured-outputs-and-jinja-expressions.ipynb
+      - Seeding with an External Dataset: notebooks/3-seeding-with-a-dataset.ipynb
   - Code Reference:
       - column_configs: code_reference/column_configs.md
       - config_builder: code_reference/config_builder.md

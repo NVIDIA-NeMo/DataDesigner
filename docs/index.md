@@ -25,19 +25,20 @@ Data Designer helps you create datasets through an intuitive, **iterative** proc
 1.  **⚙️ Configure** your model settings
     - Bring your own OpenAI-compatible model providers and models
     - Or use the default model providers and models to get started quickly
-    - Learn more by reading the [model configuration docs](does-not-exist.md)
+    - Learn more by reading the [model docs](models/default-model-settings.md)
 2.  **🏗️ Design** your dataset
     - Iteratively design your dataset, column by column
     - Leverage tools like statistical samplers and LLMs to generate a variety of data types
-    - Learn more by reading the [column docs](concepts/columns.md) and checking out the [tutorial notebooks](notebooks/1-the-basics.ipynb)
+    - Learn more by reading the [column docs](concepts/columns.md)
+
 3.  **🔁 Preview** your results and iterate
     - Generate a preview dataset stored in memory for fast iteration
     - Inspect sample records and analysis results to refine your configuration
-    - Try for yourself by running the [tutorial notebooks](notebooks/1-the-basics.ipynb)
+    - Try for yourself by running the [tutorial notebooks](notebooks/intro.md)
 4.  **🖼️ Create** your dataset
     - Generate your full dataset and save results to disk
     - Access the generated dataset and associated artifacts for downstream use
-    - Give it a try by running the [tutorial notebooks](notebooks/2-create-your-dataset.ipynb)!
+    - Give it a try by running the [tutorial notebooks](notebooks/intro.md)
 
 ## Library and Microservice
 
