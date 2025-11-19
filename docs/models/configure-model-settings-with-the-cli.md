@@ -13,9 +13,9 @@ The CLI manages two YAML configuration files:
     If these configuration files don't already exist, the Data Designer library automatically creates them with default settings at runtime when first initialized.
 
 !!! note "Custom Directory"
-    You can customize the configuration directory location with the `DATA_DESIGNER_HOME_DIR` environment variable:
+    You can customize the configuration directory location with the `DATA_DESIGNER_HOME` environment variable:
     ```bash
-    export DATA_DESIGNER_HOME_DIR="/path/to/your/custom/directory"
+    export DATA_DESIGNER_HOME="/path/to/your/custom/directory"
     ```
 
 ## CLI Commands

@@ -60,11 +60,11 @@ When the Data Designer library or the CLI is initialized, default model configur
 !!! tip Tip
     While these files provide a convenient way to specify settings for your model providers and configuration you use most often, they can always be set programatically in your SDG workflow.
 
-You can customize the home directory location by setting the `DATA_DESIGNER_HOME_DIR` environment variable:
+You can customize the home directory location by setting the `DATA_DESIGNER_HOME` environment variable:
 
 ```bash
 # In your .bashrc, .zshrc, or similar
-export DATA_DESIGNER_HOME_DIR="/path/to/your/custom/directory"
+export DATA_DESIGNER_HOME="/path/to/your/custom/directory"
 ```
 
 These configuration files can be modified in two ways:
