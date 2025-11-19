@@ -16,7 +16,7 @@ jobs:
       # Step 2: Zip the subfolder
       - name: Create ZIP of subfolder
         run: |
-          SUBFOLDER="docs/tutorials"
+          SUBFOLDER="docs/notebooks"
           ZIP_NAME="${SUBFOLDER}.zip"
           
           if [ ! -d "$SUBFOLDER" ]; then
