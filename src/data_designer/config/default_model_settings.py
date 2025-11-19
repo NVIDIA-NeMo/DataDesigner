@@ -9,6 +9,7 @@ from typing import Any, Literal, Optional
 
 from .models import InferenceParameters, ModelConfig, ModelProvider
 from .utils.constants import (
+    MANAGED_ASSETS_PATH,
     MODEL_CONFIGS_FILE_PATH,
     MODEL_PROVIDERS_FILE_PATH,
     PREDEFINED_PROVIDERS,
@@ -108,6 +109,10 @@ def resolve_seed_default_model_settings() -> None:
         save_config_file(
             MODEL_PROVIDERS_FILE_PATH, {"providers": [p.model_dump() for p in get_builtin_model_providers()]}
         )
+
+    if not MANAGED_ASSETS_PATH.exists():
+        logger.debug(f"🏗️ Default managed assets path was not found, so creating it at {str(MANAGED_ASSETS_PATH)!r}")
+        MANAGED_ASSETS_PATH.mkdir(parents=True, exist_ok=True)
 
 
 @lru_cache(maxsize=1)
