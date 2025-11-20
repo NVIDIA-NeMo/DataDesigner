@@ -103,7 +103,7 @@ preview.display_sample_record()
 - **[Column Types](https://nvidia-nemo.github.io/DataDesigner/concepts/columns/)** – Explore samplers, LLM columns, validators, and more
 - **[Validators](https://nvidia-nemo.github.io/DataDesigner/concepts/validators/)** – Learn how to validate generated data with Python, SQL, and remote validators
 - **[Model Configuration](https://nvidia-nemo.github.io/DataDesigner/models/model-configs/)** – Configure custom models and providers
-- **[Person Sampling](https://nvidia-nemo.github.io/DataDesigner/concepts/persons/)** – Learn how to sample realistic person data with demographic attributes
+- **[Person Sampling](https://nvidia-nemo.github.io/DataDesigner/concepts/person_sampling/)** – Learn how to sample realistic person data with demographic attributes
 
 ### 🔧 Configure models via CLI
 

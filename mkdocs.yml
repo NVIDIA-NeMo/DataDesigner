@@ -10,7 +10,7 @@ nav:
   - Concepts:
       - Columns: concepts/columns.md
       - Validators: concepts/validators.md
-      - Person Sampling: concepts/persons.md
+      - Person Sampling: concepts/person_sampling.md
   - Models:
       - Default Model Settings: models/default-model-settings.md
       - Configure with the CLI: models/configure-model-settings-with-the-cli.md
