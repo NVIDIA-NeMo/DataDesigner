@@ -11,7 +11,6 @@ nav:
       - Columns: concepts/columns.md
       - Validators: concepts/validators.md
       - Persons: concepts/persons.md
-      # - Plugins: concepts/plugins.md
   - Models:
       - Default Model Settings: models/default-model-settings.md
       - Configure with the CLI: models/configure-model-settings-with-the-cli.md
