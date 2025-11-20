@@ -184,13 +184,19 @@ config_builder.add_processor(
     OutputFormatProcessorConfig(
         name="jsonl_output",
         template=template_as_str,
+        extension="jsonl",
     )
 )
 
 dd = DataDesigner(
-    artifact_path="./artifacts", blob_storage_path="/Users/amanoel/Data/nemotron-personas-datasets_v0.0.6"
+    artifact_path="./artifacts",
 )
 preview = dd.preview(config_builder, num_records=10)
 
+preview.display_sample_record()
+
 results = dd.create(config_builder, num_records=20)
-results.write_processor_outputs_to_disk("./processor_outputs", "jsonl")
+results.write_processors_outputs_to_disk(
+    processors=["jsonl_output"],
+    output_folder="./processors_outputs",
+)

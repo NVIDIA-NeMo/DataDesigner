@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Union
 
 import pandas as pd
 
@@ -19,6 +19,7 @@ class PreviewResults(WithRecordSamplerMixin):
         config_builder: DataDesignerConfigBuilder,
         dataset: Optional[pd.DataFrame] = None,
         analysis: Optional[DatasetProfilerResults] = None,
+        processor_artifact_preview: Optional[dict[str, Union[list[str], str]]] = None,
     ):
         """Creates a new instance with results from a Data Designer preview run.
 
@@ -29,4 +30,5 @@ class PreviewResults(WithRecordSamplerMixin):
         """
         self.dataset: pd.DataFrame | None = dataset
         self.analysis: DatasetProfilerResults | None = analysis
+        self.processor_artifact_preview: dict[str, Union[list[str], str]] | None = processor_artifact_preview
         self._config_builder = config_builder

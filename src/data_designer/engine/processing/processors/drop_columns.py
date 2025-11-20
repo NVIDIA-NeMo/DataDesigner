@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
+from pathlib import Path
 
 import pandas as pd
 
@@ -32,6 +33,9 @@ class DropColumnsProcessor(Processor[DropColumnsProcessorConfig]):
             else:
                 logger.warning(f"⚠️ Cannot drop column: `{column}` not found in the dataset.")
         return data
+
+    def write_outputs_to_disk(self, artifacts_path: Path, output_path: Path) -> None:
+        pass
 
     def _save_dropped_columns_if_needed(self, data: pd.DataFrame, current_batch_number: int) -> None:
         logger.debug("📦 Saving dropped columns to dropped-columns directory")
