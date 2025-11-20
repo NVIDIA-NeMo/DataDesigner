@@ -28,7 +28,11 @@ def stub_test_column_configs():
 
 @pytest.fixture
 def stub_test_processor_configs():
-    return [DropColumnsProcessorConfig(build_stage=BuildStage.POST_BATCH, column_names=["column_to_drop"])]
+    return [
+        DropColumnsProcessorConfig(
+            name="drop_columns_processor", build_stage=BuildStage.POST_BATCH, column_names=["column_to_drop"]
+        )
+    ]
 
 
 @pytest.fixture

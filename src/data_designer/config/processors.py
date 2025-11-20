@@ -19,8 +19,8 @@ class ProcessorType(str, Enum):
 
 
 class ProcessorConfig(ConfigBase, ABC):
-    name: str | None = Field(
-        default=None, description="The name of the processor. If not provided, a default name will be generated."
+    name: str = Field(
+        description="The name of the processor, used to identify the processor in the results and to write the artifacts to disk.",
     )
     build_stage: BuildStage = Field(
         default=BuildStage.POST_BATCH,

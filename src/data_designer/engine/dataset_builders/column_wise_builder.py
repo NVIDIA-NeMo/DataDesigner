@@ -244,6 +244,7 @@ class ColumnWiseDatasetBuilder:
             processors[BuildStage.POST_BATCH].append(  # as post-batch by default
                 DropColumnsProcessor(
                     config=DropColumnsProcessorConfig(
+                        name="default_drop_columns_processor",
                         column_names=columns_to_drop,
                         build_stage=BuildStage.POST_BATCH,
                     ),

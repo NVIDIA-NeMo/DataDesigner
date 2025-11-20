@@ -98,6 +98,7 @@ INVALID_COLUMNS = [
 COLUMNS = VALID_COLUMNS + INVALID_COLUMNS
 PROCESSOR_CONFIGS = [
     DropColumnsProcessorConfig(
+        name="drop_columns_processor",
         column_names=["inexistent_column"],
         build_stage=BuildStage.POST_BATCH,
     )

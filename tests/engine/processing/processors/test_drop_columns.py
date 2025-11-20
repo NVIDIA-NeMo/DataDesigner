@@ -14,7 +14,9 @@ from data_designer.engine.processing.processors.drop_columns import DropColumnsP
 
 @pytest.fixture
 def stub_processor_config():
-    return DropColumnsProcessorConfig(build_stage=BuildStage.POST_BATCH, column_names=["col1", "col2"])
+    return DropColumnsProcessorConfig(
+        name="drop_columns_processor", build_stage=BuildStage.POST_BATCH, column_names=["col1", "col2"]
+    )
 
 
 @pytest.fixture
