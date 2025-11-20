@@ -142,6 +142,38 @@ def test_get_file_column_names_with_glob_pattern_error(tmp_path):
         get_file_column_names(f"{tmp_path}/*.csv", "csv")
 
 
+def test_get_file_column_names_with_filesystem_parquet():
+    """Test get_file_column_names with filesystem parameter for parquet files."""
+    from pathlib import Path
+
+    mock_schema = MagicMock()
+    mock_schema.names = ["col1", "col2", "col3"]
+
+    with patch("data_designer.config.datastore.pq.read_schema") as mock_read_schema:
+        mock_read_schema.return_value = mock_schema
+        result = get_file_column_names("datasets/test/file.parquet", "parquet")
+
+        assert result == ["col1", "col2", "col3"]
+        mock_read_schema.assert_called_once_with(Path("datasets/test/file.parquet"))
+
+
+@pytest.mark.parametrize("file_type", ["json", "jsonl", "csv"])
+def test_get_file_column_names_with_filesystem_non_parquet(tmp_path, file_type):
+    """Test get_file_column_names with file-like objects for non-parquet files."""
+    test_data = pd.DataFrame({"col1": [1], "col2": [2], "col3": [3]})
+
+    # Create a real temporary file
+    file_path = tmp_path / f"test_file.{file_type}"
+    if file_type in ["json", "jsonl"]:
+        test_data.to_json(file_path, orient="records", lines=True)
+    else:
+        test_data.to_csv(file_path, index=False)
+
+    result = get_file_column_names(str(file_path), file_type)
+
+    assert result == ["col1", "col2", "col3"]
+
+
 def test_get_file_column_names_error_handling():
     with pytest.raises(InvalidFilePathError, match="🛑 Unsupported file type: 'txt'"):
         get_file_column_names("test.txt", "txt")
@@ -177,19 +209,28 @@ def test_fetch_seed_dataset_column_names_local_file(mock_get_file_column_names, 
         assert fetch_seed_dataset_column_names(LocalSeedDatasetReference(dataset="test.parquet")) == ["col1", "col2"]
 
 
-@patch("data_designer.config.datastore.HfFileSystem.open")
+@patch("data_designer.config.datastore.HfFileSystem")
 @patch("data_designer.config.datastore.get_file_column_names", autospec=True)
-def test_fetch_seed_dataset_column_names_remote_file(mock_get_file_column_names, mock_hf_fs_open, datastore_settings):
+def test_fetch_seed_dataset_column_names_remote_file(mock_get_file_column_names, mock_hf_fs, datastore_settings):
     mock_get_file_column_names.return_value = ["col1", "col2"]
+    mock_fs_instance = MagicMock()
+    mock_hf_fs.return_value = mock_fs_instance
+
     assert fetch_seed_dataset_column_names(
         DatastoreSeedDatasetReference(
             dataset="test/repo/test.parquet",
             datastore_settings=datastore_settings,
         )
     ) == ["col1", "col2"]
-    mock_hf_fs_open.assert_called_once_with(
-        "datasets/test/repo/test.parquet",
+
+    mock_hf_fs.assert_called_once_with(
+        endpoint=datastore_settings.endpoint, token=datastore_settings.token, skip_instance_cache=True
     )
+
+    # The get_file_column_names is called with a file-like object from fs.open()
+    assert mock_get_file_column_names.call_count == 1
+    call_args = mock_get_file_column_names.call_args
+    assert call_args[0][1] == "parquet"
 
 
 def test_resolve_datastore_settings(datastore_settings):

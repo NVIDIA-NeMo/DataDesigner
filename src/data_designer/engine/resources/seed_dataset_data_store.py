@@ -42,11 +42,29 @@ class HfHubSeedDatasetDataStore(SeedDatasetDataStore):
 
     def __init__(self, endpoint: str, token: str | None):
         self.hfapi = HfApi(endpoint=endpoint, token=token)
-        self.hffs = HfFileSystem(endpoint=endpoint, token=token)
+        self.endpoint = endpoint
+        self.token = token
 
     def create_duckdb_connection(self) -> duckdb.DuckDBPyConnection:
+        """Create a DuckDB connection with a fresh HfFileSystem registered.
+
+        Creates a new HfFileSystem instance for each connection to ensure file metadata
+        is fetched fresh from the datastore, avoiding cache-related issues when reading
+        recently updated parquet files.
+
+        Returns:
+            A DuckDB connection with the HfFileSystem registered for hf:// URI support.
+        """
+        # Use skip_instance_cache to avoid fsspec-level caching
+        hffs = HfFileSystem(endpoint=self.endpoint, token=self.token, skip_instance_cache=True)
+
+        # Clear all internal caches to avoid stale metadata issues
+        # HfFileSystem caches file metadata (size, etc.) which can become stale when files are re-uploaded
+        if hasattr(hffs, "dircache"):
+            hffs.dircache.clear()
+
         conn = duckdb.connect()
-        conn.register_filesystem(self.hffs)
+        conn.register_filesystem(hffs)
         return conn
 
     def get_dataset_uri(self, file_id: str) -> str:
