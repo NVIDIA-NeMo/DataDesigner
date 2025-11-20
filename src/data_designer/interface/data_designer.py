@@ -250,6 +250,8 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         except Exception as e:
             raise DataDesignerProfilingError(f"🛑 Error profiling preview dataset: {e}")
 
+        processor_artifact_preview = builder.artifact_storage.processor_artifact_preview
+
         if (
             len(processed_dataset) > 0
             and isinstance(analysis, DatasetProfilerResults)
@@ -260,6 +262,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         return PreviewResults(
             dataset=processed_dataset,
             analysis=analysis,
+            processor_artifact_preview=processor_artifact_preview,
             config_builder=config_builder,
         )
 

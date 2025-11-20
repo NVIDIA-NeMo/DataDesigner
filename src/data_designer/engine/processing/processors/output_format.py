@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
+from pathlib import Path
 
 import pandas as pd
 
@@ -27,7 +28,8 @@ class OutputFormatProcessor(WithJinja2UserTemplateRendering, Processor[OutputFor
     def process(self, data: pd.DataFrame, *, current_batch_number: int | None = None) -> pd.DataFrame:
         self.prepare_jinja2_template_renderer(self.config.template, data.columns.to_list())
         formatted_records = [
-            self.render_template(deserialize_json_values(record)) for record in data.to_dict(orient="records")
+            self.render_template(deserialize_json_values(record)).replace("\n", "\\n")
+            for record in data.to_dict(orient="records")
         ]
         formatted_data = pd.DataFrame(formatted_records, columns=["formatted_output"])
         if current_batch_number is not None:
@@ -38,6 +40,19 @@ class OutputFormatProcessor(WithJinja2UserTemplateRendering, Processor[OutputFor
                 subfolder=self.config.name,
             )
         else:
-            logger.warning("⚠️ Cannot write processor outputs to disk in preview mode.")
+            # Just preview the first record for now
+            self.artifact_storage.processor_artifact_preview[self.config.name] = formatted_records[0]
 
         return data
+
+    @staticmethod
+    def write_outputs_to_disk(
+        processor_config: OutputFormatProcessorConfig, artifacts_path: Path, output_path: Path
+    ) -> None:
+        output_path.mkdir(parents=True, exist_ok=True)
+        with open(output_path / f"formatted_output.{processor_config.extension}", "w") as f:
+            for file_path in artifacts_path.glob("*.parquet"):
+                # TODO: faster way to convert than reading and writing row by row?
+                dataframe = pd.read_parquet(file_path)
+                for _, row in dataframe.iterrows():
+                    f.write(row["formatted_output"] + "\n")
