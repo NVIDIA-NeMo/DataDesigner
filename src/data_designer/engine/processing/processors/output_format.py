@@ -26,7 +26,9 @@ class OutputFormatProcessor(WithJinja2UserTemplateRendering, Processor[OutputFor
 
     def process(self, data: pd.DataFrame, *, current_batch_number: int | None = None) -> pd.DataFrame:
         self.prepare_jinja2_template_renderer(self.config.template, data.columns.to_list())
-        formatted_records = [self.render_template(deserialize_json_values(record)) for record in data.to_dict(orient="records")]
+        formatted_records = [
+            self.render_template(deserialize_json_values(record)) for record in data.to_dict(orient="records")
+        ]
         formatted_data = pd.DataFrame(formatted_records, columns=["formatted_output"])
         if current_batch_number is not None:
             self.artifact_storage.write_batch_to_parquet_file(

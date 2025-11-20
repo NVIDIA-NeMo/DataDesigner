@@ -2,34 +2,34 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import json
-from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 import pandas as pd
 import pytest
 
 from data_designer.config.dataset_builders import BuildStage
-from data_designer.config.processors import JsonlExportProcessorConfig
-from data_designer.engine.processing.processors.jsonl_export import JsonlExportProcessor
+from data_designer.config.processors import OutputFormatProcessorConfig
+from data_designer.engine.dataset_builders.artifact_storage import BatchStage
+from data_designer.engine.processing.processors.output_format import OutputFormatProcessor
 
 
 @pytest.fixture
-def stub_processor_config() -> JsonlExportProcessorConfig:
-    return JsonlExportProcessorConfig(
+def stub_processor_config() -> OutputFormatProcessorConfig:
+    return OutputFormatProcessorConfig(
         build_stage=BuildStage.POST_BATCH,
         template='{"text": "{{ col1 }}", "value": "{{ col2 }}"}',
-        fraction_per_file={"train.jsonl": 0.75, "validation.jsonl": 0.25},
+        name="test_output_format",
     )
 
 
 @pytest.fixture
-def stub_processor(stub_processor_config: JsonlExportProcessorConfig, tmp_path: Path) -> JsonlExportProcessor:
+def stub_processor(stub_processor_config: OutputFormatProcessorConfig) -> OutputFormatProcessor:
     mock_resource_provider = Mock()
     mock_artifact_storage = Mock()
-    mock_artifact_storage.move_processor_output = Mock()
+    mock_artifact_storage.write_batch_to_parquet_file = Mock()
     mock_resource_provider.artifact_storage = mock_artifact_storage
 
-    processor = JsonlExportProcessor(
+    processor = OutputFormatProcessor(
         config=stub_processor_config,
         resource_provider=mock_resource_provider,
     )
@@ -47,80 +47,103 @@ def stub_simple_dataframe() -> pd.DataFrame:
 
 
 def test_metadata() -> None:
-    metadata = JsonlExportProcessor.metadata()
+    metadata = OutputFormatProcessor.metadata()
 
-    assert metadata.name == "jsonl_export"
-    assert metadata.description == "Save formatted dataset as JSONL files."
+    assert metadata.name == "output_format"
+    assert metadata.description == "Format the dataset using a Jinja2 template."
     assert metadata.required_resources is None
 
 
-def test_template_as_string(stub_processor: JsonlExportProcessor) -> None:
-    template_str = stub_processor.config.template
-    assert isinstance(template_str, str)
-    assert template_str == '{"text": "{{ col1 }}", "value": "{{ col2 }}"}'
-
-
-def test_get_stop_index_per_file(stub_processor: JsonlExportProcessor) -> None:
-    stub_processor.config.fraction_per_file = {"train.jsonl": 0.8, "val.jsonl": 0.15, "test.jsonl": 0.05}
-    result = stub_processor._get_stop_index_per_file(100)
-
-    assert result == {"train.jsonl": 80, "val.jsonl": 95, "test.jsonl": 100}
-
-
 def test_process_returns_original_dataframe(
-    stub_processor: JsonlExportProcessor, stub_simple_dataframe: pd.DataFrame
+    stub_processor: OutputFormatProcessor, stub_simple_dataframe: pd.DataFrame
 ) -> None:
-    result = stub_processor.process(stub_simple_dataframe)
+    result = stub_processor.process(stub_simple_dataframe, current_batch_number=0)
     pd.testing.assert_frame_equal(result, stub_simple_dataframe)
 
 
-def test_process_writes_correct_content_to_files(
-    stub_processor: JsonlExportProcessor, stub_simple_dataframe: pd.DataFrame
+def test_process_writes_formatted_output_to_parquet(
+    stub_processor: OutputFormatProcessor, stub_simple_dataframe: pd.DataFrame
 ) -> None:
-    stub_processor.config.fraction_per_file = {"train.jsonl": 0.75, "validation.jsonl": 0.25}
+    # Capture the formatted dataframe that is written to parquet
+    written_dataframe: pd.DataFrame | None = None
 
-    # Capture the content of the files that are written to the outputs folder
-    file_contents: dict[str, str] = {}
+    def capture_dataframe(batch_number: int, dataframe: pd.DataFrame, batch_stage: BatchStage, subfolder: str) -> None:
+        nonlocal written_dataframe
+        written_dataframe = dataframe
 
-    def capture_file_content(from_path: Path, folder_name: str) -> None:
-        with open(from_path, "r") as f:
-            file_contents[from_path.name] = f.read()
+    stub_processor.artifact_storage.write_batch_to_parquet_file.side_effect = capture_dataframe
 
-    stub_processor.artifact_storage.move_processor_output.side_effect = capture_file_content
+    # Process the dataframe
+    result = stub_processor.process(stub_simple_dataframe, current_batch_number=0)
 
-    # Process the dataframe and write the files to the outputs folder
-    with patch("data_designer.engine.processing.processors.jsonl_export.logger"):
-        stub_processor.process(stub_simple_dataframe)
+    # Verify the original dataframe is returned
+    pd.testing.assert_frame_equal(result, stub_simple_dataframe)
 
-    # Check that the files were moved with the correct names
-    assert stub_processor.artifact_storage.move_processor_output.call_count == 2
+    # Verify write_batch_to_parquet_file was called with correct parameters
+    stub_processor.artifact_storage.write_batch_to_parquet_file.assert_called_once()
+    call_args = stub_processor.artifact_storage.write_batch_to_parquet_file.call_args
 
-    assert "train.jsonl" in file_contents
-    assert "validation.jsonl" in file_contents
+    assert call_args.kwargs["batch_number"] == 0
+    assert call_args.kwargs["batch_stage"] == BatchStage.PROCESSORS_OUTPUTS
+    assert call_args.kwargs["subfolder"] == "test_output_format"
 
-    # Check that the files contain the correct content
-    train_lines = file_contents["train.jsonl"].strip().split("\n") if file_contents["train.jsonl"].strip() else []
-    validation_lines = (
-        file_contents["validation.jsonl"].strip().split("\n") if file_contents["validation.jsonl"].strip() else []
-    )
+    # Verify the formatted dataframe has the correct structure
+    assert written_dataframe is not None
+    assert list(written_dataframe.columns) == ["formatted_output"]
+    assert len(written_dataframe) == 4
 
-    assert len(train_lines) == 3, f"Expected 3 lines in train.jsonl, got {len(train_lines)}"
-    assert len(validation_lines) == 1, f"Expected 1 line in validation.jsonl, got {len(validation_lines)}"
-
-    expected_train_data = [
-        {"text": "hello", "value": "1"},
-        {"text": "world", "value": "2"},
-        {"text": "test", "value": "3"},
+    # Verify the formatted content
+    expected_formatted_output = [
+        '{"text": "hello", "value": "1"}',
+        '{"text": "world", "value": "2"}',
+        '{"text": "test", "value": "3"}',
+        '{"text": "data", "value": "4"}',
     ]
 
-    for i, line in enumerate(train_lines):
-        parsed = json.loads(line)
-        assert parsed == expected_train_data[i], f"Train line {i} mismatch: {parsed} != {expected_train_data[i]}"
+    for i, expected in enumerate(expected_formatted_output):
+        actual = written_dataframe.iloc[i]["formatted_output"]
+        # Parse both as JSON to compare structure (ignoring whitespace differences)
+        assert json.loads(actual) == json.loads(expected), f"Row {i} mismatch: {actual} != {expected}"
 
-    expected_validation_data = [{"text": "data", "value": "4"}]
 
-    for i, line in enumerate(validation_lines):
-        parsed = json.loads(line)
-        assert parsed == expected_validation_data[i], (
-            f"Validation line {i} mismatch: {parsed} != {expected_validation_data[i]}"
-        )
+def test_process_without_batch_number_does_not_write(
+    stub_processor: OutputFormatProcessor, stub_simple_dataframe: pd.DataFrame
+) -> None:
+    # Process without batch number (preview mode)
+    result = stub_processor.process(stub_simple_dataframe, current_batch_number=None)
+
+    # Verify the original dataframe is returned
+    pd.testing.assert_frame_equal(result, stub_simple_dataframe)
+
+    # Verify write_batch_to_parquet_file was NOT called
+    stub_processor.artifact_storage.write_batch_to_parquet_file.assert_not_called()
+
+
+def test_process_with_json_serialized_values(stub_processor: OutputFormatProcessor) -> None:
+    # Test with JSON-serialized values in dataframe
+    df_with_json = pd.DataFrame(
+        {
+            "col1": ["hello", "world"],
+            "col2": ['{"nested": "value1"}', '{"nested": "value2"}'],
+        }
+    )
+
+    written_dataframe: pd.DataFrame | None = None
+
+    def capture_dataframe(batch_number: int, dataframe: pd.DataFrame, batch_stage: BatchStage, subfolder: str) -> None:
+        nonlocal written_dataframe
+        written_dataframe = dataframe
+
+    stub_processor.artifact_storage.write_batch_to_parquet_file.side_effect = capture_dataframe
+
+    # Process the dataframe
+    stub_processor.process(df_with_json, current_batch_number=0)
+
+    # Verify the formatted dataframe was written
+    assert written_dataframe is not None
+    assert len(written_dataframe) == 2
+
+    # Verify that nested JSON values are properly deserialized in template rendering
+    first_output = json.loads(written_dataframe.iloc[0]["formatted_output"])
+    assert first_output["text"] == "hello"
+    assert first_output["value"] == "{'nested': 'value1'}"
