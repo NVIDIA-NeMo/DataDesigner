@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -144,8 +145,6 @@ def test_get_file_column_names_with_glob_pattern_error(tmp_path):
 
 def test_get_file_column_names_with_filesystem_parquet():
     """Test get_file_column_names with filesystem parameter for parquet files."""
-    from pathlib import Path
-
     mock_schema = MagicMock()
     mock_schema.names = ["col1", "col2", "col3"]
 
