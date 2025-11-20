@@ -15,7 +15,9 @@ from data_designer.config.processors import (
 
 
 def test_drop_columns_processor_config_creation():
-    config = DropColumnsProcessorConfig(build_stage=BuildStage.POST_BATCH, column_names=["col1", "col2"])
+    config = DropColumnsProcessorConfig(
+        name="drop_columns_processor", build_stage=BuildStage.POST_BATCH, column_names=["col1", "col2"]
+    )
 
     assert config.build_stage == BuildStage.POST_BATCH
     assert config.column_names == ["col1", "col2"]
@@ -26,15 +28,19 @@ def test_drop_columns_processor_config_creation():
 def test_drop_columns_processor_config_validation():
     # Test unsupported stage raises error
     with pytest.raises(ValidationError, match="Invalid dataset builder stage"):
-        DropColumnsProcessorConfig(build_stage=BuildStage.PRE_BATCH, column_names=["col1"])
+        DropColumnsProcessorConfig(
+            name="drop_columns_processor", build_stage=BuildStage.PRE_BATCH, column_names=["col1"]
+        )
 
     # Test missing required field raises error
     with pytest.raises(ValidationError, match="Field required"):
-        DropColumnsProcessorConfig(build_stage=BuildStage.POST_BATCH)
+        DropColumnsProcessorConfig(name="drop_columns_processor", build_stage=BuildStage.POST_BATCH)
 
 
 def test_drop_columns_processor_config_serialization():
-    config = DropColumnsProcessorConfig(build_stage=BuildStage.POST_BATCH, column_names=["col1", "col2"])
+    config = DropColumnsProcessorConfig(
+        name="drop_columns_processor", build_stage=BuildStage.POST_BATCH, column_names=["col1", "col2"]
+    )
 
     # Serialize to dict
     config_dict = config.model_dump()
@@ -49,6 +55,7 @@ def test_drop_columns_processor_config_serialization():
 
 def test_output_format_processor_config_creation():
     config = OutputFormatProcessorConfig(
+        name="output_format_processor",
         build_stage=BuildStage.POST_BATCH,
         template='{"text": "{{ col1 }}"}',
     )
@@ -63,17 +70,19 @@ def test_output_format_processor_config_validation():
     # Test unsupported stage raises error
     with pytest.raises(ValidationError, match="Invalid dataset builder stage"):
         OutputFormatProcessorConfig(
+            name="output_format_processor",
             build_stage=BuildStage.PRE_BATCH,
             template='{"text": "{{ col1 }}"}',
         )
 
     # Test missing required field raises error
     with pytest.raises(ValidationError, match="Field required"):
-        OutputFormatProcessorConfig(build_stage=BuildStage.POST_BATCH)
+        OutputFormatProcessorConfig(name="output_format_processor", build_stage=BuildStage.POST_BATCH)
 
 
 def test_output_format_processor_config_serialization():
     config = OutputFormatProcessorConfig(
+        name="output_format_processor",
         build_stage=BuildStage.POST_BATCH,
         template='{"text": "{{ col1 }}"}',
     )
@@ -92,7 +101,10 @@ def test_output_format_processor_config_serialization():
 def test_get_processor_config_from_kwargs():
     # Test successful creation
     config_drop_columns = get_processor_config_from_kwargs(
-        ProcessorType.DROP_COLUMNS, build_stage=BuildStage.POST_BATCH, column_names=["col1"]
+        ProcessorType.DROP_COLUMNS,
+        name="drop_columns_processor",
+        build_stage=BuildStage.POST_BATCH,
+        column_names=["col1"],
     )
     assert isinstance(config_drop_columns, DropColumnsProcessorConfig)
     assert config_drop_columns.column_names == ["col1"]
@@ -100,6 +112,7 @@ def test_get_processor_config_from_kwargs():
 
     config_output_format = get_processor_config_from_kwargs(
         ProcessorType.OUTPUT_FORMAT,
+        name="output_format_processor",
         build_stage=BuildStage.POST_BATCH,
         template='{"text": "{{ col1 }}"}',
     )
@@ -114,6 +127,6 @@ def test_get_processor_config_from_kwargs():
         UNKNOWN = "unknown"
 
     result = get_processor_config_from_kwargs(
-        UnknownProcessorType.UNKNOWN, build_stage=BuildStage.POST_BATCH, column_names=["col1"]
+        UnknownProcessorType.UNKNOWN, name="unknown_processor", build_stage=BuildStage.POST_BATCH, column_names=["col1"]
     )
     assert result is None
