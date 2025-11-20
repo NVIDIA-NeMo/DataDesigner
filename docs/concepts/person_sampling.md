@@ -62,7 +62,7 @@ Person samplers accept these configuration parameters:
 * `locale`: Language and region code (optional, e.g., "en\_US", "ja\_JP", "hi\_IN", "en\_IN")
 * `city`: Filter on cities within the specified locale (optional)
 * `age_range`: Age range for filtering (default: ages above 18 only)
-* `state`: Filter on US states, only valid when locale is set to "en\_US" (optional)
+* `select_field_values`: Filter on specific field values (optional)
 
 **Synthetic Personas Configuration:**
 
