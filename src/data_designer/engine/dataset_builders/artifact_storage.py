@@ -36,6 +36,8 @@ class ArtifactStorage(BaseModel):
     dropped_columns_folder_name: str = "dropped-columns-parquet-files"
     processors_outputs_folder_name: str = "processors-files"
 
+    processor_artifact_preview: dict[str, Union[list[str], str]] = {}
+
     @property
     def artifact_path_exists(self) -> bool:
         return self.artifact_path.exists()

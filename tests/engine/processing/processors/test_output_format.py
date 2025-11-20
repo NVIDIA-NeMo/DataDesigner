@@ -27,6 +27,7 @@ def stub_processor(stub_processor_config: OutputFormatProcessorConfig) -> Output
     mock_resource_provider = Mock()
     mock_artifact_storage = Mock()
     mock_artifact_storage.write_batch_to_parquet_file = Mock()
+    mock_artifact_storage.processor_artifact_preview = {}
     mock_resource_provider.artifact_storage = mock_artifact_storage
 
     processor = OutputFormatProcessor(
