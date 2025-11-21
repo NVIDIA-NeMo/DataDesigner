@@ -4,7 +4,6 @@ on:
   workflow_dispatch:
   release:
     types: [published]
-  push:
 
 jobs:
   zip_and_upload:
