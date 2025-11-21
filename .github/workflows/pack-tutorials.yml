@@ -19,7 +19,7 @@ jobs:
         run: |
           echo "SOURCE_FOLDER_PATH=docs/notebooks" >> $GITHUB_ENV
           echo "TARGET_FOLDER_NAME=data_designer_tutorial" >> $GITHUB_ENV
-          echo "ZIP_FILE_NAME=data_designer_tutorial" >> $GITHUB_ENV
+          echo "ZIP_FILE_NAME=data_designer_tutorial.zip" >> $GITHUB_ENV
           
       - name: Check if source folder exists
         run: |
