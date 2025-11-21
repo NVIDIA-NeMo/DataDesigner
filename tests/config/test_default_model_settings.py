@@ -11,6 +11,7 @@ import yaml
 from data_designer.config.default_model_settings import (
     get_builtin_model_configs,
     get_builtin_model_providers,
+    get_defaul_model_providers_missing_api_keys,
     get_default_inference_parameters,
     get_default_model_configs,
     get_default_provider_name,
@@ -79,8 +80,7 @@ def test_get_default_model_configs_path_exists(tmp_path: Path):
 
 def test_get_default_model_configs_path_does_not_exist():
     with patch("data_designer.config.default_model_settings.MODEL_CONFIGS_FILE_PATH", new=Path("non_existent_path")):
-        with pytest.raises(FileNotFoundError, match=r"Default model configs file not found at 'non_existent_path'"):
-            get_default_model_configs()
+        assert get_default_model_configs() == []
 
 
 def test_get_default_providers_path_exists(tmp_path: Path):
@@ -147,3 +147,9 @@ def test_resolve_seed_default_model_settings(tmp_path: Path):
             with open(model_providers_file_path) as f:
                 providers_data = yaml.safe_load(f)
             assert providers_data == {"providers": [p.model_dump() for p in get_builtin_model_providers()]}
+
+
+@patch("data_designer.config.default_model_settings.os.environ.get")
+def test_get_default_model_providers_missing_api_keys(mock_environ_get):
+    mock_environ_get.return_value = None
+    assert get_defaul_model_providers_missing_api_keys() == ["NVIDIA_API_KEY", "OPENAI_API_KEY"]

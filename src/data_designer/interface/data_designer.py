@@ -9,6 +9,7 @@ import pandas as pd
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.default_model_settings import (
+    get_defaul_model_providers_missing_api_keys,
     get_default_model_configs,
     get_default_provider_name,
     get_default_providers,
@@ -26,8 +27,9 @@ from data_designer.config.utils.constants import (
     MANAGED_ASSETS_PATH,
     MODEL_CONFIGS_FILE_PATH,
     MODEL_PROVIDERS_FILE_PATH,
+    PREDEFINED_PROVIDERS,
 )
-from data_designer.config.utils.info import InterfaceInfo
+from data_designer.config.utils.info import InfoType, InterfaceInfo
 from data_designer.config.utils.io_helpers import write_seed_dataset
 from data_designer.config.utils.misc import can_run_data_designer_locally
 from data_designer.engine.analysis.dataset_profiler import (
@@ -103,7 +105,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         self._artifact_path = Path(artifact_path) if artifact_path is not None else Path.cwd() / "artifacts"
         self._buffer_size = DEFAULT_BUFFER_SIZE
         self._managed_assets_path = Path(managed_assets_path or MANAGED_ASSETS_PATH)
-        self._model_providers = model_providers or self.get_default_model_providers()
+        self._model_providers = self._resolve_model_providers(model_providers)
         self._model_provider_registry = resolve_model_provider_registry(
             self._model_providers, get_default_provider_name()
         )
@@ -151,7 +153,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         Returns:
             InterfaceInfo object with information about the Data Designer interface.
         """
-        return InterfaceInfo(model_providers=self._model_providers)
+        return self._get_interface_info(self._model_providers)
 
     def create(
         self,
@@ -307,6 +309,22 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             raise InvalidBufferValueError("Buffer size must be greater than 0.")
         self._buffer_size = buffer_size
 
+    def _resolve_model_providers(self, model_providers: list[ModelProvider] | None) -> list[ModelProvider]:
+        if model_providers is None:
+            if can_run_data_designer_locally():
+                model_providers = get_default_providers()
+                missing_api_keys = get_defaul_model_providers_missing_api_keys()
+                if len(missing_api_keys) == len(PREDEFINED_PROVIDERS):
+                    logger.warning(
+                        "🚨 You are trying to use a default model provider but your API keys are missing."
+                        "\n\t\t\tSet the API key for the default providers you intend to use and re-initialize the Data Designer object."
+                        "\n\t\t\tAlternatively, you can provide your own model providers during Data Designer object initialization."
+                        "\n\t\t\tSee https://nvidia-nemo.github.io/DataDesigner/models/model-providers/ for more information."
+                    )
+                    self._get_interface_info(model_providers).display(InfoType.MODEL_PROVIDERS)
+                return model_providers
+        return model_providers or []
+
     def _create_dataset_builder(
         self, config_builder: DataDesignerConfigBuilder, resource_provider: ResourceProvider
     ) -> ColumnWiseDatasetBuilder:
@@ -349,3 +367,6 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
                 )
             ),
         )
+
+    def _get_interface_info(self, model_providers: list[ModelProvider]) -> InterfaceInfo:
+        return InterfaceInfo(model_providers=model_providers)

@@ -17,7 +17,7 @@ nav:
       - Model Providers: models/model-providers.md
       - Model Configs: models/model-configs.md
   - Tutorials:
-      - Overview: notebooks/intro.md
+      - Overview: notebooks/README.md
       - The Basics: notebooks/1-the-basics.ipynb
       - Structured Outputs and Jinja Expressions: notebooks/2-structured-outputs-and-jinja-expressions.ipynb
       - Seeding with an External Dataset: notebooks/3-seeding-with-a-dataset.ipynb

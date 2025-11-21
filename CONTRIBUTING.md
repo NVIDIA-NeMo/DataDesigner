@@ -12,7 +12,6 @@ This guide will help you get started with the contribution process.
 - [Ways to Contribute](#ways-to-contribute)
 - [Feature Requests](#feature-requests)
 - [Development Guide](#development-guide)
-- [Code Quality Standards](#code-quality-standards)
 - [Submitting Changes](#submitting-changes)
 - [Code of Conduct](#code-of-conduct)
 - [Signing off on your work](#signing-off-on-your-work)
@@ -151,7 +150,7 @@ Data Designer uses [`uv`](https://github.com/astral-sh/uv) for dependency manage
 
 2. **Develop your changes**
 
-    Please follow the patterns and conventions used throughout the codebase, as well as those outlined in [AGENTS.md](AGENTS.md).
+    Please follow the patterns and conventions used throughout the codebase, as well as those outlined in [AGENTS.md](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/AGENTS.md).
 
 3. **Test and validate**
 
@@ -161,7 +160,7 @@ Data Designer uses [`uv`](https://github.com/astral-sh/uv) for dependency manage
     make coverage       # Check test coverage (must be >90%)
     ```
 
-    **Writing tests**: Place tests in [tests/](tests/) mirroring the source structure. Use fixtures from [tests/conftest.py](tests/conftest.py), mock external services with `unittest.mock` or `pytest-httpx`, and test both success and failure cases. See [AGENTS.md](AGENTS.md) for patterns and examples.
+    **Writing tests**: Place tests in [tests/](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/tests/) mirroring the source structure. Use fixtures from [tests/conftest.py](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/tests/conftest.py), mock external services with `unittest.mock` or `pytest-httpx`, and test both success and failure cases. See [AGENTS.md](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/AGENTS.md) for patterns and examples.
 
 4. **Commit your work**
 
@@ -216,7 +215,7 @@ Ensure your changes meet the following criteria:
 ## Code of Conduct
 Data Designer follows the Contributor Covenant Code of Conduct. We are committed to providing a welcoming and inclusive environment for all contributors.
 
-**Please read our complete [Code of Conduct](CODE_OF_CONDUCT.md)** for full details on our standards and expectations.
+**Please read our complete [Code of Conduct](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/CODE_OF_CONDUCT.md)** for full details on our standards and expectations.
 
 ### License File Headers
 All code files that are added to this repository must include the appropriate NVIDIA copyright header:
@@ -228,17 +227,9 @@ All code files that are added to this repository must include the appropriate NV
 
 Use `make update-license-headers` to add headers automatically.
 
-## Getting Help
-Need help with your contribution?
-
-- **Documentation**: Check the [documentation](docs/) and [AGENTS.md](AGENTS.md) for additional information
-- **Issues**: Browse [existing issues](https://github.com/NVIDIA-NeMo/DataDesigner/issues) for similar questions
-- **Contact**: Reach out to the core maintainers at [data-designer@nvidia.com](mailto:data-designer@nvidia.com)
-
-
 ## Signing off on your work
 
-When contributing to this project, you must agree that you have authored 100% of the content, that you have the necessary rights to the content and that the content you contribute may be provided under the project license. All contributors are asked to sign the Data Designer [Developer Certificate of Origin (DCO)](DCO) when submitting their first pull request. The process is automated by a bot that will comment on the pull request. Our DCO is the same as the Linux Foundation requires its contributors to sign.
+When contributing to this project, you must agree that you have authored 100% of the content, that you have the necessary rights to the content and that the content you contribute may be provided under the project license. All contributors are asked to sign the Data Designer [Developer Certificate of Origin (DCO)](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/DCO) when submitting their first pull request. The process is automated by a bot that will comment on the pull request. Our DCO is the same as the Linux Foundation requires its contributors to sign.
 
 ---
 
