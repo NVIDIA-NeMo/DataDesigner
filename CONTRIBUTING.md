@@ -151,7 +151,7 @@ Data Designer uses [`uv`](https://github.com/astral-sh/uv) for dependency manage
 
 2. **Develop your changes**
 
-    Please follow the patterns and conventions used throughout the codebase, as well as those outlined in [AGENTS.md](AGENTS.md).
+    Please follow the patterns and conventions used throughout the codebase, as well as those outlined in [AGENTS.md](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/AGENTS.md).
 
 3. **Test and validate**
 
@@ -161,7 +161,7 @@ Data Designer uses [`uv`](https://github.com/astral-sh/uv) for dependency manage
     make coverage       # Check test coverage (must be >90%)
     ```
 
-    **Writing tests**: Place tests in [tests/](tests/) mirroring the source structure. Use fixtures from [tests/conftest.py](tests/conftest.py), mock external services with `unittest.mock` or `pytest-httpx`, and test both success and failure cases. See [AGENTS.md](AGENTS.md) for patterns and examples.
+    **Writing tests**: Place tests in [tests/](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/tests/) mirroring the source structure. Use fixtures from [tests/conftest.py](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/tests/conftest.py), mock external services with `unittest.mock` or `pytest-httpx`, and test both success and failure cases. See [AGENTS.md](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/AGENTS.md) for patterns and examples.
 
 4. **Commit your work**
 
@@ -227,14 +227,6 @@ All code files that are added to this repository must include the appropriate NV
 ```
 
 Use `make update-license-headers` to add headers automatically.
-
-## Getting Help
-Need help with your contribution?
-
-- **Documentation**: Check the [documentation](docs/) and [AGENTS.md](AGENTS.md) for additional information
-- **Issues**: Browse [existing issues](https://github.com/NVIDIA-NeMo/DataDesigner/issues) for similar questions
-- **Contact**: Reach out to the core maintainers at [data-designer@nvidia.com](mailto:data-designer@nvidia.com)
-
 
 ## Signing off on your work
 
