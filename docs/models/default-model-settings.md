@@ -92,5 +92,4 @@ Both methods operate on the same files, ensuring consistency across your entire 
 
 - **[Configure Model Settings With the CLI](configure-model-settings-with-the-cli.md)**: Learn how to use the CLI to manage model settings.
 - **[Quick Start Guide](../quick-start.md)**: Get started with a simple example
-- **[Model Configuration Reference](../code_reference/config_builder.md)**: Detailed API documentation
-- **[Column Configurations](../code_reference/column_configs.md)**: Learn about all column types
+- **[Model Configurations](model-configs.md)**: Learn about model configurations
