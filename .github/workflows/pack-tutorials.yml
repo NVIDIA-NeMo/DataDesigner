@@ -2,7 +2,8 @@ name: Pack Tutorials
 
 on:
   workflow_dispatch:
-  push:
+  release:
+    types: [published]
 
 jobs:
   zip_and_upload:
@@ -24,7 +25,7 @@ jobs:
       - name: Check if source folder exists
         run: |
           if [ ! -d "${{ env.SOURCE_FOLDER_PATH }}" ]; then
-            echo "::error::Source Folder '${{ env.SOURCE_FOLDER_PATH }}' not found. Check the input value."
+            echo "::error::Source folder '${{ env.SOURCE_FOLDER_PATH }}' not found. Check the input value."
             exit 1
           fi
 
@@ -36,20 +37,26 @@ jobs:
           zip -r ${{ env.ZIP_FILE_NAME }} ${{ env.TARGET_FOLDER_NAME }}
           echo "Successfully created ${{ env.ZIP_FILE_NAME }}"
 
-      - name: Find the latest existing release Tag
+      - name: Find the latest existing release tag
         id: get_release
         run: |
-          gh auth status || echo "GitHub CLI is not authenticated, relying on GITHUB_TOKEN."
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "::notice::Running manually via workflow_dispatch. Fetching latest release tag..."
 
-          # We use tr -d '\n' to remove the trailing newline for a clean tag string
-          LATEST_TAG=$(gh release view --json tagName -q .tagName 2>/dev/null)
-          
-          if [ -z "$LATEST_TAG" ]; then
-            echo "::error::Could not find the latest published release tag. Ensure a release exists."
-            exit 1
+            gh auth status || echo "GitHub CLI is not authenticated, relying on GITHUB_TOKEN."
+
+            # We use tr -d '\n' to remove the trailing newline for a clean tag string
+            LATEST_TAG=$(gh release view --json tagName -q .tagName 2>/dev/null)
+
+            if [ -z "$LATEST_TAG" ]; then
+              echo "::error::Could not find the latest published release tag. Ensure a release exists."
+              exit 1
+            fi
+          else
+            LATEST_TAG="${{ github.event.release.tag_name }}"
           fi
           
-          echo "Latest Release Tag found: $LATEST_TAG"
+          echo "Latest release tag found: $LATEST_TAG"
           echo "tag=$LATEST_TAG" >> $GITHUB_OUTPUT
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
