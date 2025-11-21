@@ -48,8 +48,7 @@ export NVIDIA_API_KEY="your-api-key-here"
 export OPENAI_API_KEY="your-openai-api-key-here"
 ```
 
-### 3. Generate your first dataset
-
+### 3. Start generating data!
 ```python
 from data_designer.essentials import (
     CategorySamplerParams,
@@ -89,8 +88,6 @@ config_builder.add_column(
 preview = data_designer.preview(config_builder=config_builder)
 preview.display_sample_record()
 ```
-
-**That's it!** You've created a dataset.
 
 ---
 

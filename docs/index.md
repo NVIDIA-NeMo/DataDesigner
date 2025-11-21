@@ -34,11 +34,11 @@ Data Designer helps you create datasets through an intuitive, **iterative** proc
 3.  **🔁 Preview** your results and iterate
     - Generate a preview dataset stored in memory for fast iteration
     - Inspect sample records and analysis results to refine your configuration
-    - Try for yourself by running the [tutorial notebooks](notebooks/intro.md)
+    - Try for yourself by running the [tutorial notebooks](notebooks/README.md)
 4.  **🖼️ Create** your dataset
     - Generate your full dataset and save results to disk
     - Access the generated dataset and associated artifacts for downstream use
-    - Give it a try by running the [tutorial notebooks](notebooks/intro.md)
+    - Give it a try by running the [tutorial notebooks](notebooks/README.md)
 
 ## Library and Microservice
 
