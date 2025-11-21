@@ -1,17 +1,8 @@
 # Person Sampling in Data Designer
 
-Person sampling in Data Designer allows you to generate synthetic person data for your datasets. There are two distinct approaches, each with different capabilities and use cases.
+Person sampling in Data Designer allows you to generate synthetic person data for your datasets using the Faker library.
 
-## Overview
-
-Data Designer provides two ways to generate synthetic people:
-
-1. **Faker-based sampling** - Quick, basic PII generation for testing or when realistic demographic distributions are not relevant for your use case
-2. **Nemotron Personas datasets** - Demographically accurate, rich persona data
-
----
-
-## Approach 1: Faker-Based Sampling
+## Faker-Based Sampling
 
 ### What It Does
 Uses the Faker library to generate random personal information. The data is basic and not demographically accurate, but is useful for quick testing, prototyping, or when realistic demographic distributions are not relevant for your use case.
