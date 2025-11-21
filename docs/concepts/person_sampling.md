@@ -6,7 +6,7 @@ Person sampling in Data Designer allows you to generate synthetic person data fo
 
 Data Designer provides two ways to generate synthetic people:
 
-1. **Faker-based sampling** - Quick, basic PII generation for testing
+1. **Faker-based sampling** - Quick, basic PII generation for testing or when realistic demographic distributions are not relevant for your use case
 2. **Nemotron Personas datasets** - Demographically accurate, rich persona data
 
 ---
@@ -14,12 +14,13 @@ Data Designer provides two ways to generate synthetic people:
 ## Approach 1: Faker-Based Sampling
 
 ### What It Does
-Uses the Faker library to generate random personal information. The data is basic and not demographically accurate, but is useful for quick testing and prototyping.
+Uses the Faker library to generate random personal information. The data is basic and not demographically accurate, but is useful for quick testing, prototyping, or when realistic demographic distributions are not relevant for your use case.
 
 ### Features
-- Leverages all PII data features that Faker exposes
+- Gives you access to person attributes that Faker exposes
 - Quick to set up with no additional downloads
 - Generates random names, emails, addresses, phone numbers, etc.
+- Supports [all Faker-supported locales](https://faker.readthedocs.io/en/master/locales.html)
 - **Not demographically grounded** - data patterns don't reflect real-world demographics
 
 ### Usage Example
@@ -35,13 +36,15 @@ config_builder.add_column(
         name="customer",
         sampler_type=SamplerType.PERSON_FROM_FAKER,
         params=PersonFromFakerSamplerParams(
-            locale="en_US",  # Any Faker-supported locale
-            age_range=[25, 65],  # Optional: filter by age range
-            sex="Female",  # Optional: filter by sex ("Male" or "Female")
+            locale="en_US",
+            age_range=[25, 65],
+            sex="Female",
         ),
     )
 )
 ```
+
+See the [`SamplerColumnConfig`](../api/columns.md#samplercolumnconfig) documentation for more details.
 
 ---
 
@@ -49,6 +52,8 @@ config_builder.add_column(
 
 ### What It Does
 Uses curated Nemotron Personas datasets from NVIDIA GPU Cloud (NGC) to generate demographically accurate person data with rich personality profiles and behavioral characteristics.
+
+The NGC datasets are extended versions of the [open-source Nemotron Personas datasets on HuggingFace](https://huggingface.co/collections/nvidia/nemotron-personas), with additional fields and enhanced data quality.
 
 ### Features
 - **Demographically accurate personal details**: Names, ages, sex, marital status, education, occupation based on census data
@@ -73,14 +78,15 @@ export NGC_API_KEY="your-ngc-api-key-here"
 ```
 
 #### Step 2: Download Nemotron Personas Datasets
-Use the Data Designer CLI to download the datasets:
+Use the NGC CLI to download the datasets:
 ```bash
-ngc registry resource download-version "nvidia/nemo-microservices/nemotron-personas-dataset-en_us:0.0.6"
+ngc registry resource download-version "nvidia/nemo-microservices/nemotron-personas-dataset-en_us"
 ```
 
-This will save the datasets to:
-```
-~/.data-designer/managed-assets/datasets/
+Then move the downloaded dataset to the Data Designer managed assets directory:
+```bash
+mkdir -p ~/.data-designer/managed-assets/datasets/
+mv nemotron-personas-dataset-en_us_* ~/.data-designer/managed-assets/datasets/
 ```
 
 #### Step 3: Use PersonSampler in Your Code
@@ -96,14 +102,16 @@ config_builder.add_column(
         name="customer",
         sampler_type=SamplerType.PERSON,
         params=PersonSamplerParams(
-            locale="en_US",  # Required: must be one of the managed dataset locales
-            sex="Female",  # Optional: filter by sex ("Male" or "Female")
-            age_range=[25, 45],  # Optional: filter by age range
-            with_synthetic_personas=True,  # Optional: enable rich persona details
+            locale="en_US",
+            sex="Female",
+            age_range=[25, 45],
+            with_synthetic_personas=True,
         ),
     )
 )
 ```
+
+See the [`SamplerColumnConfig`](../api/columns.md#samplercolumnconfig) documentation for more details.
 
 ### Available Data Fields
 
@@ -131,7 +139,7 @@ config_builder.add_column(
 | `bachelors_field` | string or None | |
 | `occupation` | string or None | |
 | `email_address` | string | |
-| `national_id` | string | SSN for US locale |
+| `national_id` | string |
 
 **Japan-Specific Fields (`ja_JP`):**
 - `area`
