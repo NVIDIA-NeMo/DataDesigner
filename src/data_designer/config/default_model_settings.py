@@ -75,7 +75,7 @@ def get_default_model_configs() -> list[ModelConfig]:
         config_dict = load_config_file(MODEL_CONFIGS_FILE_PATH)
         if "model_configs" in config_dict:
             return [ModelConfig.model_validate(mc) for mc in config_dict["model_configs"]]
-    raise FileNotFoundError(f"Default model configs file not found at {str(MODEL_CONFIGS_FILE_PATH)!r}")
+    return []
 
 
 def get_default_providers() -> list[ModelProvider]:

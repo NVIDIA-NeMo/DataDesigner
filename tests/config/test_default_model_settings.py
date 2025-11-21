@@ -79,8 +79,7 @@ def test_get_default_model_configs_path_exists(tmp_path: Path):
 
 def test_get_default_model_configs_path_does_not_exist():
     with patch("data_designer.config.default_model_settings.MODEL_CONFIGS_FILE_PATH", new=Path("non_existent_path")):
-        with pytest.raises(FileNotFoundError, match=r"Default model configs file not found at 'non_existent_path'"):
-            get_default_model_configs()
+        assert get_default_model_configs() == []
 
 
 def test_get_default_providers_path_exists(tmp_path: Path):
