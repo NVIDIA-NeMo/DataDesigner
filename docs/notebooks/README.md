@@ -6,21 +6,15 @@ Welcome to the Data Designer tutorial series! These hands-on notebooks will guid
 
 ### Local Setup Best Practices
 
-The notebooks can be downloaded using the link on the top of each of them.
-To run them locally, we recommend using a virtual environment to manage dependencies:
+First, download the tutorial [from the release assets](https://github.com/NVIDIA-NeMo/DataDesigner/releases/latest/download/data_designer_tutorial.zip).
+To run the tutorial notebooks locally, we recommend using a virtual environment to manage dependencies:
 
 === "uv (Recommended)"
 
     ```bash
-    # Create a new project directory
-    mkdir data-designer-tutorials
-    cd data-designer-tutorials
-
-    # Initialize a new uv project
-    uv init
-
-    # Add data-designer and jupyter
-    uv add data-designer jupyter
+    # Extract tutorial notebooks
+    unzip data_designer_tutorial.zip
+    cd data_designer_tutorial
 
     # Launch Jupyter
     uv run jupyter notebook
@@ -29,15 +23,13 @@ To run them locally, we recommend using a virtual environment to manage dependen
 === "pip + venv"
 
     ```bash
-    # Create a new project directory
-    mkdir data-designer-tutorials
-    cd data-designer-tutorials
+    # Extract tutorial notebooks
+    unzip data_designer_tutorial.zip
+    cd data_designer_tutorial
 
-    # Create and activate a virtual environment
+    # Create Python virtual environment and install required packages
     python -m venv venv
     source venv/bin/activate
-
-    # Install data-designer and jupyter
     pip install data-designer jupyter
 
     # Launch Jupyter
