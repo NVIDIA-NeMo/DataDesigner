@@ -100,7 +100,7 @@ Understanding these concepts will help you make the most of the tutorials:
 
 - **[Columns](../concepts/columns.md)** - Learn about different column types (Sampler, LLM, Expression, Validation, etc.)
 - **[Validators](../concepts/validators.md)** - Understand how to validate generated data with Python, SQL, and remote validators
-- **[Plugins](../concepts/plugins.md)** - Extend Data Designer with custom functionality
+- **[Person Sampling](../concepts/person_sampling.md)** - Learn how to sample realistic person data with demographic attributes
 
 ### Code Reference
 
