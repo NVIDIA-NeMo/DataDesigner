@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
   release:
     types: [published]
+  push:
 
 jobs:
   zip_and_upload:
@@ -40,7 +41,9 @@ jobs:
       - name: Find the latest existing release tag
         id: get_release
         run: |
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+          if [ "${{ github.event_name }}" == "release" ]; then
+            LATEST_TAG="${{ github.event.release.tag_name }}"
+          else
             echo "::notice::Running manually via workflow_dispatch. Fetching latest release tag..."
 
             gh auth status || echo "GitHub CLI is not authenticated, relying on GITHUB_TOKEN."
@@ -52,8 +55,6 @@ jobs:
               echo "::error::Could not find the latest published release tag. Ensure a release exists."
               exit 1
             fi
-          else
-            LATEST_TAG="${{ github.event.release.tag_name }}"
           fi
           
           echo "Latest release tag found: $LATEST_TAG"
