@@ -34,7 +34,7 @@ from ..config.models import (
     UniformDistribution,
     UniformDistributionParams,
 )
-from ..config.processors import DropColumnsProcessorConfig, ProcessorType
+from ..config.processors import DropColumnsProcessorConfig, OutputFormatProcessorConfig, ProcessorType
 from ..config.sampler_constraints import ColumnInequalityConstraint, ScalarInequalityConstraint
 from ..config.sampler_params import (
     BernoulliMixtureSamplerParams,
@@ -110,6 +110,7 @@ __all__ = [
     "ModalityContext",
     "ModalityDataType",
     "ModelConfig",
+    "OutputFormatProcessorConfig",
     "PartitionBlock",
     "PersonSamplerParams",
     "PersonFromFakerSamplerParams",
