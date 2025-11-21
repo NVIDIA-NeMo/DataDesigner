@@ -12,7 +12,6 @@ This guide will help you get started with the contribution process.
 - [Ways to Contribute](#ways-to-contribute)
 - [Feature Requests](#feature-requests)
 - [Development Guide](#development-guide)
-- [Code Quality Standards](#code-quality-standards)
 - [Submitting Changes](#submitting-changes)
 - [Code of Conduct](#code-of-conduct)
 - [Signing off on your work](#signing-off-on-your-work)
@@ -216,7 +215,7 @@ Ensure your changes meet the following criteria:
 ## Code of Conduct
 Data Designer follows the Contributor Covenant Code of Conduct. We are committed to providing a welcoming and inclusive environment for all contributors.
 
-**Please read our complete [Code of Conduct](CODE_OF_CONDUCT.md)** for full details on our standards and expectations.
+**Please read our complete [Code of Conduct](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/CODE_OF_CONDUCT.md)** for full details on our standards and expectations.
 
 ### License File Headers
 All code files that are added to this repository must include the appropriate NVIDIA copyright header:
@@ -230,7 +229,7 @@ Use `make update-license-headers` to add headers automatically.
 
 ## Signing off on your work
 
-When contributing to this project, you must agree that you have authored 100% of the content, that you have the necessary rights to the content and that the content you contribute may be provided under the project license. All contributors are asked to sign the Data Designer [Developer Certificate of Origin (DCO)](DCO) when submitting their first pull request. The process is automated by a bot that will comment on the pull request. Our DCO is the same as the Linux Foundation requires its contributors to sign.
+When contributing to this project, you must agree that you have authored 100% of the content, that you have the necessary rights to the content and that the content you contribute may be provided under the project license. All contributors are asked to sign the Data Designer [Developer Certificate of Origin (DCO)](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/DCO) when submitting their first pull request. The process is automated by a bot that will comment on the pull request. Our DCO is the same as the Linux Foundation requires its contributors to sign.
 
 ---
 
