@@ -7,7 +7,7 @@ Welcome to the Data Designer tutorial series! These hands-on notebooks will guid
 ### Local Setup Best Practices
 
 First, download the tutorial [from the release assets](https://github.com/NVIDIA-NeMo/DataDesigner/releases/latest/download/data_designer_tutorial.zip).
-To run them locally, we recommend using a virtual environment to manage dependencies:
+To run the tutorial notebooks locally, we recommend using a virtual environment to manage dependencies:
 
 === "uv (Recommended)"
 
