@@ -34,5 +34,3 @@ config_builder.add_column(
     )
 )
 ```
-
-See the [`SamplerColumnConfig`](../api/columns.md#samplercolumnconfig) documentation for more details.
