@@ -320,7 +320,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
                     )
                     self._get_interface_info(model_providers).display(InfoType.MODEL_PROVIDERS)
                 return model_providers
-        return model_providers
+        return model_providers or []
 
     def _create_dataset_builder(
         self, config_builder: DataDesignerConfigBuilder, resource_provider: ResourceProvider
