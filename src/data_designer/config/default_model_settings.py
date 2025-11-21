@@ -4,6 +4,7 @@
 
 from functools import lru_cache
 import logging
+import os
 from pathlib import Path
 from typing import Any, Literal, Optional
 
@@ -15,7 +16,6 @@ from .utils.constants import (
     PREDEFINED_PROVIDERS,
     PREDEFINED_PROVIDERS_MODEL_MAP,
 )
-from .utils.info import ConfigBuilderInfo, InfoType, InterfaceInfo
 from .utils.io_helpers import load_config_file, save_config_file
 
 logger = logging.getLogger(__name__)
@@ -78,6 +78,14 @@ def get_default_model_configs() -> list[ModelConfig]:
     raise FileNotFoundError(f"Default model configs file not found at {str(MODEL_CONFIGS_FILE_PATH)!r}")
 
 
+def get_defaul_model_providers_missing_api_keys() -> list[str]:
+    missing_api_keys = []
+    for predefined_provider in PREDEFINED_PROVIDERS:
+        if os.environ.get(predefined_provider["api_key"]) is None:
+            missing_api_keys.append(predefined_provider["api_key"])
+    return missing_api_keys
+
+
 def get_default_providers() -> list[ModelProvider]:
     config_dict = _get_default_providers_file_content(MODEL_PROVIDERS_FILE_PATH)
     if "providers" in config_dict:
@@ -91,21 +99,17 @@ def get_default_provider_name() -> Optional[str]:
 
 def resolve_seed_default_model_settings() -> None:
     if not MODEL_CONFIGS_FILE_PATH.exists():
-        logger.info(
+        logger.debug(
             f"🍾 Default model configs were not found, so writing the following to {str(MODEL_CONFIGS_FILE_PATH)!r}"
         )
-        config_builder_info = ConfigBuilderInfo(model_configs=get_builtin_model_configs())
-        config_builder_info.display(info_type=InfoType.MODEL_CONFIGS)
         save_config_file(
             MODEL_CONFIGS_FILE_PATH, {"model_configs": [mc.model_dump() for mc in get_builtin_model_configs()]}
         )
 
     if not MODEL_PROVIDERS_FILE_PATH.exists():
-        logger.info(
+        logger.debug(
             f"🪄  Default model providers were not found, so writing the following to {str(MODEL_PROVIDERS_FILE_PATH)!r}"
         )
-        interface_info = InterfaceInfo(model_providers=get_builtin_model_providers())
-        interface_info.display(info_type=InfoType.MODEL_PROVIDERS)
         save_config_file(
             MODEL_PROVIDERS_FILE_PATH, {"providers": [p.model_dump() for p in get_builtin_model_providers()]}
         )
