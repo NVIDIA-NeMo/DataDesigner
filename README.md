@@ -96,7 +96,7 @@ preview.display_sample_record()
 ### 📚 Learn more
 
 - **[Quick Start Guide](https://nvidia-nemo.github.io/DataDesigner/quick-start/)** – Detailed walkthrough with more examples
-- **[Tutorial Notebooks](https://nvidia-nemo.github.io/DataDesigner/notebooks/intro/)** – Step-by-step interactive tutorials
+- **[Tutorial Notebooks](https://nvidia-nemo.github.io/DataDesigner/notebooks/)** – Step-by-step interactive tutorials
 - **[Column Types](https://nvidia-nemo.github.io/DataDesigner/concepts/columns/)** – Explore samplers, LLM columns, validators, and more
 - **[Validators](https://nvidia-nemo.github.io/DataDesigner/concepts/validators/)** – Learn how to validate generated data with Python, SQL, and remote validators
 - **[Model Configuration](https://nvidia-nemo.github.io/DataDesigner/models/model-configs/)** – Configure custom models and providers
