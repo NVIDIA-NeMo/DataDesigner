@@ -31,34 +31,26 @@ class DatastoreSettings(BaseModel):
     token: Optional[str] = Field(default=None, description="If needed, token to use for authentication.")
 
 
-def get_file_column_names(file_path: Union[str, Path], file_type: str) -> list[str]:
+def get_file_column_names(file_reference: Union[str, Path, HfFileSystem], file_type: str) -> list[str]:
     """Extract column names based on file type. Supports glob patterns like '../path/*.parquet'."""
-    file_path = Path(file_path)
-    if "*" in str(file_path):
-        matching_files = sorted(file_path.parent.glob(file_path.name))
-        if not matching_files:
-            raise InvalidFilePathError(f"🛑 No files found matching pattern: {str(file_path)!r}")
-        logger.debug(f"0️⃣ Using the first matching file in {str(file_path)!r} to determine column names in seed dataset")
-        file_path = matching_files[0]
-
     if file_type == "parquet":
         try:
-            schema = pq.read_schema(file_path)
+            schema = pq.read_schema(file_reference)
             if hasattr(schema, "names"):
                 return schema.names
             else:
                 return [field.name for field in schema]
         except Exception as e:
-            logger.warning(f"Failed to process parquet file {file_path}: {e}")
+            logger.warning(f"Failed to process parquet file {file_reference}: {e}")
             return []
     elif file_type in ["json", "jsonl"]:
-        return pd.read_json(file_path, orient="records", lines=True, nrows=1).columns.tolist()
+        return pd.read_json(file_reference, orient="records", lines=True, nrows=1).columns.tolist()
     elif file_type == "csv":
         try:
-            df = pd.read_csv(file_path, nrows=1)
+            df = pd.read_csv(file_reference, nrows=1)
             return df.columns.tolist()
         except (pd.errors.EmptyDataError, pd.errors.ParserError) as e:
-            logger.warning(f"Failed to process CSV file {file_path}: {e}")
+            logger.warning(f"Failed to process CSV file {file_reference}: {e}")
             return []
     else:
         raise InvalidFilePathError(f"🛑 Unsupported file type: {file_type!r}")
@@ -66,12 +58,36 @@ def get_file_column_names(file_path: Union[str, Path], file_type: str) -> list[s
 
 def fetch_seed_dataset_column_names(seed_dataset_reference: SeedDatasetReference) -> list[str]:
     if hasattr(seed_dataset_reference, "datastore_settings"):
-        return _fetch_seed_dataset_column_names_from_datastore(
+        return fetch_seed_dataset_column_names_from_datastore(
             seed_dataset_reference.repo_id,
             seed_dataset_reference.filename,
             seed_dataset_reference.datastore_settings,
         )
-    return _fetch_seed_dataset_column_names_from_local_file(seed_dataset_reference.dataset)
+    return fetch_seed_dataset_column_names_from_local_file(seed_dataset_reference.dataset)
+
+
+def fetch_seed_dataset_column_names_from_datastore(
+    repo_id: str,
+    filename: str,
+    datastore_settings: Optional[Union[DatastoreSettings, dict]] = None,
+) -> list[str]:
+    file_type = filename.split(".")[-1]
+    if f".{file_type}" not in VALID_DATASET_FILE_EXTENSIONS:
+        raise InvalidFileFormatError(f"🛑 Unsupported file type: {filename!r}")
+
+    datastore_settings = resolve_datastore_settings(datastore_settings)
+    fs = HfFileSystem(endpoint=datastore_settings.endpoint, token=datastore_settings.token)
+
+    file_path = _extract_single_file_path_from_glob_pattern_if_present(f"datasets/{repo_id}/{filename}")
+
+    with fs.open(file_path) as f:
+        return get_file_column_names(f, file_type)
+
+
+def fetch_seed_dataset_column_names_from_local_file(dataset_path: str | Path) -> list[str]:
+    dataset_path = _validate_dataset_path(dataset_path, allow_glob_pattern=True)
+    dataset_path = _extract_single_file_path_from_glob_pattern_if_present(dataset_path)
+    return get_file_column_names(dataset_path, str(dataset_path).split(".")[-1])
 
 
 def resolve_datastore_settings(datastore_settings: DatastoreSettings | dict | None) -> DatastoreSettings:
@@ -114,25 +130,15 @@ def upload_to_hf_hub(
     return f"{repo_id}/{filename}"
 
 
-def _fetch_seed_dataset_column_names_from_datastore(
-    repo_id: str,
-    filename: str,
-    datastore_settings: Optional[Union[DatastoreSettings, dict]] = None,
-) -> list[str]:
-    file_type = filename.split(".")[-1]
-    if f".{file_type}" not in VALID_DATASET_FILE_EXTENSIONS:
-        raise InvalidFileFormatError(f"🛑 Unsupported file type: {filename!r}")
-
-    datastore_settings = resolve_datastore_settings(datastore_settings)
-    fs = HfFileSystem(endpoint=datastore_settings.endpoint, token=datastore_settings.token, skip_instance_cache=True)
-
-    with fs.open(f"datasets/{repo_id}/{filename}") as f:
-        return get_file_column_names(f, file_type)
-
-
-def _fetch_seed_dataset_column_names_from_local_file(dataset_path: str | Path) -> list[str]:
-    dataset_path = _validate_dataset_path(dataset_path, allow_glob_pattern=True)
-    return get_file_column_names(dataset_path, str(dataset_path).split(".")[-1])
+def _extract_single_file_path_from_glob_pattern_if_present(file_path: str | Path) -> Path:
+    file_path = Path(file_path)
+    if "*" in str(file_path):
+        matching_files = sorted(file_path.parent.glob(file_path.name))
+        if not matching_files:
+            raise InvalidFilePathError(f"🛑 No files found matching pattern: {str(file_path)!r}")
+        logger.debug(f"Using the first matching file in {str(file_path)!r} to determine column names in seed dataset")
+        file_path = matching_files[0]
+    return file_path
 
 
 def _validate_dataset_path(dataset_path: Union[str, Path], allow_glob_pattern: bool = False) -> Path:
