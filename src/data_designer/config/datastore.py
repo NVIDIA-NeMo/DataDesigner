@@ -76,7 +76,7 @@ def fetch_seed_dataset_column_names_from_datastore(
         raise InvalidFileFormatError(f"🛑 Unsupported file type: {filename!r}")
 
     datastore_settings = resolve_datastore_settings(datastore_settings)
-    fs = HfFileSystem(endpoint=datastore_settings.endpoint, token=datastore_settings.token)
+    fs = HfFileSystem(endpoint=datastore_settings.endpoint, token=datastore_settings.token, skip_instance_cache=True)
 
     file_path = _extract_single_file_path_from_glob_pattern_if_present(f"datasets/{repo_id}/{filename}")
 
