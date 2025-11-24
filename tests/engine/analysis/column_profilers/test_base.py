@@ -16,7 +16,9 @@ from data_designer.engine.analysis.column_profilers.base import (
 
 def test_column_config_with_dataframe_valid_column_config_with_dataframe():
     df = pd.DataFrame({"test_column": [1, 2, 3]})
-    column_config = SamplerColumnConfig(name="test_column", sampler_type=SamplerType.CATEGORY, params={})
+    column_config = SamplerColumnConfig(
+        name="test_column", sampler_type=SamplerType.CATEGORY, params={"values": [1, 2, 3]}
+    )
 
     config_with_df = ColumnConfigWithDataFrame(column_config=column_config, df=df)
 
@@ -27,7 +29,9 @@ def test_column_config_with_dataframe_valid_column_config_with_dataframe():
 
 def test_column_config_with_dataframe_column_not_found_validation_error():
     df = pd.DataFrame({"other_column": [1, 2, 3]})
-    column_config = SamplerColumnConfig(name="test_column", sampler_type=SamplerType.CATEGORY, params={})
+    column_config = SamplerColumnConfig(
+        name="test_column", sampler_type=SamplerType.CATEGORY, params={"values": [1, 2, 3]}
+    )
 
     with pytest.raises(ValidationError, match="Column 'test_column' not found in DataFrame"):
         ColumnConfigWithDataFrame(column_config=column_config, df=df)
@@ -35,7 +39,9 @@ def test_column_config_with_dataframe_column_not_found_validation_error():
 
 def test_column_config_with_dataframe_pyarrow_backend_conversion():
     df = pd.DataFrame({"test_column": [1, 2, 3]})
-    column_config = SamplerColumnConfig(name="test_column", sampler_type=SamplerType.CATEGORY, params={})
+    column_config = SamplerColumnConfig(
+        name="test_column", sampler_type=SamplerType.CATEGORY, params={"values": [1, 2, 3]}
+    )
 
     config_with_df = ColumnConfigWithDataFrame(column_config=column_config, df=df)
 
@@ -44,7 +50,9 @@ def test_column_config_with_dataframe_pyarrow_backend_conversion():
 
 def test_column_config_with_dataframe_as_tuple_method():
     df = pd.DataFrame({"test_column": [1, 2, 3]})
-    column_config = SamplerColumnConfig(name="test_column", sampler_type=SamplerType.CATEGORY, params={})
+    column_config = SamplerColumnConfig(
+        name="test_column", sampler_type=SamplerType.CATEGORY, params={"values": [1, 2, 3]}
+    )
 
     config_with_df = ColumnConfigWithDataFrame(column_config=column_config, df=df)
     column_config_result, df_result = config_with_df.as_tuple()
