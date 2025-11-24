@@ -78,7 +78,7 @@ def get_default_model_configs() -> list[ModelConfig]:
     return []
 
 
-def get_defaul_model_providers_missing_api_keys() -> list[str]:
+def get_default_model_providers_missing_api_keys() -> list[str]:
     missing_api_keys = []
     for predefined_provider in PREDEFINED_PROVIDERS:
         if os.environ.get(predefined_provider["api_key"]) is None:

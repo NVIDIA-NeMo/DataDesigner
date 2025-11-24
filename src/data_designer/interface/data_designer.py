@@ -9,8 +9,8 @@ import pandas as pd
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.default_model_settings import (
-    get_defaul_model_providers_missing_api_keys,
     get_default_model_configs,
+    get_default_model_providers_missing_api_keys,
     get_default_provider_name,
     get_default_providers,
     resolve_seed_default_model_settings,
@@ -313,7 +313,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         if model_providers is None:
             if can_run_data_designer_locally():
                 model_providers = get_default_providers()
-                missing_api_keys = get_defaul_model_providers_missing_api_keys()
+                missing_api_keys = get_default_model_providers_missing_api_keys()
                 if len(missing_api_keys) == len(PREDEFINED_PROVIDERS):
                     logger.warning(
                         "🚨 You are trying to use a default model provider but your API keys are missing."

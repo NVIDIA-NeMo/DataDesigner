@@ -11,9 +11,9 @@ import yaml
 from data_designer.config.default_model_settings import (
     get_builtin_model_configs,
     get_builtin_model_providers,
-    get_defaul_model_providers_missing_api_keys,
     get_default_inference_parameters,
     get_default_model_configs,
+    get_default_model_providers_missing_api_keys,
     get_default_provider_name,
     get_default_providers,
     resolve_seed_default_model_settings,
@@ -152,4 +152,4 @@ def test_resolve_seed_default_model_settings(tmp_path: Path):
 @patch("data_designer.config.default_model_settings.os.environ.get")
 def test_get_default_model_providers_missing_api_keys(mock_environ_get):
     mock_environ_get.return_value = None
-    assert get_defaul_model_providers_missing_api_keys() == ["NVIDIA_API_KEY", "OPENAI_API_KEY"]
+    assert get_default_model_providers_missing_api_keys() == ["NVIDIA_API_KEY", "OPENAI_API_KEY"]

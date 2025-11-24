@@ -408,7 +408,7 @@ def test_sampler_column_config_discriminated_union_person_vs_person_from_faker()
     assert person_faker_config.params.locale == "en_GB"
 
     # Verify they are different types
-    assert type(person_config.params) != type(person_faker_config.params)
+    assert type(person_config.params) is not type(person_faker_config.params)
     assert isinstance(person_config.params, PersonSamplerParams)
     assert isinstance(person_faker_config.params, PersonFromFakerSamplerParams)
 
