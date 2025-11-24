@@ -1,7 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -13,6 +12,7 @@ import pytest
 from data_designer.config.datastore import (
     DatastoreSettings,
     fetch_seed_dataset_column_names,
+    fetch_seed_dataset_column_names_from_local_file,
     get_file_column_names,
     resolve_datastore_settings,
     upload_to_hf_hub,
@@ -127,22 +127,6 @@ def test_get_file_column_names_unicode(tmp_path, file_type):
     assert get_file_column_names(str(unicode_path), file_type) == df_unicode.columns.tolist()
 
 
-@pytest.mark.parametrize("file_type", ["parquet", "csv", "json", "jsonl"])
-def test_get_file_column_names_with_glob_pattern(tmp_path, file_type):
-    df = pd.DataFrame({"col1": [1, 2, 3], "col2": [4, 5, 6]})
-    for i in range(5):
-        _write_file(df, tmp_path / f"{i}.{file_type}", file_type)
-    assert get_file_column_names(f"{tmp_path}/*.{file_type}", file_type) == ["col1", "col2"]
-
-
-def test_get_file_column_names_with_glob_pattern_error(tmp_path):
-    df = pd.DataFrame({"col1": [1, 2, 3], "col2": [4, 5, 6]})
-    for i in range(5):
-        _write_file(df, tmp_path / f"{i}.parquet", "parquet")
-    with pytest.raises(InvalidFilePathError, match="No files found matching pattern"):
-        get_file_column_names(f"{tmp_path}/*.csv", "csv")
-
-
 def test_get_file_column_names_with_filesystem_parquet():
     """Test get_file_column_names with filesystem parameter for parquet files."""
     mock_schema = MagicMock()
@@ -153,7 +137,7 @@ def test_get_file_column_names_with_filesystem_parquet():
         result = get_file_column_names("datasets/test/file.parquet", "parquet")
 
         assert result == ["col1", "col2", "col3"]
-        mock_read_schema.assert_called_once_with(Path("datasets/test/file.parquet"))
+        mock_read_schema.assert_called_once_with("datasets/test/file.parquet")
 
 
 @pytest.mark.parametrize("file_type", ["json", "jsonl", "csv"])
@@ -274,3 +258,29 @@ def test_upload_to_hf_hub_error_handling(datastore_settings):
         with patch("data_designer.config.datastore.Path.is_file", autospec=True) as mock_is_file:
             mock_is_file.return_value = True
             upload_to_hf_hub("test.text", "test.txt", "test/repo", datastore_settings)
+
+
+@pytest.mark.parametrize("file_type", ["parquet", "json", "jsonl", "csv"])
+def test_fetch_seed_dataset_column_names_from_local_file_with_glob(tmp_path, file_type):
+    """Test fetch_seed_dataset_column_names_from_local_file with glob pattern matching multiple files."""
+    test_data = pd.DataFrame({"col1": [1, 2], "col2": [3, 4], "col3": [5, 6]})
+
+    # Create multiple files with the same schema
+    for i in range(3):
+        file_path = tmp_path / f"data_{i}.{file_type}"
+        _write_file(test_data, file_path, file_type)
+
+    # Test glob pattern that matches all files
+    glob_pattern = str(tmp_path / f"*.{file_type}")
+    result = fetch_seed_dataset_column_names_from_local_file(glob_pattern)
+
+    assert result == ["col1", "col2", "col3"]
+
+
+@pytest.mark.parametrize("file_type", ["parquet", "csv"])
+def test_fetch_seed_dataset_column_names_from_local_file_with_glob_no_matches(tmp_path, file_type):
+    """Test fetch_seed_dataset_column_names_from_local_file with glob pattern that matches no files."""
+    glob_pattern = str(tmp_path / f"nonexistent_*.{file_type}")
+
+    with pytest.raises(InvalidFilePathError, match="does not contain files of type"):
+        fetch_seed_dataset_column_names_from_local_file(glob_pattern)
