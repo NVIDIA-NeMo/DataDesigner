@@ -32,7 +32,18 @@ class DatastoreSettings(BaseModel):
 
 
 def get_file_column_names(file_reference: Union[str, Path, HfFileSystem], file_type: str) -> list[str]:
-    """Extract column names based on file type. Supports glob patterns like '../path/*.parquet'."""
+    """Get column names from a dataset file.
+
+    Args:
+        file_reference: Path to the dataset file, or an HfFileSystem object.
+        file_type: Type of the dataset file. Must be one of: 'parquet', 'json', 'jsonl', 'csv'.
+
+    Raises:
+        InvalidFilePathError: If the file type is not supported.
+
+    Returns:
+        List of column names.
+    """
     if file_type == "parquet":
         try:
             schema = pq.read_schema(file_reference)
