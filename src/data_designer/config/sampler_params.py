@@ -66,6 +66,7 @@ class CategorySamplerParams(ConfigBase):
             "Larger values will be sampled with higher probability."
         ),
     )
+    sampler_type: Literal[SamplerType.CATEGORY] = SamplerType.CATEGORY
 
     @model_validator(mode="after")
     def _normalize_weights_if_needed(self) -> Self:
@@ -106,6 +107,7 @@ class DatetimeSamplerParams(ConfigBase):
         default="D",
         description="Sampling units, e.g. the smallest possible time interval between samples.",
     )
+    sampler_type: Literal[SamplerType.DATETIME] = SamplerType.DATETIME
 
     @field_validator("start", "end")
     @classmethod
@@ -136,6 +138,7 @@ class SubcategorySamplerParams(ConfigBase):
         ...,
         description="Mapping from each value of parent category to a list of subcategory values.",
     )
+    sampler_type: Literal[SamplerType.SUBCATEGORY] = SamplerType.SUBCATEGORY
 
 
 class TimeDeltaSamplerParams(ConfigBase):
@@ -187,6 +190,7 @@ class TimeDeltaSamplerParams(ConfigBase):
         default="D",
         description="Sampling units, e.g. the smallest possible time interval between samples.",
     )
+    sampler_type: Literal[SamplerType.TIMEDELTA] = SamplerType.TIMEDELTA
 
     @model_validator(mode="after")
     def _validate_min_less_than_max(self) -> Self:
@@ -219,6 +223,7 @@ class UUIDSamplerParams(ConfigBase):
         default=False,
         description="If true, all letters in the UUID will be capitalized.",
     )
+    sampler_type: Literal[SamplerType.UUID] = SamplerType.UUID
 
     @property
     def last_index(self) -> int:
@@ -257,6 +262,7 @@ class ScipySamplerParams(ConfigBase):
     decimal_places: Optional[int] = Field(
         default=None, description="Number of decimal places to round the sampled values to."
     )
+    sampler_type: Literal[SamplerType.SCIPY] = SamplerType.SCIPY
 
 
 class BinomialSamplerParams(ConfigBase):
@@ -273,6 +279,7 @@ class BinomialSamplerParams(ConfigBase):
 
     n: int = Field(..., description="Number of trials.")
     p: float = Field(..., description="Probability of success on each trial.", ge=0.0, le=1.0)
+    sampler_type: Literal[SamplerType.BINOMIAL] = SamplerType.BINOMIAL
 
 
 class BernoulliSamplerParams(ConfigBase):
@@ -288,6 +295,7 @@ class BernoulliSamplerParams(ConfigBase):
     """
 
     p: float = Field(..., description="Probability of success.", ge=0.0, le=1.0)
+    sampler_type: Literal[SamplerType.BERNOULLI] = SamplerType.BERNOULLI
 
 
 class BernoulliMixtureSamplerParams(ConfigBase):
@@ -327,6 +335,7 @@ class BernoulliMixtureSamplerParams(ConfigBase):
         ...,
         description="Parameters of the scipy.stats distribution given in `dist_name`.",
     )
+    sampler_type: Literal[SamplerType.BERNOULLI_MIXTURE] = SamplerType.BERNOULLI_MIXTURE
 
 
 class GaussianSamplerParams(ConfigBase):
@@ -350,6 +359,7 @@ class GaussianSamplerParams(ConfigBase):
     decimal_places: Optional[int] = Field(
         default=None, description="Number of decimal places to round the sampled values to."
     )
+    sampler_type: Literal[SamplerType.GAUSSIAN] = SamplerType.GAUSSIAN
 
 
 class PoissonSamplerParams(ConfigBase):
@@ -369,6 +379,7 @@ class PoissonSamplerParams(ConfigBase):
     """
 
     mean: float = Field(..., description="Mean number of events in a fixed interval.")
+    sampler_type: Literal[SamplerType.POISSON] = SamplerType.POISSON
 
 
 class UniformSamplerParams(ConfigBase):
@@ -390,6 +401,7 @@ class UniformSamplerParams(ConfigBase):
     decimal_places: Optional[int] = Field(
         default=None, description="Number of decimal places to round the sampled values to."
     )
+    sampler_type: Literal[SamplerType.UNIFORM] = SamplerType.UNIFORM
 
 
 #########################################
@@ -470,11 +482,12 @@ class PersonSamplerParams(ConfigBase):
         default=False,
         description="If True, then append synthetic persona columns to each generated person.",
     )
+    sampler_type: Literal[SamplerType.PERSON] = SamplerType.PERSON
 
     @property
     def generator_kwargs(self) -> list[str]:
         """Keyword arguments to pass to the person generator."""
-        return [f for f in list(PersonSamplerParams.model_fields) if f != "locale"]
+        return [f for f in list(PersonSamplerParams.model_fields) if f not in ("locale", "sampler_type")]
 
     @property
     def people_gen_key(self) -> str:
@@ -533,11 +546,12 @@ class PersonFromFakerSamplerParams(ConfigBase):
         min_length=2,
         max_length=2,
     )
+    sampler_type: Literal[SamplerType.PERSON_FROM_FAKER] = SamplerType.PERSON_FROM_FAKER
 
     @property
     def generator_kwargs(self) -> list[str]:
         """Keyword arguments to pass to the person generator."""
-        return [f for f in list(PersonFromFakerSamplerParams.model_fields) if f != "locale"]
+        return [f for f in list(PersonFromFakerSamplerParams.model_fields) if f not in ("locale", "sampler_type")]
 
     @property
     def people_gen_key(self) -> str:

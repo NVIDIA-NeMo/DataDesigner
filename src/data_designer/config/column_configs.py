@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from abc import ABC
-from typing import Literal, Optional, Type, Union
+from typing import Annotated, Literal, Optional, Type, Union
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Discriminator, Field, model_validator
 from typing_extensions import Self
 
 from .base import ConfigBase
@@ -89,10 +89,35 @@ class SamplerColumnConfig(SingleColumnConfig):
     """
 
     sampler_type: SamplerType
-    params: SamplerParamsT
-    conditional_params: dict[str, SamplerParamsT] = {}
+    params: Annotated[SamplerParamsT, Discriminator("sampler_type")]
+    conditional_params: dict[str, Annotated[SamplerParamsT, Discriminator("sampler_type")]] = {}
     convert_to: Optional[str] = None
     column_type: Literal["sampler"] = "sampler"
+
+    @model_validator(mode="before")
+    @classmethod
+    def inject_sampler_type_into_params(cls, data: dict) -> dict:
+        """Inject sampler_type into params dict to enable discriminated union resolution.
+
+        This allows users to pass params as a simple dict without the sampler_type field,
+        which will be automatically added based on the outer sampler_type field.
+        """
+        if isinstance(data, dict):
+            sampler_type = data.get("sampler_type")
+            params = data.get("params")
+
+            # If params is a dict and doesn't have sampler_type, inject it
+            if sampler_type and isinstance(params, dict) and "sampler_type" not in params:
+                data["params"] = {"sampler_type": sampler_type, **params}
+
+            # Handle conditional_params similarly
+            conditional_params = data.get("conditional_params")
+            if conditional_params and isinstance(conditional_params, dict):
+                for condition, cond_params in conditional_params.items():
+                    if isinstance(cond_params, dict) and "sampler_type" not in cond_params:
+                        data["conditional_params"][condition] = {"sampler_type": sampler_type, **cond_params}
+
+        return data
 
 
 class LLMTextColumnConfig(SingleColumnConfig):
