@@ -78,7 +78,7 @@ def fetch_seed_dataset_column_names_from_datastore(
     datastore_settings = resolve_datastore_settings(datastore_settings)
     fs = HfFileSystem(endpoint=datastore_settings.endpoint, token=datastore_settings.token, skip_instance_cache=True)
 
-    file_path = _extract_single_file_path_from_glob_pattern_if_present(f"datasets/{repo_id}/{filename}")
+    file_path = _extract_single_file_path_from_glob_pattern_if_present(f"datasets/{repo_id}/{filename}", fs=fs)
 
     with fs.open(file_path) as f:
         return get_file_column_names(f, file_type)
@@ -130,15 +130,34 @@ def upload_to_hf_hub(
     return f"{repo_id}/{filename}"
 
 
-def _extract_single_file_path_from_glob_pattern_if_present(file_path: str | Path) -> Path:
+def _extract_single_file_path_from_glob_pattern_if_present(
+    file_path: str | Path,
+    fs: HfFileSystem | None = None,
+) -> Path:
     file_path = Path(file_path)
-    if "*" in str(file_path):
-        matching_files = sorted(file_path.parent.glob(file_path.name))
-        if not matching_files:
+
+    # no glob pattern
+    if "*" not in str(file_path):
+        return file_path
+
+    # glob pattern with HfFileSystem
+    if fs is not None:
+        file_to_check = None
+        file_extension = file_path.name.split(".")[-1]
+        for file in fs.ls(str(file_path.parent)):
+            filename = file["name"]
+            if filename.endswith(f".{file_extension}"):
+                file_to_check = filename
+        if file_to_check is None:
             raise InvalidFilePathError(f"🛑 No files found matching pattern: {str(file_path)!r}")
         logger.debug(f"Using the first matching file in {str(file_path)!r} to determine column names in seed dataset")
-        file_path = matching_files[0]
-    return file_path
+        return Path(file_to_check)
+
+    # glob pattern with local file system
+    if not (matching_files := sorted(file_path.parent.glob(file_path.name))):
+        raise InvalidFilePathError(f"🛑 No files found matching pattern: {str(file_path)!r}")
+    logger.debug(f"Using the first matching file in {str(file_path)!r} to determine column names in seed dataset")
+    return matching_files[0]
 
 
 def _validate_dataset_path(dataset_path: Union[str, Path], allow_glob_pattern: bool = False) -> Path:
