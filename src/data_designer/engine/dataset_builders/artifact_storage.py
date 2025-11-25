@@ -41,7 +41,6 @@ class ArtifactStorage(BaseModel):
     @cached_property
     def resolved_dataset_name(self) -> str:
         dataset_path = self.artifact_path / self.dataset_name
-        print(dataset_path.exists())
         if dataset_path.exists() and len(list(dataset_path.iterdir())) > 0:
             new_dataset_name = f"{self.dataset_name}_{datetime.now().strftime('%m-%d-%Y_%H%M%S')}"
             logger.info(
