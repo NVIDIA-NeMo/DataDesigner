@@ -9,7 +9,7 @@ import logging
 from typing import Any
 
 from litellm.types.router import DeploymentTypedDict, LiteLLM_Params
-from litellm.types.utils import ModelResponse
+from litellm.types.utils import EmbeddingResponse, ModelResponse
 
 from data_designer.config.models import ModelConfig, ModelProvider
 from data_designer.engine.model_provider import ModelProviderRegistry
@@ -67,6 +67,7 @@ class ModelFacade:
             extra={"model": self.model_name, "messages": messages, "sensitive": True},
         )
         response = None
+        kwargs = {**self._model_config.inference_parameters.generate_kwargs, **kwargs}
         if self.model_provider.extra_body:
             kwargs["extra_body"] = {**kwargs.get("extra_body", {}), **self.model_provider.extra_body}
         try:
@@ -86,6 +87,41 @@ class ModelFacade:
         finally:
             if not skip_usage_tracking:
                 self._track_usage(response)
+
+    @catch_llm_exceptions
+    def generate_text_embeddings(
+        self, input_texts: list[str], skip_usage_tracking: bool = False, **kwargs
+    ) -> list[list[float]]:
+        logger.debug(
+            f"Generating embeddings with model {self.model_name!r}...",
+            extra={
+                "model": self.model_name,
+                "input_count": len(input_texts),
+                "sensitive": True,
+            },
+        )
+        kwargs |= self._model_config.inference_parameters.generate_kwargs
+        if self.model_provider.extra_body:
+            kwargs["extra_body"] = {**kwargs.get("extra_body", {}), **self.model_provider.extra_body}
+        try:
+            response = self._router.embedding(model=self.model_name, input=input_texts, **kwargs)
+            logger.debug(
+                f"Received embeddings from model {self.model_name!r}",
+                extra={
+                    "model": self.model_name,
+                    "embedding_count": len(response.data) if response.data else 0,
+                    "usage": self._usage_stats.model_dump(),
+                },
+            )
+            if response.data and len(response.data) == len(input_texts):
+                return [data["embedding"] for data in response.data]
+            else:
+                raise ValueError(f"Expected {len(input_texts)} embeddings, but received {len(response.data)}")
+        except Exception as e:
+            raise e
+        finally:
+            if not skip_usage_tracking:
+                self._track_usage_from_embedding(response)
 
     @catch_llm_exceptions
     def generate(
@@ -220,6 +256,19 @@ class ModelFacade:
                 token_usage=TokenUsageStats(
                     prompt_tokens=response.usage.prompt_tokens,
                     completion_tokens=response.usage.completion_tokens,
+                ),
+                request_usage=RequestUsageStats(successful_requests=1, failed_requests=0),
+            )
+
+    def _track_usage_from_embedding(self, response: EmbeddingResponse | None) -> None:
+        if response is None:
+            self._usage_stats.extend(request_usage=RequestUsageStats(successful_requests=0, failed_requests=1))
+            return
+        if response.usage is not None and response.usage.prompt_tokens is not None:
+            self._usage_stats.extend(
+                token_usage=TokenUsageStats(
+                    prompt_tokens=response.usage.prompt_tokens,
+                    completion_tokens=0,
                 ),
                 request_usage=RequestUsageStats(successful_requests=1, failed_requests=0),
             )

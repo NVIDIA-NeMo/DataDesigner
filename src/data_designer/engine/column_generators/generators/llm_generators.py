@@ -96,7 +96,6 @@ class WithLLMGeneration:
             max_correction_steps=self.max_conversation_correction_steps,
             max_conversation_restarts=self.max_conversation_restarts,
             purpose=f"running generation for column '{self.config.name}'",
-            **self.inference_parameters.generate_kwargs,
         )
 
         data[self.config.name] = deserialize_json_values(self.response_recipe.serialize_output(response))

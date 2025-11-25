@@ -133,7 +133,9 @@ def test_completion_with_exception(stub_model_facade):
         stub_model_facade.completion(messages)
 
 
-def test_completion_with_kwargs(stub_model_facade, stub_expected_response):
+def test_completion_kwargs_overrides_model_config_generate_kwargs(
+    stub_model_configs, stub_model_facade, stub_expected_response
+):
     captured_kwargs = {}
 
     def mock_completion(model_name, messages, **kwargs):
@@ -147,28 +149,42 @@ def test_completion_with_kwargs(stub_model_facade, stub_expected_response):
     result = stub_model_facade.completion(messages, **kwargs)
 
     assert result == stub_expected_response
-    assert captured_kwargs == kwargs
+    # completion kwargs overrides model config generate kwargs
+    assert captured_kwargs == {**stub_model_configs[0].inference_parameters.generate_kwargs, **kwargs}
 
 
 @patch("data_designer.engine.models.facade.CustomRouter.completion", autospec=True)
-def test_completion_with_extra_body(mock_router_completion, stub_model_facade):
+def test_provider_extra_body_overrides_completion_kwargs(mock_router_completion, stub_model_configs, stub_model_facade):
     messages = [{"role": "user", "content": "test"}]
+    stub_provider_extra_body = {"foo": "bar"}
 
-    # completion call has no extra body argument and provider has no extra body
+    # model config has generate kwargs, completion call has no kwargs, and provider has no extra body
     _ = stub_model_facade.completion(messages)
     assert len(mock_router_completion.call_args) == 2
     assert mock_router_completion.call_args[0][1] == "stub-model-text"
     assert mock_router_completion.call_args[0][2] == messages
+    assert mock_router_completion.call_args[1] == stub_model_configs[0].inference_parameters.generate_kwargs
 
-    # completion call has no extra body argument and provider has extra body.
-    # Should pull extra body from model provider
-    custom_extra_body = {"some_custom_key": "some_custom_value"}
-    stub_model_facade.model_provider.extra_body = custom_extra_body
-    _ = stub_model_facade.completion(messages)
-    assert mock_router_completion.call_args[1] == {"extra_body": custom_extra_body}
+    # model config has generate kwargs, completion call has kwargs, and provider has no extra body
+    # completion kwargs overrides model config generate kwargs
+    _ = stub_model_facade.completion(messages, temperature=0.1)
+    assert len(mock_router_completion.call_args) == 2
+    assert mock_router_completion.call_args[0][1] == "stub-model-text"
+    assert mock_router_completion.call_args[0][2] == messages
+    assert mock_router_completion.call_args[1] == {
+        **stub_model_configs[0].inference_parameters.generate_kwargs,
+        "temperature": 0.1,
+    }
 
-    # completion call has extra body argument and provider has extra body.
-    # Should merge the two with provider extra body taking precedence
-    completion_extra_body = {"some_completion_key": "some_completion_value", "some_custom_key": "some_different_value"}
-    _ = stub_model_facade.completion(messages, extra_body=completion_extra_body)
-    assert mock_router_completion.call_args[1] == {"extra_body": {**completion_extra_body, **custom_extra_body}}
+    # model config has generate kwargs, completion call has kwargs, and provider has extra body
+    # provider extra body overrides completion kwargs
+    stub_model_facade.model_provider.extra_body = stub_provider_extra_body
+    _ = stub_model_facade.completion(messages, temperature=0.15, extra_body={"foo": "bat"})
+    assert len(mock_router_completion.call_args) == 2
+    assert mock_router_completion.call_args[0][1] == "stub-model-text"
+    assert mock_router_completion.call_args[0][2] == messages
+    assert mock_router_completion.call_args[1] == {
+        **stub_model_configs[0].inference_parameters.generate_kwargs,
+        "temperature": 0.15,
+        "extra_body": stub_provider_extra_body,
+    }
