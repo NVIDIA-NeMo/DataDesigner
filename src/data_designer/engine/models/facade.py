@@ -64,7 +64,7 @@ class ModelFacade:
     def completion(self, messages: list[dict[str, str]], skip_usage_tracking: bool = False, **kwargs) -> ModelResponse:
         logger.debug(
             f"Prompting model {self.model_name!r}...",
-            extra={"model": self.model_name, "messages": messages, "sensitive": True},
+            extra={"model": self.model_name, "messages": messages},
         )
         response = None
         kwargs = self.consolidate_kwargs(**kwargs)
@@ -101,7 +101,6 @@ class ModelFacade:
             extra={
                 "model": self.model_name,
                 "input_count": len(input_texts),
-                "sensitive": True,
             },
         )
         kwargs = self.consolidate_kwargs(**kwargs)
