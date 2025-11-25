@@ -205,11 +205,18 @@ class InferenceParameters(ConfigBase):
         return min_value <= value <= max_value
 
 
+class GenerationType(str, Enum):
+    CHAT_COMPLETION = "chat-completion"
+    TEXT_EMBEDDING = "text-embedding"
+    IMAGE_GENERATION = "image-generation"
+
+
 class ModelConfig(ConfigBase):
     alias: str
     model: str
     inference_parameters: InferenceParameters = Field(default_factory=InferenceParameters)
     provider: Optional[str] = None
+    generation_type: GenerationType = GenerationType.CHAT_COMPLETION
 
 
 class ModelProvider(ConfigBase):
