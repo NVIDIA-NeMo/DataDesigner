@@ -1,7 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from datetime import datetime
 import json
+from unittest.mock import patch
 
 import pandas as pd
 from pyarrow import ArrowNotImplementedError
@@ -213,3 +215,22 @@ def test_artifact_storage_batch_numbering(stub_artifact_storage, batch_number):
     path = stub_artifact_storage.create_batch_file_path(batch_number, BatchStage.FINAL_RESULT)
     expected_name = f"batch_{batch_number:05d}.parquet"
     assert path.name == expected_name
+
+
+@patch("data_designer.engine.dataset_builders.artifact_storage.datetime")
+def test_artifact_storage_resolved_dataset_name(mock_datetime, tmp_path):
+    mock_datetime.now.return_value = datetime(2025, 1, 1, 12, 3, 4)
+
+    # dataset path does not exist yet
+    assert ArtifactStorage(artifact_path=tmp_path).resolved_dataset_name == "dataset"
+
+    # dataset path exists but is empty
+    af_storage = ArtifactStorage(artifact_path=tmp_path)
+    (af_storage.artifact_path / af_storage.dataset_name).mkdir()
+    assert af_storage.resolved_dataset_name == "dataset"
+
+    # dataset path exists and is not empty
+    af_storage = ArtifactStorage(artifact_path=tmp_path)
+    (af_storage.artifact_path / af_storage.dataset_name / "stub_file.txt").touch()
+    print(af_storage.resolved_dataset_name)
+    assert af_storage.resolved_dataset_name == "dataset_01-01-2025_120304"

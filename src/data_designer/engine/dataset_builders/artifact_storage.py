@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from datetime import datetime
+from functools import cached_property
 import json
 import logging
 from pathlib import Path
@@ -36,9 +38,22 @@ class ArtifactStorage(BaseModel):
     def artifact_path_exists(self) -> bool:
         return self.artifact_path.exists()
 
+    @cached_property
+    def resolved_dataset_name(self) -> str:
+        dataset_path = self.artifact_path / self.dataset_name
+        print(dataset_path.exists())
+        if dataset_path.exists() and len(list(dataset_path.iterdir())) > 0:
+            new_dataset_name = f"{self.dataset_name}_{datetime.now().strftime('%m-%d-%Y_%H%M%S')}"
+            logger.info(
+                f"📂 Dataset path {str(dataset_path)!r} already exists. Dataset from this session"
+                f"\n\t\t     will be saved to {str(self.artifact_path / new_dataset_name)!r} instead."
+            )
+            return new_dataset_name
+        return self.dataset_name
+
     @property
     def base_dataset_path(self) -> Path:
-        return self.artifact_path / self.dataset_name
+        return self.artifact_path / self.resolved_dataset_name
 
     @property
     def dropped_columns_dataset_path(self) -> Path:

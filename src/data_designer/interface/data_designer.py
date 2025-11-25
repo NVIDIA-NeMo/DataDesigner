@@ -173,7 +173,11 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
                 configuration (columns, constraints, seed data, etc.).
             num_records: Number of records to generate.
             dataset_name: Name of the dataset. This name will be used as the dataset
-                folder name in the artifact path directory.
+                folder name in the artifact path directory. If a non-empty directory with the
+                same name already exists, dataset will be saved to a new directory with
+                a datetime stamp. For example, if the dataset name is "awesome_dataset" and a directory
+                with the same name already exists, the dataset will be saved to a new directory
+                with the name "awesome_dataset_2025-01-01_12-00-00".
 
         Returns:
             DatasetCreationResults object with methods for loading the generated dataset,
