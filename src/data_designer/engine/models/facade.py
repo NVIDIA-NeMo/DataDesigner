@@ -11,7 +11,7 @@ from typing import Any
 from litellm.types.router import DeploymentTypedDict, LiteLLM_Params
 from litellm.types.utils import EmbeddingResponse, ModelResponse
 
-from data_designer.config.models import ModelConfig, ModelProvider
+from data_designer.config.models import GenerationType, ModelConfig, ModelProvider
 from data_designer.engine.model_provider import ModelProviderRegistry
 from data_designer.engine.models.errors import (
     GenerationValidationFailureError,
@@ -48,6 +48,10 @@ class ModelFacade:
     @property
     def model_provider(self) -> ModelProvider:
         return self._model_provider_registry.get_provider(self._model_config.provider)
+
+    @property
+    def model_generation_type(self) -> GenerationType:
+        return self._model_config.generation_type
 
     @property
     def model_provider_name(self) -> str:

@@ -6,6 +6,7 @@ configure_logging(LoggingConfig.default())
 
 from ..config.analysis.column_profilers import JudgeScoreProfilerConfig
 from ..config.column_configs import (
+    EmbeddingColumnConfig,
     ExpressionColumnConfig,
     LLMCodeColumnConfig,
     LLMJudgeColumnConfig,
@@ -22,6 +23,7 @@ from ..config.data_designer_config import DataDesignerConfig
 from ..config.dataset_builders import BuildStage
 from ..config.datastore import DatastoreSettings
 from ..config.models import (
+    GenerationType,
     ImageContext,
     ImageFormat,
     InferenceParameters,
@@ -91,8 +93,10 @@ __all__ = [
     "DatastoreSettings",
     "DatetimeSamplerParams",
     "DropColumnsProcessorConfig",
+    "EmbeddingColumnConfig",
     "ExpressionColumnConfig",
     "GaussianSamplerParams",
+    "GenerationType",
     "IndexRange",
     "InfoType",
     "ImageContext",

@@ -207,7 +207,7 @@ class InferenceParameters(ConfigBase):
 
 class GenerationType(str, Enum):
     CHAT_COMPLETION = "chat-completion"
-    TEXT_EMBEDDING = "text-embedding"
+    EMBEDDING = "embedding"
     IMAGE_GENERATION = "image-generation"
 
 

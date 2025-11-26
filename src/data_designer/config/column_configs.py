@@ -377,3 +377,26 @@ class SeedDatasetColumnConfig(SingleColumnConfig):
     """
 
     column_type: Literal["seed-dataset"] = "seed-dataset"
+
+
+class EmbeddingColumnConfig(SingleColumnConfig):
+    """Configuration for embedding generation columns.
+
+    Embedding columns generate embeddings for text input using a specified model.
+
+    Attributes:
+        column_type: Discriminator field, always "embedding" for this configuration type.
+        target_column: The column to generate embeddings for.
+        model_alias: The model to use for embedding generation.
+        chunk_separator: Optional separator to split the text in the target column into chunks. For example, if chunk_separator
+            is '\n', the text will be split into chunks of text separated by newlines and embeddings generated for each chunk.
+    """
+
+    column_type: Literal["embedding"] = "embedding"
+    target_column: str
+    model_alias: str
+    chunk_separator: Optional[str] = None
+
+    @property
+    def required_columns(self) -> list[str]:
+        return [self.target_column]
