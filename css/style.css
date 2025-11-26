@@ -1,0 +1,184 @@
+
+.nvidia-green {
+    color: #76B900; /* NVIDIA green */
+}
+
+/* Style "NeMo" in the site name with pure CSS */
+.md-header__topic:first-child .md-ellipsis {
+    visibility: hidden;
+    position: relative;
+}
+
+/* Make "NeMo" green using a gradient background trick */
+.md-header__topic:first-child .md-ellipsis::after {
+    content: "NeMo Data Designer";
+    visibility: visible;
+    position: absolute;
+    left: 0;
+    top: 0;
+    background: linear-gradient(90deg, #76B900 0%, #76B900 4.8ch, currentColor 4.8ch, currentColor 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+/* Prevent selection of prompt and output markers */
+.highlight .gp,
+.highlight .go {
+    user-select: none;
+}
+
+/* Reduce space between logo and site name */
+.md-header__button.md-logo {
+    margin-right: -1rem;
+}
+
+/* Remove background from Jupyter notebook outputs */
+.jp-RenderedText pre,
+.jp-OutputArea-output pre,
+.output_stderr,
+.output_stdout,
+.output_stream,
+div.output_area pre,
+div.output_subarea pre,
+.jupyter-wrapper .output_stream,
+.jupyter-wrapper .output_stdout,
+.jupyter-wrapper .output_stderr,
+.jp-RenderedText[data-mime-type="application/vnd.jupyter.stderr"],
+.jp-RenderedText[data-mime-type="application/vnd.jupyter.stderr"] pre,
+.jp-OutputArea-output[data-mime-type="application/vnd.jupyter.stderr"],
+.jp-OutputArea-output[data-mime-type="application/vnd.jupyter.stderr"] pre {
+    background-color: transparent !important;
+}
+
+/* Override stderr-specific styling */
+.highlight .err {
+    background-color: transparent !important;
+    border: none !important;
+}
+
+/* Make notebook cells grow with window size */
+.md-content__inner {
+    max-width: none !important;
+}
+
+.md-content__inner:has(.jp-Notebook) {
+    padding-left: 0rem !important;
+    padding-right: 0.5rem !important;
+}
+
+/* Rich output with horizontal scroll and compact tables */
+.jp-RenderedText pre,
+.jp-OutputArea-output pre,
+.jp-RenderedHTMLCommon pre,
+.jp-RenderedHTML pre {
+    white-space: pre !important;
+    overflow-x: auto !important;
+    font-size: 0.6rem !important;
+    line-height: 1.1 !important;
+    padding: 0.25rem !important;
+    margin: 0.25rem 0 !important;
+}
+
+/* Narrow sidebar */
+.md-sidebar--primary,
+.md-sidebar--primary .md-sidebar__scrollwrap {
+    width: 10rem !important;
+}
+
+/* Hide right sidebar (TOC) by default, JavaScript will show it on Code Reference pages */
+.md-sidebar.md-sidebar--secondary {
+    display: none !important;
+}
+
+/* Show TOC on Code Reference pages (controlled by JavaScript) */
+body.show-toc .md-sidebar.md-sidebar--secondary {
+    display: block !important;
+}
+
+/* Add color to TOC links on Concepts pages */
+body.show-toc .md-sidebar--secondary .md-nav__link {
+    transition: color 0.2s ease;
+}
+
+body.show-toc .md-sidebar--secondary .md-nav__link:hover {
+    color: #76B900 !important;
+}
+
+body.show-toc .md-sidebar--secondary .md-nav__link--active {
+    color: #76B900 !important;
+    font-weight: 500;
+}
+
+/* Hide footer */
+.md-footer {
+    display: none !important;
+}
+
+/* Move repo and palette icons to the right */
+.md-header__inner {
+    padding-right: 0rem !important;
+}
+
+/* Reduce space between h1 headings and content below */
+h1 {
+    margin-bottom: 0.5rem !important;
+}
+h2 {
+    margin-top: 0.2rem !important;
+    margin-bottom: 0.2rem !important;
+}
+
+/* Define the company grid layout */
+
+#grid-container {
+    width: 100%;
+    text-align: center;
+  }
+
+  #company-grid {
+    display: inline-block;
+    margin: 0 auto;
+    gap: 10px;
+    align-content: center;
+    justify-content: center;
+    grid-auto-flow: column;
+  }
+
+  [data-md-color-scheme="slate"] #company-grid {
+    background-color: #ffffff;
+    border-radius: .5rem;
+    color: black;
+  }
+
+  .tile {
+    display: inline-block;
+    text-align: center;
+    width: 120px;
+    height: 120px;
+    margin: 10px;
+    padding: 5px;
+    border-radius: .5rem;
+  }
+
+  .tile img {
+    width: 100px;
+  }
+
+  .md-typeset__table > table {
+    max-height: 60vh;
+  }
+
+  .md-typeset__table > table thead {
+    position: sticky;
+    top: 0;
+    background-color: var(--md-default-bg-color);
+  }
+
+  .md-typeset__table > table th {
+    border-bottom: .05rem solid var(--md-typeset-table-color);
+  }
+
+  .md-typeset__table > table tr:first-child td {
+    border-top: none;
+  }
