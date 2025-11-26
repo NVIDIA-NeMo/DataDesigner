@@ -18,7 +18,7 @@ from data_designer.config.processors import (
     ProcessorType,
 )
 from data_designer.engine.column_generators.generators.base import ColumnGenerator, GenerationStrategy
-from data_designer.engine.column_generators.generators.generation_mixins import WithCompletionGeneration
+from data_designer.engine.column_generators.generators.llm_completion_generators import WithCompletionGeneration
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError, DatasetProcessingError
 from data_designer.engine.dataset_builders.multi_column_configs import (

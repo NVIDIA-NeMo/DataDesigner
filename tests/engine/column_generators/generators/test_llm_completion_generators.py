@@ -11,12 +11,10 @@ from data_designer.config.column_configs import (
     LLMStructuredColumnConfig,
     LLMTextColumnConfig,
 )
-from data_designer.engine.column_generators.generators.generation_mixins import (
+from data_designer.engine.column_generators.generators.llm_completion_generators import (
     DEFAULT_MAX_CONVERSATION_CORRECTION_STEPS,
     DEFAULT_MAX_CONVERSATION_RESTARTS,
     REASONING_TRACE_COLUMN_POSTFIX,
-)
-from data_designer.engine.column_generators.generators.llm_completion_generators import (
     LLMCodeCellGenerator,
     LLMJudgeCellGenerator,
     LLMStructuredCellGenerator,
@@ -96,7 +94,7 @@ def test_generate_method():
     assert call_args[1]["multi_modal_context"] is None
 
 
-@patch("data_designer.engine.column_generators.generators.generation_mixins.logger", autospec=True)
+@patch("data_designer.engine.column_generators.generators.base.logger", autospec=True)
 def test_log_pre_generation(mock_logger):
     generator, mock_resource_provider, _, mock_model_config, _, _, _ = _create_generator_with_mocks()
     mock_model_config.model_dump_json.return_value = '{"test": "config"}'
