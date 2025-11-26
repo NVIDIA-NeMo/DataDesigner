@@ -430,9 +430,6 @@ class PersonSamplerParams(ConfigBase):
         age_range: Two-element list [min_age, max_age] specifying the age range to sample from
             (inclusive). Defaults to a standard age range. Both values must be between minimum and
             maximum allowed ages.
-        state: Only supported for "en_US" locale. Filters to sample people from specified US state(s).
-            Must be provided as two-letter state abbreviations (e.g., "CA", "NY", "TX"). Can be a
-            single state or a list of states.
         with_synthetic_personas: If True, appends additional synthetic persona columns including
             personality traits, interests, and background descriptions. Only supported for certain
             locales with managed datasets.
