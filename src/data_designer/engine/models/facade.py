@@ -91,6 +91,8 @@ class ModelFacade:
                 self._track_usage(response)
 
     def consolidate_kwargs(self, **kwargs) -> dict[str, Any]:
+        # Remove purpose from kwargs to avoid passing it to the model
+        kwargs.pop("purpose", None)
         kwargs = {**self._model_config.inference_parameters.generate_kwargs, **kwargs}
         if self.model_provider.extra_body:
             kwargs["extra_body"] = {**kwargs.get("extra_body", {}), **self.model_provider.extra_body}

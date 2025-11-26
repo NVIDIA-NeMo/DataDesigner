@@ -28,6 +28,7 @@ class EmbeddingCellGenerator(WithModelGeneration, ColumnGenerator[EmbeddingColum
         deserialized_record = deserialize_json_values(data)
         input_text = deserialized_record[self.config.target_column]
         input_chunks = re.split(self.config.chunk_pattern, input_text) if self.config.chunk_pattern else [input_text]
+        input_chunks = [chunk.strip() for chunk in input_chunks if chunk.strip()]
         embeddings = self.model.generate_text_embeddings(input_texts=input_chunks)
         data[self.config.name] = {
             "embeddings": embeddings,

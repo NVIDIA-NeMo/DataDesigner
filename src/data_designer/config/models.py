@@ -229,7 +229,7 @@ class InferenceParameters(CompletionInferenceParameters):
 
 
 class EmbeddingInferenceParameters(BaseInferenceParameters):
-    encoding_format: Optional[Literal["float", "base64"]] = "float"
+    encoding_format: Optional[Literal["float", "base64"]] = None
     dimensions: Optional[int] = None
 
     @property

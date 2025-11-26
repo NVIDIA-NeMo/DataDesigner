@@ -116,17 +116,17 @@ def test_usage_stats_property(stub_model_facade):
 
 
 def test_consolidate_kwargs(stub_model_configs, stub_model_facade):
-    # Model config generate kwargs are used as base
-    result = stub_model_facade.consolidate_kwargs()
+    # Model config generate kwargs are used as base, and purpose is removed
+    result = stub_model_facade.consolidate_kwargs(purpose="test")
     assert result == stub_model_configs[0].inference_parameters.generate_kwargs
 
     # kwargs overrides model config generate kwargs
-    result = stub_model_facade.consolidate_kwargs(temperature=0.01)
+    result = stub_model_facade.consolidate_kwargs(temperature=0.01, purpose="test")
     assert result == {**stub_model_configs[0].inference_parameters.generate_kwargs, "temperature": 0.01}
 
     # Provider extra_body overrides all other kwargs
     stub_model_facade.model_provider.extra_body = {"foo_provider": "bar_provider"}
-    result = stub_model_facade.consolidate_kwargs(extra_body={"foo": "bar"})
+    result = stub_model_facade.consolidate_kwargs(extra_body={"foo": "bar"}, purpose="test")
     assert result == {
         **stub_model_configs[0].inference_parameters.generate_kwargs,
         "extra_body": {"foo_provider": "bar_provider", "foo": "bar"},
