@@ -49,6 +49,7 @@ def test_data_designer_column_type_get_display_order():
         DataDesignerColumnType.LLM_CODE,
         DataDesignerColumnType.LLM_STRUCTURED,
         DataDesignerColumnType.LLM_JUDGE,
+        DataDesignerColumnType.EMBEDDING,
         DataDesignerColumnType.VALIDATION,
         DataDesignerColumnType.EXPRESSION,
     ]
@@ -59,6 +60,7 @@ def test_data_designer_column_type_is_llm_generated():
     assert column_type_is_llm_generated(DataDesignerColumnType.LLM_CODE)
     assert column_type_is_llm_generated(DataDesignerColumnType.LLM_STRUCTURED)
     assert column_type_is_llm_generated(DataDesignerColumnType.LLM_JUDGE)
+    assert column_type_is_llm_generated(DataDesignerColumnType.EMBEDDING)
     assert not column_type_is_llm_generated(DataDesignerColumnType.SAMPLER)
     assert not column_type_is_llm_generated(DataDesignerColumnType.VALIDATION)
     assert not column_type_is_llm_generated(DataDesignerColumnType.EXPRESSION)
@@ -72,6 +74,7 @@ def test_data_designer_column_type_is_in_dag():
     assert column_type_used_in_execution_dag(DataDesignerColumnType.LLM_STRUCTURED)
     assert column_type_used_in_execution_dag(DataDesignerColumnType.LLM_TEXT)
     assert column_type_used_in_execution_dag(DataDesignerColumnType.VALIDATION)
+    assert column_type_used_in_execution_dag(DataDesignerColumnType.EMBEDDING)
     assert not column_type_used_in_execution_dag(DataDesignerColumnType.SAMPLER)
     assert not column_type_used_in_execution_dag(DataDesignerColumnType.SEED_DATASET)
 
