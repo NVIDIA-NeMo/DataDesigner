@@ -11,9 +11,9 @@ import yaml
 
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.models import (
+    CompletionInferenceParameters,
     ImageContext,
     ImageFormat,
-    InferenceParameters,
     ManualDistribution,
     ManualDistributionParams,
     ModalityDataType,
@@ -46,13 +46,13 @@ def test_image_context_validate_image_format():
 
 
 def test_inference_parameters_default_construction():
-    empty_inference_parameters = InferenceParameters()
+    empty_inference_parameters = CompletionInferenceParameters()
     assert empty_inference_parameters.generate_kwargs == {}
     assert empty_inference_parameters.max_parallel_requests == 4
 
 
 def test_inference_parameters_generate_kwargs():
-    assert InferenceParameters(
+    assert CompletionInferenceParameters(
         temperature=0.95,
         top_p=0.95,
         max_tokens=100,
@@ -67,9 +67,9 @@ def test_inference_parameters_generate_kwargs():
         "extra_body": {"reasoning_effort": "high"},
     }
 
-    assert InferenceParameters().generate_kwargs == {}
+    assert CompletionInferenceParameters().generate_kwargs == {}
 
-    inference_parameters_kwargs = InferenceParameters(
+    inference_parameters_kwargs = CompletionInferenceParameters(
         temperature=UniformDistribution(params=UniformDistributionParams(low=0.0, high=1.0)),
         top_p=ManualDistribution(params=ManualDistributionParams(values=[0.0, 1.0], weights=[0.5, 0.5])),
     ).generate_kwargs
@@ -131,32 +131,38 @@ def test_inference_parameters_temperature_validation():
 
     # All temp values provide in a manual destribution should be valid
     with pytest.raises(ValidationError, match=expected_error_msg):
-        InferenceParameters(
+        CompletionInferenceParameters(
             temperature=ManualDistribution(params=ManualDistributionParams(values=[0.5, 2.5], weights=[0.5, 0.5]))
         )
 
     # High and low values of uniform distribution should be valid
     with pytest.raises(ValidationError, match=expected_error_msg):
-        InferenceParameters(temperature=UniformDistribution(params=UniformDistributionParams(low=0.5, high=2.5)))
+        CompletionInferenceParameters(
+            temperature=UniformDistribution(params=UniformDistributionParams(low=0.5, high=2.5))
+        )
 
     with pytest.raises(ValidationError, match=expected_error_msg):
-        InferenceParameters(temperature=UniformDistribution(params=UniformDistributionParams(low=-0.5, high=2.0)))
+        CompletionInferenceParameters(
+            temperature=UniformDistribution(params=UniformDistributionParams(low=-0.5, high=2.0))
+        )
 
     # Static values should be valid
     with pytest.raises(ValidationError, match=expected_error_msg):
-        InferenceParameters(temperature=3.0)
+        CompletionInferenceParameters(temperature=3.0)
     with pytest.raises(ValidationError, match=expected_error_msg):
-        InferenceParameters(temperature=-1.0)
+        CompletionInferenceParameters(temperature=-1.0)
 
     # Valid temperature values shouldn't raise validation errors
     try:
-        InferenceParameters(temperature=0.1)
-        InferenceParameters(temperature=UniformDistribution(params=UniformDistributionParams(low=0.5, high=2.0)))
-        InferenceParameters(
+        CompletionInferenceParameters(temperature=0.1)
+        CompletionInferenceParameters(
+            temperature=UniformDistribution(params=UniformDistributionParams(low=0.5, high=2.0))
+        )
+        CompletionInferenceParameters(
             temperature=ManualDistribution(params=ManualDistributionParams(values=[0.5, 2.0], weights=[0.5, 0.5]))
         )
     except Exception:
-        pytest.fail("Unexpected exception raised during InferenceParameters temperature validation")
+        pytest.fail("Unexpected exception raised during CompletionInferenceParameters temperature validation")
 
 
 def test_generation_parameters_top_p_validation():
@@ -164,31 +170,31 @@ def test_generation_parameters_top_p_validation():
 
     # All top_p values provide in a manual destribution should be valid
     with pytest.raises(ValidationError, match=expected_error_msg):
-        InferenceParameters(
+        CompletionInferenceParameters(
             top_p=ManualDistribution(params=ManualDistributionParams(values=[0.5, 1.5], weights=[0.5, 0.5]))
         )
 
     # High and low values of uniform distribution should be valid
     with pytest.raises(ValidationError, match=expected_error_msg):
-        InferenceParameters(top_p=UniformDistribution(params=UniformDistributionParams(low=0.5, high=1.5)))
+        CompletionInferenceParameters(top_p=UniformDistribution(params=UniformDistributionParams(low=0.5, high=1.5)))
     with pytest.raises(ValidationError, match=expected_error_msg):
-        InferenceParameters(top_p=UniformDistribution(params=UniformDistributionParams(low=-0.5, high=1.0)))
+        CompletionInferenceParameters(top_p=UniformDistribution(params=UniformDistributionParams(low=-0.5, high=1.0)))
 
     # Static values should be valid
     with pytest.raises(ValidationError, match=expected_error_msg):
-        InferenceParameters(top_p=1.5)
+        CompletionInferenceParameters(top_p=1.5)
     with pytest.raises(ValidationError, match=expected_error_msg):
-        InferenceParameters(top_p=-0.1)
+        CompletionInferenceParameters(top_p=-0.1)
 
     # Valid top_p values shouldn't raise validation errors
     try:
-        InferenceParameters(top_p=0.1)
-        InferenceParameters(top_p=UniformDistribution(params=UniformDistributionParams(low=0.5, high=1.0)))
-        InferenceParameters(
+        CompletionInferenceParameters(top_p=0.1)
+        CompletionInferenceParameters(top_p=UniformDistribution(params=UniformDistributionParams(low=0.5, high=1.0)))
+        CompletionInferenceParameters(
             top_p=ManualDistribution(params=ManualDistributionParams(values=[0.5, 1.0], weights=[0.5, 0.5]))
         )
     except Exception:
-        pytest.fail("Unexpected exception raised during InferenceParameters top_p validation")
+        pytest.fail("Unexpected exception raised during CompletionInferenceParameters top_p validation")
 
 
 def test_generation_parameters_max_tokens_validation():
@@ -196,15 +202,15 @@ def test_generation_parameters_max_tokens_validation():
         ValidationError,
         match="Input should be greater than or equal to 1",
     ):
-        InferenceParameters(max_tokens=0)
+        CompletionInferenceParameters(max_tokens=0)
 
     # Valid max_tokens values shouldn't raise validation errors
     try:
-        InferenceParameters(max_tokens=128_000)
-        InferenceParameters(max_tokens=4096)
-        InferenceParameters(max_tokens=1)
+        CompletionInferenceParameters(max_tokens=128_000)
+        CompletionInferenceParameters(max_tokens=4096)
+        CompletionInferenceParameters(max_tokens=1)
     except Exception:
-        pytest.fail("Unexpected exception raised during InferenceParameters max_tokens validation")
+        pytest.fail("Unexpected exception raised during CompletionInferenceParameters max_tokens validation")
 
 
 def test_load_model_configs():
@@ -250,4 +256,4 @@ def test_load_model_configs():
 
 def test_model_config_default_construction():
     model_config = ModelConfig(alias="test", model="test")
-    assert model_config.inference_parameters == InferenceParameters()
+    assert model_config.inference_parameters == CompletionInferenceParameters()

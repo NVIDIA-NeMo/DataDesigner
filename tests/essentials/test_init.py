@@ -17,14 +17,17 @@ from data_designer.essentials import (
     CodeLang,
     CodeValidatorParams,
     ColumnInequalityConstraint,
+    CompletionInferenceParameters,
     DataDesignerColumnType,
     DataDesignerConfig,
     DataDesignerConfigBuilder,
     DatastoreSeedDatasetReference,
     DatastoreSettings,
     DatetimeSamplerParams,
+    EmbeddingInferenceParameters,
     ExpressionColumnConfig,
     GaussianSamplerParams,
+    GenerationType,
     ImageContext,
     ImageFormat,
     InferenceParameters,
@@ -109,6 +112,9 @@ def test_model_config_imports():
     assert ImageContext is not None
     assert ImageFormat is not None
     assert InferenceParameters is not None
+    assert CompletionInferenceParameters is not None
+    assert EmbeddingInferenceParameters is not None
+    assert GenerationType is not None
     assert ManualDistribution is not None
     assert ManualDistributionParams is not None
     assert Modality is not None
@@ -232,6 +238,7 @@ def test_all_contains_column_configs():
     assert "Score" in __all__
     assert "SeedDatasetColumnConfig" in __all__
     assert "ValidationColumnConfig" in __all__
+    assert "EmbeddingColumnConfig" in __all__
 
 
 def test_all_contains_sampler_params():
@@ -250,6 +257,8 @@ def test_all_contains_sampler_params():
     assert "TimeDeltaSamplerParams" in __all__
     assert "UniformSamplerParams" in __all__
     assert "UUIDSamplerParams" in __all__
+    assert "PersonFromFakerSamplerParams" in __all__
+    assert "ProcessorType" in __all__
 
 
 def test_all_contains_constraints():
@@ -263,6 +272,9 @@ def test_all_contains_model_configs():
     assert "ImageContext" in __all__
     assert "ImageFormat" in __all__
     assert "InferenceParameters" in __all__
+    assert "CompletionInferenceParameters" in __all__
+    assert "EmbeddingInferenceParameters" in __all__
+    assert "GenerationType" in __all__
     assert "ManualDistribution" in __all__
     assert "ManualDistributionParams" in __all__
     assert "Modality" in __all__

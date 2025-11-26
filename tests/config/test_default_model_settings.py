@@ -18,20 +18,20 @@ from data_designer.config.default_model_settings import (
     get_default_providers,
     resolve_seed_default_model_settings,
 )
-from data_designer.config.models import InferenceParameters
+from data_designer.config.models import CompletionInferenceParameters
 from data_designer.config.utils.visualization import get_nvidia_api_key, get_openai_api_key
 
 
 def test_get_default_inference_parameters():
-    assert get_default_inference_parameters("text") == InferenceParameters(
+    assert get_default_inference_parameters("text") == CompletionInferenceParameters(
         temperature=0.85,
         top_p=0.95,
     )
-    assert get_default_inference_parameters("reasoning") == InferenceParameters(
+    assert get_default_inference_parameters("reasoning") == CompletionInferenceParameters(
         temperature=0.35,
         top_p=0.95,
     )
-    assert get_default_inference_parameters("vision") == InferenceParameters(
+    assert get_default_inference_parameters("vision") == CompletionInferenceParameters(
         temperature=0.85,
         top_p=0.95,
     )

@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 from typing import Any, Literal, Optional
 
-from .models import InferenceParameters, ModelConfig, ModelProvider
+from .models import CompletionInferenceParameters, ModelConfig, ModelProvider
 from .utils.constants import (
     MANAGED_ASSETS_PATH,
     MODEL_CONFIGS_FILE_PATH,
@@ -21,28 +21,30 @@ from .utils.io_helpers import load_config_file, save_config_file
 logger = logging.getLogger(__name__)
 
 
-def get_default_text_alias_inference_parameters() -> InferenceParameters:
-    return InferenceParameters(
+def get_default_text_alias_inference_parameters() -> CompletionInferenceParameters:
+    return CompletionInferenceParameters(
         temperature=0.85,
         top_p=0.95,
     )
 
 
-def get_default_reasoning_alias_inference_parameters() -> InferenceParameters:
-    return InferenceParameters(
+def get_default_reasoning_alias_inference_parameters() -> CompletionInferenceParameters:
+    return CompletionInferenceParameters(
         temperature=0.35,
         top_p=0.95,
     )
 
 
-def get_default_vision_alias_inference_parameters() -> InferenceParameters:
-    return InferenceParameters(
+def get_default_vision_alias_inference_parameters() -> CompletionInferenceParameters:
+    return CompletionInferenceParameters(
         temperature=0.85,
         top_p=0.95,
     )
 
 
-def get_default_inference_parameters(model_alias: Literal["text", "reasoning", "vision"]) -> InferenceParameters:
+def get_default_inference_parameters(
+    model_alias: Literal["text", "reasoning", "vision"],
+) -> CompletionInferenceParameters:
     if model_alias == "reasoning":
         return get_default_reasoning_alias_inference_parameters()
     elif model_alias == "vision":
