@@ -13,9 +13,9 @@ from data_designer.config.column_configs import (
 )
 from data_designer.config.column_types import DataDesignerColumnType
 from data_designer.engine.column_generators.generators.base import ColumnGenerator
-from data_designer.engine.column_generators.generators.embedding_generators import EmbeddingCellGenerator
+from data_designer.engine.column_generators.generators.embedding import EmbeddingCellGenerator
 from data_designer.engine.column_generators.generators.expression import ExpressionColumnGenerator
-from data_designer.engine.column_generators.generators.llm_completion_generators import (
+from data_designer.engine.column_generators.generators.llm_completion import (
     LLMCodeCellGenerator,
     LLMJudgeCellGenerator,
     LLMStructuredCellGenerator,

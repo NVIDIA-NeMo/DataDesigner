@@ -11,7 +11,7 @@ from data_designer.config.column_configs import (
     LLMStructuredColumnConfig,
     LLMTextColumnConfig,
 )
-from data_designer.engine.column_generators.generators.llm_completion_generators import (
+from data_designer.engine.column_generators.generators.llm_completion import (
     DEFAULT_MAX_CONVERSATION_CORRECTION_STEPS,
     DEFAULT_MAX_CONVERSATION_RESTARTS,
     REASONING_TRACE_COLUMN_POSTFIX,
