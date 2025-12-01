@@ -14,6 +14,7 @@ REQUIRED_FIELDS = {"first_name", "last_name", "age", "locale"}
 
 
 PII_FIELDS = [
+    # Core demographic fields
     "uuid",
     "first_name",
     "middle_name",
@@ -22,25 +23,36 @@ PII_FIELDS = [
     "age",
     "birth_date",
     "marital_status",
+    "postcode",
+    "city",
+    "region",
+    "country",
+    "locale",
+    "bachelors_field",
+    "education_level",
+    "education_degree",
+    "occupation",
+    # US-specific fields
     "street_name",
     "street_number",
     "unit",
-    "postcode",
-    "region",
-    "city",
-    "district",
-    "country",
+    "state",
+    "phone_number",
+    # Japan-specific fields
     "area",
+    "prefecture",
     "zone",
-    "bachelors_field",
-    "education_degree",
-    "education_level",
-    "occupation",
-    "locale",
+    # India-specific fields
+    "district",
+    "religion",
+    "first_language",
+    "second_language",
+    "third_language",
 ]
 
 
 PERSONA_FIELDS = [
+    # Core persona fields
     "persona",
     "career_goals_and_ambitions",
     "arts_persona",
@@ -61,4 +73,12 @@ PERSONA_FIELDS = [
     "extraversion",
     "agreeableness",
     "neuroticism",
+    # Japan-specific persona fields
+    "aspects",
+    "digital_skills",
+    # India-specific persona fields
+    "linguistic_persona",
+    "religious_persona",
+    "linguistic_background",
+    "religious_background",
 ]
