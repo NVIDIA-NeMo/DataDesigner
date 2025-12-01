@@ -30,7 +30,6 @@ PII_FIELDS = [
     "locale",
     "bachelors_field",
     "education_level",
-    "education_degree",
     "occupation",
     "national_id",
     # US-specific fields
@@ -38,6 +37,7 @@ PII_FIELDS = [
     "street_number",
     "unit",
     "state",
+    "email_address",
     "phone_number",
     # Japan-specific fields
     "area",
@@ -46,6 +46,7 @@ PII_FIELDS = [
     # India-specific fields
     "district",
     "religion",
+    "education_degree",
     "first_language",
     "second_language",
     "third_language",
