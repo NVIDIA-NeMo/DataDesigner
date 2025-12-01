@@ -49,6 +49,6 @@ class DropColumnsProcessorConfig(ProcessorConfig):
 
 
 class OutputFormatProcessorConfig(ProcessorConfig):
-    template: str = Field(..., description="The template to use for each entry in the dataset, as a single string.")
+    template: str = Field(..., description="The Jinja template to use for each entry in the dataset, as a single string.")
     extension: str = Field(default="jsonl", description="The extension of the output files, e.g. 'jsonl' or 'csv'.")
     processor_type: Literal[ProcessorType.OUTPUT_FORMAT] = ProcessorType.OUTPUT_FORMAT

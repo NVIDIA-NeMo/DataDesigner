@@ -72,12 +72,11 @@ class WithRecordSamplerMixin:
         else:
             raise DatasetSampleDisplayError("No valid dataset found in results object.")
 
-    @cached_property
-    def _processor_artifact_preview(self) -> dict[str, Union[list[str], str]] | None:
-        if hasattr(self, "processor_artifact_preview") and self.processor_artifact_preview is not None:
-            return self.processor_artifact_preview
-        else:
-            return None
+    def _has_processor_artifact_preview(self) -> bool:
+        return (
+            hasattr(self, "processor_artifact_preview")
+            and self.processor_artifact_preview is not None
+        )
 
     def display_sample_record(
         self,
@@ -108,9 +107,9 @@ class WithRecordSamplerMixin:
         except IndexError:
             raise DatasetSampleDisplayError(f"Index {i} is out of bounds for dataset of length {num_records}.")
 
-        if self._processor_artifact_preview is not None and len(self._processor_artifact_preview) > 0:
+        if self._has_processor_artifact_preview() and len(self.processor_artifact_preview) > 0:
             if processors_to_display is None:
-                processors_to_display = list(self._processor_artifact_preview.keys())
+                processors_to_display = list(self.processor_artifact_preview.keys())
 
             if len(processors_to_display) == 0:
                 raise DatasetSampleDisplayError("No processors to display.")
