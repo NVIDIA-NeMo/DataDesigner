@@ -73,10 +73,7 @@ class WithRecordSamplerMixin:
             raise DatasetSampleDisplayError("No valid dataset found in results object.")
 
     def _has_processor_artifact_preview(self) -> bool:
-        return (
-            hasattr(self, "processor_artifact_preview")
-            and self.processor_artifact_preview is not None
-        )
+        return hasattr(self, "processor_artifact_preview") and self.processor_artifact_preview is not None
 
     def display_sample_record(
         self,

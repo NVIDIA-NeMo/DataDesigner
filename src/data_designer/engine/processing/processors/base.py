@@ -17,6 +17,4 @@ class Processor(ConfigurableTask[TaskConfigT], ABC):
 
     @staticmethod
     @abstractmethod
-    def write_outputs_to_disk(
-        processor_config: TaskConfigT, artifacts_path: Path, output_path: Path
-    ) -> None: ...
+    def write_outputs_to_disk(processor_config: TaskConfigT, artifacts_path: Path, output_path: Path) -> None: ...
