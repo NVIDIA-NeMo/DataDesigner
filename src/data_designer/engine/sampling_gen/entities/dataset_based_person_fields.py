@@ -32,6 +32,7 @@ PII_FIELDS = [
     "education_level",
     "education_degree",
     "occupation",
+    "national_id",
     # US-specific fields
     "street_name",
     "street_number",
