@@ -74,6 +74,7 @@ class DatasetCreationResults(WithRecordSamplerMixin):
         output_folder = Path(output_folder)
         output_folder.mkdir(parents=True, exist_ok=True)
 
+        processors = set(processors)
         for processor_config in self._config_builder.get_processor_configs():
             if processor_config.name not in processors:
                 continue
