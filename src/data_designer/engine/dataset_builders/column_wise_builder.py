@@ -17,8 +17,11 @@ from data_designer.config.processors import (
     ProcessorConfig,
     ProcessorType,
 )
-from data_designer.engine.column_generators.generators.base import ColumnGenerator, GenerationStrategy
-from data_designer.engine.column_generators.generators.llm_completion import WithCompletionGeneration
+from data_designer.engine.column_generators.generators.base import (
+    ColumnGenerator,
+    GenerationStrategy,
+    WithModelGeneration,
+)
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError, DatasetProcessingError
 from data_designer.engine.dataset_builders.multi_column_configs import (
@@ -169,7 +172,7 @@ class ColumnWiseDatasetBuilder:
 
     def _run_cell_by_cell_generator(self, generator: ColumnGenerator) -> None:
         max_workers = MAX_CONCURRENCY_PER_NON_LLM_GENERATOR
-        if isinstance(generator, WithCompletionGeneration):
+        if isinstance(generator, WithModelGeneration):
             max_workers = generator.inference_parameters.max_parallel_requests
         self._fan_out_with_threads(generator, max_workers=max_workers)
 
@@ -183,7 +186,7 @@ class ColumnWiseDatasetBuilder:
                 set(config.model_alias for config in self.llm_generated_column_configs)
             )
 
-    def _fan_out_with_threads(self, generator: WithCompletionGeneration, max_workers: int) -> None:
+    def _fan_out_with_threads(self, generator: WithModelGeneration, max_workers: int) -> None:
         if generator.generation_strategy != GenerationStrategy.CELL_BY_CELL:
             raise DatasetGenerationError(
                 f"Generator {generator.metadata().name} is not a {GenerationStrategy.CELL_BY_CELL} "
