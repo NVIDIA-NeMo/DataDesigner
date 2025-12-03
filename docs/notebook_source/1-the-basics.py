@@ -194,7 +194,7 @@ config_builder.add_column(
         sampler_type=SamplerType.CATEGORY,
         params=CategorySamplerParams(values=["18-25", "25-35", "35-50", "50-65", "65+"]),
     )
-)
+
 
 # Optionally validate that the columns are configured correctly.
 config_builder.validate()
