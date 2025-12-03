@@ -20,7 +20,7 @@ jobs:
         with:
           version: "0.9.5"
       - name: Set up Python
-        run: uv python install
+        run: uv python install 3.11
       - name: Convert and execute notebooks
         run: make convert-execute-notebooks
       - name: Upload notebooks as artifacts
