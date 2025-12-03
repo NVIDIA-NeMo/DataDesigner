@@ -83,6 +83,15 @@ test:
 	@echo "🧪 Running unit tests..."
 	uv run --group dev pytest
 
+convert-execute-notebooks:
+	@echo "📓 Converting Python tutorials to notebooks and executing..."
+	@mkdir -p docs/notebooks
+	uv run --group notebooks --group docs jupytext --to md --execute docs/notebook_source/*.py
+	mv docs/notebook_source/*.md docs/notebooks/
+	rm -r docs/notebook_source/artifacts
+	rm docs/notebook_source/*.csv
+	@echo "✅ Notebooks created in docs/notebooks/"
+
 serve-docs-locally:
 	@echo "📝 Building and serving docs..."
 	uv sync --group docs
