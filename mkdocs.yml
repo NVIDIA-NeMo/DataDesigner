@@ -30,6 +30,7 @@ nav:
 
 theme:
   name: material
+  custom_dir: docs/overrides
   font:
     text: Roboto
     code: Fira Code
@@ -76,6 +77,7 @@ plugins:
         execute: false
         include_requirejs: true
         ignore_h1_titles: True
+        include_source: True
   - mkdocstrings:
       handlers:
           python:

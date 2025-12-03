@@ -15,8 +15,6 @@
 # %% [markdown]
 # # 🎨 Data Designer 101: The Basics
 #
-# [Click here](https://raw.githubusercontent.com/NVIDIA-NeMo/DataDesigner/refs/heads/main/docs/notebooks/1-the-basics.ipynb) to download this notebook to your computer.
-#
 # #### 📚 What you'll learn
 #
 # This notebook demonstrates the basics of Data Designer by generating a simple product review dataset.
