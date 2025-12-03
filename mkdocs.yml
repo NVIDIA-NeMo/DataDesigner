@@ -8,14 +8,14 @@ nav:
       - Quick Start: quick-start.md
       - Contributing: CONTRIBUTING.md
   - Concepts:
-      - Columns: concepts/columns.md
-      - Validators: concepts/validators.md
-      - Person Sampling: concepts/person_sampling.md
       - Models:
           - Default Model Settings: concepts/models/default-model-settings.md
           - Configure with the CLI: concepts/models/configure-model-settings-with-the-cli.md
           - Model Providers: concepts/models/model-providers.md
           - Model Configs: concepts/models/model-configs.md
+      - Columns: concepts/columns.md
+      - Validators: concepts/validators.md
+      - Person Sampling: concepts/person_sampling.md
   - Tutorials:
       - Overview: notebooks/README.md
       - The Basics: notebooks/1-the-basics.ipynb
