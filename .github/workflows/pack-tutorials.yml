@@ -1,4 +1,4 @@
-name: Pack Tutorials
+name: Pack tutorials
 
 on:
   workflow_dispatch:
@@ -6,20 +6,26 @@ on:
     types: [published]
 
 jobs:
-  zip_and_upload:
+  build-notebooks:
+    uses: ./.github/workflows/build-notebooks.yml
+    secrets: inherit
+  zip-and-upload:
+    needs: build-notebooks
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Download artifact from previous step
+        uses: actions/download-artifact@v5
+        with:
+          name: notebooks
+          path: data_designer_tutorial
 
       - name: Set up environment variables
         id: env_setup
         run: |
-          echo "SOURCE_FOLDER_PATH=docs/notebooks" >> $GITHUB_ENV
-          echo "TARGET_FOLDER_NAME=data_designer_tutorial" >> $GITHUB_ENV
+          echo "SOURCE_FOLDER_PATH=data_designer_tutorial" >> $GITHUB_ENV
           echo "ZIP_FILE_NAME=data_designer_tutorial.zip" >> $GITHUB_ENV
           
       - name: Check if source folder exists
@@ -29,12 +35,9 @@ jobs:
             exit 1
           fi
 
-      - name: Rename source folder
-        run: mv ${{ env.SOURCE_FOLDER_PATH }} ${{ env.TARGET_FOLDER_NAME }}
-
       - name: Zip the target folder
         run: |
-          zip -r ${{ env.ZIP_FILE_NAME }} ${{ env.TARGET_FOLDER_NAME }}
+          zip -r ${{ env.ZIP_FILE_NAME }} ${{ env.SOURCE_FOLDER_PATH }}
           echo "Successfully created ${{ env.ZIP_FILE_NAME }}"
 
       - name: Find the latest existing release tag

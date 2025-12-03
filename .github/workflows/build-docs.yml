@@ -1,10 +1,10 @@
 name: Build docs
 on:
   push:
-#    branches:
-#      - main
-#    paths:
-#      - 'docs'
+    branches:
+      - main
+    paths:
+      - 'docs/**'
 
 jobs:
   build-notebooks:
@@ -31,7 +31,5 @@ jobs:
         with:
           name: notebooks
           path: docs/notebooks
-      - name: Check if notebooks were downloaded
-        run: ls -la docs/notebooks
-#      - name: Build and deploy docs
-#        run: uv run mkdocs gh-deploy --force --clean --verbose
+      - name: Build and deploy docs
+        run: uv run mkdocs gh-deploy --force --clean --verbose
