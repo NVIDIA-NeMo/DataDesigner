@@ -7,6 +7,8 @@ on:
 #      - 'docs'
 
 jobs:
+  build-notebooks:
+    uses: ./.github/workflows/build-notebooks.yml
   deploy:
     runs-on: ubuntu-latest
     permissions:
@@ -22,8 +24,6 @@ jobs:
         run: uv python install
       - name: Install dependencies for docs
         run: uv sync --group docs
-      - name: Build notebooks and upload artifact
-        uses: ./.github/workflows/build-notebooks.yml
       - name: Download artifact from previous step
         uses: actions/download-artifact@v5
         with:
