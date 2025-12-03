@@ -179,12 +179,10 @@ jsonl_entry_template = {
     ],
 }
 
-template_as_str = json.dumps(jsonl_entry_template)
 config_builder.add_processor(
-    OutputFormatProcessorConfig(
+    AncillaryDatasetProcessor(
         name="jsonl_output",
-        template=template_as_str,
-        extension="jsonl",
+        template=jsonl_entry_template,
     )
 )
 
@@ -196,7 +194,5 @@ preview = dd.preview(config_builder, num_records=10)
 preview.display_sample_record()
 
 results = dd.create(config_builder, num_records=20)
-results.write_processors_outputs_to_disk(
-    processors=["jsonl_output"],
-    output_folder="./processors_outputs",
-)
+jsonl_output = results.load_processor_artifact("jsonl_output")
+pd.read_parquet(jsonl_output.path_to_parquet_files).to_jsonl(desired_path, lines=True)
