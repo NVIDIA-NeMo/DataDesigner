@@ -1,4 +1,4 @@
-# 📓 Notebooks in Jupytext Format
+# 📓 Notebooks in `.py` Format
 
 In this folder you can find all our tutorial notebooks in `.py` format. They can be converted to actual Jupyter notebooks by typing
 
@@ -14,7 +14,7 @@ Alternatively, you can use Jupytext directly
 uv run --group notebooks --group docs jupytext --to ipynb *.py
 ```
 
-## 🔄 Converting Jupyter noteboooks to `.py`
+## 🔄 Converting Jupyter notebooks to `.py`
 
 If you want to contribute with your own notebook, you can use the following command to generate `.py` files in the same format as the ones in this folder:
 
