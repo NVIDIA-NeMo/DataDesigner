@@ -15,8 +15,6 @@
 # %% [markdown]
 # # 🎨 Data Designer 101: Seeding Synthetic Data Generation with an External Dataset
 #
-# [Click here](https://raw.githubusercontent.com/NVIDIA-NeMo/DataDesigner/refs/heads/main/docs/notebooks/3-seeding-with-a-dataset.ipynb) to download this notebook to your computer.
-#
 # #### 📚 What you'll learn
 #
 # In this notebook, we will demonstrate how to seed synthetic data generation in Data Designer with an external dataset.

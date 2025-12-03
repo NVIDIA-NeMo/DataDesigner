@@ -15,8 +15,6 @@
 # %% [markdown]
 # # 🎨 Data Designer 101: Structured Outputs and Jinja Expressions
 #
-# [Click here](https://raw.githubusercontent.com/NVIDIA-NeMo/DataDesigner/refs/heads/main/docs/notebooks/2-structured-outputs-and-jinja-expressions.ipynb) to download this notebook to your computer.
-#
 # #### 📚 What you'll learn
 #
 # In this notebook, we will continue our exploration of Data Designer, demonstrating more advanced data generation using structured outputs and Jinja expressions.
