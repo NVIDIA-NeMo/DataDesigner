@@ -23,7 +23,7 @@ jobs:
       - name: Install dependencies for docs
         run: uv sync --group docs
       - name: Build notebooks and upload artifact
-        uses: ./github/workflows/build-notebooks.yml
+        uses: ./.github/workflows/build-notebooks.yml
       - name: Download artifact from previous step
         uses: actions/download-artifact@v5
         with:
