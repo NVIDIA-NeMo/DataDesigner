@@ -13,7 +13,7 @@
 # ---
 
 # %% [markdown]
-# # 🎨 Data Designer 101: Providing Images as Context for Multi-Modal Synthetic Data Generation
+# # 🎨 Data Designer Tutorial: Providing Images as Context for Multi-Modal Synthetic Data Generation
 
 # %% [markdown]
 # #### 📚 What you'll learn
@@ -23,6 +23,9 @@
 # - ✨ **Visual Document Processing**: Converting images to chat-ready format
 # - 🏗️ **Structured Output Generation**: Using Pydantic models for consistent data schemas
 # - 🎯 **Multi-step Generation Pipeline**: Summary → Question → Answer generation workflow
+#
+# If this is your first time using Data Designer, we recommend starting with the [first notebook](/notebooks/1-the-basics/) in this tutorial series.
+#
 
 # %% [markdown]
 # ### ⬇️ Install dependencies (if required)

@@ -13,13 +13,13 @@
 # ---
 
 # %% [markdown]
-# # 🎨 Data Designer 101: Seeding Synthetic Data Generation with an External Dataset
+# # 🎨 Data Designer Tutorial: Seeding Synthetic Data Generation with an External Dataset
 #
 # #### 📚 What you'll learn
 #
 # In this notebook, we will demonstrate how to seed synthetic data generation in Data Designer with an external dataset.
 #
-# If this is your first time using Data Designer, we recommend starting with the [first notebook](/notebooks/1-the-basics/) in this 101 series.
+# If this is your first time using Data Designer, we recommend starting with the [first notebook](/notebooks/1-the-basics/) in this tutorial series.
 #
 
 # %% [markdown]

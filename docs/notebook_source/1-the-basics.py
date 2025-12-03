@@ -13,7 +13,7 @@
 # ---
 
 # %% [markdown]
-# # 🎨 Data Designer 101: The Basics
+# # 🎨 Data Designer Tutorial: The Basics
 #
 # #### 📚 What you'll learn
 #

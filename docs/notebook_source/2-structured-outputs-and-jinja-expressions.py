@@ -13,13 +13,13 @@
 # ---
 
 # %% [markdown]
-# # 🎨 Data Designer 101: Structured Outputs and Jinja Expressions
+# # 🎨 Data Designer Tutorial: Structured Outputs and Jinja Expressions
 #
 # #### 📚 What you'll learn
 #
 # In this notebook, we will continue our exploration of Data Designer, demonstrating more advanced data generation using structured outputs and Jinja expressions.
 #
-# If this is your first time using Data Designer, we recommend starting with the [first notebook](/notebooks/1-the-basics/) in this 101 series.
+# If this is your first time using Data Designer, we recommend starting with the [first notebook](/notebooks/1-the-basics/) in this tutorial series.
 #
 
 # %% [markdown]
