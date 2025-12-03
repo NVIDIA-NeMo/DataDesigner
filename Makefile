@@ -86,8 +86,9 @@ test:
 convert-execute-notebooks:
 	@echo "📓 Converting Python tutorials to notebooks and executing..."
 	@mkdir -p docs/notebooks
-	uv run --group notebooks --group docs jupytext --to md --execute docs/notebook_source/*.py
-	mv docs/notebook_source/*.md docs/notebooks/
+	cp docs/notebook_source/README.md docs/notebook_source/pyproject.toml docs/notebooks/
+	uv run --group notebooks --group docs jupytext --to ipynb --execute docs/notebook_source/*.py
+	mv docs/notebook_source/*.ipynb docs/notebooks/
 	rm -r docs/notebook_source/artifacts
 	rm docs/notebook_source/*.csv
 	@echo "✅ Notebooks created in docs/notebooks/"

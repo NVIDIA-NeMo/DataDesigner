@@ -87,4 +87,4 @@ src/data_designer/_version.py
 
 .claude/
 
-docs/examples/artifacts/
+docs/notebooks/
