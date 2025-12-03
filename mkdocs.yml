@@ -11,11 +11,11 @@ nav:
       - Columns: concepts/columns.md
       - Validators: concepts/validators.md
       - Person Sampling: concepts/person_sampling.md
-  - Models:
-      - Default Model Settings: models/default-model-settings.md
-      - Configure with the CLI: models/configure-model-settings-with-the-cli.md
-      - Model Providers: models/model-providers.md
-      - Model Configs: models/model-configs.md
+      - Models:
+          - Default Model Settings: concepts/models/default-model-settings.md
+          - Configure with the CLI: concepts/models/configure-model-settings-with-the-cli.md
+          - Model Providers: concepts/models/model-providers.md
+          - Model Configs: concepts/models/model-configs.md
   - Tutorials:
       - Overview: notebooks/README.md
       - The Basics: notebooks/1-the-basics.ipynb
@@ -52,7 +52,6 @@ theme:
             name: Switch to dark mode
   features:
       - navigation.tabs
-      - navigation.sections
       - navigation.expand
       - navigation.path
       - content.code.copy

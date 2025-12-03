@@ -48,7 +48,7 @@ export NVIDIA_API_KEY="your-api-key-here"
 export OPENAI_API_KEY="your-api-key-here"
 ```
 
-For more information, check the [Quick Start](../quick-start.md), [Default Model Settings](../models/default-model-settings.md) and how to [Configure Model Settings Using The CLI](../models/configure-model-settings-with-the-cli.md).
+For more information, check the [Quick Start](../quick-start.md), [Default Model Settings](../concepts/models/default-model-settings.md) and how to [Configure Model Settings Using The CLI](../concepts/models/configure-model-settings-with-the-cli.md).
 
 ## 📚 Tutorial Series
 

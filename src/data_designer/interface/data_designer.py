@@ -323,7 +323,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
                         "🚨 You are trying to use a default model provider but your API keys are missing."
                         "\n\t\t\tSet the API key for the default providers you intend to use and re-initialize the Data Designer object."
                         "\n\t\t\tAlternatively, you can provide your own model providers during Data Designer object initialization."
-                        "\n\t\t\tSee https://nvidia-nemo.github.io/DataDesigner/models/model-providers/ for more information."
+                        "\n\t\t\tSee https://nvidia-nemo.github.io/DataDesigner/concepts/models/model-providers/ for more information."
                     )
                     self._get_interface_info(model_providers).display(InfoType.MODEL_PROVIDERS)
                 return model_providers

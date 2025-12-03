@@ -25,7 +25,7 @@ Data Designer helps you create datasets through an intuitive, **iterative** proc
 1.  **⚙️ Configure** your model settings
     - Bring your own OpenAI-compatible model providers and models
     - Or use the default model providers and models to get started quickly
-    - Learn more by reading the [model docs](models/default-model-settings.md)
+    - Learn more by reading the [model docs](concepts/models/default-model-settings.md)
 2.  **🏗️ Design** your dataset
     - Iteratively design your dataset, column by column
     - Leverage tools like statistical samplers and LLMs to generate a variety of data types

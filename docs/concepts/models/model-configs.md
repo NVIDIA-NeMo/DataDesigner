@@ -241,4 +241,4 @@ model_config = ModelConfig(
 - **[Model Providers](model-providers.md)**: Learn about configuring model providers
 - **[Default Model Settings](default-model-settings.md)**: Pre-configured model settings included with Data Designer
 - **[Configure Model Settings With the CLI](configure-model-settings-with-the-cli.md)**: Use the CLI to manage model settings
-- **[Column Configurations](../code_reference/column_configs.md)**: Learn how to use models in column configurations
+- **[Column Configurations](../../code_reference/column_configs.md)**: Learn how to use models in column configurations
