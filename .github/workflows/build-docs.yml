@@ -9,7 +9,9 @@ on:
 jobs:
   build-notebooks:
     uses: ./.github/workflows/build-notebooks.yml
+    secrets: inherit
   deploy:
+    needs: build-notebooks
     runs-on: ubuntu-latest
     permissions:
       contents: write
