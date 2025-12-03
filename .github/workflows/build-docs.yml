@@ -30,7 +30,8 @@ jobs:
         uses: actions/download-artifact@v5
         with:
           name: notebooks
+          path: docs/notebooks
       - name: Check if notebooks were downloaded
-        run: ls -la
+        run: ls -la docs/notebooks
 #      - name: Build and deploy docs
 #        run: uv run mkdocs gh-deploy --force --clean --verbose
