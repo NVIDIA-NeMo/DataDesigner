@@ -1,18 +1,34 @@
-name: build_docs
+name: Build docs
 on:
   push:
-    branches:
-      - main
+#    branches:
+#      - main
+#    paths:
+#      - 'docs'
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v2
-      - uses: astral-sh/setup-uv@v6
+      - name: Checkout repository
+        uses: actions/checkout@v2
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
         with:
           version: "0.9.5"
-      - run: uv python install
-      - run: uv sync --group docs
-      - run: uv run mkdocs gh-deploy --force --clean --verbose
+      - name: Set up Python
+        run: uv python install
+      - name: Install dependencies for docs
+        run: uv sync --group docs
+      - name: Build notebooks and upload artifact
+        uses: ./github/workflows/build-notebooks.yml
+      - name: Download artifact from previous step
+        uses: actions/download-artifact@v5
+        with:
+          name: notebooks
+      - name: Test if notebooks were downloaded
+        run: ls -la docs/notebooks
+#      - name: Build and deploy docs
+#        run: uv run mkdocs gh-deploy --force --clean --verbose
