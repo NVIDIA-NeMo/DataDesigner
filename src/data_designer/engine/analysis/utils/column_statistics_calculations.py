@@ -23,7 +23,7 @@ from data_designer.config.column_configs import (
     SingleColumnConfig,
     ValidationColumnConfig,
 )
-from data_designer.engine.column_generators.generators.llm_generators import (
+from data_designer.engine.column_generators.utils.prompt_renderer import (
     PromptType,
     RecordBasedPromptRenderer,
     create_response_recipe,

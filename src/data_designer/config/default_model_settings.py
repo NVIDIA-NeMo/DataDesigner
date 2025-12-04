@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 from typing import Any, Literal, Optional
 
-from .models import InferenceParameters, ModelConfig, ModelProvider
+from .models import CompletionInferenceParameters, ModelConfig, ModelProvider
 from .utils.constants import (
     MANAGED_ASSETS_PATH,
     MODEL_CONFIGS_FILE_PATH,
@@ -21,28 +21,30 @@ from .utils.io_helpers import load_config_file, save_config_file
 logger = logging.getLogger(__name__)
 
 
-def get_default_text_alias_inference_parameters() -> InferenceParameters:
-    return InferenceParameters(
+def get_default_text_alias_inference_parameters() -> CompletionInferenceParameters:
+    return CompletionInferenceParameters(
         temperature=0.85,
         top_p=0.95,
     )
 
 
-def get_default_reasoning_alias_inference_parameters() -> InferenceParameters:
-    return InferenceParameters(
+def get_default_reasoning_alias_inference_parameters() -> CompletionInferenceParameters:
+    return CompletionInferenceParameters(
         temperature=0.35,
         top_p=0.95,
     )
 
 
-def get_default_vision_alias_inference_parameters() -> InferenceParameters:
-    return InferenceParameters(
+def get_default_vision_alias_inference_parameters() -> CompletionInferenceParameters:
+    return CompletionInferenceParameters(
         temperature=0.85,
         top_p=0.95,
     )
 
 
-def get_default_inference_parameters(model_alias: Literal["text", "reasoning", "vision"]) -> InferenceParameters:
+def get_default_inference_parameters(
+    model_alias: Literal["text", "reasoning", "vision"],
+) -> CompletionInferenceParameters:
     if model_alias == "reasoning":
         return get_default_reasoning_alias_inference_parameters()
     elif model_alias == "vision":
@@ -103,7 +105,8 @@ def resolve_seed_default_model_settings() -> None:
             f"🍾 Default model configs were not found, so writing the following to {str(MODEL_CONFIGS_FILE_PATH)!r}"
         )
         save_config_file(
-            MODEL_CONFIGS_FILE_PATH, {"model_configs": [mc.model_dump() for mc in get_builtin_model_configs()]}
+            MODEL_CONFIGS_FILE_PATH,
+            {"model_configs": [mc.model_dump(mode="json") for mc in get_builtin_model_configs()]},
         )
 
     if not MODEL_PROVIDERS_FILE_PATH.exists():
@@ -111,7 +114,7 @@ def resolve_seed_default_model_settings() -> None:
             f"🪄  Default model providers were not found, so writing the following to {str(MODEL_PROVIDERS_FILE_PATH)!r}"
         )
         save_config_file(
-            MODEL_PROVIDERS_FILE_PATH, {"providers": [p.model_dump() for p in get_builtin_model_providers()]}
+            MODEL_PROVIDERS_FILE_PATH, {"providers": [p.model_dump(mode="json") for p in get_builtin_model_providers()]}
         )
 
     if not MANAGED_ASSETS_PATH.exists():

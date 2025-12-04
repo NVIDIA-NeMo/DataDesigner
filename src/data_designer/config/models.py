@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from enum import Enum
 import logging
 from pathlib import Path
-from typing import Any, Generic, List, Optional, TypeVar, Union
+from typing import Any, Generic, List, Literal, Optional, TypeVar, Union
 
 import numpy as np
 from pydantic import BaseModel, Field, model_validator
@@ -136,17 +136,29 @@ class UniformDistribution(Distribution[UniformDistributionParams]):
 DistributionT: TypeAlias = Union[UniformDistribution, ManualDistribution]
 
 
-class InferenceParameters(ConfigBase):
-    temperature: Optional[Union[float, DistributionT]] = None
-    top_p: Optional[Union[float, DistributionT]] = None
-    max_tokens: Optional[int] = Field(default=None, ge=1)
+class BaseInferenceParameters(ConfigBase, ABC):
     max_parallel_requests: int = Field(default=4, ge=1)
     timeout: Optional[int] = Field(default=None, ge=1)
     extra_body: Optional[dict[str, Any]] = None
 
     @property
-    def generate_kwargs(self) -> dict[str, Union[float, int]]:
+    def generate_kwargs(self) -> dict[str, Any]:
         result = {}
+        if self.timeout is not None:
+            result["timeout"] = self.timeout
+        if self.extra_body is not None and self.extra_body != {}:
+            result["extra_body"] = self.extra_body
+        return result
+
+
+class CompletionInferenceParameters(BaseInferenceParameters):
+    temperature: Optional[Union[float, DistributionT]] = None
+    top_p: Optional[Union[float, DistributionT]] = None
+    max_tokens: Optional[int] = Field(default=None, ge=1)
+
+    @property
+    def generate_kwargs(self) -> dict[str, Any]:
+        result = super().generate_kwargs
         if self.temperature is not None:
             result["temperature"] = (
                 self.temperature.sample() if hasattr(self.temperature, "sample") else self.temperature
@@ -155,10 +167,6 @@ class InferenceParameters(ConfigBase):
             result["top_p"] = self.top_p.sample() if hasattr(self.top_p, "sample") else self.top_p
         if self.max_tokens is not None:
             result["max_tokens"] = self.max_tokens
-        if self.timeout is not None:
-            result["timeout"] = self.timeout
-        if self.extra_body is not None and self.extra_body != {}:
-            result["extra_body"] = self.extra_body
         return result
 
     @model_validator(mode="after")
@@ -205,11 +213,88 @@ class InferenceParameters(ConfigBase):
         return min_value <= value <= max_value
 
 
+# Maintain backwards compatibility with a deprecation warning
+class InferenceParameters(CompletionInferenceParameters):
+    """
+    Deprecated: Use CompletionInferenceParameters instead.
+    This alias will be removed in a future version.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        logger.warning(
+            "InferenceParameters is deprecated and will be removed in a future version. "
+            "Use CompletionInferenceParameters instead."
+        )
+        super().__init__(*args, **kwargs)
+
+
+class EmbeddingInferenceParameters(BaseInferenceParameters):
+    encoding_format: Optional[Literal["float", "base64"]] = None
+    dimensions: Optional[int] = None
+
+    @property
+    def generate_kwargs(self) -> dict[str, Union[float, int]]:
+        result = super().generate_kwargs
+        if self.encoding_format is not None:
+            result["encoding_format"] = self.encoding_format
+        if self.dimensions is not None:
+            result["dimensions"] = self.dimensions
+        return result
+
+
+class ImageGenerationInferenceParameters(BaseInferenceParameters):
+    quality: str
+    size: str
+    output_format: Optional[ModalityDataType] = ModalityDataType.BASE64
+
+    @property
+    def generate_kwargs(self) -> dict[str, Any]:
+        result = super().generate_kwargs
+        result["size"] = self.size
+        result["quality"] = self.quality
+        result["response_format"] = "b64_json" if self.output_format == ModalityDataType.BASE64 else self.output_format
+        return result
+
+
+InferenceParametersT: TypeAlias = Union[
+    InferenceParameters, CompletionInferenceParameters, EmbeddingInferenceParameters, ImageGenerationInferenceParameters
+]
+
+
+class GenerationType(str, Enum):
+    CHAT_COMPLETION = "chat-completion"
+    EMBEDDING = "embedding"
+    IMAGE_GENERATION = "image-generation"
+
+
 class ModelConfig(ConfigBase):
     alias: str
     model: str
-    inference_parameters: InferenceParameters = Field(default_factory=InferenceParameters)
+    inference_parameters: InferenceParametersT = Field(default_factory=CompletionInferenceParameters)
+    generation_type: Optional[GenerationType] = Field(default=GenerationType.CHAT_COMPLETION)
     provider: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _normalize_deprecated_inference_parameters(self) -> Self:
+        """Normalize deprecated InferenceParameters to CompletionInferenceParameters."""
+        if isinstance(self.inference_parameters, InferenceParameters):
+            self.inference_parameters = CompletionInferenceParameters(**self.inference_parameters.model_dump())
+        return self
+
+    @model_validator(mode="after")
+    def _validate_generation_type(self) -> Self:
+        generation_type_instance_map = {
+            GenerationType.CHAT_COMPLETION: CompletionInferenceParameters,
+            GenerationType.EMBEDDING: EmbeddingInferenceParameters,
+            GenerationType.IMAGE_GENERATION: ImageGenerationInferenceParameters,
+        }
+        if self.generation_type not in generation_type_instance_map:
+            raise ValueError(f"Invalid generation type: {self.generation_type}")
+        if not isinstance(self.inference_parameters, generation_type_instance_map[self.generation_type]):
+            raise ValueError(
+                f"Inference parameters must be an instance of {generation_type_instance_map[self.generation_type].__name__!r} when generation_type is {self.generation_type!r}"
+            )
+        return self
 
 
 class ModelProvider(ConfigBase):

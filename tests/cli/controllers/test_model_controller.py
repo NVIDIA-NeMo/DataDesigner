@@ -9,7 +9,7 @@ import pytest
 from data_designer.cli.controllers.model_controller import ModelController
 from data_designer.cli.repositories.model_repository import ModelConfigRegistry
 from data_designer.cli.repositories.provider_repository import ModelProviderRegistry, ProviderRepository
-from data_designer.config.models import InferenceParameters, ModelConfig
+from data_designer.config.models import CompletionInferenceParameters, ModelConfig
 
 
 @pytest.fixture
@@ -141,7 +141,7 @@ def test_run_updates_model(
         alias="test-alias-1-updated",
         model="test-model-1-updated",
         provider="test-provider-1",
-        inference_parameters=InferenceParameters(temperature=0.8, top_p=0.95, max_tokens=1024),
+        inference_parameters=CompletionInferenceParameters(temperature=0.8, top_p=0.95, max_tokens=1024),
     )
 
     mock_builder = MagicMock()
