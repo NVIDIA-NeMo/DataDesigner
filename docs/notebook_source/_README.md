@@ -85,6 +85,16 @@ Learn how to leverage existing datasets to guide synthetic data generation:
 - Combining seed data with LLM generation
 - Creating realistic synthetic data based on existing patterns
 
+### [4. Providing Images as Context](4-providing-images-as-context.ipynb)
+
+Explore multi-modal synthetic data generation using visual documents:
+
+- Processing and converting images for model consumption
+- Using vision-language models (VLMs) with image context
+- Building multi-step generation pipelines (Summary → Question → Answer)
+- Combining image context with structured outputs
+- Creating visual question-answering datasets from documents
+
 ## 📖 Important Documentation Sections
 
 Before diving into the tutorials, familiarize yourself with these key documentation sections:
