@@ -239,10 +239,10 @@ config_builder.add_column(
 #
 
 # %%
-preview = data_designer.preview(config_builder)
+preview = data_designer.preview(config_builder, num_records=2)
 
 # %%
-# Run this cell multiple times to cycle through the 10 preview records.
+# Run this cell multiple times to cycle through the 2 preview records.
 preview.display_sample_record()
 
 # %%
@@ -293,7 +293,7 @@ rich.print(Panel(record.summary, title="Document Summary", title_align="left"))
 #
 
 # %%
-results = data_designer.create(config_builder, num_records=20)
+results = data_designer.create(config_builder, num_records=10)
 
 # %%
 # Load the generated dataset as a pandas DataFrame.

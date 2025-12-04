@@ -330,10 +330,10 @@ config_builder.validate()
 #
 
 # %%
-preview = data_designer_client.preview(config_builder)
+preview = data_designer_client.preview(config_builder, num_records=2)
 
 # %%
-# Run this cell multiple times to cycle through the 10 preview records.
+# Run this cell multiple times to cycle through the 2 preview records.
 preview.display_sample_record()
 
 # %%
@@ -361,7 +361,7 @@ preview.analysis.to_report()
 #
 
 # %%
-job_results = data_designer_client.create(config_builder, num_records=20)
+job_results = data_designer_client.create(config_builder, num_records=10)
 
 # %%
 # Load the generated dataset as a pandas DataFrame.
