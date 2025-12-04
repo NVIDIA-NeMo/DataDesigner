@@ -87,13 +87,12 @@ Learn how to leverage existing datasets to guide synthetic data generation:
 
 ### [4. Providing Images as Context](4-providing-images-as-context.ipynb)
 
-Explore multi-modal synthetic data generation using visual documents:
+Learn how to use vision-language models to generate text descriptions from images:
 
-- Processing and converting images for model consumption
-- Using vision-language models (VLMs) with image context
-- Building multi-step generation pipelines (Summary → Question → Answer)
-- Combining image context with structured outputs
-- Creating visual question-answering datasets from documents
+- Processing and converting images to base64 format for model consumption
+- Using vision-language models (VLMs) to analyze visual documents
+- Generating detailed summaries from document images
+- Inspecting and validating vision-based generation results
 
 ## 📖 Important Documentation Sections
 
