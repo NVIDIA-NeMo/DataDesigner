@@ -43,7 +43,7 @@ def assert_valid_jinja2_template(template: str) -> None:
 def can_run_data_designer_locally() -> bool:
     """Returns True if Data Designer can be run locally, False otherwise."""
     try:
-        from data_designer import engine  # noqa: F401
+        from ... import engine  # noqa: F401
     except ImportError:
         return False
     return True
