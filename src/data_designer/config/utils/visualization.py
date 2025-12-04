@@ -21,16 +21,16 @@ from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 
-from ..base import ConfigBase
-from ..column_types import DataDesignerColumnType
-from ..models import ModelConfig, ModelProvider
-from ..sampler_params import SamplerType
-from .code_lang import code_lang_to_syntax_lexer
-from .constants import NVIDIA_API_KEY_ENV_VAR_NAME, OPENAI_API_KEY_ENV_VAR_NAME
-from .errors import DatasetSampleDisplayError
+from data_designer.config.base import ConfigBase
+from data_designer.config.column_types import DataDesignerColumnType
+from data_designer.config.models import ModelConfig, ModelProvider
+from data_designer.config.sampler_params import SamplerType
+from data_designer.config.utils.code_lang import code_lang_to_syntax_lexer
+from data_designer.config.utils.constants import NVIDIA_API_KEY_ENV_VAR_NAME, OPENAI_API_KEY_ENV_VAR_NAME
+from data_designer.config.utils.errors import DatasetSampleDisplayError
 
 if TYPE_CHECKING:
-    from ..config_builder import DataDesignerConfigBuilder
+    from data_designer.config.config_builder import DataDesignerConfigBuilder
 
 
 console = Console()

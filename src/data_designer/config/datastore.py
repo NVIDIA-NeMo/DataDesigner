@@ -12,11 +12,11 @@ import pandas as pd
 import pyarrow.parquet as pq
 from pydantic import BaseModel, Field
 
-from .errors import InvalidConfigError, InvalidFileFormatError, InvalidFilePathError
-from .utils.io_helpers import VALID_DATASET_FILE_EXTENSIONS, validate_path_contains_files_of_type
+from data_designer.config.errors import InvalidConfigError, InvalidFileFormatError, InvalidFilePathError
+from data_designer.config.utils.io_helpers import VALID_DATASET_FILE_EXTENSIONS, validate_path_contains_files_of_type
 
 if TYPE_CHECKING:
-    from .seed import SeedDatasetReference
+    from data_designer.config.seed import SeedDatasetReference
 
 logger = logging.getLogger(__name__)
 

@@ -3,7 +3,7 @@
 
 from pydantic import BaseModel, Field
 
-from ..errors import DataDesignerError
+from data_designer.errors import DataDesignerError
 
 
 class DataDesignerRuntimeError(DataDesignerError): ...

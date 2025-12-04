@@ -7,9 +7,9 @@ from typing import Optional
 
 import pandas as pd
 
-from .analysis.dataset_profiler import DatasetProfilerResults
-from .config_builder import DataDesignerConfigBuilder
-from .utils.visualization import WithRecordSamplerMixin
+from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
+from data_designer.config.config_builder import DataDesignerConfigBuilder
+from data_designer.config.utils.visualization import WithRecordSamplerMixin
 
 
 class PreviewResults(WithRecordSamplerMixin):

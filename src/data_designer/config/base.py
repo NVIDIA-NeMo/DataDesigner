@@ -9,7 +9,7 @@ from typing import Any, Optional, Union
 from pydantic import BaseModel, ConfigDict
 import yaml
 
-from .utils.io_helpers import serialize_data
+from data_designer.config.utils.io_helpers import serialize_data
 
 
 class ConfigBase(BaseModel):

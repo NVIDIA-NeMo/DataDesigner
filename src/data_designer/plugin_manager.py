@@ -6,7 +6,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import TYPE_CHECKING, Type, TypeAlias
 
-from .config.utils.misc import can_run_data_designer_locally
+from data_designer.config.utils.misc import can_run_data_designer_locally
 
 if TYPE_CHECKING:
     from data_designer.plugins.plugin import Plugin

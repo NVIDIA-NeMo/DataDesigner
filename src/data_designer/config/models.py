@@ -11,15 +11,15 @@ import numpy as np
 from pydantic import BaseModel, Field, model_validator
 from typing_extensions import Self, TypeAlias
 
-from .base import ConfigBase
-from .errors import InvalidConfigError
-from .utils.constants import (
+from data_designer.config.base import ConfigBase
+from data_designer.config.errors import InvalidConfigError
+from data_designer.config.utils.constants import (
     MAX_TEMPERATURE,
     MAX_TOP_P,
     MIN_TEMPERATURE,
     MIN_TOP_P,
 )
-from .utils.io_helpers import smart_load_yaml
+from data_designer.config.utils.io_helpers import smart_load_yaml
 
 logger = logging.getLogger(__name__)
 

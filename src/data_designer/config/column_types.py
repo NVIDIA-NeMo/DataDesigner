@@ -5,8 +5,7 @@ from typing import Union
 
 from typing_extensions import TypeAlias
 
-from ..plugin_manager import PluginManager
-from .column_configs import (
+from data_designer.config.column_configs import (
     ExpressionColumnConfig,
     LLMCodeColumnConfig,
     LLMJudgeColumnConfig,
@@ -16,9 +15,14 @@ from .column_configs import (
     SeedDatasetColumnConfig,
     ValidationColumnConfig,
 )
-from .errors import InvalidColumnTypeError, InvalidConfigError
-from .sampler_params import SamplerType
-from .utils.type_helpers import SAMPLER_PARAMS, create_str_enum_from_discriminated_type_union, resolve_string_enum
+from data_designer.config.errors import InvalidColumnTypeError, InvalidConfigError
+from data_designer.config.sampler_params import SamplerType
+from data_designer.config.utils.type_helpers import (
+    SAMPLER_PARAMS,
+    create_str_enum_from_discriminated_type_union,
+    resolve_string_enum,
+)
+from data_designer.plugin_manager import PluginManager
 
 plugin_manager = PluginManager()
 

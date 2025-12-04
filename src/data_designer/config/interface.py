@@ -8,14 +8,14 @@ from typing import TYPE_CHECKING, Generic, Protocol, TypeVar
 
 import pandas as pd
 
-from .models import ModelConfig, ModelProvider
-from .utils.constants import DEFAULT_NUM_RECORDS
-from .utils.info import InterfaceInfo
+from data_designer.config.models import ModelConfig, ModelProvider
+from data_designer.config.utils.constants import DEFAULT_NUM_RECORDS
+from data_designer.config.utils.info import InterfaceInfo
 
 if TYPE_CHECKING:
-    from .analysis.dataset_profiler import DatasetProfilerResults
-    from .config_builder import DataDesignerConfigBuilder
-    from .preview_results import PreviewResults
+    from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
+    from data_designer.config.config_builder import DataDesignerConfigBuilder
+    from data_designer.config.preview_results import PreviewResults
 
 
 class ResultsProtocol(Protocol):

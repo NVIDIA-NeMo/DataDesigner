@@ -7,12 +7,12 @@ from typing import Annotated, Optional, Union
 
 from pydantic import BaseModel, Field, field_validator
 
-from ..column_types import DataDesignerColumnType, get_column_display_order
-from ..utils.constants import EPSILON
-from ..utils.numerical_helpers import prepare_number_for_reporting
-from .column_profilers import ColumnProfilerResultsT
-from .column_statistics import ColumnStatisticsT
-from .utils.reporting import ReportSection, generate_analysis_report
+from data_designer.config.analysis.column_profilers import ColumnProfilerResultsT
+from data_designer.config.analysis.column_statistics import ColumnStatisticsT
+from data_designer.config.analysis.utils.reporting import ReportSection, generate_analysis_report
+from data_designer.config.column_types import DataDesignerColumnType, get_column_display_order
+from data_designer.config.utils.constants import EPSILON
+from data_designer.config.utils.numerical_helpers import prepare_number_for_reporting
 
 
 class DatasetProfilerResults(BaseModel):

@@ -15,11 +15,11 @@ from rich.console import Console, Group
 from rich.padding import Padding
 from rich.panel import Panel
 
-from ..column_types import ColumnConfigT, DataDesignerColumnType, column_type_is_llm_generated
-from ..processors import ProcessorConfig, ProcessorType
-from ..validator_params import ValidatorType
-from .constants import RICH_CONSOLE_THEME
-from .misc import can_run_data_designer_locally
+from data_designer.config.column_types import ColumnConfigT, DataDesignerColumnType, column_type_is_llm_generated
+from data_designer.config.processors import ProcessorConfig, ProcessorType
+from data_designer.config.utils.constants import RICH_CONSOLE_THEME
+from data_designer.config.utils.misc import can_run_data_designer_locally
+from data_designer.config.validator_params import ValidatorType
 
 
 class ViolationType(str, Enum):

@@ -1,11 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-from ..logging import LoggingConfig, configure_logging
+from data_designer.logging import LoggingConfig, configure_logging
 
 configure_logging(LoggingConfig.default())
 
-from ..config.analysis.column_profilers import JudgeScoreProfilerConfig
-from ..config.column_configs import (
+from data_designer.config.analysis.column_profilers import JudgeScoreProfilerConfig
+from data_designer.config.column_configs import (
     ExpressionColumnConfig,
     LLMCodeColumnConfig,
     LLMJudgeColumnConfig,
@@ -16,12 +16,12 @@ from ..config.column_configs import (
     SeedDatasetColumnConfig,
     ValidationColumnConfig,
 )
-from ..config.column_types import DataDesignerColumnType
-from ..config.config_builder import DataDesignerConfigBuilder
-from ..config.data_designer_config import DataDesignerConfig
-from ..config.dataset_builders import BuildStage
-from ..config.datastore import DatastoreSettings
-from ..config.models import (
+from data_designer.config.column_types import DataDesignerColumnType
+from data_designer.config.config_builder import DataDesignerConfigBuilder
+from data_designer.config.data_designer_config import DataDesignerConfig
+from data_designer.config.dataset_builders import BuildStage
+from data_designer.config.datastore import DatastoreSettings
+from data_designer.config.models import (
     ImageContext,
     ImageFormat,
     InferenceParameters,
@@ -34,9 +34,9 @@ from ..config.models import (
     UniformDistribution,
     UniformDistributionParams,
 )
-from ..config.processors import DropColumnsProcessorConfig, ProcessorType
-from ..config.sampler_constraints import ColumnInequalityConstraint, ScalarInequalityConstraint
-from ..config.sampler_params import (
+from data_designer.config.processors import DropColumnsProcessorConfig, ProcessorType
+from data_designer.config.sampler_constraints import ColumnInequalityConstraint, ScalarInequalityConstraint
+from data_designer.config.sampler_params import (
     BernoulliMixtureSamplerParams,
     BernoulliSamplerParams,
     BinomialSamplerParams,
@@ -53,11 +53,17 @@ from ..config.sampler_params import (
     UniformSamplerParams,
     UUIDSamplerParams,
 )
-from ..config.seed import DatastoreSeedDatasetReference, IndexRange, PartitionBlock, SamplingStrategy, SeedConfig
-from ..config.utils.code_lang import CodeLang
-from ..config.utils.info import InfoType
-from ..config.utils.misc import can_run_data_designer_locally
-from ..config.validator_params import (
+from data_designer.config.seed import (
+    DatastoreSeedDatasetReference,
+    IndexRange,
+    PartitionBlock,
+    SamplingStrategy,
+    SeedConfig,
+)
+from data_designer.config.utils.code_lang import CodeLang
+from data_designer.config.utils.info import InfoType
+from data_designer.config.utils.misc import can_run_data_designer_locally
+from data_designer.config.validator_params import (
     CodeValidatorParams,
     RemoteValidatorParams,
     ValidatorType,
@@ -66,9 +72,9 @@ from ..config.validator_params import (
 local_library_imports = []
 try:
     if can_run_data_designer_locally():
-        from ..config.validator_params import LocalCallableValidatorParams  # noqa: F401
-        from ..engine.model_provider import ModelProvider  # noqa: F401
-        from ..interface.data_designer import DataDesigner  # noqa: F401
+        from data_designer.config.validator_params import LocalCallableValidatorParams  # noqa: F401
+        from data_designer.engine.model_provider import ModelProvider  # noqa: F401
+        from data_designer.interface.data_designer import DataDesigner  # noqa: F401
 
         local_library_imports = ["DataDesigner", "LocalCallableValidatorParams", "ModelProvider"]
 except ModuleNotFoundError:

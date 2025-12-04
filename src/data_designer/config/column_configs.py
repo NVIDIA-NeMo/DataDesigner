@@ -7,14 +7,14 @@ from typing import Annotated, Literal, Optional, Type, Union
 from pydantic import BaseModel, Discriminator, Field, model_validator
 from typing_extensions import Self
 
-from .base import ConfigBase
-from .errors import InvalidConfigError
-from .models import ImageContext
-from .sampler_params import SamplerParamsT, SamplerType
-from .utils.code_lang import CodeLang
-from .utils.constants import REASONING_TRACE_COLUMN_POSTFIX
-from .utils.misc import assert_valid_jinja2_template, get_prompt_template_keywords
-from .validator_params import ValidatorParamsT, ValidatorType
+from data_designer.config.base import ConfigBase
+from data_designer.config.errors import InvalidConfigError
+from data_designer.config.models import ImageContext
+from data_designer.config.sampler_params import SamplerParamsT, SamplerType
+from data_designer.config.utils.code_lang import CodeLang
+from data_designer.config.utils.constants import REASONING_TRACE_COLUMN_POSTFIX
+from data_designer.config.utils.misc import assert_valid_jinja2_template, get_prompt_template_keywords
+from data_designer.config.validator_params import ValidatorParamsT, ValidatorType
 
 
 class SingleColumnConfig(ConfigBase, ABC):

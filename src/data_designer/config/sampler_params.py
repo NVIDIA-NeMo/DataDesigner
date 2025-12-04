@@ -8,8 +8,8 @@ import pandas as pd
 from pydantic import Field, field_validator, model_validator
 from typing_extensions import Self, TypeAlias
 
-from .base import ConfigBase
-from .utils.constants import (
+from data_designer.config.base import ConfigBase
+from data_designer.config.utils.constants import (
     AVAILABLE_LOCALES,
     DEFAULT_AGE_RANGE,
     LOCALES_WITH_MANAGED_DATASETS,

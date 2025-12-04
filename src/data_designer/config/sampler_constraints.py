@@ -7,7 +7,7 @@ from typing import Union
 
 from typing_extensions import TypeAlias
 
-from .base import ConfigBase
+from data_designer.config.base import ConfigBase
 
 
 class ConstraintType(str, Enum):
