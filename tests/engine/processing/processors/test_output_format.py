@@ -8,29 +8,29 @@ import pandas as pd
 import pytest
 
 from data_designer.config.dataset_builders import BuildStage
-from data_designer.config.processors import OutputFormatProcessorConfig
+from data_designer.config.processors import AncillaryDatasetProcessorConfig
 from data_designer.engine.dataset_builders.artifact_storage import BatchStage
-from data_designer.engine.processing.processors.output_format import OutputFormatProcessor
+from data_designer.engine.processing.processors.ancillary_dataset import AncillaryDatasetProcessor
 
 
 @pytest.fixture
-def stub_processor_config() -> OutputFormatProcessorConfig:
-    return OutputFormatProcessorConfig(
+def stub_processor_config() -> AncillaryDatasetProcessorConfig:
+    return AncillaryDatasetProcessorConfig(
         build_stage=BuildStage.POST_BATCH,
-        template='{"text": "{{ col1 }}", "value": "{{ col2 }}"}',
+        template={'text': '{{ col1 }}', 'value': '{{ col2 }}'},
         name="test_output_format",
     )
 
 
 @pytest.fixture
-def stub_processor(stub_processor_config: OutputFormatProcessorConfig) -> OutputFormatProcessor:
+def stub_processor(stub_processor_config: AncillaryDatasetProcessorConfig) -> AncillaryDatasetProcessor:
     mock_resource_provider = Mock()
     mock_artifact_storage = Mock()
     mock_artifact_storage.write_batch_to_parquet_file = Mock()
     mock_artifact_storage.processor_artifact_preview = {}
     mock_resource_provider.artifact_storage = mock_artifact_storage
 
-    processor = OutputFormatProcessor(
+    processor = AncillaryDatasetProcessor(
         config=stub_processor_config,
         resource_provider=mock_resource_provider,
     )
@@ -48,7 +48,7 @@ def stub_simple_dataframe() -> pd.DataFrame:
 
 
 def test_metadata() -> None:
-    metadata = OutputFormatProcessor.metadata()
+    metadata = AncillaryDatasetProcessor.metadata()
 
     assert metadata.name == "output_format"
     assert metadata.description == "Format the dataset using a Jinja2 template."
@@ -56,14 +56,14 @@ def test_metadata() -> None:
 
 
 def test_process_returns_original_dataframe(
-    stub_processor: OutputFormatProcessor, stub_simple_dataframe: pd.DataFrame
+    stub_processor: AncillaryDatasetProcessor, stub_simple_dataframe: pd.DataFrame
 ) -> None:
     result = stub_processor.process(stub_simple_dataframe, current_batch_number=0)
     pd.testing.assert_frame_equal(result, stub_simple_dataframe)
 
 
 def test_process_writes_formatted_output_to_parquet(
-    stub_processor: OutputFormatProcessor, stub_simple_dataframe: pd.DataFrame
+    stub_processor: AncillaryDatasetProcessor, stub_simple_dataframe: pd.DataFrame
 ) -> None:
     # Capture the formatted dataframe that is written to parquet
     written_dataframe: pd.DataFrame | None = None
@@ -108,7 +108,7 @@ def test_process_writes_formatted_output_to_parquet(
 
 
 def test_process_without_batch_number_does_not_write(
-    stub_processor: OutputFormatProcessor, stub_simple_dataframe: pd.DataFrame
+    stub_processor: AncillaryDatasetProcessor, stub_simple_dataframe: pd.DataFrame
 ) -> None:
     # Process without batch number (preview mode)
     result = stub_processor.process(stub_simple_dataframe, current_batch_number=None)
@@ -120,7 +120,7 @@ def test_process_without_batch_number_does_not_write(
     stub_processor.artifact_storage.write_batch_to_parquet_file.assert_not_called()
 
 
-def test_process_with_json_serialized_values(stub_processor: OutputFormatProcessor) -> None:
+def test_process_with_json_serialized_values(stub_processor: AncillaryDatasetProcessor) -> None:
     # Test with JSON-serialized values in dataframe
     df_with_json = pd.DataFrame(
         {

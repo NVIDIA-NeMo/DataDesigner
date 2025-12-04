@@ -5,7 +5,7 @@ from data_designer.essentials import (
     DataDesigner,
     DataDesignerConfigBuilder,
     LLMTextColumnConfig,
-    OutputFormatProcessorConfig,
+    AncillaryDatasetProcessorConfig,
     PersonSamplerParams,
     SamplerColumnConfig,
     Score,
@@ -180,7 +180,7 @@ jsonl_entry_template = {
 }
 
 config_builder.add_processor(
-    AncillaryDatasetProcessor(
+    AncillaryDatasetProcessorConfig(
         name="jsonl_output",
         template=jsonl_entry_template,
     )
@@ -194,5 +194,7 @@ preview = dd.preview(config_builder, num_records=10)
 preview.display_sample_record()
 
 results = dd.create(config_builder, num_records=20)
-jsonl_output = results.load_processor_artifact("jsonl_output")
-pd.read_parquet(jsonl_output.path_to_parquet_files).to_jsonl(desired_path, lines=True)
+path_to_processor_artifacts = results.get_path_to_processor_artifacts("jsonl_output")
+
+import pandas as pd
+pd.read_parquet(path_to_processor_artifacts).to_json("./output.jsonl", orient="records", lines=True)

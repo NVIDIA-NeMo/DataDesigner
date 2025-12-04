@@ -1,2 +1,4 @@
 artifacts
 processor_outputs
+*.jsonl
+*.csv

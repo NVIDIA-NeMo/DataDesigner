@@ -3,7 +3,7 @@
 
 from abc import ABC
 from enum import Enum
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import Field, field_validator
 
@@ -15,7 +15,7 @@ SUPPORTED_STAGES = [BuildStage.POST_BATCH]
 
 class ProcessorType(str, Enum):
     DROP_COLUMNS = "drop_columns"
-    OUTPUT_FORMAT = "output_format"
+    ANCILLARY_DATASET = "ancillary_dataset"
 
 
 class ProcessorConfig(ConfigBase, ABC):
@@ -39,8 +39,8 @@ class ProcessorConfig(ConfigBase, ABC):
 def get_processor_config_from_kwargs(processor_type: ProcessorType, **kwargs) -> ProcessorConfig:
     if processor_type == ProcessorType.DROP_COLUMNS:
         return DropColumnsProcessorConfig(**kwargs)
-    elif processor_type == ProcessorType.OUTPUT_FORMAT:
-        return OutputFormatProcessorConfig(**kwargs)
+    elif processor_type == ProcessorType.ANCILLARY_DATASET:
+        return AncillaryDatasetProcessorConfig(**kwargs)
 
 
 class DropColumnsProcessorConfig(ProcessorConfig):
@@ -48,9 +48,8 @@ class DropColumnsProcessorConfig(ProcessorConfig):
     processor_type: Literal[ProcessorType.DROP_COLUMNS] = ProcessorType.DROP_COLUMNS
 
 
-class OutputFormatProcessorConfig(ProcessorConfig):
-    template: str = Field(
-        ..., description="The Jinja template to use for each entry in the dataset, as a single string."
+class AncillaryDatasetProcessorConfig(ProcessorConfig):
+    template: dict[str, Any] = Field(
+        ..., description="Jinja2 template to use for each column of the ancillary dataset. Keys are the column names, values are the Jinja2 templates."
     )
-    extension: str = Field(default="jsonl", description="The extension of the output files, e.g. 'jsonl' or 'csv'.")
-    processor_type: Literal[ProcessorType.OUTPUT_FORMAT] = ProcessorType.OUTPUT_FORMAT
+    processor_type: Literal[ProcessorType.ANCILLARY_DATASET] = ProcessorType.ANCILLARY_DATASET
