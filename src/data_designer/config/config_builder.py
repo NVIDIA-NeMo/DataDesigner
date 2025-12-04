@@ -139,11 +139,8 @@ class DataDesignerConfigBuilder:
                 - A list of ModelConfig objects
                 - A string or Path to a model configuration file
         """
-        if not can_run_data_designer_locally() and (model_configs is None or len(model_configs) == 0):
-            raise BuilderConfigurationError("🛑 Model configurations are required!")
-
         self._column_configs = {}
-        self._model_configs = load_model_configs(model_configs or get_default_model_configs())
+        self._model_configs = _load_model_configs(model_configs)
         self._processor_configs: list[ProcessorConfig] = []
         self._seed_config: Optional[SeedConfig] = None
         self._constraints: list[ColumnConstraintT] = []
@@ -654,3 +651,15 @@ class DataDesignerConfigBuilder:
         highlighted_html = highlight(repr_string, PythonLexer(), formatter)
         css = formatter.get_style_defs(".code")
         return REPR_HTML_TEMPLATE.format(css=css, highlighted_html=highlighted_html)
+
+
+def _load_model_configs(model_configs: Optional[Union[list[ModelConfig], str, Path]] = None) -> list[ModelConfig]:
+    """Resolves the provided model_configs, which may be a string or Path to a model configuration file.
+    If None or empty, returns default model configurations if possible, otherwise raises an error.
+    """
+    if model_configs:
+        return load_model_configs(model_configs)
+    elif can_run_data_designer_locally():
+        return get_default_model_configs()
+    else:
+        raise BuilderConfigurationError("🛑 Model configurations are required!")
