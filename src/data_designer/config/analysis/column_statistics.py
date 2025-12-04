@@ -32,13 +32,42 @@ class ColumnDistributionType(str, Enum):
 
 
 class BaseColumnStatistics(BaseModel, ABC):
+    """Abstract base class for all column statistics types.
+
+    Serves as a container for computed statistics across different column types in
+    Data-Designer-generated datasets. Subclasses hold column-specific statistical results
+    and provide methods for formatting these results for display in reports.
+    """
+
     model_config = ConfigDict(use_enum_values=True)
 
     @abstractmethod
-    def create_report_row_data(self) -> dict[str, str]: ...
+    def create_report_row_data(self) -> dict[str, str]:
+        """Creates a formatted dictionary of statistics for display in reports.
+
+        Returns:
+            Dictionary mapping display labels to formatted statistic values.
+        """
+        ...
 
 
 class GeneralColumnStatistics(BaseColumnStatistics):
+    """Container for general statistics applicable to all column types.
+
+    Holds core statistical measures that apply universally across all column types,
+    including null counts, unique values, and data type information. Serves as the base
+    for more specialized column statistics classes that store additional column-specific metrics.
+
+    Attributes:
+        column_name: Name of the column being analyzed.
+        num_records: Total number of records in the column.
+        num_null: Number of null/missing values in the column.
+        num_unique: Number of distinct values in the column. If a value is not hashable, it is converted to a string.
+        pyarrow_dtype: PyArrow data type of the column as a string.
+        simple_dtype: Simplified human-readable data type label.
+        column_type: Discriminator field, always "general" for this statistics type.
+    """
+
     column_name: str
     num_records: Union[int, MissingValue]
     num_null: Union[int, MissingValue]
@@ -84,6 +113,21 @@ class GeneralColumnStatistics(BaseColumnStatistics):
 
 
 class LLMTextColumnStatistics(GeneralColumnStatistics):
+    """Container for statistics on LLM-generated text columns.
+
+    Inherits general statistics plus token usage metrics specific to LLM text generation.
+    Stores both prompt and completion token consumption data.
+
+    Attributes:
+        completion_tokens_mean: Mean number of completion tokens generated per record.
+        completion_tokens_median: Median number of completion tokens generated per record.
+        completion_tokens_stddev: Standard deviation of completion tokens per record.
+        prompt_tokens_mean: Mean number of prompt tokens used per record.
+        prompt_tokens_median: Median number of prompt tokens used per record.
+        prompt_tokens_stddev: Standard deviation of prompt tokens per record.
+        column_type: Discriminator field, always "llm-text" for this statistics type.
+    """
+
     completion_tokens_mean: Union[float, MissingValue]
     completion_tokens_median: Union[float, MissingValue]
     completion_tokens_stddev: Union[float, MissingValue]
@@ -123,18 +167,62 @@ class LLMTextColumnStatistics(GeneralColumnStatistics):
 
 
 class LLMCodeColumnStatistics(LLMTextColumnStatistics):
+    """Container for statistics on LLM-generated code columns.
+
+    Inherits all token usage metrics from LLMTextColumnStatistics. Stores
+    statistics from columns that generate code snippets in specific programming languages.
+
+    Attributes:
+        column_type: Discriminator field, always "llm-code" for this statistics type.
+    """
+
     column_type: Literal[DataDesignerColumnType.LLM_CODE.value] = DataDesignerColumnType.LLM_CODE.value
 
 
 class LLMStructuredColumnStatistics(LLMTextColumnStatistics):
+    """Container for statistics on LLM-generated structured JSON columns.
+
+    Inherits all token usage metrics from LLMTextColumnStatistics. Stores statistics from
+    columns that generate structured data conforming to JSON schemas or Pydantic models.
+
+    Attributes:
+        column_type: Discriminator field, always "llm-structured" for this statistics type.
+    """
+
     column_type: Literal[DataDesignerColumnType.LLM_STRUCTURED.value] = DataDesignerColumnType.LLM_STRUCTURED.value
 
 
 class LLMJudgedColumnStatistics(LLMTextColumnStatistics):
+    """Container for statistics on LLM-as-a-judge quality assessment columns.
+
+    Inherits all token usage metrics from LLMTextColumnStatistics. Stores statistics from
+    columns that evaluate and score other generated content based on defined criteria.
+
+    Attributes:
+        column_type: Discriminator field, always "llm-judge" for this statistics type.
+    """
+
     column_type: Literal[DataDesignerColumnType.LLM_JUDGE.value] = DataDesignerColumnType.LLM_JUDGE.value
 
 
 class SamplerColumnStatistics(GeneralColumnStatistics):
+    """Container for statistics on sampler-generated columns.
+
+    Inherits general statistics plus sampler-specific information including the sampler type
+    used and the empirical distribution of generated values. Stores both categorical and
+    numerical distribution results.
+
+    Attributes:
+        sampler_type: Type of sampler used to generate this column (e.g., "uniform", "category",
+            "gaussian", "person").
+        distribution_type: Classification of the column's distribution (categorical, numerical,
+            text, other, or unknown).
+        distribution: Empirical distribution statistics for the generated values. Can be
+            CategoricalDistribution (for discrete values), NumericalDistribution (for continuous
+            values), or MissingValue if distribution could not be computed.
+        column_type: Discriminator field, always "sampler" for this statistics type.
+    """
+
     sampler_type: SamplerType
     distribution_type: ColumnDistributionType
     distribution: Optional[Union[CategoricalDistribution, NumericalDistribution, MissingValue]]
@@ -148,14 +236,43 @@ class SamplerColumnStatistics(GeneralColumnStatistics):
 
 
 class SeedDatasetColumnStatistics(GeneralColumnStatistics):
+    """Container for statistics on columns sourced from seed datasets.
+
+    Inherits general statistics and stores statistics computed from columns that originate
+    from existing data provided via the seed dataset functionality.
+
+    Attributes:
+        column_type: Discriminator field, always "seed-dataset" for this statistics type.
+    """
+
     column_type: Literal[DataDesignerColumnType.SEED_DATASET.value] = DataDesignerColumnType.SEED_DATASET.value
 
 
 class ExpressionColumnStatistics(GeneralColumnStatistics):
+    """Container for statistics on expression-based derived columns.
+
+    Inherits general statistics and stores statistics computed from columns that are derived
+    from columns that are derived from Jinja2 expressions referencing other column values.
+
+    Attributes:
+        column_type: Discriminator field, always "expression" for this statistics type.
+    """
+
     column_type: Literal[DataDesignerColumnType.EXPRESSION.value] = DataDesignerColumnType.EXPRESSION.value
 
 
 class ValidationColumnStatistics(GeneralColumnStatistics):
+    """Container for statistics on validation result columns.
+
+    Inherits general statistics plus validation-specific metrics including the count and
+    percentage of records that passed validation. Stores results from validation logic
+    (Python, SQL, or remote) executed against target columns.
+
+    Attributes:
+        num_valid_records: Number of records that passed validation.
+        column_type: Discriminator field, always "validation" for this statistics type.
+    """
+
     num_valid_records: Union[int, MissingValue]
     column_type: Literal[DataDesignerColumnType.VALIDATION.value] = DataDesignerColumnType.VALIDATION.value
 
@@ -177,6 +294,15 @@ class ValidationColumnStatistics(GeneralColumnStatistics):
 
 
 class CategoricalHistogramData(BaseModel):
+    """Container for categorical distribution histogram data.
+
+    Stores the computed frequency distribution of categorical values.
+
+    Attributes:
+        categories: List of unique category values that appear in the data.
+        counts: List of occurrence counts for each category.
+    """
+
     categories: list[Union[float, int, str]]
     counts: list[int]
 
@@ -194,6 +320,14 @@ class CategoricalHistogramData(BaseModel):
 
 
 class CategoricalDistribution(BaseModel):
+    """Container for computed categorical distribution statistics.
+
+    Attributes:
+        most_common_value: The category value that appears most frequently in the data.
+        least_common_value: The category value that appears least frequently in the data.
+        histogram: Complete frequency distribution showing all categories and their counts.
+    """
+
     most_common_value: Union[str, int]
     least_common_value: Union[str, int]
     histogram: CategoricalHistogramData
@@ -213,6 +347,16 @@ class CategoricalDistribution(BaseModel):
 
 
 class NumericalDistribution(BaseModel):
+    """Container for computed numerical distribution statistics.
+
+    Attributes:
+        min: Minimum value in the distribution.
+        max: Maximum value in the distribution.
+        mean: Arithmetic mean (average) of all values.
+        stddev: Standard deviation measuring the spread of values around the mean.
+        median: Median value of the distribution.
+    """
+
     min: Union[float, int]
     max: Union[float, int]
     mean: float
