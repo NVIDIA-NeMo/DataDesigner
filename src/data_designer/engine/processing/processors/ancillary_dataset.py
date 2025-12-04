@@ -2,11 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
-from pathlib import Path
+import json
+from typing import Any
 
 import pandas as pd
 
-from data_designer.config.processors import OutputFormatProcessorConfig
+from data_designer.config.processors import AncillaryDatasetProcessorConfig
 from data_designer.engine.configurable_task import ConfigurableTaskMetadata
 from data_designer.engine.dataset_builders.artifact_storage import BatchStage
 from data_designer.engine.processing.ginja.environment import WithJinja2UserTemplateRendering
@@ -16,17 +17,21 @@ from data_designer.engine.processing.utils import deserialize_json_values
 logger = logging.getLogger(__name__)
 
 
-class OutputFormatProcessor(WithJinja2UserTemplateRendering, Processor[OutputFormatProcessorConfig]):
+class AncillaryDatasetProcessor(WithJinja2UserTemplateRendering, Processor[AncillaryDatasetProcessorConfig]):
     @staticmethod
     def metadata() -> ConfigurableTaskMetadata:
         return ConfigurableTaskMetadata(
-            name="output_format",
-            description="Format the dataset using a Jinja2 template.",
+            name="ancillary_dataset",
+            description="Generate an ancillary dataset using a Jinja2 template.",
             required_resources=None,
         )
 
+    @property
+    def template_as_str(self) -> str:
+        return json.dumps(self.config.template)
+
     def process(self, data: pd.DataFrame, *, current_batch_number: int | None = None) -> pd.DataFrame:
-        self.prepare_jinja2_template_renderer(self.config.template, data.columns.to_list())
+        self.prepare_jinja2_template_renderer(self.template_as_str, data.columns.to_list())
         formatted_records = [
             self.render_template(deserialize_json_values(record)).replace("\n", "\\n")
             for record in data.to_dict(orient="records")
@@ -44,15 +49,3 @@ class OutputFormatProcessor(WithJinja2UserTemplateRendering, Processor[OutputFor
             self.artifact_storage.processor_artifact_preview[self.config.name] = formatted_records[0]
 
         return data
-
-    @staticmethod
-    def write_outputs_to_disk(
-        processor_config: OutputFormatProcessorConfig, artifacts_path: Path, output_path: Path
-    ) -> None:
-        output_path.mkdir(parents=True, exist_ok=True)
-        with open(output_path / f"formatted_output.{processor_config.extension}", "w") as f:
-            for file_path in artifacts_path.glob("*.parquet"):
-                # TODO: faster way to convert than reading and writing row by row?
-                dataframe = pd.read_parquet(file_path)
-                for _, row in dataframe.iterrows():
-                    f.write(row["formatted_output"] + "\n")

@@ -6,8 +6,8 @@ from pydantic import ValidationError
 
 from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.processors import (
+    AncillaryDatasetProcessorConfig,
     DropColumnsProcessorConfig,
-    OutputFormatProcessorConfig,
     ProcessorConfig,
     ProcessorType,
     get_processor_config_from_kwargs,
@@ -54,7 +54,7 @@ def test_drop_columns_processor_config_serialization():
 
 
 def test_output_format_processor_config_creation():
-    config = OutputFormatProcessorConfig(
+    config = AncillaryDatasetProcessorConfig(
         name="output_format_processor",
         build_stage=BuildStage.POST_BATCH,
         template='{"text": "{{ col1 }}"}',
@@ -69,7 +69,7 @@ def test_output_format_processor_config_creation():
 def test_output_format_processor_config_validation():
     # Test unsupported stage raises error
     with pytest.raises(ValidationError, match="Invalid dataset builder stage"):
-        OutputFormatProcessorConfig(
+        AncillaryDatasetProcessorConfig(
             name="output_format_processor",
             build_stage=BuildStage.PRE_BATCH,
             template='{"text": "{{ col1 }}"}',
@@ -77,11 +77,11 @@ def test_output_format_processor_config_validation():
 
     # Test missing required field raises error
     with pytest.raises(ValidationError, match="Field required"):
-        OutputFormatProcessorConfig(name="output_format_processor", build_stage=BuildStage.POST_BATCH)
+        AncillaryDatasetProcessorConfig(name="output_format_processor", build_stage=BuildStage.POST_BATCH)
 
 
 def test_output_format_processor_config_serialization():
-    config = OutputFormatProcessorConfig(
+    config = AncillaryDatasetProcessorConfig(
         name="output_format_processor",
         build_stage=BuildStage.POST_BATCH,
         template='{"text": "{{ col1 }}"}',
@@ -93,7 +93,7 @@ def test_output_format_processor_config_serialization():
     assert config_dict["template"] == '{"text": "{{ col1 }}"}'
 
     # Deserialize from dict
-    config_restored = OutputFormatProcessorConfig.model_validate(config_dict)
+    config_restored = AncillaryDatasetProcessorConfig.model_validate(config_dict)
     assert config_restored.build_stage == config.build_stage
     assert config_restored.template == config.template
 
@@ -116,7 +116,7 @@ def test_get_processor_config_from_kwargs():
         build_stage=BuildStage.POST_BATCH,
         template='{"text": "{{ col1 }}"}',
     )
-    assert isinstance(config_output_format, OutputFormatProcessorConfig)
+    assert isinstance(config_output_format, AncillaryDatasetProcessorConfig)
     assert config_output_format.template == '{"text": "{{ col1 }}"}'
     assert config_output_format.processor_type == ProcessorType.OUTPUT_FORMAT
 

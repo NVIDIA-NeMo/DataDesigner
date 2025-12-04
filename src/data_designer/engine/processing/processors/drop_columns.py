@@ -34,12 +34,6 @@ class DropColumnsProcessor(Processor[DropColumnsProcessorConfig]):
                 logger.warning(f"⚠️ Cannot drop column: `{column}` not found in the dataset.")
         return data
 
-    @staticmethod
-    def write_outputs_to_disk(
-        processor_config: DropColumnsProcessorConfig, artifacts_path: Path, output_path: Path
-    ) -> None:
-        pass
-
     def _save_dropped_columns_if_needed(self, data: pd.DataFrame, current_batch_number: int) -> None:
         logger.debug("📦 Saving dropped columns to dropped-columns directory")
         dropped_column_parquet_file_name = self.artifact_storage.create_batch_file_path(
