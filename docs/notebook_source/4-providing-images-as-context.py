@@ -13,16 +13,15 @@
 # ---
 
 # %% [markdown]
-# # 🎨 Data Designer Tutorial: Providing Images as Context for Multi-Modal Synthetic Data Generation
+# # 🎨 Data Designer Tutorial: Providing Images as Context for Vision-Based Data Generation
 
 # %% [markdown]
 # #### 📚 What you'll learn
 #
-# This notebook demonstrates how to provide images as context for a more complex multi-modal synthetic Question-Answer dataset generation workflow from visual documents.
+# This notebook demonstrates how to provide images as context to generate text descriptions using vision-language models.
 #
-# - ✨ **Visual Document Processing**: Converting images to chat-ready format
-# - 🏗️ **Structured Output Generation**: Using Pydantic models for consistent data schemas
-# - 🎯 **Multi-step Generation Pipeline**: Summary → Question → Answer generation workflow
+# - ✨ **Visual Document Processing**: Converting images to chat-ready format for model consumption
+# - 🔍 **Vision-Language Generation**: Using vision models to generate detailed summaries from images
 #
 # If this is your first time using Data Designer, we recommend starting with the [first notebook](/notebooks/1-the-basics/) in this tutorial series.
 #
@@ -43,7 +42,6 @@
 # Standard library imports
 import base64
 import io
-from typing import Literal
 import uuid
 
 from datasets import load_dataset
@@ -51,24 +49,19 @@ from IPython.display import display
 
 # Third-party imports
 import pandas as pd
-from pydantic import BaseModel, Field
 import rich
 from rich.panel import Panel
 
 # Data Designer imports
 from data_designer.essentials import (
-    CategorySamplerParams,
     DataDesigner,
     DataDesignerConfigBuilder,
     ImageContext,
     ImageFormat,
     InferenceParameters,
-    LLMStructuredColumnConfig,
     LLMTextColumnConfig,
     ModalityDataType,
     ModelConfig,
-    SamplerColumnConfig,
-    SamplerType,
 )
 
 # %% [markdown]
@@ -100,12 +93,6 @@ MODEL_PROVIDER = "nvidia"
 
 model_configs = [
     ModelConfig(
-        alias="text",
-        model="nvidia/nvidia-nemotron-nano-9b-v2",
-        provider=MODEL_PROVIDER,
-        inference_parameters=InferenceParameters(temperature=0.85, top_p=0.95, max_tokens=1024),
-    ),
-    ModelConfig(
         alias="vision",
         model="nvidia/nemotron-nano-12b-v2-vl",
         provider=MODEL_PROVIDER,
@@ -133,14 +120,13 @@ config_builder = DataDesignerConfigBuilder(model_configs=model_configs)
 # %% [markdown]
 # ### 🌱 Seed Dataset Creation
 #
-# In this section, we'll prepare our visual documents as a seed dataset. The seed dataset provides the foundation for synthetic data generation by:
+# In this section, we'll prepare our visual documents as a seed dataset for summarization:
 #
 # - **Loading Visual Documents**: We use the ColPali dataset containing document images
-# - **Image Processing**: Convert images to base64 format for model consumption
-# - **Metadata Extraction**: Preserve relevant document information
-# - **Sampling Strategy**: Configure how the seed data is utilized during generation
+# - **Image Processing**: Convert images to base64 format for vision model consumption
+# - **Metadata Extraction**: Preserve relevant document information (filename, page number, source, etc.)
 #
-# The seed dataset can be referenced in generation prompts using Jinja templating.
+# The seed dataset will be used to generate detailed text summaries of each document image.
 
 # %%
 # Dataset processing configuration
@@ -237,114 +223,7 @@ config_builder.add_column(
 
 
 # %% [markdown]
-# ### 🎨 Designing our Data Schema
 #
-# Structured outputs ensure consistent and predictable data generation. Data Designer supports schemas defined using:
-# - **JSON Schema**: For basic structure definition
-# - **Pydantic Models**: For advanced validation and type safety (recommended)
-#
-# We'll use Pydantic models to define our Question-Answer schema:
-#
-
-
-# %%
-class Question(BaseModel):
-    """Schema for generated questions"""
-
-    question: str = Field(description="The question to be generated")
-
-
-class QuestionTopic(BaseModel):
-    """Schema for question topics"""
-
-    topic: str = Field(description="The topic/category of the question")
-
-
-class Options(BaseModel):
-    """Schema for multiple choice options"""
-
-    option_a: str = Field(description="The first answer choice")
-    option_b: str = Field(description="The second answer choice")
-    option_c: str = Field(description="The third answer choice")
-    option_d: str = Field(description="The fourth answer choice")
-
-
-class Answer(BaseModel):
-    """Schema for question answers"""
-
-    answer: Literal["option_a", "option_b", "option_c", "option_d"] = Field(
-        description="The correct answer to the question"
-    )
-
-
-# %%
-config_builder.add_column(
-    SamplerColumnConfig(
-        name="difficulty",
-        sampler_type=SamplerType.CATEGORY,
-        params=CategorySamplerParams(values=["easy", "medium", "hard"]),
-    )
-)
-
-config_builder.add_column(
-    LLMStructuredColumnConfig(
-        name="question",
-        model_alias="text",
-        prompt=(
-            "Generate a question based on the following context: {{ summary }}. "
-            "The difficulty of the generated question should be {{ difficulty }}"
-        ),
-        system_prompt=(
-            "You are a helpful assistant that generates questions based on the given context. "
-            "The context are sourced from documents pertaining to the petroleum industry. "
-            "You will be given a context and you will need to generate a question based on the context. "
-            "The difficulty of the generated question should be {{ difficulty }}. "
-            "Ensure you generate just the question and no other text."
-        ),
-        output_format=Question,
-    )
-)
-
-config_builder.add_column(
-    LLMStructuredColumnConfig(
-        name="options",
-        model_alias="text",
-        prompt=(
-            "Generate four answer choices for the question: {{ question }} based on the following context: {{ summary }}. "
-            "The option you generate should match the difficulty of the generated question, {{ difficulty }}."
-        ),
-        output_format=Options,
-    )
-)
-
-
-config_builder.add_column(
-    LLMStructuredColumnConfig(
-        name="answer",
-        model_alias="text",
-        prompt=(
-            "Choose the correct answer for the question: {{ question }} based on the following context: {{ summary }} "
-            "and options choices. The options are {{ options }}. Only select one of the options as the answer."
-        ),
-        output_format=Answer,
-    )
-)
-
-
-config_builder.add_column(
-    LLMStructuredColumnConfig(
-        name="topic",
-        model_alias="text",
-        prompt=(
-            "Generate the topic of the question: {{ question }} based on the following context: {{ summary }}. "
-            "The topic should be a single word or phrase that is relevant to the question and context."
-        ),
-        system_prompt=(
-            "Generate a short 1-3 word topic for the question: {{ question }} based on the given context. {{ summary }}"
-        ),
-        output_format=QuestionTopic,
-    )
-)
 
 
 # %% [markdown]
@@ -360,7 +239,7 @@ config_builder.add_column(
 #
 
 # %%
-preview = data_designer.preview(config_builder, num_records=10)
+preview = data_designer.preview(config_builder)
 
 # %%
 # Run this cell multiple times to cycle through the 10 preview records.
@@ -385,11 +264,11 @@ preview.analysis.to_report()
 # %% [markdown]
 # ### 🔎 Visual Inspection
 #
-# Let's compare the original document image with the generated outputs to validate quality:
+# Let's compare the original document image with the generated summary to validate quality:
 #
 
 # %%
-# Compare original document with generated outputs
+# Compare original document with generated summary
 index = 0  # Change this to view different examples
 
 # Merge preview data with original images for comparison
@@ -403,33 +282,6 @@ display(resize_image(record.image, BASE64_IMAGE_HEIGHT))
 
 print("\n📝 Generated Summary:")
 rich.print(Panel(record.summary, title="Document Summary", title_align="left"))
-
-print("\n❓ Generated Question:")
-question_text = record.question.get("question") if isinstance(record.question, dict) else record.question
-rich.print(Panel(str(question_text), title=f"Question (Difficulty: {record.difficulty})", title_align="left"))
-
-print("\n🔢 Generated Options:")
-options = record.options
-if isinstance(options, dict):
-    options_text = "\n".join(
-        [
-            f"A) {options.get('option_a', 'N/A')}",
-            f"B) {options.get('option_b', 'N/A')}",
-            f"C) {options.get('option_c', 'N/A')}",
-            f"D) {options.get('option_d', 'N/A')}",
-        ]
-    )
-else:
-    options_text = str(options)
-rich.print(Panel(options_text, title="Answer Choices", title_align="left"))
-
-print("\n✅ Generated Answer:")
-answer = record.answer.get("answer") if isinstance(record.answer, dict) else record.answer
-rich.print(Panel(str(answer).upper().replace("_", " "), title="Correct Answer", title_align="left"))
-
-print("\n🏷️ Topic:")
-topic = record.topic.get("topic") if isinstance(record.topic, dict) else record.topic
-rich.print(Panel(str(topic), title="Question Topic", title_align="left"))
 
 
 # %% [markdown]
@@ -458,8 +310,10 @@ analysis.to_report()
 # %% [markdown]
 # ## ⏭️ Next Steps
 #
-# Now that you've seen how to use visual context in Data Designer, explore more:
+# Now that you've learned how to use visual context for image summarization in Data Designer, explore more:
 #
 # - Experiment with different vision models for specific document types
-# - Apply this pattern to other vision-based tasks like image captioning or understanding
+# - Try different prompt variations to generate specialized descriptions (e.g., technical details, key findings)
+# - Combine vision-based summaries with other column types for multi-modal workflows
+# - Apply this pattern to other vision tasks like image captioning, OCR validation, or visual question answering
 #
