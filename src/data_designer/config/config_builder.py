@@ -26,7 +26,7 @@ from data_designer.config.column_types import (
 from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.datastore import DatastoreSettings, fetch_seed_dataset_column_names
-from data_designer.config.default_model_settings import get_default_model_configs, resolve_seed_default_model_settings
+from data_designer.config.default_model_settings import get_default_model_configs
 from data_designer.config.errors import BuilderConfigurationError, InvalidColumnTypeError, InvalidConfigError
 from data_designer.config.models import ModelConfig, load_model_configs
 from data_designer.config.processors import ProcessorConfig, ProcessorType, get_processor_config_from_kwargs
@@ -53,10 +53,6 @@ from data_designer.config.utils.type_helpers import resolve_string_enum
 from data_designer.config.utils.validation import ViolationLevel, rich_print_violations, validate_data_designer_config
 
 logger = logging.getLogger(__name__)
-
-# Resolve default model settings on import to ensure they are available when the library is used.
-if can_run_data_designer_locally():
-    resolve_seed_default_model_settings()
 
 
 class BuilderConfig(ExportableConfigBase):
