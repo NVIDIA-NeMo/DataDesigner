@@ -1,11 +1,8 @@
 name: Build docs
 on:
-  workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - 'docs/**'
+  release:
+    types:
+      - published
 
 jobs:
   build-notebooks:
@@ -32,5 +29,11 @@ jobs:
         with:
           name: notebooks
           path: docs/notebooks
+      - name: Extract version from release
+        run: |
+          # Remove the 'v' prefix and any suffix after a space
+          VERSION=$(echo ${{ github.event.release.tag_name }} | sed 's/^v//' | sed 's/ .*$//')
+          echo "::notice::Extracted version: $VERSION"
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
       - name: Build and deploy docs
-        run: uv run mkdocs gh-deploy --force --clean --verbose
+        run: uv run mike deploy --push --update-aliases ${{ env.VERSION }} latest
