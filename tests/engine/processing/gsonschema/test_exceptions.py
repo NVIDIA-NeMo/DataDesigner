@@ -1,8 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from jsonschema import ValidationError
 import pytest
+from jsonschema import ValidationError
 
 from data_designer.engine.processing.gsonschema.exceptions import JSONSchemaValidationError
 

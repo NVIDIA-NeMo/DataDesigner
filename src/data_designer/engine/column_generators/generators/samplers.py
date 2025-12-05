@@ -1,9 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from functools import partial
 import logging
 import random
+from functools import partial
 from typing import Callable
 
 import pandas as pd

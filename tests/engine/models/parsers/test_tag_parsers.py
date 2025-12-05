@@ -1,8 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from lxml.etree import Element
 import pytest
+from lxml.etree import Element
 
 from data_designer.engine.models.parsers import tag_parsers as tp
 from data_designer.engine.models.parsers.types import CodeBlock, TagParser, TextBlock

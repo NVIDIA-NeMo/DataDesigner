@@ -3,8 +3,8 @@
 
 from unittest.mock import Mock
 
-from jinja2 import nodes as j_nodes
 import pytest
+from jinja2 import nodes as j_nodes
 
 from data_designer.engine.processing.ginja.ast import (
     ast_count_name_references,

@@ -1,10 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from importlib.metadata import entry_points
 import logging
 import os
 import threading
+from importlib.metadata import entry_points
 from typing import Type, TypeAlias
 
 from typing_extensions import Self

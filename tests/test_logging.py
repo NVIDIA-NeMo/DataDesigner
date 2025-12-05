@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
-from pathlib import Path
 import sys
 import tempfile
+from pathlib import Path
 
 import pytest
 

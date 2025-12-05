@@ -5,8 +5,8 @@ from abc import ABC, abstractmethod
 from typing import Any, Generic, Optional, Type, TypeVar, Union
 
 import numpy as np
-from numpy.typing import NDArray
 import pandas as pd
+from numpy.typing import NDArray
 from scipy import stats
 
 from data_designer.config.sampler_params import SamplerParamsT

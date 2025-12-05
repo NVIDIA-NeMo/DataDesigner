@@ -3,8 +3,8 @@
 
 from unittest.mock import patch
 
-from litellm import AuthenticationError
 import pytest
+from litellm import AuthenticationError
 
 from data_designer.config.models import InferenceParameters, ModelConfig
 from data_designer.engine.models.errors import ModelAuthenticationError

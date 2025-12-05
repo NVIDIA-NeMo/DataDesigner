@@ -1,8 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from pydantic import ValidationError
 import pytest
+from pydantic import ValidationError
 
 from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.processors import (

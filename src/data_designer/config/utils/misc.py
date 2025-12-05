@@ -3,8 +3,8 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 import json
+from contextlib import contextmanager
 from typing import Optional, Union
 
 from jinja2 import TemplateSyntaxError, meta

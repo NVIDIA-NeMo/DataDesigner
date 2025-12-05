@@ -4,8 +4,8 @@
 from enum import Enum
 from typing import Literal, Union
 
-from pydantic import BaseModel
 import pytest
+from pydantic import BaseModel
 
 from data_designer.config.utils.errors import (
     InvalidDiscriminatorFieldError,

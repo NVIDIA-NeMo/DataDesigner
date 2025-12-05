@@ -2,12 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import ast
-from collections import defaultdict
 import logging
-from pathlib import Path
 import re
 import subprocess
 import tempfile
+from collections import defaultdict
+from pathlib import Path
 from uuid import uuid4
 
 import pandas as pd
