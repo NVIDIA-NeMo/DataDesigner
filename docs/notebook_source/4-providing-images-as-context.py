@@ -94,7 +94,7 @@ MODEL_PROVIDER = "nvidia"
 model_configs = [
     ModelConfig(
         alias="vision",
-        model="nvidia/nemotron-nano-12b-v2-vl",
+        model="meta/llama-4-scout-17b-16e-instruct",
         provider=MODEL_PROVIDER,
         inference_parameters=InferenceParameters(
             temperature=0.60,
