@@ -34,7 +34,7 @@ from ..config.models import (
     UniformDistribution,
     UniformDistributionParams,
 )
-from ..config.processors import DropColumnsProcessorConfig, ProcessorType
+from ..config.processors import AncillaryDatasetProcessorConfig, DropColumnsProcessorConfig, ProcessorType
 from ..config.sampler_constraints import ColumnInequalityConstraint, ScalarInequalityConstraint
 from ..config.sampler_params import (
     BernoulliMixtureSamplerParams,
@@ -75,6 +75,7 @@ except ModuleNotFoundError:
     pass
 
 __all__ = [
+    "AncillaryDatasetProcessorConfig",
     "BernoulliMixtureSamplerParams",
     "BernoulliSamplerParams",
     "BinomialSamplerParams",
