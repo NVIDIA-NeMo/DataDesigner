@@ -6,6 +6,6 @@ For more information on how they are used, see below:
 
 - **[Model Providers](../concepts/models/model-providers.md)**
 - **[Model Configs](../concepts/models/model-configs.md)**
-- **[Image Context](/notebooks/4-providing-images-as-context.ipynb)**
+- **[Image Context](/notebooks/4-providing-images-as-context/)**
 
 ::: data_designer.config.models
