@@ -122,6 +122,7 @@ select = [
     # "RET", # flake8-return
     # "SIM", # flake8-simplify
     # "PTH", # flake8-use-pathlib
+    "TID", # flake8-tidy-imports (ban relative imports)
 ]
 ignore = [
     "ANN401", # Dynamically typed expressions (Any)
@@ -130,6 +131,9 @@ ignore = [
 [tool.ruff.lint.isort]
 known-first-party = ["data_designer"]
 force-sort-within-sections = true
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
 
 [tool.ruff.format]
 quote-style = "double"
