@@ -5,8 +5,8 @@ from abc import ABC, abstractmethod
 from typing import Type
 
 import numpy as np
-from numpy.typing import NDArray
 import pandas as pd
+from numpy.typing import NDArray
 
 from data_designer.config.base import ConfigBase
 from data_designer.config.sampler_constraints import (

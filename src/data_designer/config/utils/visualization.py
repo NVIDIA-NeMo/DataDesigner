@@ -3,11 +3,11 @@
 
 from __future__ import annotations
 
+import json
+import os
 from collections import OrderedDict
 from enum import Enum
 from functools import cached_property
-import json
-import os
 from typing import TYPE_CHECKING, Optional, Union
 
 import numpy as np

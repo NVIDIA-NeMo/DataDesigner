@@ -1,9 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import re
 from collections.abc import Callable
 from functools import partial, wraps
-import re
 from typing import Any
 
 from jinja2 import meta

@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import argparse
-from datetime import datetime
-from pathlib import Path
 import re
 import sys
+from datetime import datetime
+from pathlib import Path
 
 
 def add_license_header_to_file(file_path: Path, license_header: str) -> bool:

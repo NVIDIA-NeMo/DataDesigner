@@ -4,12 +4,12 @@
 from functools import reduce
 from typing import Optional
 
+import marko
 from lxml import etree
 from lxml.etree import _Element
-import marko
 
-from data_designer.engine.models.parsers.postprocessors import merge_text_blocks
 import data_designer.engine.models.parsers.tag_parsers as tp
+from data_designer.engine.models.parsers.postprocessors import merge_text_blocks
 from data_designer.engine.models.parsers.types import (
     LLMStructuredResponse,
     PostProcessor,

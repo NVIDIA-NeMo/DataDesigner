@@ -4,8 +4,8 @@
 from collections import namedtuple
 from unittest.mock import patch
 
-from litellm.types.utils import Choices, Message, ModelResponse
 import pytest
+from litellm.types.utils import Choices, Message, ModelResponse
 
 from data_designer.engine.models.errors import ModelGenerationValidationFailureError
 from data_designer.engine.models.facade import ModelFacade
