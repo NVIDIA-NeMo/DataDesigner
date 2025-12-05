@@ -130,7 +130,7 @@ ignore = [
 
 [tool.ruff.lint.isort]
 known-first-party = ["data_designer"]
-force-sort-within-sections = true
+force-sort-within-sections = false
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"

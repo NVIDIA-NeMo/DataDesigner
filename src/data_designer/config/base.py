@@ -6,8 +6,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Optional, Union
 
-from pydantic import BaseModel, ConfigDict
 import yaml
+from pydantic import BaseModel, ConfigDict
 
 from data_designer.config.utils.io_helpers import serialize_data
 

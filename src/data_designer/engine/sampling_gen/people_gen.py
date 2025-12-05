@@ -3,15 +3,15 @@
 
 from __future__ import annotations
 
+import random
+import uuid
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from copy import deepcopy
-import random
 from typing import TYPE_CHECKING, Any, Union
-import uuid
 
-from faker import Faker
 import pandas as pd
+from faker import Faker
 
 from data_designer.config.utils.constants import AVAILABLE_LOCALES, DEFAULT_AGE_RANGE
 from data_designer.engine.resources.managed_dataset_generator import ManagedDatasetGenerator
