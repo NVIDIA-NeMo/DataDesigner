@@ -44,12 +44,11 @@ import base64
 import io
 import uuid
 
-from datasets import load_dataset
-from IPython.display import display
-
 # Third-party imports
 import pandas as pd
 import rich
+from datasets import load_dataset
+from IPython.display import display
 from rich.panel import Panel
 
 # Data Designer imports

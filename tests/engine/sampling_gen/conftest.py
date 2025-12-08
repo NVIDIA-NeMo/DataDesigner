@@ -1,12 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from collections import defaultdict
 import random
+from collections import defaultdict
 
-from faker import Faker
 import pandas as pd
 import pytest
+from faker import Faker
 
 from data_designer.config.sampler_params import SamplerType
 from data_designer.engine.sampling_gen.data_sources.base import DataSource

@@ -7,8 +7,8 @@ import logging
 
 import pytest
 
-from data_designer.config.utils.misc import can_run_data_designer_locally
 import data_designer.essentials as essentials
+from data_designer.config.utils.misc import can_run_data_designer_locally
 from data_designer.essentials import (
     BernoulliMixtureSamplerParams,
     BernoulliSamplerParams,
