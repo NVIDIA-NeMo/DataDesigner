@@ -1,5 +1,6 @@
 name: Build docs
 on:
+  workflow_dispatch:
   release:
     types:
       - published
@@ -29,11 +30,38 @@ jobs:
         with:
           name: notebooks
           path: docs/notebooks
-      - name: Extract version from release
+      - name: Find the latest existing release tag
+        id: get_release
+        run: |
+          if [ "${{ github.event_name }}" == "release" ]; then
+            LATEST_TAG="${{ github.event.release.tag_name }}"
+          else
+            echo "::notice::Running manually via workflow_dispatch. Fetching latest release tag..."
+
+            gh auth status || echo "GitHub CLI is not authenticated, relying on GITHUB_TOKEN."
+
+            # We use tr -d '\n' to remove the trailing newline for a clean tag string
+            LATEST_TAG=$(gh release view --json tagName -q .tagName 2>/dev/null)
+
+            if [ -z "$LATEST_TAG" ]; then
+              echo "::error::Could not find the latest published release tag. Ensure a release exists."
+              exit 1
+            fi
+          fi
+
+          echo "Latest release tag found: $LATEST_TAG"
+          echo "LATEST_TAG=$LATEST_TAG" >> $GITHUB_ENV
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Extract version from release tag
         run: |
           # Remove the 'v' prefix and any suffix after a space
-          VERSION=$(echo ${{ github.event.release.tag_name }} | sed 's/^v//' | sed 's/ .*$//')
+          VERSION=$(echo ${{ env.LATEST_TAG }} | sed 's/^v//' | sed 's/ .*$//')
           echo "::notice::Extracted version: $VERSION"
           echo "VERSION=$VERSION" >> $GITHUB_ENV
+      - name: Setup doc deploy
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
       - name: Build and deploy docs
         run: uv run mike deploy --push --update-aliases ${{ env.VERSION }} latest
