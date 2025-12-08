@@ -104,24 +104,21 @@ class WithRecordSamplerMixin:
         except IndexError:
             raise DatasetSampleDisplayError(f"Index {i} is out of bounds for dataset of length {num_records}.")
 
+        processor_data_to_display = None
         if self._has_processor_artifact_preview() and len(self.processor_artifact_preview) > 0:
             if processors_to_display is None:
                 processors_to_display = list(self.processor_artifact_preview.keys())
 
-            if len(processors_to_display) == 0:
-                raise DatasetSampleDisplayError("No processors to display.")
-
-            processor_data_to_display = {}
-            for processor in processors_to_display:
-                if (
-                    isinstance(self.processor_artifact_preview[processor], list)
-                    and len(self.processor_artifact_preview[processor]) == num_records
-                ):
-                    processor_data_to_display[processor] = self.processor_artifact_preview[processor][i]
-                else:
-                    processor_data_to_display[processor] = self.processor_artifact_preview[processor]
-        else:
-            processor_data_to_display = None
+            if len(processors_to_display) > 0:
+                processor_data_to_display = {}
+                for processor in processors_to_display:
+                    if (
+                        isinstance(self.processor_artifact_preview[processor], list)
+                        and len(self.processor_artifact_preview[processor]) == num_records
+                    ):
+                        processor_data_to_display[processor] = self.processor_artifact_preview[processor][i]
+                    else:
+                        processor_data_to_display[processor] = self.processor_artifact_preview[processor]
 
         display_sample_record(
             record=record,
