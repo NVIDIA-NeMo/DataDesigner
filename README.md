@@ -113,7 +113,7 @@ data-designer config list      # View current settings
 ### 🤝 Get involved
 
 - **[Contributing Guide](https://nvidia-nemo.github.io/DataDesigner/latest/CONTRIBUTING)** – Help improve Data Designer
-- **[GitHub Issues](https://github.com/NVIDIA-NeMo/latest/DataDesigner/issues)** – Report bugs or make a feature request
+- **[GitHub Issues](https://github.com/NVIDIA-NeMo/DataDesigner/issues)** – Report bugs or make a feature request
 
 ---
 
