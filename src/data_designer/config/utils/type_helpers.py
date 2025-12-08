@@ -1,14 +1,18 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from enum import Enum
 import inspect
+from enum import Enum
 from typing import Any, Literal, Type, get_args, get_origin
 
 from pydantic import BaseModel
 
-from .. import sampler_params
-from .errors import InvalidDiscriminatorFieldError, InvalidEnumValueError, InvalidTypeUnionError
+from data_designer.config import sampler_params
+from data_designer.config.utils.errors import (
+    InvalidDiscriminatorFieldError,
+    InvalidEnumValueError,
+    InvalidTypeUnionError,
+)
 
 
 class StrEnum(str, Enum):

@@ -4,8 +4,8 @@
 import functools
 import json
 import logging
-from pathlib import Path
 import time
+from pathlib import Path
 from typing import Callable
 
 import pandas as pd
@@ -91,8 +91,8 @@ class ColumnWiseDatasetBuilder:
         start_time = time.perf_counter()
 
         self.batch_manager.start(num_records=num_records, buffer_size=buffer_size)
-        for batch_idx in range(1, self.batch_manager.num_batches + 1):
-            logger.info(f"⏳ Processing batch {batch_idx} of {self.batch_manager.num_batches}")
+        for batch_idx in range(self.batch_manager.num_batches):
+            logger.info(f"⏳ Processing batch {batch_idx + 1} of {self.batch_manager.num_batches}")
             self._run_batch(generators)
             df_batch = self._run_processors(
                 stage=BuildStage.POST_BATCH,

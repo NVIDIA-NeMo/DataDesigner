@@ -1,18 +1,68 @@
-name: build_docs
+name: Build docs
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
+  release:
+    types:
+      - published
+
 jobs:
+  build-notebooks:
+    uses: ./.github/workflows/build-notebooks.yml
+    secrets: inherit
   deploy:
+    needs: build-notebooks
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v2
-      - uses: astral-sh/setup-uv@v6
+      - name: Checkout repository
+        uses: actions/checkout@v2
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
         with:
           version: "0.9.5"
-      - run: uv python install
-      - run: uv sync --group docs
-      - run: uv run mkdocs gh-deploy --force --clean --verbose
+      - name: Set up Python
+        run: uv python install
+      - name: Install dependencies for docs
+        run: uv sync --group docs
+      - name: Download artifact from previous step
+        uses: actions/download-artifact@v5
+        with:
+          name: notebooks
+          path: docs/notebooks
+      - name: Find the latest existing release tag
+        id: get_release
+        run: |
+          if [ "${{ github.event_name }}" == "release" ]; then
+            LATEST_TAG="${{ github.event.release.tag_name }}"
+          else
+            echo "::notice::Running manually via workflow_dispatch. Fetching latest release tag..."
+
+            gh auth status || echo "GitHub CLI is not authenticated, relying on GITHUB_TOKEN."
+
+            # We use tr -d '\n' to remove the trailing newline for a clean tag string
+            LATEST_TAG=$(gh release view --json tagName -q .tagName 2>/dev/null)
+
+            if [ -z "$LATEST_TAG" ]; then
+              echo "::error::Could not find the latest published release tag. Ensure a release exists."
+              exit 1
+            fi
+          fi
+
+          echo "Latest release tag found: $LATEST_TAG"
+          echo "LATEST_TAG=$LATEST_TAG" >> $GITHUB_ENV
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Extract version from release tag
+        run: |
+          # Remove the 'v' prefix and any suffix after a space
+          VERSION=$(echo ${{ env.LATEST_TAG }} | sed 's/^v//' | sed 's/ .*$//')
+          echo "::notice::Extracted version: $VERSION"
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+      - name: Setup doc deploy
+        run: |
+          git fetch origin gh-pages --depth=1
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      - name: Build and deploy docs
+        run: uv run mike deploy --push --update-aliases ${{ env.VERSION }} latest

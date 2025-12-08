@@ -11,11 +11,11 @@ from pandas import Series
 from pydantic import BaseModel, ConfigDict, create_model, field_validator, model_validator
 from typing_extensions import Self, TypeAlias
 
-from ...plugin_manager import PluginManager
-from ..column_types import DataDesignerColumnType
-from ..sampler_params import SamplerType
-from ..utils.constants import EPSILON
-from ..utils.numerical_helpers import is_float, is_int, prepare_number_for_reporting
+from data_designer.config.column_types import DataDesignerColumnType
+from data_designer.config.sampler_params import SamplerType
+from data_designer.config.utils.constants import EPSILON
+from data_designer.config.utils.numerical_helpers import is_float, is_int, prepare_number_for_reporting
+from data_designer.plugin_manager import PluginManager
 
 
 class MissingValue(str, Enum):

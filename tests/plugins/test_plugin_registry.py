@@ -1,9 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import threading
 from contextlib import contextmanager
 from importlib.metadata import EntryPoint
-import threading
 from typing import Literal
 from unittest.mock import MagicMock, patch
 

@@ -8,8 +8,8 @@ import pandas as pd
 from pydantic import Field, field_validator, model_validator
 from typing_extensions import Self, TypeAlias
 
-from .base import ConfigBase
-from .utils.constants import (
+from data_designer.config.base import ConfigBase
+from data_designer.config.utils.constants import (
     AVAILABLE_LOCALES,
     DEFAULT_AGE_RANGE,
     LOCALES_WITH_MANAGED_DATASETS,
@@ -430,9 +430,6 @@ class PersonSamplerParams(ConfigBase):
         age_range: Two-element list [min_age, max_age] specifying the age range to sample from
             (inclusive). Defaults to a standard age range. Both values must be between minimum and
             maximum allowed ages.
-        state: Only supported for "en_US" locale. Filters to sample people from specified US state(s).
-            Must be provided as two-letter state abbreviations (e.g., "CA", "NY", "TX"). Can be a
-            single state or a list of states.
         with_synthetic_personas: If True, appends additional synthetic persona columns including
             personality traits, interests, and background descriptions. Only supported for certain
             locales with managed datasets.

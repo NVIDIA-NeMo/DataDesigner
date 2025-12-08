@@ -7,8 +7,8 @@ from typing import Literal
 
 from pydantic import Field, field_validator
 
-from .base import ConfigBase
-from .dataset_builders import BuildStage
+from data_designer.config.base import ConfigBase
+from data_designer.config.dataset_builders import BuildStage
 
 SUPPORTED_STAGES = [BuildStage.POST_BATCH]
 

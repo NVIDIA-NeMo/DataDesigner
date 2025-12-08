@@ -1,12 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from datetime import date, datetime, timedelta
-from decimal import Decimal
 import json
 import logging
-from numbers import Number
 import os
+from datetime import date, datetime, timedelta
+from decimal import Decimal
+from numbers import Number
 from pathlib import Path
 from typing import Any, Union
 
@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from ..errors import InvalidFileFormatError, InvalidFilePathError
+from data_designer.config.errors import InvalidFileFormatError, InvalidFilePathError
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ def load_config_file(file_path: Path) -> dict:
         InvalidFileFormatError: If YAML is malformed
         InvalidConfigError: If file is empty
     """
-    from ..errors import InvalidConfigError
+    from data_designer.config.errors import InvalidConfigError
 
     if not file_path.exists():
         raise InvalidFilePathError(f"Configuration file not found: {file_path}")

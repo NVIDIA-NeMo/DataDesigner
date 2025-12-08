@@ -3,14 +3,14 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 import json
+from contextlib import contextmanager
 from typing import Optional, Union
 
 from jinja2 import TemplateSyntaxError, meta
 from jinja2.sandbox import ImmutableSandboxedEnvironment
 
-from .errors import UserJinjaTemplateSyntaxError
+from data_designer.config.utils.errors import UserJinjaTemplateSyntaxError
 
 REPR_LIST_LENGTH_USE_JSON = 4
 
@@ -43,7 +43,7 @@ def assert_valid_jinja2_template(template: str) -> None:
 def can_run_data_designer_locally() -> bool:
     """Returns True if Data Designer can be run locally, False otherwise."""
     try:
-        from ... import engine  # noqa: F401
+        from ... import engine  # noqa: F401, TID252
     except ImportError:
         return False
     return True

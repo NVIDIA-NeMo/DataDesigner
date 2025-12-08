@@ -7,13 +7,13 @@ from typing import Annotated, Optional
 
 from pydantic import Field
 
-from .analysis.column_profilers import ColumnProfilerConfigT
-from .base import ExportableConfigBase
-from .column_types import ColumnConfigT
-from .models import ModelConfig
-from .processors import ProcessorConfig
-from .sampler_constraints import ColumnConstraintT
-from .seed import SeedConfig
+from data_designer.config.analysis.column_profilers import ColumnProfilerConfigT
+from data_designer.config.base import ExportableConfigBase
+from data_designer.config.column_types import ColumnConfigT
+from data_designer.config.models import ModelConfig
+from data_designer.config.processors import ProcessorConfig
+from data_designer.config.sampler_constraints import ColumnConstraintT
+from data_designer.config.seed import SeedConfig
 
 
 class DataDesignerConfig(ExportableConfigBase):

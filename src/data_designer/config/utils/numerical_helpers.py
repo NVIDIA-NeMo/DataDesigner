@@ -5,7 +5,7 @@ import numbers
 from numbers import Number
 from typing import Any, Type
 
-from .constants import REPORTING_PRECISION
+from data_designer.config.utils.constants import REPORTING_PRECISION
 
 
 def is_int(val: Any) -> bool:

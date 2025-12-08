@@ -3,10 +3,10 @@
 
 from __future__ import annotations
 
-from concurrent.futures import Future, ThreadPoolExecutor
 import contextvars
 import json
 import logging
+from concurrent.futures import Future, ThreadPoolExecutor
 from threading import Lock, Semaphore
 from typing import Any, Optional, Protocol
 

@@ -15,29 +15,30 @@ help:
 	@echo "═════════════════════════════════════════════════════════════"
 	@echo ""
 	@echo "📦 Installation:"
-	@echo "  install                - Install project dependencies with uv"
-	@echo "  install-dev            - Install project with dev dependencies"
-	@echo "  install-dev-notebooks  - Install dev + notebook dependencies (Jupyter, etc.)"
+	@echo "  install                   - Install project dependencies with uv"
+	@echo "  install-dev               - Install project with dev dependencies"
+	@echo "  install-dev-notebooks     - Install dev + notebook dependencies (Jupyter, etc.)"
 	@echo ""
 	@echo "🧪 Testing:"
-	@echo "  test                   - Run all unit tests"
-	@echo "  coverage               - Run tests with coverage report"
+	@echo "  test                      - Run all unit tests"
+	@echo "  coverage                  - Run tests with coverage report"
 	@echo ""
 	@echo "✨ Code Quality:"
-	@echo "  format                 - Format code with ruff"
-	@echo "  format-check           - Check code formatting without making changes"
-	@echo "  lint                   - Lint code with ruff"
-	@echo "  lint-fix               - Fix linting issues automatically"
+	@echo "  format                    - Format code with ruff"
+	@echo "  format-check              - Check code formatting without making changes"
+	@echo "  lint                      - Lint code with ruff"
+	@echo "  lint-fix                  - Fix linting issues automatically"
 	@echo ""
 	@echo "🔍 Combined Checks:"
-	@echo "  check-all              - Run all checks (format-check + lint)"
-	@echo "  check-all-fix          - Run all checks with autofix (format + lint-fix)"
+	@echo "  check-all                 - Run all checks (format-check + lint)"
+	@echo "  check-all-fix             - Run all checks with autofix (format + lint-fix)"
 	@echo ""
 	@echo "🛠️  Utilities:"
-	@echo "  clean                  - Remove coverage reports and cache files"
-	@echo "  serve-docs-locally     - Serve documentation locally"
-	@echo "  check-license-headers  - Check if all files have license headers"
-	@echo "  update-license-headers - Add license headers to all files"
+	@echo "  clean                     - Remove coverage reports and cache files"
+	@echo "  convert-execute-notebooks - Convert notebooks from .py to .ipynb using jupytext"
+	@echo "  serve-docs-locally        - Serve documentation locally"
+	@echo "  check-license-headers     - Check if all files have license headers"
+	@echo "  update-license-headers    - Add license headers to all files"
 	@echo ""
 	@echo "═════════════════════════════════════════════════════════════"
 	@echo "💡 Tip: Run 'make <command>' to execute any command above"
@@ -82,6 +83,17 @@ lint-fix:
 test:
 	@echo "🧪 Running unit tests..."
 	uv run --group dev pytest
+
+convert-execute-notebooks:
+	@echo "📓 Converting Python tutorials to notebooks and executing..."
+	@mkdir -p docs/notebooks
+	cp docs/notebook_source/_README.md docs/notebooks/README.md
+	cp docs/notebook_source/_pyproject.toml docs/notebooks/pyproject.toml
+	uv run --group notebooks --group docs jupytext --to ipynb --execute docs/notebook_source/*.py
+	mv docs/notebook_source/*.ipynb docs/notebooks/
+	rm -r docs/notebook_source/artifacts
+	rm docs/notebook_source/*.csv
+	@echo "✅ Notebooks created in docs/notebooks/"
 
 serve-docs-locally:
 	@echo "📝 Building and serving docs..."

@@ -5,10 +5,14 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Literal, TypeVar
 
-from ..models import ModelConfig, ModelProvider
-from ..sampler_params import SamplerType
-from .type_helpers import get_sampler_params
-from .visualization import display_model_configs_table, display_model_providers_table, display_sampler_table
+from data_designer.config.models import ModelConfig, ModelProvider
+from data_designer.config.sampler_params import SamplerType
+from data_designer.config.utils.type_helpers import get_sampler_params
+from data_designer.config.utils.visualization import (
+    display_model_configs_table,
+    display_model_providers_table,
+    display_sampler_table,
+)
 
 
 class InfoType(str, Enum):

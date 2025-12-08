@@ -1,10 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from collections.abc import Sequence
 import json
 import logging
 import os
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Protocol
 

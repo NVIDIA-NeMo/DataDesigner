@@ -8,9 +8,9 @@ from typing import Optional, Union
 from pydantic import Field, field_validator, model_validator
 from typing_extensions import Self
 
-from .base import ConfigBase
-from .datastore import DatastoreSettings
-from .utils.io_helpers import (
+from data_designer.config.base import ConfigBase
+from data_designer.config.datastore import DatastoreSettings
+from data_designer.config.utils.io_helpers import (
     VALID_DATASET_FILE_EXTENSIONS,
     validate_dataset_file_path,
     validate_path_contains_files_of_type,

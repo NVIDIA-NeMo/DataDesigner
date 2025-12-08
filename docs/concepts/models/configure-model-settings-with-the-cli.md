@@ -132,4 +132,4 @@ The CLI will show which configuration files exist and ask for confirmation befor
 - **[Model Providers](model-providers.md)**: Learn about the `ModelProvider` class and provider configuration
 - **[Model Configurations](model-configs.md)**: Learn about `ModelConfig` and `InferenceParameters`
 - **[Default Model Settings](default-model-settings.md)**: Pre-configured providers and model settings included with Data Designer
-- **[Quick Start Guide](../quick-start.md)**: Get started with a simple example
+- **[Quick Start Guide](../../quick-start.md)**: Get started with a simple example

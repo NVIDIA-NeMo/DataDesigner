@@ -2,21 +2,21 @@
 # SPDX-License-Identifier: Apache-2.0
 
 
-from functools import lru_cache
 import logging
 import os
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal, Optional
 
-from .models import CompletionInferenceParameters, ModelConfig, ModelProvider
-from .utils.constants import (
+from data_designer.config.models import CompletionInferenceParameters, ModelConfig, ModelProvider
+from data_designer.config.utils.constants import (
     MANAGED_ASSETS_PATH,
     MODEL_CONFIGS_FILE_PATH,
     MODEL_PROVIDERS_FILE_PATH,
     PREDEFINED_PROVIDERS,
     PREDEFINED_PROVIDERS_MODEL_MAP,
 )
-from .utils.io_helpers import load_config_file, save_config_file
+from data_designer.config.utils.io_helpers import load_config_file, save_config_file
 
 logger = logging.getLogger(__name__)
 

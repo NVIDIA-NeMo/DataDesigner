@@ -7,8 +7,8 @@ from typing import Any, Optional, Union
 from pydantic import Field, field_serializer, model_validator
 from typing_extensions import Self, TypeAlias
 
-from .base import ConfigBase
-from .utils.code_lang import SQL_DIALECTS, CodeLang
+from data_designer.config.base import ConfigBase
+from data_designer.config.utils.code_lang import SQL_DIALECTS, CodeLang
 
 SUPPORTED_CODE_LANGUAGES = {CodeLang.PYTHON, *SQL_DIALECTS}
 

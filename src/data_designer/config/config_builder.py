@@ -13,30 +13,30 @@ from pygments.formatters import HtmlFormatter
 from pygments.lexers import PythonLexer
 from typing_extensions import Self
 
-from .analysis.column_profilers import ColumnProfilerConfigT
-from .base import ExportableConfigBase
-from .column_configs import SeedDatasetColumnConfig
-from .column_types import (
+from data_designer.config.analysis.column_profilers import ColumnProfilerConfigT
+from data_designer.config.base import ExportableConfigBase
+from data_designer.config.column_configs import SeedDatasetColumnConfig
+from data_designer.config.column_types import (
     ColumnConfigT,
     DataDesignerColumnType,
     column_type_is_llm_generated,
     get_column_config_from_kwargs,
     get_column_display_order,
 )
-from .data_designer_config import DataDesignerConfig
-from .dataset_builders import BuildStage
-from .datastore import DatastoreSettings, fetch_seed_dataset_column_names
-from .default_model_settings import get_default_model_configs, resolve_seed_default_model_settings
-from .errors import BuilderConfigurationError, InvalidColumnTypeError, InvalidConfigError
-from .models import ModelConfig, load_model_configs
-from .processors import ProcessorConfig, ProcessorType, get_processor_config_from_kwargs
-from .sampler_constraints import (
+from data_designer.config.data_designer_config import DataDesignerConfig
+from data_designer.config.dataset_builders import BuildStage
+from data_designer.config.datastore import DatastoreSettings, fetch_seed_dataset_column_names
+from data_designer.config.default_model_settings import get_default_model_configs
+from data_designer.config.errors import BuilderConfigurationError, InvalidColumnTypeError, InvalidConfigError
+from data_designer.config.models import ModelConfig, load_model_configs
+from data_designer.config.processors import ProcessorConfig, ProcessorType, get_processor_config_from_kwargs
+from data_designer.config.sampler_constraints import (
     ColumnConstraintT,
     ColumnInequalityConstraint,
     ConstraintType,
     ScalarInequalityConstraint,
 )
-from .seed import (
+from data_designer.config.seed import (
     DatastoreSeedDatasetReference,
     IndexRange,
     LocalSeedDatasetReference,
@@ -45,18 +45,14 @@ from .seed import (
     SeedConfig,
     SeedDatasetReference,
 )
-from .utils.constants import DEFAULT_REPR_HTML_STYLE, REPR_HTML_TEMPLATE
-from .utils.info import ConfigBuilderInfo
-from .utils.io_helpers import serialize_data, smart_load_yaml
-from .utils.misc import can_run_data_designer_locally, json_indent_list_of_strings, kebab_to_snake
-from .utils.type_helpers import resolve_string_enum
-from .utils.validation import ViolationLevel, rich_print_violations, validate_data_designer_config
+from data_designer.config.utils.constants import DEFAULT_REPR_HTML_STYLE, REPR_HTML_TEMPLATE
+from data_designer.config.utils.info import ConfigBuilderInfo
+from data_designer.config.utils.io_helpers import serialize_data, smart_load_yaml
+from data_designer.config.utils.misc import can_run_data_designer_locally, json_indent_list_of_strings, kebab_to_snake
+from data_designer.config.utils.type_helpers import resolve_string_enum
+from data_designer.config.utils.validation import ViolationLevel, rich_print_violations, validate_data_designer_config
 
 logger = logging.getLogger(__name__)
-
-# Resolve default model settings on import to ensure they are available when the library is used.
-if can_run_data_designer_locally():
-    resolve_seed_default_model_settings()
 
 
 class BuilderConfig(ExportableConfigBase):
@@ -143,11 +139,8 @@ class DataDesignerConfigBuilder:
                 - A list of ModelConfig objects
                 - A string or Path to a model configuration file
         """
-        if not can_run_data_designer_locally() and (model_configs is None or len(model_configs) == 0):
-            raise BuilderConfigurationError("🛑 Model configurations are required!")
-
         self._column_configs = {}
-        self._model_configs = load_model_configs(model_configs or get_default_model_configs())
+        self._model_configs = _load_model_configs(model_configs)
         self._processor_configs: list[ProcessorConfig] = []
         self._seed_config: Optional[SeedConfig] = None
         self._constraints: list[ColumnConstraintT] = []
@@ -658,3 +651,15 @@ class DataDesignerConfigBuilder:
         highlighted_html = highlight(repr_string, PythonLexer(), formatter)
         css = formatter.get_style_defs(".code")
         return REPR_HTML_TEMPLATE.format(css=css, highlighted_html=highlighted_html)
+
+
+def _load_model_configs(model_configs: Optional[Union[list[ModelConfig], str, Path]] = None) -> list[ModelConfig]:
+    """Resolves the provided model_configs, which may be a string or Path to a model configuration file.
+    If None or empty, returns default model configurations if possible, otherwise raises an error.
+    """
+    if model_configs:
+        return load_model_configs(model_configs)
+    elif can_run_data_designer_locally():
+        return get_default_model_configs()
+    else:
+        raise BuilderConfigurationError("🛑 Model configurations are required!")
