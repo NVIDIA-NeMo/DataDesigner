@@ -129,7 +129,7 @@ If you use NeMo Data Designer in your research, please cite it using the followi
 
 ```bibtex
 @misc{nemo-data-designer,
-  author = {The NeMo Data Designer Team},
+  author = {The NeMo Data Designer Team, NVIDIA},
   title = {NeMo Data Designer: A framework for generating synthetic data from scratch or based on your own seed data},
   howpublished = {\url{https://github.com/NVIDIA-NeMo/DataDesigner}},
   year = {2025},
