@@ -90,8 +90,9 @@ def test_process_writes_formatted_output_to_parquet(
 
     # Verify the formatted dataframe has the correct structure
     assert written_dataframe is not None
-    assert list(written_dataframe.columns) == ["formatted_output"]
     assert len(written_dataframe) == 4
+    assert len(written_dataframe.columns) == 2
+    assert list(written_dataframe.columns) == ["text", "value"]
 
     # Verify the formatted content
     expected_formatted_output = [
@@ -102,7 +103,7 @@ def test_process_writes_formatted_output_to_parquet(
     ]
 
     for i, expected in enumerate(expected_formatted_output):
-        actual = written_dataframe.iloc[i]["formatted_output"]
+        actual = json.dumps(written_dataframe.iloc[i].to_dict())
         # Parse both as JSON to compare structure (ignoring whitespace differences)
         assert json.loads(actual) == json.loads(expected), f"Row {i} mismatch: {actual} != {expected}"
 
@@ -145,6 +146,6 @@ def test_process_with_json_serialized_values(stub_processor: AncillaryDatasetPro
     assert len(written_dataframe) == 2
 
     # Verify that nested JSON values are properly deserialized in template rendering
-    first_output = json.loads(written_dataframe.iloc[0]["formatted_output"])
+    first_output = written_dataframe.iloc[0].to_dict()
     assert first_output["text"] == "hello"
     assert first_output["value"] == "{'nested': 'value1'}"
