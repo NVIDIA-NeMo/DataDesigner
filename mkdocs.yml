@@ -31,6 +31,10 @@ nav:
       - QA and Chat:
           - Product Info QA: recipes/qa_and_chat/product_info_qa.md
           - Multi-Turn Chat: recipes/qa_and_chat/multi_turn_chat.md
+  - Plugins:
+      - Overview: plugins/overview.md
+      - Example Plugin: plugins/example.md
+      - Available Plugin List: plugins/available.md
   - Code Reference:
       - models: code_reference/models.md
       - column_configs: code_reference/column_configs.md
@@ -38,6 +42,7 @@ nav:
       - data_designer_config: code_reference/data_designer_config.md
       - sampler_params: code_reference/sampler_params.md
       - validator_params: code_reference/validator_params.md
+      - analysis: code_reference/analysis.md
 
 theme:
   name: material
