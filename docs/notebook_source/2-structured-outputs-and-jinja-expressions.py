@@ -31,10 +31,10 @@
 # %%
 from data_designer.essentials import (
     CategorySamplerParams,
+    ChatCompletionInferenceParameters,
     DataDesigner,
     DataDesignerConfigBuilder,
     ExpressionColumnConfig,
-    InferenceParameters,
     LLMStructuredColumnConfig,
     ModelConfig,
     PersonFromFakerSamplerParams,
@@ -84,7 +84,7 @@ model_configs = [
         alias=MODEL_ALIAS,
         model=MODEL_ID,
         provider=MODEL_PROVIDER,
-        inference_parameters=InferenceParameters(
+        inference_parameters=ChatCompletionInferenceParameters(
             temperature=0.5,
             top_p=1.0,
             max_tokens=1024,
