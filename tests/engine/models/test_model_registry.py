@@ -173,7 +173,7 @@ def test_run_health_check_completion_authentication_error(
 ):
     auth_error = ModelAuthenticationError("Invalid API key for completion model")
     mock_completion.side_effect = auth_error
-    model_aliases = {"stub-text", "stub-reasoning", "stub-embedding"}
+    model_aliases = ["stub-text", "stub-reasoning", "stub-embedding"]
 
     with pytest.raises(ModelAuthenticationError):
         stub_model_registry.run_health_check(model_aliases)
@@ -189,7 +189,7 @@ def test_run_health_check_embedding_authentication_error(
 ):
     auth_error = ModelAuthenticationError("Invalid API key for embedding model")
     mock_generate_text_embeddings.side_effect = auth_error
-    model_aliases = {"stub-text", "stub-reasoning", "stub-embedding"}
+    model_aliases = ["stub-text", "stub-reasoning", "stub-embedding"]
 
     with pytest.raises(ModelAuthenticationError):
         stub_model_registry.run_health_check(model_aliases)
