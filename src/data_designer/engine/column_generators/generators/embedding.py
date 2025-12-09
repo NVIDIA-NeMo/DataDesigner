@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 
+from pydantic import BaseModel, computed_field
+
 from data_designer.config.column_configs import EmbeddingColumnConfig
 from data_designer.engine.column_generators.generators.base import (
     ColumnGenerator,
@@ -11,6 +13,18 @@ from data_designer.engine.column_generators.generators.base import (
 )
 from data_designer.engine.processing.utils import deserialize_json_values, parse_list_string
 from data_designer.engine.resources.resource_provider import ResourceType
+
+
+class EmbeddingGenerationResult(BaseModel):
+    embeddings: list[list[float]]
+
+    @computed_field
+    def num_embeddings(self) -> int:
+        return len(self.embeddings)
+
+    @computed_field
+    def dimension(self) -> int:
+        return len(self.embeddings[0]) if len(self.embeddings) > 0 else 0
 
 
 class EmbeddingCellGenerator(WithModelGeneration, ColumnGenerator[EmbeddingColumnConfig]):
@@ -27,10 +41,5 @@ class EmbeddingCellGenerator(WithModelGeneration, ColumnGenerator[EmbeddingColum
         deserialized_record = deserialize_json_values(data)
         input_texts = parse_list_string(deserialized_record[self.config.target_column])
         embeddings = self.model.generate_text_embeddings(input_texts=input_texts)
-
-        data[self.config.name] = {
-            "embeddings": embeddings,
-            "num_embeddings": len(embeddings),
-            "dimension": len(embeddings[0]) if len(embeddings) > 0 else 0,
-        }
+        data[self.config.name] = EmbeddingGenerationResult(embeddings=embeddings).model_dump(mode="json")
         return data

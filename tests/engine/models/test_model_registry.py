@@ -4,7 +4,6 @@
 from unittest.mock import patch
 
 import pytest
-from litellm import AuthenticationError
 
 from data_designer.config.models import CompletionInferenceParameters, ModelConfig
 from data_designer.engine.models.errors import ModelAuthenticationError
@@ -72,14 +71,15 @@ def test_register_model_configs(stub_model_registry, stub_new_model_config):
     stub_model_registry.register_model_configs([stub_new_model_config])
 
     # Verify configs are registered
-    assert len(stub_model_registry.model_configs) == 3
+    assert len(stub_model_registry.model_configs) == 4
 
     # Trigger lazy initialization by requesting models
     assert stub_model_registry.get_model(model_alias="stub-text").model_name == "stub-model-text"
     assert stub_model_registry.get_model(model_alias="stub-reasoning").model_name == "stub-model-reasoning"
     assert stub_model_registry.get_model(model_alias="stub-vision").model_name == "stub-model-vision"
+    assert stub_model_registry.get_model(model_alias="stub-embedding").model_name == "stub-model-embedding"
 
-    assert len(stub_model_registry.models) == 3
+    assert len(stub_model_registry.models) == 4
     assert all(isinstance(model, ModelFacade) for model in stub_model_registry.models.values())
 
 
@@ -126,19 +126,19 @@ def test_get_model_usage_stats(
         reasoning_model = stub_model_registry.get_model(model_alias="stub-reasoning")
 
         text_model.usage_stats.extend(
-            token_usage=TokenUsageStats(prompt_tokens=10, completion_tokens=100),
+            token_usage=TokenUsageStats(input_tokens=10, output_tokens=100),
             request_usage=RequestUsageStats(successful_requests=10, failed_requests=0),
         )
         reasoning_model.usage_stats.extend(
-            token_usage=TokenUsageStats(prompt_tokens=5, completion_tokens=200),
+            token_usage=TokenUsageStats(input_tokens=5, output_tokens=200),
             request_usage=RequestUsageStats(successful_requests=100, failed_requests=10),
         )
         usage_stats = stub_model_registry.get_model_usage_stats(total_time_elapsed=10)
 
         assert set(usage_stats.keys()) == set(expected_keys)
         if "stub-model-text" in usage_stats:
-            assert usage_stats["stub-model-text"]["token_usage"]["prompt_tokens"] == 10
-            assert usage_stats["stub-model-text"]["token_usage"]["completion_tokens"] == 100
+            assert usage_stats["stub-model-text"]["token_usage"]["input_tokens"] == 10
+            assert usage_stats["stub-model-text"]["token_usage"]["output_tokens"] == 100
             assert usage_stats["stub-model-text"]["token_usage"]["total_tokens"] == 110
             assert usage_stats["stub-model-text"]["request_usage"]["successful_requests"] == 10
             assert usage_stats["stub-model-text"]["request_usage"]["failed_requests"] == 0
@@ -150,42 +150,52 @@ def test_get_model_usage_stats(
         # Trigger lazy initialization
         text_model = stub_model_registry.get_model(model_alias="stub-text")
         text_model.usage_stats.extend(
-            token_usage=TokenUsageStats(prompt_tokens=10, completion_tokens=100),
+            token_usage=TokenUsageStats(input_tokens=10, output_tokens=100),
             request_usage=RequestUsageStats(successful_requests=10, failed_requests=0),
         )
         usage_stats = stub_model_registry.get_model_usage_stats(total_time_elapsed=10)
         assert set(usage_stats.keys()) == set(expected_keys)
 
 
-@pytest.mark.parametrize(
-    "test_case,mock_side_effect,expected_exception,expected_call_count",
-    [
-        ("success", None, None, 2),
-        (
-            "authentication_error",
-            AuthenticationError("Invalid API key", llm_provider="openai", model="stub-model-text"),
-            ModelAuthenticationError,
-            1,
-        ),
-    ],
-)
+@patch("data_designer.engine.models.facade.ModelFacade.generate_text_embeddings", autospec=True)
 @patch("data_designer.engine.models.facade.ModelFacade.completion", autospec=True)
-def test_run_health_check(
-    mock_completion, stub_model_registry, test_case, mock_side_effect, expected_exception, expected_call_count
+def test_run_health_check_success(mock_completion, mock_generate_text_embeddings, stub_model_registry):
+    model_aliases = {"stub-text", "stub-reasoning", "stub-embedding"}
+    stub_model_registry.run_health_check(model_aliases)
+    assert mock_completion.call_count == 2
+    assert mock_generate_text_embeddings.call_count == 1
+
+
+@patch("data_designer.engine.models.facade.ModelFacade.generate_text_embeddings", autospec=True)
+@patch("data_designer.engine.models.facade.ModelFacade.completion", autospec=True)
+def test_run_health_check_completion_authentication_error(
+    mock_completion, mock_generate_text_embeddings, stub_model_registry
 ):
-    if mock_side_effect:
-        mock_completion.side_effect = mock_side_effect
+    auth_error = ModelAuthenticationError("Invalid API key for completion model")
+    mock_completion.side_effect = auth_error
+    model_aliases = {"stub-text", "stub-reasoning", "stub-embedding"}
 
-    # Pass model aliases for health check
-    model_aliases = {"stub-text", "stub-reasoning"}
-
-    if expected_exception:
-        with pytest.raises(expected_exception):
-            stub_model_registry.run_health_check(model_aliases)
-    else:
+    with pytest.raises(ModelAuthenticationError):
         stub_model_registry.run_health_check(model_aliases)
 
-    assert mock_completion.call_count == expected_call_count
+    mock_completion.assert_called_once()
+    mock_generate_text_embeddings.assert_not_called()
+
+
+@patch("data_designer.engine.models.facade.ModelFacade.generate_text_embeddings", autospec=True)
+@patch("data_designer.engine.models.facade.ModelFacade.completion", autospec=True)
+def test_run_health_check_embedding_authentication_error(
+    mock_completion, mock_generate_text_embeddings, stub_model_registry
+):
+    auth_error = ModelAuthenticationError("Invalid API key for embedding model")
+    mock_generate_text_embeddings.side_effect = auth_error
+    model_aliases = {"stub-text", "stub-reasoning", "stub-embedding"}
+
+    with pytest.raises(ModelAuthenticationError):
+        stub_model_registry.run_health_check(model_aliases)
+
+    mock_completion.call_count == 2
+    mock_generate_text_embeddings.assert_called_once()
 
 
 @pytest.mark.parametrize(

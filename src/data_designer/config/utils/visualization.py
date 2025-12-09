@@ -243,9 +243,11 @@ def display_sample_record(
 
 
 def get_truncated_list_as_string(long_list: list[Any], max_items: int = 2) -> str:
+    if max_items <= 0:
+        raise ValueError("max_items must be greater than 0")
     if len(long_list) > max_items:
         truncated_part = long_list[:max_items]
-        return f"[{', '.join(str(x) for x in truncated_part)} ...]"
+        return f"[{', '.join(str(x) for x in truncated_part)}, ...]"
     else:
         return str(long_list)
 

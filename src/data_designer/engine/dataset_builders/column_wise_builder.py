@@ -183,7 +183,7 @@ class ColumnWiseDatasetBuilder:
     def _run_model_health_check_if_needed(self) -> bool:
         if any(column_type_is_llm_generated(config.column_type) for config in self.single_column_configs):
             self._resource_provider.model_registry.run_health_check(
-                set(config.model_alias for config in self.llm_generated_column_configs)
+                list(set(config.model_alias for config in self.llm_generated_column_configs))
             )
 
     def _fan_out_with_threads(self, generator: WithModelGeneration, max_workers: int) -> None:

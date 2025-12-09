@@ -262,8 +262,8 @@ class ModelFacade:
         ):
             self._usage_stats.extend(
                 token_usage=TokenUsageStats(
-                    prompt_tokens=response.usage.prompt_tokens,
-                    completion_tokens=response.usage.completion_tokens,
+                    input_tokens=response.usage.prompt_tokens,
+                    output_tokens=response.usage.completion_tokens,
                 ),
                 request_usage=RequestUsageStats(successful_requests=1, failed_requests=0),
             )
@@ -275,8 +275,8 @@ class ModelFacade:
         if response.usage is not None and response.usage.prompt_tokens is not None:
             self._usage_stats.extend(
                 token_usage=TokenUsageStats(
-                    prompt_tokens=response.usage.prompt_tokens,
-                    completion_tokens=0,
+                    input_tokens=response.usage.prompt_tokens,
+                    output_tokens=0,
                 ),
                 request_usage=RequestUsageStats(successful_requests=1, failed_requests=0),
             )

@@ -73,7 +73,7 @@ class ModelRegistry:
         model_config = self.get_model_config(model_alias=model_alias)
         return self._model_provider_registry.get_provider(model_config.provider)
 
-    def run_health_check(self, model_aliases: set[str]) -> None:
+    def run_health_check(self, model_aliases: list[str]) -> None:
         logger.info("🩺 Running health checks for models...")
         for model_alias in model_aliases:
             model = self.get_model(model_alias=model_alias)

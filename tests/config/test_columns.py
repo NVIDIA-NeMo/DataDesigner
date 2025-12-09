@@ -5,6 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from data_designer.config.column_configs import (
+    EmbeddingColumnConfig,
     ExpressionColumnConfig,
     LLMCodeColumnConfig,
     LLMJudgeColumnConfig,
@@ -215,6 +216,20 @@ def test_validation_column_config():
     assert validation_column_config.batch_size == 5
 
 
+def test_embedding_column_config():
+    embedding_column_config = EmbeddingColumnConfig(
+        name="test_embedding",
+        target_column="test_column",
+        model_alias=stub_model_alias,
+    )
+
+    assert embedding_column_config.column_type == DataDesignerColumnType.EMBEDDING
+    assert embedding_column_config.target_column == "test_column"
+    assert embedding_column_config.model_alias == stub_model_alias
+    assert embedding_column_config.required_columns == ["test_column"]
+    assert embedding_column_config.side_effect_columns == []
+
+
 def test_get_column_config_from_kwargs():
     assert isinstance(
         get_column_config_from_kwargs(
@@ -279,6 +294,16 @@ def test_get_column_config_from_kwargs():
             dtype="str",
         ),
         ExpressionColumnConfig,
+    )
+
+    assert isinstance(
+        get_column_config_from_kwargs(
+            name="test_embedding",
+            column_type=DataDesignerColumnType.EMBEDDING,
+            target_column="test_column",
+            model_alias=stub_model_alias,
+        ),
+        EmbeddingColumnConfig,
     )
 
     # sampler params is a dictionary

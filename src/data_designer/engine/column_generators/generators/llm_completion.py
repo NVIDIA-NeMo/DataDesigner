@@ -137,4 +137,4 @@ class LLMJudgeCellGenerator(WithCompletionGeneration, ColumnGenerator[LLMJudgeCo
 
     @property
     def max_conversation_restarts(self) -> int:
-        return DEFAULT_MAX_CONVERSATION_RESTARTS * 2
+        return 2 * DEFAULT_MAX_CONVERSATION_RESTARTS
