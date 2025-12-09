@@ -15,7 +15,7 @@ from rich.console import Console, Group
 from rich.padding import Padding
 from rich.panel import Panel
 
-from data_designer.config.column_types import ColumnConfigT, DataDesignerColumnType, column_type_is_llm_generated
+from data_designer.config.column_types import ColumnConfigT, DataDesignerColumnType, column_type_is_model_generated
 from data_designer.config.processors import ProcessorConfig, ProcessorType
 from data_designer.config.utils.constants import RICH_CONSOLE_THEME
 from data_designer.config.utils.misc import can_run_data_designer_locally
@@ -115,7 +115,7 @@ def validate_prompt_templates(
 ) -> list[Violation]:
     env = ImmutableSandboxedEnvironment()
 
-    columns_with_prompts = [c for c in columns if column_type_is_llm_generated(c.column_type)]
+    columns_with_prompts = [c for c in columns if column_type_is_model_generated(c.column_type)]
 
     violations = []
     for column in columns_with_prompts:

@@ -10,7 +10,7 @@ from typing import Callable
 
 import pandas as pd
 
-from data_designer.config.column_types import ColumnConfigT, column_type_is_llm_generated
+from data_designer.config.column_types import ColumnConfigT, column_type_is_model_generated
 from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.processors import (
     DropColumnsProcessorConfig,
@@ -75,7 +75,7 @@ class ColumnWiseDatasetBuilder:
 
     @functools.cached_property
     def llm_generated_column_configs(self) -> list[ColumnConfigT]:
-        return [config for config in self.single_column_configs if column_type_is_llm_generated(config.column_type)]
+        return [config for config in self.single_column_configs if column_type_is_model_generated(config.column_type)]
 
     def build(
         self,
@@ -181,7 +181,7 @@ class ColumnWiseDatasetBuilder:
         self.batch_manager.update_records(df.to_dict(orient="records"))
 
     def _run_model_health_check_if_needed(self) -> bool:
-        if any(column_type_is_llm_generated(config.column_type) for config in self.single_column_configs):
+        if any(column_type_is_model_generated(config.column_type) for config in self.single_column_configs):
             self._resource_provider.model_registry.run_health_check(
                 list(set(config.model_alias for config in self.llm_generated_column_configs))
             )

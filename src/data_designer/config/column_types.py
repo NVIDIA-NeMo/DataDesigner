@@ -79,23 +79,23 @@ def column_type_used_in_execution_dag(column_type: Union[str, DataDesignerColumn
     return column_type in dag_column_types
 
 
-def column_type_is_llm_generated(column_type: Union[str, DataDesignerColumnType]) -> bool:
-    """Return True if the column type is an LLM-generated column."""
+def column_type_is_model_generated(column_type: Union[str, DataDesignerColumnType]) -> bool:
+    """Return True if the column type is a model-generated column."""
     column_type = resolve_string_enum(column_type, DataDesignerColumnType)
-    llm_generated_column_types = {
+    model_generated_column_types = {
         DataDesignerColumnType.LLM_TEXT,
         DataDesignerColumnType.LLM_CODE,
         DataDesignerColumnType.LLM_STRUCTURED,
         DataDesignerColumnType.LLM_JUDGE,
         DataDesignerColumnType.EMBEDDING,
     }
-    llm_generated_column_types.update(
+    model_generated_column_types.update(
         plugin_manager.get_plugin_column_types(
             DataDesignerColumnType,
             required_resources=["model_registry"],
         )
     )
-    return column_type in llm_generated_column_types
+    return column_type in model_generated_column_types
 
 
 def get_column_config_from_kwargs(name: str, column_type: DataDesignerColumnType, **kwargs) -> ColumnConfigT:
