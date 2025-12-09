@@ -58,6 +58,7 @@ theme:
       - navigation.tabs
       - navigation.expand
       - navigation.path
+      - navigation.footer
       - content.code.copy
       - content.code.select
       - content.code.annotate
