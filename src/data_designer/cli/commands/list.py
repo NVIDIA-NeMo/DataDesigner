@@ -6,6 +6,7 @@ from rich.table import Table
 from data_designer.cli.repositories.model_repository import ModelRepository
 from data_designer.cli.repositories.provider_repository import ProviderRepository
 from data_designer.cli.ui import console, print_error, print_header, print_info, print_warning
+from data_designer.config.models import ModelConfig
 from data_designer.config.utils.constants import DATA_DESIGNER_HOME, NordColor
 
 
@@ -75,6 +76,39 @@ def display_providers(provider_repo: ProviderRepository) -> None:
         console.print()
 
 
+def format_inference_parameters(model_config: ModelConfig) -> str:
+    """Format inference parameters based on generation type.
+
+    Args:
+        model_config: Model configuration
+
+    Returns:
+        Formatted string of inference parameters
+    """
+    params = model_config.inference_parameters
+
+    # Get parameter values as dict, excluding common base parameters
+    params_dict = params.model_dump(exclude_none=True, mode="json")
+
+    if not params_dict:
+        return "(none)"
+
+    # Format each parameter
+    parts = []
+    for key, value in params_dict.items():
+        # Check if value is a distribution (has dict structure with distribution_type)
+        if isinstance(value, dict) and "distribution_type" in value:
+            formatted_value = "dist"
+        elif isinstance(value, float):
+            formatted_value = f"{value:.2f}"
+        else:
+            formatted_value = str(value)
+
+        parts.append(f"{key}={formatted_value}")
+
+    return ", ".join(parts)
+
+
 def display_models(model_repo: ModelRepository) -> None:
     """Load and display model configurations.
 
@@ -97,30 +131,18 @@ def display_models(model_repo: ModelRepository) -> None:
         table.add_column("Alias", style=NordColor.NORD14.value, no_wrap=True)
         table.add_column("Model ID", style=NordColor.NORD4.value)
         table.add_column("Provider", style=NordColor.NORD9.value, no_wrap=True)
-        table.add_column("Temperature", style=NordColor.NORD15.value, justify="right")
-        table.add_column("Top P", style=NordColor.NORD15.value, justify="right")
-        table.add_column("Max Tokens", style=NordColor.NORD15.value, justify="right")
+        table.add_column("Generation Type", style=NordColor.NORD9.value, no_wrap=True)
+        table.add_column("Inference Parameters", style=NordColor.NORD15.value)
 
         for mc in registry.model_configs:
-            # Handle distribution-based parameters
-            temp_display = (
-                f"{mc.inference_parameters.temperature:.2f}"
-                if isinstance(mc.inference_parameters.temperature, (int, float))
-                else "dist"
-            )
-            top_p_display = (
-                f"{mc.inference_parameters.top_p:.2f}"
-                if isinstance(mc.inference_parameters.top_p, (int, float))
-                else "dist"
-            )
+            params_display = format_inference_parameters(mc)
 
             table.add_row(
                 mc.alias,
                 mc.model,
                 mc.provider or "(default)",
-                temp_display,
-                top_p_display,
-                str(mc.inference_parameters.max_tokens) if mc.inference_parameters.max_tokens else "(none)",
+                mc.generation_type,
+                params_display,
             )
 
         console.print(table)
