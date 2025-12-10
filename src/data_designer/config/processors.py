@@ -51,6 +51,24 @@ class DropColumnsProcessorConfig(ProcessorConfig):
 class AncillaryDatasetProcessorConfig(ProcessorConfig):
     template: dict[str, Any] = Field(
         ...,
-        description="Jinja2 template to use for each column of the ancillary dataset. Keys are the column names, values are the Jinja2 templates.",
+        description="""
+        Dictionary specifying columns and templates to use in the ancillary dataset.
+
+        Each key is a new column name, and each value is an object containing Jinja2 templates - for instance, a string or a list of strings.
+        Values must be JSON-serializable.
+
+        Example:
+
+        ```python
+        template = {
+            "list_of_strings": ["{{ col1 }}", "{{ col2 }}"],
+            "uppercase_string": "{{ col1 | upper }}",
+            "lowercase_string": "{{ col2 | lower }}",
+        }
+        ```
+
+        The above templates will create an ancillary dataset with three columns: "list_of_strings", "uppercase_string", and "lowercase_string".
+        References to columns "col1" and "col2" in the templates will be replaced with the actual values of the columns in the dataset.
+        """,
     )
     processor_type: Literal[ProcessorType.ANCILLARY_DATASET] = ProcessorType.ANCILLARY_DATASET
