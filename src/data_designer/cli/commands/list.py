@@ -103,9 +103,7 @@ def format_inference_parameters(model_config: ModelConfig) -> str:
             formatted_value = f"{value:.2f}"
         else:
             formatted_value = str(value)
-
         parts.append(f"{key}={formatted_value}")
-
     return ", ".join(parts)
 
 

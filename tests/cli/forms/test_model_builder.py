@@ -120,8 +120,8 @@ def test_form_uses_initial_data_for_field_defaults() -> None:
     initial_data = {
         "alias": "my-model",
         "model": "gpt-4",
-        "generation_type": GenerationType.CHAT_COMPLETION,
         "inference_parameters": {
+            "generation_type": GenerationType.CHAT_COMPLETION,
             "temperature": 0.5,
             "top_p": 0.8,
             "max_tokens": 1024,
@@ -134,6 +134,27 @@ def test_form_uses_initial_data_for_field_defaults() -> None:
     assert form.get_field("alias").default == "my-model"
     assert form.get_field("model").default == "gpt-4"
     assert form.get_field("generation_type").default == GenerationType.CHAT_COMPLETION
+
+
+def test_form_extracts_generation_type_from_inference_parameters() -> None:
+    """Test form correctly extracts generation_type from nested inference_parameters for embedding models."""
+    initial_data = {
+        "alias": "embedding-model",
+        "model": "text-embedding-3",
+        "inference_parameters": {
+            "generation_type": GenerationType.EMBEDDING,
+            "encoding_format": "base64",
+            "dimensions": 512,
+        },
+        "provider": "openai",
+    }
+    builder = ModelFormBuilder()
+
+    form = builder.create_form(initial_data)
+
+    assert form.get_field("alias").default == "embedding-model"
+    assert form.get_field("model").default == "text-embedding-3"
+    assert form.get_field("generation_type").default == GenerationType.EMBEDDING
 
 
 def test_form_uses_standard_defaults_without_initial_data() -> None:

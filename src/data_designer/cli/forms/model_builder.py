@@ -67,6 +67,12 @@ class ModelFormBuilder(FormBuilder[ModelConfig]):
             pass
 
         # Generation type
+        # Extract from inference_parameters if present (for existing models)
+        default_gen_type = GenerationType.CHAT_COMPLETION
+        if initial_data:
+            inference_params = initial_data.get("inference_parameters", {})
+            default_gen_type = inference_params.get("generation_type", default_gen_type)
+
         fields.append(
             SelectField(
                 "generation_type",
@@ -75,9 +81,7 @@ class ModelFormBuilder(FormBuilder[ModelConfig]):
                     GenerationType.CHAT_COMPLETION: "Chat completion",
                     GenerationType.EMBEDDING: "Embedding",
                 },
-                default=initial_data.get("generation_type", GenerationType.CHAT_COMPLETION)
-                if initial_data
-                else GenerationType.CHAT_COMPLETION,
+                default=default_gen_type,
             )
         )
 
