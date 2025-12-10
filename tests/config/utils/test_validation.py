@@ -107,8 +107,13 @@ PROCESSOR_CONFIGS = [
         build_stage=BuildStage.POST_BATCH,
     ),
     AncillaryDatasetProcessorConfig(
-        name="ancillary_dataset_processor",
+        name="ancillary_dataset_processor_invalid_reference",
         template={"text": "{{ invalid_reference }}"},
+        build_stage=BuildStage.POST_BATCH,
+    ),
+    AncillaryDatasetProcessorConfig(
+        name="ancillary_dataset_processor_invalid_template",
+        template={"text": {1, 2, 3}},
         build_stage=BuildStage.POST_BATCH,
     ),
 ]
@@ -175,10 +180,17 @@ def test_validate_data_designer_config(
             type=ViolationType.INVALID_REFERENCE,
             message="Ancillary dataset processor attempts to reference columns 'invalid_reference' in the template for 'text', but the columns are not defined in the dataset.",
             level=ViolationLevel.ERROR,
-        )
+        ),
+        Violation(
+            column="text",
+            type=ViolationType.INVALID_TEMPLATE,
+            message="Ancillary dataset processor template is not a valid JSON object.",
+            level=ViolationLevel.ERROR,
+        ),
     ]
+
     violations = validate_data_designer_config(COLUMNS, PROCESSOR_CONFIGS, ALLOWED_REFERENCE)
-    assert len(violations) == 6
+    assert len(violations) == 7
     mock_validate_columns_not_all_dropped.assert_called_once()
     mock_validate_expression_references.assert_called_once()
     mock_validate_code_validation.assert_called_once()
@@ -271,14 +283,15 @@ def test_validate_expression_references():
 
 def test_validate_ancillary_dataset_processor():
     violations = validate_ancillary_dataset_processor(COLUMNS, PROCESSOR_CONFIGS)
-    assert len(violations) == 1
+    assert len(violations) == 2
     assert violations[0].type == ViolationType.INVALID_REFERENCE
-    assert violations[0].column == "text"
-    assert (
-        violations[0].message
-        == "Ancillary dataset processor attempts to reference columns 'invalid_reference' in the template for 'text', but the columns are not defined in the dataset."
-    )
+    assert violations[0].column is None
+    assert violations[0].message == "Ancillary dataset processor attempts to reference columns 'invalid_reference' in the template for 'text', but the columns are not defined in the dataset."
     assert violations[0].level == ViolationLevel.ERROR
+    assert violations[1].type == ViolationType.INVALID_TEMPLATE
+    assert violations[1].column is None
+    assert violations[1].message == "Ancillary dataset processor ancillary_dataset_processor_invalid_template template is not a valid JSON object."
+    assert violations[1].level == ViolationLevel.ERROR
 
 
 @patch("data_designer.config.utils.validation.Console.print")

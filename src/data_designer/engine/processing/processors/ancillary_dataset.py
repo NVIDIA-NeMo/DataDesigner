@@ -48,7 +48,6 @@ class AncillaryDatasetProcessor(WithJinja2UserTemplateRendering, Processor[Ancil
                 parquet_file_name=f"{self.config.name}.parquet",
                 dataframe=formatted_data,
                 batch_stage=BatchStage.PROCESSORS_OUTPUTS,
-                subfolder="",
             )
 
         return data

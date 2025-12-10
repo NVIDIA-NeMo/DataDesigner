@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 from enum import Enum
 from string import Formatter
 from typing import Optional
@@ -36,6 +37,7 @@ class ViolationType(str, Enum):
     INVALID_COLUMN = "invalid_column"
     INVALID_MODEL_CONFIG = "invalid_model_config"
     INVALID_REFERENCE = "invalid_reference"
+    INVALID_TEMPLATE = "invalid_template"
     PROMPT_WITHOUT_REFERENCES = "prompt_without_references"
 
 
@@ -301,6 +303,20 @@ def validate_ancillary_dataset_processor(
     all_column_names = {c.name for c in columns}
     for processor_config in processor_configs:
         if processor_config.processor_type == ProcessorType.ANCILLARY_DATASET:
+            try:
+                json.dumps(processor_config.template)
+            except TypeError as e:
+                if "not JSON serializable" in str(e):
+                    violations.append(
+                        Violation(
+                            column=None,
+                            type=ViolationType.INVALID_TEMPLATE,
+                            message=f"Ancillary dataset processor {processor_config.name} template is not a valid JSON object.",
+                            level=ViolationLevel.ERROR,
+                        )
+                    )
+                    continue
+
             for col, template in processor_config.template.items():
                 template_keywords = get_prompt_template_keywords(template)
                 invalid_keywords = set(template_keywords) - all_column_names
@@ -309,7 +325,7 @@ def validate_ancillary_dataset_processor(
                     message = f"Ancillary dataset processor attempts to reference columns {invalid_keywords} in the template for '{col}', but the columns are not defined in the dataset."
                     violations.append(
                         Violation(
-                            column=col,
+                            column=None,
                             type=ViolationType.INVALID_REFERENCE,
                             message=message,
                             level=ViolationLevel.ERROR,

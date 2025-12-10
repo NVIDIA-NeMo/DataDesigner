@@ -176,8 +176,10 @@ class ArtifactStorage(BaseModel):
         batch_number: int,
         dataframe: pd.DataFrame,
         batch_stage: BatchStage,
-        subfolder: str = "",
+        subfolder: str | None = None,
     ) -> Path:
+        if subfolder is None:
+            subfolder = ""
         file_path = self.create_batch_file_path(batch_number, batch_stage=batch_stage)
         self.write_parquet_file(file_path.name, dataframe, batch_stage, subfolder=subfolder)
         return file_path
@@ -187,8 +189,10 @@ class ArtifactStorage(BaseModel):
         parquet_file_name: str,
         dataframe: pd.DataFrame,
         batch_stage: BatchStage,
-        subfolder: str = "",
+        subfolder: str | None = None,
     ) -> Path:
+        if subfolder is None:
+            subfolder = ""
         self.mkdir_if_needed(self._get_stage_path(batch_stage) / subfolder)
         file_path = self._get_stage_path(batch_stage) / subfolder / parquet_file_name
         dataframe.to_parquet(file_path, index=False)
