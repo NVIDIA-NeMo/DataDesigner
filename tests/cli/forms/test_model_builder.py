@@ -5,7 +5,7 @@ import pytest
 
 from data_designer.cli.forms.field import ValidationError
 from data_designer.cli.forms.model_builder import ModelFormBuilder
-from data_designer.config.models import ModelConfig
+from data_designer.config.models import GenerationType, ModelConfig
 
 
 # Alias validation tests - test through public form interface
@@ -102,15 +102,16 @@ def test_form_omits_provider_field_with_no_providers() -> None:
 
 
 def test_form_has_all_required_fields() -> None:
-    """Test form includes all essential configuration fields."""
+    """Test basic form includes essential configuration fields (inference params are in separate form)."""
     builder = ModelFormBuilder()
 
     form = builder.create_form()
 
-    # All required fields must be present
+    # All required fields must be present in basic form
     assert form.get_field("alias") is not None
     assert form.get_field("model") is not None
-    assert form.get_field("inference_parameters") is not None
+    assert form.get_field("generation_type") is not None
+    # inference_parameters are now collected in a separate form via _create_inference_params_form
 
 
 # Initial data handling tests
@@ -119,6 +120,7 @@ def test_form_uses_initial_data_for_field_defaults() -> None:
     initial_data = {
         "alias": "my-model",
         "model": "gpt-4",
+        "generation_type": GenerationType.CHAT_COMPLETION,
         "inference_parameters": {
             "temperature": 0.5,
             "top_p": 0.8,
@@ -131,7 +133,7 @@ def test_form_uses_initial_data_for_field_defaults() -> None:
 
     assert form.get_field("alias").default == "my-model"
     assert form.get_field("model").default == "gpt-4"
-    assert form.get_field("inference_parameters").default == initial_data["inference_parameters"]
+    assert form.get_field("generation_type").default == GenerationType.CHAT_COMPLETION
 
 
 def test_form_uses_standard_defaults_without_initial_data() -> None:
@@ -142,8 +144,7 @@ def test_form_uses_standard_defaults_without_initial_data() -> None:
 
     assert form.get_field("alias").default is None
     assert form.get_field("model").default is None
-    inference_params_field = form.get_field("inference_parameters")
-    assert inference_params_field.default == {"temperature": 0.7, "top_p": 0.9, "max_tokens": 2048}
+    assert form.get_field("generation_type").default == GenerationType.CHAT_COMPLETION
 
 
 def test_form_handles_partial_initial_data() -> None:
@@ -159,9 +160,8 @@ def test_form_handles_partial_initial_data() -> None:
     # Should use provided values
     assert form.get_field("alias").default == "my-model"
     assert form.get_field("model").default == "gpt-4"
-    # Should fall back to standard defaults for missing inference_parameters
-    inference_params_field = form.get_field("inference_parameters")
-    assert inference_params_field.default == {"temperature": 0.7, "top_p": 0.9, "max_tokens": 2048}
+    # Should fall back to standard defaults for missing generation_type
+    assert form.get_field("generation_type").default == GenerationType.CHAT_COMPLETION
 
 
 def test_form_provider_defaults_to_first_when_multiple_available() -> None:
@@ -350,3 +350,88 @@ def test_full_workflow_creates_valid_config() -> None:
     assert config.inference_parameters.temperature == 0.6
     assert config.inference_parameters.top_p == 0.95
     assert config.inference_parameters.max_tokens == 4096
+
+
+# Tests for new two-step form process
+def test_create_inference_params_form_for_chat_completion() -> None:
+    """Test creating inference parameters form for chat completion models."""
+    builder = ModelFormBuilder()
+
+    params_form = builder.create_inference_params_form(GenerationType.CHAT_COMPLETION)
+
+    # Should have chat completion specific fields
+    assert params_form.get_field("temperature") is not None
+    assert params_form.get_field("top_p") is not None
+    assert params_form.get_field("max_tokens") is not None
+    # Should not have embedding fields
+    assert params_form.get_field("encoding_format") is None
+    assert params_form.get_field("dimensions") is None
+
+
+def test_create_inference_params_form_for_embedding() -> None:
+    """Test creating inference parameters form for embedding models."""
+    builder = ModelFormBuilder()
+
+    params_form = builder.create_inference_params_form(GenerationType.EMBEDDING)
+
+    # Should have embedding specific fields
+    assert params_form.get_field("encoding_format") is not None
+    assert params_form.get_field("dimensions") is not None
+    # Should not have chat completion fields
+    assert params_form.get_field("temperature") is None
+    assert params_form.get_field("top_p") is None
+    assert params_form.get_field("max_tokens") is None
+
+
+def test_create_inference_params_form_uses_initial_params() -> None:
+    """Test inference parameters form uses initial values from existing config."""
+    builder = ModelFormBuilder()
+    initial_params = {"temperature": 0.8, "top_p": 0.95, "max_tokens": 2048}
+
+    params_form = builder.create_inference_params_form(GenerationType.CHAT_COMPLETION, initial_params)
+
+    assert params_form.get_field("temperature").default == 0.8
+    assert params_form.get_field("top_p").default == 0.95
+    assert params_form.get_field("max_tokens").default == 2048
+
+
+def test_build_inference_params_chat_completion_with_all_values() -> None:
+    """Test building inference params dict from chat completion form data."""
+    builder = ModelFormBuilder()
+    params_data = {"temperature": 0.7, "top_p": 0.9, "max_tokens": 1024.0}
+
+    result = builder.build_inference_params(GenerationType.CHAT_COMPLETION, params_data)
+
+    assert result == {"temperature": 0.7, "top_p": 0.9, "max_tokens": 1024}
+
+
+def test_build_inference_params_chat_completion_with_partial_values() -> None:
+    """Test building inference params dict with only some values provided."""
+    builder = ModelFormBuilder()
+    params_data = {"temperature": 0.7, "top_p": None, "max_tokens": None}
+
+    result = builder.build_inference_params(GenerationType.CHAT_COMPLETION, params_data)
+
+    # Only provided values should be included
+    assert result == {"temperature": 0.7}
+
+
+def test_build_inference_params_embedding_with_all_values() -> None:
+    """Test building inference params dict from embedding form data."""
+    builder = ModelFormBuilder()
+    params_data = {"encoding_format": "float", "dimensions": 1024.0}
+
+    result = builder.build_inference_params(GenerationType.EMBEDDING, params_data)
+
+    assert result == {"encoding_format": "float", "dimensions": 1024}
+
+
+def test_build_inference_params_embedding_with_partial_values() -> None:
+    """Test building embedding inference params with only some values provided."""
+    builder = ModelFormBuilder()
+    params_data = {"encoding_format": "float", "dimensions": None}
+
+    result = builder.build_inference_params(GenerationType.EMBEDDING, params_data)
+
+    # Only provided values should be included
+    assert result == {"encoding_format": "float"}

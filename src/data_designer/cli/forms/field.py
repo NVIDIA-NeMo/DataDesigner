@@ -77,9 +77,18 @@ class TextField(Field[str]):
         """Prompt user for text input."""
         from data_designer.cli.ui import BACK, prompt_text_input
 
+        # Build prompt with custom labeling for existing values
+        prompt_text = self.prompt
+        has_current_value = self.default is not None
+
+        if has_current_value:
+            # Show as "current" instead of "default" with dimmed styling
+            prompt_text = f"{self.prompt} <dim>(current value: {self.default})</dim>"
+
+        # Don't pass default to prompt_text_input to avoid duplicate "(default: X)" text
         result = prompt_text_input(
-            self.prompt,
-            default=self.default,
+            prompt_text,
+            default=None,
             validator=self.validator,
             mask=self.mask,
             completions=self.completions,
@@ -88,6 +97,16 @@ class TextField(Field[str]):
 
         if result is BACK:
             return BACK
+
+        if result is None:
+            # User cancelled (ESC)
+            return None
+
+        if not result:
+            # Empty input: return current value if exists
+            if has_current_value:
+                return self.default
+            return ""
 
         return result
 
@@ -144,6 +163,9 @@ class NumericField(Field[float]):
         def range_validator(value: str) -> tuple[bool, str | None]:
             if not value and not required:
                 return True, None
+            # Allow special keywords to clear the value
+            if value and value.lower() in ("clear", "none", "default"):
+                return True, None
             if min_value is not None and max_value is not None:
                 is_valid, parsed = validate_numeric_range(value, min_value, max_value)
                 if not is_valid:
@@ -161,15 +183,41 @@ class NumericField(Field[float]):
 
         super().__init__(name, prompt, default, required, range_validator, help_text)
 
+    @Field.value.setter
+    def value(self, val: float | str) -> None:
+        """Set and validate the field value. Converts empty strings to None for optional fields."""
+        # Handle empty string for optional fields
+        if val == "" and not self.required:
+            self._value = None
+            return
+
+        # Standard validation for non-empty values
+        if self.validator:
+            val_str = str(val) if not isinstance(val, str) else val
+            is_valid, error_msg = self.validator(val_str)
+            if not is_valid:
+                raise ValidationError(error_msg or "Invalid value")
+        self._value = val
+
     def prompt_user(self, allow_back: bool = False) -> float | None | Any:
         """Prompt user for numeric input."""
         from data_designer.cli.ui import BACK, prompt_text_input
 
-        default_str = str(self.default) if self.default is not None else None
+        # Build prompt with custom labeling for existing values
+        prompt_text = self.prompt
+        has_current_value = self.default is not None
 
+        if has_current_value:
+            # Show as "current" instead of "default" with dimmed styling
+            if not self.required:
+                prompt_text = f"{self.prompt} <dim>(current value: {self.default}, type 'clear' to remove)</dim>"
+            else:
+                prompt_text = f"{self.prompt} <dim>(current value: {self.default})</dim>"
+
+        # Don't pass default to prompt_text_input to avoid duplicate "(default: X)" text
         result = prompt_text_input(
-            self.prompt,
-            default=default_str,
+            prompt_text,
+            default=None,
             validator=self.validator,
             allow_back=allow_back,
         )
@@ -177,88 +225,19 @@ class NumericField(Field[float]):
         if result is BACK:
             return BACK
 
-        return float(result) if result else None
-
-
-class DictField(Field[dict]):
-    """Dictionary/JSON input field for structured data.
-
-    Users enter a JSON string (e.g., {"key": "value"}).
-    When set programmatically, accepts dict directly.
-    """
-
-    def __init__(
-        self,
-        name: str,
-        prompt: str,
-        default: dict | None = None,
-        required: bool = True,
-        help_text: str | None = None,
-    ):
-        def json_validator(value: str) -> tuple[bool, str | None]:
-            if not value and not required:
-                return True, None
-            if not value:
-                return False, "Value is required"
-
-            import json
-
-            try:
-                parsed = json.loads(value)
-                if not isinstance(parsed, dict):
-                    return False, "Must be a valid JSON object/dictionary"
-                return True, None
-            except json.JSONDecodeError as e:
-                return False, f"Invalid JSON: {e.msg}"
-
-        super().__init__(name, prompt, default, required, json_validator, help_text)
-
-    @property
-    def value(self) -> dict | None:
-        """Get the current field value."""
-        return self._value
-
-    @value.setter
-    def value(self, val: dict) -> None:
-        """Set field value. Accepts dict directly (already validated from config)."""
-        if val is None:
-            if self.required:
-                raise ValidationError("Value is required")
-            self._value = None
-        elif isinstance(val, dict):
-            self._value = val
-        else:
-            raise ValidationError(f"Expected dict, got {type(val).__name__}")
-
-    def prompt_user(self, allow_back: bool = False) -> dict | None | Any:
-        """Prompt user for dictionary input as JSON."""
-        import json
-
-        from data_designer.cli.ui import BACK, prompt_text_input
-
-        # Format default as compact JSON string
-        default_str = None
-        if self.default is not None:
-            default_str = json.dumps(self.default)
-
-        # Build a cleaner prompt with help text on separate line
-        if self.help_text:
-            full_prompt = f"{self.prompt}\n💡 {self.help_text}"
-        else:
-            full_prompt = self.prompt
-
-        result = prompt_text_input(
-            full_prompt,
-            default=default_str,
-            validator=self.validator,
-            allow_back=allow_back,
-        )
-
-        if result is BACK:
-            return BACK
-
-        if not result:
+        if result is None:
+            # User cancelled (ESC)
             return None
 
-        # Parse the JSON string to dict
-        return json.loads(result)
+        # Check for special keywords to clear the value
+        if result and result.lower() in ("clear", "none", "default"):
+            return ""
+
+        if not result:
+            # Empty input: return current value if exists, else empty string for optional fields
+            if has_current_value:
+                return self.default
+            # Empty string - optional field with no value
+            return ""
+
+        return float(result)

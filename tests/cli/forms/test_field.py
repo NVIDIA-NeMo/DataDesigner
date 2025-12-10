@@ -267,13 +267,13 @@ def test_numeric_field_prompt_user_returns_float(mock_prompt: Mock) -> None:
 
 @patch("data_designer.cli.ui.prompt_text_input")
 def test_numeric_field_prompt_user_returns_none_for_empty(mock_prompt: Mock) -> None:
-    """Test NumericField prompt_user returns None for empty input."""
+    """Test NumericField prompt_user returns empty string for empty input on optional field."""
     mock_prompt.return_value = ""
     field = NumericField(name="optional", prompt="Enter value", required=False)
 
     result = field.prompt_user()
 
-    assert result is None
+    assert result == ""
 
 
 @patch("data_designer.cli.ui.BACK", "BACK_SENTINEL")
@@ -318,3 +318,99 @@ def test_validator_converts_non_string_values() -> None:
 
     # Validator should be called with string representation
     validator.assert_called_once_with("42.5")
+
+
+# Tests for clearing values with 'clear' keyword
+@patch("data_designer.cli.ui.prompt_text_input")
+def test_numeric_field_accepts_clear_keyword(mock_prompt: Mock) -> None:
+    """Test NumericField accepts 'clear' keyword to remove value."""
+    mock_prompt.return_value = "clear"
+    field = NumericField(name="optional", prompt="Enter value", default=42.0, required=False)
+
+    result = field.prompt_user()
+
+    assert result == ""
+
+
+@patch("data_designer.cli.ui.prompt_text_input")
+def test_numeric_field_accepts_none_keyword(mock_prompt: Mock) -> None:
+    """Test NumericField accepts 'none' keyword to remove value."""
+    mock_prompt.return_value = "none"
+    field = NumericField(name="optional", prompt="Enter value", default=42.0, required=False)
+
+    result = field.prompt_user()
+
+    assert result == ""
+
+
+@patch("data_designer.cli.ui.prompt_text_input")
+def test_numeric_field_accepts_default_keyword(mock_prompt: Mock) -> None:
+    """Test NumericField accepts 'default' keyword to remove value."""
+    mock_prompt.return_value = "default"
+    field = NumericField(name="optional", prompt="Enter value", default=42.0, required=False)
+
+    result = field.prompt_user()
+
+    assert result == ""
+
+
+@patch("data_designer.cli.ui.prompt_text_input")
+def test_numeric_field_returns_default_for_empty_when_has_default(mock_prompt: Mock) -> None:
+    """Test NumericField returns default value when user enters nothing and default exists."""
+    mock_prompt.return_value = ""
+    field = NumericField(name="optional", prompt="Enter value", default=42.0, required=False)
+
+    result = field.prompt_user()
+
+    assert result == 42.0
+
+
+@patch("data_designer.cli.ui.prompt_text_input")
+def test_numeric_field_shows_current_label_with_default(mock_prompt: Mock) -> None:
+    """Test NumericField shows '(current: X)' instead of '(default: X)' when default exists."""
+    mock_prompt.return_value = ""
+    field = NumericField(name="optional", prompt="Enter value", default=42.0, required=False)
+
+    field.prompt_user()
+
+    # Check that prompt_text_input was called with current value info in the prompt
+    call_args = mock_prompt.call_args
+    prompt_arg = call_args[0][0]
+    assert "current" in prompt_arg.lower()
+    assert "42.0" in prompt_arg
+    assert "clear" in prompt_arg.lower()
+
+
+@patch("data_designer.cli.ui.prompt_text_input")
+def test_text_field_shows_current_label_with_default(mock_prompt: Mock) -> None:
+    """Test TextField shows '(current: X)' instead of '(default: X)' when default exists."""
+    mock_prompt.return_value = ""
+    field = TextField(name="name", prompt="Enter name", default="test", required=False)
+
+    field.prompt_user()
+
+    # Check that prompt_text_input was called with current value info in the prompt
+    call_args = mock_prompt.call_args
+    prompt_arg = call_args[0][0]
+    assert "current" in prompt_arg.lower()
+    assert "test" in prompt_arg
+
+
+@patch("data_designer.cli.ui.prompt_text_input")
+def test_text_field_returns_default_for_empty_when_has_default(mock_prompt: Mock) -> None:
+    """Test TextField returns default value when user enters nothing and default exists."""
+    mock_prompt.return_value = ""
+    field = TextField(name="name", prompt="Enter name", default="test", required=False)
+
+    result = field.prompt_user()
+
+    assert result == "test"
+
+
+def test_numeric_field_value_setter_converts_empty_string_to_none() -> None:
+    """Test NumericField value setter converts empty string to None for optional fields."""
+    field = NumericField(name="optional", prompt="Enter value", required=False)
+
+    field.value = ""
+
+    assert field.value is None

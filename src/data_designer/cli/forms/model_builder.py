@@ -1,12 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-import textwrap
 from typing import Any
 
 from data_designer.cli.forms.builder import FormBuilder
-from data_designer.cli.forms.field import DictField, SelectField, TextField
+from data_designer.cli.forms.field import NumericField, SelectField, TextField
 from data_designer.cli.forms.form import Form
+from data_designer.cli.ui import confirm_action, print_error, print_text
 from data_designer.config.models import GenerationType, ModelConfig
 
 
@@ -19,7 +19,7 @@ class ModelFormBuilder(FormBuilder[ModelConfig]):
         self.available_providers = available_providers or []
 
     def create_form(self, initial_data: dict[str, Any] | None = None) -> Form:
-        """Create the model configuration form."""
+        """Create the model configuration form with basic fields."""
         fields = []
 
         # Model alias
@@ -76,34 +76,148 @@ class ModelFormBuilder(FormBuilder[ModelConfig]):
             )
         )
 
-        # Inference parameters as dictionary
-        default_inference_params = initial_data.get("inference_parameters") if initial_data else {}
-
-        inference_params_instructions = textwrap.dedent("""
-        Inference parameters
-        |-- (Enter as JSON)
-        |-- Hit enter to accept model defaults.
-        |-- E.g., {"temperature": 0.7, "top_p": 0.9, "max_tokens": 2048} for chat completion models
-        |-- E.g., {"encoding_format": "float", "dimensions": 1024} for embedding models
-        """)
-        fields.append(
-            DictField(
-                "inference_parameters",
-                inference_params_instructions,
-                default=default_inference_params,
-                required=True,
-            )
-        )
-
         return Form(self.title, fields)
 
-    def _validate_alias(self, alias: str) -> tuple[bool, str | None]:
-        """Validate model alias."""
-        if not alias:
-            return False, "Model alias is required"
-        if alias in self.existing_aliases:
-            return False, f"Model alias '{alias}' already exists"
-        return True, None
+    def create_inference_params_form(
+        self, generation_type: GenerationType, initial_params: dict[str, Any] | None = None
+    ) -> Form:
+        """Create generation-type-specific inference parameters form."""
+        initial_params = initial_params or {}
+        fields = []
+
+        if generation_type == GenerationType.CHAT_COMPLETION:
+            # Temperature
+            fields.append(
+                NumericField(
+                    "temperature",
+                    "Temperature <dim>(0.0-2.0)</dim>",
+                    default=initial_params.get("temperature"),
+                    min_value=0.0,
+                    max_value=2.0,
+                    required=False,
+                    help_text="Higher values make output more random, lower values more deterministic",
+                )
+            )
+
+            # Top P
+            fields.append(
+                NumericField(
+                    "top_p",
+                    "Top P <dim>(0.0-1.0)</dim>",
+                    default=initial_params.get("top_p"),
+                    min_value=0.0,
+                    max_value=1.0,
+                    required=False,
+                    help_text="Controls diversity via nucleus sampling",
+                )
+            )
+
+            # Max tokens
+            fields.append(
+                NumericField(
+                    "max_tokens",
+                    "Max tokens <dim>(maximum total tokens including input and output)</dim>",
+                    default=initial_params.get("max_tokens"),
+                    min_value=1.0,
+                    required=False,
+                    help_text="Maximum number of tokens including both input prompt and generated response",
+                )
+            )
+
+        else:  # EMBEDDING
+            # Encoding format
+            fields.append(
+                SelectField(
+                    "encoding_format",
+                    "Encoding format",
+                    options={"float": "Float", "base64": "Base64"},
+                    default=initial_params.get("encoding_format"),
+                    required=False,
+                )
+            )
+
+            # Dimensions
+            fields.append(
+                NumericField(
+                    "dimensions",
+                    "Dimensions <dim>(number of dimensions for embeddings)</dim>",
+                    default=initial_params.get("dimensions"),
+                    min_value=1.0,
+                    required=False,
+                    help_text="Model-specific dimension size (e.g., 1024, 768)",
+                )
+            )
+
+        return Form(f"{self.title} - Inference Parameters", fields)
+
+    def build_inference_params(self, generation_type: GenerationType, params_data: dict[str, Any]) -> dict[str, Any]:
+        """Build inference parameters dictionary from form data with proper type conversions."""
+        inference_params = {}
+
+        if generation_type == GenerationType.CHAT_COMPLETION:
+            if params_data.get("temperature") is not None:
+                inference_params["temperature"] = params_data["temperature"]
+            if params_data.get("top_p") is not None:
+                inference_params["top_p"] = params_data["top_p"]
+            if params_data.get("max_tokens") is not None:
+                inference_params["max_tokens"] = int(params_data["max_tokens"])
+
+        else:
+            if params_data.get("encoding_format") is not None:
+                inference_params["encoding_format"] = params_data["encoding_format"]
+            if params_data.get("dimensions") is not None:
+                inference_params["dimensions"] = int(params_data["dimensions"])
+
+        return inference_params
+
+    def run(self, initial_data: dict[str, Any] | None = None) -> ModelConfig | None:
+        """Run the interactive form with two-step process for generation-type-specific parameters."""
+        # Step 1: Collect basic model configuration
+        basic_form = self.create_form(initial_data)
+
+        if initial_data:
+            basic_form.set_values(initial_data)
+
+        while True:
+            basic_result = basic_form.prompt_all(allow_back=True)
+
+            if basic_result is None:
+                if confirm_action("Cancel configuration?", default=False):
+                    return None
+                continue
+
+            # Step 2: Collect generation-type-specific inference parameters
+            generation_type = basic_result.get("generation_type", GenerationType.CHAT_COMPLETION)
+            initial_params = initial_data.get("inference_parameters") if initial_data else None
+
+            # Print message to indicate we're now configuring inference parameters
+            gen_type_name = "chat completion" if generation_type == GenerationType.CHAT_COMPLETION else "embedding"
+            print_text(
+                f"⚙️  Configuring {gen_type_name} inference parameters [dim](Press Enter to keep current value or skip)[/dim]\n"
+            )
+
+            params_form = self.create_inference_params_form(generation_type, initial_params)
+
+            params_result = params_form.prompt_all(allow_back=True)
+
+            if params_result is None:
+                if confirm_action("Cancel configuration?", default=False):
+                    return None
+                continue
+
+            # Build inference_parameters dict from individual fields
+            inference_params = self.build_inference_params(generation_type, params_result)
+
+            # Merge results
+            full_data = {**basic_result, "inference_parameters": inference_params}
+
+            try:
+                config = self.build_config(full_data)
+                return config
+            except Exception as e:
+                print_error(f"Configuration error: {e}")
+                if not confirm_action("Try again?", default=True):
+                    return None
 
     def build_config(self, form_data: dict[str, Any]) -> ModelConfig:
         """Build ModelConfig from form data."""
@@ -130,3 +244,11 @@ class ModelFormBuilder(FormBuilder[ModelConfig]):
             generation_type=generation_type,
             inference_parameters=inference_params,
         )
+
+    def _validate_alias(self, alias: str) -> tuple[bool, str | None]:
+        """Validate model alias."""
+        if not alias:
+            return False, "Model alias is required"
+        if alias in self.existing_aliases:
+            return False, f"Model alias '{alias}' already exists"
+        return True, None
