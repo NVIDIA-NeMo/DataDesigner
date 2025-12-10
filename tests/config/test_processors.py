@@ -6,10 +6,10 @@ from pydantic import ValidationError
 
 from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.processors import (
-    SchemaTransformProcessorConfig,
     DropColumnsProcessorConfig,
     ProcessorConfig,
     ProcessorType,
+    SchemaTransformProcessorConfig,
     get_processor_config_from_kwargs,
 )
 

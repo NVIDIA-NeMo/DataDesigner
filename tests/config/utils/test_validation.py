@@ -15,8 +15,8 @@ from data_designer.config.column_configs import (
 from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.models import ImageContext, ModalityDataType
 from data_designer.config.processors import (
-    SchemaTransformProcessorConfig,
     DropColumnsProcessorConfig,
+    SchemaTransformProcessorConfig,
 )
 from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.utils.validation import (
@@ -24,12 +24,12 @@ from data_designer.config.utils.validation import (
     ViolationLevel,
     ViolationType,
     rich_print_violations,
-    validate_schema_transform_processor,
     validate_code_validation,
     validate_columns_not_all_dropped,
     validate_data_designer_config,
     validate_expression_references,
     validate_prompt_templates,
+    validate_schema_transform_processor,
 )
 from data_designer.config.validator_params import CodeValidatorParams
 

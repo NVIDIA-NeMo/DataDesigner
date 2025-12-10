@@ -33,9 +33,9 @@ from data_designer.config.models import (
     UniformDistributionParams,
 )
 from data_designer.config.processors import (
-    SchemaTransformProcessorConfig,
     DropColumnsProcessorConfig,
     ProcessorType,
+    SchemaTransformProcessorConfig,
 )
 from data_designer.config.sampler_constraints import ColumnInequalityConstraint, ScalarInequalityConstraint
 from data_designer.config.sampler_params import (
