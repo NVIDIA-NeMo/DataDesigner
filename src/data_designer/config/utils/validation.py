@@ -68,7 +68,7 @@ def validate_data_designer_config(
     violations.extend(validate_expression_references(columns=columns, allowed_references=allowed_references))
     violations.extend(validate_columns_not_all_dropped(columns=columns))
     violations.extend(validate_drop_columns_processor(columns=columns, processor_configs=processor_configs))
-    violations.extend(validate_ancillary_dataset_processor(columns=columns, processor_configs=processor_configs))
+    violations.extend(validate_schema_transform_processor(columns=columns, processor_configs=processor_configs))
     if not can_run_data_designer_locally():
         violations.extend(validate_local_only_columns(columns=columns))
     return violations
@@ -294,7 +294,7 @@ def validate_drop_columns_processor(
     return []
 
 
-def validate_ancillary_dataset_processor(
+def validate_schema_transform_processor(
     columns: list[ColumnConfigT],
     processor_configs: list[ProcessorConfig],
 ) -> list[Violation]:
@@ -302,7 +302,7 @@ def validate_ancillary_dataset_processor(
 
     all_column_names = {c.name for c in columns}
     for processor_config in processor_configs:
-        if processor_config.processor_type == ProcessorType.ANCILLARY_DATASET:
+        if processor_config.processor_type == ProcessorType.SCHEMA_TRANSFORM:
             try:
                 json.dumps(processor_config.template)
             except TypeError as e:

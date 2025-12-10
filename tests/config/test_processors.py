@@ -6,7 +6,7 @@ from pydantic import ValidationError
 
 from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.processors import (
-    AncillaryDatasetProcessorConfig,
+    SchemaTransformProcessorConfig,
     DropColumnsProcessorConfig,
     ProcessorConfig,
     ProcessorType,
@@ -53,8 +53,8 @@ def test_drop_columns_processor_config_serialization():
     assert config_restored.column_names == config.column_names
 
 
-def test_ancillary_dataset_processor_config_creation():
-    config = AncillaryDatasetProcessorConfig(
+def test_schema_transform_processor_config_creation():
+    config = SchemaTransformProcessorConfig(
         name="output_format_processor",
         build_stage=BuildStage.POST_BATCH,
         template={"text": "{{ col1 }}"},
@@ -62,26 +62,26 @@ def test_ancillary_dataset_processor_config_creation():
 
     assert config.build_stage == BuildStage.POST_BATCH
     assert config.template == {"text": "{{ col1 }}"}
-    assert config.processor_type == ProcessorType.ANCILLARY_DATASET
+    assert config.processor_type == ProcessorType.SCHEMA_TRANSFORM
     assert isinstance(config, ProcessorConfig)
 
 
-def test_ancillary_dataset_processor_config_validation():
+def test_schema_transform_processor_config_validation():
     # Test unsupported stage raises error
     with pytest.raises(ValidationError, match="Invalid dataset builder stage"):
-        AncillaryDatasetProcessorConfig(
-            name="ancillary_dataset_processor",
+        SchemaTransformProcessorConfig(
+            name="schema_transform_processor",
             build_stage=BuildStage.PRE_BATCH,
             template={"text": "{{ col1 }}"},
         )
 
     # Test missing required field raises error
     with pytest.raises(ValidationError, match="Field required"):
-        AncillaryDatasetProcessorConfig(name="ancillary_dataset_processor", build_stage=BuildStage.POST_BATCH)
+        SchemaTransformProcessorConfig(name="schema_transform_processor", build_stage=BuildStage.POST_BATCH)
 
 
 def test_output_format_processor_config_serialization():
-    config = AncillaryDatasetProcessorConfig(
+    config = SchemaTransformProcessorConfig(
         name="output_format_processor",
         build_stage=BuildStage.POST_BATCH,
         template={"text": "{{ col1 }}"},
@@ -93,7 +93,7 @@ def test_output_format_processor_config_serialization():
     assert config_dict["template"] == {"text": "{{ col1 }}"}
 
     # Deserialize from dict
-    config_restored = AncillaryDatasetProcessorConfig.model_validate(config_dict)
+    config_restored = SchemaTransformProcessorConfig.model_validate(config_dict)
     assert config_restored.build_stage == config.build_stage
     assert config_restored.template == config.template
 
@@ -110,15 +110,15 @@ def test_get_processor_config_from_kwargs():
     assert config_drop_columns.column_names == ["col1"]
     assert config_drop_columns.processor_type == ProcessorType.DROP_COLUMNS
 
-    config_ancillary_dataset = get_processor_config_from_kwargs(
-        ProcessorType.ANCILLARY_DATASET,
+    config_schema_transform = get_processor_config_from_kwargs(
+        ProcessorType.SCHEMA_TRANSFORM,
         name="output_format_processor",
         build_stage=BuildStage.POST_BATCH,
         template={"text": "{{ col1 }}"},
     )
-    assert isinstance(config_ancillary_dataset, AncillaryDatasetProcessorConfig)
-    assert config_ancillary_dataset.template == {"text": "{{ col1 }}"}
-    assert config_ancillary_dataset.processor_type == ProcessorType.ANCILLARY_DATASET
+    assert isinstance(config_schema_transform, SchemaTransformProcessorConfig)
+    assert config_schema_transform.template == {"text": "{{ col1 }}"}
+    assert config_schema_transform.processor_type == ProcessorType.SCHEMA_TRANSFORM
 
     # Test with unknown processor type returns None
     from enum import Enum

@@ -15,7 +15,7 @@ from data_designer.config.column_configs import (
 from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.models import ImageContext, ModalityDataType
 from data_designer.config.processors import (
-    AncillaryDatasetProcessorConfig,
+    SchemaTransformProcessorConfig,
     DropColumnsProcessorConfig,
 )
 from data_designer.config.utils.code_lang import CodeLang
@@ -24,7 +24,7 @@ from data_designer.config.utils.validation import (
     ViolationLevel,
     ViolationType,
     rich_print_violations,
-    validate_ancillary_dataset_processor,
+    validate_schema_transform_processor,
     validate_code_validation,
     validate_columns_not_all_dropped,
     validate_data_designer_config,
@@ -106,13 +106,13 @@ PROCESSOR_CONFIGS = [
         column_names=["inexistent_column"],
         build_stage=BuildStage.POST_BATCH,
     ),
-    AncillaryDatasetProcessorConfig(
-        name="ancillary_dataset_processor_invalid_reference",
+    SchemaTransformProcessorConfig(
+        name="schema_transform_processor_invalid_reference",
         template={"text": "{{ invalid_reference }}"},
         build_stage=BuildStage.POST_BATCH,
     ),
-    AncillaryDatasetProcessorConfig(
-        name="ancillary_dataset_processor_invalid_template",
+    SchemaTransformProcessorConfig(
+        name="schema_transform_processor_invalid_template",
         template={"text": {1, 2, 3}},
         build_stage=BuildStage.POST_BATCH,
     ),
@@ -125,14 +125,14 @@ ALLOWED_REFERENCE = [c.name for c in COLUMNS]
 @patch("data_designer.config.utils.validation.validate_expression_references")
 @patch("data_designer.config.utils.validation.validate_columns_not_all_dropped")
 @patch("data_designer.config.utils.validation.validate_drop_columns_processor")
-@patch("data_designer.config.utils.validation.validate_ancillary_dataset_processor")
+@patch("data_designer.config.utils.validation.validate_schema_transform_processor")
 def test_validate_data_designer_config(
     mock_validate_columns_not_all_dropped,
     mock_validate_expression_references,
     mock_validate_code_validation,
     mock_validate_prompt_templates,
     mock_validate_drop_columns_processor,
-    mock_validate_ancillary_dataset_processor,
+    mock_validate_schema_transform_processor,
 ):
     mock_validate_columns_not_all_dropped.return_value = [
         Violation(
@@ -174,7 +174,7 @@ def test_validate_data_designer_config(
             level=ViolationLevel.ERROR,
         )
     ]
-    mock_validate_ancillary_dataset_processor.return_value = [
+    mock_validate_schema_transform_processor.return_value = [
         Violation(
             column="text",
             type=ViolationType.INVALID_REFERENCE,
@@ -196,7 +196,7 @@ def test_validate_data_designer_config(
     mock_validate_code_validation.assert_called_once()
     mock_validate_prompt_templates.assert_called_once()
     mock_validate_drop_columns_processor.assert_called_once()
-    mock_validate_ancillary_dataset_processor.assert_called_once()
+    mock_validate_schema_transform_processor.assert_called_once()
 
 
 def test_validate_prompt_templates():
@@ -281,8 +281,8 @@ def test_validate_expression_references():
     assert violations[0].type == ViolationType.EXPRESSION_REFERENCE_MISSING
 
 
-def test_validate_ancillary_dataset_processor():
-    violations = validate_ancillary_dataset_processor(COLUMNS, PROCESSOR_CONFIGS)
+def test_validate_schema_transform_processor():
+    violations = validate_schema_transform_processor(COLUMNS, PROCESSOR_CONFIGS)
     assert len(violations) == 2
     assert violations[0].type == ViolationType.INVALID_REFERENCE
     assert violations[0].column is None
@@ -295,7 +295,7 @@ def test_validate_ancillary_dataset_processor():
     assert violations[1].column is None
     assert (
         violations[1].message
-        == "Ancillary dataset processor ancillary_dataset_processor_invalid_template template is not a valid JSON object."
+        == "Ancillary dataset processor schema_transform_processor_invalid_template template is not a valid JSON object."
     )
     assert violations[1].level == ViolationLevel.ERROR
 

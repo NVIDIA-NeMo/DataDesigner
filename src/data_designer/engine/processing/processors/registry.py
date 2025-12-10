@@ -3,11 +3,11 @@
 
 from data_designer.config.base import ConfigBase
 from data_designer.config.processors import (
-    AncillaryDatasetProcessorConfig,
+    SchemaTransformProcessorConfig,
     DropColumnsProcessorConfig,
     ProcessorType,
 )
-from data_designer.engine.processing.processors.ancillary_dataset import AncillaryDatasetProcessor
+from data_designer.engine.processing.processors.schema_transform import SchemaTransformProcessor
 from data_designer.engine.processing.processors.base import Processor
 from data_designer.engine.processing.processors.drop_columns import DropColumnsProcessor
 from data_designer.engine.registry.base import TaskRegistry
@@ -19,7 +19,7 @@ class ProcessorRegistry(TaskRegistry[str, Processor, ConfigBase]): ...
 def create_default_processor_registry() -> ProcessorRegistry:
     registry = ProcessorRegistry()
     registry.register(
-        ProcessorType.ANCILLARY_DATASET, AncillaryDatasetProcessor, AncillaryDatasetProcessorConfig, False
+        ProcessorType.SCHEMA_TRANSFORM, SchemaTransformProcessor, SchemaTransformProcessorConfig, False
     )
     registry.register(ProcessorType.DROP_COLUMNS, DropColumnsProcessor, DropColumnsProcessorConfig, False)
     return registry

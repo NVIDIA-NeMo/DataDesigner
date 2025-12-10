@@ -33,7 +33,7 @@ from data_designer.config.models import (
     UniformDistributionParams,
 )
 from data_designer.config.processors import (
-    AncillaryDatasetProcessorConfig,
+    SchemaTransformProcessorConfig,
     DropColumnsProcessorConfig,
     ProcessorType,
 )
@@ -73,7 +73,7 @@ from data_designer.config.validator_params import (
 
 def get_config_exports() -> list[str]:
     return [
-        AncillaryDatasetProcessorConfig.__name__,
+        SchemaTransformProcessorConfig.__name__,
         BernoulliMixtureSamplerParams.__name__,
         BernoulliSamplerParams.__name__,
         BinomialSamplerParams.__name__,

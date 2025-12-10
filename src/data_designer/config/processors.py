@@ -15,7 +15,7 @@ SUPPORTED_STAGES = [BuildStage.POST_BATCH]
 
 class ProcessorType(str, Enum):
     DROP_COLUMNS = "drop_columns"
-    ANCILLARY_DATASET = "ancillary_dataset"
+    SCHEMA_TRANSFORM = "schema_transform"
 
 
 class ProcessorConfig(ConfigBase, ABC):
@@ -39,8 +39,8 @@ class ProcessorConfig(ConfigBase, ABC):
 def get_processor_config_from_kwargs(processor_type: ProcessorType, **kwargs) -> ProcessorConfig:
     if processor_type == ProcessorType.DROP_COLUMNS:
         return DropColumnsProcessorConfig(**kwargs)
-    elif processor_type == ProcessorType.ANCILLARY_DATASET:
-        return AncillaryDatasetProcessorConfig(**kwargs)
+    elif processor_type == ProcessorType.SCHEMA_TRANSFORM:
+        return SchemaTransformProcessorConfig(**kwargs)
 
 
 class DropColumnsProcessorConfig(ProcessorConfig):
@@ -48,11 +48,11 @@ class DropColumnsProcessorConfig(ProcessorConfig):
     processor_type: Literal[ProcessorType.DROP_COLUMNS] = ProcessorType.DROP_COLUMNS
 
 
-class AncillaryDatasetProcessorConfig(ProcessorConfig):
+class SchemaTransformProcessorConfig(ProcessorConfig):
     template: dict[str, Any] = Field(
         ...,
         description="""
-        Dictionary specifying columns and templates to use in the ancillary dataset.
+        Dictionary specifying columns and templates to use in the new dataset with transformed schema.
 
         Each key is a new column name, and each value is an object containing Jinja2 templates - for instance, a string or a list of strings.
         Values must be JSON-serializable.
@@ -67,8 +67,8 @@ class AncillaryDatasetProcessorConfig(ProcessorConfig):
         }
         ```
 
-        The above templates will create an ancillary dataset with three columns: "list_of_strings", "uppercase_string", and "lowercase_string".
+        The above templates will create an new dataset with three columns: "list_of_strings", "uppercase_string", and "lowercase_string".
         References to columns "col1" and "col2" in the templates will be replaced with the actual values of the columns in the dataset.
         """,
     )
-    processor_type: Literal[ProcessorType.ANCILLARY_DATASET] = ProcessorType.ANCILLARY_DATASET
+    processor_type: Literal[ProcessorType.SCHEMA_TRANSFORM] = ProcessorType.SCHEMA_TRANSFORM

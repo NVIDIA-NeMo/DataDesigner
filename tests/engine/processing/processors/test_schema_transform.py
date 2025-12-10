@@ -8,29 +8,29 @@ import pandas as pd
 import pytest
 
 from data_designer.config.dataset_builders import BuildStage
-from data_designer.config.processors import AncillaryDatasetProcessorConfig
+from data_designer.config.processors import SchemaTransformProcessorConfig
 from data_designer.engine.dataset_builders.artifact_storage import BatchStage
-from data_designer.engine.processing.processors.ancillary_dataset import AncillaryDatasetProcessor
+from data_designer.engine.processing.processors.schema_transform import SchemaTransformProcessor
 from data_designer.engine.resources.resource_provider import ResourceProvider
 
 
 @pytest.fixture
-def stub_processor_config() -> AncillaryDatasetProcessorConfig:
-    return AncillaryDatasetProcessorConfig(
+def stub_processor_config() -> SchemaTransformProcessorConfig:
+    return SchemaTransformProcessorConfig(
         build_stage=BuildStage.POST_BATCH,
         template={"text": "{{ col1 }}", "value": "{{ col2 }}"},
-        name="test_ancillary_dataset",
+        name="test_schema_transform",
     )
 
 
 @pytest.fixture
 def stub_processor(
-    stub_processor_config: AncillaryDatasetProcessorConfig, stub_resource_provider: ResourceProvider
-) -> AncillaryDatasetProcessor:
+    stub_processor_config: SchemaTransformProcessorConfig, stub_resource_provider: ResourceProvider
+) -> SchemaTransformProcessor:
     stub_resource_provider.artifact_storage = Mock()
     stub_resource_provider.artifact_storage.write_batch_to_parquet_file = Mock()
 
-    processor = AncillaryDatasetProcessor(
+    processor = SchemaTransformProcessor(
         config=stub_processor_config,
         resource_provider=stub_resource_provider,
     )
@@ -48,22 +48,22 @@ def stub_simple_dataframe() -> pd.DataFrame:
 
 
 def test_metadata() -> None:
-    metadata = AncillaryDatasetProcessor.metadata()
+    metadata = SchemaTransformProcessor.metadata()
 
-    assert metadata.name == "ancillary_dataset_processor"
-    assert metadata.description == "Generate an ancillary dataset using a Jinja2 template."
+    assert metadata.name == "schema_transform_processor"
+    assert metadata.description == "Generate dataset with transformed schema using a Jinja2 template."
     assert metadata.required_resources is None
 
 
 def test_process_returns_original_dataframe(
-    stub_processor: AncillaryDatasetProcessor, stub_sample_dataframe: pd.DataFrame
+    stub_processor: SchemaTransformProcessor, stub_sample_dataframe: pd.DataFrame
 ) -> None:
     result = stub_processor.process(stub_sample_dataframe, current_batch_number=0)
     pd.testing.assert_frame_equal(result, stub_sample_dataframe)
 
 
 def test_process_writes_formatted_output_to_parquet(
-    stub_processor: AncillaryDatasetProcessor, stub_sample_dataframe: pd.DataFrame
+    stub_processor: SchemaTransformProcessor, stub_sample_dataframe: pd.DataFrame
 ) -> None:
     # Process the dataframe
     result = stub_processor.process(stub_sample_dataframe, current_batch_number=0)
@@ -77,7 +77,7 @@ def test_process_writes_formatted_output_to_parquet(
 
     assert call_args.kwargs["batch_number"] == 0
     assert call_args.kwargs["batch_stage"] == BatchStage.PROCESSORS_OUTPUTS
-    assert call_args.kwargs["subfolder"] == "test_ancillary_dataset"
+    assert call_args.kwargs["subfolder"] == "test_schema_transform"
 
     # Verify the formatted dataframe has the correct structure
     written_dataframe: pd.DataFrame = call_args.kwargs["dataframe"]
@@ -100,7 +100,7 @@ def test_process_writes_formatted_output_to_parquet(
 
 
 def test_process_without_batch_number_does_not_write(
-    stub_processor: AncillaryDatasetProcessor, stub_sample_dataframe: pd.DataFrame
+    stub_processor: SchemaTransformProcessor, stub_sample_dataframe: pd.DataFrame
 ) -> None:
     # Process without batch number (preview mode)
     result = stub_processor.process(stub_sample_dataframe, current_batch_number=None)
@@ -112,7 +112,7 @@ def test_process_without_batch_number_does_not_write(
     stub_processor.artifact_storage.write_batch_to_parquet_file.assert_not_called()
 
 
-def test_process_with_json_serialized_values(stub_processor: AncillaryDatasetProcessor) -> None:
+def test_process_with_json_serialized_values(stub_processor: SchemaTransformProcessor) -> None:
     # Test with JSON-serialized values in dataframe
     df_with_json = pd.DataFrame(
         {

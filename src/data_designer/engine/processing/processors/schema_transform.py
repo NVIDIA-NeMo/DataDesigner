@@ -6,7 +6,7 @@ import logging
 
 import pandas as pd
 
-from data_designer.config.processors import AncillaryDatasetProcessorConfig
+from data_designer.config.processors import SchemaTransformProcessorConfig
 from data_designer.engine.configurable_task import ConfigurableTaskMetadata
 from data_designer.engine.dataset_builders.artifact_storage import BatchStage
 from data_designer.engine.processing.ginja.environment import WithJinja2UserTemplateRendering
@@ -16,12 +16,12 @@ from data_designer.engine.processing.utils import deserialize_json_values
 logger = logging.getLogger(__name__)
 
 
-class AncillaryDatasetProcessor(WithJinja2UserTemplateRendering, Processor[AncillaryDatasetProcessorConfig]):
+class SchemaTransformProcessor(WithJinja2UserTemplateRendering, Processor[SchemaTransformProcessorConfig]):
     @staticmethod
     def metadata() -> ConfigurableTaskMetadata:
         return ConfigurableTaskMetadata(
-            name="ancillary_dataset_processor",
-            description="Generate an ancillary dataset using a Jinja2 template.",
+            name="schema_transform_processor",
+            description="Generate dataset with transformed schema using a Jinja2 template.",
             required_resources=None,
         )
 
