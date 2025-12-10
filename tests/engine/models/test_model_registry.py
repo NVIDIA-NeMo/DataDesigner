@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from data_designer.config.models import ChatCompletionInferenceParameters, ModelConfig
+from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig
 from data_designer.engine.models.errors import ModelAuthenticationError
 from data_designer.engine.models.facade import ModelFacade
 from data_designer.engine.models.registry import ModelRegistry, create_model_registry
@@ -23,7 +23,7 @@ def stub_new_model_config():
         alias="stub-vision",
         model="stub-model-vision",
         provider="stub-model-provider",
-        inference_parameters=ChatCompletionInferenceParameters(
+        inference_parameters=ChatCompletionInferenceParams(
             temperature=0.80, top_p=0.95, max_tokens=100, max_parallel_requests=10, timeout=100
         ),
     )
@@ -35,7 +35,7 @@ def stub_no_usage_config():
         alias="no-usage",
         model="no-usage-model",
         provider="stub-model-provider",
-        inference_parameters=ChatCompletionInferenceParameters(),
+        inference_parameters=ChatCompletionInferenceParams(),
     )
 
 

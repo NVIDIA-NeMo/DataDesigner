@@ -30,7 +30,7 @@
 
 # %%
 from data_designer.essentials import (
-    ChatCompletionInferenceParameters,
+    ChatCompletionInferenceParams,
     DataDesigner,
     DataDesignerConfigBuilder,
     ModelConfig,
@@ -78,7 +78,7 @@ model_configs = [
         alias=MODEL_ALIAS,
         model=MODEL_ID,
         provider=MODEL_PROVIDER,
-        inference_parameters=ChatCompletionInferenceParameters(
+        inference_parameters=ChatCompletionInferenceParams(
             temperature=0.5,
             top_p=1.0,
             max_tokens=1024,

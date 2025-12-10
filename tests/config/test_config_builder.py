@@ -26,7 +26,7 @@ from data_designer.config.config_builder import BuilderConfig, DataDesignerConfi
 from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.datastore import DatastoreSettings
 from data_designer.config.errors import BuilderConfigurationError, InvalidColumnTypeError, InvalidConfigError
-from data_designer.config.models import ChatCompletionInferenceParameters, ModelConfig
+from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig
 from data_designer.config.sampler_constraints import ColumnInequalityConstraint, ScalarInequalityConstraint
 from data_designer.config.sampler_params import SamplerType, UUIDSamplerParams
 from data_designer.config.seed import DatastoreSeedDatasetReference, SamplingStrategy
@@ -670,7 +670,7 @@ def test_add_model_config(stub_empty_builder):
     new_model_config = ModelConfig(
         alias="new-model",
         model="openai/gpt-4",
-        inference_parameters=ChatCompletionInferenceParameters(
+        inference_parameters=ChatCompletionInferenceParams(
             temperature=0.7,
             top_p=0.95,
             max_tokens=1024,
@@ -691,7 +691,7 @@ def test_add_model_config(stub_empty_builder):
         alias="provider-model",
         model="anthropic/claude-3",
         provider="anthropic",
-        inference_parameters=ChatCompletionInferenceParameters(temperature=0.8),
+        inference_parameters=ChatCompletionInferenceParams(temperature=0.8),
     )
     stub_empty_builder.add_model_config(provider_model_config)
 
@@ -717,7 +717,7 @@ def test_add_model_config_duplicate_alias(stub_empty_builder):
     duplicate_model_config = ModelConfig(
         alias="stub-model",
         model="different/model",
-        inference_parameters=ChatCompletionInferenceParameters(temperature=0.5),
+        inference_parameters=ChatCompletionInferenceParams(temperature=0.5),
     )
 
     with pytest.raises(
@@ -733,12 +733,12 @@ def test_delete_model_config(stub_empty_builder):
     model_config_1 = ModelConfig(
         alias="model-to-delete",
         model="model/delete",
-        inference_parameters=ChatCompletionInferenceParameters(temperature=0.5),
+        inference_parameters=ChatCompletionInferenceParams(temperature=0.5),
     )
     model_config_2 = ModelConfig(
         alias="model-to-keep",
         model="model/keep",
-        inference_parameters=ChatCompletionInferenceParameters(temperature=0.6),
+        inference_parameters=ChatCompletionInferenceParams(temperature=0.6),
     )
     stub_empty_builder.add_model_config(model_config_1)
     stub_empty_builder.add_model_config(model_config_2)

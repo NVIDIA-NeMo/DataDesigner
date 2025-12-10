@@ -14,26 +14,26 @@ The `ModelConfig` class has the following fields:
 |-------|------|----------|-------------|
 | `alias` | `str` | Yes | Unique identifier for this model configuration (e.g., `"my-text-model"`, `"reasoning-model"`) |
 | `model` | `str` | Yes | Model identifier as recognized by the provider (e.g., `"nvidia/nvidia-nemotron-nano-9b-v2"`, `"gpt-4"`) |
-| `inference_parameters` | `ChatCompletionInferenceParameters` or `EmbeddingInferenceParameters` | No | Controls model behavior during generation. Use `ChatCompletionInferenceParameters` for text/code/structured generation or `EmbeddingInferenceParameters` for embeddings. Defaults to `ChatCompletionInferenceParameters()` if not provided. See [Inference Parameters](inference_parameters.md) for details. |
+| `inference_parameters` | `ChatCompletionInferenceParams` or `EmbeddingInferenceParams` | No | Controls model behavior during generation. Use `ChatCompletionInferenceParams` for text/code/structured generation or `EmbeddingInferenceParams` for embeddings. Defaults to `ChatCompletionInferenceParams()` if not provided. See [Inference Parameters](inference_parameters.md) for details. |
 | `generation_type` | `GenerationType` | No | Type of generation: `"chat-completion"` for text/code/structured generation or `"embedding"` for embeddings. Defaults to `"chat-completion"`. Must match the `inference_parameters` type. |
 | `provider` | `str` | No | Reference to the name of the Provider to use (e.g., `"nvidia"`, `"openai"`). If not specified, one set as the default provider, which may resolve to the first provider if there are more than one |
 
 !!! note "When to Set generation_type"
-    The `generation_type` field defaults to `"chat-completion"` and typically doesn't need to be explicitly set for completion based generation tasks. However, when using embedding models with `EmbeddingInferenceParameters`, you must set `generation_type="embedding"` to ensure the configuration is valid.
+    The `generation_type` field defaults to `"chat-completion"` and typically doesn't need to be explicitly set for completion based generation tasks. However, when using embedding models with `EmbeddingInferenceParams`, you must set `generation_type="embedding"` to ensure the configuration is valid.
 
 ## Examples
 
 ### Basic Model Configuration
 
 ```python
-from data_designer.essentials import ChatCompletionInferenceParameters, ModelConfig
+from data_designer.essentials import ChatCompletionInferenceParams, ModelConfig
 
 # Simple model configuration with fixed parameters
 model_config = ModelConfig(
     alias="my-text-model",
     model="nvidia/nvidia-nemotron-nano-9b-v2",
     provider="nvidia",
-    inference_parameters=ChatCompletionInferenceParameters(
+    inference_parameters=ChatCompletionInferenceParams(
         temperature=0.85,
         top_p=0.95,
         max_tokens=2048,
@@ -45,8 +45,8 @@ model_config = ModelConfig(
 
 ```python
 from data_designer.essentials import (
-    ChatCompletionInferenceParameters,
-    EmbeddingInferenceParameters,
+    ChatCompletionInferenceParams,
+    EmbeddingInferenceParams,
     GenerationType,
     ModelConfig
 )
@@ -58,7 +58,7 @@ model_configs = [
         model="nvidia/nvidia-nemotron-nano-9b-v2",
         provider="nvidia",
         generation_type=GenerationType.CHAT_COMPLETION,
-        inference_parameters=ChatCompletionInferenceParameters(
+        inference_parameters=ChatCompletionInferenceParams(
             temperature=0.9,
             top_p=0.95,
             max_tokens=2048,
@@ -70,7 +70,7 @@ model_configs = [
         model="nvidia/nvidia-nemotron-nano-9b-v2",
         provider="nvidia",
         generation_type=GenerationType.CHAT_COMPLETION,
-        inference_parameters=ChatCompletionInferenceParameters(
+        inference_parameters=ChatCompletionInferenceParams(
             temperature=0.25,
             top_p=0.95,
             max_tokens=2048,
@@ -82,7 +82,7 @@ model_configs = [
         model="openai/gpt-oss-20b",
         provider="nvidia",
         generation_type=GenerationType.CHAT_COMPLETION,
-        inference_parameters=ChatCompletionInferenceParameters(
+        inference_parameters=ChatCompletionInferenceParams(
             temperature=0.3,
             top_p=0.9,
             max_tokens=4096,
@@ -94,7 +94,7 @@ model_configs = [
         model="nvidia/nemotron-nano-12b-v2-vl",
         provider="nvidia",
         generation_type=GenerationType.CHAT_COMPLETION,
-        inference_parameters=ChatCompletionInferenceParameters(
+        inference_parameters=ChatCompletionInferenceParams(
             temperature=0.7,
             top_p=0.95,
             max_tokens=2048,
@@ -106,7 +106,7 @@ model_configs = [
         model=-"nvidia/llama-3.2-nv-embedqa-1b-v2",
         provider="nvidia",
         generation_type=GenerationType.EMBEDDING,
-        inference_parameters=EmbeddingInferenceParameters(
+        inference_parameters=EmbeddingInferenceParams(
             encoding_format="float"
             extra_body={
                 "input_type": "query"

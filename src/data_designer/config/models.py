@@ -205,7 +205,7 @@ class UniformDistribution(Distribution[UniformDistributionParams]):
 DistributionT: TypeAlias = Union[UniformDistribution, ManualDistribution]
 
 
-class BaseInferenceParameters(ConfigBase, ABC):
+class BaseInferenceParams(ConfigBase, ABC):
     """Base configuration for inference parameters.
 
     Attributes:
@@ -233,7 +233,7 @@ class BaseInferenceParameters(ConfigBase, ABC):
         return result
 
 
-class ChatCompletionInferenceParameters(BaseInferenceParameters):
+class ChatCompletionInferenceParams(BaseInferenceParams):
     """Configuration for LLM inference parameters.
 
     Attributes:
@@ -304,21 +304,21 @@ class ChatCompletionInferenceParameters(BaseInferenceParameters):
 
 
 # Maintain backwards compatibility with a deprecation warning
-class InferenceParameters(ChatCompletionInferenceParameters):
+class InferenceParameters(ChatCompletionInferenceParams):
     """
-    Deprecated: Use ChatCompletionInferenceParameters instead.
+    Deprecated: Use ChatCompletionInferenceParams instead.
     This alias will be removed in a future version.
     """
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         logger.warning(
             "InferenceParameters is deprecated and will be removed in a future version. "
-            "Use ChatCompletionInferenceParameters instead."
+            "Use ChatCompletionInferenceParams instead."
         )
         super().__init__(*args, **kwargs)
 
 
-class EmbeddingInferenceParameters(BaseInferenceParameters):
+class EmbeddingInferenceParams(BaseInferenceParams):
     """Configuration for embedding generation parameters.
 
     Attributes:
@@ -339,9 +339,7 @@ class EmbeddingInferenceParameters(BaseInferenceParameters):
         return result
 
 
-InferenceParametersT: TypeAlias = Union[
-    ChatCompletionInferenceParameters, EmbeddingInferenceParameters, InferenceParameters
-]
+InferenceParamsT: TypeAlias = Union[ChatCompletionInferenceParams, EmbeddingInferenceParams, InferenceParameters]
 
 
 class GenerationType(str, Enum):
@@ -361,7 +359,7 @@ class ModelConfig(ConfigBase):
 
     alias: str
     model: str
-    inference_parameters: InferenceParametersT = Field(default_factory=ChatCompletionInferenceParameters)
+    inference_parameters: InferenceParamsT = Field(default_factory=ChatCompletionInferenceParams)
     generation_type: Optional[GenerationType] = Field(default=GenerationType.CHAT_COMPLETION)
     provider: Optional[str] = None
 
@@ -372,16 +370,16 @@ class ModelConfig(ConfigBase):
         if isinstance(value, dict):
             # Check if it has embedding-specific fields
             if "encoding_format" in value or "dimensions" in value:
-                return EmbeddingInferenceParameters(**value)
-            # Otherwise use ChatCompletionInferenceParameters
-            return ChatCompletionInferenceParameters(**value)
+                return EmbeddingInferenceParams(**value)
+            # Otherwise use ChatCompletionInferenceParams
+            return ChatCompletionInferenceParams(**value)
         return value
 
     @model_validator(mode="after")
     def _validate_generation_type(self) -> Self:
         generation_type_instance_map = {
-            GenerationType.CHAT_COMPLETION: ChatCompletionInferenceParameters,
-            GenerationType.EMBEDDING: EmbeddingInferenceParameters,
+            GenerationType.CHAT_COMPLETION: ChatCompletionInferenceParams,
+            GenerationType.EMBEDDING: EmbeddingInferenceParams,
         }
         if self.generation_type not in generation_type_instance_map:
             raise ValueError(f"Invalid generation type: {self.generation_type}")

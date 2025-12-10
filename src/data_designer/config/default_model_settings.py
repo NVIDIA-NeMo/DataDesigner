@@ -8,7 +8,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal, Optional
 
-from data_designer.config.models import ChatCompletionInferenceParameters, ModelConfig, ModelProvider
+from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig, ModelProvider
 from data_designer.config.utils.constants import (
     MANAGED_ASSETS_PATH,
     MODEL_CONFIGS_FILE_PATH,
@@ -21,22 +21,22 @@ from data_designer.config.utils.io_helpers import load_config_file, save_config_
 logger = logging.getLogger(__name__)
 
 
-def get_default_text_alias_inference_parameters() -> ChatCompletionInferenceParameters:
-    return ChatCompletionInferenceParameters(
+def get_default_text_alias_inference_parameters() -> ChatCompletionInferenceParams:
+    return ChatCompletionInferenceParams(
         temperature=0.85,
         top_p=0.95,
     )
 
 
-def get_default_reasoning_alias_inference_parameters() -> ChatCompletionInferenceParameters:
-    return ChatCompletionInferenceParameters(
+def get_default_reasoning_alias_inference_parameters() -> ChatCompletionInferenceParams:
+    return ChatCompletionInferenceParams(
         temperature=0.35,
         top_p=0.95,
     )
 
 
-def get_default_vision_alias_inference_parameters() -> ChatCompletionInferenceParameters:
-    return ChatCompletionInferenceParameters(
+def get_default_vision_alias_inference_parameters() -> ChatCompletionInferenceParams:
+    return ChatCompletionInferenceParams(
         temperature=0.85,
         top_p=0.95,
     )
@@ -44,7 +44,7 @@ def get_default_vision_alias_inference_parameters() -> ChatCompletionInferencePa
 
 def get_default_inference_parameters(
     model_alias: Literal["text", "reasoning", "vision"],
-) -> ChatCompletionInferenceParameters:
+) -> ChatCompletionInferenceParams:
     if model_alias == "reasoning":
         return get_default_reasoning_alias_inference_parameters()
     elif model_alias == "vision":

@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 
 from data_designer.config.models import (
-    ChatCompletionInferenceParameters,
-    EmbeddingInferenceParameters,
+    ChatCompletionInferenceParams,
+    EmbeddingInferenceParams,
     GenerationType,
     ModelConfig,
 )
@@ -43,7 +43,7 @@ def stub_model_configs() -> list[ModelConfig]:
             alias="stub-text",
             model="stub-model-text",
             provider="stub-model-provider",
-            inference_parameters=ChatCompletionInferenceParameters(
+            inference_parameters=ChatCompletionInferenceParams(
                 temperature=0.80, top_p=0.95, max_tokens=100, max_parallel_requests=10, timeout=100
             ),
         ),
@@ -51,7 +51,7 @@ def stub_model_configs() -> list[ModelConfig]:
             alias="stub-reasoning",
             model="stub-model-reasoning",
             provider="stub-model-provider",
-            inference_parameters=ChatCompletionInferenceParameters(
+            inference_parameters=ChatCompletionInferenceParams(
                 temperature=0.80, top_p=0.95, max_tokens=100, max_parallel_requests=10, timeout=100
             ),
         ),
@@ -59,7 +59,7 @@ def stub_model_configs() -> list[ModelConfig]:
             alias="stub-embedding",
             model="stub-model-embedding",
             provider="stub-model-provider",
-            inference_parameters=EmbeddingInferenceParameters(
+            inference_parameters=EmbeddingInferenceParams(
                 dimensions=100,
             ),
             generation_type=GenerationType.EMBEDDING,

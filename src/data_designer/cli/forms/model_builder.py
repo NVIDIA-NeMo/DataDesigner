@@ -8,8 +8,8 @@ from data_designer.cli.forms.field import NumericField, SelectField, TextField
 from data_designer.cli.forms.form import Form
 from data_designer.cli.ui import confirm_action, print_error, print_text
 from data_designer.config.models import (
-    ChatCompletionInferenceParameters,
-    EmbeddingInferenceParameters,
+    ChatCompletionInferenceParams,
+    EmbeddingInferenceParams,
     GenerationType,
     ModelConfig,
 )
@@ -243,9 +243,9 @@ class ModelFormBuilder(FormBuilder[ModelConfig]):
 
         # Create the appropriate inference parameters type based on generation_type
         if generation_type == GenerationType.EMBEDDING:
-            inference_params = EmbeddingInferenceParameters(**inference_params_dict)
+            inference_params = EmbeddingInferenceParams(**inference_params_dict)
         else:
-            inference_params = ChatCompletionInferenceParameters(**inference_params_dict)
+            inference_params = ChatCompletionInferenceParams(**inference_params_dict)
 
         return ModelConfig(
             alias=form_data["alias"],
