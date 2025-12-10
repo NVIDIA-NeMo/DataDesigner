@@ -2,118 +2,138 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://nvidia-nemo.github.io/DataDesigner/latest/</loc>
-         <lastmod>2025-12-08</lastmod>
+         <lastmod>2025-12-10</lastmod>
     </url>
     <url>
          <loc>https://nvidia-nemo.github.io/DataDesigner/latest/CONTRIBUTING/</loc>
-         <lastmod>2025-12-08</lastmod>
+         <lastmod>2025-12-10</lastmod>
     </url>
     <url>
          <loc>https://nvidia-nemo.github.io/DataDesigner/latest/installation/</loc>
-         <lastmod>2025-12-08</lastmod>
+         <lastmod>2025-12-10</lastmod>
     </url>
     <url>
          <loc>https://nvidia-nemo.github.io/DataDesigner/latest/quick-start/</loc>
-         <lastmod>2025-12-08</lastmod>
+         <lastmod>2025-12-10</lastmod>
     </url>
     <url>
          <loc>https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/column_configs/</loc>
-         <lastmod>2025-12-08</lastmod>
+         <lastmod>2025-12-10</lastmod>
     </url>
     <url>
          <loc>https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/config_builder/</loc>
-         <lastmod>2025-12-08</lastmod>
+         <lastmod>2025-12-10</lastmod>
     </url>
     <url>
          <loc>https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/data_designer_config/</loc>
-         <lastmod>2025-12-08</lastmod>
+         <lastmod>2025-12-10</lastmod>
     </url>
     <url>
          <loc>https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/models/</loc>
-         <lastmod>2025-12-08</lastmod>
+         <lastmod>2025-12-10</lastmod>
     </url>
     <url>
          <loc>https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/sampler_params/</loc>
-         <lastmod>2025-12-08</lastmod>
+         <lastmod>2025-12-10</lastmod>
     </url>
     <url>
          <loc>https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/validator_params/</loc>
-         <lastmod>2025-12-08</lastmod>
+         <lastmod>2025-12-10</lastmod>
     </url>
     <url>
          <loc>https://nvidia-nemo.github.io/DataDesigner/latest/concepts/columns/</loc>
-         <lastmod>2025-12-08</lastmod>
+         <lastmod>2025-12-10</lastmod>
     </url>
     <url>
          <loc>https://nvidia-nemo.github.io/DataDesigner/latest/concepts/person_sampling/</loc>
-         <lastmod>2025-12-08</lastmod>
+         <lastmod>2025-12-10</lastmod>
     </url>
     <url>
          <loc>https://nvidia-nemo.github.io/DataDesigner/latest/concepts/plugins/</loc>
-         <lastmod>2025-12-08</lastmod>
+         <lastmod>2025-12-10</lastmod>
     </url>
     <url>
          <loc>https://nvidia-nemo.github.io/DataDesigner/latest/concepts/validators/</loc>
-         <lastmod>2025-12-08</lastmod>
+         <lastmod>2025-12-10</lastmod>
     </url>
     <url>
          <loc>https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/configure-model-settings-with-the-cli/</loc>
-         <lastmod>2025-12-08</lastmod>
+         <lastmod>2025-12-10</lastmod>
     </url>
     <url>
          <loc>https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/</loc>
-         <lastmod>2025-12-08</lastmod>
+         <lastmod>2025-12-10</lastmod>
     </url>
     <url>
          <loc>https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/model-configs/</loc>
-         <lastmod>2025-12-08</lastmod>
+         <lastmod>2025-12-10</lastmod>
     </url>
     <url>
          <loc>https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/model-providers/</loc>
-         <lastmod>2025-12-08</lastmod>
+         <lastmod>2025-12-10</lastmod>
     </url>
     <url>
          <loc>https://nvidia-nemo.github.io/DataDesigner/latest/notebook_source/</loc>
-         <lastmod>2025-12-08</lastmod>
+         <lastmod>2025-12-10</lastmod>
     </url>
     <url>
          <loc>https://nvidia-nemo.github.io/DataDesigner/latest/notebook_source/1-the-basics/</loc>
-         <lastmod>2025-12-08</lastmod>
+         <lastmod>2025-12-10</lastmod>
     </url>
     <url>
          <loc>https://nvidia-nemo.github.io/DataDesigner/latest/notebook_source/2-structured-outputs-and-jinja-expressions/</loc>
-         <lastmod>2025-12-08</lastmod>
+         <lastmod>2025-12-10</lastmod>
     </url>
     <url>
          <loc>https://nvidia-nemo.github.io/DataDesigner/latest/notebook_source/3-seeding-with-a-dataset/</loc>
-         <lastmod>2025-12-08</lastmod>
+         <lastmod>2025-12-10</lastmod>
     </url>
     <url>
          <loc>https://nvidia-nemo.github.io/DataDesigner/latest/notebook_source/4-providing-images-as-context/</loc>
-         <lastmod>2025-12-08</lastmod>
+         <lastmod>2025-12-10</lastmod>
     </url>
     <url>
          <loc>https://nvidia-nemo.github.io/DataDesigner/latest/notebook_source/_README/</loc>
-         <lastmod>2025-12-08</lastmod>
+         <lastmod>2025-12-10</lastmod>
     </url>
     <url>
          <loc>https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/</loc>
-         <lastmod>2025-12-08</lastmod>
+         <lastmod>2025-12-10</lastmod>
     </url>
     <url>
          <loc>https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/1-the-basics/</loc>
-         <lastmod>2025-12-08</lastmod>
+         <lastmod>2025-12-10</lastmod>
     </url>
     <url>
          <loc>https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/2-structured-outputs-and-jinja-expressions/</loc>
-         <lastmod>2025-12-08</lastmod>
+         <lastmod>2025-12-10</lastmod>
     </url>
     <url>
          <loc>https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/3-seeding-with-a-dataset/</loc>
-         <lastmod>2025-12-08</lastmod>
+         <lastmod>2025-12-10</lastmod>
     </url>
     <url>
          <loc>https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/4-providing-images-as-context/</loc>
-         <lastmod>2025-12-08</lastmod>
+         <lastmod>2025-12-10</lastmod>
+    </url>
+    <url>
+         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/recipes/cards/</loc>
+         <lastmod>2025-12-10</lastmod>
+    </url>
+    <url>
+         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/recipes/code_generation/text_to_python/</loc>
+         <lastmod>2025-12-10</lastmod>
+    </url>
+    <url>
+         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/recipes/code_generation/text_to_sql/</loc>
+         <lastmod>2025-12-10</lastmod>
+    </url>
+    <url>
+         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/recipes/qa_and_chat/multi_turn_chat/</loc>
+         <lastmod>2025-12-10</lastmod>
+    </url>
+    <url>
+         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/recipes/qa_and_chat/product_info_qa/</loc>
+         <lastmod>2025-12-10</lastmod>
     </url>
 </urlset>

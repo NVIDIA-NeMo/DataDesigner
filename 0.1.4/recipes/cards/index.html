@@ -8,28 +8,28 @@
       
       
       
-        <link rel="canonical" href="https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/configure-model-settings-with-the-cli/">
+        <link rel="canonical" href="https://nvidia-nemo.github.io/DataDesigner/latest/recipes/cards/">
       
       
-        <link rel="prev" href="../default-model-settings/">
+        <link rel="prev" href="../../notebooks/4-providing-images-as-context/">
       
       
-        <link rel="next" href="../model-providers/">
+        <link rel="next" href="../code_generation/text_to_python/">
       
       
-      <link rel="icon" href="../../../assets/palette-favicon.png">
+      <link rel="icon" href="../../assets/palette-favicon.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.22">
     
     
       
-        <title>Configure with the CLI - NeMo Data Designer</title>
+        <title>Recipe Cards - NeMo Data Designer</title>
       
     
     
-      <link rel="stylesheet" href="../../../assets/stylesheets/main.84d31ad4.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.84d31ad4.min.css">
       
         
-        <link rel="stylesheet" href="../../../assets/stylesheets/palette.06af60db.min.css">
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.06af60db.min.css">
       
       
 
@@ -48,13 +48,13 @@
       
     
     
-      <link rel="stylesheet" href="../../../assets/_mkdocstrings.css">
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
     
-      <link rel="stylesheet" href="../../../css/style.css">
+      <link rel="stylesheet" href="../../css/style.css">
     
-      <link rel="stylesheet" href="../../../css/mkdocstrings.css">
+      <link rel="stylesheet" href="../../css/mkdocstrings.css">
     
-    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -80,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#configuring-model-settings-using-the-cli" class="md-skip">
+        <a href="#use-case-recipes" class="md-skip">
           Skip to content
         </a>
       
@@ -95,12 +95,12 @@
             <div class="md-banner__inner md-grid md-typeset">
               
   You're not viewing the latest version.
-  <a href="../../../.."> 
+  <a href="../../.."> 
     <strong>Click here to go to latest.</strong>
   </a>
 
             </div>
-            <script>var el=document.querySelector("[data-md-component=outdated]"),base=new URL("../../.."),outdated=__md_get("__outdated",sessionStorage,base);!0===outdated&&el&&(el.hidden=!1)</script>
+            <script>var el=document.querySelector("[data-md-component=outdated]"),base=new URL("../.."),outdated=__md_get("__outdated",sessionStorage,base);!0===outdated&&el&&(el.hidden=!1)</script>
           </aside>
         
       </div>
@@ -110,7 +110,7 @@
 
 <header class="md-header" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="../../.." title="NeMo Data Designer" class="md-header__button md-logo" aria-label="NeMo Data Designer" data-md-component="logo">
+    <a href="../.." title="NeMo Data Designer" class="md-header__button md-logo" aria-label="NeMo Data Designer" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M512 256v2.7c-.4 36.5-33.6 61.3-70.1 61.3H344c-26.5 0-48 21.5-48 48 0 3.4.4 6.7 1 9.9 2.1 10.2 6.5 20 10.8 29.9 6.1 13.8 12.1 27.5 12.1 42 0 31.8-21.6 60.7-53.4 62-3.5.1-7 .2-10.6.2-141.4 0-256-114.6-256-256S114.6 0 256 0s256 114.6 256 256m-384 32a32 32 0 1 0-64 0 32 32 0 1 0 64 0m0-96a32 32 0 1 0 0-64 32 32 0 1 0 0 64m160-96a32 32 0 1 0-64 0 32 32 0 1 0 64 0m96 96a32 32 0 1 0 0-64 32 32 0 1 0 0 64"/></svg>
@@ -130,7 +130,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Configure with the CLI
+              Recipe Cards
             
           </span>
         </div>
@@ -243,7 +243,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../.." class="md-tabs__link">
+        <a href="../.." class="md-tabs__link">
           
   
   
@@ -259,8 +259,6 @@
   
   
   
-    
-  
   
     
     
@@ -268,13 +266,11 @@
   
   
   
-    
-  
   
     
     
-      <li class="md-tabs__item md-tabs__item--active">
-        <a href="../default-model-settings/" class="md-tabs__link">
+      <li class="md-tabs__item">
+        <a href="../../concepts/models/default-model-settings/" class="md-tabs__link">
           
   
   
@@ -297,7 +293,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../../notebooks/" class="md-tabs__link">
+        <a href="../../notebooks/" class="md-tabs__link">
           
   
   
@@ -313,11 +309,13 @@
   
   
   
+    
+  
   
     
     
-      <li class="md-tabs__item">
-        <a href="../../../recipes/cards/" class="md-tabs__link">
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="./" class="md-tabs__link">
           
   
   
@@ -337,7 +335,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../../code_reference/models/" class="md-tabs__link">
+        <a href="../../code_reference/models/" class="md-tabs__link">
           
   
   
@@ -371,7 +369,7 @@
 
 <nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="../../.." title="NeMo Data Designer" class="md-nav__button md-logo" aria-label="NeMo Data Designer" data-md-component="logo">
+    <a href="../.." title="NeMo Data Designer" class="md-nav__button md-logo" aria-label="NeMo Data Designer" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M512 256v2.7c-.4 36.5-33.6 61.3-70.1 61.3H344c-26.5 0-48 21.5-48 48 0 3.4.4 6.7 1 9.9 2.1 10.2 6.5 20 10.8 29.9 6.1 13.8 12.1 27.5 12.1 42 0 31.8-21.6 60.7-53.4 62-3.5.1-7 .2-10.6.2-141.4 0-256-114.6-256-256S114.6 0 256 0s256 114.6 256 256m-384 32a32 32 0 1 0-64 0 32 32 0 1 0 64 0m0-96a32 32 0 1 0 0-64 32 32 0 1 0 0 64m160-96a32 32 0 1 0-64 0 32 32 0 1 0 64 0m96 96a32 32 0 1 0 0-64 32 32 0 1 0 0 64"/></svg>
@@ -444,7 +442,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../.." class="md-nav__link">
+      <a href="../.." class="md-nav__link">
         
   
   
@@ -467,7 +465,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../installation/" class="md-nav__link">
+      <a href="../../installation/" class="md-nav__link">
         
   
   
@@ -490,7 +488,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../quick-start/" class="md-nav__link">
+      <a href="../../quick-start/" class="md-nav__link">
         
   
   
@@ -513,7 +511,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../CONTRIBUTING/" class="md-nav__link">
+      <a href="../../CONTRIBUTING/" class="md-nav__link">
         
   
   
@@ -540,29 +538,26 @@
       
   
   
-    
   
   
-  
     
     
     
     
       
-        
-        
-      
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
-        
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
         
           
-          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
             
   
   
@@ -575,7 +570,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_2">
             <span class="md-nav__icon md-icon"></span>
             Concepts
@@ -586,8 +581,6 @@
                 
   
   
-    
-  
   
   
     
@@ -598,11 +591,13 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_1" checked>
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_1" >
         
           
           <label class="md-nav__link" for="__nav_2_1" id="__nav_2_1_label" tabindex="0">
@@ -618,7 +613,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_1_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_1_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_2_1">
             <span class="md-nav__icon md-icon"></span>
             Models
@@ -632,7 +627,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../default-model-settings/" class="md-nav__link">
+      <a href="../../concepts/models/default-model-settings/" class="md-nav__link">
         
   
   
@@ -652,32 +647,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    Configure with the CLI
-    
-  </span>
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../concepts/models/configure-model-settings-with-the-cli/" class="md-nav__link">
         
   
   
@@ -688,119 +661,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#configuration-files" class="md-nav__link">
-    <span class="md-ellipsis">
-      Configuration Files
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#cli-commands" class="md-nav__link">
-    <span class="md-ellipsis">
-      CLI Commands
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#managing-model-providers" class="md-nav__link">
-    <span class="md-ellipsis">
-      Managing Model Providers
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Managing Model Providers">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#available-operations" class="md-nav__link">
-    <span class="md-ellipsis">
-      Available Operations
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#managing-model-configurations" class="md-nav__link">
-    <span class="md-ellipsis">
-      Managing Model Configurations
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Managing Model Configurations">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#available-operations_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      Available Operations
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#listing-configurations" class="md-nav__link">
-    <span class="md-ellipsis">
-      Listing Configurations
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#resetting-configurations" class="md-nav__link">
-    <span class="md-ellipsis">
-      Resetting Configurations
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#see-also" class="md-nav__link">
-    <span class="md-ellipsis">
-      See Also
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -813,7 +673,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../model-providers/" class="md-nav__link">
+      <a href="../../concepts/models/model-providers/" class="md-nav__link">
         
   
   
@@ -836,7 +696,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../model-configs/" class="md-nav__link">
+      <a href="../../concepts/models/model-configs/" class="md-nav__link">
         
   
   
@@ -867,7 +727,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../columns/" class="md-nav__link">
+      <a href="../../concepts/columns/" class="md-nav__link">
         
   
   
@@ -890,7 +750,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../validators/" class="md-nav__link">
+      <a href="../../concepts/validators/" class="md-nav__link">
         
   
   
@@ -913,7 +773,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../person_sampling/" class="md-nav__link">
+      <a href="../../concepts/person_sampling/" class="md-nav__link">
         
   
   
@@ -986,7 +846,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../notebooks/" class="md-nav__link">
+      <a href="../../notebooks/" class="md-nav__link">
         
   
   
@@ -1009,7 +869,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../notebooks/1-the-basics/" class="md-nav__link">
+      <a href="../../notebooks/1-the-basics/" class="md-nav__link">
         
   
   
@@ -1032,7 +892,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../notebooks/2-structured-outputs-and-jinja-expressions/" class="md-nav__link">
+      <a href="../../notebooks/2-structured-outputs-and-jinja-expressions/" class="md-nav__link">
         
   
   
@@ -1055,7 +915,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../notebooks/3-seeding-with-a-dataset/" class="md-nav__link">
+      <a href="../../notebooks/3-seeding-with-a-dataset/" class="md-nav__link">
         
   
   
@@ -1078,7 +938,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../notebooks/4-providing-images-as-context/" class="md-nav__link">
+      <a href="../../notebooks/4-providing-images-as-context/" class="md-nav__link">
         
   
   
@@ -1105,26 +965,29 @@
       
   
   
+    
   
   
+  
     
     
     
     
-      
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
       
         
+        
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
         
           
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
-        
-          
-          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
             
   
   
@@ -1137,7 +1000,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             Recipes
@@ -1148,10 +1011,19 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../../recipes/cards/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -1162,6 +1034,7 @@
   
 
       </a>
+      
     </li>
   
 
@@ -1217,7 +1090,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../recipes/code_generation/text_to_python/" class="md-nav__link">
+      <a href="../code_generation/text_to_python/" class="md-nav__link">
         
   
   
@@ -1240,7 +1113,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../recipes/code_generation/text_to_sql/" class="md-nav__link">
+      <a href="../code_generation/text_to_sql/" class="md-nav__link">
         
   
   
@@ -1314,7 +1187,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../recipes/qa_and_chat/product_info_qa/" class="md-nav__link">
+      <a href="../qa_and_chat/product_info_qa/" class="md-nav__link">
         
   
   
@@ -1337,7 +1210,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../recipes/qa_and_chat/multi_turn_chat/" class="md-nav__link">
+      <a href="../qa_and_chat/multi_turn_chat/" class="md-nav__link">
         
   
   
@@ -1418,7 +1291,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../code_reference/models/" class="md-nav__link">
+      <a href="../../code_reference/models/" class="md-nav__link">
         
   
   
@@ -1441,7 +1314,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../code_reference/column_configs/" class="md-nav__link">
+      <a href="../../code_reference/column_configs/" class="md-nav__link">
         
   
   
@@ -1464,7 +1337,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../code_reference/config_builder/" class="md-nav__link">
+      <a href="../../code_reference/config_builder/" class="md-nav__link">
         
   
   
@@ -1487,7 +1360,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../code_reference/data_designer_config/" class="md-nav__link">
+      <a href="../../code_reference/data_designer_config/" class="md-nav__link">
         
   
   
@@ -1510,7 +1383,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../code_reference/sampler_params/" class="md-nav__link">
+      <a href="../../code_reference/sampler_params/" class="md-nav__link">
         
   
   
@@ -1533,7 +1406,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../code_reference/validator_params/" class="md-nav__link">
+      <a href="../../code_reference/validator_params/" class="md-nav__link">
         
   
   
@@ -1576,107 +1449,6 @@
     
   
   
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#configuration-files" class="md-nav__link">
-    <span class="md-ellipsis">
-      Configuration Files
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#cli-commands" class="md-nav__link">
-    <span class="md-ellipsis">
-      CLI Commands
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#managing-model-providers" class="md-nav__link">
-    <span class="md-ellipsis">
-      Managing Model Providers
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Managing Model Providers">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#available-operations" class="md-nav__link">
-    <span class="md-ellipsis">
-      Available Operations
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#managing-model-configurations" class="md-nav__link">
-    <span class="md-ellipsis">
-      Managing Model Configurations
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Managing Model Configurations">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#available-operations_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      Available Operations
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#listing-configurations" class="md-nav__link">
-    <span class="md-ellipsis">
-      Listing Configurations
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#resetting-configurations" class="md-nav__link">
-    <span class="md-ellipsis">
-      Resetting Configurations
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#see-also" class="md-nav__link">
-    <span class="md-ellipsis">
-      See Also
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
 </nav>
                   </div>
                 </div>
@@ -1697,109 +1469,70 @@
   
 
 
-<h1 id="configuring-model-settings-using-the-cli">Configuring Model Settings Using The CLI</h1>
-<p>The Data Designer CLI provides an interactive interface for creating and managing default model providers and model configurations stored in your Data Designer home directory (default: <code>~/.data-designer/</code>).</p>
-<h2 id="configuration-files">Configuration Files</h2>
-<p>The CLI manages two YAML configuration files:</p>
+<h1 id="use-case-recipes">Use Case Recipes</h1>
+<p>Recipes are a collection of code examples that demonstrate how to use Data Designer to solve specific problems.
+Each recipe is a self-contained example that can be run independently. They are designed to be a starting point for your own projects, and can be used as a reference for how to use the framework.</p>
+<p>Looking for more pedagogical examples? Check out the <a href="../../notebooks/README.md">notebook tutorials</a>.</p>
+<div class="grid cards">
 <ul>
-<li><strong><code>model_providers.yaml</code></strong>: Model provider configurations</li>
-<li><strong><code>model_configs.yaml</code></strong>: Model configurations</li>
-</ul>
-<div class="admonition info">
-<p class="admonition-title">Automatic Configuration</p>
-<p>If these configuration files don't already exist, the Data Designer library automatically creates them with default settings at runtime when first initialized.</p>
-</div>
-<div class="admonition note">
-<p class="admonition-title">Custom Directory</p>
-<p>You can customize the configuration directory location with the <code>DATA_DESIGNER_HOME</code> environment variable:
-<div class="language-bash highlight"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">DATA_DESIGNER_HOME</span><span class="o">=</span><span class="s2">&quot;/path/to/your/custom/directory&quot;</span>
-</code></pre></div></p>
-</div>
-<h2 id="cli-commands">CLI Commands</h2>
-<p>The Data Designer CLI provides four main configuration commands:</p>
-<div class="language-bash highlight"><pre><span></span><code><span class="c1"># Configure model providers</span>
-data-designer<span class="w"> </span>config<span class="w"> </span>providers
-
-<span class="c1"># Configure models</span>
-data-designer<span class="w"> </span>config<span class="w"> </span>models
-
-<span class="c1"># List current configurations</span>
-data-designer<span class="w"> </span>config<span class="w"> </span>list
-
-<span class="c1"># Reset all configurations</span>
-data-designer<span class="w"> </span>config<span class="w"> </span>reset
-</code></pre></div>
-<div class="admonition tip">
-<p class="admonition-title">Getting help</p>
-<p>See available commands
-<div class="language-bash highlight"><pre><span></span><code>data-designer<span class="w"> </span>--help
-</code></pre></div></p>
-<p>See available sub-commands
-<div class="language-bash highlight"><pre><span></span><code>data-designer<span class="w"> </span>config<span class="w"> </span>--help
-</code></pre></div></p>
-</div>
-<h2 id="managing-model-providers">Managing Model Providers</h2>
-<p>Run the interactive provider configuration command:</p>
-<div class="language-bash highlight"><pre><span></span><code>data-designer<span class="w"> </span>config<span class="w"> </span>providers
-</code></pre></div>
-<h3 id="available-operations">Available Operations</h3>
-<p><strong>Add a new provider</strong>: Define a new provider by entering its name, endpoint URL, provider type, and optionally an API key (as plain text or as an environment variable name).</p>
-<p><strong>Update an existing provider</strong>: Modify an existing provider's settings. All fields are pre-filled with current values.</p>
-<p><strong>Delete a provider</strong>: Remove a provider and its associated models.</p>
-<p><strong>Delete all providers</strong>: Remove all providers and their associated models.</p>
-<p><strong>Change default provider</strong>: Set which provider is used by default. This option is only available when multiple providers are configured.</p>
-<h2 id="managing-model-configurations">Managing Model Configurations</h2>
-<p>Run the interactive model configuration command:</p>
-<div class="language-bash highlight"><pre><span></span><code>data-designer<span class="w"> </span>config<span class="w"> </span>models
-</code></pre></div>
-<div class="admonition info">
-<p class="admonition-title">Provider Required</p>
-<p>You need at least one provider configured before adding models. Run <code>data-designer config providers</code> first if none exist.</p>
-</div>
-<h3 id="available-operations_1">Available Operations</h3>
-<p><strong>Add a new model configuration</strong></p>
-<p>Create a new model configuration with the following fields:</p>
+<li>
+<p><span class="twemoji lg middle"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19.5 17H18c1.1 0 2-.9 2-2s-.9-2-2-2V9c0-1 0-2-1.08-2.86.05-.21.08-.42.08-.64C17 3.57 15 2 12.5 2c-2.26 0-4.12 1.31-4.43 3H6L3.71 2.79 3 3.5l2 2-2 2 .71.71L6 6h2.07c.31 1.69 2.17 3 4.43 3 .5 0 1-.08 1.43-.2.04.07.07.14.07.2v4H8c-1.1 0-2 .9-2 2s.9 2 2 2H6.5A2.5 2.5 0 0 0 4 19.5c0 .17 0 .34.05.5H4c-1.1 0-2 .9-2 2h17.5a2.5 2.5 0 0 0 0-5M12 5c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1"/></svg></span> <strong>Text to Python</strong></p>
+<p>Generate a dataset of natural language instructions paired with Python code implementations, with varying complexity levels and industry focuses.</p>
+<hr />
+<p><strong>Demonstrates:</strong></p>
 <ul>
-<li><strong>Alias</strong>: A unique name for referencing this model in a column configuration.</li>
-<li><strong>Model ID</strong>: The model identifier (e.g., <code>nvidia/nvidia-nemotron-nano-9b-v2</code>)</li>
-<li><strong>Provider</strong>: Select from available providers (if multiple exist)</li>
-<li><strong>Temperature</strong>: Sampling temperature (0.0 to 2.0)</li>
-<li><strong>Top P</strong>: Nucleus sampling parameter (0.0 to 1.0)</li>
-<li><strong>Max Tokens</strong>: Maximum output length (1 to 100000)</li>
+<li>Python code generation</li>
+<li>Python code validation</li>
+<li>LLM-as-judge</li>
 </ul>
-<div class="admonition note">
-<p class="admonition-title">Additional Settings</p>
-<p>To configure additional inference parameter settings or use distribution-based inference parameters, edit the <code>model_configs.yaml</code> file directly.</p>
-</div>
-<p><strong>Update an existing model configuration</strong>: Modify an existing model's configuration. All fields are pre-filled with current values.</p>
-<p><strong>Delete a model configuration</strong>: Remove a single model configuration.</p>
-<p><strong>Delete all model configurations</strong>: Remove all model configurations. The CLI will ask for confirmation before proceeding.</p>
-<h2 id="listing-configurations">Listing Configurations</h2>
-<p>View all current configurations:</p>
-<div class="language-bash highlight"><pre><span></span><code>data-designer<span class="w"> </span>config<span class="w"> </span>list
-</code></pre></div>
-<p>This command displays:</p>
+<hr />
+<p><a class="md-button" href="../code_generation/text_to_python/"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m19 2-5 4.5v11l5-4.5zM6.5 5C4.55 5 2.45 5.4 1 6.5v14.66c0 .25.25.5.5.5.1 0 .15-.07.25-.07 1.35-.65 3.3-1.09 4.75-1.09 1.95 0 4.05.4 5.5 1.5 1.35-.85 3.8-1.5 5.5-1.5 1.65 0 3.35.31 4.75 1.06.1.05.15.03.25.03.25 0 .5-.25.5-.5V6.5c-.6-.45-1.25-.75-2-1V19c-1.1-.35-2.3-.5-3.5-.5-1.7 0-4.15.65-5.5 1.5V6.5C10.55 5.4 8.45 5 6.5 5"/></svg></span> View Recipe</a>
+<a class="md-button" download="text_to_python.py" href="../../assets/recipes/code_generation/text_to_python.py">Download Code <span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4.75 17.25a.75.75 0 0 1 .75.75v2.25c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V18a.75.75 0 0 1 1.5 0v2.25A1.75 1.75 0 0 1 18.25 22H5.75A1.75 1.75 0 0 1 4 20.25V18a.75.75 0 0 1 .75-.75"/><path d="M5.22 9.97a.75.75 0 0 1 1.06 0l4.97 4.969V2.75a.75.75 0 0 1 1.5 0v12.189l4.97-4.969a.749.749 0 1 1 1.06 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0l-6.25-6.25a.75.75 0 0 1 0-1.06"/></svg></span></a></p>
+</li>
+<li>
+<p><span class="twemoji lg middle"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 3C7.58 3 4 4.79 4 7s3.58 4 8 4 8-1.79 8-4-3.58-4-8-4M4 9v3c0 2.21 3.58 4 8 4s8-1.79 8-4V9c0 2.21-3.58 4-8 4s-8-1.79-8-4m0 5v3c0 2.21 3.58 4 8 4s8-1.79 8-4v-3c0 2.21-3.58 4-8 4s-8-1.79-8-4"/></svg></span> <strong>Text to SQL</strong></p>
+<p>Generate a dataset of natural language instructions paired with SQL code implementations, with varying complexity levels and industry focuses.</p>
+<hr />
+<p><strong>Demonstrates:</strong></p>
 <ul>
-<li><strong>Model Providers</strong>: All configured providers with their endpoints (API keys are masked)</li>
-<li><strong>Default Provider</strong>: The currently selected default provider</li>
-<li><strong>Model Configurations</strong>: All configured models with their settings</li>
+<li>SQL code generation</li>
+<li>SQL code validation</li>
+<li>LLM-as-judge</li>
 </ul>
-<h2 id="resetting-configurations">Resetting Configurations</h2>
-<p>Delete all configuration files:</p>
-<div class="language-bash highlight"><pre><span></span><code>data-designer<span class="w"> </span>config<span class="w"> </span>reset
-</code></pre></div>
-<p>The CLI will show which configuration files exist and ask for confirmation before deleting them.</p>
-<div class="admonition danger">
-<p class="admonition-title">Destructive Operation</p>
-<p>This command permanently deletes all configuration files and resets to the default model providers and configurations. You'll need to reconfigure your custom configurations from scratch.</p>
-</div>
-<h2 id="see-also">See Also</h2>
+<hr />
+<p><a class="md-button" href="../code_generation/text_to_sql/"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m19 2-5 4.5v11l5-4.5zM6.5 5C4.55 5 2.45 5.4 1 6.5v14.66c0 .25.25.5.5.5.1 0 .15-.07.25-.07 1.35-.65 3.3-1.09 4.75-1.09 1.95 0 4.05.4 5.5 1.5 1.35-.85 3.8-1.5 5.5-1.5 1.65 0 3.35.31 4.75 1.06.1.05.15.03.25.03.25 0 .5-.25.5-.5V6.5c-.6-.45-1.25-.75-2-1V19c-1.1-.35-2.3-.5-3.5-.5-1.7 0-4.15.65-5.5 1.5V6.5C10.55 5.4 8.45 5 6.5 5"/></svg></span> View Recipe</a>
+<a class="md-button" download="text_to_sql.py" href="../../assets/recipes/code_generation/text_to_sql.py">Download Code <span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4.75 17.25a.75.75 0 0 1 .75.75v2.25c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V18a.75.75 0 0 1 1.5 0v2.25A1.75 1.75 0 0 1 18.25 22H5.75A1.75 1.75 0 0 1 4 20.25V18a.75.75 0 0 1 .75-.75"/><path d="M5.22 9.97a.75.75 0 0 1 1.06 0l4.97 4.969V2.75a.75.75 0 0 1 1.5 0v12.189l4.97-4.969a.749.749 0 1 1 1.06 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0l-6.25-6.25a.75.75 0 0 1 0-1.06"/></svg></span></a></p>
+</li>
+<li>
+<p><span class="twemoji lg middle"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 3c5.5 0 10 3.58 10 8s-4.5 8-10 8c-1.24 0-2.43-.18-3.53-.5C5.55 21 2 21 2 21c2.33-2.33 2.7-3.9 2.75-4.5C3.05 15.07 2 13.13 2 11c0-4.42 4.5-8 10-8"/></svg></span> <strong>Product Info QA</strong></p>
+<p>Generate a dataset of that contains product information and associated question/answer pairs.</p>
+<hr />
+<p><strong>Demonstrates:</strong></p>
 <ul>
-<li><strong><a href="../model-providers/">Model Providers</a></strong>: Learn about the <code>ModelProvider</code> class and provider configuration</li>
-<li><strong><a href="../model-configs/">Model Configurations</a></strong>: Learn about <code>ModelConfig</code> and <code>InferenceParameters</code></li>
-<li><strong><a href="../default-model-settings/">Default Model Settings</a></strong>: Pre-configured providers and model settings included with Data Designer</li>
-<li><strong><a href="../../../quick-start/">Quick Start Guide</a></strong>: Get started with a simple example</li>
+<li>Structured outputs</li>
+<li>Expression columns</li>
+<li>LLM-as-judge</li>
 </ul>
+<hr />
+<p><a class="md-button" href="../qa_and_chat/product_info_qa/"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m19 2-5 4.5v11l5-4.5zM6.5 5C4.55 5 2.45 5.4 1 6.5v14.66c0 .25.25.5.5.5.1 0 .15-.07.25-.07 1.35-.65 3.3-1.09 4.75-1.09 1.95 0 4.05.4 5.5 1.5 1.35-.85 3.8-1.5 5.5-1.5 1.65 0 3.35.31 4.75 1.06.1.05.15.03.25.03.25 0 .5-.25.5-.5V6.5c-.6-.45-1.25-.75-2-1V19c-1.1-.35-2.3-.5-3.5-.5-1.7 0-4.15.65-5.5 1.5V6.5C10.55 5.4 8.45 5 6.5 5"/></svg></span> View Recipe</a>
+<a class="md-button" download="product_info_qa.py" href="../../assets/recipes/qa_and_chat/product_info_qa.py">Download Code <span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4.75 17.25a.75.75 0 0 1 .75.75v2.25c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V18a.75.75 0 0 1 1.5 0v2.25A1.75 1.75 0 0 1 18.25 22H5.75A1.75 1.75 0 0 1 4 20.25V18a.75.75 0 0 1 .75-.75"/><path d="M5.22 9.97a.75.75 0 0 1 1.06 0l4.97 4.969V2.75a.75.75 0 0 1 1.5 0v12.189l4.97-4.969a.749.749 0 1 1 1.06 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0l-6.25-6.25a.75.75 0 0 1 0-1.06"/></svg></span></a></p>
+</li>
+<li>
+<p><span class="twemoji lg middle"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 3c5.5 0 10 3.58 10 8s-4.5 8-10 8c-1.24 0-2.43-.18-3.53-.5C5.55 21 2 21 2 21c2.33-2.33 2.7-3.9 2.75-4.5C3.05 15.07 2 13.13 2 11c0-4.42 4.5-8 10-8"/></svg></span> <strong>Multi-Turn Chat</strong></p>
+<p>Generate a dataset of multi-turn chat conversations between a user and an AI assistant.</p>
+<hr />
+<p><strong>Demonstrates:</strong></p>
+<ul>
+<li>Structured outputs</li>
+<li>Expression columns</li>
+<li>LLM-as-judge</li>
+</ul>
+<hr />
+<p><a class="md-button" href="../qa_and_chat/multi_turn_chat/"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m19 2-5 4.5v11l5-4.5zM6.5 5C4.55 5 2.45 5.4 1 6.5v14.66c0 .25.25.5.5.5.1 0 .15-.07.25-.07 1.35-.65 3.3-1.09 4.75-1.09 1.95 0 4.05.4 5.5 1.5 1.35-.85 3.8-1.5 5.5-1.5 1.65 0 3.35.31 4.75 1.06.1.05.15.03.25.03.25 0 .5-.25.5-.5V6.5c-.6-.45-1.25-.75-2-1V19c-1.1-.35-2.3-.5-3.5-.5-1.7 0-4.15.65-5.5 1.5V6.5C10.55 5.4 8.45 5 6.5 5"/></svg></span> View Recipe</a>
+<a class="md-button" download="multi_turn_chat.py" href="../../assets/recipes/qa_and_chat/multi_turn_chat.py">Download Code <span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4.75 17.25a.75.75 0 0 1 .75.75v2.25c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V18a.75.75 0 0 1 1.5 0v2.25A1.75 1.75 0 0 1 18.25 22H5.75A1.75 1.75 0 0 1 4 20.25V18a.75.75 0 0 1 .75-.75"/><path d="M5.22 9.97a.75.75 0 0 1 1.06 0l4.97 4.969V2.75a.75.75 0 0 1 1.5 0v12.189l4.97-4.969a.749.749 0 1 1 1.06 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0l-6.25-6.25a.75.75 0 0 1 0-1.06"/></svg></span></a></p>
+</li>
+</ul>
+</div>
 
 
 
@@ -1830,7 +1563,7 @@ data-designer<span class="w"> </span>config<span class="w"> </span>reset
       <nav class="md-footer__inner md-grid" aria-label="Footer" >
         
           
-          <a href="../default-model-settings/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Default Model Settings">
+          <a href="../../notebooks/4-providing-images-as-context/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Providing Images as Context">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
@@ -1840,20 +1573,20 @@ data-designer<span class="w"> </span>config<span class="w"> </span>reset
                 Previous
               </span>
               <div class="md-ellipsis">
-                Default Model Settings
+                Providing Images as Context
               </div>
             </div>
           </a>
         
         
           
-          <a href="../model-providers/" class="md-footer__link md-footer__link--next" aria-label="Next: Model Providers">
+          <a href="../code_generation/text_to_python/" class="md-footer__link md-footer__link--next" aria-label="Next: Text to Python">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Model Providers
+                Text to Python
               </div>
             </div>
             <div class="md-footer__button md-icon">
@@ -1889,12 +1622,12 @@ data-designer<span class="w"> </span>config<span class="w"> </span>reset
     
     
       
-      <script id="__config" type="application/json">{"base": "../../..", "features": ["navigation.tabs", "navigation.expand", "navigation.path", "navigation.footer", "content.code.copy", "content.code.select", "content.code.annotate"], "search": "../../../assets/javascripts/workers/search.973d3a69.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"alias": true, "default": "latest", "provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"base": "../..", "features": ["navigation.tabs", "navigation.expand", "navigation.path", "navigation.footer", "content.code.copy", "content.code.select", "content.code.annotate"], "search": "../../assets/javascripts/workers/search.973d3a69.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"alias": true, "default": "latest", "provider": "mike"}}</script>
     
     
-      <script src="../../../assets/javascripts/bundle.f55a23d4.min.js"></script>
+      <script src="../../assets/javascripts/bundle.f55a23d4.min.js"></script>
       
-        <script src="../../../js/toc-toggle.js"></script>
+        <script src="../../js/toc-toggle.js"></script>
       
     
   </body>

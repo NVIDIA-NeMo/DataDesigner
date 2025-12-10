@@ -110,11 +110,6 @@ body.show-toc .md-sidebar--secondary .md-nav__link--active {
     font-weight: 500;
 }
 
-/* Hide footer */
-.md-footer {
-    display: none !important;
-}
-
 /* Move repo and palette icons to the right */
 .md-header__inner {
     padding-right: 0rem !important;

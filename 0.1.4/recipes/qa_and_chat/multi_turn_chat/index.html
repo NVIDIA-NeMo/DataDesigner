@@ -8,13 +8,13 @@
       
       
       
-        <link rel="canonical" href="https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/configure-model-settings-with-the-cli/">
+        <link rel="canonical" href="https://nvidia-nemo.github.io/DataDesigner/latest/recipes/qa_and_chat/multi_turn_chat/">
       
       
-        <link rel="prev" href="../default-model-settings/">
+        <link rel="prev" href="../product_info_qa/">
       
       
-        <link rel="next" href="../model-providers/">
+        <link rel="next" href="../../../code_reference/models/">
       
       
       <link rel="icon" href="../../../assets/palette-favicon.png">
@@ -22,7 +22,7 @@
     
     
       
-        <title>Configure with the CLI - NeMo Data Designer</title>
+        <title>Multi-Turn Chat - NeMo Data Designer</title>
       
     
     
@@ -79,11 +79,6 @@
     <label class="md-overlay" for="__drawer"></label>
     <div data-md-component="skip">
       
-        
-        <a href="#configuring-model-settings-using-the-cli" class="md-skip">
-          Skip to content
-        </a>
-      
     </div>
     <div data-md-component="announce">
       
@@ -130,7 +125,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Configure with the CLI
+              Multi-Turn Chat
             
           </span>
         </div>
@@ -259,8 +254,6 @@
   
   
   
-    
-  
   
     
     
@@ -268,13 +261,11 @@
   
   
   
-    
-  
   
     
     
-      <li class="md-tabs__item md-tabs__item--active">
-        <a href="../default-model-settings/" class="md-tabs__link">
+      <li class="md-tabs__item">
+        <a href="../../../concepts/models/default-model-settings/" class="md-tabs__link">
           
   
   
@@ -313,11 +304,13 @@
   
   
   
+    
+  
   
     
     
-      <li class="md-tabs__item">
-        <a href="../../../recipes/cards/" class="md-tabs__link">
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../../cards/" class="md-tabs__link">
           
   
   
@@ -540,29 +533,26 @@
       
   
   
-    
   
   
-  
     
     
     
     
       
-        
-        
-      
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
-        
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
         
           
-          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
             
   
   
@@ -575,7 +565,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_2">
             <span class="md-nav__icon md-icon"></span>
             Concepts
@@ -586,8 +576,6 @@
                 
   
   
-    
-  
   
   
     
@@ -598,11 +586,13 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_1" checked>
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_1" >
         
           
           <label class="md-nav__link" for="__nav_2_1" id="__nav_2_1_label" tabindex="0">
@@ -618,7 +608,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_1_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_1_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_2_1">
             <span class="md-nav__icon md-icon"></span>
             Models
@@ -632,7 +622,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../default-model-settings/" class="md-nav__link">
+      <a href="../../../concepts/models/default-model-settings/" class="md-nav__link">
         
   
   
@@ -652,32 +642,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    Configure with the CLI
-    
-  </span>
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../../concepts/models/configure-model-settings-with-the-cli/" class="md-nav__link">
         
   
   
@@ -688,119 +656,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#configuration-files" class="md-nav__link">
-    <span class="md-ellipsis">
-      Configuration Files
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#cli-commands" class="md-nav__link">
-    <span class="md-ellipsis">
-      CLI Commands
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#managing-model-providers" class="md-nav__link">
-    <span class="md-ellipsis">
-      Managing Model Providers
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Managing Model Providers">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#available-operations" class="md-nav__link">
-    <span class="md-ellipsis">
-      Available Operations
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#managing-model-configurations" class="md-nav__link">
-    <span class="md-ellipsis">
-      Managing Model Configurations
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Managing Model Configurations">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#available-operations_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      Available Operations
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#listing-configurations" class="md-nav__link">
-    <span class="md-ellipsis">
-      Listing Configurations
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#resetting-configurations" class="md-nav__link">
-    <span class="md-ellipsis">
-      Resetting Configurations
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#see-also" class="md-nav__link">
-    <span class="md-ellipsis">
-      See Also
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -813,7 +668,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../model-providers/" class="md-nav__link">
+      <a href="../../../concepts/models/model-providers/" class="md-nav__link">
         
   
   
@@ -836,7 +691,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../model-configs/" class="md-nav__link">
+      <a href="../../../concepts/models/model-configs/" class="md-nav__link">
         
   
   
@@ -867,7 +722,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../columns/" class="md-nav__link">
+      <a href="../../../concepts/columns/" class="md-nav__link">
         
   
   
@@ -890,7 +745,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../validators/" class="md-nav__link">
+      <a href="../../../concepts/validators/" class="md-nav__link">
         
   
   
@@ -913,7 +768,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../person_sampling/" class="md-nav__link">
+      <a href="../../../concepts/person_sampling/" class="md-nav__link">
         
   
   
@@ -1105,26 +960,29 @@
       
   
   
+    
   
   
+  
     
     
     
     
-      
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
       
         
+        
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
         
           
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
-        
-          
-          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
             
   
   
@@ -1137,7 +995,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             Recipes
@@ -1151,7 +1009,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../recipes/cards/" class="md-nav__link">
+      <a href="../../cards/" class="md-nav__link">
         
   
   
@@ -1217,7 +1075,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../recipes/code_generation/text_to_python/" class="md-nav__link">
+      <a href="../../code_generation/text_to_python/" class="md-nav__link">
         
   
   
@@ -1240,7 +1098,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../recipes/code_generation/text_to_sql/" class="md-nav__link">
+      <a href="../../code_generation/text_to_sql/" class="md-nav__link">
         
   
   
@@ -1268,8 +1126,10 @@
                 
   
   
+    
   
   
+  
     
     
     
@@ -1278,13 +1138,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4_3" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_3" checked>
         
           
           <label class="md-nav__link" for="__nav_4_3" id="__nav_4_3_label" tabindex="0">
@@ -1300,7 +1158,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_3_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_3_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_4_3">
             <span class="md-nav__icon md-icon"></span>
             QA and Chat
@@ -1314,7 +1172,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../recipes/qa_and_chat/product_info_qa/" class="md-nav__link">
+      <a href="../product_info_qa/" class="md-nav__link">
         
   
   
@@ -1334,10 +1192,17 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../../recipes/qa_and_chat/multi_turn_chat/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -1348,6 +1213,7 @@
   
 
       </a>
+      
     </li>
   
 
@@ -1573,109 +1439,6 @@
   
   
   
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#configuration-files" class="md-nav__link">
-    <span class="md-ellipsis">
-      Configuration Files
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#cli-commands" class="md-nav__link">
-    <span class="md-ellipsis">
-      CLI Commands
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#managing-model-providers" class="md-nav__link">
-    <span class="md-ellipsis">
-      Managing Model Providers
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Managing Model Providers">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#available-operations" class="md-nav__link">
-    <span class="md-ellipsis">
-      Available Operations
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#managing-model-configurations" class="md-nav__link">
-    <span class="md-ellipsis">
-      Managing Model Configurations
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Managing Model Configurations">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#available-operations_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      Available Operations
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#listing-configurations" class="md-nav__link">
-    <span class="md-ellipsis">
-      Listing Configurations
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#resetting-configurations" class="md-nav__link">
-    <span class="md-ellipsis">
-      Resetting Configurations
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#see-also" class="md-nav__link">
-    <span class="md-ellipsis">
-      See Also
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
   
 </nav>
                   </div>
@@ -1697,109 +1460,214 @@
   
 
 
-<h1 id="configuring-model-settings-using-the-cli">Configuring Model Settings Using The CLI</h1>
-<p>The Data Designer CLI provides an interactive interface for creating and managing default model providers and model configurations stored in your Data Designer home directory (default: <code>~/.data-designer/</code>).</p>
-<h2 id="configuration-files">Configuration Files</h2>
-<p>The CLI manages two YAML configuration files:</p>
-<ul>
-<li><strong><code>model_providers.yaml</code></strong>: Model provider configurations</li>
-<li><strong><code>model_configs.yaml</code></strong>: Model configurations</li>
-</ul>
-<div class="admonition info">
-<p class="admonition-title">Automatic Configuration</p>
-<p>If these configuration files don't already exist, the Data Designer library automatically creates them with default settings at runtime when first initialized.</p>
-</div>
-<div class="admonition note">
-<p class="admonition-title">Custom Directory</p>
-<p>You can customize the configuration directory location with the <code>DATA_DESIGNER_HOME</code> environment variable:
-<div class="language-bash highlight"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">DATA_DESIGNER_HOME</span><span class="o">=</span><span class="s2">&quot;/path/to/your/custom/directory&quot;</span>
-</code></pre></div></p>
-</div>
-<h2 id="cli-commands">CLI Commands</h2>
-<p>The Data Designer CLI provides four main configuration commands:</p>
-<div class="language-bash highlight"><pre><span></span><code><span class="c1"># Configure model providers</span>
-data-designer<span class="w"> </span>config<span class="w"> </span>providers
+  <h1>Multi-Turn Chat</h1>
 
-<span class="c1"># Configure models</span>
-data-designer<span class="w"> </span>config<span class="w"> </span>models
+<p><a class="md-button" download="multi_turn_chat.py" href="../../../assets/recipes/qa_and_chat/multi_turn_chat.py">Download Code <span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4.75 17.25a.75.75 0 0 1 .75.75v2.25c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V18a.75.75 0 0 1 1.5 0v2.25A1.75 1.75 0 0 1 18.25 22H5.75A1.75 1.75 0 0 1 4 20.25V18a.75.75 0 0 1 .75-.75"/><path d="M5.22 9.97a.75.75 0 0 1 1.06 0l4.97 4.969V2.75a.75.75 0 0 1 1.5 0v12.189l4.97-4.969a.749.749 0 1 1 1.06 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0l-6.25-6.25a.75.75 0 0 1 0-1.06"/></svg></span></a></p>
+<div class="language-python highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Literal</span>
 
-<span class="c1"># List current configurations</span>
-data-designer<span class="w"> </span>config<span class="w"> </span>list
+<span class="kn">from</span><span class="w"> </span><span class="nn">pydantic</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseModel</span><span class="p">,</span> <span class="n">Field</span>
 
-<span class="c1"># Reset all configurations</span>
-data-designer<span class="w"> </span>config<span class="w"> </span>reset
+<span class="kn">from</span><span class="w"> </span><span class="nn">data_designer.essentials</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">CategorySamplerParams</span><span class="p">,</span>
+    <span class="n">DataDesigner</span><span class="p">,</span>
+    <span class="n">DataDesignerConfigBuilder</span><span class="p">,</span>
+    <span class="n">LLMJudgeColumnConfig</span><span class="p">,</span>
+    <span class="n">LLMStructuredColumnConfig</span><span class="p">,</span>
+    <span class="n">LLMTextColumnConfig</span><span class="p">,</span>
+    <span class="n">SamplerColumnConfig</span><span class="p">,</span>
+    <span class="n">SamplerType</span><span class="p">,</span>
+    <span class="n">Score</span><span class="p">,</span>
+    <span class="n">SubcategorySamplerParams</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">data_designer.interface.results</span><span class="w"> </span><span class="kn">import</span> <span class="n">DatasetCreationResults</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">build_config</span><span class="p">(</span><span class="n">model_alias</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">DataDesignerConfigBuilder</span><span class="p">:</span>
+    <span class="n">config_builder</span> <span class="o">=</span> <span class="n">DataDesignerConfigBuilder</span><span class="p">()</span>
+
+    <span class="n">config_builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
+        <span class="n">SamplerColumnConfig</span><span class="p">(</span>
+            <span class="n">name</span><span class="o">=</span><span class="s2">&quot;domain&quot;</span><span class="p">,</span>
+            <span class="n">sampler_type</span><span class="o">=</span><span class="n">SamplerType</span><span class="o">.</span><span class="n">CATEGORY</span><span class="p">,</span>
+            <span class="n">params</span><span class="o">=</span><span class="n">CategorySamplerParams</span><span class="p">(</span><span class="n">values</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;Tech Support&quot;</span><span class="p">,</span> <span class="s2">&quot;Personal Finances&quot;</span><span class="p">,</span> <span class="s2">&quot;Educational Guidance&quot;</span><span class="p">]),</span>
+        <span class="p">)</span>
+    <span class="p">)</span>
+
+    <span class="n">config_builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
+        <span class="n">SamplerColumnConfig</span><span class="p">(</span>
+            <span class="n">name</span><span class="o">=</span><span class="s2">&quot;topic&quot;</span><span class="p">,</span>
+            <span class="n">sampler_type</span><span class="o">=</span><span class="n">SamplerType</span><span class="o">.</span><span class="n">SUBCATEGORY</span><span class="p">,</span>
+            <span class="n">params</span><span class="o">=</span><span class="n">SubcategorySamplerParams</span><span class="p">(</span>
+                <span class="n">category</span><span class="o">=</span><span class="s2">&quot;domain&quot;</span><span class="p">,</span>
+                <span class="n">values</span><span class="o">=</span><span class="p">{</span>
+                    <span class="s2">&quot;Tech Support&quot;</span><span class="p">:</span> <span class="p">[</span>
+                        <span class="s2">&quot;Troubleshooting a Laptop&quot;</span><span class="p">,</span>
+                        <span class="s2">&quot;Setting Up a Home Wi-Fi Network&quot;</span><span class="p">,</span>
+                        <span class="s2">&quot;Installing Software Updates&quot;</span><span class="p">,</span>
+                    <span class="p">],</span>
+                    <span class="s2">&quot;Personal Finances&quot;</span><span class="p">:</span> <span class="p">[</span>
+                        <span class="s2">&quot;Budgeting Advice&quot;</span><span class="p">,</span>
+                        <span class="s2">&quot;Understanding Taxes&quot;</span><span class="p">,</span>
+                        <span class="s2">&quot;Investment Strategies&quot;</span><span class="p">,</span>
+                    <span class="p">],</span>
+                    <span class="s2">&quot;Educational Guidance&quot;</span><span class="p">:</span> <span class="p">[</span>
+                        <span class="s2">&quot;Choosing a College Major&quot;</span><span class="p">,</span>
+                        <span class="s2">&quot;Effective Studying Techniques&quot;</span><span class="p">,</span>
+                        <span class="s2">&quot;Learning a New Language&quot;</span><span class="p">,</span>
+                    <span class="p">],</span>
+                <span class="p">},</span>
+            <span class="p">),</span>
+        <span class="p">)</span>
+    <span class="p">)</span>
+
+    <span class="n">config_builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
+        <span class="n">SamplerColumnConfig</span><span class="p">(</span>
+            <span class="n">name</span><span class="o">=</span><span class="s2">&quot;complexity&quot;</span><span class="p">,</span>
+            <span class="n">sampler_type</span><span class="o">=</span><span class="n">SamplerType</span><span class="o">.</span><span class="n">CATEGORY</span><span class="p">,</span>
+            <span class="n">params</span><span class="o">=</span><span class="n">CategorySamplerParams</span><span class="p">(</span><span class="n">values</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;Basic&quot;</span><span class="p">,</span> <span class="s2">&quot;Intermediate&quot;</span><span class="p">,</span> <span class="s2">&quot;Advanced&quot;</span><span class="p">]),</span>
+        <span class="p">)</span>
+    <span class="p">)</span>
+
+    <span class="n">config_builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
+        <span class="n">SamplerColumnConfig</span><span class="p">(</span>
+            <span class="n">name</span><span class="o">=</span><span class="s2">&quot;conversation_length&quot;</span><span class="p">,</span>
+            <span class="n">sampler_type</span><span class="o">=</span><span class="n">SamplerType</span><span class="o">.</span><span class="n">CATEGORY</span><span class="p">,</span>
+            <span class="n">params</span><span class="o">=</span><span class="n">CategorySamplerParams</span><span class="p">(</span><span class="n">values</span><span class="o">=</span><span class="p">[</span><span class="mi">2</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">6</span><span class="p">,</span> <span class="mi">8</span><span class="p">]),</span>
+        <span class="p">)</span>
+    <span class="p">)</span>
+
+    <span class="n">config_builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
+        <span class="n">SamplerColumnConfig</span><span class="p">(</span>
+            <span class="n">name</span><span class="o">=</span><span class="s2">&quot;user_mood&quot;</span><span class="p">,</span>
+            <span class="n">sampler_type</span><span class="o">=</span><span class="n">SamplerType</span><span class="o">.</span><span class="n">CATEGORY</span><span class="p">,</span>
+            <span class="n">params</span><span class="o">=</span><span class="n">CategorySamplerParams</span><span class="p">(</span><span class="n">values</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;happy&quot;</span><span class="p">,</span> <span class="s2">&quot;silly&quot;</span><span class="p">,</span> <span class="s2">&quot;sarcastic&quot;</span><span class="p">,</span> <span class="s2">&quot;combative&quot;</span><span class="p">,</span> <span class="s2">&quot;disappointed&quot;</span><span class="p">,</span> <span class="s2">&quot;toxic&quot;</span><span class="p">]),</span>
+        <span class="p">)</span>
+    <span class="p">)</span>
+
+    <span class="n">config_builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
+        <span class="n">LLMTextColumnConfig</span><span class="p">(</span>
+            <span class="n">name</span><span class="o">=</span><span class="s2">&quot;assistant_system_prompt&quot;</span><span class="p">,</span>
+            <span class="n">prompt</span><span class="o">=</span><span class="p">(</span>
+                <span class="s2">&quot;Write a reasonable system prompt for a helpful AI assistant with expertise in &quot;</span>
+                <span class="s2">&quot;{{domain}} and {{topic}}. The AI assistant must not engage in harmful behaviors.&quot;</span>
+            <span class="p">),</span>
+            <span class="n">model_alias</span><span class="o">=</span><span class="n">model_alias</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="p">)</span>
+
+    <span class="n">config_builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
+        <span class="n">LLMTextColumnConfig</span><span class="p">(</span>
+            <span class="n">name</span><span class="o">=</span><span class="s2">&quot;user_task&quot;</span><span class="p">,</span>
+            <span class="n">prompt</span><span class="o">=</span><span class="s2">&quot;Define a simple task related to {{topic}} of {{complexity}} complexity for the user.&quot;</span><span class="p">,</span>
+            <span class="n">model_alias</span><span class="o">=</span><span class="n">model_alias</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="p">)</span>
+
+    <span class="n">config_builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
+        <span class="n">LLMStructuredColumnConfig</span><span class="p">(</span>
+            <span class="n">name</span><span class="o">=</span><span class="s2">&quot;conversation&quot;</span><span class="p">,</span>
+            <span class="n">prompt</span><span class="o">=</span><span class="p">(</span>
+                <span class="s2">&quot;&lt;task&gt;</span><span class="se">\n</span><span class="s2">{{user_task}}</span><span class="se">\n</span><span class="s2">&lt;/task&gt;</span><span class="se">\n\n</span><span class="s2">&quot;</span>
+                <span class="s2">&quot;&lt;system_prompt&gt;{{assistant_system_prompt}}&lt;/system_prompt&gt;</span><span class="se">\n\n</span><span class="s2">&quot;</span>
+                <span class="s2">&quot;Generate a conversation between a user and an AI assistant with &lt;system_prompt&gt; about &lt;task&gt;.</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="s2">&quot;User is asking the assistant for advice and is in a {{user_mood}} mood.</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="s2">&quot;The conversation must be {{conversation_length}} messages in length.</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="s2">&quot;The conversation must come to a natural end in {{conversation_length}} messages and if the assistant is unable &quot;</span>
+                <span class="s2">&quot;to solve the user&#39;s needs by then, they should offer to continue the conversation later or redirect them to additional resources.</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="s2">&quot;The conversation must be realistic and natural, incorporating details from both the user&#39;s and assistant&#39;s profiles.</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="s2">&quot;The AI assistant role has the system prompt defined in &lt;system_prompt&gt;. All of its responses must conform to &lt;system_prompt&gt;:</span><span class="se">\n</span><span class="s2">&quot;</span>
+            <span class="p">),</span>
+            <span class="n">output_format</span><span class="o">=</span><span class="n">ChatConversation</span><span class="p">,</span>
+            <span class="n">model_alias</span><span class="o">=</span><span class="n">model_alias</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="p">)</span>
+
+    <span class="n">config_builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
+        <span class="n">LLMJudgeColumnConfig</span><span class="p">(</span>
+            <span class="n">name</span><span class="o">=</span><span class="s2">&quot;toxicity_evaluation&quot;</span><span class="p">,</span>
+            <span class="n">prompt</span><span class="o">=</span><span class="n">TOXICITY_PROMPT_TEMPLATE</span><span class="p">,</span>
+            <span class="n">scores</span><span class="o">=</span><span class="p">[</span><span class="n">toxicity_score</span><span class="p">],</span>
+            <span class="n">model_alias</span><span class="o">=</span><span class="n">model_alias</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">config_builder</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">create_dataset</span><span class="p">(</span>
+    <span class="n">config_builder</span><span class="p">:</span> <span class="n">DataDesignerConfigBuilder</span><span class="p">,</span>
+    <span class="n">num_records</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">artifact_path</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">DatasetCreationResults</span><span class="p">:</span>
+    <span class="n">data_designer</span> <span class="o">=</span> <span class="n">DataDesigner</span><span class="p">(</span><span class="n">artifact_path</span><span class="o">=</span><span class="n">artifact_path</span><span class="p">)</span>
+    <span class="n">results</span> <span class="o">=</span> <span class="n">data_designer</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">config_builder</span><span class="p">,</span> <span class="n">num_records</span><span class="o">=</span><span class="n">num_records</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">results</span>
+
+
+<span class="n">toxicity_score</span> <span class="o">=</span> <span class="n">Score</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;Toxicity&quot;</span><span class="p">,</span>
+    <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Evaluation of harmful, harassing, or hateful language in conversations&quot;</span><span class="p">,</span>
+    <span class="n">options</span><span class="o">=</span><span class="p">{</span>
+        <span class="s2">&quot;4&quot;</span><span class="p">:</span> <span class="s2">&quot;No toxicity detected; conversation is respectful and appropriate.&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;3&quot;</span><span class="p">:</span> <span class="s2">&quot;Mild toxicity; slightly rude or sarcastic but not hateful or harmful.&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;2&quot;</span><span class="p">:</span> <span class="s2">&quot;Moderate toxicity; contains disrespectful or harassing language.&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;1&quot;</span><span class="p">:</span> <span class="s2">&quot;Severe toxicity; contains overt hate, harassment, or harmful content.&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;0&quot;</span><span class="p">:</span> <span class="s2">&quot;Extreme toxicity; contains dangerous, threatening, or abusive content.&quot;</span><span class="p">,</span>
+    <span class="p">},</span>
+<span class="p">)</span>
+
+<span class="n">TOXICITY_PROMPT_TEMPLATE</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="s2">&quot;You are an expert in content moderation and digital communication ethics. &quot;</span>
+    <span class="s2">&quot;You are evaluating the toxicity level in user messages.</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;Take a deep breath and carefully analyze the conversation provided. </span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;Use the rubric to score the level of toxicity in the USER&#39;S messages only.</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;Consider:</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;- Focus primarily on harassment, hate, or harmful language</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;- Evaluate the full context of the conversation</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;- Be objective and consistent in your assessment</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;- If any single message exhibits toxicity, it should influence the final score</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;## CONVERSATION</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;{{ conversation }}&quot;</span>
+<span class="p">)</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">Message</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;A single message turn in the conversation.&quot;&quot;&quot;</span>
+
+    <span class="n">role</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;user&quot;</span><span class="p">,</span> <span class="s2">&quot;assistant&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="o">...</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Which role is writing the message.&quot;</span><span class="p">)</span>
+    <span class="n">content</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="o">...</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Message contents.&quot;</span><span class="p">)</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">ChatConversation</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;A chat conversation between a specific user and an AI assistant.</span>
+<span class="sd">    * All conversations are initiated by the user role.</span>
+<span class="sd">    * The assistant role always responds to the user message.</span>
+<span class="sd">    * Turns alternate between user and assistant roles.</span>
+<span class="sd">    * The last message is always from the assistant role.</span>
+<span class="sd">    * Message content can be long or short.</span>
+<span class="sd">    * All assistant messages are faithful responses and must be answered fully.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">conversation</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Message</span><span class="p">]</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="o">...</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="s2">&quot;List of all messages in the conversation.&quot;</span><span class="p">)</span>
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">argparse</span><span class="w"> </span><span class="kn">import</span> <span class="n">ArgumentParser</span>
+
+    <span class="n">parser</span> <span class="o">=</span> <span class="n">ArgumentParser</span><span class="p">()</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;--model-alias&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="s2">&quot;openai-text&quot;</span><span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;--num-records&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;--artifact-path&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+    <span class="n">args</span> <span class="o">=</span> <span class="n">parser</span><span class="o">.</span><span class="n">parse_args</span><span class="p">()</span>
+
+    <span class="n">config_builder</span> <span class="o">=</span> <span class="n">build_config</span><span class="p">(</span><span class="n">model_alias</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">model_alias</span><span class="p">)</span>
+    <span class="n">results</span> <span class="o">=</span> <span class="n">create_dataset</span><span class="p">(</span><span class="n">config_builder</span><span class="p">,</span> <span class="n">num_records</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">num_records</span><span class="p">,</span> <span class="n">artifact_path</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">artifact_path</span><span class="p">)</span>
+
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Dataset saved to: </span><span class="si">{</span><span class="n">results</span><span class="o">.</span><span class="n">artifact_storage</span><span class="o">.</span><span class="n">final_dataset_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="n">results</span><span class="o">.</span><span class="n">load_analysis</span><span class="p">()</span><span class="o">.</span><span class="n">to_report</span><span class="p">()</span>
 </code></pre></div>
-<div class="admonition tip">
-<p class="admonition-title">Getting help</p>
-<p>See available commands
-<div class="language-bash highlight"><pre><span></span><code>data-designer<span class="w"> </span>--help
-</code></pre></div></p>
-<p>See available sub-commands
-<div class="language-bash highlight"><pre><span></span><code>data-designer<span class="w"> </span>config<span class="w"> </span>--help
-</code></pre></div></p>
-</div>
-<h2 id="managing-model-providers">Managing Model Providers</h2>
-<p>Run the interactive provider configuration command:</p>
-<div class="language-bash highlight"><pre><span></span><code>data-designer<span class="w"> </span>config<span class="w"> </span>providers
-</code></pre></div>
-<h3 id="available-operations">Available Operations</h3>
-<p><strong>Add a new provider</strong>: Define a new provider by entering its name, endpoint URL, provider type, and optionally an API key (as plain text or as an environment variable name).</p>
-<p><strong>Update an existing provider</strong>: Modify an existing provider's settings. All fields are pre-filled with current values.</p>
-<p><strong>Delete a provider</strong>: Remove a provider and its associated models.</p>
-<p><strong>Delete all providers</strong>: Remove all providers and their associated models.</p>
-<p><strong>Change default provider</strong>: Set which provider is used by default. This option is only available when multiple providers are configured.</p>
-<h2 id="managing-model-configurations">Managing Model Configurations</h2>
-<p>Run the interactive model configuration command:</p>
-<div class="language-bash highlight"><pre><span></span><code>data-designer<span class="w"> </span>config<span class="w"> </span>models
-</code></pre></div>
-<div class="admonition info">
-<p class="admonition-title">Provider Required</p>
-<p>You need at least one provider configured before adding models. Run <code>data-designer config providers</code> first if none exist.</p>
-</div>
-<h3 id="available-operations_1">Available Operations</h3>
-<p><strong>Add a new model configuration</strong></p>
-<p>Create a new model configuration with the following fields:</p>
-<ul>
-<li><strong>Alias</strong>: A unique name for referencing this model in a column configuration.</li>
-<li><strong>Model ID</strong>: The model identifier (e.g., <code>nvidia/nvidia-nemotron-nano-9b-v2</code>)</li>
-<li><strong>Provider</strong>: Select from available providers (if multiple exist)</li>
-<li><strong>Temperature</strong>: Sampling temperature (0.0 to 2.0)</li>
-<li><strong>Top P</strong>: Nucleus sampling parameter (0.0 to 1.0)</li>
-<li><strong>Max Tokens</strong>: Maximum output length (1 to 100000)</li>
-</ul>
-<div class="admonition note">
-<p class="admonition-title">Additional Settings</p>
-<p>To configure additional inference parameter settings or use distribution-based inference parameters, edit the <code>model_configs.yaml</code> file directly.</p>
-</div>
-<p><strong>Update an existing model configuration</strong>: Modify an existing model's configuration. All fields are pre-filled with current values.</p>
-<p><strong>Delete a model configuration</strong>: Remove a single model configuration.</p>
-<p><strong>Delete all model configurations</strong>: Remove all model configurations. The CLI will ask for confirmation before proceeding.</p>
-<h2 id="listing-configurations">Listing Configurations</h2>
-<p>View all current configurations:</p>
-<div class="language-bash highlight"><pre><span></span><code>data-designer<span class="w"> </span>config<span class="w"> </span>list
-</code></pre></div>
-<p>This command displays:</p>
-<ul>
-<li><strong>Model Providers</strong>: All configured providers with their endpoints (API keys are masked)</li>
-<li><strong>Default Provider</strong>: The currently selected default provider</li>
-<li><strong>Model Configurations</strong>: All configured models with their settings</li>
-</ul>
-<h2 id="resetting-configurations">Resetting Configurations</h2>
-<p>Delete all configuration files:</p>
-<div class="language-bash highlight"><pre><span></span><code>data-designer<span class="w"> </span>config<span class="w"> </span>reset
-</code></pre></div>
-<p>The CLI will show which configuration files exist and ask for confirmation before deleting them.</p>
-<div class="admonition danger">
-<p class="admonition-title">Destructive Operation</p>
-<p>This command permanently deletes all configuration files and resets to the default model providers and configurations. You'll need to reconfigure your custom configurations from scratch.</p>
-</div>
-<h2 id="see-also">See Also</h2>
-<ul>
-<li><strong><a href="../model-providers/">Model Providers</a></strong>: Learn about the <code>ModelProvider</code> class and provider configuration</li>
-<li><strong><a href="../model-configs/">Model Configurations</a></strong>: Learn about <code>ModelConfig</code> and <code>InferenceParameters</code></li>
-<li><strong><a href="../default-model-settings/">Default Model Settings</a></strong>: Pre-configured providers and model settings included with Data Designer</li>
-<li><strong><a href="../../../quick-start/">Quick Start Guide</a></strong>: Get started with a simple example</li>
-</ul>
 
 
 
@@ -1830,7 +1698,7 @@ data-designer<span class="w"> </span>config<span class="w"> </span>reset
       <nav class="md-footer__inner md-grid" aria-label="Footer" >
         
           
-          <a href="../default-model-settings/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Default Model Settings">
+          <a href="../product_info_qa/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Product Info QA">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
@@ -1840,20 +1708,20 @@ data-designer<span class="w"> </span>config<span class="w"> </span>reset
                 Previous
               </span>
               <div class="md-ellipsis">
-                Default Model Settings
+                Product Info QA
               </div>
             </div>
           </a>
         
         
           
-          <a href="../model-providers/" class="md-footer__link md-footer__link--next" aria-label="Next: Model Providers">
+          <a href="../../../code_reference/models/" class="md-footer__link md-footer__link--next" aria-label="Next: models">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Model Providers
+                models
               </div>
             </div>
             <div class="md-footer__button md-icon">
