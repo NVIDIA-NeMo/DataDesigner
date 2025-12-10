@@ -20,7 +20,7 @@ class AncillaryDatasetProcessor(WithJinja2UserTemplateRendering, Processor[Ancil
     @staticmethod
     def metadata() -> ConfigurableTaskMetadata:
         return ConfigurableTaskMetadata(
-            name="ancillary_dataset",
+            name="ancillary_dataset_processor",
             description="Generate an ancillary dataset using a Jinja2 template.",
             required_resources=None,
         )

@@ -40,7 +40,7 @@ def stub_empty_dataframe():
 def test_metadata():
     metadata = DropColumnsProcessor.metadata()
 
-    assert metadata.name == "drop_columns"
+    assert metadata.name == "drop_columns_processor"
     assert metadata.description == "Drop columns from the input dataset."
     assert metadata.required_resources is None
 

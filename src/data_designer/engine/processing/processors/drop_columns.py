@@ -17,7 +17,7 @@ class DropColumnsProcessor(Processor[DropColumnsProcessorConfig]):
     @staticmethod
     def metadata() -> ConfigurableTaskMetadata:
         return ConfigurableTaskMetadata(
-            name="drop_columns",
+            name="drop_columns_processor",
             description="Drop columns from the input dataset.",
             required_resources=None,
         )
