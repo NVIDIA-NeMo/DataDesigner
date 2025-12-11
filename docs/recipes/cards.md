@@ -1,10 +1,10 @@
 # Use Case Recipes
 
-Recipes are a collection of code examples that demonstrate how to use Data Designer to solve specific problems.
-Each recipe is a self-contained example that can be run independently. They are designed to be a starting point for your own projects, and can be used as a reference for how to use the framework.
+Recipes are a collection of code examples that demonstrate how to leverage Data Designer in specific use cases.
+Each recipe is a self-contained example that can be run independently.
 
-Looking for more pedagogical examples? Check out the [notebook tutorials](../../notebooks/README.md).
-
+!!! question "New to Data Designer?"
+    Recipes provide working code for specific use cases without detailed explanations. If you're learning Data Designer for the first time, we recommend starting with our [tutorial notebooks](../../notebooks/), which offer step-by-step guidance and explain core concepts. Once you're familiar with the basics, return here for practical, ready-to-use implementations.
 
 <div class="grid cards" markdown>
 
@@ -45,7 +45,7 @@ Looking for more pedagogical examples? Check out the [notebook tutorials](../../
 
 -   :material-chat:{ .lg .middle } **Product Info QA**
 
-    Generate a dataset of that contains product information and associated question/answer pairs.
+    Generate a dataset that contains information about products and associated question/answer pairs.
 
     ---
 

@@ -443,7 +443,9 @@ def test_preview_with_dropped_columns(
     )
 
     config_builder.add_processor(
-        DropColumnsProcessorConfig(build_stage=BuildStage.POST_BATCH, column_names=["category"])
+        DropColumnsProcessorConfig(
+            name="drop_columns_processor", build_stage=BuildStage.POST_BATCH, column_names=["category"]
+        )
     )
 
     data_designer = DataDesigner(
