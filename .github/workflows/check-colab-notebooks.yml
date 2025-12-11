@@ -1,0 +1,48 @@
+name: Check Colab notebooks
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'docs/notebook_source/*.py'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'docs/notebook_source/*.py'
+  workflow_dispatch:
+
+jobs:
+  check-colab-notebooks:
+    name: Check Colab Notebooks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          python-version: "3.11"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: |
+          uv sync --group notebooks
+
+      - name: Generate Colab notebooks
+        run: |
+          make generate-colab-notebooks
+
+      - name: Check for differences
+        run: |
+          if git diff --exit-code docs/colab_notebooks/; then
+            echo "✅ Colab notebooks are up-to-date"
+          else
+            echo "❌ Colab notebooks are out of sync with source files"
+            echo ""
+            echo "The generated notebooks differ from the committed ones."
+            echo "Please run 'make generate-colab-notebooks' locally and commit the changes."
+            exit 1
+          fi
