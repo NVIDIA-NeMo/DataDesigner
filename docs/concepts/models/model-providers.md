@@ -44,8 +44,9 @@ provider = ModelProvider(
 
 ## See Also
 
+- **[Default Model Settings](default-model-settings.md)**: Pre-configured providers and model settings included with Data Designer
+- **[Custom Model Settings](custom-model-settings.md)**: Learn how to create custom providers and model configurations
 - **[Model Configurations](model-configs.md)**: Learn about configuring models
 - **[Inference Parameters](inference-parameters.md)**: Detailed guide to inference parameters and how to configure them
-- **[Default Model Settings](default-model-settings.md)**: Pre-configured providers and model settings included with Data Designer
 - **[Configure Model Settings With the CLI](configure-model-settings-with-the-cli.md)**: Use the CLI to manage providers and model settings
 - **[Quick Start Guide](../../quick-start.md)**: Get started with a simple example

@@ -50,6 +50,12 @@ The following model configurations are automatically available when `OPENAI_API_
 | `openai-vision` | `gpt-5` | Vision and image understanding | 0.85 | 0.95 |
 
 
+## Using Default Settings
+
+Default settings work out of the box - no configuration needed! Simply create `DataDesigner` and `DataDesignerConfigBuilder` instances without any arguments, and reference the default model aliases in your column configurations.
+
+For a complete example showing how to use default model settings, see the **[Quick Start Guide](../../quick-start.md)**.
+
 ### How Default Model Providers and Configurations Work
 
 When the Data Designer library or the CLI is initialized, default model configurations and providers are stored in the Data Designer home directory for easy access and customization if they do not already exist. These configuration files serve as the single source of truth for model settings. By default they are saved to the following paths:
@@ -90,6 +96,6 @@ Both methods operate on the same files, ensuring consistency across your entire 
 
 ## See Also
 
-- **[Configure Model Settings With the CLI](configure-model-settings-with-the-cli.md)**: Learn how to use the CLI to manage model settings.
-- **[Quick Start Guide](../../quick-start.md)**: Get started with a simple example
+- **[Custom Model Settings](custom-model-settings.md)**: Learn how to create custom providers and model configurations
+- **[Configure Model Settings With the CLI](configure-model-settings-with-the-cli.md)**: Learn how to use the CLI to manage model settings
 - **[Model Configurations](model-configs.md)**: Learn about model configurations
