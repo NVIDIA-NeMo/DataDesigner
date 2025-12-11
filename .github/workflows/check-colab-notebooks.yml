@@ -38,8 +38,8 @@ jobs:
       - name: Check for differences
         run: |
           # Get the diff, filtering out cell ID changes (which are randomly generated)
-          # Filter out: diff headers, file markers, hunk markers, and "id" lines
-          MEANINGFUL_DIFF=$(git diff docs/colab_notebooks/ | grep -E '^[+-]' | grep -v '^[+-]{3}' | grep -vE '^[+-]\s*"id": "[0-9a-fA-F]+",?$' || true)
+          # Filter out: file markers (--- and +++), and "id" lines
+          MEANINGFUL_DIFF=$(git diff docs/colab_notebooks/ | grep -E '^[+-]' | grep -v '^---' | grep -v '^+++' | grep -vE '^[+-]\s*"id": "[0-9a-fA-F]+",?$' || true)
 
           if [ -z "$MEANINGFUL_DIFF" ]; then
             echo "✅ Colab notebooks are up-to-date (ignoring cell ID changes)"
