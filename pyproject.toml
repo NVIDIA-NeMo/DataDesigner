@@ -41,7 +41,7 @@ dependencies = [
   "httpx-retries>=0.4.2",
   "json-repair==0.48.0",
   "jsonpath-rust-bindings>=1.0",
-  "litellm==1.73.6",
+  "litellm>=1.73.6",
   "lxml>=6.0.2",
   "marko==2.1.2",
   "networkx>=3.0",
