@@ -84,15 +84,15 @@ export NGC_API_KEY="your-ngc-api-key-here"
 Use the NGC CLI to download the datasets:
 ```bash
 # For Nemotron Personas USA
-ngc registry resource download-version "nvidia/nemotron-personas/nemotron-personas-dataset-en_us:0.0.1"
+ngc registry resource download-version "nvidia/nemotron-personas/nemotron-personas-dataset-en_us"
 
 # For Nemotron Personas IN
-ngc registry resource download-version "nvidia/nemotron-personas/nemotron-personas-dataset-hi_deva_in:0.0.1"
-ngc registry resource download-version "nvidia/nemotron-personas/nemotron-personas-dataset-hi_latn_in:0.0.1"
-ngc registry resource download-version "nvidia/nemotron-personas/nemotron-personas-dataset-en_in:0.0.1"
+ngc registry resource download-version "nvidia/nemotron-personas/nemotron-personas-dataset-hi_deva_in"
+ngc registry resource download-version "nvidia/nemotron-personas/nemotron-personas-dataset-hi_latn_in"
+ngc registry resource download-version "nvidia/nemotron-personas/nemotron-personas-dataset-en_in"
 
 # For Nemotron Personas JP
-ngc registry resource download-version "nvidia/nemotron-personas/nemotron-personas-dataset-ja_jp:0.0.1"
+ngc registry resource download-version "nvidia/nemotron-personas/nemotron-personas-dataset-ja_jp"
 ```
 
 Then move the downloaded dataset to the Data Designer managed assets directory:
