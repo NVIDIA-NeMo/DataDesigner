@@ -97,6 +97,11 @@ env = [
     "DISABLE_DATA_DESIGNER_PLUGINS=true",
 ]
 
+[tool.coverage.run]
+omit = [
+    "src/data_designer/engine/models/telemetry.py",
+]
+
 [tool.uv]
 package = true
 required-version = ">=0.7.10"

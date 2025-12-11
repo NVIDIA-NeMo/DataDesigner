@@ -331,13 +331,18 @@ def test_emit_batch_inference_events_computes_deltas(
 
     # Snapshot represents state BEFORE batch
     usage_snapshot = {"test-model": UsageSnapshot(prompt_tokens=100, completion_tokens=200)}
-    group_id = "550e8400-e29b-41d4-a716-446655440000"
+    session_id = "550e8400-e29b-41d4-a716-446655440000"
 
     mock_handler_instance = Mock()
     mock_telemetry_handler_class.return_value.__enter__ = Mock(return_value=mock_handler_instance)
     mock_telemetry_handler_class.return_value.__exit__ = Mock(return_value=False)
 
-    builder._emit_batch_inference_events("batch", usage_snapshot, group_id)
+    builder._emit_batch_inference_events("batch", usage_snapshot, session_id)
+
+    # Verify TelemetryHandler was called with session_id
+    mock_telemetry_handler_class.assert_called_once()
+    call_kwargs = mock_telemetry_handler_class.call_args[1]
+    assert call_kwargs["session_id"] == session_id
 
     # Verify an event was enqueued
     mock_handler_instance.enqueue.assert_called_once()
@@ -348,7 +353,6 @@ def test_emit_batch_inference_events_computes_deltas(
     assert event.task_status == TaskStatusEnum.SUCCESS
     assert event.nemo_source == NemoSourceEnum.DATADESIGNER
     assert event.model == "test-model"
-    assert event.model_group == group_id
     assert event.input_tokens == 50  # 150 - 100
     assert event.output_tokens == 150  # 350 - 200
 
@@ -375,9 +379,9 @@ def test_emit_batch_inference_events_skips_when_no_usage_change(
 
     # Snapshot matches current state - no change
     usage_snapshot = {"test-model": UsageSnapshot(prompt_tokens=100, completion_tokens=200)}
-    group_id = "550e8400-e29b-41d4-a716-446655440000"
+    session_id = "550e8400-e29b-41d4-a716-446655440000"
 
-    builder._emit_batch_inference_events("batch", usage_snapshot, group_id)
+    builder._emit_batch_inference_events("batch", usage_snapshot, session_id)
 
     # TelemetryHandler should not be called when there are no events
     mock_telemetry_handler_class.assert_not_called()
