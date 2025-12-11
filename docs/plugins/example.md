@@ -1,5 +1,5 @@
 !!! warning "Experimental Feature"
-    The plugin system is currently **experimental** and under active development. The documentation, examples, and plugin interface are subject to significant changes in future releases. If you encounter any issues, have questions, or have ideas for improvement, please [open an issue on GitHub](https://github.com/NVIDIA-NeMo/DataDesigner/issues/new/choose).
+    The plugin system is currently **experimental** and under active development. The documentation, examples, and plugin interface are subject to significant changes in future releases. If you encounter any issues, have questions, or have ideas for improvement, please consider starting [a discussion on GitHub](https://github.com/NVIDIA-NeMo/DataDesigner/discussions).
 
 
 # Example Plugin: Index Multiplier
@@ -109,17 +109,17 @@ class IndexMultiplierColumnGenerator(ColumnGenerator[IndexMultiplierColumnConfig
 - Generic type `ColumnGenerator[IndexMultiplierColumnConfig]` connects the task to its config
 - `metadata()` describes your generator and its requirements
 - `generation_strategy` can be `FULL_COLUMN`, `CELL_BY_CELL`
-- `required_resources` lists any required resources (models, artifact storage, etc.). This parameter will change in the future, so keeping it as `None` is safe for now.
-- Access configuration parameters via `self.config`
+- You have access to the configuration parameters via `self.config`
+- `required_resources` lists any required resources (models, artifact storages, etc.). This parameter will evolve in the near future, so keeping it as `None` is safe for now. That said, if your task will use the model registry, adding `data_designer.engine.resources.ResourceType.MODEL_REGISTRY` will enable automatic model health checking for your column generation task.
 
 !!! info "Understanding generation_strategy"
     The `generation_strategy` specifies how the column generator will generate data.
 
-    - **`FULL_COLUMN`**: Generates the entire column at once
-        - `generate` must take a `pd.DataFrame` as input and return a `pd.DataFrame`
+    - **`FULL_COLUMN`**: Generates the full column (at the batch level) in a single call to `generate`
+        - `generate` must take as input a `pd.DataFrame` with all previous columns and return a `pd.DataFrame` with the generated column appended
 
     - **`CELL_BY_CELL`**: Generates one cell at a time
-        - `generate` must take a `dict` as input and return a `dict`
+        - `generate` must take as input a `dict` with key/value pairs for all previous columns and return a `dict` with an additional key/value for the generated cell
         - Supports concurrent workers via a `max_parallel_requests` parameter on the configuration
 
 ## Step 4: Create the plugin object

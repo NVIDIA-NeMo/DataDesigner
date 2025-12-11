@@ -1,7 +1,7 @@
 # Data Designer Plugins
 
 !!! warning "Experimental Feature"
-    The plugin system is currently **experimental** and under active development. The documentation, examples, and plugin interface are subject to significant changes in future releases. If you encounter any issues, have questions, or have ideas for improvement, please [open an issue on GitHub](https://github.com/NVIDIA-NeMo/DataDesigner/issues/new/choose).
+    The plugin system is currently **experimental** and under active development. The documentation, examples, and plugin interface are subject to significant changes in future releases. If you encounter any issues, have questions, or have ideas for improvement, please consider starting [a discussion on GitHub](https://github.com/NVIDIA-NeMo/DataDesigner/discussions).
 
 ## What are plugins?
 
