@@ -17,7 +17,6 @@ import jupytext
 from nbformat import NotebookNode
 from nbformat.v4 import new_code_cell, new_markdown_cell
 
-
 IMPORT_SECTION_MARKER = "### 📦 Import the essentials"
 
 COLAB_SETUP_MARKDOWN = """\
@@ -121,9 +120,7 @@ def generate_colab_notebook(source_path: Path, output_dir: Path) -> Path:
 
 def main() -> None:
     """Main entry point for the script."""
-    parser = argparse.ArgumentParser(
-        description="Generate Colab-compatible notebooks from notebook source files."
-    )
+    parser = argparse.ArgumentParser(description="Generate Colab-compatible notebooks from notebook source files.")
     parser.add_argument(
         "--source-dir",
         type=Path,
