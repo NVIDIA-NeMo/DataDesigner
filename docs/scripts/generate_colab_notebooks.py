@@ -113,7 +113,7 @@ def generate_colab_notebook(source_path: Path, output_dir: Path) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Write the notebook
-    jupytext.write(notebook, output_path)
+    jupytext.write(notebook, output_path, config={"metadata": {"jupytext": {"cell_metadata_filter": "-id"}}})
 
     return output_path
 

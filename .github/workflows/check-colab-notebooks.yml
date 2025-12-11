@@ -29,7 +29,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv sync --group notebooks
+          uv sync --group notebooks --group docs
 
       - name: Generate Colab notebooks
         run: |
@@ -37,12 +37,19 @@ jobs:
 
       - name: Check for differences
         run: |
-          if git diff --exit-code docs/colab_notebooks/; then
-            echo "✅ Colab notebooks are up-to-date"
+          # Get the diff, filtering out cell ID changes (which are randomly generated)
+          # Filter out: diff headers, file markers, hunk markers, and "id" lines
+          MEANINGFUL_DIFF=$(git diff docs/colab_notebooks/ | grep -E '^[+-]' | grep -v '^[+-]{3}' | grep -vE '^[+-]\s*"id": "[0-9a-fA-F]+",?$' || true)
+
+          if [ -z "$MEANINGFUL_DIFF" ]; then
+            echo "✅ Colab notebooks are up-to-date (ignoring cell ID changes)"
           else
             echo "❌ Colab notebooks are out of sync with source files"
             echo ""
             echo "The generated notebooks differ from the committed ones."
             echo "Please run 'make generate-colab-notebooks' locally and commit the changes."
+            echo ""
+            echo "Differences found:"
+            echo "$MEANINGFUL_DIFF"
             exit 1
           fi
