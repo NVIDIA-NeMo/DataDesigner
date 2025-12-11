@@ -8,28 +8,28 @@
       
       
       
-        <link rel="canonical" href="https://nvidia-nemo.github.io/DataDesigner/latest/quick-start/">
+        <link rel="canonical" href="https://nvidia-nemo.github.io/DataDesigner/latest/plugins/overview/">
       
       
-        <link rel="prev" href="../installation/">
+        <link rel="prev" href="../../recipes/qa_and_chat/multi_turn_chat/">
       
       
-        <link rel="next" href="../CONTRIBUTING/">
+        <link rel="next" href="../example/">
       
       
-      <link rel="icon" href="../assets/palette-favicon.png">
+      <link rel="icon" href="../../assets/palette-favicon.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.22">
     
     
       
-        <title>Quick Start - NeMo Data Designer</title>
+        <title>Overview - NeMo Data Designer</title>
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.84d31ad4.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.84d31ad4.min.css">
       
         
-        <link rel="stylesheet" href="../assets/stylesheets/palette.06af60db.min.css">
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.06af60db.min.css">
       
       
 
@@ -48,13 +48,13 @@
       
     
     
-      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
     
-      <link rel="stylesheet" href="../css/style.css">
+      <link rel="stylesheet" href="../../css/style.css">
     
-      <link rel="stylesheet" href="../css/mkdocstrings.css">
+      <link rel="stylesheet" href="../../css/mkdocstrings.css">
     
-    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -80,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#quick-start" class="md-skip">
+        <a href="#data-designer-plugins" class="md-skip">
           Skip to content
         </a>
       
@@ -95,12 +95,12 @@
             <div class="md-banner__inner md-grid md-typeset">
               
   You're not viewing the latest version.
-  <a href="../.."> 
+  <a href="../../.."> 
     <strong>Click here to go to latest.</strong>
   </a>
 
             </div>
-            <script>var el=document.querySelector("[data-md-component=outdated]"),base=new URL(".."),outdated=__md_get("__outdated",sessionStorage,base);!0===outdated&&el&&(el.hidden=!1)</script>
+            <script>var el=document.querySelector("[data-md-component=outdated]"),base=new URL("../.."),outdated=__md_get("__outdated",sessionStorage,base);!0===outdated&&el&&(el.hidden=!1)</script>
           </aside>
         
       </div>
@@ -110,7 +110,7 @@
 
 <header class="md-header" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href=".." title="NeMo Data Designer" class="md-header__button md-logo" aria-label="NeMo Data Designer" data-md-component="logo">
+    <a href="../.." title="NeMo Data Designer" class="md-header__button md-logo" aria-label="NeMo Data Designer" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M512 256v2.7c-.4 36.5-33.6 61.3-70.1 61.3H344c-26.5 0-48 21.5-48 48 0 3.4.4 6.7 1 9.9 2.1 10.2 6.5 20 10.8 29.9 6.1 13.8 12.1 27.5 12.1 42 0 31.8-21.6 60.7-53.4 62-3.5.1-7 .2-10.6.2-141.4 0-256-114.6-256-256S114.6 0 256 0s256 114.6 256 256m-384 32a32 32 0 1 0-64 0 32 32 0 1 0 64 0m0-96a32 32 0 1 0 0-64 32 32 0 1 0 0 64m160-96a32 32 0 1 0-64 0 32 32 0 1 0 64 0m96 96a32 32 0 1 0 0-64 32 32 0 1 0 0 64"/></svg>
@@ -130,7 +130,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Quick Start
+              Overview
             
           </span>
         </div>
@@ -239,13 +239,11 @@
   
   
   
-    
-  
   
     
     
-      <li class="md-tabs__item md-tabs__item--active">
-        <a href=".." class="md-tabs__link">
+      <li class="md-tabs__item">
+        <a href="../.." class="md-tabs__link">
           
   
   
@@ -272,7 +270,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../concepts/models/default-model-settings/" class="md-tabs__link">
+        <a href="../../concepts/models/default-model-settings/" class="md-tabs__link">
           
   
   
@@ -295,7 +293,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../notebooks/" class="md-tabs__link">
+        <a href="../../notebooks/" class="md-tabs__link">
           
   
   
@@ -315,7 +313,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../recipes/cards/" class="md-tabs__link">
+        <a href="../../recipes/cards/" class="md-tabs__link">
           
   
   
@@ -331,11 +329,13 @@
   
   
   
+    
+  
   
     
     
-      <li class="md-tabs__item">
-        <a href="../plugins/overview/" class="md-tabs__link">
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="./" class="md-tabs__link">
           
   
   
@@ -355,7 +355,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../code_reference/models/" class="md-tabs__link">
+        <a href="../../code_reference/models/" class="md-tabs__link">
           
   
   
@@ -389,7 +389,7 @@
 
 <nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href=".." title="NeMo Data Designer" class="md-nav__button md-logo" aria-label="NeMo Data Designer" data-md-component="logo">
+    <a href="../.." title="NeMo Data Designer" class="md-nav__button md-logo" aria-label="NeMo Data Designer" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M512 256v2.7c-.4 36.5-33.6 61.3-70.1 61.3H344c-26.5 0-48 21.5-48 48 0 3.4.4 6.7 1 9.9 2.1 10.2 6.5 20 10.8 29.9 6.1 13.8 12.1 27.5 12.1 42 0 31.8-21.6 60.7-53.4 62-3.5.1-7 .2-10.6.2-141.4 0-256-114.6-256-256S114.6 0 256 0s256 114.6 256 256m-384 32a32 32 0 1 0-64 0 32 32 0 1 0 64 0m0-96a32 32 0 1 0 0-64 32 32 0 1 0 0 64m160-96a32 32 0 1 0-64 0 32 32 0 1 0 64 0m96 96a32 32 0 1 0 0-64 32 32 0 1 0 0 64"/></svg>
@@ -416,29 +416,26 @@
       
   
   
-    
   
   
-  
     
     
     
     
       
-        
-        
-      
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
-        
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1" checked>
         
           
-          <label class="md-nav__link" for="__nav_1" id="__nav_1_label" tabindex="">
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_1" id="__nav_1_label" tabindex="0">
             
   
   
@@ -451,7 +448,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_1">
             <span class="md-nav__icon md-icon"></span>
             Getting Started
@@ -465,7 +462,7 @@
   
   
     <li class="md-nav__item">
-      <a href=".." class="md-nav__link">
+      <a href="../.." class="md-nav__link">
         
   
   
@@ -488,7 +485,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../installation/" class="md-nav__link">
+      <a href="../../installation/" class="md-nav__link">
         
   
   
@@ -508,32 +505,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    Quick Start
-    
-  </span>
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../quick-start/" class="md-nav__link">
         
   
   
@@ -544,44 +519,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#prerequisites" class="md-nav__link">
-    <span class="md-ellipsis">
-      Prerequisites
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#example" class="md-nav__link">
-    <span class="md-ellipsis">
-      Example
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -594,7 +531,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../CONTRIBUTING/" class="md-nav__link">
+      <a href="../../CONTRIBUTING/" class="md-nav__link">
         
   
   
@@ -710,7 +647,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../concepts/models/default-model-settings/" class="md-nav__link">
+      <a href="../../concepts/models/default-model-settings/" class="md-nav__link">
         
   
   
@@ -733,7 +670,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../concepts/models/configure-model-settings-with-the-cli/" class="md-nav__link">
+      <a href="../../concepts/models/configure-model-settings-with-the-cli/" class="md-nav__link">
         
   
   
@@ -756,7 +693,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../concepts/models/model-providers/" class="md-nav__link">
+      <a href="../../concepts/models/model-providers/" class="md-nav__link">
         
   
   
@@ -779,7 +716,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../concepts/models/model-configs/" class="md-nav__link">
+      <a href="../../concepts/models/model-configs/" class="md-nav__link">
         
   
   
@@ -810,7 +747,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../concepts/columns/" class="md-nav__link">
+      <a href="../../concepts/columns/" class="md-nav__link">
         
   
   
@@ -833,7 +770,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../concepts/validators/" class="md-nav__link">
+      <a href="../../concepts/validators/" class="md-nav__link">
         
   
   
@@ -856,7 +793,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../concepts/person_sampling/" class="md-nav__link">
+      <a href="../../concepts/person_sampling/" class="md-nav__link">
         
   
   
@@ -929,7 +866,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../notebooks/" class="md-nav__link">
+      <a href="../../notebooks/" class="md-nav__link">
         
   
   
@@ -952,7 +889,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../notebooks/1-the-basics/" class="md-nav__link">
+      <a href="../../notebooks/1-the-basics/" class="md-nav__link">
         
   
   
@@ -975,7 +912,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../notebooks/2-structured-outputs-and-jinja-expressions/" class="md-nav__link">
+      <a href="../../notebooks/2-structured-outputs-and-jinja-expressions/" class="md-nav__link">
         
   
   
@@ -998,7 +935,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../notebooks/3-seeding-with-a-dataset/" class="md-nav__link">
+      <a href="../../notebooks/3-seeding-with-a-dataset/" class="md-nav__link">
         
   
   
@@ -1021,7 +958,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../notebooks/4-providing-images-as-context/" class="md-nav__link">
+      <a href="../../notebooks/4-providing-images-as-context/" class="md-nav__link">
         
   
   
@@ -1094,7 +1031,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../recipes/cards/" class="md-nav__link">
+      <a href="../../recipes/cards/" class="md-nav__link">
         
   
   
@@ -1160,7 +1097,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../recipes/code_generation/text_to_python/" class="md-nav__link">
+      <a href="../../recipes/code_generation/text_to_python/" class="md-nav__link">
         
   
   
@@ -1183,7 +1120,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../recipes/code_generation/text_to_sql/" class="md-nav__link">
+      <a href="../../recipes/code_generation/text_to_sql/" class="md-nav__link">
         
   
   
@@ -1257,7 +1194,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../recipes/qa_and_chat/product_info_qa/" class="md-nav__link">
+      <a href="../../recipes/qa_and_chat/product_info_qa/" class="md-nav__link">
         
   
   
@@ -1280,7 +1217,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../recipes/qa_and_chat/multi_turn_chat/" class="md-nav__link">
+      <a href="../../recipes/qa_and_chat/multi_turn_chat/" class="md-nav__link">
         
   
   
@@ -1315,26 +1252,29 @@
       
   
   
+    
   
   
+  
     
     
     
     
-      
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
       
         
+        
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
         
           
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
-        
-          
-          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
             
   
   
@@ -1347,7 +1287,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             Plugins
@@ -1358,10 +1298,32 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../plugins/overview/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    Overview
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -1372,6 +1334,86 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-are-plugins" class="md-nav__link">
+    <span class="md-ellipsis">
+      What are plugins?
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-do-you-use-plugins" class="md-nav__link">
+    <span class="md-ellipsis">
+      How do you use plugins?
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-do-you-create-plugins" class="md-nav__link">
+    <span class="md-ellipsis">
+      How do you create plugins?
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How do you create plugins?">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-implement-the-plugin-components" class="md-nav__link">
+    <span class="md-ellipsis">
+      1. Implement the Plugin Components
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-package-your-plugin" class="md-nav__link">
+    <span class="md-ellipsis">
+      2. Package Your Plugin
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-share-your-plugin" class="md-nav__link">
+    <span class="md-ellipsis">
+      3. Share Your Plugin
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -1384,7 +1426,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../plugins/example/" class="md-nav__link">
+      <a href="../example/" class="md-nav__link">
         
   
   
@@ -1407,7 +1449,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../plugins/available/" class="md-nav__link">
+      <a href="../available/" class="md-nav__link">
         
   
   
@@ -1480,7 +1522,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../code_reference/models/" class="md-nav__link">
+      <a href="../../code_reference/models/" class="md-nav__link">
         
   
   
@@ -1503,7 +1545,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../code_reference/column_configs/" class="md-nav__link">
+      <a href="../../code_reference/column_configs/" class="md-nav__link">
         
   
   
@@ -1526,7 +1568,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../code_reference/config_builder/" class="md-nav__link">
+      <a href="../../code_reference/config_builder/" class="md-nav__link">
         
   
   
@@ -1549,7 +1591,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../code_reference/data_designer_config/" class="md-nav__link">
+      <a href="../../code_reference/data_designer_config/" class="md-nav__link">
         
   
   
@@ -1572,7 +1614,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../code_reference/sampler_params/" class="md-nav__link">
+      <a href="../../code_reference/sampler_params/" class="md-nav__link">
         
   
   
@@ -1595,7 +1637,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../code_reference/validator_params/" class="md-nav__link">
+      <a href="../../code_reference/validator_params/" class="md-nav__link">
         
   
   
@@ -1618,7 +1660,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../code_reference/analysis/" class="md-nav__link">
+      <a href="../../code_reference/analysis/" class="md-nav__link">
         
   
   
@@ -1668,20 +1710,62 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#prerequisites" class="md-nav__link">
+  <a href="#what-are-plugins" class="md-nav__link">
     <span class="md-ellipsis">
-      Prerequisites
+      What are plugins?
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#example" class="md-nav__link">
+  <a href="#how-do-you-use-plugins" class="md-nav__link">
     <span class="md-ellipsis">
-      Example
+      How do you use plugins?
     </span>
   </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-do-you-create-plugins" class="md-nav__link">
+    <span class="md-ellipsis">
+      How do you create plugins?
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How do you create plugins?">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-implement-the-plugin-components" class="md-nav__link">
+    <span class="md-ellipsis">
+      1. Implement the Plugin Components
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-package-your-plugin" class="md-nav__link">
+    <span class="md-ellipsis">
+      2. Package Your Plugin
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-share-your-plugin" class="md-nav__link">
+    <span class="md-ellipsis">
+      3. Share Your Plugin
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -1707,80 +1791,40 @@
   
 
 
-<h1 id="quick-start">Quick Start</h1>
-<p>Get started with Data Designer using the default model providers and configurations. Data Designer ships with built-in model providers and configurations that make it easy to start generating synthetic data immediately.</p>
-<h2 id="prerequisites">Prerequisites</h2>
-<p>Before you begin, you'll need an API key from one of the default providers:</p>
+<h1 id="data-designer-plugins">Data Designer Plugins</h1>
+<div class="admonition warning">
+<p class="admonition-title">Experimental Feature</p>
+<p>The plugin system is currently <strong>experimental</strong> and under active development. The documentation, examples, and plugin interface are subject to significant changes in future releases. If you encounter any issues, have questions, or have ideas for improvement, please consider starting <a href="https://github.com/NVIDIA-NeMo/DataDesigner/discussions">a discussion on GitHub</a>.</p>
+</div>
+<h2 id="what-are-plugins">What are plugins?</h2>
+<p>Plugins are Python packages that extend Data Designer's capabilities without modifying the core library. Similar to <a href="https://marketplace.visualstudio.com/vscode">VS Code extensions</a> and <a href="https://docs.pytest.org/en/stable/reference/plugin_list.html">Pytest plugins</a>, the plugin system empowers you to build specialized extensions for your specific use cases and share them with the community.</p>
+<p><strong>Current capabilities</strong>: Data Designer currently supports plugins for column generators (the column types you pass to the config builder's <a href="../../code_reference/config_builder/#data_designer.config.config_builder.DataDesignerConfigBuilder.add_column">add_column</a> method).</p>
+<p><strong>Coming soon</strong>: Plugin support for processors, validators, and more!</p>
+<h2 id="how-do-you-use-plugins">How do you use plugins?</h2>
+<p>A Data Designer plugin is just a Python package configured with an <a href="https://packaging.python.org/en/latest/guides/creating-and-discovering-plugins/#using-package-metadata">entry point</a> that points to a Data Designer <code>Plugin</code> object. Using a plugin is as simple as installing the package:</p>
+<div class="language-bash highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span>data-designer-<span class="o">{</span>plugin-name<span class="o">}</span>
+</code></pre></div>
+<p>Once installed, plugins are automatically discovered and ready to use. See the <a href="../example/">example plugin</a> for a complete walkthrough.</p>
+<h2 id="how-do-you-create-plugins">How do you create plugins?</h2>
+<p>Creating a plugin involves three main steps:</p>
+<h3 id="1-implement-the-plugin-components">1. Implement the Plugin Components</h3>
 <ul>
-<li><strong>NVIDIA API Key</strong>: Get yours from <a href="https://build.nvidia.com">build.nvidia.com</a></li>
-<li><strong>OpenAI API Key</strong> (optional): Get yours from <a href="https://platform.openai.com/api-keys">platform.openai.com</a></li>
+<li>Create a task class inheriting from <code>ColumnGenerator</code></li>
+<li>Create a config class inheriting from <code>SingleColumnConfig</code></li>
+<li>Instantiate a <code>Plugin</code> object connecting them</li>
 </ul>
-<p>Set your API key as an environment variable:</p>
-<div class="language-bash highlight"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">NVIDIA_API_KEY</span><span class="o">=</span><span class="s2">&quot;your-api-key-here&quot;</span>
-<span class="c1"># Or for OpenAI</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">OPENAI_API_KEY</span><span class="o">=</span><span class="s2">&quot;your-openai-api-key-here&quot;</span>
-</code></pre></div>
-<h2 id="example">Example</h2>
-<p>Below we'll construct a simple Data Designer workflow that generates multilingual greetings.</p>
-<div class="language-python highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
-
-<span class="kn">from</span><span class="w"> </span><span class="nn">data_designer.essentials</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-    <span class="n">CategorySamplerParams</span><span class="p">,</span>
-    <span class="n">DataDesigner</span><span class="p">,</span>
-    <span class="n">DataDesignerConfigBuilder</span><span class="p">,</span>
-    <span class="n">InfoType</span><span class="p">,</span>
-    <span class="n">LLMTextColumnConfig</span><span class="p">,</span>
-    <span class="n">SamplerColumnConfig</span><span class="p">,</span>
-    <span class="n">SamplerType</span><span class="p">,</span>
-<span class="p">)</span>
-
-<span class="c1"># Set your API key from build.nvidia.com</span>
-<span class="c1"># Skip this step if you&#39;ve already exported your key to the environemnt variable</span>
-<span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;NVIDIA_API_KEY&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;your-api-key-here&quot;</span>
-
-<span class="c1"># Create a DataDesigner instance</span>
-<span class="c1"># This automatically configures the default model providers</span>
-<span class="n">data_designer</span> <span class="o">=</span> <span class="n">DataDesigner</span><span class="p">()</span>
-
-<span class="c1"># Print out all the model providers available</span>
-<span class="n">data_designer</span><span class="o">.</span><span class="n">info</span><span class="o">.</span><span class="n">display</span><span class="p">(</span><span class="n">InfoType</span><span class="o">.</span><span class="n">MODEL_PROVIDERS</span><span class="p">)</span>
-
-<span class="c1"># Create a config builder</span>
-<span class="c1"># This automatically loads the default model configurations</span>
-<span class="n">config_builder</span> <span class="o">=</span> <span class="n">DataDesignerConfigBuilder</span><span class="p">()</span>
-
-<span class="c1"># Print out all the model configurations available</span>
-<span class="n">config_builder</span><span class="o">.</span><span class="n">info</span><span class="o">.</span><span class="n">display</span><span class="p">(</span><span class="n">InfoType</span><span class="o">.</span><span class="n">MODEL_CONFIGS</span><span class="p">)</span>
-
-<span class="c1"># Add a sampler column to randomly select a language</span>
-<span class="n">config_builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
-    <span class="n">SamplerColumnConfig</span><span class="p">(</span>
-        <span class="n">name</span><span class="o">=</span><span class="s2">&quot;language&quot;</span><span class="p">,</span>
-        <span class="n">sampler_type</span><span class="o">=</span><span class="n">SamplerType</span><span class="o">.</span><span class="n">CATEGORY</span><span class="p">,</span>
-        <span class="n">params</span><span class="o">=</span><span class="n">CategorySamplerParams</span><span class="p">(</span>
-            <span class="n">values</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;English&quot;</span><span class="p">,</span> <span class="s2">&quot;Spanish&quot;</span><span class="p">,</span> <span class="s2">&quot;French&quot;</span><span class="p">,</span> <span class="s2">&quot;German&quot;</span><span class="p">,</span> <span class="s2">&quot;Italian&quot;</span><span class="p">],</span>
-        <span class="p">),</span>
-    <span class="p">)</span>
-<span class="p">)</span>
-
-<span class="c1"># Add an LLM text generation column</span>
-<span class="c1"># We&#39;ll use the built-in &#39;nvidia-text&#39; model alias</span>
-<span class="n">config_builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
-    <span class="n">LLMTextColumnConfig</span><span class="p">(</span>
-        <span class="n">name</span><span class="o">=</span><span class="s2">&quot;greetings&quot;</span><span class="p">,</span>
-        <span class="n">model_alias</span><span class="o">=</span><span class="s2">&quot;nvidia-text&quot;</span><span class="p">,</span>
-        <span class="n">prompt</span><span class="o">=</span><span class="s2">&quot;&quot;&quot;Write a casual and formal greeting in &#39;{{language}}&#39; language.&quot;&quot;&quot;</span><span class="p">,</span>
-    <span class="p">)</span>
-<span class="p">)</span>
-
-<span class="c1"># Run a preview to generate sample records</span>
-<span class="n">preview_results</span> <span class="o">=</span> <span class="n">data_designer</span><span class="o">.</span><span class="n">preview</span><span class="p">(</span><span class="n">config_builder</span><span class="o">=</span><span class="n">config_builder</span><span class="p">)</span>
-
-<span class="c1"># Display a sample record</span>
-<span class="n">preview_results</span><span class="o">.</span><span class="n">display_sample_record</span><span class="p">()</span>
-</code></pre></div>
-<p>🎉 Congratulations, you successfully ran one iteration designing your synthetic data. Follow along to learn more.</p>
-<p>To learn more about the default providers and model configurations available, see the <a href="../concepts/models/default-model-settings/">Default Model Settings</a> guide.</p>
+<h3 id="2-package-your-plugin">2. Package Your Plugin</h3>
+<ul>
+<li>Set up a Python package with <code>pyproject.toml</code></li>
+<li>Register your plugin using entry points</li>
+<li>Define dependencies (including <code>data-designer</code>)</li>
+</ul>
+<h3 id="3-share-your-plugin">3. Share Your Plugin</h3>
+<ul>
+<li>Publish to PyPI or another package index</li>
+<li>Share with the community!</li>
+</ul>
+<p><strong>Ready to get started?</strong> See the <a href="../example/">Example Plugin</a> for a complete walkthrough!</p>
 
 
 
@@ -1811,7 +1855,7 @@
       <nav class="md-footer__inner md-grid" aria-label="Footer" >
         
           
-          <a href="../installation/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Installation">
+          <a href="../../recipes/qa_and_chat/multi_turn_chat/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Multi-Turn Chat">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
@@ -1821,20 +1865,20 @@
                 Previous
               </span>
               <div class="md-ellipsis">
-                Installation
+                Multi-Turn Chat
               </div>
             </div>
           </a>
         
         
           
-          <a href="../CONTRIBUTING/" class="md-footer__link md-footer__link--next" aria-label="Next: Contributing">
+          <a href="../example/" class="md-footer__link md-footer__link--next" aria-label="Next: Example Plugin">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Contributing
+                Example Plugin
               </div>
             </div>
             <div class="md-footer__button md-icon">
@@ -1870,12 +1914,12 @@
     
     
       
-      <script id="__config" type="application/json">{"base": "..", "features": ["navigation.tabs", "navigation.expand", "navigation.path", "navigation.footer", "content.code.copy", "content.code.select", "content.code.annotate"], "search": "../assets/javascripts/workers/search.973d3a69.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"alias": true, "default": "latest", "provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"base": "../..", "features": ["navigation.tabs", "navigation.expand", "navigation.path", "navigation.footer", "content.code.copy", "content.code.select", "content.code.annotate"], "search": "../../assets/javascripts/workers/search.973d3a69.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"alias": true, "default": "latest", "provider": "mike"}}</script>
     
     
-      <script src="../assets/javascripts/bundle.f55a23d4.min.js"></script>
+      <script src="../../assets/javascripts/bundle.f55a23d4.min.js"></script>
       
-        <script src="../js/toc-toggle.js"></script>
+        <script src="../../js/toc-toggle.js"></script>
       
     
   </body>

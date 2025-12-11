@@ -1,0 +1,5141 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/analysis/">
+      
+      
+        <link rel="prev" href="../validator_params/">
+      
+      
+      
+      <link rel="icon" href="../../assets/palette-favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.22">
+    
+    
+      
+        <title>analysis - NeMo Data Designer</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.84d31ad4.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.06af60db.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CFira+Code:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Fira Code"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../../css/style.css">
+    
+      <link rel="stylesheet" href="../../css/mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#analysis" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+          <aside class="md-banner md-banner--warning">
+            <div class="md-banner__inner md-grid md-typeset">
+              
+  You're not viewing the latest version.
+  <a href="../../.."> 
+    <strong>Click here to go to latest.</strong>
+  </a>
+
+            </div>
+            <script>var el=document.querySelector("[data-md-component=outdated]"),base=new URL("../.."),outdated=__md_get("__outdated",sessionStorage,base);!0===outdated&&el&&(el.hidden=!1)</script>
+          </aside>
+        
+      </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="NeMo Data Designer" class="md-header__button md-logo" aria-label="NeMo Data Designer" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M512 256v2.7c-.4 36.5-33.6 61.3-70.1 61.3H344c-26.5 0-48 21.5-48 48 0 3.4.4 6.7 1 9.9 2.1 10.2 6.5 20 10.8 29.9 6.1 13.8 12.1 27.5 12.1 42 0 31.8-21.6 60.7-53.4 62-3.5.1-7 .2-10.6.2-141.4 0-256-114.6-256-256S114.6 0 256 0s256 114.6 256 256m-384 32a32 32 0 1 0-64 0 32 32 0 1 0 64 0m0-96a32 32 0 1 0 0-64 32 32 0 1 0 0 64m160-96a32 32 0 1 0-64 0 32 32 0 1 0 64 0m96 96a32 32 0 1 0 0-64 32 32 0 1 0 0 64"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            NeMo Data Designer
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              analysis
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7M9 21v-1h6v1a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1m3-17a5 5 0 0 0-5 5c0 2.05 1.23 3.81 3 4.58V16h4v-2.42c1.77-.77 3-2.53 3-4.58a5 5 0 0 0-5-5"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="black" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 0-7 7c0 2.38 1.19 4.47 3 5.74V17a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-2.26c1.81-1.27 3-3.36 3-5.74a7 7 0 0 0-7-7M9 21a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1v-1H9z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/NVIDIA-NeMo/DataDesigner" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M202.1 328.7c0 20.9-10.9 55.1-36.7 55.1s-36.7-34.2-36.7-55.1 10.9-55.1 36.7-55.1 36.7 34.2 36.7 55.1M496 278.2c0 31.9-3.2 65.7-17.5 95-37.9 76.6-142.1 74.8-216.7 74.8-75.8 0-186.2 2.7-225.6-74.8-14.6-29-20.2-63.1-20.2-95 0-41.9 13.9-81.5 41.5-113.6-5.2-15.8-7.7-32.4-7.7-48.8 0-21.5 4.9-32.3 14.6-51.8 45.3 0 74.3 9 108.8 36 29-6.9 58.8-10 88.7-10 27 0 54.2 2.9 80.4 9.2 34-26.7 63-35.2 107.8-35.2 9.8 19.5 14.6 30.3 14.6 51.8 0 16.4-2.6 32.7-7.7 48.2 27.5 32.4 39 72.3 39 114.2m-64.3 50.5c0-43.9-26.7-82.6-73.5-82.6-18.9 0-37 3.4-56 6-14.9 2.3-29.8 3.2-45.1 3.2-15.2 0-30.1-.9-45.1-3.2-18.7-2.6-37-6-56-6-46.8 0-73.5 38.7-73.5 82.6 0 87.8 80.4 101.3 150.4 101.3h48.2c70.3 0 150.6-13.4 150.6-101.3m-82.6-55.1c-25.8 0-36.7 34.2-36.7 55.1s10.9 55.1 36.7 55.1 36.7-34.2 36.7-55.1-10.9-55.1-36.7-55.1"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../.." class="md-tabs__link">
+          
+  
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../concepts/models/default-model-settings/" class="md-tabs__link">
+          
+  
+  
+  Concepts
+
+        </a>
+      </li>
+    
+  
+
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../notebooks/" class="md-tabs__link">
+          
+  
+  
+  Tutorials
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../recipes/cards/" class="md-tabs__link">
+          
+  
+  
+  Recipes
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../plugins/overview/" class="md-tabs__link">
+          
+  
+  
+  Plugins
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../models/" class="md-tabs__link">
+          
+  
+  
+  Code Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="NeMo Data Designer" class="md-nav__button md-logo" aria-label="NeMo Data Designer" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M512 256v2.7c-.4 36.5-33.6 61.3-70.1 61.3H344c-26.5 0-48 21.5-48 48 0 3.4.4 6.7 1 9.9 2.1 10.2 6.5 20 10.8 29.9 6.1 13.8 12.1 27.5 12.1 42 0 31.8-21.6 60.7-53.4 62-3.5.1-7 .2-10.6.2-141.4 0-256-114.6-256-256S114.6 0 256 0s256 114.6 256 256m-384 32a32 32 0 1 0-64 0 32 32 0 1 0 64 0m0-96a32 32 0 1 0 0-64 32 32 0 1 0 0 64m160-96a32 32 0 1 0-64 0 32 32 0 1 0 64 0m96 96a32 32 0 1 0 0-64 32 32 0 1 0 0 64"/></svg>
+
+    </a>
+    NeMo Data Designer
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/NVIDIA-NeMo/DataDesigner" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M202.1 328.7c0 20.9-10.9 55.1-36.7 55.1s-36.7-34.2-36.7-55.1 10.9-55.1 36.7-55.1 36.7 34.2 36.7 55.1M496 278.2c0 31.9-3.2 65.7-17.5 95-37.9 76.6-142.1 74.8-216.7 74.8-75.8 0-186.2 2.7-225.6-74.8-14.6-29-20.2-63.1-20.2-95 0-41.9 13.9-81.5 41.5-113.6-5.2-15.8-7.7-32.4-7.7-48.8 0-21.5 4.9-32.3 14.6-51.8 45.3 0 74.3 9 108.8 36 29-6.9 58.8-10 88.7-10 27 0 54.2 2.9 80.4 9.2 34-26.7 63-35.2 107.8-35.2 9.8 19.5 14.6 30.3 14.6 51.8 0 16.4-2.6 32.7-7.7 48.2 27.5 32.4 39 72.3 39 114.2m-64.3 50.5c0-43.9-26.7-82.6-73.5-82.6-18.9 0-37 3.4-56 6-14.9 2.3-29.8 3.2-45.1 3.2-15.2 0-30.1-.9-45.1-3.2-18.7-2.6-37-6-56-6-46.8 0-73.5 38.7-73.5 82.6 0 87.8 80.4 101.3 150.4 101.3h48.2c70.3 0 150.6-13.4 150.6-101.3m-82.6-55.1c-25.8 0-36.7 34.2-36.7 55.1s10.9 55.1 36.7 55.1 36.7-34.2 36.7-55.1-10.9-55.1-36.7-55.1"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_1" id="__nav_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Getting Started
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            Getting Started
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Welcome
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Installation
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../quick-start/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Quick Start
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../CONTRIBUTING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Contributing
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Concepts
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            Concepts
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_1" id="__nav_2_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Models
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_1">
+            <span class="md-nav__icon md-icon"></span>
+            Models
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/models/default-model-settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Default Model Settings
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/models/configure-model-settings-with-the-cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Configure with the CLI
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/models/model-providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Model Providers
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/models/model-configs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Model Configs
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/columns/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Columns
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/validators/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Validators
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/person_sampling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Person Sampling
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Tutorials
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            Tutorials
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Overview
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/1-the-basics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    The Basics
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/2-structured-outputs-and-jinja-expressions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Structured Outputs and Jinja Expressions
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/3-seeding-with-a-dataset/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Seeding with an External Dataset
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/4-providing-images-as-context/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Providing Images as Context
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Recipes
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            Recipes
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/cards/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Recipe Cards
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_2" id="__nav_4_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Code Generation
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_2">
+            <span class="md-nav__icon md-icon"></span>
+            Code Generation
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/code_generation/text_to_python/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Text to Python
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/code_generation/text_to_sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Text to SQL
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_3" id="__nav_4_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    QA and Chat
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_3">
+            <span class="md-nav__icon md-icon"></span>
+            QA and Chat
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/qa_and_chat/product_info_qa/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Product Info QA
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../recipes/qa_and_chat/multi_turn_chat/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Multi-Turn Chat
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Plugins
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            Plugins
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../plugins/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Overview
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../plugins/example/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Example Plugin
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../plugins/available/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Available Plugin List
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    Code Reference
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            Code Reference
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    models
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../column_configs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    column_configs
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../config_builder/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    config_builder
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../data_designer_config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    data_designer_config
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sampler_params/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    sampler_params
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../validator_params/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    validator_params
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    analysis
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    analysis
+    
+  </span>
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#column-statistics" class="md-nav__link">
+    <span class="md-ellipsis">
+      Column Statistics
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_statistics" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-module"></code>&nbsp;column_statistics
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_statistics.BaseColumnStatistics" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;BaseColumnStatistics
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label=" BaseColumnStatistics">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_statistics.BaseColumnStatistics.create_report_row_data" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;create_report_row_data
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_statistics.CategoricalDistribution" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;CategoricalDistribution
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_statistics.CategoricalHistogramData" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;CategoricalHistogramData
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label=" CategoricalHistogramData">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_statistics.CategoricalHistogramData.ensure_python_types" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;ensure_python_types
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_statistics.ExpressionColumnStatistics" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;ExpressionColumnStatistics
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_statistics.GeneralColumnStatistics" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;GeneralColumnStatistics
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_statistics.LLMCodeColumnStatistics" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;LLMCodeColumnStatistics
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_statistics.LLMJudgedColumnStatistics" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;LLMJudgedColumnStatistics
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_statistics.LLMStructuredColumnStatistics" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;LLMStructuredColumnStatistics
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_statistics.LLMTextColumnStatistics" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;LLMTextColumnStatistics
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_statistics.NumericalDistribution" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;NumericalDistribution
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_statistics.SamplerColumnStatistics" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;SamplerColumnStatistics
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_statistics.SeedDatasetColumnStatistics" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;SeedDatasetColumnStatistics
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_statistics.ValidationColumnStatistics" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;ValidationColumnStatistics
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#column-profilers" class="md-nav__link">
+    <span class="md-ellipsis">
+      Column Profilers
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_profilers" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-module"></code>&nbsp;column_profilers
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_profilers.ColumnProfilerResults" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;ColumnProfilerResults
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label=" ColumnProfilerResults">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_profilers.ColumnProfilerResults.create_report_section" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;create_report_section
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_profilers.JudgeScoreDistributions" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;JudgeScoreDistributions
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_profilers.JudgeScoreProfilerConfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;JudgeScoreProfilerConfig
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_profilers.JudgeScoreProfilerResults" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;JudgeScoreProfilerResults
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_profilers.JudgeScoreSample" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;JudgeScoreSample
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_profilers.JudgeScoreSummary" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;JudgeScoreSummary
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dataset-profiler" class="md-nav__link">
+    <span class="md-ellipsis">
+      Dataset Profiler
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.dataset_profiler" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-module"></code>&nbsp;dataset_profiler
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.dataset_profiler.DatasetProfilerResults" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;DatasetProfilerResults
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label=" DatasetProfilerResults">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.dataset_profiler.DatasetProfilerResults.column_types" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;column_types
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.dataset_profiler.DatasetProfilerResults.percent_complete" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;percent_complete
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.dataset_profiler.DatasetProfilerResults.get_column_statistics_by_type" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;get_column_statistics_by_type
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.dataset_profiler.DatasetProfilerResults.to_report" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;to_report
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#column-statistics" class="md-nav__link">
+    <span class="md-ellipsis">
+      Column Statistics
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_statistics" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-module"></code>&nbsp;column_statistics
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_statistics.BaseColumnStatistics" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;BaseColumnStatistics
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label=" BaseColumnStatistics">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_statistics.BaseColumnStatistics.create_report_row_data" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;create_report_row_data
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_statistics.CategoricalDistribution" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;CategoricalDistribution
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_statistics.CategoricalHistogramData" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;CategoricalHistogramData
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label=" CategoricalHistogramData">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_statistics.CategoricalHistogramData.ensure_python_types" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;ensure_python_types
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_statistics.ExpressionColumnStatistics" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;ExpressionColumnStatistics
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_statistics.GeneralColumnStatistics" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;GeneralColumnStatistics
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_statistics.LLMCodeColumnStatistics" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;LLMCodeColumnStatistics
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_statistics.LLMJudgedColumnStatistics" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;LLMJudgedColumnStatistics
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_statistics.LLMStructuredColumnStatistics" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;LLMStructuredColumnStatistics
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_statistics.LLMTextColumnStatistics" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;LLMTextColumnStatistics
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_statistics.NumericalDistribution" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;NumericalDistribution
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_statistics.SamplerColumnStatistics" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;SamplerColumnStatistics
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_statistics.SeedDatasetColumnStatistics" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;SeedDatasetColumnStatistics
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_statistics.ValidationColumnStatistics" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;ValidationColumnStatistics
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#column-profilers" class="md-nav__link">
+    <span class="md-ellipsis">
+      Column Profilers
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_profilers" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-module"></code>&nbsp;column_profilers
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_profilers.ColumnProfilerResults" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;ColumnProfilerResults
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label=" ColumnProfilerResults">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_profilers.ColumnProfilerResults.create_report_section" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;create_report_section
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_profilers.JudgeScoreDistributions" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;JudgeScoreDistributions
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_profilers.JudgeScoreProfilerConfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;JudgeScoreProfilerConfig
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_profilers.JudgeScoreProfilerResults" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;JudgeScoreProfilerResults
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_profilers.JudgeScoreSample" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;JudgeScoreSample
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.column_profilers.JudgeScoreSummary" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;JudgeScoreSummary
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dataset-profiler" class="md-nav__link">
+    <span class="md-ellipsis">
+      Dataset Profiler
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.dataset_profiler" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-module"></code>&nbsp;dataset_profiler
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.dataset_profiler.DatasetProfilerResults" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;DatasetProfilerResults
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label=" DatasetProfilerResults">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.dataset_profiler.DatasetProfilerResults.column_types" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;column_types
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.dataset_profiler.DatasetProfilerResults.percent_complete" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;percent_complete
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.dataset_profiler.DatasetProfilerResults.get_column_statistics_by_type" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;get_column_statistics_by_type
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#data_designer.config.analysis.dataset_profiler.DatasetProfilerResults.to_report" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;to_report
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              <article class="md-content__inner md-typeset">
+                
+
+
+
+                  
+
+
+  
+  
+
+
+<h1 id="analysis">Analysis</h1>
+<p>The <code>analysis</code> modules provide tools for profiling and analyzing generated datasets. It includes statistics tracking, column profiling, and reporting capabilities.</p>
+<h2 id="column-statistics">Column Statistics</h2>
+<p>Column statistics are automatically computed for every column after generation. They provide basic metrics specific to the column type. For example, LLM columns track token usage statistics, sampler columns track distribution information, and validation columns track validation success rates.</p>
+<p>The classes below are result objects that store the computed statistics for each column type and provide methods for formatting these results for display in reports.</p>
+
+
+<div class="doc doc-object doc-module">
+
+
+
+<a id="data_designer.config.analysis.column_statistics"></a>
+    <div class="doc doc-contents first">
+
+
+
+
+
+
+
+
+
+
+<p><span class="doc-section-title">Classes:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="            BaseColumnStatistics (data_designer.config.analysis.column_statistics.BaseColumnStatistics)" href="#data_designer.config.analysis.column_statistics.BaseColumnStatistics">BaseColumnStatistics</a></code></td>
+            <td>
+              <div class="doc-md-description">
+                <p>Abstract base class for all column statistics types.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="            CategoricalDistribution (data_designer.config.analysis.column_statistics.CategoricalDistribution)" href="#data_designer.config.analysis.column_statistics.CategoricalDistribution">CategoricalDistribution</a></code></td>
+            <td>
+              <div class="doc-md-description">
+                <p>Container for computed categorical distribution statistics.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="            CategoricalHistogramData (data_designer.config.analysis.column_statistics.CategoricalHistogramData)" href="#data_designer.config.analysis.column_statistics.CategoricalHistogramData">CategoricalHistogramData</a></code></td>
+            <td>
+              <div class="doc-md-description">
+                <p>Container for categorical distribution histogram data.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="            ExpressionColumnStatistics (data_designer.config.analysis.column_statistics.ExpressionColumnStatistics)" href="#data_designer.config.analysis.column_statistics.ExpressionColumnStatistics">ExpressionColumnStatistics</a></code></td>
+            <td>
+              <div class="doc-md-description">
+                <p>Container for statistics on expression-based derived columns.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="            GeneralColumnStatistics (data_designer.config.analysis.column_statistics.GeneralColumnStatistics)" href="#data_designer.config.analysis.column_statistics.GeneralColumnStatistics">GeneralColumnStatistics</a></code></td>
+            <td>
+              <div class="doc-md-description">
+                <p>Container for general statistics applicable to all column types.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="            LLMCodeColumnStatistics (data_designer.config.analysis.column_statistics.LLMCodeColumnStatistics)" href="#data_designer.config.analysis.column_statistics.LLMCodeColumnStatistics">LLMCodeColumnStatistics</a></code></td>
+            <td>
+              <div class="doc-md-description">
+                <p>Container for statistics on LLM-generated code columns.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="            LLMJudgedColumnStatistics (data_designer.config.analysis.column_statistics.LLMJudgedColumnStatistics)" href="#data_designer.config.analysis.column_statistics.LLMJudgedColumnStatistics">LLMJudgedColumnStatistics</a></code></td>
+            <td>
+              <div class="doc-md-description">
+                <p>Container for statistics on LLM-as-a-judge quality assessment columns.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="            LLMStructuredColumnStatistics (data_designer.config.analysis.column_statistics.LLMStructuredColumnStatistics)" href="#data_designer.config.analysis.column_statistics.LLMStructuredColumnStatistics">LLMStructuredColumnStatistics</a></code></td>
+            <td>
+              <div class="doc-md-description">
+                <p>Container for statistics on LLM-generated structured JSON columns.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="            LLMTextColumnStatistics (data_designer.config.analysis.column_statistics.LLMTextColumnStatistics)" href="#data_designer.config.analysis.column_statistics.LLMTextColumnStatistics">LLMTextColumnStatistics</a></code></td>
+            <td>
+              <div class="doc-md-description">
+                <p>Container for statistics on LLM-generated text columns.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="            NumericalDistribution (data_designer.config.analysis.column_statistics.NumericalDistribution)" href="#data_designer.config.analysis.column_statistics.NumericalDistribution">NumericalDistribution</a></code></td>
+            <td>
+              <div class="doc-md-description">
+                <p>Container for computed numerical distribution statistics.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="            SamplerColumnStatistics (data_designer.config.analysis.column_statistics.SamplerColumnStatistics)" href="#data_designer.config.analysis.column_statistics.SamplerColumnStatistics">SamplerColumnStatistics</a></code></td>
+            <td>
+              <div class="doc-md-description">
+                <p>Container for statistics on sampler-generated columns.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="            SeedDatasetColumnStatistics (data_designer.config.analysis.column_statistics.SeedDatasetColumnStatistics)" href="#data_designer.config.analysis.column_statistics.SeedDatasetColumnStatistics">SeedDatasetColumnStatistics</a></code></td>
+            <td>
+              <div class="doc-md-description">
+                <p>Container for statistics on columns sourced from seed datasets.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="            ValidationColumnStatistics (data_designer.config.analysis.column_statistics.ValidationColumnStatistics)" href="#data_designer.config.analysis.column_statistics.ValidationColumnStatistics">ValidationColumnStatistics</a></code></td>
+            <td>
+              <div class="doc-md-description">
+                <p>Container for statistics on validation result columns.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="data_designer.config.analysis.column_statistics.BaseColumnStatistics" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-class"></code>            <code>BaseColumnStatistics</code>
+
+
+</h2>
+
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="pydantic.BaseModel">BaseModel</span></code>, <code><span title="abc.ABC">ABC</span></code></p>
+
+
+        <p>Abstract base class for all column statistics types.</p>
+<p>Serves as a container for computed statistics across different column types in
+Data-Designer-generated datasets. Subclasses hold column-specific statistical results
+and provide methods for formatting these results for display in reports.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+<p><span class="doc-section-title">Methods:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+            <tr class="doc-section-item">
+              <td><code><a class="autorefs autorefs-internal" title="            create_report_row_data()
+
+  
+      abstractmethod
+   (data_designer.config.analysis.column_statistics.BaseColumnStatistics.create_report_row_data)" href="#data_designer.config.analysis.column_statistics.BaseColumnStatistics.create_report_row_data">create_report_row_data</a></code></td>
+              <td>
+                <div class="doc-md-description">
+                  <p>Creates a formatted dictionary of statistics for display in reports.</p>
+                </div>
+              </td>
+            </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="data_designer.config.analysis.column_statistics.BaseColumnStatistics.create_report_row_data" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <code class="highlight language-python"><span class="n">create_report_row_data</span><span class="p">()</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-abstractmethod"><code>abstractmethod</code></small>
+  </span>
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Creates a formatted dictionary of statistics for display in reports.</p>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="dict">dict</span>[<span title="str">str</span>, <span title="str">str</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Dictionary mapping display labels to formatted statistic values.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+            <details class="quote">
+              <summary>Source code in <code>src/data_designer/config/analysis/column_statistics.py</code></summary>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">44</span>
+<span class="normal">45</span>
+<span class="normal">46</span>
+<span class="normal">47</span>
+<span class="normal">48</span>
+<span class="normal">49</span>
+<span class="normal">50</span>
+<span class="normal">51</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@abstractmethod</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">create_report_row_data</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Creates a formatted dictionary of statistics for display in reports.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Dictionary mapping display labels to formatted statistic values.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="o">...</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="data_designer.config.analysis.column_statistics.CategoricalDistribution" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-class"></code>            <code>CategoricalDistribution</code>
+
+
+</h2>
+
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="pydantic.BaseModel">BaseModel</span></code></p>
+
+
+        <p>Container for computed categorical distribution statistics.</p>
+
+
+<p><span class="doc-section-title">Attributes:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_statistics.CategoricalDistribution.most_common_value">most_common_value</span></code></td>
+            <td>
+                  <code><span title="typing.Union">Union</span>[<span title="str">str</span>, <span title="int">int</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The category value that appears most frequently in the data.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_statistics.CategoricalDistribution.least_common_value">least_common_value</span></code></td>
+            <td>
+                  <code><span title="typing.Union">Union</span>[<span title="str">str</span>, <span title="int">int</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The category value that appears least frequently in the data.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_statistics.CategoricalDistribution.histogram">histogram</span></code></td>
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="            CategoricalHistogramData (data_designer.config.analysis.column_statistics.CategoricalHistogramData)" href="#data_designer.config.analysis.column_statistics.CategoricalHistogramData">CategoricalHistogramData</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Complete frequency distribution showing all categories and their counts.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="data_designer.config.analysis.column_statistics.CategoricalHistogramData" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-class"></code>            <code>CategoricalHistogramData</code>
+
+
+</h2>
+
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="pydantic.BaseModel">BaseModel</span></code></p>
+
+
+        <p>Container for categorical distribution histogram data.</p>
+<p>Stores the computed frequency distribution of categorical values.</p>
+
+
+<p><span class="doc-section-title">Attributes:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_statistics.CategoricalHistogramData.categories">categories</span></code></td>
+            <td>
+                  <code><span title="list">list</span>[<span title="typing.Union">Union</span>[<span title="float">float</span>, <span title="int">int</span>, <span title="str">str</span>]]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>List of unique category values that appear in the data.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_statistics.CategoricalHistogramData.counts">counts</span></code></td>
+            <td>
+                  <code><span title="list">list</span>[<span title="int">int</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>List of occurrence counts for each category.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+
+
+
+
+<p><span class="doc-section-title">Methods:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+            <tr class="doc-section-item">
+              <td><code><a class="autorefs autorefs-internal" title="            ensure_python_types() (data_designer.config.analysis.column_statistics.CategoricalHistogramData.ensure_python_types)" href="#data_designer.config.analysis.column_statistics.CategoricalHistogramData.ensure_python_types">ensure_python_types</a></code></td>
+              <td>
+                <div class="doc-md-description">
+                  <p>Ensure numerical values are Python objects rather than Numpy types.</p>
+                </div>
+              </td>
+            </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="data_designer.config.analysis.column_statistics.CategoricalHistogramData.ensure_python_types" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <code class="highlight language-python"><span class="n">ensure_python_types</span><span class="p">()</span></code>
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Ensure numerical values are Python objects rather than Numpy types.</p>
+
+
+            <details class="quote">
+              <summary>Source code in <code>src/data_designer/config/analysis/column_statistics.py</code></summary>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">309</span>
+<span class="normal">310</span>
+<span class="normal">311</span>
+<span class="normal">312</span>
+<span class="normal">313</span>
+<span class="normal">314</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@model_validator</span><span class="p">(</span><span class="n">mode</span><span class="o">=</span><span class="s2">&quot;after&quot;</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">ensure_python_types</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Self</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Ensure numerical values are Python objects rather than Numpy types.&quot;&quot;&quot;</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">categories</span> <span class="o">=</span> <span class="p">[(</span><span class="nb">float</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">if</span> <span class="n">is_float</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">else</span> <span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">if</span> <span class="n">is_int</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">else</span> <span class="nb">str</span><span class="p">(</span><span class="n">x</span><span class="p">)))</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">categories</span><span class="p">]</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">counts</span> <span class="o">=</span> <span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">counts</span><span class="p">]</span>
+    <span class="k">return</span> <span class="bp">self</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="data_designer.config.analysis.column_statistics.ExpressionColumnStatistics" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-class"></code>            <code>ExpressionColumnStatistics</code>
+
+
+</h2>
+
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="            GeneralColumnStatistics (data_designer.config.analysis.column_statistics.GeneralColumnStatistics)" href="#data_designer.config.analysis.column_statistics.GeneralColumnStatistics">GeneralColumnStatistics</a></code></p>
+
+
+        <p>Container for statistics on expression-based derived columns.</p>
+<p>Inherits general statistics and stores statistics computed from columns that are derived
+from columns that are derived from Jinja2 expressions referencing other column values.</p>
+
+
+<p><span class="doc-section-title">Attributes:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_statistics.ExpressionColumnStatistics.column_type">column_type</span></code></td>
+            <td>
+                  <code><span title="typing.Literal">Literal</span>[<span title="data_designer.config.column_types.DataDesignerColumnType.EXPRESSION.value">value</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Discriminator field, always "expression" for this statistics type.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="data_designer.config.analysis.column_statistics.GeneralColumnStatistics" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-class"></code>            <code>GeneralColumnStatistics</code>
+
+
+</h2>
+
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="            BaseColumnStatistics (data_designer.config.analysis.column_statistics.BaseColumnStatistics)" href="#data_designer.config.analysis.column_statistics.BaseColumnStatistics">BaseColumnStatistics</a></code></p>
+
+
+        <p>Container for general statistics applicable to all column types.</p>
+<p>Holds core statistical measures that apply universally across all column types,
+including null counts, unique values, and data type information. Serves as the base
+for more specialized column statistics classes that store additional column-specific metrics.</p>
+
+
+<p><span class="doc-section-title">Attributes:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_statistics.GeneralColumnStatistics.column_name">column_name</span></code></td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Name of the column being analyzed.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_statistics.GeneralColumnStatistics.num_records">num_records</span></code></td>
+            <td>
+                  <code><span title="typing.Union">Union</span>[<span title="int">int</span>, <span title="data_designer.config.analysis.column_statistics.MissingValue">MissingValue</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Total number of records in the column.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_statistics.GeneralColumnStatistics.num_null">num_null</span></code></td>
+            <td>
+                  <code><span title="typing.Union">Union</span>[<span title="int">int</span>, <span title="data_designer.config.analysis.column_statistics.MissingValue">MissingValue</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Number of null/missing values in the column.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_statistics.GeneralColumnStatistics.num_unique">num_unique</span></code></td>
+            <td>
+                  <code><span title="typing.Union">Union</span>[<span title="int">int</span>, <span title="data_designer.config.analysis.column_statistics.MissingValue">MissingValue</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Number of distinct values in the column. If a value is not hashable, it is converted to a string.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_statistics.GeneralColumnStatistics.pyarrow_dtype">pyarrow_dtype</span></code></td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>PyArrow data type of the column as a string.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_statistics.GeneralColumnStatistics.simple_dtype">simple_dtype</span></code></td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Simplified human-readable data type label.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_statistics.GeneralColumnStatistics.column_type">column_type</span></code></td>
+            <td>
+                  <code><span title="typing.Literal">Literal</span>[&#39;general&#39;]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Discriminator field, always "general" for this statistics type.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="data_designer.config.analysis.column_statistics.LLMCodeColumnStatistics" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-class"></code>            <code>LLMCodeColumnStatistics</code>
+
+
+</h2>
+
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="            LLMTextColumnStatistics (data_designer.config.analysis.column_statistics.LLMTextColumnStatistics)" href="#data_designer.config.analysis.column_statistics.LLMTextColumnStatistics">LLMTextColumnStatistics</a></code></p>
+
+
+        <p>Container for statistics on LLM-generated code columns.</p>
+<p>Inherits all token usage metrics from LLMTextColumnStatistics. Stores
+statistics from columns that generate code snippets in specific programming languages.</p>
+
+
+<p><span class="doc-section-title">Attributes:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_statistics.LLMCodeColumnStatistics.column_type">column_type</span></code></td>
+            <td>
+                  <code><span title="typing.Literal">Literal</span>[<span title="data_designer.config.column_types.DataDesignerColumnType.LLM_CODE.value">value</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Discriminator field, always "llm-code" for this statistics type.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="data_designer.config.analysis.column_statistics.LLMJudgedColumnStatistics" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-class"></code>            <code>LLMJudgedColumnStatistics</code>
+
+
+</h2>
+
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="            LLMTextColumnStatistics (data_designer.config.analysis.column_statistics.LLMTextColumnStatistics)" href="#data_designer.config.analysis.column_statistics.LLMTextColumnStatistics">LLMTextColumnStatistics</a></code></p>
+
+
+        <p>Container for statistics on LLM-as-a-judge quality assessment columns.</p>
+<p>Inherits all token usage metrics from LLMTextColumnStatistics. Stores statistics from
+columns that evaluate and score other generated content based on defined criteria.</p>
+
+
+<p><span class="doc-section-title">Attributes:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_statistics.LLMJudgedColumnStatistics.column_type">column_type</span></code></td>
+            <td>
+                  <code><span title="typing.Literal">Literal</span>[<span title="data_designer.config.column_types.DataDesignerColumnType.LLM_JUDGE.value">value</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Discriminator field, always "llm-judge" for this statistics type.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="data_designer.config.analysis.column_statistics.LLMStructuredColumnStatistics" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-class"></code>            <code>LLMStructuredColumnStatistics</code>
+
+
+</h2>
+
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="            LLMTextColumnStatistics (data_designer.config.analysis.column_statistics.LLMTextColumnStatistics)" href="#data_designer.config.analysis.column_statistics.LLMTextColumnStatistics">LLMTextColumnStatistics</a></code></p>
+
+
+        <p>Container for statistics on LLM-generated structured JSON columns.</p>
+<p>Inherits all token usage metrics from LLMTextColumnStatistics. Stores statistics from
+columns that generate structured data conforming to JSON schemas or Pydantic models.</p>
+
+
+<p><span class="doc-section-title">Attributes:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_statistics.LLMStructuredColumnStatistics.column_type">column_type</span></code></td>
+            <td>
+                  <code><span title="typing.Literal">Literal</span>[<span title="data_designer.config.column_types.DataDesignerColumnType.LLM_STRUCTURED.value">value</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Discriminator field, always "llm-structured" for this statistics type.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="data_designer.config.analysis.column_statistics.LLMTextColumnStatistics" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-class"></code>            <code>LLMTextColumnStatistics</code>
+
+
+</h2>
+
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="            GeneralColumnStatistics (data_designer.config.analysis.column_statistics.GeneralColumnStatistics)" href="#data_designer.config.analysis.column_statistics.GeneralColumnStatistics">GeneralColumnStatistics</a></code></p>
+
+
+        <p>Container for statistics on LLM-generated text columns.</p>
+<p>Inherits general statistics plus token usage metrics specific to LLM text generation.
+Stores both prompt and completion token consumption data.</p>
+
+
+<p><span class="doc-section-title">Attributes:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_statistics.LLMTextColumnStatistics.completion_tokens_mean">completion_tokens_mean</span></code></td>
+            <td>
+                  <code><span title="typing.Union">Union</span>[<span title="float">float</span>, <span title="data_designer.config.analysis.column_statistics.MissingValue">MissingValue</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Mean number of completion tokens generated per record.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_statistics.LLMTextColumnStatistics.completion_tokens_median">completion_tokens_median</span></code></td>
+            <td>
+                  <code><span title="typing.Union">Union</span>[<span title="float">float</span>, <span title="data_designer.config.analysis.column_statistics.MissingValue">MissingValue</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Median number of completion tokens generated per record.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_statistics.LLMTextColumnStatistics.completion_tokens_stddev">completion_tokens_stddev</span></code></td>
+            <td>
+                  <code><span title="typing.Union">Union</span>[<span title="float">float</span>, <span title="data_designer.config.analysis.column_statistics.MissingValue">MissingValue</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Standard deviation of completion tokens per record.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_statistics.LLMTextColumnStatistics.prompt_tokens_mean">prompt_tokens_mean</span></code></td>
+            <td>
+                  <code><span title="typing.Union">Union</span>[<span title="float">float</span>, <span title="data_designer.config.analysis.column_statistics.MissingValue">MissingValue</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Mean number of prompt tokens used per record.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_statistics.LLMTextColumnStatistics.prompt_tokens_median">prompt_tokens_median</span></code></td>
+            <td>
+                  <code><span title="typing.Union">Union</span>[<span title="float">float</span>, <span title="data_designer.config.analysis.column_statistics.MissingValue">MissingValue</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Median number of prompt tokens used per record.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_statistics.LLMTextColumnStatistics.prompt_tokens_stddev">prompt_tokens_stddev</span></code></td>
+            <td>
+                  <code><span title="typing.Union">Union</span>[<span title="float">float</span>, <span title="data_designer.config.analysis.column_statistics.MissingValue">MissingValue</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Standard deviation of prompt tokens per record.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_statistics.LLMTextColumnStatistics.column_type">column_type</span></code></td>
+            <td>
+                  <code><span title="typing.Literal">Literal</span>[<span title="data_designer.config.column_types.DataDesignerColumnType.LLM_TEXT.value">value</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Discriminator field, always "llm-text" for this statistics type.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="data_designer.config.analysis.column_statistics.NumericalDistribution" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-class"></code>            <code>NumericalDistribution</code>
+
+
+</h2>
+
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="pydantic.BaseModel">BaseModel</span></code></p>
+
+
+        <p>Container for computed numerical distribution statistics.</p>
+
+
+<p><span class="doc-section-title">Attributes:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_statistics.NumericalDistribution.min">min</span></code></td>
+            <td>
+                  <code><span title="typing.Union">Union</span>[<span title="float">float</span>, <span title="int">int</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Minimum value in the distribution.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_statistics.NumericalDistribution.max">max</span></code></td>
+            <td>
+                  <code><span title="typing.Union">Union</span>[<span title="float">float</span>, <span title="int">int</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Maximum value in the distribution.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_statistics.NumericalDistribution.mean">mean</span></code></td>
+            <td>
+                  <code><span title="float">float</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Arithmetic mean (average) of all values.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_statistics.NumericalDistribution.stddev">stddev</span></code></td>
+            <td>
+                  <code><span title="float">float</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Standard deviation measuring the spread of values around the mean.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_statistics.NumericalDistribution.median">median</span></code></td>
+            <td>
+                  <code><span title="float">float</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Median value of the distribution.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="data_designer.config.analysis.column_statistics.SamplerColumnStatistics" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-class"></code>            <code>SamplerColumnStatistics</code>
+
+
+</h2>
+
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="            GeneralColumnStatistics (data_designer.config.analysis.column_statistics.GeneralColumnStatistics)" href="#data_designer.config.analysis.column_statistics.GeneralColumnStatistics">GeneralColumnStatistics</a></code></p>
+
+
+        <p>Container for statistics on sampler-generated columns.</p>
+<p>Inherits general statistics plus sampler-specific information including the sampler type
+used and the empirical distribution of generated values. Stores both categorical and
+numerical distribution results.</p>
+
+
+<p><span class="doc-section-title">Attributes:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_statistics.SamplerColumnStatistics.sampler_type">sampler_type</span></code></td>
+            <td>
+                  <code><span title="data_designer.config.sampler_params.SamplerType">SamplerType</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Type of sampler used to generate this column (e.g., "uniform", "category",
+"gaussian", "person").</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_statistics.SamplerColumnStatistics.distribution_type">distribution_type</span></code></td>
+            <td>
+                  <code><span title="data_designer.config.analysis.column_statistics.ColumnDistributionType">ColumnDistributionType</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Classification of the column's distribution (categorical, numerical,
+text, other, or unknown).</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_statistics.SamplerColumnStatistics.distribution">distribution</span></code></td>
+            <td>
+                  <code><span title="typing.Optional">Optional</span>[<span title="typing.Union">Union</span>[<a class="autorefs autorefs-internal" title="            CategoricalDistribution (data_designer.config.analysis.column_statistics.CategoricalDistribution)" href="#data_designer.config.analysis.column_statistics.CategoricalDistribution">CategoricalDistribution</a>, <a class="autorefs autorefs-internal" title="            NumericalDistribution (data_designer.config.analysis.column_statistics.NumericalDistribution)" href="#data_designer.config.analysis.column_statistics.NumericalDistribution">NumericalDistribution</a>, <span title="data_designer.config.analysis.column_statistics.MissingValue">MissingValue</span>]]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Empirical distribution statistics for the generated values. Can be
+CategoricalDistribution (for discrete values), NumericalDistribution (for continuous
+values), or MissingValue if distribution could not be computed.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_statistics.SamplerColumnStatistics.column_type">column_type</span></code></td>
+            <td>
+                  <code><span title="typing.Literal">Literal</span>[<span title="data_designer.config.column_types.DataDesignerColumnType.SAMPLER.value">value</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Discriminator field, always "sampler" for this statistics type.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="data_designer.config.analysis.column_statistics.SeedDatasetColumnStatistics" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-class"></code>            <code>SeedDatasetColumnStatistics</code>
+
+
+</h2>
+
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="            GeneralColumnStatistics (data_designer.config.analysis.column_statistics.GeneralColumnStatistics)" href="#data_designer.config.analysis.column_statistics.GeneralColumnStatistics">GeneralColumnStatistics</a></code></p>
+
+
+        <p>Container for statistics on columns sourced from seed datasets.</p>
+<p>Inherits general statistics and stores statistics computed from columns that originate
+from existing data provided via the seed dataset functionality.</p>
+
+
+<p><span class="doc-section-title">Attributes:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_statistics.SeedDatasetColumnStatistics.column_type">column_type</span></code></td>
+            <td>
+                  <code><span title="typing.Literal">Literal</span>[<span title="data_designer.config.column_types.DataDesignerColumnType.SEED_DATASET.value">value</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Discriminator field, always "seed-dataset" for this statistics type.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="data_designer.config.analysis.column_statistics.ValidationColumnStatistics" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-class"></code>            <code>ValidationColumnStatistics</code>
+
+
+</h2>
+
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="            GeneralColumnStatistics (data_designer.config.analysis.column_statistics.GeneralColumnStatistics)" href="#data_designer.config.analysis.column_statistics.GeneralColumnStatistics">GeneralColumnStatistics</a></code></p>
+
+
+        <p>Container for statistics on validation result columns.</p>
+<p>Inherits general statistics plus validation-specific metrics including the count and
+percentage of records that passed validation. Stores results from validation logic
+(Python, SQL, or remote) executed against target columns.</p>
+
+
+<p><span class="doc-section-title">Attributes:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_statistics.ValidationColumnStatistics.num_valid_records">num_valid_records</span></code></td>
+            <td>
+                  <code><span title="typing.Union">Union</span>[<span title="int">int</span>, <span title="data_designer.config.analysis.column_statistics.MissingValue">MissingValue</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Number of records that passed validation.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_statistics.ValidationColumnStatistics.column_type">column_type</span></code></td>
+            <td>
+                  <code><span title="typing.Literal">Literal</span>[<span title="data_designer.config.column_types.DataDesignerColumnType.VALIDATION.value">value</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Discriminator field, always "validation" for this statistics type.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+
+
+
+  </div>
+
+    </div>
+
+</div><h2 id="column-profilers">Column Profilers</h2>
+<p>Column profilers are optional analysis tools that provide deeper insights into specific column types. Currently, the only column profiler available is the Judge Score Profiler.</p>
+<p>The classes below are result objects that store the computed profiler results and provide methods for formatting these results for display in reports.</p>
+
+
+<div class="doc doc-object doc-module">
+
+
+
+<a id="data_designer.config.analysis.column_profilers"></a>
+    <div class="doc doc-contents first">
+
+
+
+
+
+
+
+
+
+
+<p><span class="doc-section-title">Classes:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="            ColumnProfilerResults (data_designer.config.analysis.column_profilers.ColumnProfilerResults)" href="#data_designer.config.analysis.column_profilers.ColumnProfilerResults">ColumnProfilerResults</a></code></td>
+            <td>
+              <div class="doc-md-description">
+                <p>Abstract base class for column profiler results.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="            JudgeScoreDistributions (data_designer.config.analysis.column_profilers.JudgeScoreDistributions)" href="#data_designer.config.analysis.column_profilers.JudgeScoreDistributions">JudgeScoreDistributions</a></code></td>
+            <td>
+              <div class="doc-md-description">
+                <p>Container for computed distributions across all judge score dimensions.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="            JudgeScoreProfilerConfig (data_designer.config.analysis.column_profilers.JudgeScoreProfilerConfig)" href="#data_designer.config.analysis.column_profilers.JudgeScoreProfilerConfig">JudgeScoreProfilerConfig</a></code></td>
+            <td>
+              <div class="doc-md-description">
+                <p>Configuration for the LLM-as-a-judge score profiler.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="            JudgeScoreProfilerResults (data_designer.config.analysis.column_profilers.JudgeScoreProfilerResults)" href="#data_designer.config.analysis.column_profilers.JudgeScoreProfilerResults">JudgeScoreProfilerResults</a></code></td>
+            <td>
+              <div class="doc-md-description">
+                <p>Container for complete judge score profiler analysis results.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="            JudgeScoreSample (data_designer.config.analysis.column_profilers.JudgeScoreSample)" href="#data_designer.config.analysis.column_profilers.JudgeScoreSample">JudgeScoreSample</a></code></td>
+            <td>
+              <div class="doc-md-description">
+                <p>Container for a single judge score and its associated reasoning.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="            JudgeScoreSummary (data_designer.config.analysis.column_profilers.JudgeScoreSummary)" href="#data_designer.config.analysis.column_profilers.JudgeScoreSummary">JudgeScoreSummary</a></code></td>
+            <td>
+              <div class="doc-md-description">
+                <p>Container for an LLM-generated summary of a judge score dimension.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="data_designer.config.analysis.column_profilers.ColumnProfilerResults" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-class"></code>            <code>ColumnProfilerResults</code>
+
+
+</h2>
+
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="pydantic.BaseModel">BaseModel</span></code>, <code><span title="abc.ABC">ABC</span></code></p>
+
+
+        <p>Abstract base class for column profiler results.</p>
+<p>Stores results from column profiling operations. Subclasses hold profiler-specific
+analysis results and provide methods for generating formatted report sections for display.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+<p><span class="doc-section-title">Methods:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+            <tr class="doc-section-item">
+              <td><code><a class="autorefs autorefs-internal" title="            create_report_section() (data_designer.config.analysis.column_profilers.ColumnProfilerResults.create_report_section)" href="#data_designer.config.analysis.column_profilers.ColumnProfilerResults.create_report_section">create_report_section</a></code></td>
+              <td>
+                <div class="doc-md-description">
+                  <p>Creates a Rich Panel containing the formatted profiler results for display.</p>
+                </div>
+              </td>
+            </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="data_designer.config.analysis.column_profilers.ColumnProfilerResults.create_report_section" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <code class="highlight language-python"><span class="n">create_report_section</span><span class="p">()</span></code>
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Creates a Rich Panel containing the formatted profiler results for display.</p>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="rich.panel.Panel">Panel</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>A Rich Panel containing the formatted profiler results. Default implementation</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="rich.panel.Panel">Panel</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>returns a "Not Implemented" message; subclasses should override to provide</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="rich.panel.Panel">Panel</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>specific formatting.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+            <details class="quote">
+              <summary>Source code in <code>src/data_designer/config/analysis/column_profilers.py</code></summary>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">36</span>
+<span class="normal">37</span>
+<span class="normal">38</span>
+<span class="normal">39</span>
+<span class="normal">40</span>
+<span class="normal">41</span>
+<span class="normal">42</span>
+<span class="normal">43</span>
+<span class="normal">44</span>
+<span class="normal">45</span>
+<span class="normal">46</span>
+<span class="normal">47</span>
+<span class="normal">48</span>
+<span class="normal">49</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">create_report_section</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Panel</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Creates a Rich Panel containing the formatted profiler results for display.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        A Rich Panel containing the formatted profiler results. Default implementation</span>
+<span class="sd">        returns a &quot;Not Implemented&quot; message; subclasses should override to provide</span>
+<span class="sd">        specific formatting.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">Panel</span><span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;Report section generation not implemented for &#39;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">&#39;.&quot;</span><span class="p">,</span>
+        <span class="n">title</span><span class="o">=</span><span class="s2">&quot;Not Implemented&quot;</span><span class="p">,</span>
+        <span class="n">border_style</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;bold </span><span class="si">{</span><span class="n">ColorPalette</span><span class="o">.</span><span class="n">YELLOW</span><span class="o">.</span><span class="n">value</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+        <span class="n">padding</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">),</span>
+    <span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="data_designer.config.analysis.column_profilers.JudgeScoreDistributions" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-class"></code>            <code>JudgeScoreDistributions</code>
+
+
+</h2>
+
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="pydantic.BaseModel">BaseModel</span></code></p>
+
+
+        <p>Container for computed distributions across all judge score dimensions.</p>
+<p>Stores the complete distribution analysis for all score dimensions in an LLM-as-a-judge
+column. Each score dimension (e.g., "relevance", "fluency") has its own distribution
+computed from the generated data.</p>
+
+
+<p><span class="doc-section-title">Attributes:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_profilers.JudgeScoreDistributions.scores">scores</span></code></td>
+            <td>
+                  <code><span title="dict">dict</span>[<span title="str">str</span>, <span title="list">list</span>[<span title="typing.Union">Union</span>[<span title="int">int</span>, <span title="str">str</span>]]]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Mapping of each score dimension name to its list of score values.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_profilers.JudgeScoreDistributions.reasoning">reasoning</span></code></td>
+            <td>
+                  <code><span title="dict">dict</span>[<span title="str">str</span>, <span title="list">list</span>[<span title="str">str</span>]]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Mapping of each score dimension name to its list of reasoning texts.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_profilers.JudgeScoreDistributions.distribution_types">distribution_types</span></code></td>
+            <td>
+                  <code><span title="dict">dict</span>[<span title="str">str</span>, <span title="data_designer.config.analysis.column_statistics.ColumnDistributionType">ColumnDistributionType</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Mapping of each score dimension name to its classification.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_profilers.JudgeScoreDistributions.distributions">distributions</span></code></td>
+            <td>
+                  <code><span title="dict">dict</span>[<span title="str">str</span>, <span title="typing.Union">Union</span>[<a class="autorefs autorefs-internal" title="            CategoricalDistribution (data_designer.config.analysis.column_statistics.CategoricalDistribution)" href="#data_designer.config.analysis.column_statistics.CategoricalDistribution">CategoricalDistribution</a>, <a class="autorefs autorefs-internal" title="            NumericalDistribution (data_designer.config.analysis.column_statistics.NumericalDistribution)" href="#data_designer.config.analysis.column_statistics.NumericalDistribution">NumericalDistribution</a>, <span title="data_designer.config.analysis.column_statistics.MissingValue">MissingValue</span>]]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Mapping of each score dimension name to its computed distribution statistics.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_profilers.JudgeScoreDistributions.histograms">histograms</span></code></td>
+            <td>
+                  <code><span title="dict">dict</span>[<span title="str">str</span>, <span title="typing.Union">Union</span>[<a class="autorefs autorefs-internal" title="            CategoricalHistogramData (data_designer.config.analysis.column_statistics.CategoricalHistogramData)" href="#data_designer.config.analysis.column_statistics.CategoricalHistogramData">CategoricalHistogramData</a>, <span title="data_designer.config.analysis.column_statistics.MissingValue">MissingValue</span>]]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Mapping of each score dimension name to its histogram data.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="data_designer.config.analysis.column_profilers.JudgeScoreProfilerConfig" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-class"></code>            <code>JudgeScoreProfilerConfig</code>
+
+
+</h2>
+
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="data_designer.config.base.ConfigBase">ConfigBase</span></code></p>
+
+
+        <p>Configuration for the LLM-as-a-judge score profiler.</p>
+
+
+<p><span class="doc-section-title">Attributes:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_profilers.JudgeScoreProfilerConfig.model_alias">model_alias</span></code></td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Alias of the LLM model to use for generating score distribution summaries.
+Must match a model alias defined in the Data Designer configuration.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_profilers.JudgeScoreProfilerConfig.summary_score_sample_size">summary_score_sample_size</span></code></td>
+            <td>
+                  <code><span title="typing.Optional">Optional</span>[<span title="int">int</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Number of score samples to include when prompting the LLM
+to generate summaries. Larger sample sizes provide more context but increase
+token usage. Must be at least 1. Defaults to 20.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="data_designer.config.analysis.column_profilers.JudgeScoreProfilerResults" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-class"></code>            <code>JudgeScoreProfilerResults</code>
+
+
+</h2>
+
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="            ColumnProfilerResults (data_designer.config.analysis.column_profilers.ColumnProfilerResults)" href="#data_designer.config.analysis.column_profilers.ColumnProfilerResults">ColumnProfilerResults</a></code></p>
+
+
+        <p>Container for complete judge score profiler analysis results.</p>
+
+
+<p><span class="doc-section-title">Attributes:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_profilers.JudgeScoreProfilerResults.column_name">column_name</span></code></td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Name of the judge column that was profiled.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_profilers.JudgeScoreProfilerResults.summaries">summaries</span></code></td>
+            <td>
+                  <code><span title="dict">dict</span>[<span title="str">str</span>, <a class="autorefs autorefs-internal" title="            JudgeScoreSummary (data_designer.config.analysis.column_profilers.JudgeScoreSummary)" href="#data_designer.config.analysis.column_profilers.JudgeScoreSummary">JudgeScoreSummary</a>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Mapping of each score dimension name to its LLM-generated summary.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_profilers.JudgeScoreProfilerResults.score_distributions">score_distributions</span></code></td>
+            <td>
+                  <code><span title="typing.Union">Union</span>[<a class="autorefs autorefs-internal" title="            JudgeScoreDistributions (data_designer.config.analysis.column_profilers.JudgeScoreDistributions)" href="#data_designer.config.analysis.column_profilers.JudgeScoreDistributions">JudgeScoreDistributions</a>, <span title="data_designer.config.analysis.column_statistics.MissingValue">MissingValue</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Complete distribution analysis across all score dimensions.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="data_designer.config.analysis.column_profilers.JudgeScoreSample" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-class"></code>            <code>JudgeScoreSample</code>
+
+
+</h2>
+
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="pydantic.BaseModel">BaseModel</span></code></p>
+
+
+        <p>Container for a single judge score and its associated reasoning.</p>
+<p>Stores a paired score-reasoning sample extracted from an LLM-as-a-judge column.
+Used when generating summaries to provide the LLM with examples of scoring patterns.</p>
+
+
+<p><span class="doc-section-title">Attributes:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_profilers.JudgeScoreSample.score">score</span></code></td>
+            <td>
+                  <code><span title="typing.Union">Union</span>[<span title="int">int</span>, <span title="str">str</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The score value assigned by the judge. Can be numeric (int) or categorical (str).</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_profilers.JudgeScoreSample.reasoning">reasoning</span></code></td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The reasoning or explanation provided by the judge for this score.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="data_designer.config.analysis.column_profilers.JudgeScoreSummary" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-class"></code>            <code>JudgeScoreSummary</code>
+
+
+</h2>
+
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="pydantic.BaseModel">BaseModel</span></code></p>
+
+
+        <p>Container for an LLM-generated summary of a judge score dimension.</p>
+<p>Stores the natural language summary and sample data for a single score dimension
+generated by the judge score profiler. The summary is created by an LLM analyzing
+the distribution and patterns in the score-reasoning pairs.</p>
+
+
+<p><span class="doc-section-title">Attributes:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_profilers.JudgeScoreSummary.score_name">score_name</span></code></td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Name of the score dimension being summarized (e.g., "relevance", "fluency").</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_profilers.JudgeScoreSummary.summary">summary</span></code></td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>LLM-generated natural language summary describing the scoring patterns,
+distribution characteristics, and notable trends for this score dimension.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.column_profilers.JudgeScoreSummary.score_samples">score_samples</span></code></td>
+            <td>
+                  <code><span title="list">list</span>[<a class="autorefs autorefs-internal" title="            JudgeScoreSample (data_designer.config.analysis.column_profilers.JudgeScoreSample)" href="#data_designer.config.analysis.column_profilers.JudgeScoreSample">JudgeScoreSample</a>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>List of score-reasoning pairs that were used to generate the summary.
+These are the examples of the scoring behavior that were used to generate the summary.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+
+
+
+  </div>
+
+    </div>
+
+</div><h2 id="dataset-profiler">Dataset Profiler</h2>
+<p>The <a href="#data_designer.config.analysis.dataset_profiler.DatasetProfilerResults">DatasetProfilerResults</a> class contains complete profiling results for a generated dataset. It aggregates column-level statistics, metadata, and profiler results, and provides methods to:</p>
+<ul>
+<li>Compute dataset-level metrics (completion percentage, column type summary)</li>
+<li>Filter statistics by column type</li>
+<li>Generate formatted analysis reports via the <code>to_report()</code> method</li>
+</ul>
+<p>Reports can be displayed in the console or exported to HTML/SVG formats.</p>
+
+
+<div class="doc doc-object doc-module">
+
+
+
+<a id="data_designer.config.analysis.dataset_profiler"></a>
+    <div class="doc doc-contents first">
+
+
+
+
+
+
+
+
+
+
+<p><span class="doc-section-title">Classes:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="            DatasetProfilerResults (data_designer.config.analysis.dataset_profiler.DatasetProfilerResults)" href="#data_designer.config.analysis.dataset_profiler.DatasetProfilerResults">DatasetProfilerResults</a></code></td>
+            <td>
+              <div class="doc-md-description">
+                <p>Container for complete dataset profiling and analysis results.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="data_designer.config.analysis.dataset_profiler.DatasetProfilerResults" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-class"></code>            <code>DatasetProfilerResults</code>
+
+
+</h2>
+
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="pydantic.BaseModel">BaseModel</span></code></p>
+
+
+        <p>Container for complete dataset profiling and analysis results.</p>
+<p>Stores profiling results for a generated dataset, including statistics for all columns,
+dataset-level metadata, and optional advanced profiler results. Provides methods for
+computing derived metrics and generating formatted reports.</p>
+
+
+<p><span class="doc-section-title">Attributes:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.dataset_profiler.DatasetProfilerResults.num_records">num_records</span></code></td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Actual number of records successfully generated in the dataset.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.dataset_profiler.DatasetProfilerResults.target_num_records">target_num_records</span></code></td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Target number of records that were requested to be generated.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.dataset_profiler.DatasetProfilerResults.column_statistics">column_statistics</span></code></td>
+            <td>
+                  <code><span title="list">list</span>[<span title="typing.Annotated">Annotated</span>[<span title="data_designer.config.analysis.column_statistics.ColumnStatisticsT">ColumnStatisticsT</span>, <span title="pydantic.Field">Field</span>(discriminator=<span title="column_type">column_type</span>)]]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>List of statistics objects for all columns in the dataset. Each
+column has statistics appropriate to its type. Must contain at least one column.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.dataset_profiler.DatasetProfilerResults.side_effect_column_names">side_effect_column_names</span></code></td>
+            <td>
+                  <code><span title="typing.Optional">Optional</span>[<span title="list">list</span>[<span title="str">str</span>]]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Column names that were generated as side effects of other columns.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.analysis.dataset_profiler.DatasetProfilerResults.column_profiles">column_profiles</span></code></td>
+            <td>
+                  <code><span title="typing.Optional">Optional</span>[<span title="list">list</span>[<span title="data_designer.config.analysis.column_profilers.ColumnProfilerResultsT">ColumnProfilerResultsT</span>]]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Column profiler results for specific columns when configured.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+
+
+
+
+<p><span class="doc-section-title">Methods:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+            <tr class="doc-section-item">
+              <td><code><a class="autorefs autorefs-internal" title="            get_column_statistics_by_type(column_type) (data_designer.config.analysis.dataset_profiler.DatasetProfilerResults.get_column_statistics_by_type)" href="#data_designer.config.analysis.dataset_profiler.DatasetProfilerResults.get_column_statistics_by_type">get_column_statistics_by_type</a></code></td>
+              <td>
+                <div class="doc-md-description">
+                  <p>Filters column statistics to return only those of the specified type.</p>
+                </div>
+              </td>
+            </tr>
+            <tr class="doc-section-item">
+              <td><code><a class="autorefs autorefs-internal" title="            to_report(save_path=None, include_sections=None) (data_designer.config.analysis.dataset_profiler.DatasetProfilerResults.to_report)" href="#data_designer.config.analysis.dataset_profiler.DatasetProfilerResults.to_report">to_report</a></code></td>
+              <td>
+                <div class="doc-md-description">
+                  <p>Generate and print an analysis report based on the dataset profiling results.</p>
+                </div>
+              </td>
+            </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="data_designer.config.analysis.dataset_profiler.DatasetProfilerResults.column_types" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-attribute"></code>            <code class="highlight language-python"><span class="n">column_types</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-cached"><code>cached</code></small>
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Returns a sorted list of unique column types present in the dataset.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="data_designer.config.analysis.dataset_profiler.DatasetProfilerResults.percent_complete" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-attribute"></code>            <code class="highlight language-python"><span class="n">percent_complete</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Returns the completion percentage of the dataset.</p>
+
+    </div>
+
+</div>
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="data_designer.config.analysis.dataset_profiler.DatasetProfilerResults.get_column_statistics_by_type" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <code class="highlight language-python"><span class="n">get_column_statistics_by_type</span><span class="p">(</span><span class="n">column_type</span><span class="p">)</span></code>
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Filters column statistics to return only those of the specified type.</p>
+
+
+            <details class="quote">
+              <summary>Source code in <code>src/data_designer/config/analysis/dataset_profiler.py</code></summary>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">58</span>
+<span class="normal">59</span>
+<span class="normal">60</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">get_column_statistics_by_type</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">column_type</span><span class="p">:</span> <span class="n">DataDesignerColumnType</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">ColumnStatisticsT</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Filters column statistics to return only those of the specified type.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="p">[</span><span class="n">c</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">column_statistics</span> <span class="k">if</span> <span class="n">c</span><span class="o">.</span><span class="n">column_type</span> <span class="o">==</span> <span class="n">column_type</span><span class="p">]</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="data_designer.config.analysis.dataset_profiler.DatasetProfilerResults.to_report" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <code class="highlight language-python"><span class="n">to_report</span><span class="p">(</span><span class="n">save_path</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">include_sections</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Generate and print an analysis report based on the dataset profiling results.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>save_path</code>
+            </td>
+            <td>
+                  <code><span title="typing.Optional">Optional</span>[<span title="typing.Union">Union</span>[<span title="str">str</span>, <span title="pathlib.Path">Path</span>]]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Optional path to save the report. If provided, the report will be saved
+  as either HTML (.html) or SVG (.svg) format. If None, the report will
+  only be displayed in the console.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>include_sections</code>
+            </td>
+            <td>
+                  <code><span title="typing.Optional">Optional</span>[<span title="list">list</span>[<span title="typing.Union">Union</span>[<span title="data_designer.config.analysis.utils.reporting.ReportSection">ReportSection</span>, <span title="data_designer.config.column_types.DataDesignerColumnType">DataDesignerColumnType</span>]]]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Optional list of sections to include in the report. Choices are
+  any DataDesignerColumnType, "overview" (the dataset overview section),
+  and "column_profilers" (all column profilers in one section). If None,
+  all sections will be included.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+            <details class="quote">
+              <summary>Source code in <code>src/data_designer/config/analysis/dataset_profiler.py</code></summary>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">62</span>
+<span class="normal">63</span>
+<span class="normal">64</span>
+<span class="normal">65</span>
+<span class="normal">66</span>
+<span class="normal">67</span>
+<span class="normal">68</span>
+<span class="normal">69</span>
+<span class="normal">70</span>
+<span class="normal">71</span>
+<span class="normal">72</span>
+<span class="normal">73</span>
+<span class="normal">74</span>
+<span class="normal">75</span>
+<span class="normal">76</span>
+<span class="normal">77</span>
+<span class="normal">78</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">to_report</span><span class="p">(</span>
+    <span class="bp">self</span><span class="p">,</span>
+    <span class="n">save_path</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Path</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">include_sections</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="n">ReportSection</span><span class="p">,</span> <span class="n">DataDesignerColumnType</span><span class="p">]]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Generate and print an analysis report based on the dataset profiling results.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        save_path: Optional path to save the report. If provided, the report will be saved</span>
+<span class="sd">              as either HTML (.html) or SVG (.svg) format. If None, the report will</span>
+<span class="sd">              only be displayed in the console.</span>
+<span class="sd">        include_sections: Optional list of sections to include in the report. Choices are</span>
+<span class="sd">              any DataDesignerColumnType, &quot;overview&quot; (the dataset overview section),</span>
+<span class="sd">              and &quot;column_profilers&quot; (all column profilers in one section). If None,</span>
+<span class="sd">              all sections will be included.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">generate_analysis_report</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">save_path</span><span class="p">,</span> <span class="n">include_sections</span><span class="o">=</span><span class="n">include_sections</span><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../validator_params/" class="md-footer__link md-footer__link--prev" aria-label="Previous: validator_params">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                validator_params
+              </div>
+            </div>
+          </a>
+        
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      <script id="__config" type="application/json">{"base": "../..", "features": ["navigation.tabs", "navigation.expand", "navigation.path", "navigation.footer", "content.code.copy", "content.code.select", "content.code.annotate"], "search": "../../assets/javascripts/workers/search.973d3a69.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"alias": true, "default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.f55a23d4.min.js"></script>
+      
+        <script src="../../js/toc-toggle.js"></script>
+      
+    
+  </body>
+</html>
