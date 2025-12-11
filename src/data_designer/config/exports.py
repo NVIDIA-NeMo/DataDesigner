@@ -32,7 +32,11 @@ from data_designer.config.models import (
     UniformDistribution,
     UniformDistributionParams,
 )
-from data_designer.config.processors import DropColumnsProcessorConfig, ProcessorType
+from data_designer.config.processors import (
+    DropColumnsProcessorConfig,
+    ProcessorType,
+    SchemaTransformProcessorConfig,
+)
 from data_designer.config.sampler_constraints import ColumnInequalityConstraint, ScalarInequalityConstraint
 from data_designer.config.sampler_params import (
     BernoulliMixtureSamplerParams,
@@ -69,6 +73,7 @@ from data_designer.config.validator_params import (
 
 def get_config_exports() -> list[str]:
     return [
+        SchemaTransformProcessorConfig.__name__,
         BernoulliMixtureSamplerParams.__name__,
         BernoulliSamplerParams.__name__,
         BinomialSamplerParams.__name__,

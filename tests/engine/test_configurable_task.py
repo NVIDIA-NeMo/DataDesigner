@@ -68,6 +68,7 @@ def test_configurable_task_concrete_implementation():
     mock_artifact_storage.final_dataset_folder_name = "final_dataset"
     mock_artifact_storage.partial_results_folder_name = "partial_results"
     mock_artifact_storage.dropped_columns_folder_name = "dropped_columns"
+    mock_artifact_storage.processors_outputs_folder_name = "processors_outputs"
     resource_provider = ResourceProvider(artifact_storage=mock_artifact_storage)
 
     task = TestTask(config=config, resource_provider=resource_provider)
@@ -99,6 +100,7 @@ def test_configurable_task_config_validation():
     mock_artifact_storage.final_dataset_folder_name = "final_dataset"
     mock_artifact_storage.partial_results_folder_name = "partial_results"
     mock_artifact_storage.dropped_columns_folder_name = "dropped_columns"
+    mock_artifact_storage.processors_outputs_folder_name = "processors_outputs"
     resource_provider = ResourceProvider(artifact_storage=mock_artifact_storage)
 
     task = TestTask(config=config, resource_provider=resource_provider)
@@ -137,6 +139,7 @@ def test_configurable_task_resource_validation():
     mock_artifact_storage.final_dataset_folder_name = "final_dataset"
     mock_artifact_storage.partial_results_folder_name = "partial_results"
     mock_artifact_storage.dropped_columns_folder_name = "dropped_columns"
+    mock_artifact_storage.processors_outputs_folder_name = "processors_outputs"
     mock_model_registry = Mock(spec=ModelRegistry)
     resource_provider = ResourceProvider(artifact_storage=mock_artifact_storage, model_registry=mock_model_registry)
     task = TestTask(config=config, resource_provider=resource_provider)

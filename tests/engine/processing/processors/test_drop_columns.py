@@ -14,7 +14,9 @@ from data_designer.engine.processing.processors.drop_columns import DropColumnsP
 
 @pytest.fixture
 def stub_processor_config():
-    return DropColumnsProcessorConfig(build_stage=BuildStage.POST_BATCH, column_names=["col1", "col2"])
+    return DropColumnsProcessorConfig(
+        name="drop_columns_processor", build_stage=BuildStage.POST_BATCH, column_names=["col1", "col2"]
+    )
 
 
 @pytest.fixture
@@ -38,7 +40,7 @@ def stub_empty_dataframe():
 def test_metadata():
     metadata = DropColumnsProcessor.metadata()
 
-    assert metadata.name == "drop_columns"
+    assert metadata.name == "drop_columns_processor"
     assert metadata.description == "Drop columns from the input dataset."
     assert metadata.required_resources is None
 

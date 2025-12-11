@@ -14,7 +14,10 @@ from data_designer.config.column_configs import (
 )
 from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.models import ImageContext, ModalityDataType
-from data_designer.config.processors import DropColumnsProcessorConfig
+from data_designer.config.processors import (
+    DropColumnsProcessorConfig,
+    SchemaTransformProcessorConfig,
+)
 from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.utils.validation import (
     Violation,
@@ -26,6 +29,7 @@ from data_designer.config.utils.validation import (
     validate_data_designer_config,
     validate_expression_references,
     validate_prompt_templates,
+    validate_schema_transform_processor,
 )
 from data_designer.config.validator_params import CodeValidatorParams
 
@@ -98,9 +102,15 @@ INVALID_COLUMNS = [
 COLUMNS = VALID_COLUMNS + INVALID_COLUMNS
 PROCESSOR_CONFIGS = [
     DropColumnsProcessorConfig(
+        name="drop_columns_processor",
         column_names=["inexistent_column"],
         build_stage=BuildStage.POST_BATCH,
-    )
+    ),
+    SchemaTransformProcessorConfig(
+        name="schema_transform_processor_invalid_reference",
+        template={"text": "{{ invalid_reference }}"},
+        build_stage=BuildStage.POST_BATCH,
+    ),
 ]
 ALLOWED_REFERENCE = [c.name for c in COLUMNS]
 
@@ -110,12 +120,14 @@ ALLOWED_REFERENCE = [c.name for c in COLUMNS]
 @patch("data_designer.config.utils.validation.validate_expression_references")
 @patch("data_designer.config.utils.validation.validate_columns_not_all_dropped")
 @patch("data_designer.config.utils.validation.validate_drop_columns_processor")
+@patch("data_designer.config.utils.validation.validate_schema_transform_processor")
 def test_validate_data_designer_config(
     mock_validate_columns_not_all_dropped,
     mock_validate_expression_references,
     mock_validate_code_validation,
     mock_validate_prompt_templates,
     mock_validate_drop_columns_processor,
+    mock_validate_schema_transform_processor,
 ):
     mock_validate_columns_not_all_dropped.return_value = [
         Violation(
@@ -157,13 +169,23 @@ def test_validate_data_designer_config(
             level=ViolationLevel.ERROR,
         )
     ]
+    mock_validate_schema_transform_processor.return_value = [
+        Violation(
+            column="text",
+            type=ViolationType.INVALID_REFERENCE,
+            message="Ancillary dataset processor attempts to reference columns 'invalid_reference' in the template for 'text', but the columns are not defined in the dataset.",
+            level=ViolationLevel.ERROR,
+        )
+    ]
+
     violations = validate_data_designer_config(COLUMNS, PROCESSOR_CONFIGS, ALLOWED_REFERENCE)
-    assert len(violations) == 5
+    assert len(violations) == 6
     mock_validate_columns_not_all_dropped.assert_called_once()
     mock_validate_expression_references.assert_called_once()
     mock_validate_code_validation.assert_called_once()
     mock_validate_prompt_templates.assert_called_once()
     mock_validate_drop_columns_processor.assert_called_once()
+    mock_validate_schema_transform_processor.assert_called_once()
 
 
 def test_validate_prompt_templates():
@@ -246,6 +268,18 @@ def test_validate_expression_references():
     )
     assert len(violations) == 1
     assert violations[0].type == ViolationType.EXPRESSION_REFERENCE_MISSING
+
+
+def test_validate_schema_transform_processor():
+    violations = validate_schema_transform_processor(COLUMNS, PROCESSOR_CONFIGS)
+    assert len(violations) == 1
+    assert violations[0].type == ViolationType.INVALID_REFERENCE
+    assert violations[0].column is None
+    assert (
+        violations[0].message
+        == "Ancillary dataset processor attempts to reference columns 'invalid_reference' in the template for 'text', but the columns are not defined in the dataset."
+    )
+    assert violations[0].level == ViolationLevel.ERROR
 
 
 @patch("data_designer.config.utils.validation.Console.print")

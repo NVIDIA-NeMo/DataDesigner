@@ -72,6 +72,9 @@ class WithRecordSamplerMixin:
         else:
             raise DatasetSampleDisplayError("No valid dataset found in results object.")
 
+    def _has_processor_artifacts(self) -> bool:
+        return hasattr(self, "processor_artifacts") and self.processor_artifacts is not None
+
     def display_sample_record(
         self,
         index: Optional[int] = None,
@@ -79,6 +82,7 @@ class WithRecordSamplerMixin:
         hide_seed_columns: bool = False,
         syntax_highlighting_theme: str = "dracula",
         background_color: Optional[str] = None,
+        processors_to_display: Optional[list[str]] = None,
     ) -> None:
         """Display a sample record from the Data Designer dataset preview.
 
@@ -90,6 +94,7 @@ class WithRecordSamplerMixin:
                 documentation from `rich` for information about available themes.
             background_color: Background color to use for the record. See the `Syntax`
                 documentation from `rich` for information about available background colors.
+            processors_to_display: List of processors to display the artifacts for. If None, all processors will be displayed.
         """
         i = index or self._display_cycle_index
 
@@ -99,8 +104,25 @@ class WithRecordSamplerMixin:
         except IndexError:
             raise DatasetSampleDisplayError(f"Index {i} is out of bounds for dataset of length {num_records}.")
 
+        processor_data_to_display = None
+        if self._has_processor_artifacts() and len(self.processor_artifacts) > 0:
+            if processors_to_display is None:
+                processors_to_display = list(self.processor_artifacts.keys())
+
+            if len(processors_to_display) > 0:
+                processor_data_to_display = {}
+                for processor in processors_to_display:
+                    if (
+                        isinstance(self.processor_artifacts[processor], list)
+                        and len(self.processor_artifacts[processor]) == num_records
+                    ):
+                        processor_data_to_display[processor] = self.processor_artifacts[processor][i]
+                    else:
+                        processor_data_to_display[processor] = self.processor_artifacts[processor]
+
         display_sample_record(
             record=record,
+            processor_data_to_display=processor_data_to_display,
             config_builder=self._config_builder,
             background_color=background_color,
             syntax_highlighting_theme=syntax_highlighting_theme,
@@ -134,6 +156,7 @@ def create_rich_histogram_table(
 def display_sample_record(
     record: Union[dict, pd.Series, pd.DataFrame],
     config_builder: DataDesignerConfigBuilder,
+    processor_data_to_display: Optional[dict[str, Union[list[str], str]]] = None,
     background_color: Optional[str] = None,
     syntax_highlighting_theme: str = "dracula",
     record_index: Optional[int] = None,
@@ -229,6 +252,15 @@ def display_sample_record(
                 row.append(f"score: {results['score']}\nreasoning: {results['reasoning']}")
             table.add_row(*row)
             render_list.append(pad_console_element(table, (1, 0, 1, 0)))
+
+    if processor_data_to_display and len(processor_data_to_display) > 0:
+        for processor_name, processor_data in processor_data_to_display.items():
+            table = Table(title=f"Processor Outputs: {processor_name}", **table_kws)
+            table.add_column("Name")
+            table.add_column("Value")
+            for col, value in processor_data.items():
+                table.add_row(col, convert_to_row_element(value))
+        render_list.append(pad_console_element(table, (1, 0, 1, 0)))
 
     if record_index is not None:
         index_label = Text(f"[index: {record_index}]", justify="center")

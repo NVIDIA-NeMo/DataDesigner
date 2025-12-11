@@ -249,6 +249,17 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         except Exception as e:
             raise DataDesignerProfilingError(f"🛑 Error profiling preview dataset: {e}")
 
+        if builder.artifact_storage.processors_outputs_path.exists():
+            processor_artifacts = {
+                processor_config.name: pd.read_parquet(
+                    builder.artifact_storage.processors_outputs_path / f"{processor_config.name}.parquet",
+                    dtype_backend="pyarrow",
+                ).to_dict(orient="records")
+                for processor_config in config_builder.get_processor_configs()
+            }
+        else:
+            processor_artifacts = {}
+
         if (
             len(processed_dataset) > 0
             and isinstance(analysis, DatasetProfilerResults)
@@ -259,6 +270,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         return PreviewResults(
             dataset=processed_dataset,
             analysis=analysis,
+            processor_artifacts=processor_artifacts,
             config_builder=config_builder,
         )
 
