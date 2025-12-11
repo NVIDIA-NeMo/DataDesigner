@@ -26,21 +26,20 @@ Run the cells below to set up the environment for Google Colab.
 """
 
 ADDITIONAL_DEPENDENCIES = {
-    "4-providing-images-as-context.py": "pillow",
+    "4-providing-images-as-context.py": " pillow",
 }
 
 COLAB_INSTALL_CELL = """\
 # Install data-designer and dependencies
-!pip install -q data-designer {}
-"""
+!pip install -q data-designer{}"""
 
 COLAB_API_KEY_CELL = """\
 # Set up NVIDIA API key from Colab secrets
+import os
+
 from google.colab import userdata
 
-import os
-os.environ["NVIDIA_API_KEY"] = userdata.get("NVIDIA_API_KEY")
-"""
+os.environ["NVIDIA_API_KEY"] = userdata.get("NVIDIA_API_KEY")"""
 
 
 def create_colab_setup_cells(additional_dependencies: str) -> list[NotebookNode]:
