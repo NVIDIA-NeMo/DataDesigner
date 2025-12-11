@@ -15,14 +15,13 @@ from __future__ import annotations
 import asyncio
 import os
 import platform
-import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, ClassVar
 
 import httpx
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 TELEMETRY_ENABLED = os.getenv("NEMO_TELEMETRY_ENABLED", "true").lower() in ("1", "true", "yes")
 CLIENT_ID = "184482118588404"
@@ -71,7 +70,7 @@ class TaskStatusEnum(str, Enum):
 
 class TelemetryEvent(BaseModel):
     _event_name: ClassVar[str]  # Subclasses must define this
-    _schema_version: ClassVar[str] = "1.2"
+    _schema_version: ClassVar[str] = "1.3"
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
@@ -108,7 +107,7 @@ class InferenceEvent(TelemetryEvent):
     model_group: str = Field(
         default="undefined",
         alias="modelGroup",
-        description="An optional ephemeral group identifier (UUID) that can group multiple inference events together.",
+        description="An optional identifier to group models together.",
     )
     input_bytes: int = Field(
         default=-1,
@@ -139,17 +138,6 @@ class InferenceEvent(TelemetryEvent):
         le=9223372036854775807,
     )
 
-    @field_validator("model_group")
-    @classmethod
-    def validate_model_group(cls, v: str) -> str:
-        if v == "undefined":
-            return v
-        try:
-            uuid.UUID(v)
-            return v
-        except ValueError:
-            return "undefined"
-
     model_config = {"populate_by_name": True}
 
 
@@ -166,7 +154,9 @@ def _get_iso_timestamp(dt: datetime | None = None) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%S.") + f"{dt.microsecond // 1000:03d}Z"
 
 
-def build_payload(events: list[QueuedEvent], *, source_client_version: str) -> dict[str, Any]:
+def build_payload(
+    events: list[QueuedEvent], *, source_client_version: str, session_id: str = "undefined"
+) -> dict[str, Any]:
     """Build the full GFE telemetry payload from a list of queued events."""
     return {
         "browserType": "undefined",  # do not change
@@ -196,7 +186,7 @@ def build_payload(events: list[QueuedEvent], *, source_client_version: str) -> d
         "productName": "undefined",  # do not change
         "productVersion": "undefined",  # do not change
         "sentTs": _get_iso_timestamp(),
-        "sessionId": "undefined",  # do not change
+        "sessionId": session_id,
         "userId": "undefined",  # do not change
         "events": [
             {
@@ -228,6 +218,7 @@ class TelemetryHandler:
         max_queue_size: int = 50,
         max_retries: int = MAX_RETRIES,
         source_client_version: str = "undefined",
+        session_id: str = "undefined",
     ):
         self._flush_interval = flush_interval_seconds
         self._max_queue_size = max_queue_size
@@ -238,6 +229,7 @@ class TelemetryHandler:
         self._timer_task: asyncio.Task | None = None
         self._running = False
         self._source_client_version = source_client_version
+        self._session_id = session_id
 
     async def astart(self) -> None:
         if self._running:
@@ -316,7 +308,7 @@ class TelemetryHandler:
                     self._flush_signal.wait(),
                     timeout=self._flush_interval,
                 )
-            except TimeoutError:
+            except asyncio.TimeoutError:
                 pass
             self._flush_signal.clear()
             await self._flush_events()
@@ -336,13 +328,9 @@ class TelemetryHandler:
         if not events:
             return
 
-        payload = build_payload(events, source_client_version=self._source_client_version)
+        payload = build_payload(events, source_client_version=self._source_client_version, session_id=self._session_id)
         try:
             response = await client.post(NEMO_TELEMETRY_ENDPOINT, json=payload)
-            try:
-                print(response.json())
-            except Exception:
-                pass
             # 2xx, 400, 422 are all considered complete (no retry)
             # 400/422 indicate bad payload which retrying won't fix
             if response.status_code in (400, 422) or response.is_success:

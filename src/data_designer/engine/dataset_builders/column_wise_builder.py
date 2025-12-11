@@ -333,13 +333,12 @@ class ColumnWiseDatasetBuilder:
                         task=batch_mode,
                         task_status=TaskStatusEnum.SUCCESS,
                         model=model.model_name,
-                        model_group=group_id,
                         input_tokens=delta_prompt,
                         output_tokens=delta_completion,
                     )
                 )
 
         if events:
-            with TelemetryHandler(source_client_version=_CLIENT_VERSION) as telemetry_handler:
+            with TelemetryHandler(source_client_version=_CLIENT_VERSION, session_id=group_id) as telemetry_handler:
                 for event in events:
                     telemetry_handler.enqueue(event)
