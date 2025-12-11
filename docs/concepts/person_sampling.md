@@ -98,7 +98,7 @@ ngc registry resource download-version "nvidia/nemotron-personas/nemotron-person
 Then move the downloaded dataset to the Data Designer managed assets directory:
 ```bash
 mkdir -p ~/.data-designer/managed-assets/datasets/
-mv nemotron-personas-dataset-en_us_* ~/.data-designer/managed-assets/datasets/
+mv nemotron-personas-dataset-* ~/.data-designer/managed-assets/datasets/
 ```
 
 #### Step 3: Use PersonSampler in Your Code
