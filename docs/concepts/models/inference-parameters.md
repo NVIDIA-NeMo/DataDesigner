@@ -142,6 +142,7 @@ The `EmbeddingInferenceParams` class controls how models generate embeddings. Th
 
 ## See Also
 
+- **[Default Model Settings](default-model-settings.md)**: Pre-configured model settings included with Data Designer
+- **[Custom Model Settings](custom-model-settings.md)**: Learn how to create custom providers and model configurations
 - **[Model Configurations](model-configs.md)**: Learn about configuring model settings
 - **[Model Providers](model-providers.md)**: Learn about configuring model providers
-- **[Default Model Settings](default-model-settings.md)**: Pre-configured model settings included with Data Designer
