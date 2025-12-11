@@ -73,3 +73,25 @@ def test_judge_score_factory_create_judge_structured_output_model():
 
     assert issubclass(model_class, BaseModel)
     assert "quality_score" in model_class.model_fields
+
+
+def test_judge_score_factory_preserves_score_name_casing():
+    """Test that Score name casing is preserved in the JSON output keys."""
+    score = Score(
+        name="Some Name with mixed - Casing",
+        description="Some information about the score.",
+        options={"5": "Fantastic", "3": "Needs improvement", "1": "Terrible"},
+    )
+
+    response_model = create_judge_response_model(score)
+    model_class = create_judge_structured_output_model([response_model])
+
+    assert issubclass(model_class, BaseModel)
+    assert "Some Name with mixed - Casing" in model_class.model_fields
+
+    instance = model_class(**{"Some Name with mixed - Casing": {"score": "5", "reasoning": "Test reasoning"}})
+    assert hasattr(instance, "Some Name with mixed - Casing")
+    output_dict = instance.model_dump()
+    assert "Some Name with mixed - Casing" in output_dict
+    assert output_dict["Some Name with mixed - Casing"]["score"] == "5"
+    assert output_dict["Some Name with mixed - Casing"]["reasoning"] == "Test reasoning"

@@ -53,5 +53,5 @@ def create_judge_structured_output_model(
         "JudgeStructuredOutput",
         __doc__=f"Response schema for scores with the following names: {[response.__name__ for response in judge_responses]}.",
         __base__=BaseModel,
-        **{response.__name__.lower(): (response, ...) for response in judge_responses},
+        **{response.__name__: (response, ...) for response in judge_responses},
     )
