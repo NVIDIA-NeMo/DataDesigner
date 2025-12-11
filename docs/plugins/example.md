@@ -108,7 +108,7 @@ class IndexMultiplierColumnGenerator(ColumnGenerator[IndexMultiplierColumnConfig
 
 - Generic type `ColumnGenerator[IndexMultiplierColumnConfig]` connects the task to its config
 - `metadata()` describes your generator and its requirements
-- `generation_strategy` can be `FULL_COLUMN`, `ROW_WISE`, or `BATCH`
+- `generation_strategy` can be `FULL_COLUMN`, `CELL_BY_CELL`
 - `required_resources` lists any required resources (models, artifact storage, etc.). This parameter will change in the future, so keeping it as `None` is safe for now.
 - Access configuration parameters via `self.config`
 
