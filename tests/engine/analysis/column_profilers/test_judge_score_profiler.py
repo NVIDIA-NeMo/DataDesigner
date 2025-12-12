@@ -28,11 +28,11 @@ from data_designer.engine.analysis.utils.judge_score_processing import JudgeScor
 @pytest.fixture
 def stub_judge_data():
     return [
-        {"quality": {"score": 4, "reasoning": "Excellent implementation"}},
-        {"quality": {"score": 3, "reasoning": "Good implementation"}},
-        {"quality": {"score": 2, "reasoning": "Fair implementation"}},
-        {"quality": {"score": 1, "reasoning": "Poor implementation"}},
-        {"quality": {"score": 0, "reasoning": "Very poor implementation"}},
+        {"Quality": {"score": 4, "reasoning": "Excellent implementation"}},
+        {"Quality": {"score": 3, "reasoning": "Good implementation"}},
+        {"Quality": {"score": 2, "reasoning": "Fair implementation"}},
+        {"Quality": {"score": 1, "reasoning": "Poor implementation"}},
+        {"Quality": {"score": 0, "reasoning": "Very poor implementation"}},
     ]
 
 
@@ -87,7 +87,7 @@ def test_judge_score_profiler_profile_success(
 
     assert isinstance(result, JudgeScoreProfilerResults)
     assert len(result.summaries) == 1
-    assert result.summaries["quality"].score_name == "quality"
+    assert result.summaries["Quality"].score_name == "Quality"
     assert result.score_distributions == stub_judge_distributions
 
     stub_extract_judge_score_distributions.assert_called_once_with(stub_judge_column_config, stub_dataframe)
@@ -127,16 +127,16 @@ def test_judge_score_profiler_multiple_rubrics(
     )
 
     mock_distributions = JudgeScoreDistributions(
-        scores={"quality": [4, 3], "clarity": [4, 3]},
-        reasoning={"quality": ["Excellent", "Good"], "clarity": ["Clear", "Unclear"]},
-        distribution_types={"quality": ColumnDistributionType.NUMERICAL, "clarity": ColumnDistributionType.NUMERICAL},
+        scores={"Quality": [4, 3], "Clarity": [4, 3]},
+        reasoning={"Quality": ["Excellent", "Good"], "Clarity": ["Clear", "Unclear"]},
+        distribution_types={"Quality": ColumnDistributionType.NUMERICAL, "Clarity": ColumnDistributionType.NUMERICAL},
         distributions={
-            "quality": Mock(spec=NumericalDistribution, mean=3.5, stddev=0.5, min=3, max=4, median=3.5),
-            "clarity": Mock(spec=NumericalDistribution, mean=3.0, stddev=0.0, min=3, max=3, median=3.0),
+            "Quality": Mock(spec=NumericalDistribution, mean=3.5, stddev=0.5, min=3, max=4, median=3.5),
+            "Clarity": Mock(spec=NumericalDistribution, mean=3.0, stddev=0.0, min=3, max=3, median=3.0),
         },
         histograms={
-            "quality": Mock(spec=CategoricalHistogramData, categories=[4, 3], counts=[10, 8]),
-            "clarity": Mock(spec=CategoricalHistogramData, categories=[4, 3], counts=[12, 6]),
+            "Quality": Mock(spec=CategoricalHistogramData, categories=[4, 3], counts=[10, 8]),
+            "Clarity": Mock(spec=CategoricalHistogramData, categories=[4, 3], counts=[12, 6]),
         },
     )
     stub_extract_judge_score_distributions.return_value = mock_distributions
@@ -158,11 +158,11 @@ def test_judge_score_profiler_integration_workflow(
     stub_resource_provider,
 ):
     mock_distributions = JudgeScoreDistributions(
-        scores={"quality": [4, 3, 2, 1, 0]},
-        reasoning={"quality": ["Excellent", "Good", "Fair", "Poor", "Very Poor"]},
-        distribution_types={"quality": ColumnDistributionType.NUMERICAL},
-        distributions={"quality": NumericalDistribution(min=0, max=4, mean=2.0, stddev=1.4, median=2.0)},
-        histograms={"quality": CategoricalHistogramData(categories=[4, 3, 2, 1, 0], counts=[1, 1, 1, 1, 1])},
+        scores={"Quality": [4, 3, 2, 1, 0]},
+        reasoning={"Quality": ["Excellent", "Good", "Fair", "Poor", "Very Poor"]},
+        distribution_types={"Quality": ColumnDistributionType.NUMERICAL},
+        distributions={"Quality": NumericalDistribution(min=0, max=4, mean=2.0, stddev=1.4, median=2.0)},
+        histograms={"Quality": CategoricalHistogramData(categories=[4, 3, 2, 1, 0], counts=[1, 1, 1, 1, 1])},
     )
     stub_extract_judge_score_distributions.return_value = mock_distributions
     stub_sample_scores_and_reasoning.return_value = [
@@ -178,7 +178,7 @@ def test_judge_score_profiler_integration_workflow(
 
     assert isinstance(result, JudgeScoreProfilerResults)
     assert len(result.summaries) == 1
-    assert result.summaries["quality"].score_name == "quality"
+    assert result.summaries["Quality"].score_name == "Quality"
     assert result.score_distributions == mock_distributions
     stub_extract_judge_score_distributions.assert_called_once()
     stub_sample_scores_and_reasoning.assert_called_once()
