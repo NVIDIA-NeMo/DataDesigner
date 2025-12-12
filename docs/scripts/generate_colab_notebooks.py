@@ -17,8 +17,6 @@ import jupytext
 from nbformat import NotebookNode
 from nbformat.v4 import new_code_cell, new_markdown_cell
 
-IMPORT_SECTION_MARKER = "### 📦 Import the essentials"
-
 COLAB_SETUP_MARKDOWN = """\
 ### ⚡ Colab Setup
 
@@ -60,12 +58,16 @@ def create_colab_setup_cells(additional_dependencies: str) -> list[NotebookNode]
 
 def find_import_section_index(cells: list[NotebookNode]) -> int:
     """Find the index of the 'Import the essentials' markdown cell."""
+    first_code_cell_index = -1
     for i, cell in enumerate(cells):
+        if first_code_cell_index == -1 and cell.get("cell_type") == "code":
+            first_code_cell_index = i
+
         if cell.get("cell_type") == "markdown":
             source = cell.get("source", "")
-            if IMPORT_SECTION_MARKER in source:
+            if "import" in source.lower() and "essentials" in source.lower():
                 return i
-    return -1
+    return first_code_cell_index
 
 
 def process_notebook(notebook: NotebookNode, source_path: Path) -> NotebookNode:
