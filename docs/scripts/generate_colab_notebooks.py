@@ -24,7 +24,7 @@ IMPORT_SECTION_MARKER = "### 📦 Import the essentials"
 COLAB_SETUP_MARKDOWN = """\
 ### ⚡ Colab Setup
 
-Run the cells below to install the dependencies and set up the API key.
+Run the cells below to install the dependencies and set up the API key. If you don't have an API key, you can generate one from [build.nvidia.com](https://build.nvidia.com).
 """
 
 ADDITIONAL_DEPENDENCIES = {
@@ -35,21 +35,31 @@ COLAB_INSTALL_CELL = """\
 !pip install -q data-designer>={version}{deps}"""
 
 COLAB_API_KEY_CELL = """\
+import getpass
 import os
 
 from google.colab import userdata
 
-os.environ["NVIDIA_API_KEY"] = userdata.get("NVIDIA_API_KEY")"""
+try:
+    os.environ["NVIDIA_API_KEY"] = userdata.get("NVIDIA_API_KEY")
+except userdata.SecretNotFoundError:
+    os.environ["NVIDIA_API_KEY"] = getpass.getpass("Enter your NVIDIA API key: ")"""
 
 
 def create_colab_setup_cells(additional_dependencies: str) -> list[NotebookNode]:
     """Create the Colab-specific setup cells to inject before imports."""
+    dd_version_parts = [int(part) for part in data_designer_version.split(".")[:3]]
+    dd_version_parts[-1] -= 1  # current version is dev and already incremented
+    current_dd_version = ".".join(str(part) for part in dd_version_parts)
+
     return [
         new_markdown_cell(source=COLAB_SETUP_MARKDOWN),
-        new_code_cell(source=COLAB_INSTALL_CELL.format(
-            version=".".join(data_designer_version.split(".")[:3]),
-            deps=additional_dependencies,
-        )),
+        new_code_cell(
+            source=COLAB_INSTALL_CELL.format(
+                version=current_dd_version,
+                deps=additional_dependencies,
+            )
+        ),
         new_code_cell(source=COLAB_API_KEY_CELL),
     ]
 
