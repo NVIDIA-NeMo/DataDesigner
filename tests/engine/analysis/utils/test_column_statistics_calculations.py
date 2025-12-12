@@ -297,3 +297,54 @@ def test_ensure_boolean():
         ensure_boolean(2)
     with pytest.raises(ValueError):
         ensure_boolean(1.5)
+
+
+def test_calculate_general_column_info_dtype_detection():
+    """Test dtype detection with PyArrow backend (preferred path)."""
+    df_pyarrow = pa.Table.from_pydict(
+        {"int_col": [1, 2, 3], "str_col": ["a", "b", "c"], "float_col": [1.1, 2.2, 3.3]}
+    ).to_pandas(types_mapper=pd.ArrowDtype)
+
+    result = calculate_general_column_info("int_col", df_pyarrow)
+    assert result["simple_dtype"] == "int"
+    assert result["pyarrow_dtype"] == "int64"
+
+    result = calculate_general_column_info("str_col", df_pyarrow)
+    assert result["simple_dtype"] == "string"
+    assert "string" in result["pyarrow_dtype"]
+
+    result = calculate_general_column_info("float_col", df_pyarrow)
+    assert result["simple_dtype"] == "float"
+    assert result["pyarrow_dtype"] == "double"
+
+
+def test_calculate_general_column_info_dtype_detection_fallback():
+    """Test dtype detection fallback when PyArrow backend unavailable (mixed types)."""
+    df_mixed = pd.DataFrame({"mixed_col": [1, "two", 3.0, "four", 5]})
+
+    result = calculate_general_column_info("mixed_col", df_mixed)
+    assert result["simple_dtype"] == "int"
+    assert result["pyarrow_dtype"] == "n/a"
+    assert result["num_records"] == 5
+    assert result["num_unique"] == 5
+
+
+def test_calculate_general_column_info_edge_cases():
+    """Test edge cases: nulls, empty columns, and all-null columns."""
+    df_with_nulls = pd.DataFrame({"col_with_nulls": [None, None, 42.0, 43.0, 44.0]})
+    result = calculate_general_column_info("col_with_nulls", df_with_nulls)
+    assert result["simple_dtype"] == "float"
+    assert result["num_null"] == 2
+    assert result["num_unique"] == 3
+
+    df_all_nulls = pd.DataFrame({"all_nulls": [None, None, None]})
+    result = calculate_general_column_info("all_nulls", df_all_nulls)
+    assert result["simple_dtype"] == MissingValue.CALCULATION_FAILED
+    assert result["num_null"] == 3
+    assert result["num_unique"] == 0
+
+    df_empty = pd.DataFrame({"empty_col": []})
+    result = calculate_general_column_info("empty_col", df_empty)
+    assert result["num_records"] == 0
+    assert result["num_null"] == 0
+    assert result["simple_dtype"] == MissingValue.CALCULATION_FAILED
