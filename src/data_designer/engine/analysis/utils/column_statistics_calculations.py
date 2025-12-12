@@ -175,7 +175,7 @@ def convert_to_simple_dtype(dtype: str) -> str:
         return "float"
     if "float" in dtype:
         return "float"
-    if "string" in dtype or dtype == "str":
+    if "str" in dtype:
         return "string"
     if "timestamp" in dtype:
         return "timestamp"
