@@ -21,13 +21,13 @@ from data_designer.essentials import (
     DataDesignerColumnType,
     DataDesignerConfig,
     DataDesignerConfigBuilder,
-    DatastoreSeedDatasetReference,
-    DatastoreSettings,
+    DataFrameSeedConfig,
     DatetimeSamplerParams,
     EmbeddingInferenceParams,
     ExpressionColumnConfig,
     GaussianSamplerParams,
     GenerationType,
+    HuggingFaceSeedConfig,
     ImageContext,
     ImageFormat,
     InferenceParameters,
@@ -36,6 +36,7 @@ from data_designer.essentials import (
     LLMJudgeColumnConfig,
     LLMStructuredColumnConfig,
     LLMTextColumnConfig,
+    LocalFileSeedConfig,
     LoggingConfig,
     ManualDistribution,
     ManualDistributionParams,
@@ -84,7 +85,6 @@ def test_config_imports():
     """Test config-related imports"""
     assert DataDesignerConfig is not None
     assert DataDesignerConfigBuilder is not None
-    assert DatastoreSettings is not None
     assert isinstance(can_run_data_designer_locally(), bool)
 
 
@@ -151,7 +151,9 @@ def test_sampler_params_imports():
 
 def test_seed_config_imports():
     """Test seed configuration imports"""
-    assert DatastoreSeedDatasetReference is not None
+    assert DataFrameSeedConfig is not None
+    assert HuggingFaceSeedConfig is not None
+    assert LocalFileSeedConfig is not None
     assert SamplingStrategy is not None
     assert SeedConfig is not None
 
@@ -223,7 +225,6 @@ def test_all_contains_config_classes():
     """Test __all__ contains config classes"""
     assert "DataDesignerConfig" in __all__
     assert "DataDesignerConfigBuilder" in __all__
-    assert "DatastoreSettings" in __all__
 
 
 def test_all_contains_column_configs():
@@ -287,7 +288,6 @@ def test_all_contains_model_configs():
 
 def test_all_contains_seed_configs():
     """Test __all__ contains seed configuration classes"""
-    assert "DatastoreSeedDatasetReference" in __all__
     assert "SamplingStrategy" in __all__
     assert "SeedConfig" in __all__
 

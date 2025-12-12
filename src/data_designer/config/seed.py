@@ -1,19 +1,13 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from abc import ABC
 from enum import Enum
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, model_validator
 from typing_extensions import Self
 
 from data_designer.config.base import ConfigBase
-from data_designer.config.datastore import DatastoreSettings
-from data_designer.config.utils.io_helpers import (
-    VALID_DATASET_FILE_EXTENSIONS,
-    validate_dataset_file_path,
-    validate_path_contains_files_of_type,
-)
+from data_designer.config.seed_dataset import SeedDatasetConfigT
 
 
 class SamplingStrategy(str, Enum):
@@ -62,7 +56,7 @@ class SeedConfig(ConfigBase):
     """Configuration for sampling data from a seed dataset.
 
     Args:
-        dataset: Path or identifier for the seed dataset.
+        config: A SeedDatasetConfig defining where the seed data exists
         sampling_strategy: Strategy for how to sample rows from the dataset.
             - ORDERED: Read rows sequentially in their original order.
             - SHUFFLE: Randomly shuffle rows before sampling. When used with
@@ -109,36 +103,6 @@ class SeedConfig(ConfigBase):
             )
     """
 
-    dataset: str
+    config: SeedDatasetConfigT
     sampling_strategy: SamplingStrategy = SamplingStrategy.ORDERED
     selection_strategy: IndexRange | PartitionBlock | None = None
-
-
-class SeedDatasetReference(ABC, ConfigBase):
-    dataset: str
-
-
-class DatastoreSeedDatasetReference(SeedDatasetReference):
-    datastore_settings: DatastoreSettings
-
-    @property
-    def repo_id(self) -> str:
-        return "/".join(self.dataset.split("/")[:-1])
-
-    @property
-    def filename(self) -> str:
-        return self.dataset.split("/")[-1]
-
-
-class LocalSeedDatasetReference(SeedDatasetReference):
-    @field_validator("dataset", mode="after")
-    def validate_dataset_is_file(cls, v: str) -> str:
-        valid_wild_card_versions = {f"*{ext}" for ext in VALID_DATASET_FILE_EXTENSIONS}
-        if any(v.endswith(wildcard) for wildcard in valid_wild_card_versions):
-            parts = v.split("*.")
-            file_path = parts[0]
-            file_extension = parts[-1]
-            validate_path_contains_files_of_type(file_path, file_extension)
-        else:
-            validate_dataset_file_path(v)
-        return v
