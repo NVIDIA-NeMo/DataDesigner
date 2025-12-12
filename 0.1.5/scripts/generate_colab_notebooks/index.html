@@ -8,7 +8,7 @@
       
       
       
-        <link rel="canonical" href="https://nvidia-nemo.github.io/DataDesigner/latest/notebook_source/1-the-basics/">
+        <link rel="canonical" href="https://nvidia-nemo.github.io/DataDesigner/latest/scripts/generate_colab_notebooks/">
       
       
       
@@ -18,7 +18,7 @@
     
     
       
-        <title>1 the basics - NeMo Data Designer</title>
+        <title>Generate colab notebooks - NeMo Data Designer</title>
       
     
     
@@ -75,11 +75,6 @@
     <label class="md-overlay" for="__drawer"></label>
     <div data-md-component="skip">
       
-        
-        <a href="#data-designer-tutorial-the-basics" class="md-skip">
-          Skip to content
-        </a>
-      
     </div>
     <div data-md-component="announce">
       
@@ -126,7 +121,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              1 the basics
+              Generate colab notebooks
             
           </span>
         </div>
@@ -1589,121 +1584,6 @@
   
   
   
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#what-youll-learn" class="md-nav__link">
-    <span class="md-ellipsis">
-      📚 What you'll learn
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#import-the-essentials" class="md-nav__link">
-    <span class="md-ellipsis">
-      📦 Import the essentials
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#initialize-the-data-designer-interface" class="md-nav__link">
-    <span class="md-ellipsis">
-      ⚙️ Initialize the Data Designer interface
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#define-model-configurations" class="md-nav__link">
-    <span class="md-ellipsis">
-      🎛️ Define model configurations
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#initialize-the-data-designer-config-builder" class="md-nav__link">
-    <span class="md-ellipsis">
-      🏗️ Initialize the Data Designer Config Builder
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#getting-started-with-sampler-columns" class="md-nav__link">
-    <span class="md-ellipsis">
-      🎲 Getting started with sampler columns
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#llm-generated-columns" class="md-nav__link">
-    <span class="md-ellipsis">
-      🦜 LLM-generated columns
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="🦜 LLM-generated columns">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#iteration-is-key-preview-the-dataset" class="md-nav__link">
-    <span class="md-ellipsis">
-      🔁 Iteration is key – preview the dataset!
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#analyze-the-generated-data" class="md-nav__link">
-    <span class="md-ellipsis">
-      📊 Analyze the generated data
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#scale-up" class="md-nav__link">
-    <span class="md-ellipsis">
-      🆙 Scale up!
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#next-steps" class="md-nav__link">
-    <span class="md-ellipsis">
-      ⏭️ Next Steps
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
   
 </nav>
                   </div>
@@ -1717,7 +1597,7 @@
                 
 
   <div data-md-component="latest-only" style="display: none;">
-    <a target="_blank" href="https://colab.research.google.com/github/NVIDIA-NeMo/DataDesigner/tree/main/docs/colab_notebooks/1-the-basics.py">
+    <a target="_blank" href="https://colab.research.google.com/github/NVIDIA-NeMo/DataDesigner/tree/main/docs/colab_notebooks/generate_colab_notebooks.py">
       <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
     </a>
     <script>
@@ -1729,7 +1609,7 @@
       }
     </script>
   </div>
-  <a href="/DataDesigner/latest/notebook_source/1-the-basics/1-the-basics.py" title="Download notebook" class="md-content__button md-icon" download>
+  <a href="/DataDesigner/latest/scripts/generate_colab_notebooks/generate_colab_notebooks.py" title="Download notebook" class="md-content__button md-icon" download>
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M5 20h14v-2H5m14-9h-4V3H9v6H5l7 7z"/></svg>
   </a>
 
@@ -1741,6 +1621,8 @@
   
   
 
+
+  <h1>Generate colab notebooks</h1>
 
 <script>
 (function (global, factory) {
@@ -2179,31 +2061,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </style>
 <!-- End of mermaid configuration --><div class="jupyter-wrapper">
 <div class="jp-Notebook" data-jp-theme-light="true" data-jp-theme-name="JupyterLab Light">
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=503c4aeb">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h1 id="data-designer-tutorial-the-basics">🎨 Data Designer Tutorial: The Basics<a class="anchor-link" href="#data-designer-tutorial-the-basics">¶</a></h1><h4 id="what-youll-learn">📚 What you'll learn<a class="anchor-link" href="#what-youll-learn">¶</a></h4><p>This notebook demonstrates the basics of Data Designer by generating a simple product review dataset.</p>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=6b236a93">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h3 id="import-the-essentials">📦 Import the essentials<a class="anchor-link" href="#import-the-essentials">¶</a></h3><ul>
-<li>The <code>essentials</code> module provides quick access to the most commonly used objects.</li>
-</ul>
-</div>
-</div>
-</div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=061655e6">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=302cff00">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2221,56 +2080,32 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">data_designer.essentials</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-    <span class="n">CategorySamplerParams</span><span class="p">,</span>
-    <span class="n">DataDesigner</span><span class="p">,</span>
-    <span class="n">DataDesignerConfigBuilder</span><span class="p">,</span>
-    <span class="n">InferenceParameters</span><span class="p">,</span>
-    <span class="n">LLMTextColumnConfig</span><span class="p">,</span>
-    <span class="n">ModelConfig</span><span class="p">,</span>
-    <span class="n">PersonFromFakerSamplerParams</span><span class="p">,</span>
-    <span class="n">SamplerColumnConfig</span><span class="p">,</span>
-    <span class="n">SamplerType</span><span class="p">,</span>
-    <span class="n">SubcategorySamplerParams</span><span class="p">,</span>
-    <span class="n">UniformSamplerParams</span><span class="p">,</span>
-<span class="p">)</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION &amp; AFFILIATES. All rights reserved.</span>
+<span class="c1"># SPDX-License-Identifier: Apache-2.0</span>
+<span class="sd">"""Script to generate Colab-compatible notebooks from notebook source files.</span>
+
+<span class="sd">This script processes jupytext percent-format Python files and:</span>
+<span class="sd">1. Injects Colab-specific setup cells (pip install, API key from secrets)</span>
+<span class="sd">2. Injects cells before the "Import the essentials" section</span>
+<span class="sd">3. Saves the result as .ipynb files in docs/colab_notebooks</span>
+<span class="sd">"""</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-1">from data_designer.essentials import (
-    CategorySamplerParams,
-    DataDesigner,
-    DataDesignerConfigBuilder,
-    InferenceParameters,
-    LLMTextColumnConfig,
-    ModelConfig,
-    PersonFromFakerSamplerParams,
-    SamplerColumnConfig,
-    SamplerType,
-    SubcategorySamplerParams,
-    UniformSamplerParams,
-)</div>
+<div class="clipboard-copy-txt" id="cell-1"># SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION &amp; AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+"""Script to generate Colab-compatible notebooks from notebook source files.
+
+This script processes jupytext percent-format Python files and:
+1. Injects Colab-specific setup cells (pip install, API key from secrets)
+2. Injects cells before the "Import the essentials" section
+3. Saves the result as .ipynb files in docs/colab_notebooks
+"""</div>
 </div>
 </div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=058e5b91">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h3 id="initialize-the-data-designer-interface">⚙️ Initialize the Data Designer interface<a class="anchor-link" href="#initialize-the-data-designer-interface">¶</a></h3><ul>
-<li><p><code>DataDesigner</code> is the main object is responsible for managing the data generation process.</p>
-</li>
-<li><p>When initialized without arguments, the <a href="https://nvidia-nemo.github.io/DataDesigner/concepts/models/default-model-settings/">default model providers</a> are used.</p>
-</li>
-</ul>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=a41470e5">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=db08dda0">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2288,36 +2123,16 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">data_designer</span> <span class="o">=</span> <span class="n">DataDesigner</span><span class="p">()</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-2">data_designer = DataDesigner()</div>
+<div class="clipboard-copy-txt" id="cell-2">from __future__ import annotations</div>
 </div>
 </div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=bd5d8eaa">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h3 id="define-model-configurations">🎛️ Define model configurations<a class="anchor-link" href="#define-model-configurations">¶</a></h3><ul>
-<li><p>Each <code>ModelConfig</code> defines a model that can be used during the generation process.</p>
-</li>
-<li><p>The "model alias" is used to reference the model in the Data Designer config (as we will see below).</p>
-</li>
-<li><p>The "model provider" is the external service that hosts the model (see the <a href="https://nvidia-nemo.github.io/DataDesigner/concepts/models/default-model-settings/">model config</a> docs for more details).</p>
-</li>
-<li><p>By default, we use <a href="https://build.nvidia.com/models">build.nvidia.com</a> as the model provider.</p>
-</li>
-</ul>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=575a1d6a">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=dee4b589">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2335,80 +2150,18 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># This name is set in the model provider configuration.</span>
-<span class="n">MODEL_PROVIDER</span> <span class="o">=</span> <span class="s2">"nvidia"</span>
-
-<span class="c1"># The model ID is from build.nvidia.com.</span>
-<span class="n">MODEL_ID</span> <span class="o">=</span> <span class="s2">"nvidia/nvidia-nemotron-nano-9b-v2"</span>
-
-<span class="c1"># We choose this alias to be descriptive for our use case.</span>
-<span class="n">MODEL_ALIAS</span> <span class="o">=</span> <span class="s2">"nemotron-nano-v2"</span>
-
-<span class="c1"># This sets reasoning to False for the nemotron-nano-v2 model.</span>
-<span class="n">SYSTEM_PROMPT</span> <span class="o">=</span> <span class="s2">"/no_think"</span>
-
-<span class="n">model_configs</span> <span class="o">=</span> <span class="p">[</span>
-    <span class="n">ModelConfig</span><span class="p">(</span>
-        <span class="n">alias</span><span class="o">=</span><span class="n">MODEL_ALIAS</span><span class="p">,</span>
-        <span class="n">model</span><span class="o">=</span><span class="n">MODEL_ID</span><span class="p">,</span>
-        <span class="n">provider</span><span class="o">=</span><span class="n">MODEL_PROVIDER</span><span class="p">,</span>
-        <span class="n">inference_parameters</span><span class="o">=</span><span class="n">InferenceParameters</span><span class="p">(</span>
-            <span class="n">temperature</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span>
-            <span class="n">top_p</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
-            <span class="n">max_tokens</span><span class="o">=</span><span class="mi">1024</span><span class="p">,</span>
-        <span class="p">),</span>
-    <span class="p">)</span>
-<span class="p">]</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">argparse</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-3"># This name is set in the model provider configuration.
-MODEL_PROVIDER = "nvidia"
-
-# The model ID is from build.nvidia.com.
-MODEL_ID = "nvidia/nvidia-nemotron-nano-9b-v2"
-
-# We choose this alias to be descriptive for our use case.
-MODEL_ALIAS = "nemotron-nano-v2"
-
-# This sets reasoning to False for the nemotron-nano-v2 model.
-SYSTEM_PROMPT = "/no_think"
-
-model_configs = [
-    ModelConfig(
-        alias=MODEL_ALIAS,
-        model=MODEL_ID,
-        provider=MODEL_PROVIDER,
-        inference_parameters=InferenceParameters(
-            temperature=0.5,
-            top_p=1.0,
-            max_tokens=1024,
-        ),
-    )
-]</div>
+<div class="clipboard-copy-txt" id="cell-3">import argparse
+from pathlib import Path</div>
 </div>
 </div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=01fcff15">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h3 id="initialize-the-data-designer-config-builder">🏗️ Initialize the Data Designer Config Builder<a class="anchor-link" href="#initialize-the-data-designer-config-builder">¶</a></h3><ul>
-<li><p>The Data Designer config defines the dataset schema and generation process.</p>
-</li>
-<li><p>The config builder provides an intuitive interface for building this configuration.</p>
-</li>
-<li><p>The list of model configs is provided to the builder at initialization.</p>
-</li>
-</ul>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=e6f82a90">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=c046439a">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2426,34 +2179,20 @@ model_configs = [
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">config_builder</span> <span class="o">=</span> <span class="n">DataDesignerConfigBuilder</span><span class="p">(</span><span class="n">model_configs</span><span class="o">=</span><span class="n">model_configs</span><span class="p">)</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">jupytext</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">nbformat</span><span class="w"> </span><span class="kn">import</span> <span class="n">NotebookNode</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">nbformat.v4</span><span class="w"> </span><span class="kn">import</span> <span class="n">new_code_cell</span><span class="p">,</span> <span class="n">new_markdown_cell</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-4">config_builder = DataDesignerConfigBuilder(model_configs=model_configs)</div>
+<div class="clipboard-copy-txt" id="cell-4">import jupytext
+from nbformat import NotebookNode
+from nbformat.v4 import new_code_cell, new_markdown_cell</div>
 </div>
 </div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=d94db11f">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="getting-started-with-sampler-columns">🎲 Getting started with sampler columns<a class="anchor-link" href="#getting-started-with-sampler-columns">¶</a></h2><ul>
-<li><p>Sampler columns offer non-LLM based generation of synthetic data.</p>
-</li>
-<li><p>They are particularly useful for <strong>steering the diversity</strong> of the generated data, as we demonstrate below.</p>
-</li>
-</ul>
-<br/>
-<p>You can view available samplers using the config builder's <code>info</code> property:</p>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=0f90d257">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=7dcc71ba">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2471,27 +2210,24 @@ model_configs = [
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">config_builder</span><span class="o">.</span><span class="n">info</span><span class="o">.</span><span class="n">display</span><span class="p">(</span><span class="s2">"samplers"</span><span class="p">)</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">COLAB_SETUP_MARKDOWN</span> <span class="o">=</span> <span class="s2">"""</span><span class="se">\</span>
+<span class="s2">### ⚡ Colab Setup</span>
+
+<span class="s2">Run the cells below to install the dependencies and set up the API key. If you don't have an API key, you can generate one from [build.nvidia.com](https://build.nvidia.com).</span>
+<span class="s2">"""</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-5">config_builder.info.display("samplers")</div>
+<div class="clipboard-copy-txt" id="cell-5">COLAB_SETUP_MARKDOWN = """\
+### ⚡ Colab Setup
+
+Run the cells below to install the dependencies and set up the API key. If you don't have an API key, you can generate one from [build.nvidia.com](https://build.nvidia.com).
+"""</div>
 </div>
 </div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=03bbedd2">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<p>Let's start designing our product review dataset by adding product category and subcategory columns.</p>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=093f0459">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=5d5cebc8">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2509,171 +2245,20 @@ model_configs = [
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">config_builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
-    <span class="n">SamplerColumnConfig</span><span class="p">(</span>
-        <span class="n">name</span><span class="o">=</span><span class="s2">"product_category"</span><span class="p">,</span>
-        <span class="n">sampler_type</span><span class="o">=</span><span class="n">SamplerType</span><span class="o">.</span><span class="n">CATEGORY</span><span class="p">,</span>
-        <span class="n">params</span><span class="o">=</span><span class="n">CategorySamplerParams</span><span class="p">(</span>
-            <span class="n">values</span><span class="o">=</span><span class="p">[</span>
-                <span class="s2">"Electronics"</span><span class="p">,</span>
-                <span class="s2">"Clothing"</span><span class="p">,</span>
-                <span class="s2">"Home &amp; Kitchen"</span><span class="p">,</span>
-                <span class="s2">"Books"</span><span class="p">,</span>
-                <span class="s2">"Home Office"</span><span class="p">,</span>
-            <span class="p">],</span>
-        <span class="p">),</span>
-    <span class="p">)</span>
-<span class="p">)</span>
-
-<span class="n">config_builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
-    <span class="n">SamplerColumnConfig</span><span class="p">(</span>
-        <span class="n">name</span><span class="o">=</span><span class="s2">"product_subcategory"</span><span class="p">,</span>
-        <span class="n">sampler_type</span><span class="o">=</span><span class="n">SamplerType</span><span class="o">.</span><span class="n">SUBCATEGORY</span><span class="p">,</span>
-        <span class="n">params</span><span class="o">=</span><span class="n">SubcategorySamplerParams</span><span class="p">(</span>
-            <span class="n">category</span><span class="o">=</span><span class="s2">"product_category"</span><span class="p">,</span>
-            <span class="n">values</span><span class="o">=</span><span class="p">{</span>
-                <span class="s2">"Electronics"</span><span class="p">:</span> <span class="p">[</span>
-                    <span class="s2">"Smartphones"</span><span class="p">,</span>
-                    <span class="s2">"Laptops"</span><span class="p">,</span>
-                    <span class="s2">"Headphones"</span><span class="p">,</span>
-                    <span class="s2">"Cameras"</span><span class="p">,</span>
-                    <span class="s2">"Accessories"</span><span class="p">,</span>
-                <span class="p">],</span>
-                <span class="s2">"Clothing"</span><span class="p">:</span> <span class="p">[</span>
-                    <span class="s2">"Men's Clothing"</span><span class="p">,</span>
-                    <span class="s2">"Women's Clothing"</span><span class="p">,</span>
-                    <span class="s2">"Winter Coats"</span><span class="p">,</span>
-                    <span class="s2">"Activewear"</span><span class="p">,</span>
-                    <span class="s2">"Accessories"</span><span class="p">,</span>
-                <span class="p">],</span>
-                <span class="s2">"Home &amp; Kitchen"</span><span class="p">:</span> <span class="p">[</span>
-                    <span class="s2">"Appliances"</span><span class="p">,</span>
-                    <span class="s2">"Cookware"</span><span class="p">,</span>
-                    <span class="s2">"Furniture"</span><span class="p">,</span>
-                    <span class="s2">"Decor"</span><span class="p">,</span>
-                    <span class="s2">"Organization"</span><span class="p">,</span>
-                <span class="p">],</span>
-                <span class="s2">"Books"</span><span class="p">:</span> <span class="p">[</span>
-                    <span class="s2">"Fiction"</span><span class="p">,</span>
-                    <span class="s2">"Non-Fiction"</span><span class="p">,</span>
-                    <span class="s2">"Self-Help"</span><span class="p">,</span>
-                    <span class="s2">"Textbooks"</span><span class="p">,</span>
-                    <span class="s2">"Classics"</span><span class="p">,</span>
-                <span class="p">],</span>
-                <span class="s2">"Home Office"</span><span class="p">:</span> <span class="p">[</span>
-                    <span class="s2">"Desks"</span><span class="p">,</span>
-                    <span class="s2">"Chairs"</span><span class="p">,</span>
-                    <span class="s2">"Storage"</span><span class="p">,</span>
-                    <span class="s2">"Office Supplies"</span><span class="p">,</span>
-                    <span class="s2">"Lighting"</span><span class="p">,</span>
-                <span class="p">],</span>
-            <span class="p">},</span>
-        <span class="p">),</span>
-    <span class="p">)</span>
-<span class="p">)</span>
-
-<span class="n">config_builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
-    <span class="n">SamplerColumnConfig</span><span class="p">(</span>
-        <span class="n">name</span><span class="o">=</span><span class="s2">"target_age_range"</span><span class="p">,</span>
-        <span class="n">sampler_type</span><span class="o">=</span><span class="n">SamplerType</span><span class="o">.</span><span class="n">CATEGORY</span><span class="p">,</span>
-        <span class="n">params</span><span class="o">=</span><span class="n">CategorySamplerParams</span><span class="p">(</span><span class="n">values</span><span class="o">=</span><span class="p">[</span><span class="s2">"18-25"</span><span class="p">,</span> <span class="s2">"25-35"</span><span class="p">,</span> <span class="s2">"35-50"</span><span class="p">,</span> <span class="s2">"50-65"</span><span class="p">,</span> <span class="s2">"65+"</span><span class="p">]),</span>
-    <span class="p">)</span>
-<span class="p">)</span>
-
-<span class="c1"># Optionally validate that the columns are configured correctly.</span>
-<span class="n">config_builder</span><span class="o">.</span><span class="n">validate</span><span class="p">()</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">ADDITIONAL_DEPENDENCIES</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">"4-providing-images-as-context.py"</span><span class="p">:</span> <span class="s2">"pillow&gt;=12.0.0"</span><span class="p">,</span>
+<span class="p">}</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-6">config_builder.add_column(
-    SamplerColumnConfig(
-        name="product_category",
-        sampler_type=SamplerType.CATEGORY,
-        params=CategorySamplerParams(
-            values=[
-                "Electronics",
-                "Clothing",
-                "Home &amp; Kitchen",
-                "Books",
-                "Home Office",
-            ],
-        ),
-    )
-)
-
-config_builder.add_column(
-    SamplerColumnConfig(
-        name="product_subcategory",
-        sampler_type=SamplerType.SUBCATEGORY,
-        params=SubcategorySamplerParams(
-            category="product_category",
-            values={
-                "Electronics": [
-                    "Smartphones",
-                    "Laptops",
-                    "Headphones",
-                    "Cameras",
-                    "Accessories",
-                ],
-                "Clothing": [
-                    "Men's Clothing",
-                    "Women's Clothing",
-                    "Winter Coats",
-                    "Activewear",
-                    "Accessories",
-                ],
-                "Home &amp; Kitchen": [
-                    "Appliances",
-                    "Cookware",
-                    "Furniture",
-                    "Decor",
-                    "Organization",
-                ],
-                "Books": [
-                    "Fiction",
-                    "Non-Fiction",
-                    "Self-Help",
-                    "Textbooks",
-                    "Classics",
-                ],
-                "Home Office": [
-                    "Desks",
-                    "Chairs",
-                    "Storage",
-                    "Office Supplies",
-                    "Lighting",
-                ],
-            },
-        ),
-    )
-)
-
-config_builder.add_column(
-    SamplerColumnConfig(
-        name="target_age_range",
-        sampler_type=SamplerType.CATEGORY,
-        params=CategorySamplerParams(values=["18-25", "25-35", "35-50", "50-65", "65+"]),
-    )
-)
-
-# Optionally validate that the columns are configured correctly.
-config_builder.validate()</div>
+<div class="clipboard-copy-txt" id="cell-6">ADDITIONAL_DEPENDENCIES = {
+    "4-providing-images-as-context.py": "pillow&gt;=12.0.0",
+}</div>
 </div>
 </div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=49dc7de6">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<p>Next, let's add samplers to generate data related to the customer and their review.</p>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=ca9286ef">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=ff2c0635">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2691,90 +2276,18 @@ config_builder.validate()</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">config_builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
-    <span class="n">SamplerColumnConfig</span><span class="p">(</span>
-        <span class="n">name</span><span class="o">=</span><span class="s2">"customer"</span><span class="p">,</span>
-        <span class="n">sampler_type</span><span class="o">=</span><span class="n">SamplerType</span><span class="o">.</span><span class="n">PERSON_FROM_FAKER</span><span class="p">,</span>
-        <span class="n">params</span><span class="o">=</span><span class="n">PersonFromFakerSamplerParams</span><span class="p">(</span><span class="n">age_range</span><span class="o">=</span><span class="p">[</span><span class="mi">18</span><span class="p">,</span> <span class="mi">70</span><span class="p">],</span> <span class="n">locale</span><span class="o">=</span><span class="s2">"en_US"</span><span class="p">),</span>
-    <span class="p">)</span>
-<span class="p">)</span>
-
-<span class="n">config_builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
-    <span class="n">SamplerColumnConfig</span><span class="p">(</span>
-        <span class="n">name</span><span class="o">=</span><span class="s2">"number_of_stars"</span><span class="p">,</span>
-        <span class="n">sampler_type</span><span class="o">=</span><span class="n">SamplerType</span><span class="o">.</span><span class="n">UNIFORM</span><span class="p">,</span>
-        <span class="n">params</span><span class="o">=</span><span class="n">UniformSamplerParams</span><span class="p">(</span><span class="n">low</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">high</span><span class="o">=</span><span class="mi">5</span><span class="p">),</span>
-        <span class="n">convert_to</span><span class="o">=</span><span class="s2">"int"</span><span class="p">,</span>  <span class="c1"># Convert the sampled float to an integer.</span>
-    <span class="p">)</span>
-<span class="p">)</span>
-
-<span class="n">config_builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
-    <span class="n">SamplerColumnConfig</span><span class="p">(</span>
-        <span class="n">name</span><span class="o">=</span><span class="s2">"review_style"</span><span class="p">,</span>
-        <span class="n">sampler_type</span><span class="o">=</span><span class="n">SamplerType</span><span class="o">.</span><span class="n">CATEGORY</span><span class="p">,</span>
-        <span class="n">params</span><span class="o">=</span><span class="n">CategorySamplerParams</span><span class="p">(</span>
-            <span class="n">values</span><span class="o">=</span><span class="p">[</span><span class="s2">"rambling"</span><span class="p">,</span> <span class="s2">"brief"</span><span class="p">,</span> <span class="s2">"detailed"</span><span class="p">,</span> <span class="s2">"structured with bullet points"</span><span class="p">],</span>
-            <span class="n">weights</span><span class="o">=</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span>
-        <span class="p">),</span>
-    <span class="p">)</span>
-<span class="p">)</span>
-
-<span class="n">config_builder</span><span class="o">.</span><span class="n">validate</span><span class="p">()</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">COLAB_INSTALL_CELL</span> <span class="o">=</span> <span class="s2">"""</span><span class="se">\</span>
+<span class="s2">!pip install -qU data-designer"""</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-7">config_builder.add_column(
-    SamplerColumnConfig(
-        name="customer",
-        sampler_type=SamplerType.PERSON_FROM_FAKER,
-        params=PersonFromFakerSamplerParams(age_range=[18, 70], locale="en_US"),
-    )
-)
-
-config_builder.add_column(
-    SamplerColumnConfig(
-        name="number_of_stars",
-        sampler_type=SamplerType.UNIFORM,
-        params=UniformSamplerParams(low=1, high=5),
-        convert_to="int",  # Convert the sampled float to an integer.
-    )
-)
-
-config_builder.add_column(
-    SamplerColumnConfig(
-        name="review_style",
-        sampler_type=SamplerType.CATEGORY,
-        params=CategorySamplerParams(
-            values=["rambling", "brief", "detailed", "structured with bullet points"],
-            weights=[1, 2, 2, 1],
-        ),
-    )
-)
-
-config_builder.validate()</div>
+<div class="clipboard-copy-txt" id="cell-7">COLAB_INSTALL_CELL = """\
+!pip install -qU data-designer"""</div>
 </div>
 </div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=44e88690">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="llm-generated-columns">🦜 LLM-generated columns<a class="anchor-link" href="#llm-generated-columns">¶</a></h2><ul>
-<li><p>The real power of Data Designer comes from leveraging LLMs to generate text, code, and structured data.</p>
-</li>
-<li><p>When prompting the LLM, we can use Jinja templating to reference other columns in the dataset.</p>
-</li>
-<li><p>As we see below, nested json fields can be accessed using dot notation.</p>
-</li>
-</ul>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=47c75f3c">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=ba0e3db3">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2792,92 +2305,18 @@ config_builder.validate()</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">config_builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
-    <span class="n">LLMTextColumnConfig</span><span class="p">(</span>
-        <span class="n">name</span><span class="o">=</span><span class="s2">"product_name"</span><span class="p">,</span>
-        <span class="n">prompt</span><span class="o">=</span><span class="p">(</span>
-            <span class="s2">"You are a helpful assistant that generates product names. DO NOT add quotes around the product name.</span><span class="se">\n\n</span><span class="s2">"</span>
-            <span class="s2">"Come up with a creative product name for a product in the '{{ product_category }}' category, focusing "</span>
-            <span class="s2">"on products related to '{{ product_subcategory }}'. The target age range of the ideal customer is "</span>
-            <span class="s2">"{{ target_age_range }} years old. Respond with only the product name, no other text."</span>
-        <span class="p">),</span>
-        <span class="n">system_prompt</span><span class="o">=</span><span class="n">SYSTEM_PROMPT</span><span class="p">,</span>
-        <span class="n">model_alias</span><span class="o">=</span><span class="n">MODEL_ALIAS</span><span class="p">,</span>
-    <span class="p">)</span>
-<span class="p">)</span>
-
-<span class="n">config_builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
-    <span class="n">LLMTextColumnConfig</span><span class="p">(</span>
-        <span class="n">name</span><span class="o">=</span><span class="s2">"customer_review"</span><span class="p">,</span>
-        <span class="n">prompt</span><span class="o">=</span><span class="p">(</span>
-            <span class="s2">"You are a customer named {{ customer.first_name }} from {{ customer.city }}, {{ customer.state }}. "</span>
-            <span class="s2">"You are {{ customer.age }} years old and recently purchased a product called {{ product_name }}. "</span>
-            <span class="s2">"Write a review of this product, which you gave a rating of {{ number_of_stars }} stars. "</span>
-            <span class="s2">"The style of the review should be '{{ review_style }}'."</span>
-        <span class="p">),</span>
-        <span class="n">system_prompt</span><span class="o">=</span><span class="n">SYSTEM_PROMPT</span><span class="p">,</span>
-        <span class="n">model_alias</span><span class="o">=</span><span class="n">MODEL_ALIAS</span><span class="p">,</span>
-    <span class="p">)</span>
-<span class="p">)</span>
-
-<span class="n">config_builder</span><span class="o">.</span><span class="n">validate</span><span class="p">()</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">COLAB_DEPENDENCIES_CELL</span> <span class="o">=</span> <span class="s2">"""</span><span class="se">\</span>
+<span class="s2">!pip install -q </span><span class="si">{deps}</span><span class="s2">"""</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-8">config_builder.add_column(
-    LLMTextColumnConfig(
-        name="product_name",
-        prompt=(
-            "You are a helpful assistant that generates product names. DO NOT add quotes around the product name.\n\n"
-            "Come up with a creative product name for a product in the '{{ product_category }}' category, focusing "
-            "on products related to '{{ product_subcategory }}'. The target age range of the ideal customer is "
-            "{{ target_age_range }} years old. Respond with only the product name, no other text."
-        ),
-        system_prompt=SYSTEM_PROMPT,
-        model_alias=MODEL_ALIAS,
-    )
-)
-
-config_builder.add_column(
-    LLMTextColumnConfig(
-        name="customer_review",
-        prompt=(
-            "You are a customer named {{ customer.first_name }} from {{ customer.city }}, {{ customer.state }}. "
-            "You are {{ customer.age }} years old and recently purchased a product called {{ product_name }}. "
-            "Write a review of this product, which you gave a rating of {{ number_of_stars }} stars. "
-            "The style of the review should be '{{ review_style }}'."
-        ),
-        system_prompt=SYSTEM_PROMPT,
-        model_alias=MODEL_ALIAS,
-    )
-)
-
-config_builder.validate()</div>
+<div class="clipboard-copy-txt" id="cell-8">COLAB_DEPENDENCIES_CELL = """\
+!pip install -q {deps}"""</div>
 </div>
 </div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=fd76a1e0">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h3 id="iteration-is-key-preview-the-dataset">🔁 Iteration is key – preview the dataset!<a class="anchor-link" href="#iteration-is-key-preview-the-dataset">¶</a></h3><ol>
-<li><p>Use the <code>preview</code> method to generate a sample of records quickly.</p>
-</li>
-<li><p>Inspect the results for quality and format issues.</p>
-</li>
-<li><p>Adjust column configurations, prompts, or parameters as needed.</p>
-</li>
-<li><p>Re-run the preview until satisfied.</p>
-</li>
-</ol>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=1ffad35d">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=207037d7">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2895,16 +2334,34 @@ config_builder.validate()</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">preview</span> <span class="o">=</span> <span class="n">data_designer</span><span class="o">.</span><span class="n">preview</span><span class="p">(</span><span class="n">config_builder</span><span class="p">,</span> <span class="n">num_records</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">COLAB_API_KEY_CELL</span> <span class="o">=</span> <span class="s2">"""</span><span class="se">\</span>
+<span class="s2">import getpass</span>
+<span class="s2">import os</span>
+
+<span class="s2">from google.colab import userdata</span>
+
+<span class="s2">try:</span>
+<span class="s2">    os.environ["NVIDIA_API_KEY"] = userdata.get("NVIDIA_API_KEY")</span>
+<span class="s2">except userdata.SecretNotFoundError:</span>
+<span class="s2">    os.environ["NVIDIA_API_KEY"] = getpass.getpass("Enter your NVIDIA API key: ")"""</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-9">preview = data_designer.preview(config_builder, num_records=2)</div>
+<div class="clipboard-copy-txt" id="cell-9">COLAB_API_KEY_CELL = """\
+import getpass
+import os
+
+from google.colab import userdata
+
+try:
+    os.environ["NVIDIA_API_KEY"] = userdata.get("NVIDIA_API_KEY")
+except userdata.SecretNotFoundError:
+    os.environ["NVIDIA_API_KEY"] = getpass.getpass("Enter your NVIDIA API key: ")"""</div>
 </div>
 </div>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=1d6835b0">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=78025e39">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2922,18 +2379,32 @@ config_builder.validate()</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># Run this cell multiple times to cycle through the 2 preview records.</span>
-<span class="n">preview</span><span class="o">.</span><span class="n">display_sample_record</span><span class="p">()</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">create_colab_setup_cells</span><span class="p">(</span><span class="n">additional_dependencies</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">NotebookNode</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""Create the Colab-specific setup cells to inject before imports."""</span>
+    <span class="n">cells</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">cells</span> <span class="o">+=</span> <span class="p">[</span><span class="n">new_markdown_cell</span><span class="p">(</span><span class="n">source</span><span class="o">=</span><span class="n">COLAB_SETUP_MARKDOWN</span><span class="p">)]</span>
+    <span class="n">cells</span> <span class="o">+=</span> <span class="p">[</span><span class="n">new_code_cell</span><span class="p">(</span><span class="n">source</span><span class="o">=</span><span class="n">COLAB_INSTALL_CELL</span><span class="p">)]</span>
+    <span class="k">if</span> <span class="n">additional_dependencies</span><span class="p">:</span>
+        <span class="n">cells</span> <span class="o">+=</span> <span class="p">[</span><span class="n">new_code_cell</span><span class="p">(</span><span class="n">source</span><span class="o">=</span><span class="n">COLAB_DEPENDENCIES_CELL</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">deps</span><span class="o">=</span><span class="n">additional_dependencies</span><span class="p">))]</span>
+    <span class="n">cells</span> <span class="o">+=</span> <span class="p">[</span><span class="n">new_code_cell</span><span class="p">(</span><span class="n">source</span><span class="o">=</span><span class="n">COLAB_API_KEY_CELL</span><span class="p">)]</span>
+    <span class="k">return</span> <span class="n">cells</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-10"># Run this cell multiple times to cycle through the 2 preview records.
-preview.display_sample_record()</div>
+<div class="clipboard-copy-txt" id="cell-10">def create_colab_setup_cells(additional_dependencies: str) -&gt; list[NotebookNode]:
+    """Create the Colab-specific setup cells to inject before imports."""
+    cells = []
+    cells += [new_markdown_cell(source=COLAB_SETUP_MARKDOWN)]
+    cells += [new_code_cell(source=COLAB_INSTALL_CELL)]
+    if additional_dependencies:
+        cells += [new_code_cell(source=COLAB_DEPENDENCIES_CELL.format(deps=additional_dependencies))]
+    cells += [new_code_cell(source=COLAB_API_KEY_CELL)]
+    return cells</div>
 </div>
 </div>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=f8f4930f">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=3b797ce1">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2951,34 +2422,38 @@ preview.display_sample_record()</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># The preview dataset is available as a pandas DataFrame.</span>
-<span class="n">preview</span><span class="o">.</span><span class="n">dataset</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">find_import_section_index</span><span class="p">(</span><span class="n">cells</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">NotebookNode</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Find the index of the 'Import the essentials' markdown cell."""</span>
+    <span class="n">first_code_cell_index</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">cell</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">cells</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">first_code_cell_index</span> <span class="o">==</span> <span class="o">-</span><span class="mi">1</span> <span class="ow">and</span> <span class="n">cell</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"cell_type"</span><span class="p">)</span> <span class="o">==</span> <span class="s2">"code"</span><span class="p">:</span>
+            <span class="n">first_code_cell_index</span> <span class="o">=</span> <span class="n">i</span>
+
+        <span class="k">if</span> <span class="n">cell</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"cell_type"</span><span class="p">)</span> <span class="o">==</span> <span class="s2">"markdown"</span><span class="p">:</span>
+            <span class="n">source</span> <span class="o">=</span> <span class="n">cell</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"source"</span><span class="p">,</span> <span class="s2">""</span><span class="p">)</span>
+            <span class="k">if</span> <span class="s2">"import"</span> <span class="ow">in</span> <span class="n">source</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="ow">and</span> <span class="s2">"essentials"</span> <span class="ow">in</span> <span class="n">source</span><span class="o">.</span><span class="n">lower</span><span class="p">():</span>
+                <span class="k">return</span> <span class="n">i</span>
+    <span class="k">return</span> <span class="n">first_code_cell_index</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-11"># The preview dataset is available as a pandas DataFrame.
-preview.dataset</div>
+<div class="clipboard-copy-txt" id="cell-11">def find_import_section_index(cells: list[NotebookNode]) -&gt; int:
+    """Find the index of the 'Import the essentials' markdown cell."""
+    first_code_cell_index = -1
+    for i, cell in enumerate(cells):
+        if first_code_cell_index == -1 and cell.get("cell_type") == "code":
+            first_code_cell_index = i
+
+        if cell.get("cell_type") == "markdown":
+            source = cell.get("source", "")
+            if "import" in source.lower() and "essentials" in source.lower():
+                return i
+    return first_code_cell_index</div>
 </div>
 </div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=3da8ac91">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h3 id="analyze-the-generated-data">📊 Analyze the generated data<a class="anchor-link" href="#analyze-the-generated-data">¶</a></h3><ul>
-<li><p>Data Designer automatically generates a basic statistical analysis of the generated data.</p>
-</li>
-<li><p>This analysis is available via the <code>analysis</code> property of generation result objects.</p>
-</li>
-</ul>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=54c00913">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=2490f4ba">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2996,34 +2471,66 @@ preview.dataset</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># Print the analysis as a table.</span>
-<span class="n">preview</span><span class="o">.</span><span class="n">analysis</span><span class="o">.</span><span class="n">to_report</span><span class="p">()</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">process_notebook</span><span class="p">(</span><span class="n">notebook</span><span class="p">:</span> <span class="n">NotebookNode</span><span class="p">,</span> <span class="n">source_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">NotebookNode</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Process a notebook to make it Colab-compatible.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        notebook: The input notebook</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        The processed notebook with Colab setup cells injected</span>
+<span class="sd">    """</span>
+    <span class="n">cells</span> <span class="o">=</span> <span class="n">notebook</span><span class="o">.</span><span class="n">cells</span>
+
+    <span class="n">additional_dependencies</span> <span class="o">=</span> <span class="n">ADDITIONAL_DEPENDENCIES</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">source_path</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="s2">""</span><span class="p">)</span>
+
+    <span class="c1"># Find where to insert Colab setup (before "Import the essentials")</span>
+    <span class="n">import_idx</span> <span class="o">=</span> <span class="n">find_import_section_index</span><span class="p">(</span><span class="n">cells</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">import_idx</span> <span class="o">==</span> <span class="o">-</span><span class="mi">1</span><span class="p">:</span>
+        <span class="c1"># If not found, insert after first cell (title)</span>
+        <span class="n">import_idx</span> <span class="o">=</span> <span class="mi">1</span>
+
+    <span class="c1"># Insert Colab setup cells before the import section</span>
+    <span class="n">colab_cells</span> <span class="o">=</span> <span class="n">create_colab_setup_cells</span><span class="p">(</span><span class="n">additional_dependencies</span><span class="p">)</span>
+    <span class="n">processed_cells</span> <span class="o">=</span> <span class="n">cells</span><span class="p">[:</span><span class="n">import_idx</span><span class="p">]</span> <span class="o">+</span> <span class="n">colab_cells</span> <span class="o">+</span> <span class="n">cells</span><span class="p">[</span><span class="n">import_idx</span><span class="p">:]</span>
+
+    <span class="n">notebook</span><span class="o">.</span><span class="n">cells</span> <span class="o">=</span> <span class="n">processed_cells</span>
+    <span class="k">return</span> <span class="n">notebook</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-12"># Print the analysis as a table.
-preview.analysis.to_report()</div>
+<div class="clipboard-copy-txt" id="cell-12">def process_notebook(notebook: NotebookNode, source_path: Path) -&gt; NotebookNode:
+    """Process a notebook to make it Colab-compatible.
+
+    Args:
+        notebook: The input notebook
+
+    Returns:
+        The processed notebook with Colab setup cells injected
+    """
+    cells = notebook.cells
+
+    additional_dependencies = ADDITIONAL_DEPENDENCIES.get(source_path.name, "")
+
+    # Find where to insert Colab setup (before "Import the essentials")
+    import_idx = find_import_section_index(cells)
+
+    if import_idx == -1:
+        # If not found, insert after first cell (title)
+        import_idx = 1
+
+    # Insert Colab setup cells before the import section
+    colab_cells = create_colab_setup_cells(additional_dependencies)
+    processed_cells = cells[:import_idx] + colab_cells + cells[import_idx:]
+
+    notebook.cells = processed_cells
+    return notebook</div>
 </div>
 </div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=12b66f52">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h3 id="scale-up">🆙 Scale up!<a class="anchor-link" href="#scale-up">¶</a></h3><ul>
-<li><p>Happy with your preview data?</p>
-</li>
-<li><p>Use the <code>create</code> method to submit larger Data Designer generation jobs.</p>
-</li>
-</ul>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=f7b07ee5">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=5bd0d6cd">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -3041,16 +2548,66 @@ preview.analysis.to_report()</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">results</span> <span class="o">=</span> <span class="n">data_designer</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">config_builder</span><span class="p">,</span> <span class="n">num_records</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">generate_colab_notebook</span><span class="p">(</span><span class="n">source_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">output_dir</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Generate a Colab-compatible notebook from a source file.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        source_path: Path to the jupytext percent-format Python source file</span>
+<span class="sd">        output_dir: Directory to save the output notebook</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Path to the generated notebook</span>
+<span class="sd">    """</span>
+    <span class="c1"># Read the source file using jupytext</span>
+    <span class="n">notebook</span> <span class="o">=</span> <span class="n">jupytext</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="n">source_path</span><span class="p">)</span>
+
+    <span class="c1"># Process the notebook for Colab</span>
+    <span class="n">notebook</span> <span class="o">=</span> <span class="n">process_notebook</span><span class="p">(</span><span class="n">notebook</span><span class="p">,</span> <span class="n">source_path</span><span class="p">)</span>
+
+    <span class="c1"># Determine output path</span>
+    <span class="n">output_path</span> <span class="o">=</span> <span class="n">output_dir</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">source_path</span><span class="o">.</span><span class="n">stem</span><span class="si">}</span><span class="s2">.ipynb"</span>
+
+    <span class="c1"># Ensure output directory exists</span>
+    <span class="n">output_dir</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">parents</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+    <span class="c1"># Write the notebook</span>
+    <span class="n">jupytext</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">notebook</span><span class="p">,</span> <span class="n">output_path</span><span class="p">,</span> <span class="n">config</span><span class="o">=</span><span class="p">{</span><span class="s2">"metadata"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"jupytext"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"cell_metadata_filter"</span><span class="p">:</span> <span class="s2">"-id"</span><span class="p">}}})</span>
+
+    <span class="k">return</span> <span class="n">output_path</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-13">results = data_designer.create(config_builder, num_records=10)</div>
+<div class="clipboard-copy-txt" id="cell-13">def generate_colab_notebook(source_path: Path, output_dir: Path) -&gt; Path:
+    """Generate a Colab-compatible notebook from a source file.
+
+    Args:
+        source_path: Path to the jupytext percent-format Python source file
+        output_dir: Directory to save the output notebook
+
+    Returns:
+        Path to the generated notebook
+    """
+    # Read the source file using jupytext
+    notebook = jupytext.read(source_path)
+
+    # Process the notebook for Colab
+    notebook = process_notebook(notebook, source_path)
+
+    # Determine output path
+    output_path = output_dir / f"{source_path.stem}.ipynb"
+
+    # Ensure output directory exists
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Write the notebook
+    jupytext.write(notebook, output_path, config={"metadata": {"jupytext": {"cell_metadata_filter": "-id"}}})
+
+    return output_path</div>
 </div>
 </div>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=a79175cf">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=9282325a">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -3068,22 +2625,120 @@ preview.analysis.to_report()</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># Load the generated dataset as a pandas DataFrame.</span>
-<span class="n">dataset</span> <span class="o">=</span> <span class="n">results</span><span class="o">.</span><span class="n">load_dataset</span><span class="p">()</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Main entry point for the script."""</span>
+    <span class="n">parser</span> <span class="o">=</span> <span class="n">argparse</span><span class="o">.</span><span class="n">ArgumentParser</span><span class="p">(</span><span class="n">description</span><span class="o">=</span><span class="s2">"Generate Colab-compatible notebooks from notebook source files."</span><span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+        <span class="s2">"--source-dir"</span><span class="p">,</span>
+        <span class="nb">type</span><span class="o">=</span><span class="n">Path</span><span class="p">,</span>
+        <span class="n">default</span><span class="o">=</span><span class="n">Path</span><span class="p">(</span><span class="s2">"docs/notebook_source"</span><span class="p">),</span>
+        <span class="n">help</span><span class="o">=</span><span class="s2">"Directory containing notebook source files (default: docs/notebook_source)"</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+        <span class="s2">"--output-dir"</span><span class="p">,</span>
+        <span class="nb">type</span><span class="o">=</span><span class="n">Path</span><span class="p">,</span>
+        <span class="n">default</span><span class="o">=</span><span class="n">Path</span><span class="p">(</span><span class="s2">"docs/colab_notebooks"</span><span class="p">),</span>
+        <span class="n">help</span><span class="o">=</span><span class="s2">"Directory to save Colab notebooks (default: docs/colab_notebooks)"</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+        <span class="s2">"--files"</span><span class="p">,</span>
+        <span class="n">nargs</span><span class="o">=</span><span class="s2">"*"</span><span class="p">,</span>
+        <span class="n">help</span><span class="o">=</span><span class="s2">"Specific files to process (if not specified, process all .py files)"</span><span class="p">,</span>
+    <span class="p">)</span>
 
-<span class="n">dataset</span><span class="o">.</span><span class="n">head</span><span class="p">()</span>
+    <span class="n">args</span> <span class="o">=</span> <span class="n">parser</span><span class="o">.</span><span class="n">parse_args</span><span class="p">()</span>
+
+    <span class="c1"># Get list of source files</span>
+    <span class="k">if</span> <span class="n">args</span><span class="o">.</span><span class="n">files</span><span class="p">:</span>
+        <span class="n">source_files</span> <span class="o">=</span> <span class="p">[</span><span class="n">args</span><span class="o">.</span><span class="n">source_dir</span> <span class="o">/</span> <span class="n">f</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">args</span><span class="o">.</span><span class="n">files</span><span class="p">]</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">source_files</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">source_dir</span><span class="o">.</span><span class="n">glob</span><span class="p">(</span><span class="s2">"*.py"</span><span class="p">))</span>
+        <span class="c1"># Filter out files starting with underscore (like _README.md, _pyproject.toml)</span>
+        <span class="n">source_files</span> <span class="o">=</span> <span class="p">[</span><span class="n">f</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">source_files</span> <span class="k">if</span> <span class="ow">not</span> <span class="n">f</span><span class="o">.</span><span class="n">name</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">"_"</span><span class="p">)]</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">source_files</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"No source files found in </span><span class="si">{</span><span class="n">args</span><span class="o">.</span><span class="n">source_dir</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+        <span class="k">return</span>
+
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"📓 Generating Colab notebooks from </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">source_files</span><span class="p">)</span><span class="si">}</span><span class="s2"> source file(s)..."</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"   Source: </span><span class="si">{</span><span class="n">args</span><span class="o">.</span><span class="n">source_dir</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"   Output: </span><span class="si">{</span><span class="n">args</span><span class="o">.</span><span class="n">output_dir</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">()</span>
+
+    <span class="k">for</span> <span class="n">source_path</span> <span class="ow">in</span> <span class="n">source_files</span><span class="p">:</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">source_path</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"⚠️  Skipping </span><span class="si">{</span><span class="n">source_path</span><span class="si">}</span><span class="s2"> (file not found)"</span><span class="p">)</span>
+            <span class="k">continue</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">output_path</span> <span class="o">=</span> <span class="n">generate_colab_notebook</span><span class="p">(</span><span class="n">source_path</span><span class="p">,</span> <span class="n">args</span><span class="o">.</span><span class="n">output_dir</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"✅ </span><span class="si">{</span><span class="n">source_path</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> → </span><span class="si">{</span><span class="n">output_path</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"❌ </span><span class="si">{</span><span class="n">source_path</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+
+    <span class="nb">print</span><span class="p">()</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"✨ Colab notebooks saved to </span><span class="si">{</span><span class="n">args</span><span class="o">.</span><span class="n">output_dir</span><span class="si">}</span><span class="s2">/"</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-14"># Load the generated dataset as a pandas DataFrame.
-dataset = results.load_dataset()
+<div class="clipboard-copy-txt" id="cell-14">def main() -&gt; None:
+    """Main entry point for the script."""
+    parser = argparse.ArgumentParser(description="Generate Colab-compatible notebooks from notebook source files.")
+    parser.add_argument(
+        "--source-dir",
+        type=Path,
+        default=Path("docs/notebook_source"),
+        help="Directory containing notebook source files (default: docs/notebook_source)",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("docs/colab_notebooks"),
+        help="Directory to save Colab notebooks (default: docs/colab_notebooks)",
+    )
+    parser.add_argument(
+        "--files",
+        nargs="*",
+        help="Specific files to process (if not specified, process all .py files)",
+    )
 
-dataset.head()</div>
+    args = parser.parse_args()
+
+    # Get list of source files
+    if args.files:
+        source_files = [args.source_dir / f for f in args.files]
+    else:
+        source_files = sorted(args.source_dir.glob("*.py"))
+        # Filter out files starting with underscore (like _README.md, _pyproject.toml)
+        source_files = [f for f in source_files if not f.name.startswith("_")]
+
+    if not source_files:
+        print(f"No source files found in {args.source_dir}")
+        return
+
+    print(f"📓 Generating Colab notebooks from {len(source_files)} source file(s)...")
+    print(f"   Source: {args.source_dir}")
+    print(f"   Output: {args.output_dir}")
+    print()
+
+    for source_path in source_files:
+        if not source_path.exists():
+            print(f"⚠️  Skipping {source_path} (file not found)")
+            continue
+
+        try:
+            output_path = generate_colab_notebook(source_path, args.output_dir)
+            print(f"✅ {source_path.name} → {output_path.name}")
+        except Exception as e:
+            print(f"❌ {source_path.name}: {e}")
+
+    print()
+    print(f"✨ Colab notebooks saved to {args.output_dir}/")</div>
 </div>
 </div>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=c0b5ed2f">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=0a1601d0">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -3101,34 +2756,13 @@ dataset.head()</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># Load the analysis results into memory.</span>
-<span class="n">analysis</span> <span class="o">=</span> <span class="n">results</span><span class="o">.</span><span class="n">load_analysis</span><span class="p">()</span>
-
-<span class="n">analysis</span><span class="o">.</span><span class="n">to_report</span><span class="p">()</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">"__main__"</span><span class="p">:</span>
+    <span class="n">main</span><span class="p">()</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-15"># Load the analysis results into memory.
-analysis = results.load_analysis()
-
-analysis.to_report()</div>
+<div class="clipboard-copy-txt" id="cell-15">if __name__ == "__main__":
+    main()</div>
 </div>
 </div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=79e7ccb8">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="next-steps">⏭️ Next Steps<a class="anchor-link" href="#next-steps">¶</a></h2><p>Now that you've seen the basics of Data Designer, check out the following notebooks to learn more about:</p>
-<ul>
-<li><p><a href="/notebooks/2-structured-outputs-and-jinja-expressions/">Structured outputs and jinja expressions</a></p>
-</li>
-<li><p><a href="/notebooks/3-seeding-with-a-dataset/">Seeding synthetic data generation with an external dataset</a></p>
-</li>
-</ul>
 </div>
 </div>
 </div>

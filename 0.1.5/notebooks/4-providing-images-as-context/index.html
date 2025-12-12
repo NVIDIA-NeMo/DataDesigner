@@ -95,7 +95,7 @@
             <div class="md-banner__inner md-grid md-typeset">
               
   You're not viewing the latest version.
-  <a href="../../.."> 
+  <a href="../../..">
     <strong>Click here to go to latest.</strong>
   </a>
 
@@ -1020,15 +1020,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#install-dependencies-if-required" class="md-nav__link">
-    <span class="md-ellipsis">
-      ⬇️ Install dependencies (if required)
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#import-the-essentials" class="md-nav__link">
     <span class="md-ellipsis">
       📦 Import the essentials
@@ -1767,15 +1758,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#install-dependencies-if-required" class="md-nav__link">
-    <span class="md-ellipsis">
-      ⬇️ Install dependencies (if required)
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#import-the-essentials" class="md-nav__link">
     <span class="md-ellipsis">
       📦 Import the essentials
@@ -1878,9 +1860,22 @@
               <article class="md-content__inner md-typeset">
                 
 
-    <a href="/DataDesigner/latest/notebooks/4-providing-images-as-context/4-providing-images-as-context.ipynb" title="Download notebook" class="md-content__button md-icon" download>
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M5 20h14v-2H5m14-9h-4V3H9v6H5l7 7z"/></svg>
+  <div data-md-component="latest-only" style="display: none;">
+    <a target="_blank" href="https://colab.research.google.com/github/NVIDIA-NeMo/DataDesigner/tree/main/docs/colab_notebooks/4-providing-images-as-context.ipynb">
+      <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
     </a>
+    <script>
+      var el = document.querySelector('[data-md-component="latest-only"]');
+      var base = new URL("../..", location);
+      var outdated = __md_get("__outdated", sessionStorage, base);
+      if (!outdated) {
+        el.style.display = "inline-block";
+      }
+    </script>
+  </div>
+  <a href="/DataDesigner/latest/notebooks/4-providing-images-as-context/4-providing-images-as-context.ipynb" title="Download notebook" class="md-content__button md-icon" download>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M5 20h14v-2H5m14-9h-4V3H9v6H5l7 7z"/></svg>
+  </a>
 
 
 
@@ -2355,7 +2350,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </style>
 <!-- End of mermaid configuration --><div class="jupyter-wrapper">
 <div class="jp-Notebook" data-jp-theme-light="true" data-jp-theme-name="JupyterLab Light">
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=d20edd20">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=42a5d5f8">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2366,7 +2361,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=eb7516cd">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=67af6006">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2382,98 +2377,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=15466fa0">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h3 id="install-dependencies-if-required">⬇️ Install dependencies (if required)<a class="anchor-link" href="#install-dependencies-if-required">¶</a></h3>
-</div>
-</div>
-</div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=e3ef9e0d">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [1]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
-<div class="CodeMirror cm-s-jupyter">
-<div class="zeroclipboard-container">
-<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-1">
-<div>
-<span class="notice" hidden="">Copied!</span>
-<svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
-<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z" fill="currentColor" fill-rule="evenodd"></path>
-<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z" fill="currentColor" fill-rule="evenodd"></path>
-</svg>
-</div>
-</clipboard-copy>
-</div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="err">!</span><span class="n">uv</span> <span class="n">pip</span> <span class="n">install</span> <span class="n">pillow</span>
-</pre></div>
-<div class="clipboard-copy-txt" id="cell-1">!uv pip install pillow</div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell-outputWrapper">
-<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
-</div>
-<div class="jp-OutputArea jp-Cell-outputArea">
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Using Python 3.11.14 environment at: /home/runner/work/DataDesigner/DataDesigner/.venv
-<span class="ansi-white-fg">⠋</span> Resolving dependencies...                                                     <span class="ansi-white-fg">⠙</span> Resolving dependencies...                                                     <span class="ansi-white-fg">⠋</span> Resolving dependencies...                                                     <span class="ansi-white-fg">⠙</span> Resolving dependencies...                                                     </pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre><span class="ansi-white-fg">⠙</span> pillow==12.0.0                                                                <span class="ansi-white-fg">⠙</span>                                                                               Resolved <span class="ansi-bold">1 package</span> in 31ms
-<span class="ansi-white-fg">⠋</span> Preparing packages... (0/0)                                                   <span class="ansi-white-fg">⠋</span> Preparing packages... (0/1)                                                   <span class="ansi-white-fg">⠙</span> Preparing packages... (0/1)                                                   <span class="ansi-white-fg">⠙</span> Preparing packages... (0/1)
-pillow               <span class="ansi-green-fg">------------------------------</span>     0 B/6.71 MiB            <span class="ansi-white-fg">⠙</span> Preparing packages... (0/1)
-pillow               <span class="ansi-green-fg">-</span><span class="ansi-green-fg">-----------------------------</span> 16.00 KiB/6.71 MiB          <span class="ansi-white-fg">⠙</span> Preparing packages... (0/1)
-pillow               <span class="ansi-green-fg">-</span><span class="ansi-green-fg">-----------------------------</span> 32.00 KiB/6.71 MiB          <span class="ansi-white-fg">⠙</span> Preparing packages... (0/1)
-pillow               <span class="ansi-green-fg">-</span><span class="ansi-green-fg">-----------------------------</span> 48.00 KiB/6.71 MiB          <span class="ansi-white-fg">⠙</span> Preparing packages... (0/1)
-pillow               <span class="ansi-green-fg">-</span><span class="ansi-green-fg">-----------------------------</span> 60.64 KiB/6.71 MiB          <span class="ansi-white-fg">⠙</span> Preparing packages... (0/1)
-pillow               <span class="ansi-green-fg">-</span><span class="ansi-green-fg">-----------------------------</span> 76.64 KiB/6.71 MiB          <span class="ansi-white-fg">⠙</span> Preparing packages... (0/1)
-pillow               <span class="ansi-green-fg">-</span><span class="ansi-green-fg">-----------------------------</span> 92.64 KiB/6.71 MiB          <span class="ansi-white-fg">⠙</span> Preparing packages... (0/1)
-pillow               <span class="ansi-green-fg">-</span><span class="ansi-green-fg">-----------------------------</span> 108.64 KiB/6.71 MiB         <span class="ansi-white-fg">⠙</span> Preparing packages... (0/1)
-pillow               <span class="ansi-green-fg">-</span><span class="ansi-green-fg">-----------------------------</span> 124.64 KiB/6.71 MiB         <span class="ansi-white-fg">⠙</span> Preparing packages... (0/1)
-pillow               <span class="ansi-green-fg">-</span><span class="ansi-green-fg">-----------------------------</span> 140.64 KiB/6.71 MiB         <span class="ansi-white-fg">⠙</span> Preparing packages... (0/1)
-pillow               <span class="ansi-green-fg">-</span><span class="ansi-green-fg">-----------------------------</span> 156.64 KiB/6.71 MiB         <span class="ansi-white-fg">⠙</span> Preparing packages... (0/1)
-pillow               <span class="ansi-green-fg">-</span><span class="ansi-green-fg">-----------------------------</span> 172.64 KiB/6.71 MiB         <span class="ansi-white-fg">⠙</span> Preparing packages... (0/1)
-pillow               <span class="ansi-green-fg">-</span><span class="ansi-green-fg">-----------------------------</span> 188.64 KiB/6.71 MiB         <span class="ansi-white-fg">⠙</span> Preparing packages... (0/1)
-pillow               <span class="ansi-green-fg">-</span><span class="ansi-green-fg">-----------------------------</span> 204.64 KiB/6.71 MiB         <span class="ansi-white-fg">⠙</span> Preparing packages... (0/1)
-pillow               <span class="ansi-green-fg">-</span><span class="ansi-green-fg">-----------------------------</span> 220.64 KiB/6.71 MiB         <span class="ansi-white-fg">⠙</span> Preparing packages... (0/1)
-pillow               <span class="ansi-green-fg">--</span><span class="ansi-green-fg">----------------------------</span> 236.64 KiB/6.71 MiB         <span class="ansi-white-fg">⠙</span> Preparing packages... (0/1)
-pillow               <span class="ansi-green-fg">--</span><span class="ansi-green-fg">----------------------------</span> 252.64 KiB/6.71 MiB         </pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre><span class="ansi-white-fg">⠙</span> Preparing packages... (0/1)
-pillow               <span class="ansi-green-fg">-------------------</span><span class="ansi-green-fg">-----------</span> 4.20 MiB/6.71 MiB           </pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre><span class="ansi-white-fg">⠙</span> Preparing packages... (0/1)                                                   Prepared <span class="ansi-bold">1 package</span> in 76ms
-░░░░░░░░░░░░░░░░░░░░ [0/0] Installing wheels...                                 ░░░░░░░░░░░░░░░░░░░░ [0/1] Installing wheels...                                 ░░░░░░░░░░░░░░░░░░░░ [0/1] pillow==12.0.0                                       ████████████████████ [1/1] pillow==12.0.0                                       Installed <span class="ansi-bold">1 package</span> in 3ms
- <span class="ansi-green-fg">+</span> <span class="ansi-bold">pillow</span>==12.0.0
-</pre>
-</div>
-</div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=6790e9e0">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=af0c9722">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2486,15 +2390,15 @@ pillow               <span class="ansi-green-fg">-------------------</span><span
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=2e0b84fa">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=ff1b8112">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [2]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [1]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
-<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-2">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-1">
 <div>
 <span class="notice" hidden="">Copied!</span>
 <svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
@@ -2528,7 +2432,7 @@ pillow               <span class="ansi-green-fg">-------------------</span><span
     <span class="n">ModelConfig</span><span class="p">,</span>
 <span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-2"># Standard library imports
+<div class="clipboard-copy-txt" id="cell-1"># Standard library imports
 import base64
 import io
 import uuid
@@ -2557,7 +2461,7 @@ from data_designer.essentials import (
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=d39a6f6c">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=b970252a">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2573,15 +2477,15 @@ from data_designer.essentials import (
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=77415f9e">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=1226e23a">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [3]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [2]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
-<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-3">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-2">
 <div>
 <span class="notice" hidden="">Copied!</span>
 <svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
@@ -2593,14 +2497,14 @@ from data_designer.essentials import (
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">data_designer</span> <span class="o">=</span> <span class="n">DataDesigner</span><span class="p">()</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-3">data_designer = DataDesigner()</div>
+<div class="clipboard-copy-txt" id="cell-2">data_designer = DataDesigner()</div>
 </div>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=afca8833">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=3818de3c">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2620,15 +2524,15 @@ from data_designer.essentials import (
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=2cec7098">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=2c0d4b44">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [4]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [3]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
-<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-4">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-3">
 <div>
 <span class="notice" hidden="">Copied!</span>
 <svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
@@ -2654,7 +2558,7 @@ from data_designer.essentials import (
     <span class="p">),</span>
 <span class="p">]</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-4"># This name is set in the model provider configuration.
+<div class="clipboard-copy-txt" id="cell-3"># This name is set in the model provider configuration.
 MODEL_PROVIDER = "nvidia"
 
 model_configs = [
@@ -2675,7 +2579,7 @@ model_configs = [
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=9515de8b">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=28e60af1">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2693,7 +2597,51 @@ model_configs = [
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=5d26d1cc">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=3faf90cd">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [4]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="CodeMirror cm-s-jupyter">
+<div class="zeroclipboard-container">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-4">
+<div>
+<span class="notice" hidden="">Copied!</span>
+<svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
+<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+</svg>
+</div>
+</clipboard-copy>
+</div>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">config_builder</span> <span class="o">=</span> <span class="n">DataDesignerConfigBuilder</span><span class="p">(</span><span class="n">model_configs</span><span class="o">=</span><span class="n">model_configs</span><span class="p">)</span>
+</pre></div>
+<div class="clipboard-copy-txt" id="cell-4">config_builder = DataDesignerConfigBuilder(model_configs=model_configs)</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=cb3e57ca">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<h3 id="seed-dataset-creation">🌱 Seed Dataset Creation<a class="anchor-link" href="#seed-dataset-creation">¶</a></h3><p>In this section, we'll prepare our visual documents as a seed dataset for summarization:</p>
+<ul>
+<li><strong>Loading Visual Documents</strong>: We use the ColPali dataset containing document images</li>
+<li><strong>Image Processing</strong>: Convert images to base64 format for vision model consumption</li>
+<li><strong>Metadata Extraction</strong>: Preserve relevant document information (filename, page number, source, etc.)</li>
+</ul>
+<p>The seed dataset will be used to generate detailed text summaries of each document image.</p>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=3ae65b14">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2711,50 +2659,6 @@ model_configs = [
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">config_builder</span> <span class="o">=</span> <span class="n">DataDesignerConfigBuilder</span><span class="p">(</span><span class="n">model_configs</span><span class="o">=</span><span class="n">model_configs</span><span class="p">)</span>
-</pre></div>
-<div class="clipboard-copy-txt" id="cell-5">config_builder = DataDesignerConfigBuilder(model_configs=model_configs)</div>
-</div>
-</div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=e867a6db">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h3 id="seed-dataset-creation">🌱 Seed Dataset Creation<a class="anchor-link" href="#seed-dataset-creation">¶</a></h3><p>In this section, we'll prepare our visual documents as a seed dataset for summarization:</p>
-<ul>
-<li><strong>Loading Visual Documents</strong>: We use the ColPali dataset containing document images</li>
-<li><strong>Image Processing</strong>: Convert images to base64 format for vision model consumption</li>
-<li><strong>Metadata Extraction</strong>: Preserve relevant document information (filename, page number, source, etc.)</li>
-</ul>
-<p>The seed dataset will be used to generate detailed text summaries of each document image.</p>
-</div>
-</div>
-</div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=8b86a2ed">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [6]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
-<div class="CodeMirror cm-s-jupyter">
-<div class="zeroclipboard-container">
-<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-6">
-<div>
-<span class="notice" hidden="">Copied!</span>
-<svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
-<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z" fill="currentColor" fill-rule="evenodd"></path>
-<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z" fill="currentColor" fill-rule="evenodd"></path>
-</svg>
-</div>
-</clipboard-copy>
-</div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># Dataset processing configuration</span>
 <span class="n">IMG_COUNT</span> <span class="o">=</span> <span class="mi">512</span>  <span class="c1"># Number of images to process</span>
 <span class="n">BASE64_IMAGE_HEIGHT</span> <span class="o">=</span> <span class="mi">512</span>  <span class="c1"># Standardized height for model input</span>
@@ -2762,7 +2666,7 @@ model_configs = [
 <span class="c1"># Load ColPali dataset for visual documents</span>
 <span class="n">img_dataset_cfg</span> <span class="o">=</span> <span class="p">{</span><span class="s2">"path"</span><span class="p">:</span> <span class="s2">"vidore/colpali_train_set"</span><span class="p">,</span> <span class="s2">"split"</span><span class="p">:</span> <span class="s2">"train"</span><span class="p">,</span> <span class="s2">"streaming"</span><span class="p">:</span> <span class="kc">True</span><span class="p">}</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-6"># Dataset processing configuration
+<div class="clipboard-copy-txt" id="cell-5"># Dataset processing configuration
 IMG_COUNT = 512  # Number of images to process
 BASE64_IMAGE_HEIGHT = 512  # Standardized height for model input
 
@@ -2774,15 +2678,15 @@ img_dataset_cfg = {"path": "vidore/colpali_train_set", "split": "train", "stream
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=a8ae4bd1">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=9d130b6a">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [7]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [6]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
-<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-7">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-6">
 <div>
 <span class="notice" hidden="">Copied!</span>
 <svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
@@ -2832,7 +2736,7 @@ img_dataset_cfg = {"path": "vidore/colpali_train_set", "split": "train", "stream
     <span class="c1"># Return updated record</span>
     <span class="k">return</span> <span class="n">record</span> <span class="o">|</span> <span class="p">{</span><span class="s2">"base64_image"</span><span class="p">:</span> <span class="n">base64_string</span><span class="p">,</span> <span class="s2">"uuid"</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">uuid</span><span class="o">.</span><span class="n">uuid4</span><span class="p">())}</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-7">def resize_image(image, height: int):
+<div class="clipboard-copy-txt" id="cell-6">def resize_image(image, height: int):
     """
     Resize image while maintaining aspect ratio.
 
@@ -2877,15 +2781,15 @@ def convert_image_to_chat_format(record, height: int) -&gt; dict:
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=f17e9d9e">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=ffa5f884">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [8]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [7]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
-<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-8">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-7">
 <div>
 <span class="notice" hidden="">Copied!</span>
 <svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
@@ -2905,7 +2809,7 @@ def convert_image_to_chat_format(record, height: int) -&gt; dict:
 
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"✅ Loaded </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">img_dataset</span><span class="p">)</span><span class="si">}</span><span class="s2"> images with columns: </span><span class="si">{</span><span class="nb">list</span><span class="p">(</span><span class="n">img_dataset</span><span class="o">.</span><span class="n">columns</span><span class="p">)</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-8"># Load and process the visual document dataset
+<div class="clipboard-copy-txt" id="cell-7"># Load and process the visual document dataset
 print("📥 Loading and processing document images...")
 
 img_dataset_iter = iter(
@@ -2931,34 +2835,34 @@ print(f"✅ Loaded {len(img_dataset)} images with columns: {list(img_dataset.col
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jupyter-widgets jp-OutputArea-output" id="5dce00cb-0092-4a75-933c-b0230824fc4a" tabindex="0">
+<div class="jupyter-widgets jp-OutputArea-output" id="ef2ed522-d358-48d8-80dc-735059ddebd1" tabindex="0">
 <script type="text/javascript">
-var element = document.getElementById('5dce00cb-0092-4a75-933c-b0230824fc4a');
+var element = document.getElementById('ef2ed522-d358-48d8-80dc-735059ddebd1');
 </script>
 <script type="application/vnd.jupyter.widget-view+json">
-{"model_id": "508bb7c20e5642ed823caf6f6d94a07b", "version_major": 2, "version_minor": 0}
+{"model_id": "12d2d43ad149472fa7cdbdb5ca36e38b", "version_major": 2, "version_minor": 0}
 </script>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jupyter-widgets jp-OutputArea-output" id="e6dac032-73c5-4394-81aa-068377a05910" tabindex="0">
+<div class="jupyter-widgets jp-OutputArea-output" id="887c8d1b-bae8-45bc-819f-c5e5789a9a49" tabindex="0">
 <script type="text/javascript">
-var element = document.getElementById('e6dac032-73c5-4394-81aa-068377a05910');
+var element = document.getElementById('887c8d1b-bae8-45bc-819f-c5e5789a9a49');
 </script>
 <script type="application/vnd.jupyter.widget-view+json">
-{"model_id": "1df0b11017df47eda2f3e5770aebcf3b", "version_major": 2, "version_minor": 0}
+{"model_id": "1da4dc5a569f4fbbbeba0e7a91fc8346", "version_major": 2, "version_minor": 0}
 </script>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jupyter-widgets jp-OutputArea-output" id="a2d6180d-6d51-456f-b683-aaa0b06dfe1d" tabindex="0">
+<div class="jupyter-widgets jp-OutputArea-output" id="f9acbdff-ba7f-4b9f-ab06-864009a485c3" tabindex="0">
 <script type="text/javascript">
-var element = document.getElementById('a2d6180d-6d51-456f-b683-aaa0b06dfe1d');
+var element = document.getElementById('f9acbdff-ba7f-4b9f-ab06-864009a485c3');
 </script>
 <script type="application/vnd.jupyter.widget-view+json">
-{"model_id": "102274d5b70247eeb86bf8fd464d59fa", "version_major": 2, "version_minor": 0}
+{"model_id": "552848fa2945430881e4290943835a3f", "version_major": 2, "version_minor": 0}
 </script>
 </div>
 </div>
@@ -2973,15 +2877,15 @@ var element = document.getElementById('a2d6180d-6d51-456f-b683-aaa0b06dfe1d');
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=cde6dd45">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=d5f933f5">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [9]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [8]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
-<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-9">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-8">
 <div>
 <span class="notice" hidden="">Copied!</span>
 <svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
@@ -2993,7 +2897,7 @@ var element = document.getElementById('a2d6180d-6d51-456f-b683-aaa0b06dfe1d');
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">img_dataset</span><span class="o">.</span><span class="n">head</span><span class="p">()</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-9">img_dataset.head()</div>
+<div class="clipboard-copy-txt" id="cell-8">img_dataset.head()</div>
 </div>
 </div>
 </div>
@@ -3003,7 +2907,7 @@ var element = document.getElementById('a2d6180d-6d51-456f-b683-aaa0b06dfe1d');
 </div>
 <div class="jp-OutputArea jp-Cell-outputArea">
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[9]:</div>
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[8]:</div>
 <div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/html" tabindex="0">
 <div>
 <style scoped="">
@@ -3051,7 +2955,7 @@ var element = document.getElementById('a2d6180d-6d51-456f-b683-aaa0b06dfe1d');
 <td></td>
 <td>None</td>
 <td>iVBORw0KGgoAAAANSUhEUgAAAUAAAAIACAIAAAB8QiIMAA...</td>
-<td>ef057de0-6363-4be8-9353-bfe034594f2d</td>
+<td>c70ad696-06eb-4aff-81ad-0b049db87d13</td>
 </tr>
 <tr>
 <th>1</th>
@@ -3066,7 +2970,7 @@ var element = document.getElementById('a2d6180d-6d51-456f-b683-aaa0b06dfe1d');
 <td>\n        You are an assistant specialized in ...</td>
 <td>None</td>
 <td>iVBORw0KGgoAAAANSUhEUgAAAYsAAAIACAIAAAD8HddaAA...</td>
-<td>eb60c762-8473-4d69-aa7d-38a9ce64c8a9</td>
+<td>f0570089-ec9d-4c15-b819-9d4a0e6ba979</td>
 </tr>
 <tr>
 <th>2</th>
@@ -3081,7 +2985,7 @@ var element = document.getElementById('a2d6180d-6d51-456f-b683-aaa0b06dfe1d');
 <td>\n        You are an assistant specialized in ...</td>
 <td>None</td>
 <td>iVBORw0KGgoAAAANSUhEUgAAAZgAAAIACAIAAAAwhO2xAA...</td>
-<td>a01df06a-9625-4f9d-bb99-138c7437bf0d</td>
+<td>e0b6f5de-650b-44ed-b37a-e9384d299141</td>
 </tr>
 <tr>
 <th>3</th>
@@ -3096,7 +3000,7 @@ var element = document.getElementById('a2d6180d-6d51-456f-b683-aaa0b06dfe1d');
 <td>None</td>
 <td>None</td>
 <td>iVBORw0KGgoAAAANSUhEUgAAAX0AAAIACAAAAABLRuMPAA...</td>
-<td>a6061615-75e6-4bad-9c09-011d7483212b</td>
+<td>051f44cb-a0f2-49cf-b36a-7d5b903bfbe4</td>
 </tr>
 <tr>
 <th>4</th>
@@ -3111,7 +3015,7 @@ var element = document.getElementById('a2d6180d-6d51-456f-b683-aaa0b06dfe1d');
 <td>None</td>
 <td>None</td>
 <td>iVBORw0KGgoAAAANSUhEUgAAAY8AAAIACAAAAABf/7+rAA...</td>
-<td>40d53832-db4e-422c-bc52-a7407937c77e</td>
+<td>6397535a-f6ae-4d68-9462-e3c4c76b6b81</td>
 </tr>
 </tbody>
 </table>
@@ -3122,15 +3026,15 @@ var element = document.getElementById('a2d6180d-6d51-456f-b683-aaa0b06dfe1d');
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=b765c5df">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=95f9f477">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [10]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [9]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
-<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-10">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-9">
 <div>
 <span class="notice" hidden="">Copied!</span>
 <svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
@@ -3146,7 +3050,7 @@ var element = document.getElementById('a2d6180d-6d51-456f-b683-aaa0b06dfe1d');
     <span class="n">DataDesigner</span><span class="o">.</span><span class="n">make_seed_reference_from_dataframe</span><span class="p">(</span><span class="n">df_seed</span><span class="p">,</span> <span class="n">file_path</span><span class="o">=</span><span class="s2">"colpali_train_set.csv"</span><span class="p">)</span>
 <span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-10"># Add the seed dataset containing our processed images
+<div class="clipboard-copy-txt" id="cell-9"># Add the seed dataset containing our processed images
 df_seed = pd.DataFrame(img_dataset)[["uuid", "image_filename", "base64_image", "page", "options", "source"]]
 config_builder.with_seed_dataset(
     DataDesigner.make_seed_reference_from_dataframe(df_seed, file_path="colpali_train_set.csv")
@@ -3162,12 +3066,12 @@ config_builder.with_seed_dataset(
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:40] [INFO] 💾 Saving seed dataset to colpali_train_set.csv
+<pre>[18:19:20] [INFO] 💾 Saving seed dataset to colpali_train_set.csv
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[10]:</div>
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[9]:</div>
 <div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/html" tabindex="0">
 <meta charset="utf-8"/>
 <style>
@@ -3299,15 +3203,15 @@ span.linenos.special { color: #242933; background-color: #D8DEE9; padding-left: 
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=a17b0c16">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=38b7c9df">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [11]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [10]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
-<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-11">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-10">
 <div>
 <span class="notice" hidden="">Copied!</span>
 <svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
@@ -3337,7 +3241,7 @@ span.linenos.special { color: #242933; background-color: #D8DEE9; padding-left: 
     <span class="p">)</span>
 <span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-11"># Add a column to generate detailed document summaries
+<div class="clipboard-copy-txt" id="cell-10"># Add a column to generate detailed document summaries
 config_builder.add_column(
     LLMTextColumnConfig(
         name="summary",
@@ -3365,7 +3269,7 @@ config_builder.add_column(
 </div>
 <div class="jp-OutputArea jp-Cell-outputArea">
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[11]:</div>
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[10]:</div>
 <div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/html" tabindex="0">
 <meta charset="utf-8"/>
 <style>
@@ -3498,7 +3402,7 @@ span.linenos.special { color: #242933; background-color: #D8DEE9; padding-left: 
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=4b1a736c">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=8792c662">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -3508,7 +3412,7 @@ span.linenos.special { color: #242933; background-color: #D8DEE9; padding-left: 
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=68f094bb">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=19768077">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -3528,15 +3432,15 @@ span.linenos.special { color: #242933; background-color: #D8DEE9; padding-left: 
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=df608748">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=9204fb6f">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [12]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [11]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
-<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-12">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-11">
 <div>
 <span class="notice" hidden="">Copied!</span>
 <svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
@@ -3548,7 +3452,7 @@ span.linenos.special { color: #242933; background-color: #D8DEE9; padding-left: 
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">preview</span> <span class="o">=</span> <span class="n">data_designer</span><span class="o">.</span><span class="n">preview</span><span class="p">(</span><span class="n">config_builder</span><span class="p">,</span> <span class="n">num_records</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-12">preview = data_designer.preview(config_builder, num_records=2)</div>
+<div class="clipboard-copy-txt" id="cell-11">preview = data_designer.preview(config_builder, num_records=2)</div>
 </div>
 </div>
 </div>
@@ -3560,84 +3464,84 @@ span.linenos.special { color: #242933; background-color: #D8DEE9; padding-left: 
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:41] [INFO] 🔭 Preview generation in progress
+<pre>[18:19:21] [INFO] 📸 Preview generation in progress
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:41] [INFO] ✅ Validation passed
+<pre>[18:19:21] [INFO] ✅ Validation passed
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:41] [INFO] ⛓️ Sorting column configs into a Directed Acyclic Graph
+<pre>[18:19:21] [INFO] ⛓️ Sorting column configs into a Directed Acyclic Graph
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:41] [INFO] 🩺 Running health checks for models...
+<pre>[18:19:21] [INFO] 🩺 Running health checks for models...
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:41] [INFO]   |-- 👀 Checking 'meta/llama-4-scout-17b-16e-instruct' in provider named 'nvidia' for model alias 'vision'...
+<pre>[18:19:21] [INFO]   |-- 👀 Checking 'meta/llama-4-scout-17b-16e-instruct' in provider named 'nvidia' for model alias 'vision'...
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:43] [INFO]   |-- ✅ Passed!
+<pre>[18:19:26] [INFO]   |-- ✅ Passed!
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:46] [INFO] 🌱 Sampling 2 records from seed dataset
+<pre>[18:19:29] [INFO] 🌱 Sampling 2 records from seed dataset
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:46] [INFO]   |-- seed dataset size: 512 records
+<pre>[18:19:29] [INFO]   |-- seed dataset size: 512 records
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:46] [INFO]   |-- sampling strategy: ordered
+<pre>[18:19:29] [INFO]   |-- sampling strategy: ordered
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:46] [INFO] 📝 Preparing llm-text column generation
+<pre>[18:19:29] [INFO] 📝 Preparing llm-text column generation
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:46] [INFO]   |-- column name: 'summary'
+<pre>[18:19:29] [INFO]   |-- column name: 'summary'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:46] [INFO]   |-- model config:
+<pre>[18:19:29] [INFO]   |-- model config:
 {
     "alias": "vision",
     "model": "meta/llama-4-scout-17b-16e-instruct",
@@ -3657,28 +3561,28 @@ span.linenos.special { color: #242933; background-color: #D8DEE9; padding-left: 
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:46] [INFO] 🐙 Processing llm-text column 'summary' with 4 concurrent workers
+<pre>[18:19:29] [INFO] 🐙 Processing llm-text column 'summary' with 4 concurrent workers
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:57] [INFO] 📊 Model usage summary:
+<pre>[18:19:44] [INFO] 📊 Model usage summary:
 {
     "meta/llama-4-scout-17b-16e-instruct": {
         "token_usage": {
             "prompt_tokens": 1396,
-            "completion_tokens": 911,
-            "total_tokens": 2307
+            "completion_tokens": 994,
+            "total_tokens": 2390
         },
         "request_usage": {
             "successful_requests": 2,
             "failed_requests": 0,
             "total_requests": 2
         },
-        "tokens_per_second": 178,
-        "requests_per_minute": 9
+        "tokens_per_second": 141,
+        "requests_per_minute": 7
     }
 }
 </pre>
@@ -3687,63 +3591,63 @@ span.linenos.special { color: #242933; background-color: #D8DEE9; padding-left: 
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:57] [INFO] 📐 Measuring dataset column statistics:
+<pre>[18:19:44] [INFO] 📐 Measuring dataset column statistics:
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:57] [INFO]   |-- 🌱 column: 'uuid'
+<pre>[18:19:44] [INFO]   |-- 🌱 column: 'uuid'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:57] [INFO]   |-- 🌱 column: 'image_filename'
+<pre>[18:19:44] [INFO]   |-- 🌱 column: 'image_filename'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:57] [INFO]   |-- 🌱 column: 'base64_image'
+<pre>[18:19:44] [INFO]   |-- 🌱 column: 'base64_image'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:57] [INFO]   |-- 🌱 column: 'page'
+<pre>[18:19:44] [INFO]   |-- 🌱 column: 'page'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:57] [INFO]   |-- 🌱 column: 'options'
+<pre>[18:19:44] [INFO]   |-- 🌱 column: 'options'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:57] [INFO]   |-- 🌱 column: 'source'
+<pre>[18:19:44] [INFO]   |-- 🌱 column: 'source'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:57] [INFO]   |-- 📝 column: 'summary'
+<pre>[18:19:44] [INFO]   |-- 📝 column: 'summary'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:57] [INFO] 🎉 Preview complete!
+<pre>[18:19:44] [INFO] 🍾 Preview complete!
 </pre>
 </div>
 </div>
@@ -3751,15 +3655,15 @@ span.linenos.special { color: #242933; background-color: #D8DEE9; padding-left: 
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=83466a78">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=0b8ceab9">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [13]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [12]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
-<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-13">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-12">
 <div>
 <span class="notice" hidden="">Copied!</span>
 <svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
@@ -3772,7 +3676,7 @@ span.linenos.special { color: #242933; background-color: #D8DEE9; padding-left: 
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># Run this cell multiple times to cycle through the 2 preview records.</span>
 <span class="n">preview</span><span class="o">.</span><span class="n">display_sample_record</span><span class="p">()</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-13"># Run this cell multiple times to cycle through the 2 preview records.
+<div class="clipboard-copy-txt" id="cell-12"># Run this cell multiple times to cycle through the 2 preview records.
 preview.display_sample_record()</div>
 </div>
 </div>
@@ -3790,7 +3694,7 @@ preview.display_sample_record()</div>
 ┏━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃<span style="font-weight: bold"> Name           </span>┃<span style="font-weight: bold"> Value                                                                                          </span>┃
 ┡━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
-│ uuid           │ ef057de0-6363-4be8-9353-bfe034594f2d                                                           │
+│ uuid           │ c70ad696-06eb-4aff-81ad-0b049db87d13                                                           │
 ├────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
 │ image_filename │ images/1810.07757_2.jpg                                                                        │
 ├────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
@@ -3811,46 +3715,49 @@ preview.display_sample_record()</div>
 ┃<span style="font-weight: bold"> Name    </span>┃<span style="font-weight: bold"> Value                                                                                                 </span>┃
 ┡━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
 │ summary │ ## Image Summary                                                                                      │
-│         │ The image presents a collection of eight heatmap graphs, arranged in two columns of four rows each,   │
-│         │ with a color bar at the top. The graphs are labeled from "a" to "h" and display various patterns of   │
-│         │ color distribution.                                                                                   │
+│         │                                                                                                       │
+│         │ The image presents a collection of 8 heatmap graphs, arranged in two columns and four rows, labeled   │
+│         │ from a) to h). Each graph displays a relationship between two variables, with the x-axis representing │
+│         │ time (t) in microseconds and the y-axis representing a change in frequency (∆f) in MHz.               │
 │         │                                                                                                       │
 │         │ ### Top to Bottom Description                                                                         │
 │         │                                                                                                       │
-│         │ #### Color Bar                                                                                        │
-│         │ - The color bar at the top spans from 0.2 to 1, with colors transitioning from dark blue (0.2) to     │
-│         │ yellow (1). This bar likely represents a scale for the intensity or value of the data being displayed │
-│         │ in the heatmaps.                                                                                      │
+│         │ 1. **Color Bar**: At the top of the image, a color bar is provided, indicating the correlation        │
+│         │ coefficient (τ) values ranging from 0.2 to 1. The color bar transitions from blue (low correlation)   │
+│         │ to yellow (high correlation).                                                                         │
 │         │                                                                                                       │
-│         │ #### First Column (a to d)                                                                            │
-│         │ - **Graph a**: Shows a predominantly dark blue horizontal band across the middle, with very little    │
-│         │ variation in the vertical direction but some spread in the horizontal direction. The y-axis is        │
-│         │ labeled $\Delta_{I} (MHz)$ ranging from -40 to 20 MHz, and the x-axis is labeled $t(\mu s)$ from 0 to │
-│         │ 0.8 $\mu s$.                                                                                          │
-│         │ - **Graph b**: Exhibits a random, speckled pattern with no clear direction or banding. The y-axis     │
-│         │ ranges from -60 to 20 MHz.                                                                            │
-│         │ - **Graph c**: Displays a similar speckled pattern to graph b but with slightly more pronounced       │
-│         │ features. The y-axis also ranges from -60 to 20 MHz.                                                  │
-│         │ - **Graph d**: Shows a more uniform distribution of colors compared to b and c, with less intense     │
-│         │ colors. The y-axis ranges from -60 to 20 MHz.                                                         │
+│         │ 2. **Graphs a) and e)**:                                                                              │
+│         │    - Graph a) shows a predominantly blue area, indicating a strong negative correlation (τ ≈ 0.2-0.4) │
+│         │ across most of the time and frequency range, with a narrow band of higher correlation values.         │
+│         │    - Graph e) displays a similar pattern but with a more yellowish hue towards the bottom, suggesting │
+│         │ a transition from moderate to strong correlation over time.                                           │
 │         │                                                                                                       │
-│         │ #### Second Column (e to h)                                                                           │
-│         │ - **Graph e**: Features a dark blue band that starts broad and narrows as it moves from left to       │
-│         │ right, indicating a change over time.                                                                 │
-│         │ - **Graph f**: Presents a diagonal pattern with a dark blue line that moves from the top left to the  │
-│         │ bottom right, suggesting a linear change over time.                                                   │
-│         │ - **Graph g**: Displays a gradual transition from blue at the bottom to yellow at the top, with a     │
-│         │ diagonal feature similar to graph f but less defined.                                                 │
-│         │ - **Graph h**: Shows a pattern with a yellowish base and a blue diagonal line from the top left to    │
-│         │ the bottom right, similar to graph f but mirrored.                                                    │
+│         │ 3. **Graphs b) and f)**:                                                                              │
+│         │    - Graph b) features a scattered distribution of colors, indicating a mix of weak correlations      │
+│         │ across the time and frequency range.                                                                  │
+│         │    - Graph f) shows a clearer pattern, with a diagonal band of higher correlation values, suggesting  │
+│         │ a relationship that evolves over time and frequency.                                                  │
+│         │                                                                                                       │
+│         │ 4. **Graphs c) and g)**:                                                                              │
+│         │    - Graph c) exhibits a random distribution similar to graph b), with no clear pattern of            │
+│         │ correlation.                                                                                          │
+│         │    - Graph g) displays a more organized pattern, with a diagonal trend of increasing correlation over │
+│         │ time.                                                                                                 │
+│         │                                                                                                       │
+│         │ 5. **Graphs d) and h)**:                                                                              │
+│         │    - Graph d) shows a mix of colors but with a tendency towards lower correlation values.             │
+│         │    - Graph h) presents a pattern similar to graph g), with an increase in correlation over time but   │
+│         │ with a different slope.                                                                               │
 │         │                                                                                                       │
 │         │ ### Summary                                                                                           │
-│         │ The image contains eight heatmaps that display different patterns and distributions of data over time │
-│         │ ($t$) and frequency ($\Delta_{I} (MHz)$). The patterns range from uniform bands and diagonal lines to │
-│         │ random speckles, suggesting various types of signal or data behavior being analyzed. The use of a     │
-│         │ consistent color scale across all graphs allows for direct comparison of the intensity or magnitude   │
-│         │ of the data being represented. Overall, the image appears to be from a scientific or technical        │
-│         │ context, possibly related to signal processing, physics, or engineering.                              │
+│         │                                                                                                       │
+│         │ The image provides a visual comparison of correlation patterns across different conditions or         │
+│         │ datasets, labeled a) through h). The heatmaps illustrate how correlation coefficients (τ) change over │
+│         │ time (t) and with respect to frequency changes (∆f). The color bar at the top helps in interpreting   │
+│         │ the strength and direction of the correlations. The graphs suggest varied relationships between the   │
+│         │ variables across different scenarios, ranging from strong negative correlations to more complex,      │
+│         │ evolving patterns of correlation. Overall, the image seems to be from a scientific study, possibly in │
+│         │ the field of physics or engineering, analyzing signal processing or similar phenomena.                │
 └─────────┴───────────────────────────────────────────────────────────────────────────────────────────────────────┘
                                                                                                                    
                                                     [index: 0]                                                     
@@ -3861,15 +3768,15 @@ preview.display_sample_record()</div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=8050d5e6">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=0d2c3933">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [14]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [13]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
-<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-14">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-13">
 <div>
 <span class="notice" hidden="">Copied!</span>
 <svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
@@ -3882,7 +3789,7 @@ preview.display_sample_record()</div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># The preview dataset is available as a pandas DataFrame.</span>
 <span class="n">preview</span><span class="o">.</span><span class="n">dataset</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-14"># The preview dataset is available as a pandas DataFrame.
+<div class="clipboard-copy-txt" id="cell-13"># The preview dataset is available as a pandas DataFrame.
 preview.dataset</div>
 </div>
 </div>
@@ -3893,7 +3800,7 @@ preview.dataset</div>
 </div>
 <div class="jp-OutputArea jp-Cell-outputArea">
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[14]:</div>
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[13]:</div>
 <div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/html" tabindex="0">
 <div>
 <style scoped="">
@@ -3925,23 +3832,23 @@ preview.dataset</div>
 <tbody>
 <tr>
 <th>0</th>
-<td>ef057de0-6363-4be8-9353-bfe034594f2d</td>
+<td>c70ad696-06eb-4aff-81ad-0b049db87d13</td>
 <td>images/1810.07757_2.jpg</td>
 <td>iVBORw0KGgoAAAANSUhEUgAAAUAAAAIACAIAAAB8QiIMAA...</td>
 <td>NaN</td>
 <td>['A. The variance of the data decreases from p...</td>
 <td>arxiv_qa</td>
-<td>## Image Summary\nThe image presents a collect...</td>
+<td>## Image Summary\n\nThe image presents a colle...</td>
 </tr>
 <tr>
 <th>1</th>
-<td>eb60c762-8473-4d69-aa7d-38a9ce64c8a9</td>
+<td>f0570089-ec9d-4c15-b819-9d4a0e6ba979</td>
 <td>data/scrapped_pdfs_split/pages_extracted/energ...</td>
 <td>iVBORw0KGgoAAAANSUhEUgAAAYsAAAIACAIAAAD8HddaAA...</td>
 <td>9.0</td>
 <td>None</td>
 <td>pdf</td>
-<td>## **How to Use These Materials**\nThe enclose...</td>
+<td>## Document Summary\nThe document appears to b...</td>
 </tr>
 </tbody>
 </table>
@@ -3952,7 +3859,7 @@ preview.dataset</div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=eadada94">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=999c7713">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -3968,15 +3875,15 @@ preview.dataset</div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=cc84e86a">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=140b5369">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [15]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [14]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
-<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-15">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-14">
 <div>
 <span class="notice" hidden="">Copied!</span>
 <svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
@@ -3989,7 +3896,7 @@ preview.dataset</div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># Print the analysis as a table.</span>
 <span class="n">preview</span><span class="o">.</span><span class="n">analysis</span><span class="o">.</span><span class="n">to_report</span><span class="p">()</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-15"># Print the analysis as a table.
+<div class="clipboard-copy-txt" id="cell-14"># Print the analysis as a table.
 preview.analysis.to_report()</div>
 </div>
 </div>
@@ -4036,7 +3943,7 @@ preview.analysis.to_report()</div>
 ┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">                  </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">               </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">                              </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">       prompt tokens </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">       completion tokens </span>┃
 ┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold"> column name      </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">     data type </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">         number unique values </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">          per record </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">              per record </span>┃
 ┡━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━┩
-│ summary          │        string │                   2 (100.0%) │        38.0 +/- 0.0 │         457.0 +/- 137.2 │
+│ summary          │        string │                   2 (100.0%) │        38.0 +/- 0.0 │           506.0 +/- 9.9 │
 └──────────────────┴───────────────┴──────────────────────────────┴─────────────────────┴─────────────────────────┘
                                                                                                                    
                                                                                                                    
@@ -4055,7 +3962,7 @@ preview.analysis.to_report()</div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=92732ca9">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=a898afa2">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -4066,15 +3973,15 @@ preview.analysis.to_report()</div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=0304b13a">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=5da4b311">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [16]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [15]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
-<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-16">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-15">
 <div>
 <span class="notice" hidden="">Copied!</span>
 <svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
@@ -4099,7 +4006,7 @@ preview.analysis.to_report()</div>
 <span class="nb">print</span><span class="p">(</span><span class="s2">"</span><span class="se">\n</span><span class="s2">📝 Generated Summary:"</span><span class="p">)</span>
 <span class="n">rich</span><span class="o">.</span><span class="n">print</span><span class="p">(</span><span class="n">Panel</span><span class="p">(</span><span class="n">record</span><span class="o">.</span><span class="n">summary</span><span class="p">,</span> <span class="n">title</span><span class="o">=</span><span class="s2">"Document Summary"</span><span class="p">,</span> <span class="n">title_align</span><span class="o">=</span><span class="s2">"left"</span><span class="p">))</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-16"># Compare original document with generated summary
+<div class="clipboard-copy-txt" id="cell-15"># Compare original document with generated summary
 index = 0  # Change this to view different examples
 
 # Merge preview data with original images for comparison
@@ -4147,44 +4054,47 @@ rich.print(Panel(record.summary, title="Document Summary", title_align="left"))<
 <div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output" data-mime-type="text/html" tabindex="0">
 <pre style="white-space:pre;overflow-x:auto;line-height:normal;font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace">╭─ Document Summary ──────────────────────────────────────────────────────────────────────────────────────────────╮
 │ ## Image Summary                                                                                                │
-│ The image presents a collection of eight heatmap graphs, arranged in two columns of four rows each, with a      │
-│ color bar at the top. The graphs are labeled from "a" to "h" and display various patterns of color              │
-│ distribution.                                                                                                   │
+│                                                                                                                 │
+│ The image presents a collection of 8 heatmap graphs, arranged in two columns and four rows, labeled from a) to  │
+│ h). Each graph displays a relationship between two variables, with the x-axis representing time (t) in          │
+│ microseconds and the y-axis representing a change in frequency (∆f) in MHz.                                     │
 │                                                                                                                 │
 │ ### Top to Bottom Description                                                                                   │
 │                                                                                                                 │
-│ #### Color Bar                                                                                                  │
-│ - The color bar at the top spans from 0.2 to 1, with colors transitioning from dark blue (0.2) to yellow (1).   │
-│ This bar likely represents a scale for the intensity or value of the data being displayed in the heatmaps.      │
+│ 1. **Color Bar**: At the top of the image, a color bar is provided, indicating the correlation coefficient (τ)  │
+│ values ranging from 0.2 to 1. The color bar transitions from blue (low correlation) to yellow (high             │
+│ correlation).                                                                                                   │
 │                                                                                                                 │
-│ #### First Column (a to d)                                                                                      │
-│ - **Graph a**: Shows a predominantly dark blue horizontal band across the middle, with very little variation in │
-│ the vertical direction but some spread in the horizontal direction. The y-axis is labeled $\Delta_{I} (MHz)$    │
-│ ranging from -40 to 20 MHz, and the x-axis is labeled $t(\mu s)$ from 0 to 0.8 $\mu s$.                         │
-│ - **Graph b**: Exhibits a random, speckled pattern with no clear direction or banding. The y-axis ranges from   │
-│ -60 to 20 MHz.                                                                                                  │
-│ - **Graph c**: Displays a similar speckled pattern to graph b but with slightly more pronounced features. The   │
-│ y-axis also ranges from -60 to 20 MHz.                                                                          │
-│ - **Graph d**: Shows a more uniform distribution of colors compared to b and c, with less intense colors. The   │
-│ y-axis ranges from -60 to 20 MHz.                                                                               │
+│ 2. **Graphs a) and e)**:                                                                                        │
+│    - Graph a) shows a predominantly blue area, indicating a strong negative correlation (τ ≈ 0.2-0.4) across    │
+│ most of the time and frequency range, with a narrow band of higher correlation values.                          │
+│    - Graph e) displays a similar pattern but with a more yellowish hue towards the bottom, suggesting a         │
+│ transition from moderate to strong correlation over time.                                                       │
 │                                                                                                                 │
-│ #### Second Column (e to h)                                                                                     │
-│ - **Graph e**: Features a dark blue band that starts broad and narrows as it moves from left to right,          │
-│ indicating a change over time.                                                                                  │
-│ - **Graph f**: Presents a diagonal pattern with a dark blue line that moves from the top left to the bottom     │
-│ right, suggesting a linear change over time.                                                                    │
-│ - **Graph g**: Displays a gradual transition from blue at the bottom to yellow at the top, with a diagonal      │
-│ feature similar to graph f but less defined.                                                                    │
-│ - **Graph h**: Shows a pattern with a yellowish base and a blue diagonal line from the top left to the bottom   │
-│ right, similar to graph f but mirrored.                                                                         │
+│ 3. **Graphs b) and f)**:                                                                                        │
+│    - Graph b) features a scattered distribution of colors, indicating a mix of weak correlations across the     │
+│ time and frequency range.                                                                                       │
+│    - Graph f) shows a clearer pattern, with a diagonal band of higher correlation values, suggesting a          │
+│ relationship that evolves over time and frequency.                                                              │
+│                                                                                                                 │
+│ 4. **Graphs c) and g)**:                                                                                        │
+│    - Graph c) exhibits a random distribution similar to graph b), with no clear pattern of correlation.         │
+│    - Graph g) displays a more organized pattern, with a diagonal trend of increasing correlation over time.     │
+│                                                                                                                 │
+│ 5. **Graphs d) and h)**:                                                                                        │
+│    - Graph d) shows a mix of colors but with a tendency towards lower correlation values.                       │
+│    - Graph h) presents a pattern similar to graph g), with an increase in correlation over time but with a      │
+│ different slope.                                                                                                │
 │                                                                                                                 │
 │ ### Summary                                                                                                     │
-│ The image contains eight heatmaps that display different patterns and distributions of data over time ($t$) and │
-│ frequency ($\Delta_{I} (MHz)$). The patterns range from uniform bands and diagonal lines to random speckles,    │
-│ suggesting various types of signal or data behavior being analyzed. The use of a consistent color scale across  │
-│ all graphs allows for direct comparison of the intensity or magnitude of the data being represented. Overall,   │
-│ the image appears to be from a scientific or technical context, possibly related to signal processing, physics, │
-│ or engineering.                                                                                                 │
+│                                                                                                                 │
+│ The image provides a visual comparison of correlation patterns across different conditions or datasets, labeled │
+│ a) through h). The heatmaps illustrate how correlation coefficients (τ) change over time (t) and with respect   │
+│ to frequency changes (∆f). The color bar at the top helps in interpreting the strength and direction of the     │
+│ correlations. The graphs suggest varied relationships between the variables across different scenarios, ranging │
+│ from strong negative correlations to more complex, evolving patterns of correlation. Overall, the image seems   │
+│ to be from a scientific study, possibly in the field of physics or engineering, analyzing signal processing or  │
+│ similar phenomena.                                                                                              │
 ╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 </pre>
 </div>
@@ -4193,7 +4103,7 @@ rich.print(Panel(record.summary, title="Document Summary", title_align="left"))<
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=231c6c53">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=56f8497d">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -4209,15 +4119,15 @@ rich.print(Panel(record.summary, title="Document Summary", title_align="left"))<
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=7ac52890">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=7f4fdad9">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [17]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [16]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
-<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-17">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-16">
 <div>
 <span class="notice" hidden="">Copied!</span>
 <svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
@@ -4229,7 +4139,7 @@ rich.print(Panel(record.summary, title="Document Summary", title_align="left"))<
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">results</span> <span class="o">=</span> <span class="n">data_designer</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">config_builder</span><span class="p">,</span> <span class="n">num_records</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-17">results = data_designer.create(config_builder, num_records=10)</div>
+<div class="clipboard-copy-txt" id="cell-16">results = data_designer.create(config_builder, num_records=10)</div>
 </div>
 </div>
 </div>
@@ -4241,99 +4151,99 @@ rich.print(Panel(record.summary, title="Document Summary", title_align="left"))<
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:57] [INFO] 🎨 Creating Data Designer dataset
+<pre>[18:19:44] [INFO] 🎨 Creating Data Designer dataset
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:57] [INFO] ✅ Validation passed
+<pre>[18:19:44] [INFO] ✅ Validation passed
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:57] [INFO] ⛓️ Sorting column configs into a Directed Acyclic Graph
+<pre>[18:19:44] [INFO] ⛓️ Sorting column configs into a Directed Acyclic Graph
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:57] [INFO] 📂 Dataset path '/home/runner/work/DataDesigner/DataDesigner/docs/notebook_source/artifacts/dataset' already exists. Dataset from this session
-		     will be saved to '/home/runner/work/DataDesigner/DataDesigner/docs/notebook_source/artifacts/dataset_12-11-2025_215357' instead.
+<pre>[18:19:44] [INFO] 📂 Dataset path '/home/runner/work/DataDesigner/DataDesigner/docs/notebook_source/artifacts/dataset' already exists. Dataset from this session
+		     will be saved to '/home/runner/work/DataDesigner/DataDesigner/docs/notebook_source/artifacts/dataset_12-12-2025_181944' instead.
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:57] [INFO] 🩺 Running health checks for models...
+<pre>[18:19:44] [INFO] 🩺 Running health checks for models...
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:57] [INFO]   |-- 👀 Checking 'meta/llama-4-scout-17b-16e-instruct' in provider named 'nvidia' for model alias 'vision'...
+<pre>[18:19:44] [INFO]   |-- 👀 Checking 'meta/llama-4-scout-17b-16e-instruct' in provider named 'nvidia' for model alias 'vision'...
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:58] [INFO]   |-- ✅ Passed!
+<pre>[18:19:45] [INFO]   |-- ✅ Passed!
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:59] [INFO] ⏳ Processing batch 1 of 1
+<pre>[18:19:46] [INFO] ⏳ Processing batch 1 of 1
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:54:02] [INFO] 🌱 Sampling 10 records from seed dataset
+<pre>[18:19:49] [INFO] 🌱 Sampling 10 records from seed dataset
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:54:02] [INFO]   |-- seed dataset size: 512 records
+<pre>[18:19:49] [INFO]   |-- seed dataset size: 512 records
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:54:02] [INFO]   |-- sampling strategy: ordered
+<pre>[18:19:49] [INFO]   |-- sampling strategy: ordered
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:54:02] [INFO] 📝 Preparing llm-text column generation
+<pre>[18:19:49] [INFO] 📝 Preparing llm-text column generation
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:54:02] [INFO]   |-- column name: 'summary'
+<pre>[18:19:49] [INFO]   |-- column name: 'summary'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:54:02] [INFO]   |-- model config:
+<pre>[18:19:49] [INFO]   |-- model config:
 {
     "alias": "vision",
     "model": "meta/llama-4-scout-17b-16e-instruct",
@@ -4353,28 +4263,28 @@ rich.print(Panel(record.summary, title="Document Summary", title_align="left"))<
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:54:02] [INFO] 🐙 Processing llm-text column 'summary' with 4 concurrent workers
+<pre>[18:19:49] [INFO] 🐙 Processing llm-text column 'summary' with 4 concurrent workers
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:54:24] [INFO] 📊 Model usage summary:
+<pre>[18:20:14] [INFO] 📊 Model usage summary:
 {
     "meta/llama-4-scout-17b-16e-instruct": {
         "token_usage": {
             "prompt_tokens": 8140,
-            "completion_tokens": 5044,
-            "total_tokens": 13184
+            "completion_tokens": 4723,
+            "total_tokens": 12863
         },
         "request_usage": {
             "successful_requests": 10,
             "failed_requests": 0,
             "total_requests": 10
         },
-        "tokens_per_second": 532,
-        "requests_per_minute": 24
+        "tokens_per_second": 474,
+        "requests_per_minute": 22
     }
 }
 </pre>
@@ -4383,56 +4293,56 @@ rich.print(Panel(record.summary, title="Document Summary", title_align="left"))<
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:54:24] [INFO] 📐 Measuring dataset column statistics:
+<pre>[18:20:14] [INFO] 📐 Measuring dataset column statistics:
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:54:24] [INFO]   |-- 🌱 column: 'uuid'
+<pre>[18:20:14] [INFO]   |-- 🌱 column: 'uuid'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:54:24] [INFO]   |-- 🌱 column: 'image_filename'
+<pre>[18:20:14] [INFO]   |-- 🌱 column: 'image_filename'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:54:24] [INFO]   |-- 🌱 column: 'base64_image'
+<pre>[18:20:14] [INFO]   |-- 🌱 column: 'base64_image'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:54:24] [INFO]   |-- 🌱 column: 'page'
+<pre>[18:20:14] [INFO]   |-- 🌱 column: 'page'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:54:24] [INFO]   |-- 🌱 column: 'options'
+<pre>[18:20:14] [INFO]   |-- 🌱 column: 'options'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:54:24] [INFO]   |-- 🌱 column: 'source'
+<pre>[18:20:14] [INFO]   |-- 🌱 column: 'source'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:54:24] [INFO]   |-- 📝 column: 'summary'
+<pre>[18:20:14] [INFO]   |-- 📝 column: 'summary'
 </pre>
 </div>
 </div>
@@ -4440,15 +4350,15 @@ rich.print(Panel(record.summary, title="Document Summary", title_align="left"))<
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=b71b6095">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=11d105a4">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [18]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [17]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
-<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-18">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-17">
 <div>
 <span class="notice" hidden="">Copied!</span>
 <svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
@@ -4463,7 +4373,7 @@ rich.print(Panel(record.summary, title="Document Summary", title_align="left"))<
 
 <span class="n">dataset</span><span class="o">.</span><span class="n">head</span><span class="p">()</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-18"># Load the generated dataset as a pandas DataFrame.
+<div class="clipboard-copy-txt" id="cell-17"># Load the generated dataset as a pandas DataFrame.
 dataset = results.load_dataset()
 
 dataset.head()</div>
@@ -4476,7 +4386,7 @@ dataset.head()</div>
 </div>
 <div class="jp-OutputArea jp-Cell-outputArea">
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[18]:</div>
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[17]:</div>
 <div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/html" tabindex="0">
 <div>
 <style scoped="">
@@ -4508,19 +4418,18 @@ dataset.head()</div>
 <tbody>
 <tr>
 <th>0</th>
-<td>ef057de0-6363-4be8-9353-bfe034594f2d</td>
+<td>c70ad696-06eb-4aff-81ad-0b049db87d13</td>
 <td>images/1810.07757_2.jpg</td>
 <td>iVBORw0KGgoAAAANSUhEUgAAAUAAAAIACAIAAAB8QiIMAA...</td>
 <td>&lt;NA&gt;</td>
 <td>['A. The variance of the data decreases from p...</td>
 <td>arxiv_qa</td>
 <td>## Image Summary
-
-The image presents a collect...</td>
+The image presents a collecti...</td>
 </tr>
 <tr>
 <th>1</th>
-<td>eb60c762-8473-4d69-aa7d-38a9ce64c8a9</td>
+<td>f0570089-ec9d-4c15-b819-9d4a0e6ba979</td>
 <td>data/scrapped_pdfs_split/pages_extracted/energ...</td>
 <td>iVBORw0KGgoAAAANSUhEUgAAAYsAAAIACAIAAAD8HddaAA...</td>
 <td>9.0</td>
@@ -4531,29 +4440,29 @@ The document appears to be...</td>
 </tr>
 <tr>
 <th>2</th>
-<td>a01df06a-9625-4f9d-bb99-138c7437bf0d</td>
+<td>e0b6f5de-650b-44ed-b37a-e9384d299141</td>
 <td>data/scrapped_pdfs_split/pages_extracted/energ...</td>
 <td>iVBORw0KGgoAAAANSUhEUgAAAZgAAAIACAIAAAAwhO2xAA...</td>
 <td>414.0</td>
 <td>&lt;NA&gt;</td>
 <td>pdf</td>
-<td>## **14.10.3 Performance**
-### **Overview of L...</td>
+<td>## Lithium Batteries Page 1487
+
+### Top Sectio...</td>
 </tr>
 <tr>
 <th>3</th>
-<td>a6061615-75e6-4bad-9c09-011d7483212b</td>
+<td>051f44cb-a0f2-49cf-b36a-7d5b903bfbe4</td>
 <td>0fd47b51ae9248ef36669b8619b1223f268edae3e7a44a...</td>
 <td>iVBORw0KGgoAAAANSUhEUgAAAX0AAAIACAAAAABLRuMPAA...</td>
 <td>&lt;NA&gt;</td>
 <td>&lt;NA&gt;</td>
 <td>docvqa</td>
-<td>## Document Summary
-The image appears to be th...</td>
+<td>## Continuous Combined and Cyclic Hormone Repl...</td>
 </tr>
 <tr>
 <th>4</th>
-<td>40d53832-db4e-422c-bc52-a7407937c77e</td>
+<td>6397535a-f6ae-4d68-9462-e3c4c76b6b81</td>
 <td>b335cfb9d442f8925ea41a064cb445a5395577f2345d52...</td>
 <td>iVBORw0KGgoAAAANSUhEUgAAAY8AAAIACAAAAABf/7+rAA...</td>
 <td>&lt;NA&gt;</td>
@@ -4570,15 +4479,15 @@ The image appears to be th...</td>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=47c7326a">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=0a467978">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [19]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [18]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
-<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-19">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-18">
 <div>
 <span class="notice" hidden="">Copied!</span>
 <svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
@@ -4593,7 +4502,7 @@ The image appears to be th...</td>
 
 <span class="n">analysis</span><span class="o">.</span><span class="n">to_report</span><span class="p">()</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-19"># Load the analysis results into memory.
+<div class="clipboard-copy-txt" id="cell-18"># Load the analysis results into memory.
 analysis = results.load_analysis()
 
 analysis.to_report()</div>
@@ -4642,7 +4551,7 @@ analysis.to_report()</div>
 ┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">                  </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">               </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">                              </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">       prompt tokens </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">       completion tokens </span>┃
 ┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold"> column name      </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">     data type </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">         number unique values </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">          per record </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">              per record </span>┃
 ┡━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━┩
-│ summary          │        string │                  10 (100.0%) │        38.0 +/- 0.0 │         498.5 +/- 111.4 │
+│ summary          │        string │                  10 (100.0%) │        38.0 +/- 0.0 │         489.0 +/- 128.1 │
 └──────────────────┴───────────────┴──────────────────────────────┴─────────────────────┴─────────────────────────┘
                                                                                                                    
                                                                                                                    
@@ -4661,7 +4570,7 @@ analysis.to_report()</div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=5ffc15e2">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=eb029175">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -4681,7 +4590,7 @@ analysis.to_report()</div>
 </div> <!-- jp-Notebook -->
 </div> <!-- jupyter-wrapper -->
 <script type="application/vnd.jupyter.widget-state+json">
-{"state": {"102274d5b70247eeb86bf8fd464d59fa": {"model_module": "@jupyter-widgets\/controls", "model_module_version": "2.0.0", "model_name": "HBoxModel", "state": {"_dom_classes": [], "_model_module": "@jupyter-widgets\/controls", "_model_module_version": "2.0.0", "_model_name": "HBoxModel", "_view_count": null, "_view_module": "@jupyter-widgets\/controls", "_view_module_version": "2.0.0", "_view_name": "HBoxView", "box_style": "", "children": ["IPY_MODEL_d733b3cb495949ab896f8771507065f1", "IPY_MODEL_4575b7d3113f4bb8ac8d9d2a3cd9c770", "IPY_MODEL_2b0ae283ed854e259cdf336194f4a535"], "layout": "IPY_MODEL_400cd67ceb314192b1fc8b4f464f65df", "tabbable": null, "tooltip": null}}, "19a66b602d9146b286e726b81513d139": {"model_module": "@jupyter-widgets\/base", "model_module_version": "2.0.0", "model_name": "LayoutModel", "state": {"_model_module": "@jupyter-widgets\/base", "_model_module_version": "2.0.0", "_model_name": "LayoutModel", "_view_count": null, "_view_module": "@jupyter-widgets\/base", "_view_module_version": "2.0.0", "_view_name": "LayoutView", "align_content": null, "align_items": null, "align_self": null, "border_bottom": null, "border_left": null, "border_right": null, "border_top": null, "bottom": null, "display": null, "flex": null, "flex_flow": null, "grid_area": null, "grid_auto_columns": null, "grid_auto_flow": null, "grid_auto_rows": null, "grid_column": null, "grid_gap": null, "grid_row": null, "grid_template_areas": null, "grid_template_columns": null, "grid_template_rows": null, "height": null, "justify_content": null, "justify_items": null, "left": null, "margin": null, "max_height": null, "max_width": null, "min_height": null, "min_width": null, "object_fit": null, "object_position": null, "order": null, "overflow": null, "padding": null, "right": null, "top": null, "visibility": null, "width": null}}, "1df0b11017df47eda2f3e5770aebcf3b": {"model_module": "@jupyter-widgets\/controls", "model_module_version": "2.0.0", "model_name": "HBoxModel", "state": {"_dom_classes": [], "_model_module": "@jupyter-widgets\/controls", "_model_module_version": "2.0.0", "_model_name": "HBoxModel", "_view_count": null, "_view_module": "@jupyter-widgets\/controls", "_view_module_version": "2.0.0", "_view_name": "HBoxView", "box_style": "", "children": ["IPY_MODEL_7df8e6650d224cbe9b6c9ecc5edc1b9a", "IPY_MODEL_e1e2b5c75ac84b9689f871f3ebcc135c", "IPY_MODEL_6fa3afd7283a4e878ea7e9f1a3fd04b9"], "layout": "IPY_MODEL_94f5874df962407385a2118d9638702d", "tabbable": null, "tooltip": null}}, "2567c38dcf1b4f0e9addb4a0be3a8998": {"model_module": "@jupyter-widgets\/base", "model_module_version": "2.0.0", "model_name": "LayoutModel", "state": {"_model_module": "@jupyter-widgets\/base", "_model_module_version": "2.0.0", "_model_name": "LayoutModel", "_view_count": null, "_view_module": "@jupyter-widgets\/base", "_view_module_version": "2.0.0", "_view_name": "LayoutView", "align_content": null, "align_items": null, "align_self": null, "border_bottom": null, "border_left": null, "border_right": null, "border_top": null, "bottom": null, "display": null, "flex": null, "flex_flow": null, "grid_area": null, "grid_auto_columns": null, "grid_auto_flow": null, "grid_auto_rows": null, "grid_column": null, "grid_gap": null, "grid_row": null, "grid_template_areas": null, "grid_template_columns": null, "grid_template_rows": null, "height": null, "justify_content": null, "justify_items": null, "left": null, "margin": null, "max_height": null, "max_width": null, "min_height": null, "min_width": null, "object_fit": null, "object_position": null, "order": null, "overflow": null, "padding": null, "right": null, "top": null, "visibility": null, "width": null}}, "272d1ec84da04cb6acd28cfa952e07c9": {"model_module": "@jupyter-widgets\/base", "model_module_version": "2.0.0", "model_name": "LayoutModel", "state": {"_model_module": "@jupyter-widgets\/base", "_model_module_version": "2.0.0", "_model_name": "LayoutModel", "_view_count": null, "_view_module": "@jupyter-widgets\/base", "_view_module_version": "2.0.0", "_view_name": "LayoutView", "align_content": null, "align_items": null, "align_self": null, "border_bottom": null, "border_left": null, "border_right": null, "border_top": null, "bottom": null, "display": null, "flex": null, "flex_flow": null, "grid_area": null, "grid_auto_columns": null, "grid_auto_flow": null, "grid_auto_rows": null, "grid_column": null, "grid_gap": null, "grid_row": null, "grid_template_areas": null, "grid_template_columns": null, "grid_template_rows": null, "height": null, "justify_content": null, "justify_items": null, "left": null, "margin": null, "max_height": null, "max_width": null, "min_height": null, "min_width": null, "object_fit": null, "object_position": null, "order": null, "overflow": null, "padding": null, "right": null, "top": null, "visibility": null, "width": null}}, "294ef45c714e42a08b9c6074f0846ee7": {"model_module": "@jupyter-widgets\/controls", "model_module_version": "2.0.0", "model_name": "ProgressStyleModel", "state": {"_model_module": "@jupyter-widgets\/controls", "_model_module_version": "2.0.0", "_model_name": "ProgressStyleModel", "_view_count": null, "_view_module": "@jupyter-widgets\/base", "_view_module_version": "2.0.0", "_view_name": "StyleView", "bar_color": null, "description_width": ""}}, "2b0ae283ed854e259cdf336194f4a535": {"model_module": "@jupyter-widgets\/controls", "model_module_version": "2.0.0", "model_name": "HTMLModel", "state": {"_dom_classes": [], "_model_module": "@jupyter-widgets\/controls", "_model_module_version": "2.0.0", "_model_name": "HTMLModel", "_view_count": null, "_view_module": "@jupyter-widgets\/controls", "_view_module_version": "2.0.0", "_view_name": "HTMLView", "description": "", "description_allow_html": false, "layout": "IPY_MODEL_d8519bcd6a564c0f94de32930a98ad9f", "placeholder": "\u200b", "style": "IPY_MODEL_48cdb5e4f5b24faa8e61197339d95612", "tabbable": null, "tooltip": null, "value": "\u200782\/82\u2007[00:00&lt;00:00,\u200711556.11it\/s]"}}, "36f20e046ead47df9e5f3d34998fb796": {"model_module": "@jupyter-widgets\/controls", "model_module_version": "2.0.0", "model_name": "HTMLStyleModel", "state": {"_model_module": "@jupyter-widgets\/controls", "_model_module_version": "2.0.0", "_model_name": "HTMLStyleModel", "_view_count": null, "_view_module": "@jupyter-widgets\/base", "_view_module_version": "2.0.0", "_view_name": "StyleView", "background": null, "description_width": "", "font_size": null, "text_color": null}}, "400cd67ceb314192b1fc8b4f464f65df": {"model_module": "@jupyter-widgets\/base", "model_module_version": "2.0.0", "model_name": "LayoutModel", "state": {"_model_module": "@jupyter-widgets\/base", "_model_module_version": "2.0.0", "_model_name": "LayoutModel", "_view_count": null, "_view_module": "@jupyter-widgets\/base", "_view_module_version": "2.0.0", "_view_name": "LayoutView", "align_content": null, "align_items": null, "align_self": null, "border_bottom": null, "border_left": null, "border_right": null, "border_top": null, "bottom": null, "display": null, "flex": null, "flex_flow": null, "grid_area": null, "grid_auto_columns": null, "grid_auto_flow": null, "grid_auto_rows": null, "grid_column": null, "grid_gap": null, "grid_row": null, "grid_template_areas": null, "grid_template_columns": null, "grid_template_rows": null, "height": null, "justify_content": null, "justify_items": null, "left": null, "margin": null, "max_height": null, "max_width": null, "min_height": null, "min_width": null, "object_fit": null, "object_position": null, "order": null, "overflow": null, "padding": null, "right": null, "top": null, "visibility": null, "width": null}}, "4575b7d3113f4bb8ac8d9d2a3cd9c770": {"model_module": "@jupyter-widgets\/controls", "model_module_version": "2.0.0", "model_name": "FloatProgressModel", "state": {"_dom_classes": [], "_model_module": "@jupyter-widgets\/controls", "_model_module_version": "2.0.0", "_model_name": "FloatProgressModel", "_view_count": null, "_view_module": "@jupyter-widgets\/controls", "_view_module_version": "2.0.0", "_view_name": "ProgressView", "bar_style": "success", "description": "", "description_allow_html": false, "layout": "IPY_MODEL_19a66b602d9146b286e726b81513d139", "max": 82.0, "min": 0.0, "orientation": "horizontal", "style": "IPY_MODEL_e84b10648f3f478ca866ee091c25ab18", "tabbable": null, "tooltip": null, "value": 82.0}}, "48cdb5e4f5b24faa8e61197339d95612": {"model_module": "@jupyter-widgets\/controls", "model_module_version": "2.0.0", "model_name": "HTMLStyleModel", "state": {"_model_module": "@jupyter-widgets\/controls", "_model_module_version": "2.0.0", "_model_name": "HTMLStyleModel", "_view_count": null, "_view_module": "@jupyter-widgets\/base", "_view_module_version": "2.0.0", "_view_name": "StyleView", "background": null, "description_width": "", "font_size": null, "text_color": null}}, "4bed1b82ff2342169df590de427d2ff5": {"model_module": "@jupyter-widgets\/controls", "model_module_version": "2.0.0", "model_name": "HTMLStyleModel", "state": {"_model_module": "@jupyter-widgets\/controls", "_model_module_version": "2.0.0", "_model_name": "HTMLStyleModel", "_view_count": null, "_view_module": "@jupyter-widgets\/base", "_view_module_version": "2.0.0", "_view_name": "StyleView", "background": null, "description_width": "", "font_size": null, "text_color": null}}, "508bb7c20e5642ed823caf6f6d94a07b": {"model_module": "@jupyter-widgets\/controls", "model_module_version": "2.0.0", "model_name": "HBoxModel", "state": {"_dom_classes": [], "_model_module": "@jupyter-widgets\/controls", "_model_module_version": "2.0.0", "_model_name": "HBoxModel", "_view_count": null, "_view_module": "@jupyter-widgets\/controls", "_view_module_version": "2.0.0", "_view_name": "HBoxView", "box_style": "", "children": ["IPY_MODEL_d650f615737e448085618c7b11327fd7", "IPY_MODEL_ea2265b338d64f919a9d448ebc63c4e4", "IPY_MODEL_bea65fc26b9d4dfd9a75f477849e6781"], "layout": "IPY_MODEL_2567c38dcf1b4f0e9addb4a0be3a8998", "tabbable": null, "tooltip": null}}, "5cbdb17a88964ecab35ce820bf69230c": {"model_module": "@jupyter-widgets\/base", "model_module_version": "2.0.0", "model_name": "LayoutModel", "state": {"_model_module": "@jupyter-widgets\/base", "_model_module_version": "2.0.0", "_model_name": "LayoutModel", "_view_count": null, "_view_module": "@jupyter-widgets\/base", "_view_module_version": "2.0.0", "_view_name": "LayoutView", "align_content": null, "align_items": null, "align_self": null, "border_bottom": null, "border_left": null, "border_right": null, "border_top": null, "bottom": null, "display": null, "flex": null, "flex_flow": null, "grid_area": null, "grid_auto_columns": null, "grid_auto_flow": null, "grid_auto_rows": null, "grid_column": null, "grid_gap": null, "grid_row": null, "grid_template_areas": null, "grid_template_columns": null, "grid_template_rows": null, "height": null, "justify_content": null, "justify_items": null, "left": null, "margin": null, "max_height": null, "max_width": null, "min_height": null, "min_width": null, "object_fit": null, "object_position": null, "order": null, "overflow": null, "padding": null, "right": null, "top": null, "visibility": null, "width": null}}, "64f1356151664ee3ad9ab93e5d73eed3": {"model_module": "@jupyter-widgets\/controls", "model_module_version": "2.0.0", "model_name": "ProgressStyleModel", "state": {"_model_module": "@jupyter-widgets\/controls", "_model_module_version": "2.0.0", "_model_name": "ProgressStyleModel", "_view_count": null, "_view_module": "@jupyter-widgets\/base", "_view_module_version": "2.0.0", "_view_name": "StyleView", "bar_color": null, "description_width": ""}}, "6589aa823fc24df083cbce742c8653ef": {"model_module": "@jupyter-widgets\/controls", "model_module_version": "2.0.0", "model_name": "HTMLStyleModel", "state": {"_model_module": "@jupyter-widgets\/controls", "_model_module_version": "2.0.0", "_model_name": "HTMLStyleModel", "_view_count": null, "_view_module": "@jupyter-widgets\/base", "_view_module_version": "2.0.0", "_view_name": "StyleView", "background": null, "description_width": "", "font_size": null, "text_color": null}}, "6fa3afd7283a4e878ea7e9f1a3fd04b9": {"model_module": "@jupyter-widgets\/controls", "model_module_version": "2.0.0", "model_name": "HTMLModel", "state": {"_dom_classes": [], "_model_module": "@jupyter-widgets\/controls", "_model_module_version": "2.0.0", "_model_name": "HTMLModel", "_view_count": null, "_view_module": "@jupyter-widgets\/controls", "_view_module_version": "2.0.0", "_view_name": "HTMLView", "description": "", "description_allow_html": false, "layout": "IPY_MODEL_c8d6cc9c86304529ba9c65a9b83f3b51", "placeholder": "\u200b", "style": "IPY_MODEL_36f20e046ead47df9e5f3d34998fb796", "tabbable": null, "tooltip": null, "value": "\u200782\/82\u2007[00:00&lt;00:00,\u200712191.02it\/s]"}}, "7df8e6650d224cbe9b6c9ecc5edc1b9a": {"model_module": "@jupyter-widgets\/controls", "model_module_version": "2.0.0", "model_name": "HTMLModel", "state": {"_dom_classes": [], "_model_module": "@jupyter-widgets\/controls", "_model_module_version": "2.0.0", "_model_name": "HTMLModel", "_view_count": null, "_view_module": "@jupyter-widgets\/controls", "_view_module_version": "2.0.0", "_view_name": "HTMLView", "description": "", "description_allow_html": false, "layout": "IPY_MODEL_5cbdb17a88964ecab35ce820bf69230c", "placeholder": "\u200b", "style": "IPY_MODEL_eda2fd6f05a44199bf692fcff31757b2", "tabbable": null, "tooltip": null, "value": "Resolving\u2007data\u2007files:\u2007100%"}}, "8cf6898f0ab64a1099983b33cdda8e17": {"model_module": "@jupyter-widgets\/base", "model_module_version": "2.0.0", "model_name": "LayoutModel", "state": {"_model_module": "@jupyter-widgets\/base", "_model_module_version": "2.0.0", "_model_name": "LayoutModel", "_view_count": null, "_view_module": "@jupyter-widgets\/base", "_view_module_version": "2.0.0", "_view_name": "LayoutView", "align_content": null, "align_items": null, "align_self": null, "border_bottom": null, "border_left": null, "border_right": null, "border_top": null, "bottom": null, "display": null, "flex": null, "flex_flow": null, "grid_area": null, "grid_auto_columns": null, "grid_auto_flow": null, "grid_auto_rows": null, "grid_column": null, "grid_gap": null, "grid_row": null, "grid_template_areas": null, "grid_template_columns": null, "grid_template_rows": null, "height": null, "justify_content": null, "justify_items": null, "left": null, "margin": null, "max_height": null, "max_width": null, "min_height": null, "min_width": null, "object_fit": null, "object_position": null, "order": null, "overflow": null, "padding": null, "right": null, "top": null, "visibility": null, "width": null}}, "94f5874df962407385a2118d9638702d": {"model_module": "@jupyter-widgets\/base", "model_module_version": "2.0.0", "model_name": "LayoutModel", "state": {"_model_module": "@jupyter-widgets\/base", "_model_module_version": "2.0.0", "_model_name": "LayoutModel", "_view_count": null, "_view_module": "@jupyter-widgets\/base", "_view_module_version": "2.0.0", "_view_name": "LayoutView", "align_content": null, "align_items": null, "align_self": null, "border_bottom": null, "border_left": null, "border_right": null, "border_top": null, "bottom": null, "display": null, "flex": null, "flex_flow": null, "grid_area": null, "grid_auto_columns": null, "grid_auto_flow": null, "grid_auto_rows": null, "grid_column": null, "grid_gap": null, "grid_row": null, "grid_template_areas": null, "grid_template_columns": null, "grid_template_rows": null, "height": null, "justify_content": null, "justify_items": null, "left": null, "margin": null, "max_height": null, "max_width": null, "min_height": null, "min_width": null, "object_fit": null, "object_position": null, "order": null, "overflow": null, "padding": null, "right": null, "top": null, "visibility": null, "width": null}}, "bea65fc26b9d4dfd9a75f477849e6781": {"model_module": "@jupyter-widgets\/controls", "model_module_version": "2.0.0", "model_name": "HTMLModel", "state": {"_dom_classes": [], "_model_module": "@jupyter-widgets\/controls", "_model_module_version": "2.0.0", "_model_name": "HTMLModel", "_view_count": null, "_view_module": "@jupyter-widgets\/controls", "_view_module_version": "2.0.0", "_view_name": "HTMLView", "description": "", "description_allow_html": false, "layout": "IPY_MODEL_272d1ec84da04cb6acd28cfa952e07c9", "placeholder": "\u200b", "style": "IPY_MODEL_e80fa0c72f36437b84978ddecb371e6b", "tabbable": null, "tooltip": null, "value": "\u20073.57k\/?\u2007[00:00&lt;00:00,\u2007476kB\/s]"}}, "c8d6cc9c86304529ba9c65a9b83f3b51": {"model_module": "@jupyter-widgets\/base", "model_module_version": "2.0.0", "model_name": "LayoutModel", "state": {"_model_module": "@jupyter-widgets\/base", "_model_module_version": "2.0.0", "_model_name": "LayoutModel", "_view_count": null, "_view_module": "@jupyter-widgets\/base", "_view_module_version": "2.0.0", "_view_name": "LayoutView", "align_content": null, "align_items": null, "align_self": null, "border_bottom": null, "border_left": null, "border_right": null, "border_top": null, "bottom": null, "display": null, "flex": null, "flex_flow": null, "grid_area": null, "grid_auto_columns": null, "grid_auto_flow": null, "grid_auto_rows": null, "grid_column": null, "grid_gap": null, "grid_row": null, "grid_template_areas": null, "grid_template_columns": null, "grid_template_rows": null, "height": null, "justify_content": null, "justify_items": null, "left": null, "margin": null, "max_height": null, "max_width": null, "min_height": null, "min_width": null, "object_fit": null, "object_position": null, "order": null, "overflow": null, "padding": null, "right": null, "top": null, "visibility": null, "width": null}}, "d650f615737e448085618c7b11327fd7": {"model_module": "@jupyter-widgets\/controls", "model_module_version": "2.0.0", "model_name": "HTMLModel", "state": {"_dom_classes": [], "_model_module": "@jupyter-widgets\/controls", "_model_module_version": "2.0.0", "_model_name": "HTMLModel", "_view_count": null, "_view_module": "@jupyter-widgets\/controls", "_view_module_version": "2.0.0", "_view_name": "HTMLView", "description": "", "description_allow_html": false, "layout": "IPY_MODEL_8cf6898f0ab64a1099983b33cdda8e17", "placeholder": "\u200b", "style": "IPY_MODEL_6589aa823fc24df083cbce742c8653ef", "tabbable": null, "tooltip": null, "value": "README.md:\u2007"}}, "d733b3cb495949ab896f8771507065f1": {"model_module": "@jupyter-widgets\/controls", "model_module_version": "2.0.0", "model_name": "HTMLModel", "state": {"_dom_classes": [], "_model_module": "@jupyter-widgets\/controls", "_model_module_version": "2.0.0", "_model_name": "HTMLModel", "_view_count": null, "_view_module": "@jupyter-widgets\/controls", "_view_module_version": "2.0.0", "_view_name": "HTMLView", "description": "", "description_allow_html": false, "layout": "IPY_MODEL_fd025fc233784c8187e7e3ee42509e87", "placeholder": "\u200b", "style": "IPY_MODEL_4bed1b82ff2342169df590de427d2ff5", "tabbable": null, "tooltip": null, "value": "Resolving\u2007data\u2007files:\u2007100%"}}, "d8519bcd6a564c0f94de32930a98ad9f": {"model_module": "@jupyter-widgets\/base", "model_module_version": "2.0.0", "model_name": "LayoutModel", "state": {"_model_module": "@jupyter-widgets\/base", "_model_module_version": "2.0.0", "_model_name": "LayoutModel", "_view_count": null, "_view_module": "@jupyter-widgets\/base", "_view_module_version": "2.0.0", "_view_name": "LayoutView", "align_content": null, "align_items": null, "align_self": null, "border_bottom": null, "border_left": null, "border_right": null, "border_top": null, "bottom": null, "display": null, "flex": null, "flex_flow": null, "grid_area": null, "grid_auto_columns": null, "grid_auto_flow": null, "grid_auto_rows": null, "grid_column": null, "grid_gap": null, "grid_row": null, "grid_template_areas": null, "grid_template_columns": null, "grid_template_rows": null, "height": null, "justify_content": null, "justify_items": null, "left": null, "margin": null, "max_height": null, "max_width": null, "min_height": null, "min_width": null, "object_fit": null, "object_position": null, "order": null, "overflow": null, "padding": null, "right": null, "top": null, "visibility": null, "width": null}}, "e1e2b5c75ac84b9689f871f3ebcc135c": {"model_module": "@jupyter-widgets\/controls", "model_module_version": "2.0.0", "model_name": "FloatProgressModel", "state": {"_dom_classes": [], "_model_module": "@jupyter-widgets\/controls", "_model_module_version": "2.0.0", "_model_name": "FloatProgressModel", "_view_count": null, "_view_module": "@jupyter-widgets\/controls", "_view_module_version": "2.0.0", "_view_name": "ProgressView", "bar_style": "success", "description": "", "description_allow_html": false, "layout": "IPY_MODEL_fb4b98c726ea49c8b6b12c4cdb77e3f5", "max": 82.0, "min": 0.0, "orientation": "horizontal", "style": "IPY_MODEL_294ef45c714e42a08b9c6074f0846ee7", "tabbable": null, "tooltip": null, "value": 82.0}}, "e80fa0c72f36437b84978ddecb371e6b": {"model_module": "@jupyter-widgets\/controls", "model_module_version": "2.0.0", "model_name": "HTMLStyleModel", "state": {"_model_module": "@jupyter-widgets\/controls", "_model_module_version": "2.0.0", "_model_name": "HTMLStyleModel", "_view_count": null, "_view_module": "@jupyter-widgets\/base", "_view_module_version": "2.0.0", "_view_name": "StyleView", "background": null, "description_width": "", "font_size": null, "text_color": null}}, "e84b10648f3f478ca866ee091c25ab18": {"model_module": "@jupyter-widgets\/controls", "model_module_version": "2.0.0", "model_name": "ProgressStyleModel", "state": {"_model_module": "@jupyter-widgets\/controls", "_model_module_version": "2.0.0", "_model_name": "ProgressStyleModel", "_view_count": null, "_view_module": "@jupyter-widgets\/base", "_view_module_version": "2.0.0", "_view_name": "StyleView", "bar_color": null, "description_width": ""}}, "ea2265b338d64f919a9d448ebc63c4e4": {"model_module": "@jupyter-widgets\/controls", "model_module_version": "2.0.0", "model_name": "FloatProgressModel", "state": {"_dom_classes": [], "_model_module": "@jupyter-widgets\/controls", "_model_module_version": "2.0.0", "_model_name": "FloatProgressModel", "_view_count": null, "_view_module": "@jupyter-widgets\/controls", "_view_module_version": "2.0.0", "_view_name": "ProgressView", "bar_style": "success", "description": "", "description_allow_html": false, "layout": "IPY_MODEL_f28c0799773a491f914eee13356f94fe", "max": 1.0, "min": 0.0, "orientation": "horizontal", "style": "IPY_MODEL_64f1356151664ee3ad9ab93e5d73eed3", "tabbable": null, "tooltip": null, "value": 1.0}}, "eda2fd6f05a44199bf692fcff31757b2": {"model_module": "@jupyter-widgets\/controls", "model_module_version": "2.0.0", "model_name": "HTMLStyleModel", "state": {"_model_module": "@jupyter-widgets\/controls", "_model_module_version": "2.0.0", "_model_name": "HTMLStyleModel", "_view_count": null, "_view_module": "@jupyter-widgets\/base", "_view_module_version": "2.0.0", "_view_name": "StyleView", "background": null, "description_width": "", "font_size": null, "text_color": null}}, "f28c0799773a491f914eee13356f94fe": {"model_module": "@jupyter-widgets\/base", "model_module_version": "2.0.0", "model_name": "LayoutModel", "state": {"_model_module": "@jupyter-widgets\/base", "_model_module_version": "2.0.0", "_model_name": "LayoutModel", "_view_count": null, "_view_module": "@jupyter-widgets\/base", "_view_module_version": "2.0.0", "_view_name": "LayoutView", "align_content": null, "align_items": null, "align_self": null, "border_bottom": null, "border_left": null, "border_right": null, "border_top": null, "bottom": null, "display": null, "flex": null, "flex_flow": null, "grid_area": null, "grid_auto_columns": null, "grid_auto_flow": null, "grid_auto_rows": null, "grid_column": null, "grid_gap": null, "grid_row": null, "grid_template_areas": null, "grid_template_columns": null, "grid_template_rows": null, "height": null, "justify_content": null, "justify_items": null, "left": null, "margin": null, "max_height": null, "max_width": null, "min_height": null, "min_width": null, "object_fit": null, "object_position": null, "order": null, "overflow": null, "padding": null, "right": null, "top": null, "visibility": null, "width": "20px"}}, "fb4b98c726ea49c8b6b12c4cdb77e3f5": {"model_module": "@jupyter-widgets\/base", "model_module_version": "2.0.0", "model_name": "LayoutModel", "state": {"_model_module": "@jupyter-widgets\/base", "_model_module_version": "2.0.0", "_model_name": "LayoutModel", "_view_count": null, "_view_module": "@jupyter-widgets\/base", "_view_module_version": "2.0.0", "_view_name": "LayoutView", "align_content": null, "align_items": null, "align_self": null, "border_bottom": null, "border_left": null, "border_right": null, "border_top": null, "bottom": null, "display": null, "flex": null, "flex_flow": null, "grid_area": null, "grid_auto_columns": null, "grid_auto_flow": null, "grid_auto_rows": null, "grid_column": null, "grid_gap": null, "grid_row": null, "grid_template_areas": null, "grid_template_columns": null, "grid_template_rows": null, "height": null, "justify_content": null, "justify_items": null, "left": null, "margin": null, "max_height": null, "max_width": null, "min_height": null, "min_width": null, "object_fit": null, "object_position": null, "order": null, "overflow": null, "padding": null, "right": null, "top": null, "visibility": null, "width": null}}, "fd025fc233784c8187e7e3ee42509e87": {"model_module": "@jupyter-widgets\/base", "model_module_version": "2.0.0", "model_name": "LayoutModel", "state": {"_model_module": "@jupyter-widgets\/base", "_model_module_version": "2.0.0", "_model_name": "LayoutModel", "_view_count": null, "_view_module": "@jupyter-widgets\/base", "_view_module_version": "2.0.0", "_view_name": "LayoutView", "align_content": null, "align_items": null, "align_self": null, "border_bottom": null, "border_left": null, "border_right": null, "border_top": null, "bottom": null, "display": null, "flex": null, "flex_flow": null, "grid_area": null, "grid_auto_columns": null, "grid_auto_flow": null, "grid_auto_rows": null, "grid_column": null, "grid_gap": null, "grid_row": null, "grid_template_areas": null, "grid_template_columns": null, "grid_template_rows": null, "height": null, "justify_content": null, "justify_items": null, "left": null, "margin": null, "max_height": null, "max_width": null, "min_height": null, "min_width": null, "object_fit": null, "object_position": null, "order": null, "overflow": null, "padding": null, "right": null, "top": null, "visibility": null, "width": null}}}, "version_major": 2, "version_minor": 0}
+{"state": {"12d2d43ad149472fa7cdbdb5ca36e38b": {"model_module": "@jupyter-widgets\/controls", "model_module_version": "2.0.0", "model_name": "HBoxModel", "state": {"_dom_classes": [], "_model_module": "@jupyter-widgets\/controls", "_model_module_version": "2.0.0", "_model_name": "HBoxModel", "_view_count": null, "_view_module": "@jupyter-widgets\/controls", "_view_module_version": "2.0.0", "_view_name": "HBoxView", "box_style": "", "children": ["IPY_MODEL_5d4ac13185844650ab999a8eab0545b4", "IPY_MODEL_15123ca514224c98b7a8c52787bdc1fd", "IPY_MODEL_ba82cbca47a345fdb064c3be36fb9e57"], "layout": "IPY_MODEL_6c92225006fb48518fb6f1c3974b6679", "tabbable": null, "tooltip": null}}, "13669737964d47299ffb15d5196e209a": {"model_module": "@jupyter-widgets\/controls", "model_module_version": "2.0.0", "model_name": "HTMLStyleModel", "state": {"_model_module": "@jupyter-widgets\/controls", "_model_module_version": "2.0.0", "_model_name": "HTMLStyleModel", "_view_count": null, "_view_module": "@jupyter-widgets\/base", "_view_module_version": "2.0.0", "_view_name": "StyleView", "background": null, "description_width": "", "font_size": null, "text_color": null}}, "15123ca514224c98b7a8c52787bdc1fd": {"model_module": "@jupyter-widgets\/controls", "model_module_version": "2.0.0", "model_name": "FloatProgressModel", "state": {"_dom_classes": [], "_model_module": "@jupyter-widgets\/controls", "_model_module_version": "2.0.0", "_model_name": "FloatProgressModel", "_view_count": null, "_view_module": "@jupyter-widgets\/controls", "_view_module_version": "2.0.0", "_view_name": "ProgressView", "bar_style": "success", "description": "", "description_allow_html": false, "layout": "IPY_MODEL_e74143f3a27d48f9b3caa7c3679ee354", "max": 1.0, "min": 0.0, "orientation": "horizontal", "style": "IPY_MODEL_2c30e4fa0f594bfdaf63132b836e657e", "tabbable": null, "tooltip": null, "value": 1.0}}, "1da4dc5a569f4fbbbeba0e7a91fc8346": {"model_module": "@jupyter-widgets\/controls", "model_module_version": "2.0.0", "model_name": "HBoxModel", "state": {"_dom_classes": [], "_model_module": "@jupyter-widgets\/controls", "_model_module_version": "2.0.0", "_model_name": "HBoxModel", "_view_count": null, "_view_module": "@jupyter-widgets\/controls", "_view_module_version": "2.0.0", "_view_name": "HBoxView", "box_style": "", "children": ["IPY_MODEL_4b5c903842034709947e5aa411a4e19a", "IPY_MODEL_395d708392a34c7b84dbe145b8fba6ab", "IPY_MODEL_a70e01c43d0147bba96d5643ef8c5609"], "layout": "IPY_MODEL_a507b55e162d414ea587a8ca9e7697c4", "tabbable": null, "tooltip": null}}, "22da28f6e5274f1c8a47f6eea2365935": {"model_module": "@jupyter-widgets\/base", "model_module_version": "2.0.0", "model_name": "LayoutModel", "state": {"_model_module": "@jupyter-widgets\/base", "_model_module_version": "2.0.0", "_model_name": "LayoutModel", "_view_count": null, "_view_module": "@jupyter-widgets\/base", "_view_module_version": "2.0.0", "_view_name": "LayoutView", "align_content": null, "align_items": null, "align_self": null, "border_bottom": null, "border_left": null, "border_right": null, "border_top": null, "bottom": null, "display": null, "flex": null, "flex_flow": null, "grid_area": null, "grid_auto_columns": null, "grid_auto_flow": null, "grid_auto_rows": null, "grid_column": null, "grid_gap": null, "grid_row": null, "grid_template_areas": null, "grid_template_columns": null, "grid_template_rows": null, "height": null, "justify_content": null, "justify_items": null, "left": null, "margin": null, "max_height": null, "max_width": null, "min_height": null, "min_width": null, "object_fit": null, "object_position": null, "order": null, "overflow": null, "padding": null, "right": null, "top": null, "visibility": null, "width": null}}, "2c30e4fa0f594bfdaf63132b836e657e": {"model_module": "@jupyter-widgets\/controls", "model_module_version": "2.0.0", "model_name": "ProgressStyleModel", "state": {"_model_module": "@jupyter-widgets\/controls", "_model_module_version": "2.0.0", "_model_name": "ProgressStyleModel", "_view_count": null, "_view_module": "@jupyter-widgets\/base", "_view_module_version": "2.0.0", "_view_name": "StyleView", "bar_color": null, "description_width": ""}}, "2db028a897dd40e4927619d33b24e271": {"model_module": "@jupyter-widgets\/controls", "model_module_version": "2.0.0", "model_name": "HTMLStyleModel", "state": {"_model_module": "@jupyter-widgets\/controls", "_model_module_version": "2.0.0", "_model_name": "HTMLStyleModel", "_view_count": null, "_view_module": "@jupyter-widgets\/base", "_view_module_version": "2.0.0", "_view_name": "StyleView", "background": null, "description_width": "", "font_size": null, "text_color": null}}, "395d708392a34c7b84dbe145b8fba6ab": {"model_module": "@jupyter-widgets\/controls", "model_module_version": "2.0.0", "model_name": "FloatProgressModel", "state": {"_dom_classes": [], "_model_module": "@jupyter-widgets\/controls", "_model_module_version": "2.0.0", "_model_name": "FloatProgressModel", "_view_count": null, "_view_module": "@jupyter-widgets\/controls", "_view_module_version": "2.0.0", "_view_name": "ProgressView", "bar_style": "success", "description": "", "description_allow_html": false, "layout": "IPY_MODEL_22da28f6e5274f1c8a47f6eea2365935", "max": 82.0, "min": 0.0, "orientation": "horizontal", "style": "IPY_MODEL_8ef58056ace2476fa741c74c04c4693c", "tabbable": null, "tooltip": null, "value": 82.0}}, "408410ec5045410f870b9524a1026520": {"model_module": "@jupyter-widgets\/controls", "model_module_version": "2.0.0", "model_name": "HTMLModel", "state": {"_dom_classes": [], "_model_module": "@jupyter-widgets\/controls", "_model_module_version": "2.0.0", "_model_name": "HTMLModel", "_view_count": null, "_view_module": "@jupyter-widgets\/controls", "_view_module_version": "2.0.0", "_view_name": "HTMLView", "description": "", "description_allow_html": false, "layout": "IPY_MODEL_c9536bcf537146ae8e1a63ce96e5e4b7", "placeholder": "\u200b", "style": "IPY_MODEL_7efff7a5110d43d68b35efc788c48c21", "tabbable": null, "tooltip": null, "value": "Resolving\u2007data\u2007files:\u2007100%"}}, "49e3563a23724447afad9185ce1bbf98": {"model_module": "@jupyter-widgets\/base", "model_module_version": "2.0.0", "model_name": "LayoutModel", "state": {"_model_module": "@jupyter-widgets\/base", "_model_module_version": "2.0.0", "_model_name": "LayoutModel", "_view_count": null, "_view_module": "@jupyter-widgets\/base", "_view_module_version": "2.0.0", "_view_name": "LayoutView", "align_content": null, "align_items": null, "align_self": null, "border_bottom": null, "border_left": null, "border_right": null, "border_top": null, "bottom": null, "display": null, "flex": null, "flex_flow": null, "grid_area": null, "grid_auto_columns": null, "grid_auto_flow": null, "grid_auto_rows": null, "grid_column": null, "grid_gap": null, "grid_row": null, "grid_template_areas": null, "grid_template_columns": null, "grid_template_rows": null, "height": null, "justify_content": null, "justify_items": null, "left": null, "margin": null, "max_height": null, "max_width": null, "min_height": null, "min_width": null, "object_fit": null, "object_position": null, "order": null, "overflow": null, "padding": null, "right": null, "top": null, "visibility": null, "width": null}}, "4b5c903842034709947e5aa411a4e19a": {"model_module": "@jupyter-widgets\/controls", "model_module_version": "2.0.0", "model_name": "HTMLModel", "state": {"_dom_classes": [], "_model_module": "@jupyter-widgets\/controls", "_model_module_version": "2.0.0", "_model_name": "HTMLModel", "_view_count": null, "_view_module": "@jupyter-widgets\/controls", "_view_module_version": "2.0.0", "_view_name": "HTMLView", "description": "", "description_allow_html": false, "layout": "IPY_MODEL_c8642d73ae714e48bbb786bd05472505", "placeholder": "\u200b", "style": "IPY_MODEL_7ddf07a0959649969c2e110c72403349", "tabbable": null, "tooltip": null, "value": "Resolving\u2007data\u2007files:\u2007100%"}}, "50e05bfe987948efaf28347dfa46afc6": {"model_module": "@jupyter-widgets\/controls", "model_module_version": "2.0.0", "model_name": "HTMLStyleModel", "state": {"_model_module": "@jupyter-widgets\/controls", "_model_module_version": "2.0.0", "_model_name": "HTMLStyleModel", "_view_count": null, "_view_module": "@jupyter-widgets\/base", "_view_module_version": "2.0.0", "_view_name": "StyleView", "background": null, "description_width": "", "font_size": null, "text_color": null}}, "552848fa2945430881e4290943835a3f": {"model_module": "@jupyter-widgets\/controls", "model_module_version": "2.0.0", "model_name": "HBoxModel", "state": {"_dom_classes": [], "_model_module": "@jupyter-widgets\/controls", "_model_module_version": "2.0.0", "_model_name": "HBoxModel", "_view_count": null, "_view_module": "@jupyter-widgets\/controls", "_view_module_version": "2.0.0", "_view_name": "HBoxView", "box_style": "", "children": ["IPY_MODEL_408410ec5045410f870b9524a1026520", "IPY_MODEL_6f32c1c15f6b4601be597d8f3282ca2a", "IPY_MODEL_bdc69f3785804ee5bba0bc32865a9acb"], "layout": "IPY_MODEL_49e3563a23724447afad9185ce1bbf98", "tabbable": null, "tooltip": null}}, "5d4ac13185844650ab999a8eab0545b4": {"model_module": "@jupyter-widgets\/controls", "model_module_version": "2.0.0", "model_name": "HTMLModel", "state": {"_dom_classes": [], "_model_module": "@jupyter-widgets\/controls", "_model_module_version": "2.0.0", "_model_name": "HTMLModel", "_view_count": null, "_view_module": "@jupyter-widgets\/controls", "_view_module_version": "2.0.0", "_view_name": "HTMLView", "description": "", "description_allow_html": false, "layout": "IPY_MODEL_e1c73c566788469e851e06cbb4b706e3", "placeholder": "\u200b", "style": "IPY_MODEL_2db028a897dd40e4927619d33b24e271", "tabbable": null, "tooltip": null, "value": "README.md:\u2007"}}, "5f97ab351beb4671bf353d8cc7104440": {"model_module": "@jupyter-widgets\/controls", "model_module_version": "2.0.0", "model_name": "ProgressStyleModel", "state": {"_model_module": "@jupyter-widgets\/controls", "_model_module_version": "2.0.0", "_model_name": "ProgressStyleModel", "_view_count": null, "_view_module": "@jupyter-widgets\/base", "_view_module_version": "2.0.0", "_view_name": "StyleView", "bar_color": null, "description_width": ""}}, "6c92225006fb48518fb6f1c3974b6679": {"model_module": "@jupyter-widgets\/base", "model_module_version": "2.0.0", "model_name": "LayoutModel", "state": {"_model_module": "@jupyter-widgets\/base", "_model_module_version": "2.0.0", "_model_name": "LayoutModel", "_view_count": null, "_view_module": "@jupyter-widgets\/base", "_view_module_version": "2.0.0", "_view_name": "LayoutView", "align_content": null, "align_items": null, "align_self": null, "border_bottom": null, "border_left": null, "border_right": null, "border_top": null, "bottom": null, "display": null, "flex": null, "flex_flow": null, "grid_area": null, "grid_auto_columns": null, "grid_auto_flow": null, "grid_auto_rows": null, "grid_column": null, "grid_gap": null, "grid_row": null, "grid_template_areas": null, "grid_template_columns": null, "grid_template_rows": null, "height": null, "justify_content": null, "justify_items": null, "left": null, "margin": null, "max_height": null, "max_width": null, "min_height": null, "min_width": null, "object_fit": null, "object_position": null, "order": null, "overflow": null, "padding": null, "right": null, "top": null, "visibility": null, "width": null}}, "6f32c1c15f6b4601be597d8f3282ca2a": {"model_module": "@jupyter-widgets\/controls", "model_module_version": "2.0.0", "model_name": "FloatProgressModel", "state": {"_dom_classes": [], "_model_module": "@jupyter-widgets\/controls", "_model_module_version": "2.0.0", "_model_name": "FloatProgressModel", "_view_count": null, "_view_module": "@jupyter-widgets\/controls", "_view_module_version": "2.0.0", "_view_name": "ProgressView", "bar_style": "success", "description": "", "description_allow_html": false, "layout": "IPY_MODEL_75140f3a5a9d4bbba29fbea9c68715ae", "max": 82.0, "min": 0.0, "orientation": "horizontal", "style": "IPY_MODEL_5f97ab351beb4671bf353d8cc7104440", "tabbable": null, "tooltip": null, "value": 82.0}}, "75140f3a5a9d4bbba29fbea9c68715ae": {"model_module": "@jupyter-widgets\/base", "model_module_version": "2.0.0", "model_name": "LayoutModel", "state": {"_model_module": "@jupyter-widgets\/base", "_model_module_version": "2.0.0", "_model_name": "LayoutModel", "_view_count": null, "_view_module": "@jupyter-widgets\/base", "_view_module_version": "2.0.0", "_view_name": "LayoutView", "align_content": null, "align_items": null, "align_self": null, "border_bottom": null, "border_left": null, "border_right": null, "border_top": null, "bottom": null, "display": null, "flex": null, "flex_flow": null, "grid_area": null, "grid_auto_columns": null, "grid_auto_flow": null, "grid_auto_rows": null, "grid_column": null, "grid_gap": null, "grid_row": null, "grid_template_areas": null, "grid_template_columns": null, "grid_template_rows": null, "height": null, "justify_content": null, "justify_items": null, "left": null, "margin": null, "max_height": null, "max_width": null, "min_height": null, "min_width": null, "object_fit": null, "object_position": null, "order": null, "overflow": null, "padding": null, "right": null, "top": null, "visibility": null, "width": null}}, "7ddf07a0959649969c2e110c72403349": {"model_module": "@jupyter-widgets\/controls", "model_module_version": "2.0.0", "model_name": "HTMLStyleModel", "state": {"_model_module": "@jupyter-widgets\/controls", "_model_module_version": "2.0.0", "_model_name": "HTMLStyleModel", "_view_count": null, "_view_module": "@jupyter-widgets\/base", "_view_module_version": "2.0.0", "_view_name": "StyleView", "background": null, "description_width": "", "font_size": null, "text_color": null}}, "7efff7a5110d43d68b35efc788c48c21": {"model_module": "@jupyter-widgets\/controls", "model_module_version": "2.0.0", "model_name": "HTMLStyleModel", "state": {"_model_module": "@jupyter-widgets\/controls", "_model_module_version": "2.0.0", "_model_name": "HTMLStyleModel", "_view_count": null, "_view_module": "@jupyter-widgets\/base", "_view_module_version": "2.0.0", "_view_name": "StyleView", "background": null, "description_width": "", "font_size": null, "text_color": null}}, "8ef58056ace2476fa741c74c04c4693c": {"model_module": "@jupyter-widgets\/controls", "model_module_version": "2.0.0", "model_name": "ProgressStyleModel", "state": {"_model_module": "@jupyter-widgets\/controls", "_model_module_version": "2.0.0", "_model_name": "ProgressStyleModel", "_view_count": null, "_view_module": "@jupyter-widgets\/base", "_view_module_version": "2.0.0", "_view_name": "StyleView", "bar_color": null, "description_width": ""}}, "9997648ce4184ed6926b82e76f720772": {"model_module": "@jupyter-widgets\/controls", "model_module_version": "2.0.0", "model_name": "HTMLStyleModel", "state": {"_model_module": "@jupyter-widgets\/controls", "_model_module_version": "2.0.0", "_model_name": "HTMLStyleModel", "_view_count": null, "_view_module": "@jupyter-widgets\/base", "_view_module_version": "2.0.0", "_view_name": "StyleView", "background": null, "description_width": "", "font_size": null, "text_color": null}}, "9baf634a2c81429b8bfb60e3b8700cf6": {"model_module": "@jupyter-widgets\/base", "model_module_version": "2.0.0", "model_name": "LayoutModel", "state": {"_model_module": "@jupyter-widgets\/base", "_model_module_version": "2.0.0", "_model_name": "LayoutModel", "_view_count": null, "_view_module": "@jupyter-widgets\/base", "_view_module_version": "2.0.0", "_view_name": "LayoutView", "align_content": null, "align_items": null, "align_self": null, "border_bottom": null, "border_left": null, "border_right": null, "border_top": null, "bottom": null, "display": null, "flex": null, "flex_flow": null, "grid_area": null, "grid_auto_columns": null, "grid_auto_flow": null, "grid_auto_rows": null, "grid_column": null, "grid_gap": null, "grid_row": null, "grid_template_areas": null, "grid_template_columns": null, "grid_template_rows": null, "height": null, "justify_content": null, "justify_items": null, "left": null, "margin": null, "max_height": null, "max_width": null, "min_height": null, "min_width": null, "object_fit": null, "object_position": null, "order": null, "overflow": null, "padding": null, "right": null, "top": null, "visibility": null, "width": null}}, "a507b55e162d414ea587a8ca9e7697c4": {"model_module": "@jupyter-widgets\/base", "model_module_version": "2.0.0", "model_name": "LayoutModel", "state": {"_model_module": "@jupyter-widgets\/base", "_model_module_version": "2.0.0", "_model_name": "LayoutModel", "_view_count": null, "_view_module": "@jupyter-widgets\/base", "_view_module_version": "2.0.0", "_view_name": "LayoutView", "align_content": null, "align_items": null, "align_self": null, "border_bottom": null, "border_left": null, "border_right": null, "border_top": null, "bottom": null, "display": null, "flex": null, "flex_flow": null, "grid_area": null, "grid_auto_columns": null, "grid_auto_flow": null, "grid_auto_rows": null, "grid_column": null, "grid_gap": null, "grid_row": null, "grid_template_areas": null, "grid_template_columns": null, "grid_template_rows": null, "height": null, "justify_content": null, "justify_items": null, "left": null, "margin": null, "max_height": null, "max_width": null, "min_height": null, "min_width": null, "object_fit": null, "object_position": null, "order": null, "overflow": null, "padding": null, "right": null, "top": null, "visibility": null, "width": null}}, "a70e01c43d0147bba96d5643ef8c5609": {"model_module": "@jupyter-widgets\/controls", "model_module_version": "2.0.0", "model_name": "HTMLModel", "state": {"_dom_classes": [], "_model_module": "@jupyter-widgets\/controls", "_model_module_version": "2.0.0", "_model_name": "HTMLModel", "_view_count": null, "_view_module": "@jupyter-widgets\/controls", "_view_module_version": "2.0.0", "_view_name": "HTMLView", "description": "", "description_allow_html": false, "layout": "IPY_MODEL_f84ce333b08146e3803a73f48f30df33", "placeholder": "\u200b", "style": "IPY_MODEL_50e05bfe987948efaf28347dfa46afc6", "tabbable": null, "tooltip": null, "value": "\u200782\/82\u2007[00:00&lt;00:00,\u200710858.53it\/s]"}}, "b2250e09614845d387b5ab0d78f0fac3": {"model_module": "@jupyter-widgets\/base", "model_module_version": "2.0.0", "model_name": "LayoutModel", "state": {"_model_module": "@jupyter-widgets\/base", "_model_module_version": "2.0.0", "_model_name": "LayoutModel", "_view_count": null, "_view_module": "@jupyter-widgets\/base", "_view_module_version": "2.0.0", "_view_name": "LayoutView", "align_content": null, "align_items": null, "align_self": null, "border_bottom": null, "border_left": null, "border_right": null, "border_top": null, "bottom": null, "display": null, "flex": null, "flex_flow": null, "grid_area": null, "grid_auto_columns": null, "grid_auto_flow": null, "grid_auto_rows": null, "grid_column": null, "grid_gap": null, "grid_row": null, "grid_template_areas": null, "grid_template_columns": null, "grid_template_rows": null, "height": null, "justify_content": null, "justify_items": null, "left": null, "margin": null, "max_height": null, "max_width": null, "min_height": null, "min_width": null, "object_fit": null, "object_position": null, "order": null, "overflow": null, "padding": null, "right": null, "top": null, "visibility": null, "width": null}}, "ba82cbca47a345fdb064c3be36fb9e57": {"model_module": "@jupyter-widgets\/controls", "model_module_version": "2.0.0", "model_name": "HTMLModel", "state": {"_dom_classes": [], "_model_module": "@jupyter-widgets\/controls", "_model_module_version": "2.0.0", "_model_name": "HTMLModel", "_view_count": null, "_view_module": "@jupyter-widgets\/controls", "_view_module_version": "2.0.0", "_view_name": "HTMLView", "description": "", "description_allow_html": false, "layout": "IPY_MODEL_9baf634a2c81429b8bfb60e3b8700cf6", "placeholder": "\u200b", "style": "IPY_MODEL_9997648ce4184ed6926b82e76f720772", "tabbable": null, "tooltip": null, "value": "\u20073.57k\/?\u2007[00:00&lt;00:00,\u2007440kB\/s]"}}, "bdc69f3785804ee5bba0bc32865a9acb": {"model_module": "@jupyter-widgets\/controls", "model_module_version": "2.0.0", "model_name": "HTMLModel", "state": {"_dom_classes": [], "_model_module": "@jupyter-widgets\/controls", "_model_module_version": "2.0.0", "_model_name": "HTMLModel", "_view_count": null, "_view_module": "@jupyter-widgets\/controls", "_view_module_version": "2.0.0", "_view_name": "HTMLView", "description": "", "description_allow_html": false, "layout": "IPY_MODEL_b2250e09614845d387b5ab0d78f0fac3", "placeholder": "\u200b", "style": "IPY_MODEL_13669737964d47299ffb15d5196e209a", "tabbable": null, "tooltip": null, "value": "\u200782\/82\u2007[00:00&lt;00:00,\u200710237.01it\/s]"}}, "c8642d73ae714e48bbb786bd05472505": {"model_module": "@jupyter-widgets\/base", "model_module_version": "2.0.0", "model_name": "LayoutModel", "state": {"_model_module": "@jupyter-widgets\/base", "_model_module_version": "2.0.0", "_model_name": "LayoutModel", "_view_count": null, "_view_module": "@jupyter-widgets\/base", "_view_module_version": "2.0.0", "_view_name": "LayoutView", "align_content": null, "align_items": null, "align_self": null, "border_bottom": null, "border_left": null, "border_right": null, "border_top": null, "bottom": null, "display": null, "flex": null, "flex_flow": null, "grid_area": null, "grid_auto_columns": null, "grid_auto_flow": null, "grid_auto_rows": null, "grid_column": null, "grid_gap": null, "grid_row": null, "grid_template_areas": null, "grid_template_columns": null, "grid_template_rows": null, "height": null, "justify_content": null, "justify_items": null, "left": null, "margin": null, "max_height": null, "max_width": null, "min_height": null, "min_width": null, "object_fit": null, "object_position": null, "order": null, "overflow": null, "padding": null, "right": null, "top": null, "visibility": null, "width": null}}, "c9536bcf537146ae8e1a63ce96e5e4b7": {"model_module": "@jupyter-widgets\/base", "model_module_version": "2.0.0", "model_name": "LayoutModel", "state": {"_model_module": "@jupyter-widgets\/base", "_model_module_version": "2.0.0", "_model_name": "LayoutModel", "_view_count": null, "_view_module": "@jupyter-widgets\/base", "_view_module_version": "2.0.0", "_view_name": "LayoutView", "align_content": null, "align_items": null, "align_self": null, "border_bottom": null, "border_left": null, "border_right": null, "border_top": null, "bottom": null, "display": null, "flex": null, "flex_flow": null, "grid_area": null, "grid_auto_columns": null, "grid_auto_flow": null, "grid_auto_rows": null, "grid_column": null, "grid_gap": null, "grid_row": null, "grid_template_areas": null, "grid_template_columns": null, "grid_template_rows": null, "height": null, "justify_content": null, "justify_items": null, "left": null, "margin": null, "max_height": null, "max_width": null, "min_height": null, "min_width": null, "object_fit": null, "object_position": null, "order": null, "overflow": null, "padding": null, "right": null, "top": null, "visibility": null, "width": null}}, "e1c73c566788469e851e06cbb4b706e3": {"model_module": "@jupyter-widgets\/base", "model_module_version": "2.0.0", "model_name": "LayoutModel", "state": {"_model_module": "@jupyter-widgets\/base", "_model_module_version": "2.0.0", "_model_name": "LayoutModel", "_view_count": null, "_view_module": "@jupyter-widgets\/base", "_view_module_version": "2.0.0", "_view_name": "LayoutView", "align_content": null, "align_items": null, "align_self": null, "border_bottom": null, "border_left": null, "border_right": null, "border_top": null, "bottom": null, "display": null, "flex": null, "flex_flow": null, "grid_area": null, "grid_auto_columns": null, "grid_auto_flow": null, "grid_auto_rows": null, "grid_column": null, "grid_gap": null, "grid_row": null, "grid_template_areas": null, "grid_template_columns": null, "grid_template_rows": null, "height": null, "justify_content": null, "justify_items": null, "left": null, "margin": null, "max_height": null, "max_width": null, "min_height": null, "min_width": null, "object_fit": null, "object_position": null, "order": null, "overflow": null, "padding": null, "right": null, "top": null, "visibility": null, "width": null}}, "e74143f3a27d48f9b3caa7c3679ee354": {"model_module": "@jupyter-widgets\/base", "model_module_version": "2.0.0", "model_name": "LayoutModel", "state": {"_model_module": "@jupyter-widgets\/base", "_model_module_version": "2.0.0", "_model_name": "LayoutModel", "_view_count": null, "_view_module": "@jupyter-widgets\/base", "_view_module_version": "2.0.0", "_view_name": "LayoutView", "align_content": null, "align_items": null, "align_self": null, "border_bottom": null, "border_left": null, "border_right": null, "border_top": null, "bottom": null, "display": null, "flex": null, "flex_flow": null, "grid_area": null, "grid_auto_columns": null, "grid_auto_flow": null, "grid_auto_rows": null, "grid_column": null, "grid_gap": null, "grid_row": null, "grid_template_areas": null, "grid_template_columns": null, "grid_template_rows": null, "height": null, "justify_content": null, "justify_items": null, "left": null, "margin": null, "max_height": null, "max_width": null, "min_height": null, "min_width": null, "object_fit": null, "object_position": null, "order": null, "overflow": null, "padding": null, "right": null, "top": null, "visibility": null, "width": "20px"}}, "f84ce333b08146e3803a73f48f30df33": {"model_module": "@jupyter-widgets\/base", "model_module_version": "2.0.0", "model_name": "LayoutModel", "state": {"_model_module": "@jupyter-widgets\/base", "_model_module_version": "2.0.0", "_model_name": "LayoutModel", "_view_count": null, "_view_module": "@jupyter-widgets\/base", "_view_module_version": "2.0.0", "_view_name": "LayoutView", "align_content": null, "align_items": null, "align_self": null, "border_bottom": null, "border_left": null, "border_right": null, "border_top": null, "bottom": null, "display": null, "flex": null, "flex_flow": null, "grid_area": null, "grid_auto_columns": null, "grid_auto_flow": null, "grid_auto_rows": null, "grid_column": null, "grid_gap": null, "grid_row": null, "grid_template_areas": null, "grid_template_columns": null, "grid_template_rows": null, "height": null, "justify_content": null, "justify_items": null, "left": null, "margin": null, "max_height": null, "max_width": null, "min_height": null, "min_width": null, "object_fit": null, "object_position": null, "order": null, "overflow": null, "padding": null, "right": null, "top": null, "visibility": null, "width": null}}}, "version_major": 2, "version_minor": 0}
 </script>
 
         <style>

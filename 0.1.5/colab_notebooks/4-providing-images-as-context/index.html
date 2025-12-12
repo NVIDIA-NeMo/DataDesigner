@@ -8,7 +8,7 @@
       
       
       
-        <link rel="canonical" href="https://nvidia-nemo.github.io/DataDesigner/latest/notebook_source/1-the-basics/">
+        <link rel="canonical" href="https://nvidia-nemo.github.io/DataDesigner/latest/colab_notebooks/4-providing-images-as-context/">
       
       
       
@@ -18,7 +18,7 @@
     
     
       
-        <title>1 the basics - NeMo Data Designer</title>
+        <title>4 providing images as context - NeMo Data Designer</title>
       
     
     
@@ -76,7 +76,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#data-designer-tutorial-the-basics" class="md-skip">
+        <a href="#data-designer-tutorial-providing-images-as-context-for-vision-based-data-generation" class="md-skip">
           Skip to content
         </a>
       
@@ -126,7 +126,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              1 the basics
+              4 providing images as context
             
           </span>
         </div>
@@ -1608,6 +1608,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#colab-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      ⚡ Colab Setup
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#import-the-essentials" class="md-nav__link">
     <span class="md-ellipsis">
       📦 Import the essentials
@@ -1644,25 +1653,15 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#getting-started-with-sampler-columns" class="md-nav__link">
+  <a href="#seed-dataset-creation" class="md-nav__link">
     <span class="md-ellipsis">
-      🎲 Getting started with sampler columns
+      🌱 Seed Dataset Creation
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#llm-generated-columns" class="md-nav__link">
-    <span class="md-ellipsis">
-      🦜 LLM-generated columns
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="🦜 LLM-generated columns">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
   <a href="#iteration-is-key-preview-the-dataset" class="md-nav__link">
     <span class="md-ellipsis">
       🔁 Iteration is key – preview the dataset!
@@ -1670,8 +1669,8 @@
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
+      
+        <li class="md-nav__item">
   <a href="#analyze-the-generated-data" class="md-nav__link">
     <span class="md-ellipsis">
       📊 Analyze the generated data
@@ -1679,18 +1678,22 @@
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
+      
+        <li class="md-nav__item">
+  <a href="#visual-inspection" class="md-nav__link">
+    <span class="md-ellipsis">
+      🔎 Visual Inspection
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#scale-up" class="md-nav__link">
     <span class="md-ellipsis">
       🆙 Scale up!
     </span>
   </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -1717,7 +1720,7 @@
                 
 
   <div data-md-component="latest-only" style="display: none;">
-    <a target="_blank" href="https://colab.research.google.com/github/NVIDIA-NeMo/DataDesigner/tree/main/docs/colab_notebooks/1-the-basics.py">
+    <a target="_blank" href="https://colab.research.google.com/github/NVIDIA-NeMo/DataDesigner/tree/main/docs/colab_notebooks/4-providing-images-as-context.ipynb">
       <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
     </a>
     <script>
@@ -1729,7 +1732,7 @@
       }
     </script>
   </div>
-  <a href="/DataDesigner/latest/notebook_source/1-the-basics/1-the-basics.py" title="Download notebook" class="md-content__button md-icon" download>
+  <a href="/DataDesigner/latest/colab_notebooks/4-providing-images-as-context/4-providing-images-as-context.ipynb" title="Download notebook" class="md-content__button md-icon" download>
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M5 20h14v-2H5m14-9h-4V3H9v6H5l7 7z"/></svg>
   </a>
 
@@ -2179,31 +2182,45 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </style>
 <!-- End of mermaid configuration --><div class="jupyter-wrapper">
 <div class="jp-Notebook" data-jp-theme-light="true" data-jp-theme-name="JupyterLab Light">
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=503c4aeb">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=ebd062e8">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h1 id="data-designer-tutorial-the-basics">🎨 Data Designer Tutorial: The Basics<a class="anchor-link" href="#data-designer-tutorial-the-basics">¶</a></h1><h4 id="what-youll-learn">📚 What you'll learn<a class="anchor-link" href="#what-youll-learn">¶</a></h4><p>This notebook demonstrates the basics of Data Designer by generating a simple product review dataset.</p>
+<h1 id="data-designer-tutorial-providing-images-as-context-for-vision-based-data-generation">🎨 Data Designer Tutorial: Providing Images as Context for Vision-Based Data Generation<a class="anchor-link" href="#data-designer-tutorial-providing-images-as-context-for-vision-based-data-generation">¶</a></h1>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=6b236a93">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=3ce5b7f7">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h3 id="import-the-essentials">📦 Import the essentials<a class="anchor-link" href="#import-the-essentials">¶</a></h3><ul>
-<li>The <code>essentials</code> module provides quick access to the most commonly used objects.</li>
+<h4 id="what-youll-learn">📚 What you'll learn<a class="anchor-link" href="#what-youll-learn">¶</a></h4><p>This notebook demonstrates how to provide images as context to generate text descriptions using vision-language models.</p>
+<ul>
+<li>✨ <strong>Visual Document Processing</strong>: Converting images to chat-ready format for model consumption</li>
+<li>🔍 <strong>Vision-Language Generation</strong>: Using vision models to generate detailed summaries from images</li>
 </ul>
+<p>If this is your first time using Data Designer, we recommend starting with the <a href="/notebooks/1-the-basics/">first notebook</a> in this tutorial series.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=04d0bfd4">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<h3 id="colab-setup">⚡ Colab Setup<a class="anchor-link" href="#colab-setup">¶</a></h3><p>Run the cells below to install the dependencies and set up the API key. If you don't have an API key, you can generate one from <a href="https://build.nvidia.com">build.nvidia.com</a>.</p>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=061655e6">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=661740a3">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2221,56 +2238,16 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">data_designer.essentials</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-    <span class="n">CategorySamplerParams</span><span class="p">,</span>
-    <span class="n">DataDesigner</span><span class="p">,</span>
-    <span class="n">DataDesignerConfigBuilder</span><span class="p">,</span>
-    <span class="n">InferenceParameters</span><span class="p">,</span>
-    <span class="n">LLMTextColumnConfig</span><span class="p">,</span>
-    <span class="n">ModelConfig</span><span class="p">,</span>
-    <span class="n">PersonFromFakerSamplerParams</span><span class="p">,</span>
-    <span class="n">SamplerColumnConfig</span><span class="p">,</span>
-    <span class="n">SamplerType</span><span class="p">,</span>
-    <span class="n">SubcategorySamplerParams</span><span class="p">,</span>
-    <span class="n">UniformSamplerParams</span><span class="p">,</span>
-<span class="p">)</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="err">!</span><span class="n">pip</span> <span class="n">install</span> <span class="o">-</span><span class="n">qU</span> <span class="n">data</span><span class="o">-</span><span class="n">designer</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-1">from data_designer.essentials import (
-    CategorySamplerParams,
-    DataDesigner,
-    DataDesignerConfigBuilder,
-    InferenceParameters,
-    LLMTextColumnConfig,
-    ModelConfig,
-    PersonFromFakerSamplerParams,
-    SamplerColumnConfig,
-    SamplerType,
-    SubcategorySamplerParams,
-    UniformSamplerParams,
-)</div>
+<div class="clipboard-copy-txt" id="cell-1">!pip install -qU data-designer</div>
 </div>
 </div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=058e5b91">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h3 id="initialize-the-data-designer-interface">⚙️ Initialize the Data Designer interface<a class="anchor-link" href="#initialize-the-data-designer-interface">¶</a></h3><ul>
-<li><p><code>DataDesigner</code> is the main object is responsible for managing the data generation process.</p>
-</li>
-<li><p>When initialized without arguments, the <a href="https://nvidia-nemo.github.io/DataDesigner/concepts/models/default-model-settings/">default model providers</a> are used.</p>
-</li>
-</ul>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=a41470e5">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=b9c4188b">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2288,16 +2265,186 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </clipboard-copy>
 </div>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="err">!</span><span class="n">pip</span> <span class="n">install</span> <span class="o">-</span><span class="n">q</span> <span class="n">pillow</span><span class="o">&gt;=</span><span class="mf">12.0.0</span>
+</pre></div>
+<div class="clipboard-copy-txt" id="cell-2">!pip install -q pillow&gt;=12.0.0</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=ddaeb938">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="CodeMirror cm-s-jupyter">
+<div class="zeroclipboard-container">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-3">
+<div>
+<span class="notice" hidden="">Copied!</span>
+<svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
+<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+</svg>
+</div>
+</clipboard-copy>
+</div>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">getpass</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">google.colab</span><span class="w"> </span><span class="kn">import</span> <span class="n">userdata</span>
+
+<span class="k">try</span><span class="p">:</span>
+    <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"NVIDIA_API_KEY"</span><span class="p">]</span> <span class="o">=</span> <span class="n">userdata</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"NVIDIA_API_KEY"</span><span class="p">)</span>
+<span class="k">except</span> <span class="n">userdata</span><span class="o">.</span><span class="n">SecretNotFoundError</span><span class="p">:</span>
+    <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"NVIDIA_API_KEY"</span><span class="p">]</span> <span class="o">=</span> <span class="n">getpass</span><span class="o">.</span><span class="n">getpass</span><span class="p">(</span><span class="s2">"Enter your NVIDIA API key: "</span><span class="p">)</span>
+</pre></div>
+<div class="clipboard-copy-txt" id="cell-3">import getpass
+import os
+
+from google.colab import userdata
+
+try:
+    os.environ["NVIDIA_API_KEY"] = userdata.get("NVIDIA_API_KEY")
+except userdata.SecretNotFoundError:
+    os.environ["NVIDIA_API_KEY"] = getpass.getpass("Enter your NVIDIA API key: ")</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=c3aac5e8">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<h3 id="import-the-essentials">📦 Import the essentials<a class="anchor-link" href="#import-the-essentials">¶</a></h3><ul>
+<li>The <code>essentials</code> module provides quick access to the most commonly used objects.</li>
+</ul>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=c8b905ee">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="CodeMirror cm-s-jupyter">
+<div class="zeroclipboard-container">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-4">
+<div>
+<span class="notice" hidden="">Copied!</span>
+<svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
+<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+</svg>
+</div>
+</clipboard-copy>
+</div>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># Standard library imports</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">base64</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">io</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">uuid</span>
+
+<span class="c1"># Third-party imports</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">rich</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">datasets</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_dataset</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">IPython.display</span><span class="w"> </span><span class="kn">import</span> <span class="n">display</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">rich.panel</span><span class="w"> </span><span class="kn">import</span> <span class="n">Panel</span>
+
+<span class="c1"># Data Designer imports</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">data_designer.essentials</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">DataDesigner</span><span class="p">,</span>
+    <span class="n">DataDesignerConfigBuilder</span><span class="p">,</span>
+    <span class="n">ImageContext</span><span class="p">,</span>
+    <span class="n">ImageFormat</span><span class="p">,</span>
+    <span class="n">InferenceParameters</span><span class="p">,</span>
+    <span class="n">LLMTextColumnConfig</span><span class="p">,</span>
+    <span class="n">ModalityDataType</span><span class="p">,</span>
+    <span class="n">ModelConfig</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+<div class="clipboard-copy-txt" id="cell-4"># Standard library imports
+import base64
+import io
+import uuid
+
+# Third-party imports
+import pandas as pd
+import rich
+from datasets import load_dataset
+from IPython.display import display
+from rich.panel import Panel
+
+# Data Designer imports
+from data_designer.essentials import (
+    DataDesigner,
+    DataDesignerConfigBuilder,
+    ImageContext,
+    ImageFormat,
+    InferenceParameters,
+    LLMTextColumnConfig,
+    ModalityDataType,
+    ModelConfig,
+)</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=f508d655">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<h3 id="initialize-the-data-designer-interface">⚙️ Initialize the Data Designer interface<a class="anchor-link" href="#initialize-the-data-designer-interface">¶</a></h3><ul>
+<li><p><code>DataDesigner</code> is the main object is responsible for managing the data generation process.</p>
+</li>
+<li><p>When initialized without arguments, the <a href="https://nvidia-nemo.github.io/DataDesigner/concepts/models/default-model-settings/">default model providers</a> are used.</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=f0607008">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="CodeMirror cm-s-jupyter">
+<div class="zeroclipboard-container">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-5">
+<div>
+<span class="notice" hidden="">Copied!</span>
+<svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
+<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+</svg>
+</div>
+</clipboard-copy>
+</div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">data_designer</span> <span class="o">=</span> <span class="n">DataDesigner</span><span class="p">()</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-2">data_designer = DataDesigner()</div>
+<div class="clipboard-copy-txt" id="cell-5">data_designer = DataDesigner()</div>
 </div>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=bd5d8eaa">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=a0467d8c">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2317,181 +2464,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=575a1d6a">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
-<div class="CodeMirror cm-s-jupyter">
-<div class="zeroclipboard-container">
-<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-3">
-<div>
-<span class="notice" hidden="">Copied!</span>
-<svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
-<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z" fill="currentColor" fill-rule="evenodd"></path>
-<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z" fill="currentColor" fill-rule="evenodd"></path>
-</svg>
-</div>
-</clipboard-copy>
-</div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># This name is set in the model provider configuration.</span>
-<span class="n">MODEL_PROVIDER</span> <span class="o">=</span> <span class="s2">"nvidia"</span>
-
-<span class="c1"># The model ID is from build.nvidia.com.</span>
-<span class="n">MODEL_ID</span> <span class="o">=</span> <span class="s2">"nvidia/nvidia-nemotron-nano-9b-v2"</span>
-
-<span class="c1"># We choose this alias to be descriptive for our use case.</span>
-<span class="n">MODEL_ALIAS</span> <span class="o">=</span> <span class="s2">"nemotron-nano-v2"</span>
-
-<span class="c1"># This sets reasoning to False for the nemotron-nano-v2 model.</span>
-<span class="n">SYSTEM_PROMPT</span> <span class="o">=</span> <span class="s2">"/no_think"</span>
-
-<span class="n">model_configs</span> <span class="o">=</span> <span class="p">[</span>
-    <span class="n">ModelConfig</span><span class="p">(</span>
-        <span class="n">alias</span><span class="o">=</span><span class="n">MODEL_ALIAS</span><span class="p">,</span>
-        <span class="n">model</span><span class="o">=</span><span class="n">MODEL_ID</span><span class="p">,</span>
-        <span class="n">provider</span><span class="o">=</span><span class="n">MODEL_PROVIDER</span><span class="p">,</span>
-        <span class="n">inference_parameters</span><span class="o">=</span><span class="n">InferenceParameters</span><span class="p">(</span>
-            <span class="n">temperature</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span>
-            <span class="n">top_p</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
-            <span class="n">max_tokens</span><span class="o">=</span><span class="mi">1024</span><span class="p">,</span>
-        <span class="p">),</span>
-    <span class="p">)</span>
-<span class="p">]</span>
-</pre></div>
-<div class="clipboard-copy-txt" id="cell-3"># This name is set in the model provider configuration.
-MODEL_PROVIDER = "nvidia"
-
-# The model ID is from build.nvidia.com.
-MODEL_ID = "nvidia/nvidia-nemotron-nano-9b-v2"
-
-# We choose this alias to be descriptive for our use case.
-MODEL_ALIAS = "nemotron-nano-v2"
-
-# This sets reasoning to False for the nemotron-nano-v2 model.
-SYSTEM_PROMPT = "/no_think"
-
-model_configs = [
-    ModelConfig(
-        alias=MODEL_ALIAS,
-        model=MODEL_ID,
-        provider=MODEL_PROVIDER,
-        inference_parameters=InferenceParameters(
-            temperature=0.5,
-            top_p=1.0,
-            max_tokens=1024,
-        ),
-    )
-]</div>
-</div>
-</div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=01fcff15">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h3 id="initialize-the-data-designer-config-builder">🏗️ Initialize the Data Designer Config Builder<a class="anchor-link" href="#initialize-the-data-designer-config-builder">¶</a></h3><ul>
-<li><p>The Data Designer config defines the dataset schema and generation process.</p>
-</li>
-<li><p>The config builder provides an intuitive interface for building this configuration.</p>
-</li>
-<li><p>The list of model configs is provided to the builder at initialization.</p>
-</li>
-</ul>
-</div>
-</div>
-</div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=e6f82a90">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
-<div class="CodeMirror cm-s-jupyter">
-<div class="zeroclipboard-container">
-<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-4">
-<div>
-<span class="notice" hidden="">Copied!</span>
-<svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
-<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z" fill="currentColor" fill-rule="evenodd"></path>
-<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z" fill="currentColor" fill-rule="evenodd"></path>
-</svg>
-</div>
-</clipboard-copy>
-</div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">config_builder</span> <span class="o">=</span> <span class="n">DataDesignerConfigBuilder</span><span class="p">(</span><span class="n">model_configs</span><span class="o">=</span><span class="n">model_configs</span><span class="p">)</span>
-</pre></div>
-<div class="clipboard-copy-txt" id="cell-4">config_builder = DataDesignerConfigBuilder(model_configs=model_configs)</div>
-</div>
-</div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=d94db11f">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="getting-started-with-sampler-columns">🎲 Getting started with sampler columns<a class="anchor-link" href="#getting-started-with-sampler-columns">¶</a></h2><ul>
-<li><p>Sampler columns offer non-LLM based generation of synthetic data.</p>
-</li>
-<li><p>They are particularly useful for <strong>steering the diversity</strong> of the generated data, as we demonstrate below.</p>
-</li>
-</ul>
-<br/>
-<p>You can view available samplers using the config builder's <code>info</code> property:</p>
-</div>
-</div>
-</div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=0f90d257">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
-<div class="CodeMirror cm-s-jupyter">
-<div class="zeroclipboard-container">
-<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-5">
-<div>
-<span class="notice" hidden="">Copied!</span>
-<svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
-<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z" fill="currentColor" fill-rule="evenodd"></path>
-<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z" fill="currentColor" fill-rule="evenodd"></path>
-</svg>
-</div>
-</clipboard-copy>
-</div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">config_builder</span><span class="o">.</span><span class="n">info</span><span class="o">.</span><span class="n">display</span><span class="p">(</span><span class="s2">"samplers"</span><span class="p">)</span>
-</pre></div>
-<div class="clipboard-copy-txt" id="cell-5">config_builder.info.display("samplers")</div>
-</div>
-</div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=03bbedd2">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<p>Let's start designing our product review dataset by adding product category and subcategory columns.</p>
-</div>
-</div>
-</div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=093f0459">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=1e4d9a15">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2509,171 +2482,62 @@ model_configs = [
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">config_builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
-    <span class="n">SamplerColumnConfig</span><span class="p">(</span>
-        <span class="n">name</span><span class="o">=</span><span class="s2">"product_category"</span><span class="p">,</span>
-        <span class="n">sampler_type</span><span class="o">=</span><span class="n">SamplerType</span><span class="o">.</span><span class="n">CATEGORY</span><span class="p">,</span>
-        <span class="n">params</span><span class="o">=</span><span class="n">CategorySamplerParams</span><span class="p">(</span>
-            <span class="n">values</span><span class="o">=</span><span class="p">[</span>
-                <span class="s2">"Electronics"</span><span class="p">,</span>
-                <span class="s2">"Clothing"</span><span class="p">,</span>
-                <span class="s2">"Home &amp; Kitchen"</span><span class="p">,</span>
-                <span class="s2">"Books"</span><span class="p">,</span>
-                <span class="s2">"Home Office"</span><span class="p">,</span>
-            <span class="p">],</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># This name is set in the model provider configuration.</span>
+<span class="n">MODEL_PROVIDER</span> <span class="o">=</span> <span class="s2">"nvidia"</span>
+
+<span class="n">model_configs</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="n">ModelConfig</span><span class="p">(</span>
+        <span class="n">alias</span><span class="o">=</span><span class="s2">"vision"</span><span class="p">,</span>
+        <span class="n">model</span><span class="o">=</span><span class="s2">"meta/llama-4-scout-17b-16e-instruct"</span><span class="p">,</span>
+        <span class="n">provider</span><span class="o">=</span><span class="n">MODEL_PROVIDER</span><span class="p">,</span>
+        <span class="n">inference_parameters</span><span class="o">=</span><span class="n">InferenceParameters</span><span class="p">(</span>
+            <span class="n">temperature</span><span class="o">=</span><span class="mf">0.60</span><span class="p">,</span>
+            <span class="n">top_p</span><span class="o">=</span><span class="mf">0.95</span><span class="p">,</span>
+            <span class="n">max_tokens</span><span class="o">=</span><span class="mi">2048</span><span class="p">,</span>
         <span class="p">),</span>
-    <span class="p">)</span>
-<span class="p">)</span>
-
-<span class="n">config_builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
-    <span class="n">SamplerColumnConfig</span><span class="p">(</span>
-        <span class="n">name</span><span class="o">=</span><span class="s2">"product_subcategory"</span><span class="p">,</span>
-        <span class="n">sampler_type</span><span class="o">=</span><span class="n">SamplerType</span><span class="o">.</span><span class="n">SUBCATEGORY</span><span class="p">,</span>
-        <span class="n">params</span><span class="o">=</span><span class="n">SubcategorySamplerParams</span><span class="p">(</span>
-            <span class="n">category</span><span class="o">=</span><span class="s2">"product_category"</span><span class="p">,</span>
-            <span class="n">values</span><span class="o">=</span><span class="p">{</span>
-                <span class="s2">"Electronics"</span><span class="p">:</span> <span class="p">[</span>
-                    <span class="s2">"Smartphones"</span><span class="p">,</span>
-                    <span class="s2">"Laptops"</span><span class="p">,</span>
-                    <span class="s2">"Headphones"</span><span class="p">,</span>
-                    <span class="s2">"Cameras"</span><span class="p">,</span>
-                    <span class="s2">"Accessories"</span><span class="p">,</span>
-                <span class="p">],</span>
-                <span class="s2">"Clothing"</span><span class="p">:</span> <span class="p">[</span>
-                    <span class="s2">"Men's Clothing"</span><span class="p">,</span>
-                    <span class="s2">"Women's Clothing"</span><span class="p">,</span>
-                    <span class="s2">"Winter Coats"</span><span class="p">,</span>
-                    <span class="s2">"Activewear"</span><span class="p">,</span>
-                    <span class="s2">"Accessories"</span><span class="p">,</span>
-                <span class="p">],</span>
-                <span class="s2">"Home &amp; Kitchen"</span><span class="p">:</span> <span class="p">[</span>
-                    <span class="s2">"Appliances"</span><span class="p">,</span>
-                    <span class="s2">"Cookware"</span><span class="p">,</span>
-                    <span class="s2">"Furniture"</span><span class="p">,</span>
-                    <span class="s2">"Decor"</span><span class="p">,</span>
-                    <span class="s2">"Organization"</span><span class="p">,</span>
-                <span class="p">],</span>
-                <span class="s2">"Books"</span><span class="p">:</span> <span class="p">[</span>
-                    <span class="s2">"Fiction"</span><span class="p">,</span>
-                    <span class="s2">"Non-Fiction"</span><span class="p">,</span>
-                    <span class="s2">"Self-Help"</span><span class="p">,</span>
-                    <span class="s2">"Textbooks"</span><span class="p">,</span>
-                    <span class="s2">"Classics"</span><span class="p">,</span>
-                <span class="p">],</span>
-                <span class="s2">"Home Office"</span><span class="p">:</span> <span class="p">[</span>
-                    <span class="s2">"Desks"</span><span class="p">,</span>
-                    <span class="s2">"Chairs"</span><span class="p">,</span>
-                    <span class="s2">"Storage"</span><span class="p">,</span>
-                    <span class="s2">"Office Supplies"</span><span class="p">,</span>
-                    <span class="s2">"Lighting"</span><span class="p">,</span>
-                <span class="p">],</span>
-            <span class="p">},</span>
-        <span class="p">),</span>
-    <span class="p">)</span>
-<span class="p">)</span>
-
-<span class="n">config_builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
-    <span class="n">SamplerColumnConfig</span><span class="p">(</span>
-        <span class="n">name</span><span class="o">=</span><span class="s2">"target_age_range"</span><span class="p">,</span>
-        <span class="n">sampler_type</span><span class="o">=</span><span class="n">SamplerType</span><span class="o">.</span><span class="n">CATEGORY</span><span class="p">,</span>
-        <span class="n">params</span><span class="o">=</span><span class="n">CategorySamplerParams</span><span class="p">(</span><span class="n">values</span><span class="o">=</span><span class="p">[</span><span class="s2">"18-25"</span><span class="p">,</span> <span class="s2">"25-35"</span><span class="p">,</span> <span class="s2">"35-50"</span><span class="p">,</span> <span class="s2">"50-65"</span><span class="p">,</span> <span class="s2">"65+"</span><span class="p">]),</span>
-    <span class="p">)</span>
-<span class="p">)</span>
-
-<span class="c1"># Optionally validate that the columns are configured correctly.</span>
-<span class="n">config_builder</span><span class="o">.</span><span class="n">validate</span><span class="p">()</span>
+    <span class="p">),</span>
+<span class="p">]</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-6">config_builder.add_column(
-    SamplerColumnConfig(
-        name="product_category",
-        sampler_type=SamplerType.CATEGORY,
-        params=CategorySamplerParams(
-            values=[
-                "Electronics",
-                "Clothing",
-                "Home &amp; Kitchen",
-                "Books",
-                "Home Office",
-            ],
+<div class="clipboard-copy-txt" id="cell-6"># This name is set in the model provider configuration.
+MODEL_PROVIDER = "nvidia"
+
+model_configs = [
+    ModelConfig(
+        alias="vision",
+        model="meta/llama-4-scout-17b-16e-instruct",
+        provider=MODEL_PROVIDER,
+        inference_parameters=InferenceParameters(
+            temperature=0.60,
+            top_p=0.95,
+            max_tokens=2048,
         ),
-    )
-)
-
-config_builder.add_column(
-    SamplerColumnConfig(
-        name="product_subcategory",
-        sampler_type=SamplerType.SUBCATEGORY,
-        params=SubcategorySamplerParams(
-            category="product_category",
-            values={
-                "Electronics": [
-                    "Smartphones",
-                    "Laptops",
-                    "Headphones",
-                    "Cameras",
-                    "Accessories",
-                ],
-                "Clothing": [
-                    "Men's Clothing",
-                    "Women's Clothing",
-                    "Winter Coats",
-                    "Activewear",
-                    "Accessories",
-                ],
-                "Home &amp; Kitchen": [
-                    "Appliances",
-                    "Cookware",
-                    "Furniture",
-                    "Decor",
-                    "Organization",
-                ],
-                "Books": [
-                    "Fiction",
-                    "Non-Fiction",
-                    "Self-Help",
-                    "Textbooks",
-                    "Classics",
-                ],
-                "Home Office": [
-                    "Desks",
-                    "Chairs",
-                    "Storage",
-                    "Office Supplies",
-                    "Lighting",
-                ],
-            },
-        ),
-    )
-)
-
-config_builder.add_column(
-    SamplerColumnConfig(
-        name="target_age_range",
-        sampler_type=SamplerType.CATEGORY,
-        params=CategorySamplerParams(values=["18-25", "25-35", "35-50", "50-65", "65+"]),
-    )
-)
-
-# Optionally validate that the columns are configured correctly.
-config_builder.validate()</div>
+    ),
+]</div>
 </div>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=49dc7de6">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=6d66a8a6">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<p>Next, let's add samplers to generate data related to the customer and their review.</p>
+<h3 id="initialize-the-data-designer-config-builder">🏗️ Initialize the Data Designer Config Builder<a class="anchor-link" href="#initialize-the-data-designer-config-builder">¶</a></h3><ul>
+<li><p>The Data Designer config defines the dataset schema and generation process.</p>
+</li>
+<li><p>The config builder provides an intuitive interface for building this configuration.</p>
+</li>
+<li><p>The list of model configs is provided to the builder at initialization.</p>
+</li>
+</ul>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=ca9286ef">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=80ad9b04">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2691,90 +2555,33 @@ config_builder.validate()</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">config_builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
-    <span class="n">SamplerColumnConfig</span><span class="p">(</span>
-        <span class="n">name</span><span class="o">=</span><span class="s2">"customer"</span><span class="p">,</span>
-        <span class="n">sampler_type</span><span class="o">=</span><span class="n">SamplerType</span><span class="o">.</span><span class="n">PERSON_FROM_FAKER</span><span class="p">,</span>
-        <span class="n">params</span><span class="o">=</span><span class="n">PersonFromFakerSamplerParams</span><span class="p">(</span><span class="n">age_range</span><span class="o">=</span><span class="p">[</span><span class="mi">18</span><span class="p">,</span> <span class="mi">70</span><span class="p">],</span> <span class="n">locale</span><span class="o">=</span><span class="s2">"en_US"</span><span class="p">),</span>
-    <span class="p">)</span>
-<span class="p">)</span>
-
-<span class="n">config_builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
-    <span class="n">SamplerColumnConfig</span><span class="p">(</span>
-        <span class="n">name</span><span class="o">=</span><span class="s2">"number_of_stars"</span><span class="p">,</span>
-        <span class="n">sampler_type</span><span class="o">=</span><span class="n">SamplerType</span><span class="o">.</span><span class="n">UNIFORM</span><span class="p">,</span>
-        <span class="n">params</span><span class="o">=</span><span class="n">UniformSamplerParams</span><span class="p">(</span><span class="n">low</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">high</span><span class="o">=</span><span class="mi">5</span><span class="p">),</span>
-        <span class="n">convert_to</span><span class="o">=</span><span class="s2">"int"</span><span class="p">,</span>  <span class="c1"># Convert the sampled float to an integer.</span>
-    <span class="p">)</span>
-<span class="p">)</span>
-
-<span class="n">config_builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
-    <span class="n">SamplerColumnConfig</span><span class="p">(</span>
-        <span class="n">name</span><span class="o">=</span><span class="s2">"review_style"</span><span class="p">,</span>
-        <span class="n">sampler_type</span><span class="o">=</span><span class="n">SamplerType</span><span class="o">.</span><span class="n">CATEGORY</span><span class="p">,</span>
-        <span class="n">params</span><span class="o">=</span><span class="n">CategorySamplerParams</span><span class="p">(</span>
-            <span class="n">values</span><span class="o">=</span><span class="p">[</span><span class="s2">"rambling"</span><span class="p">,</span> <span class="s2">"brief"</span><span class="p">,</span> <span class="s2">"detailed"</span><span class="p">,</span> <span class="s2">"structured with bullet points"</span><span class="p">],</span>
-            <span class="n">weights</span><span class="o">=</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span>
-        <span class="p">),</span>
-    <span class="p">)</span>
-<span class="p">)</span>
-
-<span class="n">config_builder</span><span class="o">.</span><span class="n">validate</span><span class="p">()</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">config_builder</span> <span class="o">=</span> <span class="n">DataDesignerConfigBuilder</span><span class="p">(</span><span class="n">model_configs</span><span class="o">=</span><span class="n">model_configs</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-7">config_builder.add_column(
-    SamplerColumnConfig(
-        name="customer",
-        sampler_type=SamplerType.PERSON_FROM_FAKER,
-        params=PersonFromFakerSamplerParams(age_range=[18, 70], locale="en_US"),
-    )
-)
-
-config_builder.add_column(
-    SamplerColumnConfig(
-        name="number_of_stars",
-        sampler_type=SamplerType.UNIFORM,
-        params=UniformSamplerParams(low=1, high=5),
-        convert_to="int",  # Convert the sampled float to an integer.
-    )
-)
-
-config_builder.add_column(
-    SamplerColumnConfig(
-        name="review_style",
-        sampler_type=SamplerType.CATEGORY,
-        params=CategorySamplerParams(
-            values=["rambling", "brief", "detailed", "structured with bullet points"],
-            weights=[1, 2, 2, 1],
-        ),
-    )
-)
-
-config_builder.validate()</div>
+<div class="clipboard-copy-txt" id="cell-7">config_builder = DataDesignerConfigBuilder(model_configs=model_configs)</div>
 </div>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=44e88690">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=75935c33">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="llm-generated-columns">🦜 LLM-generated columns<a class="anchor-link" href="#llm-generated-columns">¶</a></h2><ul>
-<li><p>The real power of Data Designer comes from leveraging LLMs to generate text, code, and structured data.</p>
-</li>
-<li><p>When prompting the LLM, we can use Jinja templating to reference other columns in the dataset.</p>
-</li>
-<li><p>As we see below, nested json fields can be accessed using dot notation.</p>
-</li>
+<h3 id="seed-dataset-creation">🌱 Seed Dataset Creation<a class="anchor-link" href="#seed-dataset-creation">¶</a></h3><p>In this section, we'll prepare our visual documents as a seed dataset for summarization:</p>
+<ul>
+<li><strong>Loading Visual Documents</strong>: We use the ColPali dataset containing document images</li>
+<li><strong>Image Processing</strong>: Convert images to base64 format for vision model consumption</li>
+<li><strong>Metadata Extraction</strong>: Preserve relevant document information (filename, page number, source, etc.)</li>
 </ul>
+<p>The seed dataset will be used to generate detailed text summaries of each document image.</p>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=47c75f3c">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=868e41af">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2792,92 +2599,26 @@ config_builder.validate()</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">config_builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
-    <span class="n">LLMTextColumnConfig</span><span class="p">(</span>
-        <span class="n">name</span><span class="o">=</span><span class="s2">"product_name"</span><span class="p">,</span>
-        <span class="n">prompt</span><span class="o">=</span><span class="p">(</span>
-            <span class="s2">"You are a helpful assistant that generates product names. DO NOT add quotes around the product name.</span><span class="se">\n\n</span><span class="s2">"</span>
-            <span class="s2">"Come up with a creative product name for a product in the '{{ product_category }}' category, focusing "</span>
-            <span class="s2">"on products related to '{{ product_subcategory }}'. The target age range of the ideal customer is "</span>
-            <span class="s2">"{{ target_age_range }} years old. Respond with only the product name, no other text."</span>
-        <span class="p">),</span>
-        <span class="n">system_prompt</span><span class="o">=</span><span class="n">SYSTEM_PROMPT</span><span class="p">,</span>
-        <span class="n">model_alias</span><span class="o">=</span><span class="n">MODEL_ALIAS</span><span class="p">,</span>
-    <span class="p">)</span>
-<span class="p">)</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># Dataset processing configuration</span>
+<span class="n">IMG_COUNT</span> <span class="o">=</span> <span class="mi">512</span>  <span class="c1"># Number of images to process</span>
+<span class="n">BASE64_IMAGE_HEIGHT</span> <span class="o">=</span> <span class="mi">512</span>  <span class="c1"># Standardized height for model input</span>
 
-<span class="n">config_builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
-    <span class="n">LLMTextColumnConfig</span><span class="p">(</span>
-        <span class="n">name</span><span class="o">=</span><span class="s2">"customer_review"</span><span class="p">,</span>
-        <span class="n">prompt</span><span class="o">=</span><span class="p">(</span>
-            <span class="s2">"You are a customer named {{ customer.first_name }} from {{ customer.city }}, {{ customer.state }}. "</span>
-            <span class="s2">"You are {{ customer.age }} years old and recently purchased a product called {{ product_name }}. "</span>
-            <span class="s2">"Write a review of this product, which you gave a rating of {{ number_of_stars }} stars. "</span>
-            <span class="s2">"The style of the review should be '{{ review_style }}'."</span>
-        <span class="p">),</span>
-        <span class="n">system_prompt</span><span class="o">=</span><span class="n">SYSTEM_PROMPT</span><span class="p">,</span>
-        <span class="n">model_alias</span><span class="o">=</span><span class="n">MODEL_ALIAS</span><span class="p">,</span>
-    <span class="p">)</span>
-<span class="p">)</span>
-
-<span class="n">config_builder</span><span class="o">.</span><span class="n">validate</span><span class="p">()</span>
+<span class="c1"># Load ColPali dataset for visual documents</span>
+<span class="n">img_dataset_cfg</span> <span class="o">=</span> <span class="p">{</span><span class="s2">"path"</span><span class="p">:</span> <span class="s2">"vidore/colpali_train_set"</span><span class="p">,</span> <span class="s2">"split"</span><span class="p">:</span> <span class="s2">"train"</span><span class="p">,</span> <span class="s2">"streaming"</span><span class="p">:</span> <span class="kc">True</span><span class="p">}</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-8">config_builder.add_column(
-    LLMTextColumnConfig(
-        name="product_name",
-        prompt=(
-            "You are a helpful assistant that generates product names. DO NOT add quotes around the product name.\n\n"
-            "Come up with a creative product name for a product in the '{{ product_category }}' category, focusing "
-            "on products related to '{{ product_subcategory }}'. The target age range of the ideal customer is "
-            "{{ target_age_range }} years old. Respond with only the product name, no other text."
-        ),
-        system_prompt=SYSTEM_PROMPT,
-        model_alias=MODEL_ALIAS,
-    )
-)
+<div class="clipboard-copy-txt" id="cell-8"># Dataset processing configuration
+IMG_COUNT = 512  # Number of images to process
+BASE64_IMAGE_HEIGHT = 512  # Standardized height for model input
 
-config_builder.add_column(
-    LLMTextColumnConfig(
-        name="customer_review",
-        prompt=(
-            "You are a customer named {{ customer.first_name }} from {{ customer.city }}, {{ customer.state }}. "
-            "You are {{ customer.age }} years old and recently purchased a product called {{ product_name }}. "
-            "Write a review of this product, which you gave a rating of {{ number_of_stars }} stars. "
-            "The style of the review should be '{{ review_style }}'."
-        ),
-        system_prompt=SYSTEM_PROMPT,
-        model_alias=MODEL_ALIAS,
-    )
-)
-
-config_builder.validate()</div>
+# Load ColPali dataset for visual documents
+img_dataset_cfg = {"path": "vidore/colpali_train_set", "split": "train", "streaming": True}</div>
 </div>
 </div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=fd76a1e0">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h3 id="iteration-is-key-preview-the-dataset">🔁 Iteration is key – preview the dataset!<a class="anchor-link" href="#iteration-is-key-preview-the-dataset">¶</a></h3><ol>
-<li><p>Use the <code>preview</code> method to generate a sample of records quickly.</p>
-</li>
-<li><p>Inspect the results for quality and format issues.</p>
-</li>
-<li><p>Adjust column configurations, prompts, or parameters as needed.</p>
-</li>
-<li><p>Re-run the preview until satisfied.</p>
-</li>
-</ol>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=1ffad35d">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=5466e56f">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2895,16 +2636,92 @@ config_builder.validate()</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">preview</span> <span class="o">=</span> <span class="n">data_designer</span><span class="o">.</span><span class="n">preview</span><span class="p">(</span><span class="n">config_builder</span><span class="p">,</span> <span class="n">num_records</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">resize_image</span><span class="p">(</span><span class="n">image</span><span class="p">,</span> <span class="n">height</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""</span>
+<span class="sd">    Resize image while maintaining aspect ratio.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        image: PIL Image object</span>
+<span class="sd">        height: Target height in pixels</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Resized PIL Image object</span>
+<span class="sd">    """</span>
+    <span class="n">original_width</span><span class="p">,</span> <span class="n">original_height</span> <span class="o">=</span> <span class="n">image</span><span class="o">.</span><span class="n">size</span>
+    <span class="n">width</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">original_width</span> <span class="o">*</span> <span class="p">(</span><span class="n">height</span> <span class="o">/</span> <span class="n">original_height</span><span class="p">))</span>
+    <span class="k">return</span> <span class="n">image</span><span class="o">.</span><span class="n">resize</span><span class="p">((</span><span class="n">width</span><span class="p">,</span> <span class="n">height</span><span class="p">))</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">convert_image_to_chat_format</span><span class="p">(</span><span class="n">record</span><span class="p">,</span> <span class="n">height</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""</span>
+<span class="sd">    Convert PIL image to base64 format for chat template usage.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        record: Dataset record containing image and metadata</span>
+<span class="sd">        height: Target height for image resizing</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Updated record with base64_image and uuid fields</span>
+<span class="sd">    """</span>
+    <span class="c1"># Resize image for consistent processing</span>
+    <span class="n">image</span> <span class="o">=</span> <span class="n">resize_image</span><span class="p">(</span><span class="n">record</span><span class="p">[</span><span class="s2">"image"</span><span class="p">],</span> <span class="n">height</span><span class="p">)</span>
+
+    <span class="c1"># Convert to base64 string</span>
+    <span class="n">img_buffer</span> <span class="o">=</span> <span class="n">io</span><span class="o">.</span><span class="n">BytesIO</span><span class="p">()</span>
+    <span class="n">image</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">img_buffer</span><span class="p">,</span> <span class="nb">format</span><span class="o">=</span><span class="s2">"PNG"</span><span class="p">)</span>
+    <span class="n">byte_data</span> <span class="o">=</span> <span class="n">img_buffer</span><span class="o">.</span><span class="n">getvalue</span><span class="p">()</span>
+    <span class="n">base64_encoded_data</span> <span class="o">=</span> <span class="n">base64</span><span class="o">.</span><span class="n">b64encode</span><span class="p">(</span><span class="n">byte_data</span><span class="p">)</span>
+    <span class="n">base64_string</span> <span class="o">=</span> <span class="n">base64_encoded_data</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s2">"utf-8"</span><span class="p">)</span>
+
+    <span class="c1"># Return updated record</span>
+    <span class="k">return</span> <span class="n">record</span> <span class="o">|</span> <span class="p">{</span><span class="s2">"base64_image"</span><span class="p">:</span> <span class="n">base64_string</span><span class="p">,</span> <span class="s2">"uuid"</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">uuid</span><span class="o">.</span><span class="n">uuid4</span><span class="p">())}</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-9">preview = data_designer.preview(config_builder, num_records=2)</div>
+<div class="clipboard-copy-txt" id="cell-9">def resize_image(image, height: int):
+    """
+    Resize image while maintaining aspect ratio.
+
+    Args:
+        image: PIL Image object
+        height: Target height in pixels
+
+    Returns:
+        Resized PIL Image object
+    """
+    original_width, original_height = image.size
+    width = int(original_width * (height / original_height))
+    return image.resize((width, height))
+
+
+def convert_image_to_chat_format(record, height: int) -&gt; dict:
+    """
+    Convert PIL image to base64 format for chat template usage.
+
+    Args:
+        record: Dataset record containing image and metadata
+        height: Target height for image resizing
+
+    Returns:
+        Updated record with base64_image and uuid fields
+    """
+    # Resize image for consistent processing
+    image = resize_image(record["image"], height)
+
+    # Convert to base64 string
+    img_buffer = io.BytesIO()
+    image.save(img_buffer, format="PNG")
+    byte_data = img_buffer.getvalue()
+    base64_encoded_data = base64.b64encode(byte_data)
+    base64_string = base64_encoded_data.decode("utf-8")
+
+    # Return updated record
+    return record | {"base64_image": base64_string, "uuid": str(uuid.uuid4())}</div>
 </div>
 </div>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=1d6835b0">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=bbca6568">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2922,18 +2739,32 @@ config_builder.validate()</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># Run this cell multiple times to cycle through the 2 preview records.</span>
-<span class="n">preview</span><span class="o">.</span><span class="n">display_sample_record</span><span class="p">()</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># Load and process the visual document dataset</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"📥 Loading and processing document images..."</span><span class="p">)</span>
+
+<span class="n">img_dataset_iter</span> <span class="o">=</span> <span class="nb">iter</span><span class="p">(</span>
+    <span class="n">load_dataset</span><span class="p">(</span><span class="o">**</span><span class="n">img_dataset_cfg</span><span class="p">)</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="n">convert_image_to_chat_format</span><span class="p">,</span> <span class="n">fn_kwargs</span><span class="o">=</span><span class="p">{</span><span class="s2">"height"</span><span class="p">:</span> <span class="n">BASE64_IMAGE_HEIGHT</span><span class="p">})</span>
+<span class="p">)</span>
+<span class="n">img_dataset</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">([</span><span class="nb">next</span><span class="p">(</span><span class="n">img_dataset_iter</span><span class="p">)</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">IMG_COUNT</span><span class="p">)])</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"✅ Loaded </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">img_dataset</span><span class="p">)</span><span class="si">}</span><span class="s2"> images with columns: </span><span class="si">{</span><span class="nb">list</span><span class="p">(</span><span class="n">img_dataset</span><span class="o">.</span><span class="n">columns</span><span class="p">)</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-10"># Run this cell multiple times to cycle through the 2 preview records.
-preview.display_sample_record()</div>
+<div class="clipboard-copy-txt" id="cell-10"># Load and process the visual document dataset
+print("📥 Loading and processing document images...")
+
+img_dataset_iter = iter(
+    load_dataset(**img_dataset_cfg).map(convert_image_to_chat_format, fn_kwargs={"height": BASE64_IMAGE_HEIGHT})
+)
+img_dataset = pd.DataFrame([next(img_dataset_iter) for _ in range(IMG_COUNT)])
+
+print(f"✅ Loaded {len(img_dataset)} images with columns: {list(img_dataset.columns)}")</div>
 </div>
 </div>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=f8f4930f">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=5ce17e71">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2951,34 +2782,16 @@ preview.display_sample_record()</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># The preview dataset is available as a pandas DataFrame.</span>
-<span class="n">preview</span><span class="o">.</span><span class="n">dataset</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">img_dataset</span><span class="o">.</span><span class="n">head</span><span class="p">()</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-11"># The preview dataset is available as a pandas DataFrame.
-preview.dataset</div>
+<div class="clipboard-copy-txt" id="cell-11">img_dataset.head()</div>
 </div>
 </div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=3da8ac91">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h3 id="analyze-the-generated-data">📊 Analyze the generated data<a class="anchor-link" href="#analyze-the-generated-data">¶</a></h3><ul>
-<li><p>Data Designer automatically generates a basic statistical analysis of the generated data.</p>
-</li>
-<li><p>This analysis is available via the <code>analysis</code> property of generation result objects.</p>
-</li>
-</ul>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=54c00913">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=9c0faf28">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2996,34 +2809,24 @@ preview.dataset</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># Print the analysis as a table.</span>
-<span class="n">preview</span><span class="o">.</span><span class="n">analysis</span><span class="o">.</span><span class="n">to_report</span><span class="p">()</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># Add the seed dataset containing our processed images</span>
+<span class="n">df_seed</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">img_dataset</span><span class="p">)[[</span><span class="s2">"uuid"</span><span class="p">,</span> <span class="s2">"image_filename"</span><span class="p">,</span> <span class="s2">"base64_image"</span><span class="p">,</span> <span class="s2">"page"</span><span class="p">,</span> <span class="s2">"options"</span><span class="p">,</span> <span class="s2">"source"</span><span class="p">]]</span>
+<span class="n">config_builder</span><span class="o">.</span><span class="n">with_seed_dataset</span><span class="p">(</span>
+    <span class="n">DataDesigner</span><span class="o">.</span><span class="n">make_seed_reference_from_dataframe</span><span class="p">(</span><span class="n">df_seed</span><span class="p">,</span> <span class="n">file_path</span><span class="o">=</span><span class="s2">"colpali_train_set.csv"</span><span class="p">)</span>
+<span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-12"># Print the analysis as a table.
-preview.analysis.to_report()</div>
+<div class="clipboard-copy-txt" id="cell-12"># Add the seed dataset containing our processed images
+df_seed = pd.DataFrame(img_dataset)[["uuid", "image_filename", "base64_image", "page", "options", "source"]]
+config_builder.with_seed_dataset(
+    DataDesigner.make_seed_reference_from_dataframe(df_seed, file_path="colpali_train_set.csv")
+)</div>
 </div>
 </div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=12b66f52">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h3 id="scale-up">🆙 Scale up!<a class="anchor-link" href="#scale-up">¶</a></h3><ul>
-<li><p>Happy with your preview data?</p>
-</li>
-<li><p>Use the <code>create</code> method to submit larger Data Designer generation jobs.</p>
-</li>
-</ul>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=f7b07ee5">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=35bc8b77">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -3041,16 +2844,82 @@ preview.analysis.to_report()</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">results</span> <span class="o">=</span> <span class="n">data_designer</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">config_builder</span><span class="p">,</span> <span class="n">num_records</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># Add a column to generate detailed document summaries</span>
+<span class="n">config_builder</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
+    <span class="n">LLMTextColumnConfig</span><span class="p">(</span>
+        <span class="n">name</span><span class="o">=</span><span class="s2">"summary"</span><span class="p">,</span>
+        <span class="n">model_alias</span><span class="o">=</span><span class="s2">"vision"</span><span class="p">,</span>
+        <span class="n">prompt</span><span class="o">=</span><span class="p">(</span>
+            <span class="s2">"Provide a detailed summary of the content in this image in Markdown format. "</span>
+            <span class="s2">"Start from the top of the image and then describe it from top to bottom. "</span>
+            <span class="s2">"Place a summary at the bottom."</span>
+        <span class="p">),</span>
+        <span class="n">multi_modal_context</span><span class="o">=</span><span class="p">[</span>
+            <span class="n">ImageContext</span><span class="p">(</span>
+                <span class="n">column_name</span><span class="o">=</span><span class="s2">"base64_image"</span><span class="p">,</span>
+                <span class="n">data_type</span><span class="o">=</span><span class="n">ModalityDataType</span><span class="o">.</span><span class="n">BASE64</span><span class="p">,</span>
+                <span class="n">image_format</span><span class="o">=</span><span class="n">ImageFormat</span><span class="o">.</span><span class="n">PNG</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="p">],</span>
+    <span class="p">)</span>
+<span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-13">results = data_designer.create(config_builder, num_records=10)</div>
+<div class="clipboard-copy-txt" id="cell-13"># Add a column to generate detailed document summaries
+config_builder.add_column(
+    LLMTextColumnConfig(
+        name="summary",
+        model_alias="vision",
+        prompt=(
+            "Provide a detailed summary of the content in this image in Markdown format. "
+            "Start from the top of the image and then describe it from top to bottom. "
+            "Place a summary at the bottom."
+        ),
+        multi_modal_context=[
+            ImageContext(
+                column_name="base64_image",
+                data_type=ModalityDataType.BASE64,
+                image_format=ImageFormat.PNG,
+            )
+        ],
+    )
+)</div>
 </div>
 </div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=16ac3f58">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=1d13a0e4">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<h3 id="iteration-is-key-preview-the-dataset">🔁 Iteration is key – preview the dataset!<a class="anchor-link" href="#iteration-is-key-preview-the-dataset">¶</a></h3><ol>
+<li><p>Use the <code>preview</code> method to generate a sample of records quickly.</p>
+</li>
+<li><p>Inspect the results for quality and format issues.</p>
+</li>
+<li><p>Adjust column configurations, prompts, or parameters as needed.</p>
+</li>
+<li><p>Re-run the preview until satisfied.</p>
+</li>
+</ol>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=a79175cf">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=336af89f">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -3068,22 +2937,16 @@ preview.analysis.to_report()</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># Load the generated dataset as a pandas DataFrame.</span>
-<span class="n">dataset</span> <span class="o">=</span> <span class="n">results</span><span class="o">.</span><span class="n">load_dataset</span><span class="p">()</span>
-
-<span class="n">dataset</span><span class="o">.</span><span class="n">head</span><span class="p">()</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">preview</span> <span class="o">=</span> <span class="n">data_designer</span><span class="o">.</span><span class="n">preview</span><span class="p">(</span><span class="n">config_builder</span><span class="p">,</span> <span class="n">num_records</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-14"># Load the generated dataset as a pandas DataFrame.
-dataset = results.load_dataset()
-
-dataset.head()</div>
+<div class="clipboard-copy-txt" id="cell-14">preview = data_designer.preview(config_builder, num_records=2)</div>
 </div>
 </div>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=c0b5ed2f">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=5a57a536">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -3101,12 +2964,255 @@ dataset.head()</div>
 </div>
 </clipboard-copy>
 </div>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># Run this cell multiple times to cycle through the 2 preview records.</span>
+<span class="n">preview</span><span class="o">.</span><span class="n">display_sample_record</span><span class="p">()</span>
+</pre></div>
+<div class="clipboard-copy-txt" id="cell-15"># Run this cell multiple times to cycle through the 2 preview records.
+preview.display_sample_record()</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=9e05b387">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="CodeMirror cm-s-jupyter">
+<div class="zeroclipboard-container">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-16">
+<div>
+<span class="notice" hidden="">Copied!</span>
+<svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
+<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+</svg>
+</div>
+</clipboard-copy>
+</div>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># The preview dataset is available as a pandas DataFrame.</span>
+<span class="n">preview</span><span class="o">.</span><span class="n">dataset</span>
+</pre></div>
+<div class="clipboard-copy-txt" id="cell-16"># The preview dataset is available as a pandas DataFrame.
+preview.dataset</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=f69d543e">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<h3 id="analyze-the-generated-data">📊 Analyze the generated data<a class="anchor-link" href="#analyze-the-generated-data">¶</a></h3><ul>
+<li><p>Data Designer automatically generates a basic statistical analysis of the generated data.</p>
+</li>
+<li><p>This analysis is available via the <code>analysis</code> property of generation result objects.</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=e3cb66a7">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="CodeMirror cm-s-jupyter">
+<div class="zeroclipboard-container">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-17">
+<div>
+<span class="notice" hidden="">Copied!</span>
+<svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
+<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+</svg>
+</div>
+</clipboard-copy>
+</div>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># Print the analysis as a table.</span>
+<span class="n">preview</span><span class="o">.</span><span class="n">analysis</span><span class="o">.</span><span class="n">to_report</span><span class="p">()</span>
+</pre></div>
+<div class="clipboard-copy-txt" id="cell-17"># Print the analysis as a table.
+preview.analysis.to_report()</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=60815241">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<h3 id="visual-inspection">🔎 Visual Inspection<a class="anchor-link" href="#visual-inspection">¶</a></h3><p>Let's compare the original document image with the generated summary to validate quality:</p>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=3c9dddf6">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="CodeMirror cm-s-jupyter">
+<div class="zeroclipboard-container">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-18">
+<div>
+<span class="notice" hidden="">Copied!</span>
+<svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
+<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+</svg>
+</div>
+</clipboard-copy>
+</div>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># Compare original document with generated summary</span>
+<span class="n">index</span> <span class="o">=</span> <span class="mi">0</span>  <span class="c1"># Change this to view different examples</span>
+
+<span class="c1"># Merge preview data with original images for comparison</span>
+<span class="n">comparison_dataset</span> <span class="o">=</span> <span class="n">preview</span><span class="o">.</span><span class="n">dataset</span><span class="o">.</span><span class="n">merge</span><span class="p">(</span><span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">img_dataset</span><span class="p">)[[</span><span class="s2">"uuid"</span><span class="p">,</span> <span class="s2">"image"</span><span class="p">]],</span> <span class="n">how</span><span class="o">=</span><span class="s2">"left"</span><span class="p">,</span> <span class="n">on</span><span class="o">=</span><span class="s2">"uuid"</span><span class="p">)</span>
+
+<span class="c1"># Extract the record for display</span>
+<span class="n">record</span> <span class="o">=</span> <span class="n">comparison_dataset</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="n">index</span><span class="p">]</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">"📄 Original Document Image:"</span><span class="p">)</span>
+<span class="n">display</span><span class="p">(</span><span class="n">resize_image</span><span class="p">(</span><span class="n">record</span><span class="o">.</span><span class="n">image</span><span class="p">,</span> <span class="n">BASE64_IMAGE_HEIGHT</span><span class="p">))</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">"</span><span class="se">\n</span><span class="s2">📝 Generated Summary:"</span><span class="p">)</span>
+<span class="n">rich</span><span class="o">.</span><span class="n">print</span><span class="p">(</span><span class="n">Panel</span><span class="p">(</span><span class="n">record</span><span class="o">.</span><span class="n">summary</span><span class="p">,</span> <span class="n">title</span><span class="o">=</span><span class="s2">"Document Summary"</span><span class="p">,</span> <span class="n">title_align</span><span class="o">=</span><span class="s2">"left"</span><span class="p">))</span>
+</pre></div>
+<div class="clipboard-copy-txt" id="cell-18"># Compare original document with generated summary
+index = 0  # Change this to view different examples
+
+# Merge preview data with original images for comparison
+comparison_dataset = preview.dataset.merge(pd.DataFrame(img_dataset)[["uuid", "image"]], how="left", on="uuid")
+
+# Extract the record for display
+record = comparison_dataset.iloc[index]
+
+print("📄 Original Document Image:")
+display(resize_image(record.image, BASE64_IMAGE_HEIGHT))
+
+print("\n📝 Generated Summary:")
+rich.print(Panel(record.summary, title="Document Summary", title_align="left"))</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=eb6e2469">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<h3 id="scale-up">🆙 Scale up!<a class="anchor-link" href="#scale-up">¶</a></h3><ul>
+<li><p>Happy with your preview data?</p>
+</li>
+<li><p>Use the <code>create</code> method to submit larger Data Designer generation jobs.</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=d6a0ed1c">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="CodeMirror cm-s-jupyter">
+<div class="zeroclipboard-container">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-19">
+<div>
+<span class="notice" hidden="">Copied!</span>
+<svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
+<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+</svg>
+</div>
+</clipboard-copy>
+</div>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">results</span> <span class="o">=</span> <span class="n">data_designer</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">config_builder</span><span class="p">,</span> <span class="n">num_records</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>
+</pre></div>
+<div class="clipboard-copy-txt" id="cell-19">results = data_designer.create(config_builder, num_records=10)</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=255b8f6f">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="CodeMirror cm-s-jupyter">
+<div class="zeroclipboard-container">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-20">
+<div>
+<span class="notice" hidden="">Copied!</span>
+<svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
+<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+</svg>
+</div>
+</clipboard-copy>
+</div>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># Load the generated dataset as a pandas DataFrame.</span>
+<span class="n">dataset</span> <span class="o">=</span> <span class="n">results</span><span class="o">.</span><span class="n">load_dataset</span><span class="p">()</span>
+
+<span class="n">dataset</span><span class="o">.</span><span class="n">head</span><span class="p">()</span>
+</pre></div>
+<div class="clipboard-copy-txt" id="cell-20"># Load the generated dataset as a pandas DataFrame.
+dataset = results.load_dataset()
+
+dataset.head()</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=43b935b3">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="CodeMirror cm-s-jupyter">
+<div class="zeroclipboard-container">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-21">
+<div>
+<span class="notice" hidden="">Copied!</span>
+<svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
+<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+</svg>
+</div>
+</clipboard-copy>
+</div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># Load the analysis results into memory.</span>
 <span class="n">analysis</span> <span class="o">=</span> <span class="n">results</span><span class="o">.</span><span class="n">load_analysis</span><span class="p">()</span>
 
 <span class="n">analysis</span><span class="o">.</span><span class="n">to_report</span><span class="p">()</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-15"># Load the analysis results into memory.
+<div class="clipboard-copy-txt" id="cell-21"># Load the analysis results into memory.
 analysis = results.load_analysis()
 
 analysis.to_report()</div>
@@ -3116,18 +3222,18 @@ analysis.to_report()</div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=79e7ccb8">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=a74f1121">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="next-steps">⏭️ Next Steps<a class="anchor-link" href="#next-steps">¶</a></h2><p>Now that you've seen the basics of Data Designer, check out the following notebooks to learn more about:</p>
+<h2 id="next-steps">⏭️ Next Steps<a class="anchor-link" href="#next-steps">¶</a></h2><p>Now that you've learned how to use visual context for image summarization in Data Designer, explore more:</p>
 <ul>
-<li><p><a href="/notebooks/2-structured-outputs-and-jinja-expressions/">Structured outputs and jinja expressions</a></p>
-</li>
-<li><p><a href="/notebooks/3-seeding-with-a-dataset/">Seeding synthetic data generation with an external dataset</a></p>
-</li>
+<li>Experiment with different vision models for specific document types</li>
+<li>Try different prompt variations to generate specialized descriptions (e.g., technical details, key findings)</li>
+<li>Combine vision-based summaries with other column types for multi-modal workflows</li>
+<li>Apply this pattern to other vision tasks like image captioning, OCR validation, or visual question answering</li>
 </ul>
 </div>
 </div>
@@ -3136,6 +3242,10 @@ analysis.to_report()</div>
 </div> <!-- jp-Notebook -->
 </div> <!-- jupyter-wrapper -->
 
+        <style>
+        ['pre { line-height: 125%; }\ntd.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }\nspan.linenos { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }\ntd.linenos .special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }\nspan.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }\n.highlight-ipynb .hll { background-color: var(--jp-cell-editor-active-background) }\n.highlight-ipynb { background: var(--jp-cell-editor-background); color: var(--jp-mirror-editor-variable-color) }\n.highlight-ipynb .c { color: var(--jp-mirror-editor-comment-color); font-style: italic } /* Comment */\n.highlight-ipynb .err { color: var(--jp-mirror-editor-error-color) } /* Error */\n.highlight-ipynb .k { color: var(--jp-mirror-editor-keyword-color); font-weight: bold } /* Keyword */\n.highlight-ipynb .o { color: var(--jp-mirror-editor-operator-color); font-weight: bold } /* Operator */\n.highlight-ipynb .p { color: var(--jp-mirror-editor-punctuation-color) } /* Punctuation */\n.highlight-ipynb .ch { color: var(--jp-mirror-editor-comment-color); font-style: italic } /* Comment.Hashbang */\n.highlight-ipynb .cm { color: var(--jp-mirror-editor-comment-color); font-style: italic } /* Comment.Multiline */\n.highlight-ipynb .cp { color: var(--jp-mirror-editor-comment-color); font-style: italic } /* Comment.Preproc */\n.highlight-ipynb .cpf { color: var(--jp-mirror-editor-comment-color); font-style: italic } /* Comment.PreprocFile */\n.highlight-ipynb .c1 { color: var(--jp-mirror-editor-comment-color); font-style: italic } /* Comment.Single */\n.highlight-ipynb .cs { color: var(--jp-mirror-editor-comment-color); font-style: italic } /* Comment.Special */\n.highlight-ipynb .kc { color: var(--jp-mirror-editor-keyword-color); font-weight: bold } /* Keyword.Constant */\n.highlight-ipynb .kd { color: var(--jp-mirror-editor-keyword-color); font-weight: bold } /* Keyword.Declaration */\n.highlight-ipynb .kn { color: var(--jp-mirror-editor-keyword-color); font-weight: bold } /* Keyword.Namespace */\n.highlight-ipynb .kp { color: var(--jp-mirror-editor-keyword-color); font-weight: bold } /* Keyword.Pseudo */\n.highlight-ipynb .kr { color: var(--jp-mirror-editor-keyword-color); font-weight: bold } /* Keyword.Reserved */\n.highlight-ipynb .kt { color: var(--jp-mirror-editor-keyword-color); font-weight: bold } /* Keyword.Type */\n.highlight-ipynb .m { color: var(--jp-mirror-editor-number-color) } /* Literal.Number */\n.highlight-ipynb .s { color: var(--jp-mirror-editor-string-color) } /* Literal.String */\n.highlight-ipynb .ow { color: var(--jp-mirror-editor-operator-color); font-weight: bold } /* Operator.Word */\n.highlight-ipynb .pm { color: var(--jp-mirror-editor-punctuation-color) } /* Punctuation.Marker */\n.highlight-ipynb .w { color: var(--jp-mirror-editor-variable-color) } /* Text.Whitespace */\n.highlight-ipynb .mb { color: var(--jp-mirror-editor-number-color) } /* Literal.Number.Bin */\n.highlight-ipynb .mf { color: var(--jp-mirror-editor-number-color) } /* Literal.Number.Float */\n.highlight-ipynb .mh { color: var(--jp-mirror-editor-number-color) } /* Literal.Number.Hex */\n.highlight-ipynb .mi { color: var(--jp-mirror-editor-number-color) } /* Literal.Number.Integer */\n.highlight-ipynb .mo { color: var(--jp-mirror-editor-number-color) } /* Literal.Number.Oct */\n.highlight-ipynb .sa { color: var(--jp-mirror-editor-string-color) } /* Literal.String.Affix */\n.highlight-ipynb .sb { color: var(--jp-mirror-editor-string-color) } /* Literal.String.Backtick */\n.highlight-ipynb .sc { color: var(--jp-mirror-editor-string-color) } /* Literal.String.Char */\n.highlight-ipynb .dl { color: var(--jp-mirror-editor-string-color) } /* Literal.String.Delimiter */\n.highlight-ipynb .sd { color: var(--jp-mirror-editor-string-color) } /* Literal.String.Doc */\n.highlight-ipynb .s2 { color: var(--jp-mirror-editor-string-color) } /* Literal.String.Double */\n.highlight-ipynb .se { color: var(--jp-mirror-editor-string-color) } /* Literal.String.Escape */\n.highlight-ipynb .sh { color: var(--jp-mirror-editor-string-color) } /* Literal.String.Heredoc */\n.highlight-ipynb .si { color: var(--jp-mirror-editor-string-color) } /* Literal.String.Interpol */\n.highlight-ipynb .sx { color: var(--jp-mirror-editor-string-color) } /* Literal.String.Other */\n.highlight-ipynb .sr { color: var(--jp-mirror-editor-string-color) } /* Literal.String.Regex */\n.highlight-ipynb .s1 { color: var(--jp-mirror-editor-string-color) } /* Literal.String.Single */\n.highlight-ipynb .ss { color: var(--jp-mirror-editor-string-color) } /* Literal.String.Symbol */\n.highlight-ipynb .il { color: var(--jp-mirror-editor-number-color) } /* Literal.Number.Integer.Long */']
+        </style>
+        
 
 
 

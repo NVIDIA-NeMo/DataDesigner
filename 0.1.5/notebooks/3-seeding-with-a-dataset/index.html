@@ -95,7 +95,7 @@
             <div class="md-banner__inner md-grid md-typeset">
               
   You're not viewing the latest version.
-  <a href="../../.."> 
+  <a href="../../..">
     <strong>Click here to go to latest.</strong>
   </a>
 
@@ -1872,9 +1872,22 @@
               <article class="md-content__inner md-typeset">
                 
 
-    <a href="/DataDesigner/latest/notebooks/3-seeding-with-a-dataset/3-seeding-with-a-dataset.ipynb" title="Download notebook" class="md-content__button md-icon" download>
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M5 20h14v-2H5m14-9h-4V3H9v6H5l7 7z"/></svg>
+  <div data-md-component="latest-only" style="display: none;">
+    <a target="_blank" href="https://colab.research.google.com/github/NVIDIA-NeMo/DataDesigner/tree/main/docs/colab_notebooks/3-seeding-with-a-dataset.ipynb">
+      <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
     </a>
+    <script>
+      var el = document.querySelector('[data-md-component="latest-only"]');
+      var base = new URL("../..", location);
+      var outdated = __md_get("__outdated", sessionStorage, base);
+      if (!outdated) {
+        el.style.display = "inline-block";
+      }
+    </script>
+  </div>
+  <a href="/DataDesigner/latest/notebooks/3-seeding-with-a-dataset/3-seeding-with-a-dataset.ipynb" title="Download notebook" class="md-content__button md-icon" download>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M5 20h14v-2H5m14-9h-4V3H9v6H5l7 7z"/></svg>
+  </a>
 
 
 
@@ -2322,7 +2335,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </style>
 <!-- End of mermaid configuration --><div class="jupyter-wrapper">
 <div class="jp-Notebook" data-jp-theme-light="true" data-jp-theme-name="JupyterLab Light">
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=eb0f3f9f">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=2015f6d3">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2334,7 +2347,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=f1e9bbf2">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=7d568a6c">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2347,7 +2360,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=655be6ce">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=f784aea9">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2386,7 +2399,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=c1220017">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=5424f203">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2402,7 +2415,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=1049d6b6">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=dd0d75e4">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2429,7 +2442,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=fbaa05ae">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=d5141264">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2449,7 +2462,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=41fbd804">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=9afddfbc">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2522,7 +2535,7 @@ model_configs = [
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=f90189ad">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=c9c39249">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2540,7 +2553,7 @@ model_configs = [
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=d87ead3f">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=f5250018">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2567,7 +2580,7 @@ model_configs = [
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=0f7d7cc3">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=c29cf74a">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2597,7 +2610,7 @@ model_configs = [
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=edfaf0b7">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=64c505c3">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2770,7 +2783,7 @@ span.linenos.special { color: #242933; background-color: #D8DEE9; padding-left: 
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=49ebb89c">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=ae748281">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2792,7 +2805,7 @@ span.linenos.special { color: #242933; background-color: #D8DEE9; padding-left: 
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=871b812a">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=ee5b0df9">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2986,7 +2999,7 @@ config_builder.validate()</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:07] [INFO] ✅ Validation passed
+<pre>[18:18:05] [INFO] ✅ Validation passed
 </pre>
 </div>
 </div>
@@ -3130,7 +3143,7 @@ span.linenos.special { color: #242933; background-color: #D8DEE9; padding-left: 
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=ce92f18f">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=5a9a3fd4">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -3150,7 +3163,7 @@ span.linenos.special { color: #242933; background-color: #D8DEE9; padding-left: 
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=50e27017">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=ccac40e2">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -3182,126 +3195,126 @@ span.linenos.special { color: #242933; background-color: #D8DEE9; padding-left: 
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:07] [INFO] 🔁 Preview generation in progress
+<pre>[18:18:05] [INFO] 👁️ Preview generation in progress
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:07] [INFO] ✅ Validation passed
+<pre>[18:18:05] [INFO] ✅ Validation passed
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:07] [INFO] ⛓️ Sorting column configs into a Directed Acyclic Graph
+<pre>[18:18:05] [INFO] ⛓️ Sorting column configs into a Directed Acyclic Graph
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:07] [INFO] 🩺 Running health checks for models...
+<pre>[18:18:05] [INFO] 🩺 Running health checks for models...
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:07] [INFO]   |-- 👀 Checking 'nvidia/nvidia-nemotron-nano-9b-v2' in provider named 'nvidia' for model alias 'nemotron-nano-v2'...
+<pre>[18:18:05] [INFO]   |-- 👀 Checking 'nvidia/nvidia-nemotron-nano-9b-v2' in provider named 'nvidia' for model alias 'nemotron-nano-v2'...
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:09] [INFO]   |-- ✅ Passed!
+<pre>[18:18:06] [INFO]   |-- ✅ Passed!
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:09] [INFO] 🌱 Sampling 2 records from seed dataset
+<pre>[18:18:06] [INFO] 🌱 Sampling 2 records from seed dataset
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:09] [INFO]   |-- seed dataset size: 820 records
+<pre>[18:18:06] [INFO]   |-- seed dataset size: 820 records
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:09] [INFO]   |-- sampling strategy: ordered
+<pre>[18:18:06] [INFO]   |-- sampling strategy: ordered
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:09] [INFO] 🎲 Preparing samplers to generate 2 records across 5 columns
+<pre>[18:18:06] [INFO] 🎲 Preparing samplers to generate 2 records across 5 columns
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:09] [INFO] (💾 + 💾) Concatenating 2 datasets
+<pre>[18:18:06] [INFO] (💾 + 💾) Concatenating 2 datasets
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:09] [INFO] 🧩 Generating column `first_name` from expression
+<pre>[18:18:06] [INFO] 🧩 Generating column `first_name` from expression
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:09] [INFO] 🧩 Generating column `last_name` from expression
+<pre>[18:18:06] [INFO] 🧩 Generating column `last_name` from expression
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:09] [INFO] 🧩 Generating column `dob` from expression
+<pre>[18:18:06] [INFO] 🧩 Generating column `dob` from expression
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:09] [INFO] 🧩 Generating column `physician` from expression
+<pre>[18:18:06] [INFO] 🧩 Generating column `physician` from expression
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:09] [INFO] 📝 Preparing llm-text column generation
+<pre>[18:18:06] [INFO] 📝 Preparing llm-text column generation
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:09] [INFO]   |-- column name: 'physician_notes'
+<pre>[18:18:06] [INFO]   |-- column name: 'physician_notes'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:09] [INFO]   |-- model config:
+<pre>[18:18:06] [INFO]   |-- model config:
 {
     "alias": "nemotron-nano-v2",
     "model": "nvidia/nvidia-nemotron-nano-9b-v2",
@@ -3321,28 +3334,28 @@ span.linenos.special { color: #242933; background-color: #D8DEE9; padding-left: 
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:09] [INFO] 🐙 Processing llm-text column 'physician_notes' with 4 concurrent workers
+<pre>[18:18:06] [INFO] 🐙 Processing llm-text column 'physician_notes' with 4 concurrent workers
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:26] [INFO] 📊 Model usage summary:
+<pre>[18:18:19] [INFO] 📊 Model usage summary:
 {
     "nvidia/nvidia-nemotron-nano-9b-v2": {
         "token_usage": {
-            "prompt_tokens": 266,
-            "completion_tokens": 1729,
-            "total_tokens": 1995
+            "prompt_tokens": 265,
+            "completion_tokens": 1717,
+            "total_tokens": 1982
         },
         "request_usage": {
             "successful_requests": 2,
             "failed_requests": 0,
             "total_requests": 2
         },
-        "tokens_per_second": 113,
-        "requests_per_minute": 6
+        "tokens_per_second": 149,
+        "requests_per_minute": 9
     }
 }
 </pre>
@@ -3351,98 +3364,98 @@ span.linenos.special { color: #242933; background-color: #D8DEE9; padding-left: 
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:26] [INFO] 📐 Measuring dataset column statistics:
+<pre>[18:18:19] [INFO] 📐 Measuring dataset column statistics:
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:26] [INFO]   |-- 🌱 column: 'diagnosis'
+<pre>[18:18:19] [INFO]   |-- 🌱 column: 'diagnosis'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:26] [INFO]   |-- 🌱 column: 'patient_summary'
+<pre>[18:18:19] [INFO]   |-- 🌱 column: 'patient_summary'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:26] [INFO]   |-- 🎲 column: 'patient_sampler'
+<pre>[18:18:19] [INFO]   |-- 🎲 column: 'patient_sampler'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:26] [INFO]   |-- 🎲 column: 'doctor_sampler'
+<pre>[18:18:19] [INFO]   |-- 🎲 column: 'doctor_sampler'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:26] [INFO]   |-- 🎲 column: 'patient_id'
+<pre>[18:18:19] [INFO]   |-- 🎲 column: 'patient_id'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:26] [INFO]   |-- 🧩 column: 'first_name'
+<pre>[18:18:19] [INFO]   |-- 🧩 column: 'first_name'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:26] [INFO]   |-- 🧩 column: 'last_name'
+<pre>[18:18:19] [INFO]   |-- 🧩 column: 'last_name'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:26] [INFO]   |-- 🧩 column: 'dob'
+<pre>[18:18:19] [INFO]   |-- 🧩 column: 'dob'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:26] [INFO]   |-- 🎲 column: 'symptom_onset_date'
+<pre>[18:18:19] [INFO]   |-- 🎲 column: 'symptom_onset_date'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:26] [INFO]   |-- 🎲 column: 'date_of_visit'
+<pre>[18:18:19] [INFO]   |-- 🎲 column: 'date_of_visit'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:26] [INFO]   |-- 🧩 column: 'physician'
+<pre>[18:18:19] [INFO]   |-- 🧩 column: 'physician'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:26] [INFO]   |-- 📝 column: 'physician_notes'
+<pre>[18:18:19] [INFO]   |-- 📝 column: 'physician_notes'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:26] [INFO] ☀️ Preview complete!
+<pre>[18:18:19] [INFO] 👏 Preview complete!
 </pre>
 </div>
 </div>
@@ -3450,7 +3463,7 @@ span.linenos.special { color: #242933; background-color: #D8DEE9; padding-left: 
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=c66e8845">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=d7fa49a4">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -3501,152 +3514,158 @@ preview.display_sample_record()</div>
 ┃<span style="font-weight: bold"> Name               </span>┃<span style="font-weight: bold"> Value                                                                                      </span>┃
 ┡━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
 │ patient_sampler    │ <span style="font-weight: bold">{</span>                                                                                          │
-│                    │     <span style="color: #008000; text-decoration-color: #008000">'uuid'</span>: <span style="color: #008000; text-decoration-color: #008000">'e48b5d55-89f0-415f-bc8f-ff077292b720'</span>,                                        │
+│                    │     <span style="color: #008000; text-decoration-color: #008000">'uuid'</span>: <span style="color: #008000; text-decoration-color: #008000">'75229ddd-8f70-4428-8f14-8166fe281f43'</span>,                                        │
 │                    │     <span style="color: #008000; text-decoration-color: #008000">'locale'</span>: <span style="color: #008000; text-decoration-color: #008000">'en_US'</span>,                                                                     │
-│                    │     <span style="color: #008000; text-decoration-color: #008000">'first_name'</span>: <span style="color: #008000; text-decoration-color: #008000">'Kevin'</span>,                                                                 │
-│                    │     <span style="color: #008000; text-decoration-color: #008000">'last_name'</span>: <span style="color: #008000; text-decoration-color: #008000">'Torres'</span>,                                                                 │
+│                    │     <span style="color: #008000; text-decoration-color: #008000">'first_name'</span>: <span style="color: #008000; text-decoration-color: #008000">'Jonathan'</span>,                                                              │
+│                    │     <span style="color: #008000; text-decoration-color: #008000">'last_name'</span>: <span style="color: #008000; text-decoration-color: #008000">'Young'</span>,                                                                  │
 │                    │     <span style="color: #008000; text-decoration-color: #008000">'middle_name'</span>: <span style="color: #800080; text-decoration-color: #800080; font-style: italic">None</span>,                                                                   │
 │                    │     <span style="color: #008000; text-decoration-color: #008000">'sex'</span>: <span style="color: #008000; text-decoration-color: #008000">'Male'</span>,                                                                         │
-│                    │     <span style="color: #008000; text-decoration-color: #008000">'street_number'</span>: <span style="color: #008000; text-decoration-color: #008000">'07882'</span>,                                                              │
-│                    │     <span style="color: #008000; text-decoration-color: #008000">'street_name'</span>: <span style="color: #008000; text-decoration-color: #008000">'Walter Meadow'</span>,                                                        │
-│                    │     <span style="color: #008000; text-decoration-color: #008000">'city'</span>: <span style="color: #008000; text-decoration-color: #008000">'Moniqueside'</span>,                                                                 │
-│                    │     <span style="color: #008000; text-decoration-color: #008000">'state'</span>: <span style="color: #008000; text-decoration-color: #008000">'Tennessee'</span>,                                                                  │
-│                    │     <span style="color: #008000; text-decoration-color: #008000">'postcode'</span>: <span style="color: #008000; text-decoration-color: #008000">'61681'</span>,                                                                   │
-│                    │     <span style="color: #008000; text-decoration-color: #008000">'age'</span>: <span style="color: #008080; text-decoration-color: #008080; font-weight: bold">111</span>,                                                                            │
-│                    │     <span style="color: #008000; text-decoration-color: #008000">'birth_date'</span>: <span style="color: #008000; text-decoration-color: #008000">'1914-11-23'</span>,                                                            │
-│                    │     <span style="color: #008000; text-decoration-color: #008000">'country'</span>: <span style="color: #008000; text-decoration-color: #008000">'United Arab Emirates'</span>,                                                     │
-│                    │     <span style="color: #008000; text-decoration-color: #008000">'marital_status'</span>: <span style="color: #008000; text-decoration-color: #008000">'never_married'</span>,                                                     │
+│                    │     <span style="color: #008000; text-decoration-color: #008000">'street_number'</span>: <span style="color: #008000; text-decoration-color: #008000">'2492'</span>,                                                               │
+│                    │     <span style="color: #008000; text-decoration-color: #008000">'street_name'</span>: <span style="color: #008000; text-decoration-color: #008000">'Scott Gardens'</span>,                                                        │
+│                    │     <span style="color: #008000; text-decoration-color: #008000">'city'</span>: <span style="color: #008000; text-decoration-color: #008000">'South Joshuaville'</span>,                                                           │
+│                    │     <span style="color: #008000; text-decoration-color: #008000">'state'</span>: <span style="color: #008000; text-decoration-color: #008000">'Missouri'</span>,                                                                   │
+│                    │     <span style="color: #008000; text-decoration-color: #008000">'postcode'</span>: <span style="color: #008000; text-decoration-color: #008000">'03833'</span>,                                                                   │
+│                    │     <span style="color: #008000; text-decoration-color: #008000">'age'</span>: <span style="color: #008080; text-decoration-color: #008080; font-weight: bold">33</span>,                                                                             │
+│                    │     <span style="color: #008000; text-decoration-color: #008000">'birth_date'</span>: <span style="color: #008000; text-decoration-color: #008000">'1992-05-15'</span>,                                                            │
+│                    │     <span style="color: #008000; text-decoration-color: #008000">'country'</span>: <span style="color: #008000; text-decoration-color: #008000">'Antarctica (the territory South of 60 deg S)'</span>,                             │
+│                    │     <span style="color: #008000; text-decoration-color: #008000">'marital_status'</span>: <span style="color: #008000; text-decoration-color: #008000">'separated'</span>,                                                         │
 │                    │     <span style="color: #008000; text-decoration-color: #008000">'education_level'</span>: <span style="color: #008000; text-decoration-color: #008000">'some_college'</span>,                                                     │
 │                    │     <span style="color: #008000; text-decoration-color: #008000">'unit'</span>: <span style="color: #008000; text-decoration-color: #008000">''</span>,                                                                            │
-│                    │     <span style="color: #008000; text-decoration-color: #008000">'occupation'</span>: <span style="color: #008000; text-decoration-color: #008000">'Minerals surveyor'</span>,                                                     │
-│                    │     <span style="color: #008000; text-decoration-color: #008000">'phone_number'</span>: <span style="color: #008000; text-decoration-color: #008000">'778.451.7865'</span>,                                                        │
+│                    │     <span style="color: #008000; text-decoration-color: #008000">'occupation'</span>: <span style="color: #008000; text-decoration-color: #008000">'International aid/development worker'</span>,                                  │
+│                    │     <span style="color: #008000; text-decoration-color: #008000">'phone_number'</span>: <span style="color: #008000; text-decoration-color: #008000">'952.681.6505x6753'</span>,                                                   │
 │                    │     <span style="color: #008000; text-decoration-color: #008000">'bachelors_field'</span>: <span style="color: #008000; text-decoration-color: #008000">'no_degree'</span>                                                         │
 │                    │ <span style="font-weight: bold">}</span>                                                                                          │
 ├────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────┤
 │ doctor_sampler     │ <span style="font-weight: bold">{</span>                                                                                          │
-│                    │     <span style="color: #008000; text-decoration-color: #008000">'uuid'</span>: <span style="color: #008000; text-decoration-color: #008000">'dc25fa9a-f618-48a8-a4d0-f9bedfcce0e8'</span>,                                        │
+│                    │     <span style="color: #008000; text-decoration-color: #008000">'uuid'</span>: <span style="color: #008000; text-decoration-color: #008000">'5dd25b12-9dc8-4e49-bb78-e7764c789b6c'</span>,                                        │
 │                    │     <span style="color: #008000; text-decoration-color: #008000">'locale'</span>: <span style="color: #008000; text-decoration-color: #008000">'en_US'</span>,                                                                     │
-│                    │     <span style="color: #008000; text-decoration-color: #008000">'first_name'</span>: <span style="color: #008000; text-decoration-color: #008000">'Corey'</span>,                                                                 │
-│                    │     <span style="color: #008000; text-decoration-color: #008000">'last_name'</span>: <span style="color: #008000; text-decoration-color: #008000">'Kidd'</span>,                                                                   │
+│                    │     <span style="color: #008000; text-decoration-color: #008000">'first_name'</span>: <span style="color: #008000; text-decoration-color: #008000">'Susan'</span>,                                                                 │
+│                    │     <span style="color: #008000; text-decoration-color: #008000">'last_name'</span>: <span style="color: #008000; text-decoration-color: #008000">'Reed'</span>,                                                                   │
 │                    │     <span style="color: #008000; text-decoration-color: #008000">'middle_name'</span>: <span style="color: #800080; text-decoration-color: #800080; font-style: italic">None</span>,                                                                   │
-│                    │     <span style="color: #008000; text-decoration-color: #008000">'sex'</span>: <span style="color: #008000; text-decoration-color: #008000">'Male'</span>,                                                                         │
-│                    │     <span style="color: #008000; text-decoration-color: #008000">'street_number'</span>: <span style="color: #008000; text-decoration-color: #008000">'10868'</span>,                                                              │
-│                    │     <span style="color: #008000; text-decoration-color: #008000">'street_name'</span>: <span style="color: #008000; text-decoration-color: #008000">'Jennifer Valleys'</span>,                                                     │
-│                    │     <span style="color: #008000; text-decoration-color: #008000">'city'</span>: <span style="color: #008000; text-decoration-color: #008000">'New Amy'</span>,                                                                     │
-│                    │     <span style="color: #008000; text-decoration-color: #008000">'state'</span>: <span style="color: #008000; text-decoration-color: #008000">'Georgia'</span>,                                                                    │
-│                    │     <span style="color: #008000; text-decoration-color: #008000">'postcode'</span>: <span style="color: #008000; text-decoration-color: #008000">'23393'</span>,                                                                   │
-│                    │     <span style="color: #008000; text-decoration-color: #008000">'age'</span>: <span style="color: #008080; text-decoration-color: #008080; font-weight: bold">29</span>,                                                                             │
-│                    │     <span style="color: #008000; text-decoration-color: #008000">'birth_date'</span>: <span style="color: #008000; text-decoration-color: #008000">'1996-01-22'</span>,                                                            │
-│                    │     <span style="color: #008000; text-decoration-color: #008000">'country'</span>: <span style="color: #008000; text-decoration-color: #008000">'Thailand'</span>,                                                                 │
-│                    │     <span style="color: #008000; text-decoration-color: #008000">'marital_status'</span>: <span style="color: #008000; text-decoration-color: #008000">'divorced'</span>,                                                          │
-│                    │     <span style="color: #008000; text-decoration-color: #008000">'education_level'</span>: <span style="color: #008000; text-decoration-color: #008000">'associates'</span>,                                                       │
+│                    │     <span style="color: #008000; text-decoration-color: #008000">'sex'</span>: <span style="color: #008000; text-decoration-color: #008000">'Female'</span>,                                                                       │
+│                    │     <span style="color: #008000; text-decoration-color: #008000">'street_number'</span>: <span style="color: #008000; text-decoration-color: #008000">'3256'</span>,                                                               │
+│                    │     <span style="color: #008000; text-decoration-color: #008000">'street_name'</span>: <span style="color: #008000; text-decoration-color: #008000">'Garcia Square'</span>,                                                        │
+│                    │     <span style="color: #008000; text-decoration-color: #008000">'city'</span>: <span style="color: #008000; text-decoration-color: #008000">'Georgechester'</span>,                                                               │
+│                    │     <span style="color: #008000; text-decoration-color: #008000">'state'</span>: <span style="color: #008000; text-decoration-color: #008000">'Arizona'</span>,                                                                    │
+│                    │     <span style="color: #008000; text-decoration-color: #008000">'postcode'</span>: <span style="color: #008000; text-decoration-color: #008000">'29102'</span>,                                                                   │
+│                    │     <span style="color: #008000; text-decoration-color: #008000">'age'</span>: <span style="color: #008080; text-decoration-color: #008080; font-weight: bold">75</span>,                                                                             │
+│                    │     <span style="color: #008000; text-decoration-color: #008000">'birth_date'</span>: <span style="color: #008000; text-decoration-color: #008000">'1950-03-01'</span>,                                                            │
+│                    │     <span style="color: #008000; text-decoration-color: #008000">'country'</span>: <span style="color: #008000; text-decoration-color: #008000">'China'</span>,                                                                    │
+│                    │     <span style="color: #008000; text-decoration-color: #008000">'marital_status'</span>: <span style="color: #008000; text-decoration-color: #008000">'never_married'</span>,                                                     │
+│                    │     <span style="color: #008000; text-decoration-color: #008000">'education_level'</span>: <span style="color: #008000; text-decoration-color: #008000">'bachelors'</span>,                                                        │
 │                    │     <span style="color: #008000; text-decoration-color: #008000">'unit'</span>: <span style="color: #008000; text-decoration-color: #008000">''</span>,                                                                            │
-│                    │     <span style="color: #008000; text-decoration-color: #008000">'occupation'</span>: <span style="color: #008000; text-decoration-color: #008000">'Higher education lecturer'</span>,                                             │
-│                    │     <span style="color: #008000; text-decoration-color: #008000">'phone_number'</span>: <span style="color: #008000; text-decoration-color: #008000">'(392)465-9391'</span>,                                                       │
-│                    │     <span style="color: #008000; text-decoration-color: #008000">'bachelors_field'</span>: <span style="color: #008000; text-decoration-color: #008000">'no_degree'</span>                                                         │
+│                    │     <span style="color: #008000; text-decoration-color: #008000">'occupation'</span>: <span style="color: #008000; text-decoration-color: #008000">'Engineer, electronics'</span>,                                                 │
+│                    │     <span style="color: #008000; text-decoration-color: #008000">'phone_number'</span>: <span style="color: #008000; text-decoration-color: #008000">'(408)518-0603'</span>,                                                       │
+│                    │     <span style="color: #008000; text-decoration-color: #008000">'bachelors_field'</span>: <span style="color: #008000; text-decoration-color: #008000">'arts_humanities'</span>                                                   │
 │                    │ <span style="font-weight: bold">}</span>                                                                                          │
 ├────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────┤
-│ patient_id         │ PT-A97402A3                                                                                │
+│ patient_id         │ PT-65199462                                                                                │
 ├────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────┤
-│ symptom_onset_date │ 2024-04-12                                                                                 │
+│ symptom_onset_date │ 2024-02-23                                                                                 │
 ├────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────┤
-│ date_of_visit      │ 2024-05-07                                                                                 │
+│ date_of_visit      │ 2024-03-12                                                                                 │
 ├────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────┤
-│ first_name         │ Kevin                                                                                      │
+│ first_name         │ Jonathan                                                                                   │
 ├────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────┤
-│ last_name          │ Torres                                                                                     │
+│ last_name          │ Young                                                                                      │
 ├────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────┤
-│ dob                │ 1914-11-23                                                                                 │
+│ dob                │ 1992-05-15                                                                                 │
 ├────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────┤
-│ physician          │ Dr. Kidd                                                                                   │
+│ physician          │ Dr. Reed                                                                                   │
 ├────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────┤
-│ physician_notes    │ **Dr. Corey Kidd**                                                                         │
-│                    │ **Primary Care Physician**                                                                 │
-│                    │ **Visit Date:** 2024-05-07                                                                 │
-│                    │ **Patient:** Kevin Torres                                                                  │
-│                    │ **Chief Complaint:** "Neck and back pain, balance issues, cough, and limb weakness since   │
-│                    │ April 12th."                                                                               │
+│ physician_notes    │ **Patient Name:** Jonathan Young                                                           │
+│                    │ **Date of Visit:** 2024-03-12                                                              │
+│                    │ **Primary Concern:** Cervical spondylosis symptoms, balance/coordination issues, cough,    │
+│                    │ and limb weakness                                                                          │
+│                    │                                                                                            │
+│                    │ ---                                                                                        │
+│                    │                                                                                            │
+│                    │ **Chief Complaint:**                                                                       │
+│                    │ Jonathan reports persistent neck and back pain since February 23, 2024, along with         │
+│                    │ new-onset balance and coordination difficulties, frequent coughing, and generalized limb   │
+│                    │ weakness.                                                                                  │
 │                    │                                                                                            │
 │                    │ ---                                                                                        │
 │                    │                                                                                            │
 │                    │ **History of Present Illness:**                                                            │
-│                    │ Kevin reports persistent neck and back pain since April 12, 2024, which he describes as    │
-│                    │ worsening over the past month. The pain is primarily localized to the cervical region but  │
-│                    │ radiates to the upper back and shoulders. He denies trauma but notes increased discomfort  │
-│                    │ with prolonged sitting or standing.                                                        │
+│                    │ Jonathan describes a gradual onset of neck and back pain, initially localized to the       │
+│                    │ cervical region but now radiating to the upper back and shoulders. He denies trauma but    │
+│                    │ notes worsening symptoms over the past month. The pain is described as dull and aching,    │
+│                    │ exacerbated by prolonged sitting or movement.                                              │
 │                    │                                                                                            │
-│                    │ He also endorses new-onset balance and coordination difficulties, particularly when        │
-│                    │ walking or turning. Kevin describes a sensation of "dizziness" and occasional tripping,    │
-│                    │ though he denies vertigo.                                                                  │
+│                    │ He endorses new balance and coordination issues, particularly when walking or standing,    │
+│                    │ with occasional dizziness. He denies vertigo but reports difficulty with fine motor tasks  │
+│                    │ (e.g., buttoning clothes).                                                                 │
 │                    │                                                                                            │
-│                    │ Additionally, he reports a non-productive cough that has been present for several weeks,   │
-│                    │ which he feels worsens with activity or lying down. He denies fever, chest pain, or        │
-│                    │ shortness of breath.                                                                       │
+│                    │ Jonathan also reports a persistent, non-productive cough that has worsened in the past     │
+│                    │ week. He denies fever, shortness of breath, or chest pain.                                 │
 │                    │                                                                                            │
-│                    │ Kevin notes generalized weakness in his upper and lower extremities, which he feels is     │
-│                    │ worse on the left side. He denies numbness or tingling but reports occasional heaviness in │
-│                    │ his arms and legs. He has not been able to work or perform daily activities due to these   │
-│                    │ symptoms.                                                                                  │
+│                    │ He notes new-onset weakness in both upper and lower extremities, described as a “heavy” or │
+│                    │ “tired” sensation. He denies numbness or tingling but reports mild clumsiness.             │
+│                    │                                                                                            │
+│                    │ ---                                                                                        │
 │                    │                                                                                            │
 │                    │ **Past Medical History:**                                                                  │
-│                    │ - Cervical spondylosis (diagnosed 2024-04-12, initial evaluation).                         │
-│                    │ - No significant prior surgeries or hospitalizations.                                      │
+│                    │ - No significant past medical history reported.                                            │
+│                    │ - No prior surgeries or hospitalizations.                                                  │
 │                    │ - No known allergies.                                                                      │
-│                    │ - No chronic medical conditions (e.g., diabetes, hypertension).                            │
 │                    │                                                                                            │
 │                    │ **Medications:**                                                                           │
-│                    │ - Acetaminophen 325 mg PRN for pain (used intermittently).                                 │
-│                    │ - No other medications.                                                                    │
+│                    │ - Currently on over-the-counter acetaminophen PRN for pain.                                │
 │                    │                                                                                            │
 │                    │ **Social History:**                                                                        │
-│                    │ - Kevin is a 45-year-old male, employed as a warehouse worker.                             │
-│                    │ - He smokes 1 pack/day and has not quit.                                                   │
-│                    │ - Denies alcohol or illicit drug use.                                                      │
-│                    │ - Lives with a spouse; no recent travel.                                                   │
+│                    │ - Non-smoker, occasional alcohol use.                                                      │
+│                    │ - Sedentary lifestyle due to pain.                                                         │
 │                    │                                                                                            │
-│                    │ **Review of Systems:**                                                                     │
-│                    │ - **Constitutional:** No fever, chills, or weight loss.                                    │
-│                    │ - **ENT:** Cough (non-productive), no sore throat or nasal congestion.                     │
-│                    │ - **Neurologic:** Weakness in extremities (left &gt; right), balance/coordination issues, no  │
-│                    │ focal deficits.                                                                            │
-│                    │ - **Musculoskeletal:** Neck/back pain, stiffness.                                          │
-│                    │ - **Respiratory:** Chronic cough, no wheezing or crackles.                                 │
-│                    │ - **Other systems:** Negative.                                                             │
+│                    │ ---                                                                                        │
 │                    │                                                                                            │
-│                    │ **Physical Exam:**                                                                         │
-│                    │ - **Vital Signs:** BP 128/76, HR 84, RR 16, Temp 98.6°F.                                   │
-│                    │ - **General:** Alert, oriented, in mild distress due to pain.                              │
-│                    │ - **Neck:** Limited range of motion, tenderness to palpation at C5-C6. No focal            │
-│                    │ neurological deficits on motor or sensory testing.                                         │
-│                    │ - **Spine:** Mild tenderness along the cervical spine; no radicular pain noted.            │
-│                    │ - **Extremities:** Mild weakness in left upper and lower extremities (MMT 4/5 in left      │
-│                    │ deltoid and quadriceps). No sensory loss.                                                  │
-│                    │ - **Respiratory:** Clear to auscultation bilaterally.                                      │
-│                    │ - **ENT:** No lymphadenopathy or nasal discharge.                                          │
+│                    │ **Physical Examination:**                                                                  │
+│                    │ - **Neck:** Mild tenderness to palpation along the left C5-C6 region. No range of motion   │
+│                    │ limitations noted, but patient reports discomfort with rotation.                           │
+│                    │ - **Spine:** No focal neurological deficits on light touch or reflex testing. No           │
+│                    │ myelopathic signs (e.g., Babinski sign).                                                   │
+│                    │ - **Upper Extremities:** Mild weakness in grip strength (3/5) in both hands; no atrophy.   │
+│                    │ - **Lower Extremities:** Mild proximal weakness (4/5) in both thighs; no sensory deficits. │
+│                    │ - **Gait:** Unstable on tandem gait; requires support for balance.                         │
+│                    │ - **Respiratory:** Clear breath sounds bilaterally; no wheezing or crackles. Cough is      │
+│                    │ productive of clear sputum.                                                                │
+│                    │                                                                                            │
+│                    │ ---                                                                                        │
 │                    │                                                                                            │
 │                    │ **Assessment:**                                                                            │
-│                    │ 1. **Cervical Spondylosis (Worsening):** Likely contributing to neck/back pain and         │
-│                    │ possible radicular symptoms.                                                               │
-│                    │ 2. **New Neurologic Symptoms (Balance/Weakness):** Concerning for possible cervical        │
-│                    │ radiculopathy, myelopathy, or systemic etiology (e.g., infection, autoimmune).             │
-│                    │ 3. **Chronic Cough:** Needs further evaluation to rule out pulmonary causes (e.g.,         │
-│                    │ infection, GERD, interstitial lung disease).                                               │
+│                    │ 1. **Cervical Spondylosis with possible radiculopathy or myelopathy:** Symptoms suggest    │
+│                    │ spinal cord or nerve root involvement, though no clear focal deficits.                     │
+│                    │ 2. **Balance/Coordination Deficits:** Likely related to cervical pathology or systemic     │
+│                    │ issue.                                                                                     │
+│                    │ 3. **Persistent Cough:** Needs further evaluation for respiratory etiology (e.g.,          │
+│                    │ post-viral, GERD, or other).                                                               │
+│                    │ 4. **Generalized Limb Weakness:** Requires urgent workup to rule out systemic causes       │
+│                    │ (e.g., autoimmune, metabolic, or infectious).                                              │
+│                    │                                                                                            │
+│                    │ ---                                                                                        │
 │                    │                                                                                            │
 │                    │ **Plan:**                                                                                  │
-│                    │ - **Imaging:** Order cervical spine X-ray and MRI (if not already done) to assess for disc │
-│                    │ herniation, stenosis, or other structural causes.                                          │
-│                    │ - **Neurology Referral:** For evaluation of balance/weakness and potential EMG/NCS.        │
-│                    │ - **Pulmonary Workup:** Consider chest X-ray or CT if cough persists or worsens.           │
-│                    │ - **Smoking Cessation Counseling:** Strongly advised given smoking’s role in cervical      │
-│                    │ disease progression and pulmonary health.                                                  │
-│                    │ - **Physical Therapy:** Referral for cervical stabilization and strengthening exercises.   │
-│                    │ - **Monitor Symptoms:** Instruct Kevin to return if he develops fever, chest pain, or      │
-│                    │ progressive neurological deficits.                                                         │
+│                    │ - **Imaging:** Order MRI of the cervical spine to evaluate for disc herniation, stenosis,  │
+│                    │ or cord compression.                                                                       │
+│                    │ - **Neurology Referral:** For further assessment of balance, coordination, and weakness.   │
+│                    │ - **Pulmonology Consultation:** To investigate the cough and rule out underlying           │
+│                    │ respiratory pathology.                                                                     │
+│                    │ - **Blood Work:** CBC, ESR, CRP, vitamin B12, and thyroid function tests to screen for     │
+│                    │ systemic causes of weakness.                                                               │
+│                    │ - **Physical Therapy Referral:** For cervical stabilization and balance training.          │
+│                    │ - **Follow-up:** In 2 weeks or sooner if symptoms worsen.                                  │
 │                    │                                                                                            │
-│                    │ **Follow-Up:**                                                                             │
-│                    │ - Plan to discuss imaging results and next steps at a subsequent visit.                    │
+│                    │ ---                                                                                        │
 │                    │                                                                                            │
-│                    │ **Signature:**                                                                             │
+│                    │ **Notes for Patient:**                                                                     │
+│                    │ Jonathan, I’m concerned about the combination of your neck pain, weakness, and balance     │
+│                    │ issues. We need to rule out serious causes like spinal cord involvement or a systemic      │
+│                    │ illness. I’ll order tests and refer you to specialists. Please follow up if your symptoms  │
+│                    │ change or worsen.                                                                          │
+│                    │                                                                                            │
+│                    │ **Dr. Susan Reed**                                                                         │
+│                    │ Primary Care Physician                                                                     │
+│                    │                                                                                            │
 └────────────────────┴────────────────────────────────────────────────────────────────────────────────────────────┘
                                                                                                                    
                                                     [index: 0]                                                     
@@ -3657,7 +3676,7 @@ preview.display_sample_record()</div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=4a8da181">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=9417d2b1">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -3728,31 +3747,31 @@ preview.dataset</div>
 <th>0</th>
 <td>cervical spondylosis</td>
 <td>I've been having a lot of pain in my neck and ...</td>
-<td>{'uuid': 'e48b5d55-89f0-415f-bc8f-ff077292b720...</td>
-<td>{'uuid': 'dc25fa9a-f618-48a8-a4d0-f9bedfcce0e8...</td>
-<td>PT-A97402A3</td>
-<td>2024-04-12</td>
-<td>2024-05-07</td>
-<td>Kevin</td>
-<td>Torres</td>
-<td>1914-11-23</td>
-<td>Dr. Kidd</td>
-<td>**Dr. Corey Kidd**  \n**Primary Care Physician...</td>
+<td>{'uuid': '75229ddd-8f70-4428-8f14-8166fe281f43...</td>
+<td>{'uuid': '5dd25b12-9dc8-4e49-bb78-e7764c789b6c...</td>
+<td>PT-65199462</td>
+<td>2024-02-23</td>
+<td>2024-03-12</td>
+<td>Jonathan</td>
+<td>Young</td>
+<td>1992-05-15</td>
+<td>Dr. Reed</td>
+<td>**Patient Name:** Jonathan Young  \n**Date of ...</td>
 </tr>
 <tr>
 <th>1</th>
 <td>impetigo</td>
 <td>I have a rash on my face that is getting worse...</td>
-<td>{'uuid': '770fb573-9d24-45c6-a6f2-9c7a8ddd5ccc...</td>
-<td>{'uuid': '33dc4410-763f-4ae6-85f3-6aa333f4cd67...</td>
-<td>PT-7C9BA759</td>
-<td>2024-08-31</td>
-<td>2024-09-21</td>
-<td>Sarah</td>
-<td>Stone</td>
-<td>1911-03-19</td>
-<td>Dr. Farmer</td>
-<td>**Dr. Elizabeth Farmer**  \n*Primary Care Phys...</td>
+<td>{'uuid': '3d0491f1-6347-410d-a68e-e2ebc3d083af...</td>
+<td>{'uuid': '364b95f5-128b-42a5-9ca4-99a34d66c41d...</td>
+<td>PT-99EACADA</td>
+<td>2024-05-16</td>
+<td>2024-05-28</td>
+<td>Douglas</td>
+<td>Taylor</td>
+<td>1980-12-06</td>
+<td>Dr. Wise</td>
+<td>**Patient Name:** Douglas Taylor  \n**Date of ...</td>
 </tr>
 </tbody>
 </table>
@@ -3763,7 +3782,7 @@ preview.dataset</div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=99875d23">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=3d4d960c">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -3779,7 +3798,7 @@ preview.dataset</div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=da7276a1">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=56e1737f">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -3855,7 +3874,7 @@ preview.analysis.to_report()</div>
 ┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">                       </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">               </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">                            </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">     prompt tokens </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">      completion tokens </span>┃
 ┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold"> column name           </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">     data type </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">       number unique values </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">        per record </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">             per record </span>┃
 ┡━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━┩
-│ physician_notes       │        string │                 2 (100.0%) │     115.0 +/- 4.0 │        811.5 +/- 212.8 │
+│ physician_notes       │        string │                 2 (100.0%) │     115.0 +/- 4.0 │         809.0 +/- 62.2 │
 └───────────────────────┴───────────────┴────────────────────────────┴───────────────────┴────────────────────────┘
                                                                                                                    
                                                                                                                    
@@ -3888,7 +3907,7 @@ preview.analysis.to_report()</div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=289f6195">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=89102b89">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -3904,7 +3923,7 @@ preview.analysis.to_report()</div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=1800b2f9">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=7d03697c">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -3936,141 +3955,141 @@ preview.analysis.to_report()</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:26] [INFO] 🎨 Creating Data Designer dataset
+<pre>[18:18:19] [INFO] 🎨 Creating Data Designer dataset
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:26] [INFO] ✅ Validation passed
+<pre>[18:18:19] [INFO] ✅ Validation passed
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:26] [INFO] ⛓️ Sorting column configs into a Directed Acyclic Graph
+<pre>[18:18:19] [INFO] ⛓️ Sorting column configs into a Directed Acyclic Graph
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:26] [INFO] 📂 Dataset path '/home/runner/work/DataDesigner/DataDesigner/docs/notebook_source/artifacts/dataset' already exists. Dataset from this session
-		     will be saved to '/home/runner/work/DataDesigner/DataDesigner/docs/notebook_source/artifacts/dataset_12-11-2025_215226' instead.
+<pre>[18:18:19] [INFO] 📂 Dataset path '/home/runner/work/DataDesigner/DataDesigner/docs/notebook_source/artifacts/dataset' already exists. Dataset from this session
+		     will be saved to '/home/runner/work/DataDesigner/DataDesigner/docs/notebook_source/artifacts/dataset_12-12-2025_181819' instead.
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:26] [INFO] 🩺 Running health checks for models...
+<pre>[18:18:19] [INFO] 🩺 Running health checks for models...
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:26] [INFO]   |-- 👀 Checking 'nvidia/nvidia-nemotron-nano-9b-v2' in provider named 'nvidia' for model alias 'nemotron-nano-v2'...
+<pre>[18:18:19] [INFO]   |-- 👀 Checking 'nvidia/nvidia-nemotron-nano-9b-v2' in provider named 'nvidia' for model alias 'nemotron-nano-v2'...
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:27] [INFO]   |-- ✅ Passed!
+<pre>[18:18:20] [INFO]   |-- ✅ Passed!
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:27] [INFO] ⏳ Processing batch 1 of 1
+<pre>[18:18:20] [INFO] ⏳ Processing batch 1 of 1
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:27] [INFO] 🌱 Sampling 10 records from seed dataset
+<pre>[18:18:20] [INFO] 🌱 Sampling 10 records from seed dataset
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:27] [INFO]   |-- seed dataset size: 820 records
+<pre>[18:18:20] [INFO]   |-- seed dataset size: 820 records
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:27] [INFO]   |-- sampling strategy: ordered
+<pre>[18:18:20] [INFO]   |-- sampling strategy: ordered
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:27] [INFO] 🎲 Preparing samplers to generate 10 records across 5 columns
+<pre>[18:18:20] [INFO] 🎲 Preparing samplers to generate 10 records across 5 columns
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:27] [INFO] (💾 + 💾) Concatenating 2 datasets
+<pre>[18:18:20] [INFO] (💾 + 💾) Concatenating 2 datasets
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:28] [INFO] 🧩 Generating column `first_name` from expression
+<pre>[18:18:20] [INFO] 🧩 Generating column `first_name` from expression
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:28] [INFO] 🧩 Generating column `last_name` from expression
+<pre>[18:18:20] [INFO] 🧩 Generating column `last_name` from expression
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:28] [INFO] 🧩 Generating column `dob` from expression
+<pre>[18:18:20] [INFO] 🧩 Generating column `dob` from expression
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:28] [INFO] 🧩 Generating column `physician` from expression
+<pre>[18:18:20] [INFO] 🧩 Generating column `physician` from expression
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:28] [INFO] 📝 Preparing llm-text column generation
+<pre>[18:18:20] [INFO] 📝 Preparing llm-text column generation
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:28] [INFO]   |-- column name: 'physician_notes'
+<pre>[18:18:20] [INFO]   |-- column name: 'physician_notes'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:28] [INFO]   |-- model config:
+<pre>[18:18:20] [INFO]   |-- model config:
 {
     "alias": "nemotron-nano-v2",
     "model": "nvidia/nvidia-nemotron-nano-9b-v2",
@@ -4090,28 +4109,28 @@ preview.analysis.to_report()</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:52:28] [INFO] 🐙 Processing llm-text column 'physician_notes' with 4 concurrent workers
+<pre>[18:18:20] [INFO] 🐙 Processing llm-text column 'physician_notes' with 4 concurrent workers
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:01] [INFO] 📊 Model usage summary:
+<pre>[18:18:43] [INFO] 📊 Model usage summary:
 {
     "nvidia/nvidia-nemotron-nano-9b-v2": {
         "token_usage": {
-            "prompt_tokens": 1304,
-            "completion_tokens": 7568,
-            "total_tokens": 8872
+            "prompt_tokens": 1309,
+            "completion_tokens": 7496,
+            "total_tokens": 8805
         },
         "request_usage": {
             "successful_requests": 10,
             "failed_requests": 0,
             "total_requests": 10
         },
-        "tokens_per_second": 261,
-        "requests_per_minute": 17
+        "tokens_per_second": 392,
+        "requests_per_minute": 26
     }
 }
 </pre>
@@ -4120,91 +4139,91 @@ preview.analysis.to_report()</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:01] [INFO] 📐 Measuring dataset column statistics:
+<pre>[18:18:43] [INFO] 📐 Measuring dataset column statistics:
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:01] [INFO]   |-- 🌱 column: 'diagnosis'
+<pre>[18:18:43] [INFO]   |-- 🌱 column: 'diagnosis'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:01] [INFO]   |-- 🌱 column: 'patient_summary'
+<pre>[18:18:43] [INFO]   |-- 🌱 column: 'patient_summary'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:01] [INFO]   |-- 🎲 column: 'patient_sampler'
+<pre>[18:18:43] [INFO]   |-- 🎲 column: 'patient_sampler'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:01] [INFO]   |-- 🎲 column: 'doctor_sampler'
+<pre>[18:18:43] [INFO]   |-- 🎲 column: 'doctor_sampler'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:01] [INFO]   |-- 🎲 column: 'patient_id'
+<pre>[18:18:43] [INFO]   |-- 🎲 column: 'patient_id'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:01] [INFO]   |-- 🧩 column: 'first_name'
+<pre>[18:18:43] [INFO]   |-- 🧩 column: 'first_name'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:01] [INFO]   |-- 🧩 column: 'last_name'
+<pre>[18:18:43] [INFO]   |-- 🧩 column: 'last_name'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:01] [INFO]   |-- 🧩 column: 'dob'
+<pre>[18:18:43] [INFO]   |-- 🧩 column: 'dob'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:01] [INFO]   |-- 🎲 column: 'symptom_onset_date'
+<pre>[18:18:43] [INFO]   |-- 🎲 column: 'symptom_onset_date'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:01] [INFO]   |-- 🎲 column: 'date_of_visit'
+<pre>[18:18:43] [INFO]   |-- 🎲 column: 'date_of_visit'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:01] [INFO]   |-- 🧩 column: 'physician'
+<pre>[18:18:43] [INFO]   |-- 🧩 column: 'physician'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[21:53:01] [INFO]   |-- 📝 column: 'physician_notes'
+<pre>[18:18:43] [INFO]   |-- 📝 column: 'physician_notes'
 </pre>
 </div>
 </div>
@@ -4212,7 +4231,7 @@ preview.analysis.to_report()</div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=0789ebe3">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=d2f71868">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -4287,80 +4306,81 @@ dataset.head()</div>
 <th>0</th>
 <td>cervical spondylosis</td>
 <td>I've been having a lot of pain in my neck and ...</td>
-<td>{'age': 18, 'bachelors_field': 'no_degree', 'b...</td>
-<td>{'age': 19, 'bachelors_field': 'education', 'b...</td>
-<td>PT-A4BB66CE</td>
-<td>2024-09-29</td>
-<td>2024-10-01</td>
-<td>Jonathon</td>
-<td>Jefferson</td>
-<td>2006-12-26</td>
-<td>Dr. Lee</td>
-<td>**Dr. Alexander Lee**  
-**Primary Care Physici...</td>
+<td>{'age': 83, 'bachelors_field': 'no_degree', 'b...</td>
+<td>{'age': 68, 'bachelors_field': 'no_degree', 'b...</td>
+<td>PT-915303CD</td>
+<td>2024-10-04</td>
+<td>2024-10-26</td>
+<td>Tamara</td>
+<td>Watkins</td>
+<td>1942-09-08</td>
+<td>Dr. Cameron</td>
+<td>**Dr. Philip Cameron**  
+**Primary Care Physic...</td>
 </tr>
 <tr>
 <th>1</th>
 <td>impetigo</td>
 <td>I have a rash on my face that is getting worse...</td>
-<td>{'age': 107, 'bachelors_field': 'no_degree', '...</td>
-<td>{'age': 30, 'bachelors_field': 'stem_related',...</td>
-<td>PT-BFEC8F12</td>
-<td>2024-05-16</td>
-<td>2024-06-11</td>
-<td>Lori</td>
-<td>Hardin</td>
-<td>1918-03-23</td>
-<td>Dr. Ballard</td>
-<td>**Dr. Timothy Ballard**  
-**Primary Care Physi...</td>
+<td>{'age': 80, 'bachelors_field': 'stem_related',...</td>
+<td>{'age': 109, 'bachelors_field': 'no_degree', '...</td>
+<td>PT-57565241</td>
+<td>2024-10-14</td>
+<td>2024-10-15</td>
+<td>Jeffrey</td>
+<td>Barrera</td>
+<td>1945-04-30</td>
+<td>Dr. Delgado</td>
+<td>**Dr. Ricky Delgado**  
+**Primary Care Physici...</td>
 </tr>
 <tr>
 <th>2</th>
 <td>urinary tract infection</td>
 <td>I have been urinating blood. I sometimes feel ...</td>
-<td>{'age': 73, 'bachelors_field': 'education', 'b...</td>
-<td>{'age': 113, 'bachelors_field': 'arts_humaniti...</td>
-<td>PT-41E37BB5</td>
-<td>2024-07-18</td>
-<td>2024-07-19</td>
-<td>Jeff</td>
-<td>Allen</td>
-<td>1952-08-01</td>
-<td>Dr. Romero</td>
-<td>**Dr. Danielle Romero**  
-**Primary Care Physi...</td>
+<td>{'age': 48, 'bachelors_field': 'no_degree', 'b...</td>
+<td>{'age': 74, 'bachelors_field': 'no_degree', 'b...</td>
+<td>PT-01BB27D4</td>
+<td>2024-06-02</td>
+<td>2024-06-10</td>
+<td>Alexis</td>
+<td>Johnston</td>
+<td>1977-09-17</td>
+<td>Dr. Lee</td>
+<td>**Dr. Charles Lee**  
+**Primary Care Physician...</td>
 </tr>
 <tr>
 <th>3</th>
 <td>arthritis</td>
 <td>I have been having trouble with my muscles and...</td>
-<td>{'age': 49, 'bachelors_field': 'no_degree', 'b...</td>
-<td>{'age': 66, 'bachelors_field': 'business', 'bi...</td>
-<td>PT-5CA51AB8</td>
-<td>2024-11-03</td>
-<td>2024-11-12</td>
-<td>Shannon</td>
-<td>Soto</td>
-<td>1976-04-08</td>
-<td>Dr. Townsend</td>
-<td>**Dr. Juan Townsend, Primary Care Physician** ...</td>
+<td>{'age': 81, 'bachelors_field': 'no_degree', 'b...</td>
+<td>{'age': 99, 'bachelors_field': 'no_degree', 'b...</td>
+<td>PT-3B5EBD50</td>
+<td>2024-10-01</td>
+<td>2024-10-13</td>
+<td>Alison</td>
+<td>Lambert</td>
+<td>1944-02-07</td>
+<td>Dr. Rocha</td>
+<td>**Dr. William Rocha**  
+**Primary Care Physici...</td>
 </tr>
 <tr>
 <th>4</th>
 <td>dengue</td>
 <td>I have been feeling really sick. My body hurts...</td>
-<td>{'age': 76, 'bachelors_field': 'business', 'bi...</td>
-<td>{'age': 102, 'bachelors_field': 'business', 'b...</td>
-<td>PT-35FF2B65</td>
-<td>2024-02-05</td>
-<td>2024-02-10</td>
-<td>Gina</td>
-<td>Hurley</td>
-<td>1949-02-22</td>
-<td>Dr. Elliott</td>
-<td>**Dr. Amanda Elliott**  
-**Primary Care Physic...</td>
+<td>{'age': 110, 'bachelors_field': 'no_degree', '...</td>
+<td>{'age': 96, 'bachelors_field': 'stem', 'birth_...</td>
+<td>PT-FF2F9BE2</td>
+<td>2024-01-07</td>
+<td>2024-01-08</td>
+<td>Michael</td>
+<td>Adams</td>
+<td>1915-01-10</td>
+<td>Dr. Cunningham</td>
+<td>**Dr. Robert Cunningham**  
+**Primary Care Phy...</td>
 </tr>
 </tbody>
 </table>
@@ -4371,7 +4391,7 @@ dataset.head()</div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=efd3e7b8">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=1d64b811">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -4451,7 +4471,7 @@ analysis.to_report()</div>
 ┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">                       </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">               </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">                            </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">     prompt tokens </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">      completion tokens </span>┃
 ┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold"> column name           </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">     data type </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">       number unique values </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">        per record </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">             per record </span>┃
 ┡━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━┩
-│ physician_notes       │        string │                10 (100.0%) │     112.5 +/- 5.6 │        679.0 +/- 124.6 │
+│ physician_notes       │        string │                10 (100.0%) │     113.0 +/- 5.1 │        645.5 +/- 111.7 │
 └───────────────────────┴───────────────┴────────────────────────────┴───────────────────┴────────────────────────┘
                                                                                                                    
                                                                                                                    
@@ -4484,7 +4504,7 @@ analysis.to_report()</div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=2ecafa43">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=933d4434">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
