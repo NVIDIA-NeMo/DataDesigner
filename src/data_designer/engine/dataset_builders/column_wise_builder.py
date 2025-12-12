@@ -171,8 +171,6 @@ class ColumnWiseDatasetBuilder:
         max_workers = MAX_CONCURRENCY_PER_NON_LLM_GENERATOR
         if isinstance(generator, WithLLMGeneration):
             max_workers = generator.inference_parameters.max_parallel_requests
-        elif hasattr(generator.config, "max_parallel_requests"):
-            max_workers = generator.config.max_parallel_requests
         self._fan_out_with_threads(generator, max_workers=max_workers)
 
     def _run_full_column_generator(self, generator: ColumnGenerator) -> None:
