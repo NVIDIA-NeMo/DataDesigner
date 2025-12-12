@@ -18,11 +18,7 @@ from data_designer.config.analysis.column_statistics import (
     MissingValue,
     NumericalDistribution,
 )
-from data_designer.config.column_configs import (
-    LLMTextColumnConfig,
-    SingleColumnConfig,
-    ValidationColumnConfig,
-)
+from data_designer.config.column_configs import LLMTextColumnConfig
 from data_designer.engine.column_generators.generators.llm_generators import (
     PromptType,
     RecordBasedPromptRenderer,
@@ -39,41 +35,41 @@ logger = logging.getLogger(__name__)
 
 
 def calculate_column_distribution(
-    column_config: SingleColumnConfig, df: pd.DataFrame, distribution_type: ColumnDistributionType
+    column_name: str, df: pd.DataFrame, distribution_type: ColumnDistributionType
 ) -> dict[str, CategoricalDistribution | NumericalDistribution | MissingValue | None]:
     distribution_type = ColumnDistributionType(distribution_type)
     try:
         if distribution_type == ColumnDistributionType.CATEGORICAL:
             return {
                 "distribution_type": ColumnDistributionType.CATEGORICAL,
-                "distribution": CategoricalDistribution.from_series(df[column_config.name]),
+                "distribution": CategoricalDistribution.from_series(df[column_name]),
             }
 
         if distribution_type == ColumnDistributionType.NUMERICAL:
             return {
                 "distribution_type": ColumnDistributionType.NUMERICAL,
-                "distribution": NumericalDistribution.from_series(df[column_config.name]),
+                "distribution": NumericalDistribution.from_series(df[column_name]),
             }
     except Exception as e:
-        logger.warning(f"{WARNING_PREFIX} failed to calculate column distribution for '{column_config.name}' {e}")
+        logger.warning(f"{WARNING_PREFIX} failed to calculate column distribution for '{column_name}' {e}")
         return {
             "distribution_type": ColumnDistributionType.UNKNOWN,
             "distribution": MissingValue.CALCULATION_FAILED,
         }
 
 
-def calculate_general_column_info(column_config: SingleColumnConfig, df: pd.DataFrame) -> dict[str, Any]:
+def calculate_general_column_info(column_name: str, df: pd.DataFrame) -> dict[str, Any]:
     try:
-        _df = pd.DataFrame(df[column_config.name].apply(ensure_hashable))
+        _df = pd.DataFrame(df[column_name].apply(ensure_hashable))
         return {
-            "pyarrow_dtype": str(df[column_config.name].dtype.pyarrow_dtype),
-            "simple_dtype": convert_pyarrow_dtype_to_simple_dtype(df[column_config.name].dtype.pyarrow_dtype),
-            "num_records": len(_df[column_config.name]),
-            "num_null": _df[column_config.name].isnull().sum(),
-            "num_unique": _df[column_config.name].nunique(),
+            "pyarrow_dtype": str(df[column_name].dtype.pyarrow_dtype),
+            "simple_dtype": convert_pyarrow_dtype_to_simple_dtype(df[column_name].dtype.pyarrow_dtype),
+            "num_records": len(_df[column_name]),
+            "num_null": _df[column_name].isnull().sum(),
+            "num_unique": _df[column_name].nunique(),
         }
     except Exception as e:
-        logger.warning(f"{WARNING_PREFIX} failed to calculate general column info for '{column_config.name}': {e}")
+        logger.warning(f"{WARNING_PREFIX} failed to calculate general column info for '{column_name}': {e}")
         return {
             "pyarrow_dtype": MissingValue.CALCULATION_FAILED,
             "simple_dtype": MissingValue.CALCULATION_FAILED,
@@ -115,11 +111,9 @@ def calculate_prompt_token_stats(
     }
 
 
-def calculate_completion_token_stats(
-    column_config: LLMTextColumnConfig, df: pd.DataFrame
-) -> dict[str, float | MissingValue]:
+def calculate_completion_token_stats(column_name: str, df: pd.DataFrame) -> dict[str, float | MissingValue]:
     try:
-        tokens_per_record = df[column_config.name].apply(
+        tokens_per_record = df[column_name].apply(
             lambda value: len(TOKENIZER.encode(str(value), disallowed_special=()))
         )
         return {
@@ -128,9 +122,7 @@ def calculate_completion_token_stats(
             "completion_tokens_stddev": tokens_per_record.std(),
         }
     except Exception as e:
-        logger.warning(
-            f"{WARNING_PREFIX} failed to calculate completion token stats for column {column_config.name}: {e}"
-        )
+        logger.warning(f"{WARNING_PREFIX} failed to calculate completion token stats for column {column_name}: {e}")
         return {
             "completion_tokens_mean": MissingValue.CALCULATION_FAILED,
             "completion_tokens_median": MissingValue.CALCULATION_FAILED,
@@ -141,16 +133,16 @@ def calculate_completion_token_stats(
 def calculate_token_stats(column_config: LLMTextColumnConfig, df: pd.DataFrame) -> dict[str, float | MissingValue]:
     return {
         **calculate_prompt_token_stats(column_config, df),
-        **calculate_completion_token_stats(column_config, df),
+        **calculate_completion_token_stats(column_config.name, df),
     }
 
 
-def calculate_validation_column_info(column_config: ValidationColumnConfig, df: pd.DataFrame) -> dict[str, Any]:
+def calculate_validation_column_info(column_name: str, df: pd.DataFrame) -> dict[str, Any]:
     try:
-        return {"num_valid_records": df[column_config.name].apply(lambda x: ensure_boolean(x["is_valid"])).sum()}
+        return {"num_valid_records": df[column_name].apply(lambda x: ensure_boolean(x["is_valid"])).sum()}
     except Exception as e:
         logger.warning(
-            f"{WARNING_PREFIX} failed to calculate code validation column info for column {column_config.name}: {e}"
+            f"{WARNING_PREFIX} failed to calculate code validation column info for column {column_name}: {e}"
         )
         return {"num_valid_records": MissingValue.CALCULATION_FAILED}
 
