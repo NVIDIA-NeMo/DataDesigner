@@ -98,7 +98,7 @@ convert-execute-notebooks:
 
 generate-colab-notebooks:
 	@echo "📓 Generating Colab-compatible notebooks..."
-	uv run --group notebooks python docs/scripts/generate_colab_notebooks.py
+	uv run --group docs python docs/scripts/generate_colab_notebooks.py
 	@echo "✅ Colab notebooks created in docs/colab_notebooks/"
 
 serve-docs-locally:

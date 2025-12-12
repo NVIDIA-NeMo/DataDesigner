@@ -33,6 +33,7 @@ from data_designer.essentials import (
     ChatCompletionInferenceParams,
     DataDesigner,
     DataDesignerConfigBuilder,
+    LocalFileSeedSource,
     ModelConfig,
 )
 
@@ -124,9 +125,9 @@ url = "https://raw.githubusercontent.com/NVIDIA/GenerativeAIExamples/refs/heads/
 local_filename, _ = urllib.request.urlretrieve(url, "gretelai_symptom_to_diagnosis.csv")
 
 # Seed datasets are passed as reference objects to the config builder.
-seed_dataset_reference = data_designer.make_seed_reference_from_file(local_filename)
+seed_source = LocalFileSeedSource(path=local_filename)
 
-config_builder.with_seed_dataset(seed_dataset_reference)
+config_builder.with_seed_dataset(seed_source)
 
 # %% [markdown]
 # ## 🎨 Designing our synthetic patient notes dataset
@@ -222,7 +223,7 @@ Respond with only the notes, no other text.
     model_alias=MODEL_ALIAS,
 )
 
-config_builder.validate()
+data_designer.validate(config_builder)
 
 # %% [markdown]
 # ### 🔁 Iteration is key – preview the dataset!

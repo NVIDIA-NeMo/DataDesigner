@@ -30,7 +30,7 @@ class SeedDatasetColumnGenerator(FromScratchColumnGenerator[SeedDatasetMultiColu
             name="seed_dataset_column_generator",
             description="Sample columns from a seed dataset.",
             generation_strategy=GenerationStrategy.FULL_COLUMN,
-            required_resources=[ResourceType.DATASTORE],
+            required_resources=[ResourceType.SEED_READER],
         )
 
     @property
@@ -39,10 +39,10 @@ class SeedDatasetColumnGenerator(FromScratchColumnGenerator[SeedDatasetMultiColu
 
     @functools.cached_property
     def duckdb_conn(self) -> duckdb.DuckDBPyConnection:
-        return self.resource_provider.datastore.create_duckdb_connection()
+        return self.resource_provider.seed_reader.create_duckdb_connection()
 
-    def generate(self, dataset: pd.DataFrame) -> pd.DataFrame:
-        return concat_datasets([self.generate_from_scratch(len(dataset)), dataset])
+    def generate(self, data: pd.DataFrame) -> pd.DataFrame:
+        return concat_datasets([self.generate_from_scratch(len(data)), data])
 
     def generate_from_scratch(self, num_records: int) -> pd.DataFrame:
         if num_records <= 0:
@@ -57,7 +57,7 @@ class SeedDatasetColumnGenerator(FromScratchColumnGenerator[SeedDatasetMultiColu
         self._num_records_sampled = 0
         self._batch_reader = None
         self._df_remaining = None
-        self._dataset_uri = self.resource_provider.datastore.get_dataset_uri(self.config.dataset)
+        self._dataset_uri = self.resource_provider.seed_reader.get_dataset_uri()
         self._seed_dataset_size = self.duckdb_conn.execute(f"SELECT COUNT(*) FROM '{self._dataset_uri}'").fetchone()[0]
         self._index_range = self._resolve_index_range()
 

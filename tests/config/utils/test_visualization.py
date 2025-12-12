@@ -1,8 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from unittest.mock import patch
-
 import pandas as pd
 import pytest
 
@@ -30,21 +28,18 @@ def validation_output():
 @pytest.fixture
 def config_builder_with_validation(stub_model_configs):
     """Fixture providing a DataDesignerConfigBuilder with a validation column."""
-    with patch("data_designer.config.config_builder.fetch_seed_dataset_column_names") as mock_fetch:
-        mock_fetch.return_value = ["code"]
+    builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
 
-        builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    # Add a validation column configuration
+    builder.add_column(
+        name="code_validation_result",
+        column_type="validation",
+        target_columns=["code"],
+        validator_type="code",
+        validator_params=CodeValidatorParams(code_lang=CodeLang.PYTHON),
+    )
 
-        # Add a validation column configuration
-        builder.add_column(
-            name="code_validation_result",
-            column_type="validation",
-            target_columns=["code"],
-            validator_type="code",
-            validator_params=CodeValidatorParams(code_lang=CodeLang.PYTHON),
-        )
-
-        return builder
+    return builder
 
 
 def test_display_sample_record_twice_no_errors(validation_output, config_builder_with_validation):
