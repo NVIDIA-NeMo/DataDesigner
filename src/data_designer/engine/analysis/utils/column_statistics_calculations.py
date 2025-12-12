@@ -61,9 +61,22 @@ def calculate_column_distribution(
 def calculate_general_column_info(column_name: str, df: pd.DataFrame) -> dict[str, Any]:
     try:
         _df = pd.DataFrame(df[column_name].apply(ensure_hashable))
+
+        if has_pyarrow_backend(df):
+            pyarrow_dtype = str(df[column_name].dtype.pyarrow_dtype)
+            simple_dtype = convert_pyarrow_dtype_to_simple_dtype(df[column_name].dtype.pyarrow_dtype)
+        else:
+            # We do not log a warning at the column-level because it would be too noisy.
+            # However, there is a logged warning at the dataset-profiler level.
+            try:
+                simple_dtype = get_column_data_type_from_first_non_null_value(column_name, df)
+            except Exception:
+                simple_dtype = MissingValue.CALCULATION_FAILED
+            pyarrow_dtype = "n/a"
+
         return {
-            "pyarrow_dtype": str(df[column_name].dtype.pyarrow_dtype),
-            "simple_dtype": convert_pyarrow_dtype_to_simple_dtype(df[column_name].dtype.pyarrow_dtype),
+            "pyarrow_dtype": pyarrow_dtype,
+            "simple_dtype": simple_dtype,
             "num_records": len(_df[column_name]),
             "num_null": _df[column_name].isnull().sum(),
             "num_unique": _df[column_name].nunique(),
@@ -152,22 +165,33 @@ def convert_pyarrow_dtype_to_simple_dtype(pyarrow_dtype: pa.DataType) -> str:
         return f"list[{convert_pyarrow_dtype_to_simple_dtype(pyarrow_dtype.value_type)}]"
     if isinstance(pyarrow_dtype, pa.StructType):
         return "dict"
-    pyarrow_dtype_str = str(pyarrow_dtype)
-    if "int" in pyarrow_dtype_str:
+    return convert_to_simple_dtype(str(pyarrow_dtype))
+
+
+def convert_to_simple_dtype(dtype: str) -> str:
+    if "int" in dtype:
         return "int"
-    if "double" in pyarrow_dtype_str:
+    if "double" in dtype:
         return "float"
-    if "float" in pyarrow_dtype_str:
+    if "float" in dtype:
         return "float"
-    if "string" in pyarrow_dtype_str:
+    if "string" in dtype:
         return "string"
-    if "timestamp" in pyarrow_dtype_str:
+    if "timestamp" in dtype:
         return "timestamp"
-    if "time" in pyarrow_dtype_str:
+    if "time" in dtype:
         return "time"
-    if "date" in pyarrow_dtype_str:
+    if "date" in dtype:
         return "date"
-    return pyarrow_dtype_str
+    return dtype
+
+
+def get_column_data_type_from_first_non_null_value(column_name: str, df: pd.DataFrame) -> str:
+    df_no_nulls = df[column_name].dropna()
+    if len(df_no_nulls) == 0:
+        return MissingValue.CALCULATION_FAILED
+    dtype = type(df_no_nulls.iloc[0]).__name__
+    return convert_to_simple_dtype(dtype)
 
 
 def ensure_hashable(x: Any) -> str:
@@ -199,3 +223,7 @@ def ensure_boolean(v: bool | str | int | None) -> bool:
     if v is None:
         return False
     raise ValueError(f"Invalid boolean value: {v}")
+
+
+def has_pyarrow_backend(df: pd.DataFrame) -> bool:
+    return all(isinstance(dtype, pd.ArrowDtype) for dtype in df.dtypes)
