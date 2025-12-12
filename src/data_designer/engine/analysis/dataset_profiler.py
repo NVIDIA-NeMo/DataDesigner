@@ -104,11 +104,20 @@ class DataDesignerDatasetProfiler:
         if not has_pyarrow_backend(dataset):
             try:
                 dataset = pa.Table.from_pandas(dataset).to_pandas(types_mapper=pd.ArrowDtype)
-            except Exception:
+            except Exception as e:
+                # For ArrowTypeError, the second arg contains the more informative message
+                if isinstance(e, pa.lib.ArrowTypeError) and len(e.args) > 1:
+                    error_msg = str(e.args[1])
+                else:
+                    error_msg = str(e)
+                for col in dataset.columns:
+                    # Make sure column names are clear in the error message
+                    error_msg = error_msg.replace(col, f"'{col}'")
+                logger.warning("⚠️ Unable to convert the dataset to a PyArrow backend")
+                logger.warning(f"  |-- Conversion Error Message: {error_msg}")
+                logger.warning("  |-- This is often due to at least one column having mixed data types")
                 logger.warning(
-                    "⚠️ Unable to convert the dataset to a PyArrow backend. This is often due to at least "
-                    "one column having mixed data types. As a result, the reported data types "
-                    "will be inferred from the type of the first non-null value of each column."
+                    "  |-- Note: Reported data types will be inferred from the first non-null value of each column"
                 )
         return dataset
 
