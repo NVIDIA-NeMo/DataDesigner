@@ -8,7 +8,13 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal, Optional
 
-from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig, ModelProvider
+from data_designer.config.models import (
+    ChatCompletionInferenceParams,
+    EmbeddingInferenceParams,
+    InferenceParamsT,
+    ModelConfig,
+    ModelProvider,
+)
 from data_designer.config.utils.constants import (
     MANAGED_ASSETS_PATH,
     MODEL_CONFIGS_FILE_PATH,
@@ -42,13 +48,22 @@ def get_default_vision_alias_inference_parameters() -> ChatCompletionInferencePa
     )
 
 
+def get_default_embedding_alias_inference_parameters(provider: str) -> EmbeddingInferenceParams:
+    args = dict(encoding_format="float")
+    if provider == "nvidia":
+        args["extra_body"] = {"input_type": "query"}
+    return EmbeddingInferenceParams(**args)
+
+
 def get_default_inference_parameters(
-    model_alias: Literal["text", "reasoning", "vision"],
-) -> ChatCompletionInferenceParams:
+    model_alias: Literal["text", "reasoning", "vision", "embedding"], provider: str
+) -> InferenceParamsT:
     if model_alias == "reasoning":
         return get_default_reasoning_alias_inference_parameters()
     elif model_alias == "vision":
         return get_default_vision_alias_inference_parameters()
+    elif model_alias == "embedding":
+        return get_default_embedding_alias_inference_parameters(provider)
     else:
         return get_default_text_alias_inference_parameters()
 
@@ -62,7 +77,7 @@ def get_builtin_model_configs() -> list[ModelConfig]:
                     alias=f"{provider}-{model_alias}",
                     model=model_id,
                     provider=provider,
-                    inference_parameters=get_default_inference_parameters(model_alias),
+                    inference_parameters=get_default_inference_parameters(model_alias, provider),
                 )
             )
     return model_configs
