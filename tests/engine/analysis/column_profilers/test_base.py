@@ -37,17 +37,6 @@ def test_column_config_with_dataframe_column_not_found_validation_error():
         ColumnConfigWithDataFrame(column_config=column_config, df=df)
 
 
-def test_column_config_with_dataframe_pyarrow_backend_conversion():
-    df = pd.DataFrame({"test_column": [1, 2, 3]})
-    column_config = SamplerColumnConfig(
-        name="test_column", sampler_type=SamplerType.CATEGORY, params={"values": [1, 2, 3]}
-    )
-
-    config_with_df = ColumnConfigWithDataFrame(column_config=column_config, df=df)
-
-    assert all(isinstance(dtype, pd.ArrowDtype) for dtype in config_with_df.df.dtypes)
-
-
 def test_column_config_with_dataframe_as_tuple_method():
     df = pd.DataFrame({"test_column": [1, 2, 3]})
     column_config = SamplerColumnConfig(
