@@ -2,9 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import functools
+import importlib.metadata
 import json
 import logging
 import time
+import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
@@ -32,12 +35,22 @@ from data_designer.engine.dataset_builders.utils.concurrency import (
 from data_designer.engine.dataset_builders.utils.dataset_batch_manager import (
     DatasetBatchManager,
 )
+from data_designer.engine.models.telemetry import InferenceEvent, NemoSourceEnum, TaskStatusEnum, TelemetryHandler
 from data_designer.engine.processing.processors.base import Processor
 from data_designer.engine.processing.processors.drop_columns import DropColumnsProcessor
 from data_designer.engine.registry.data_designer_registry import DataDesignerRegistry
 from data_designer.engine.resources.resource_provider import ResourceProvider
 
 logger = logging.getLogger(__name__)
+
+
+_CLIENT_VERSION: str = importlib.metadata.version("data_designer")
+
+
+@dataclass
+class UsageSnapshot:
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
 
 
 class ColumnWiseDatasetBuilder:
@@ -86,11 +99,12 @@ class ColumnWiseDatasetBuilder:
 
         generators = self._initialize_generators()
         start_time = time.perf_counter()
+        group_id = uuid.uuid4().hex
 
         self.batch_manager.start(num_records=num_records, buffer_size=buffer_size)
         for batch_idx in range(self.batch_manager.num_batches):
             logger.info(f"⏳ Processing batch {batch_idx + 1} of {self.batch_manager.num_batches}")
-            self._run_batch(generators)
+            self._run_batch(generators, batch_mode="batch", group_id=group_id)
             df_batch = self._run_processors(
                 stage=BuildStage.POST_BATCH,
                 dataframe=self.batch_manager.get_current_batch(as_dataframe=True),
@@ -111,10 +125,10 @@ class ColumnWiseDatasetBuilder:
         self._run_model_health_check_if_needed()
 
         generators = self._initialize_generators()
-
+        group_id = uuid.uuid4().hex
         start_time = time.perf_counter()
         self.batch_manager.start(num_records=num_records, buffer_size=num_records)
-        self._run_batch(generators, save_partial_results=False)
+        self._run_batch(generators, batch_mode="preview", save_partial_results=False, group_id=group_id)
         dataset = self.batch_manager.get_current_batch(as_dataframe=True)
         self.batch_manager.reset()
 
@@ -140,7 +154,10 @@ class ColumnWiseDatasetBuilder:
             for config in self._column_configs
         ]
 
-    def _run_batch(self, generators: list[ColumnGenerator], *, save_partial_results: bool = True) -> None:
+    def _run_batch(
+        self, generators: list[ColumnGenerator], *, batch_mode: str, save_partial_results: bool = True, group_id: str
+    ) -> None:
+        usage_snapshot = self._snapshot_model_usage()
         for generator in generators:
             generator.log_pre_generation()
             try:
@@ -162,6 +179,11 @@ class ColumnWiseDatasetBuilder:
                     else f"column {generator.config.name!r}"
                 )
                 raise DatasetGenerationError(f"🛑 Failed to process {column_error_str}:\n{e}")
+
+        try:
+            self._emit_batch_inference_events(batch_mode, usage_snapshot, group_id)
+        except Exception:
+            pass
 
     def _run_from_scratch_column_generator(self, generator: ColumnGenerator) -> None:
         df = generator.generate_from_scratch(self.batch_manager.num_records_batch)
@@ -286,3 +308,39 @@ class ColumnWiseDatasetBuilder:
             json_file_name="model_configs.json",
             configs=self._resource_provider.model_registry.model_configs.values(),
         )
+
+    def _snapshot_model_usage(self) -> dict[str, UsageSnapshot]:
+        snapshot = {}
+        for model in self._resource_provider.model_registry.models.values():
+            snapshot[model.model_name] = UsageSnapshot(
+                prompt_tokens=model.usage_stats.token_usage.prompt_tokens,
+                completion_tokens=model.usage_stats.token_usage.completion_tokens,
+            )
+        return snapshot
+
+    def _emit_batch_inference_events(
+        self, batch_mode: str, usage_snapshot: dict[str, UsageSnapshot], group_id: str
+    ) -> None:
+        events = []
+        for model in self._resource_provider.model_registry.models.values():
+            prev = usage_snapshot.get(model.model_name, UsageSnapshot())
+            delta_prompt = model.usage_stats.token_usage.prompt_tokens - prev.prompt_tokens
+            delta_completion = model.usage_stats.token_usage.completion_tokens - prev.completion_tokens
+
+            if delta_prompt > 0 or delta_completion > 0:
+                events.append(
+                    InferenceEvent(
+                        nemo_source=NemoSourceEnum.DATADESIGNER,
+                        task=batch_mode,
+                        task_status=TaskStatusEnum.SUCCESS,
+                        model=model.model_name,
+                        model_group=group_id,
+                        input_tokens=delta_prompt,
+                        output_tokens=delta_completion,
+                    )
+                )
+
+        if events:
+            with TelemetryHandler(source_client_version=_CLIENT_VERSION) as telemetry_handler:
+                for event in events:
+                    telemetry_handler.enqueue(event)

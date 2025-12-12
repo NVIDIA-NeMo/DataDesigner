@@ -25,7 +25,7 @@ class ModelRegistry:
         self._secret_resolver = secret_resolver
         self._model_provider_registry = model_provider_registry
         self._model_configs = {}
-        self._models = {}
+        self._models: dict[str, ModelFacade] = {}
         self._set_model_configs(model_configs)
 
     @property

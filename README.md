@@ -117,6 +117,31 @@ data-designer config list      # View current settings
 
 ---
 
+## Telemetry
+
+Data Designer logs which models are being used for synthetic data generation (SDG) along with the counts of input and output tokens during generation tasks. No user or device information is collected. This data is used purely to understand the best models for SDG and this data will be shared with the community.
+
+Specifically, a model name that is defined a `ModelConfig` object, is what will be collected. In the below example config:
+
+```python
+ModelConfig(
+    alias="nv-reasoning",
+    model="openai/gpt-oss-20b",
+    provider="nvidia",
+    inference_parameters=InferenceParameters(
+        temperature=0.3,
+        top_p=0.9,
+        max_tokens=4096,
+    ),
+    )
+```
+
+The value `openai/gpt-oss-20b` would be collected.
+
+To disable telemetry capture, set `NEMO_TELEMETRY_ENABLED=false`.
+
+---
+
 ## License
 
 Apache License 2.0 – see [LICENSE](LICENSE) for details.
