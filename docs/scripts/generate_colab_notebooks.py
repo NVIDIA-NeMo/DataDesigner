@@ -30,7 +30,7 @@ ADDITIONAL_DEPENDENCIES = {
 }
 
 COLAB_INSTALL_CELL = """\
-!pip install -q data-designer"""
+!pip install -qU data-designer"""
 
 COLAB_DEPENDENCIES_CELL = """\
 !pip install -q {deps}"""
