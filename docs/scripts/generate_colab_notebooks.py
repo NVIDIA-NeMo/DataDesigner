@@ -17,24 +17,24 @@ import jupytext
 from nbformat import NotebookNode
 from nbformat.v4 import new_code_cell, new_markdown_cell
 
+from data_designer import __version__ as data_designer_version
+
 IMPORT_SECTION_MARKER = "### 📦 Import the essentials"
 
 COLAB_SETUP_MARKDOWN = """\
 ### ⚡ Colab Setup
 
-Run the cells below to set up the environment for Google Colab.
+Run the cells below to install the dependencies and set up the API key.
 """
 
 ADDITIONAL_DEPENDENCIES = {
-    "4-providing-images-as-context.py": " pillow",
+    "4-providing-images-as-context.py": " pillow>=12.0.0",
 }
 
 COLAB_INSTALL_CELL = """\
-# Install data-designer and dependencies
-!pip install -q data-designer{}"""
+!pip install -q data-designer>={version}{deps}"""
 
 COLAB_API_KEY_CELL = """\
-# Set up NVIDIA API key from Colab secrets
 import os
 
 from google.colab import userdata
@@ -46,7 +46,10 @@ def create_colab_setup_cells(additional_dependencies: str) -> list[NotebookNode]
     """Create the Colab-specific setup cells to inject before imports."""
     return [
         new_markdown_cell(source=COLAB_SETUP_MARKDOWN),
-        new_code_cell(source=COLAB_INSTALL_CELL.format(additional_dependencies)),
+        new_code_cell(source=COLAB_INSTALL_CELL.format(
+            version=".".join(data_designer_version.split(".")[:3]),
+            deps=additional_dependencies,
+        )),
         new_code_cell(source=COLAB_API_KEY_CELL),
     ]
 
