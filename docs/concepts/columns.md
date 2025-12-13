@@ -68,7 +68,7 @@ Use judge columns for data quality filtering (e.g., keep only 4+ rated responses
 
 Embedding columns generate vector embeddings (numerical representations) for text content using embedding models. These embeddings capture semantic meaning, enabling similarity search, clustering, and semantic analysis.
 
-Specify a `target_column` containing text, and Data Designer generates embeddings for that content. The target column can contain either a single text string or a list of text strings in stringified JSON format—in the latter case, embeddings are generated for each text string in the list.
+Specify a `target_column` containing text, and Data Designer generates embeddings for that content. The target column can contain either a single text string or a list of text strings in stringified JSON format. In the latter case, embeddings are generated for each text string in the list.
 
 Common use cases:
 
