@@ -1,0 +1,55 @@
+name: Check Colab notebooks
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'docs/notebook_source/*.py'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'docs/notebook_source/*.py'
+  workflow_dispatch:
+
+jobs:
+  check-colab-notebooks:
+    name: Check Colab Notebooks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          python-version: "3.11"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: |
+          uv sync --group notebooks --group docs
+
+      - name: Generate Colab notebooks
+        run: |
+          make generate-colab-notebooks
+
+      - name: Check for differences
+        run: |
+          # Get the diff, filtering out cell ID changes (which are randomly generated)
+          # Filter out: file markers (--- and +++), and "id" lines
+          MEANINGFUL_DIFF=$(git diff docs/colab_notebooks/ | grep -E '^[+-]' | grep -v '^---' | grep -v '^+++' | grep -vE '^[+-]\s*"id": "[0-9a-fA-F]+",?$' || true)
+
+          if [ -z "$MEANINGFUL_DIFF" ]; then
+            echo "✅ Colab notebooks are up-to-date (ignoring cell ID changes)"
+          else
+            echo "❌ Colab notebooks are out of sync with source files"
+            echo ""
+            echo "The generated notebooks differ from the committed ones."
+            echo "Please run 'make generate-colab-notebooks' locally and commit the changes."
+            echo ""
+            echo "Differences found:"
+            echo "$MEANINGFUL_DIFF"
+            exit 1
+          fi

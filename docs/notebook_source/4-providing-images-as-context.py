@@ -27,12 +27,6 @@
 #
 
 # %% [markdown]
-# ### ⬇️ Install dependencies (if required)
-
-# %%
-# !uv pip install pillow
-
-# %% [markdown]
 # ### 📦 Import the essentials
 #
 # - The `essentials` module provides quick access to the most commonly used objects.
