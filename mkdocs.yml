@@ -14,6 +14,7 @@ nav:
           - Configure with the CLI: concepts/models/configure-model-settings-with-the-cli.md
           - Model Providers: concepts/models/model-providers.md
           - Model Configs: concepts/models/model-configs.md
+          - Inference Parameters: concepts/models/inference-parameters.md
       - Columns: concepts/columns.md
       - Validators: concepts/validators.md
       - Person Sampling: concepts/person_sampling.md

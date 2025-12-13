@@ -5,7 +5,7 @@ from collections import namedtuple
 from unittest.mock import patch
 
 import pytest
-from litellm.types.utils import Choices, Message, ModelResponse
+from litellm.types.utils import Choices, EmbeddingResponse, Message, ModelResponse
 
 from data_designer.engine.models.errors import ModelGenerationValidationFailureError
 from data_designer.engine.models.facade import ModelFacade
@@ -30,8 +30,18 @@ def stub_model_facade(stub_model_configs, stub_secrets_resolver, stub_model_prov
 
 
 @pytest.fixture
-def stub_expected_response():
+def stub_completion_messages():
+    return [{"role": "user", "content": "test"}]
+
+
+@pytest.fixture
+def stub_expected_completion_response():
     return ModelResponse(choices=Choices(message=Message(content="Test response")))
+
+
+@pytest.fixture
+def stub_expected_embedding_response():
+    return EmbeddingResponse(data=[{"embedding": [0.1, 0.2, 0.3]}] * 2)
 
 
 @pytest.mark.parametrize(
@@ -105,6 +115,24 @@ def test_usage_stats_property(stub_model_facade):
     assert hasattr(stub_model_facade.usage_stats, "model_dump")
 
 
+def test_consolidate_kwargs(stub_model_configs, stub_model_facade):
+    # Model config generate kwargs are used as base, and purpose is removed
+    result = stub_model_facade.consolidate_kwargs(purpose="test")
+    assert result == stub_model_configs[0].inference_parameters.generate_kwargs
+
+    # kwargs overrides model config generate kwargs
+    result = stub_model_facade.consolidate_kwargs(temperature=0.01, purpose="test")
+    assert result == {**stub_model_configs[0].inference_parameters.generate_kwargs, "temperature": 0.01}
+
+    # Provider extra_body overrides all other kwargs
+    stub_model_facade.model_provider.extra_body = {"foo_provider": "bar_provider"}
+    result = stub_model_facade.consolidate_kwargs(extra_body={"foo": "bar"}, purpose="test")
+    assert result == {
+        **stub_model_configs[0].inference_parameters.generate_kwargs,
+        "extra_body": {"foo_provider": "bar_provider", "foo": "bar"},
+    }
+
+
 @pytest.mark.parametrize(
     "skip_usage_tracking",
     [
@@ -112,63 +140,85 @@ def test_usage_stats_property(stub_model_facade):
         True,
     ],
 )
-def test_completion_success(stub_model_facade, stub_expected_response, skip_usage_tracking):
-    stub_model_facade._router.completion = lambda model_name, messages, **kwargs: stub_expected_response
-
-    messages = [{"role": "user", "content": "test"}]
-    result = stub_model_facade.completion(messages, skip_usage_tracking=skip_usage_tracking)
-
-    assert result == stub_expected_response
-
-
-def test_completion_with_exception(stub_model_facade):
-    def raise_exception(*args, **kwargs):
-        raise Exception("Router error")
-
-    stub_model_facade._router.completion = raise_exception
-
-    messages = [{"role": "user", "content": "test"}]
-
-    with pytest.raises(Exception, match="Router error"):
-        stub_model_facade.completion(messages)
-
-
-def test_completion_with_kwargs(stub_model_facade, stub_expected_response):
-    captured_kwargs = {}
-
-    def mock_completion(model_name, messages, **kwargs):
-        captured_kwargs.update(kwargs)
-        return stub_expected_response
-
-    stub_model_facade._router.completion = mock_completion
-
-    messages = [{"role": "user", "content": "test"}]
-    kwargs = {"temperature": 0.7, "max_tokens": 100}
-    result = stub_model_facade.completion(messages, **kwargs)
-
-    assert result == stub_expected_response
-    assert captured_kwargs == kwargs
+@patch("data_designer.engine.models.facade.CustomRouter.completion", autospec=True)
+def test_completion_success(
+    mock_router_completion,
+    stub_completion_messages,
+    stub_model_configs,
+    stub_model_facade,
+    stub_expected_completion_response,
+    skip_usage_tracking,
+):
+    mock_router_completion.side_effect = lambda self, model, messages, **kwargs: stub_expected_completion_response
+    result = stub_model_facade.completion(stub_completion_messages, skip_usage_tracking=skip_usage_tracking)
+    assert result == stub_expected_completion_response
+    assert mock_router_completion.call_count == 1
+    assert mock_router_completion.call_args[1] == {
+        "model": "stub-model-text",
+        "messages": stub_completion_messages,
+        **stub_model_configs[0].inference_parameters.generate_kwargs,
+    }
 
 
 @patch("data_designer.engine.models.facade.CustomRouter.completion", autospec=True)
-def test_completion_with_extra_body(mock_router_completion, stub_model_facade):
-    messages = [{"role": "user", "content": "test"}]
+def test_completion_with_exception(mock_router_completion, stub_completion_messages, stub_model_facade):
+    mock_router_completion.side_effect = Exception("Router error")
 
-    # completion call has no extra body argument and provider has no extra body
-    _ = stub_model_facade.completion(messages)
-    assert len(mock_router_completion.call_args) == 2
-    assert mock_router_completion.call_args[0][1] == "stub-model-text"
-    assert mock_router_completion.call_args[0][2] == messages
+    with pytest.raises(Exception, match="Router error"):
+        stub_model_facade.completion(stub_completion_messages)
 
-    # completion call has no extra body argument and provider has extra body.
-    # Should pull extra body from model provider
-    custom_extra_body = {"some_custom_key": "some_custom_value"}
-    stub_model_facade.model_provider.extra_body = custom_extra_body
-    _ = stub_model_facade.completion(messages)
-    assert mock_router_completion.call_args[1] == {"extra_body": custom_extra_body}
 
-    # completion call has extra body argument and provider has extra body.
-    # Should merge the two with provider extra body taking precedence
-    completion_extra_body = {"some_completion_key": "some_completion_value", "some_custom_key": "some_different_value"}
-    _ = stub_model_facade.completion(messages, extra_body=completion_extra_body)
-    assert mock_router_completion.call_args[1] == {"extra_body": {**completion_extra_body, **custom_extra_body}}
+@patch("data_designer.engine.models.facade.CustomRouter.completion", autospec=True)
+def test_completion_with_kwargs(
+    mock_router_completion,
+    stub_completion_messages,
+    stub_model_configs,
+    stub_model_facade,
+    stub_expected_completion_response,
+):
+    captured_kwargs = {}
+
+    def mock_completion(self, model, messages, **kwargs):
+        captured_kwargs.update(kwargs)
+        return stub_expected_completion_response
+
+    mock_router_completion.side_effect = mock_completion
+
+    kwargs = {"temperature": 0.7, "max_tokens": 100}
+    result = stub_model_facade.completion(stub_completion_messages, **kwargs)
+
+    assert result == stub_expected_completion_response
+    # completion kwargs overrides model config generate kwargs
+    assert captured_kwargs == {**stub_model_configs[0].inference_parameters.generate_kwargs, **kwargs}
+
+
+@patch("data_designer.engine.models.facade.CustomRouter.embedding", autospec=True)
+def test_generate_text_embeddings_success(mock_router_embedding, stub_model_facade, stub_expected_embedding_response):
+    mock_router_embedding.side_effect = lambda self, model, input, **kwargs: stub_expected_embedding_response
+    input_texts = ["test1", "test2"]
+    result = stub_model_facade.generate_text_embeddings(input_texts)
+    assert result == [data["embedding"] for data in stub_expected_embedding_response.data]
+
+
+@patch("data_designer.engine.models.facade.CustomRouter.embedding", autospec=True)
+def test_generate_text_embeddings_with_exception(mock_router_embedding, stub_model_facade):
+    mock_router_embedding.side_effect = Exception("Router error")
+
+    with pytest.raises(Exception, match="Router error"):
+        stub_model_facade.generate_text_embeddings(["test1", "test2"])
+
+
+@patch("data_designer.engine.models.facade.CustomRouter.embedding", autospec=True)
+def test_generate_text_embeddings_with_kwargs(
+    mock_router_embedding, stub_model_configs, stub_model_facade, stub_expected_embedding_response
+):
+    captured_kwargs = {}
+
+    def mock_embedding(self, model, input, **kwargs):
+        captured_kwargs.update(kwargs)
+        return stub_expected_embedding_response
+
+    mock_router_embedding.side_effect = mock_embedding
+    kwargs = {"temperature": 0.7, "max_tokens": 100, "input_type": "query"}
+    _ = stub_model_facade.generate_text_embeddings(["test1", "test2"], **kwargs)
+    assert captured_kwargs == {**stub_model_configs[0].inference_parameters.generate_kwargs, **kwargs}

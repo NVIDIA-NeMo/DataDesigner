@@ -10,15 +10,18 @@ from typing import Callable
 
 import pandas as pd
 
-from data_designer.config.column_types import ColumnConfigT, column_type_is_llm_generated
+from data_designer.config.column_types import ColumnConfigT, column_type_is_model_generated
 from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.processors import (
     DropColumnsProcessorConfig,
     ProcessorConfig,
     ProcessorType,
 )
-from data_designer.engine.column_generators.generators.base import ColumnGenerator, GenerationStrategy
-from data_designer.engine.column_generators.generators.llm_generators import WithLLMGeneration
+from data_designer.engine.column_generators.generators.base import (
+    ColumnGenerator,
+    GenerationStrategy,
+    WithModelGeneration,
+)
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError, DatasetProcessingError
 from data_designer.engine.dataset_builders.multi_column_configs import (
@@ -72,7 +75,7 @@ class ColumnWiseDatasetBuilder:
 
     @functools.cached_property
     def llm_generated_column_configs(self) -> list[ColumnConfigT]:
-        return [config for config in self.single_column_configs if column_type_is_llm_generated(config.column_type)]
+        return [config for config in self.single_column_configs if column_type_is_model_generated(config.column_type)]
 
     def build(
         self,
@@ -169,7 +172,7 @@ class ColumnWiseDatasetBuilder:
 
     def _run_cell_by_cell_generator(self, generator: ColumnGenerator) -> None:
         max_workers = MAX_CONCURRENCY_PER_NON_LLM_GENERATOR
-        if isinstance(generator, WithLLMGeneration):
+        if isinstance(generator, WithModelGeneration):
             max_workers = generator.inference_parameters.max_parallel_requests
         self._fan_out_with_threads(generator, max_workers=max_workers)
 
@@ -178,12 +181,12 @@ class ColumnWiseDatasetBuilder:
         self.batch_manager.update_records(df.to_dict(orient="records"))
 
     def _run_model_health_check_if_needed(self) -> bool:
-        if any(column_type_is_llm_generated(config.column_type) for config in self.single_column_configs):
+        if any(column_type_is_model_generated(config.column_type) for config in self.single_column_configs):
             self._resource_provider.model_registry.run_health_check(
-                set(config.model_alias for config in self.llm_generated_column_configs)
+                list(set(config.model_alias for config in self.llm_generated_column_configs))
             )
 
-    def _fan_out_with_threads(self, generator: WithLLMGeneration, max_workers: int) -> None:
+    def _fan_out_with_threads(self, generator: WithModelGeneration, max_workers: int) -> None:
         if generator.generation_strategy != GenerationStrategy.CELL_BY_CELL:
             raise DatasetGenerationError(
                 f"Generator {generator.metadata().name} is not a {GenerationStrategy.CELL_BY_CELL} "

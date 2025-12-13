@@ -8,7 +8,7 @@ import os
 from collections import OrderedDict
 from enum import Enum
 from functools import cached_property
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -194,6 +194,7 @@ def display_sample_record(
         + config_builder.get_columns_of_type(DataDesignerColumnType.EXPRESSION)
         + config_builder.get_columns_of_type(DataDesignerColumnType.LLM_TEXT)
         + config_builder.get_columns_of_type(DataDesignerColumnType.LLM_STRUCTURED)
+        + config_builder.get_columns_of_type(DataDesignerColumnType.EMBEDDING)
     )
     if len(non_code_columns) > 0:
         table = Table(title="Generated Columns", **table_kws)
@@ -201,6 +202,10 @@ def display_sample_record(
         table.add_column("Value")
         for col in non_code_columns:
             if not col.drop:
+                if col.column_type == DataDesignerColumnType.EMBEDDING:
+                    record[col.name]["embeddings"] = [
+                        get_truncated_list_as_string(embd) for embd in record[col.name].get("embeddings")
+                    ]
                 table.add_row(col.name, convert_to_row_element(record[col.name]))
         render_list.append(pad_console_element(table))
 
@@ -267,6 +272,16 @@ def display_sample_record(
         render_list.append(index_label)
 
     console.print(Group(*render_list), markup=False)
+
+
+def get_truncated_list_as_string(long_list: list[Any], max_items: int = 2) -> str:
+    if max_items <= 0:
+        raise ValueError("max_items must be greater than 0")
+    if len(long_list) > max_items:
+        truncated_part = long_list[:max_items]
+        return f"[{', '.join(str(x) for x in truncated_part)}, ...]"
+    else:
+        return str(long_list)
 
 
 def display_sampler_table(

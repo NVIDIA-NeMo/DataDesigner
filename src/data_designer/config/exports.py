@@ -3,6 +3,7 @@
 
 from data_designer.config.analysis.column_profilers import JudgeScoreProfilerConfig
 from data_designer.config.column_configs import (
+    EmbeddingColumnConfig,
     ExpressionColumnConfig,
     LLMCodeColumnConfig,
     LLMJudgeColumnConfig,
@@ -19,6 +20,9 @@ from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.datastore import DatastoreSettings
 from data_designer.config.models import (
+    ChatCompletionInferenceParams,
+    EmbeddingInferenceParams,
+    GenerationType,
     ImageContext,
     ImageFormat,
     InferenceParameters,
@@ -81,6 +85,7 @@ def get_config_exports() -> list[str]:
         CodeLang.__name__,
         CodeValidatorParams.__name__,
         ColumnInequalityConstraint.__name__,
+        ChatCompletionInferenceParams.__name__,
         DataDesignerColumnType.__name__,
         DataDesignerConfig.__name__,
         DataDesignerConfigBuilder.__name__,
@@ -89,8 +94,11 @@ def get_config_exports() -> list[str]:
         DatastoreSettings.__name__,
         DatetimeSamplerParams.__name__,
         DropColumnsProcessorConfig.__name__,
+        EmbeddingColumnConfig.__name__,
+        EmbeddingInferenceParams.__name__,
         ExpressionColumnConfig.__name__,
         GaussianSamplerParams.__name__,
+        GenerationType.__name__,
         IndexRange.__name__,
         InfoType.__name__,
         ImageContext.__name__,

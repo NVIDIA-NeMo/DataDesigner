@@ -64,6 +64,22 @@ Define scoring rubrics (relevance, accuracy, fluency, helpfulness) and the judge
 
 Use judge columns for data quality filtering (e.g., keep only 4+ rated responses), A/B testing generation strategies, and quality monitoring over time.
 
+### 🧬 Embedding Columns
+
+Embedding columns generate vector embeddings (numerical representations) for text content using embedding models. These embeddings capture semantic meaning, enabling similarity search, clustering, and semantic analysis.
+
+Specify a `target_column` containing text, and Data Designer generates embeddings for that content. The target column can contain either a single text string or a list of text strings in stringified JSON format. In the latter case, embeddings are generated for each text string in the list.
+
+Common use cases:
+
+- **Semantic search**: Generate embeddings for documents, then find similar content by vector similarity
+- **Clustering**: Group similar texts based on embedding proximity
+- **Recommendation systems**: Match content by semantic similarity
+- **Anomaly detection**: Identify outliers in embedding space
+
+!!! note "Embedding Models"
+    Embedding columns require an embedding model configured with `EmbeddingInferenceParams`. These models differ from chat completion models—they output vectors rather than text. The generation type is automatically determined by the inference parameters type.
+
 ### 🧩 Expression Columns
 
 Expression columns handle simple transformations using **Jinja2 templates**—concatenate first and last names, calculate numerical totals, format date strings. No LLM overhead needed.

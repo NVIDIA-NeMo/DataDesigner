@@ -119,30 +119,30 @@ class LLMTextColumnStatistics(GeneralColumnStatistics):
     Stores both prompt and completion token consumption data.
 
     Attributes:
-        completion_tokens_mean: Mean number of completion tokens generated per record.
-        completion_tokens_median: Median number of completion tokens generated per record.
-        completion_tokens_stddev: Standard deviation of completion tokens per record.
-        prompt_tokens_mean: Mean number of prompt tokens used per record.
-        prompt_tokens_median: Median number of prompt tokens used per record.
-        prompt_tokens_stddev: Standard deviation of prompt tokens per record.
+        output_tokens_mean: Mean number of output tokens generated per record.
+        output_tokens_median: Median number of output tokens generated per record.
+        output_tokens_stddev: Standard deviation of output tokens per record.
+        input_tokens_mean: Mean number of input tokens used per record.
+        input_tokens_median: Median number of input tokens used per record.
+        input_tokens_stddev: Standard deviation of input tokens per record.
         column_type: Discriminator field, always "llm-text" for this statistics type.
     """
 
-    completion_tokens_mean: Union[float, MissingValue]
-    completion_tokens_median: Union[float, MissingValue]
-    completion_tokens_stddev: Union[float, MissingValue]
-    prompt_tokens_mean: Union[float, MissingValue]
-    prompt_tokens_median: Union[float, MissingValue]
-    prompt_tokens_stddev: Union[float, MissingValue]
+    output_tokens_mean: Union[float, MissingValue]
+    output_tokens_median: Union[float, MissingValue]
+    output_tokens_stddev: Union[float, MissingValue]
+    input_tokens_mean: Union[float, MissingValue]
+    input_tokens_median: Union[float, MissingValue]
+    input_tokens_stddev: Union[float, MissingValue]
     column_type: Literal[DataDesignerColumnType.LLM_TEXT.value] = DataDesignerColumnType.LLM_TEXT.value
 
     @field_validator(
-        "completion_tokens_mean",
-        "completion_tokens_median",
-        "completion_tokens_stddev",
-        "prompt_tokens_mean",
-        "prompt_tokens_median",
-        "prompt_tokens_stddev",
+        "output_tokens_mean",
+        "output_tokens_median",
+        "output_tokens_stddev",
+        "input_tokens_mean",
+        "input_tokens_median",
+        "input_tokens_stddev",
         mode="before",
     )
     def llm_column_ensure_python_floats(cls, v: Union[float, int, MissingValue]) -> Union[float, int, MissingValue]:
@@ -150,13 +150,13 @@ class LLMTextColumnStatistics(GeneralColumnStatistics):
 
     def create_report_row_data(self) -> dict[str, Any]:
         prompt_tokens_str = (
-            f"{self.prompt_tokens_median:.1f} +/- {self.prompt_tokens_stddev:.1f}"
-            if not self._is_missing_value(self.prompt_tokens_median)
+            f"{self.input_tokens_median:.1f} +/- {self.input_tokens_stddev:.1f}"
+            if not self._is_missing_value(self.input_tokens_median)
             else "--"
         )
         completion_tokens_str = (
-            f"{self.completion_tokens_median:.1f} +/- {self.completion_tokens_stddev:.1f}"
-            if not self._is_missing_value(self.completion_tokens_median)
+            f"{self.output_tokens_median:.1f} +/- {self.output_tokens_stddev:.1f}"
+            if not self._is_missing_value(self.output_tokens_median)
             else "--"
         )
         return {

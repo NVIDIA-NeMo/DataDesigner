@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import logging
 
-from data_designer.config.models import ModelConfig
+from data_designer.config.models import GenerationType, ModelConfig
 from data_designer.engine.model_provider import ModelProvider, ModelProviderRegistry
 from data_designer.engine.models.facade import ModelFacade
 from data_designer.engine.models.litellm_overrides import apply_litellm_patches
@@ -73,7 +73,7 @@ class ModelRegistry:
         model_config = self.get_model_config(model_alias=model_alias)
         return self._model_provider_registry.get_provider(model_config.provider)
 
-    def run_health_check(self, model_aliases: set[str]) -> None:
+    def run_health_check(self, model_aliases: list[str]) -> None:
         logger.info("🩺 Running health checks for models...")
         for model_alias in model_aliases:
             model = self.get_model(model_alias=model_alias)
@@ -81,15 +81,24 @@ class ModelRegistry:
                 f"  |-- 👀 Checking {model.model_name!r} in provider named {model.model_provider_name!r} for model alias {model.model_alias!r}..."
             )
             try:
-                model.generate(
-                    prompt="Hello!",
-                    parser=lambda x: x,
-                    system_prompt="You are a helpful assistant.",
-                    max_correction_steps=0,
-                    max_conversation_restarts=0,
-                    skip_usage_tracking=True,
-                    purpose="running health checks",
-                )
+                if model.model_generation_type == GenerationType.EMBEDDING:
+                    model.generate_text_embeddings(
+                        input_texts=["Hello!"],
+                        skip_usage_tracking=True,
+                        purpose="running health checks",
+                    )
+                elif model.model_generation_type == GenerationType.CHAT_COMPLETION:
+                    model.generate(
+                        prompt="Hello!",
+                        parser=lambda x: x,
+                        system_prompt="You are a helpful assistant.",
+                        max_correction_steps=0,
+                        max_conversation_restarts=0,
+                        skip_usage_tracking=True,
+                        purpose="running health checks",
+                    )
+                else:
+                    raise ValueError(f"Unsupported generation type: {model.model_generation_type}")
                 logger.info("  |-- ✅ Passed!")
             except Exception as e:
                 logger.error("  |-- ❌ Failed!")

@@ -43,10 +43,10 @@ def test_llm_generated_column_statistics(stub_df, column_configs):
             assert stats.column_name == column_config.name
             assert stats.column_type == column_config.column_type
             assert stats.num_records == len(stub_df)
-            assert isinstance(stats.completion_tokens_mean, float)
-            assert isinstance(stats.completion_tokens_stddev, float)
-            assert isinstance(stats.prompt_tokens_mean, float)
-            assert isinstance(stats.prompt_tokens_stddev, float)
+            assert isinstance(stats.output_tokens_mean, float)
+            assert isinstance(stats.output_tokens_stddev, float)
+            assert isinstance(stats.input_tokens_mean, float)
+            assert isinstance(stats.input_tokens_stddev, float)
 
 
 def test_sampler_column_statistics(stub_df, column_configs):
