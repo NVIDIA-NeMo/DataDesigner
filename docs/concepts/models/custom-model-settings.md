@@ -35,7 +35,7 @@ custom_models = [
     # High-temperature for more variability
     ModelConfig(
         alias="creative-writer",
-        model="nvidia/nvidia-nemotron-nano-9b-v2",
+        model="nvidia/nemotron-3-nano-30b-a3b",
         provider="nvidia",  # Uses default NVIDIA provider
         inference_parameters=ChatCompletionInferenceParams(
             temperature=1.2,
@@ -46,7 +46,7 @@ custom_models = [
     # Low-temperature for less variability
     ModelConfig(
         alias="fact-checker",
-        model="nvidia/nvidia-nemotron-nano-9b-v2",
+        model="nvidia/nemotron-3-nano-30b-a3b",
         provider="nvidia",  # Uses default NVIDIA provider
         inference_parameters=ChatCompletionInferenceParams(
             temperature=0.1,

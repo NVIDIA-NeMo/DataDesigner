@@ -69,7 +69,7 @@ data_designer = DataDesigner()
 MODEL_PROVIDER = "nvidia"
 
 # The model ID is from build.nvidia.com.
-MODEL_ID = "nvidia/nvidia-nemotron-nano-9b-v2"
+MODEL_ID = "nvidia/nemotron-3-nano-30b-a3b"
 
 # We choose this alias to be descriptive for our use case.
 MODEL_ALIAS = "nemotron-nano-v2"

@@ -48,7 +48,7 @@ def test_get_builtin_model_configs():
     builtin_model_configs = get_builtin_model_configs()
     assert len(builtin_model_configs) == 8
     assert builtin_model_configs[0].alias == "nvidia-text"
-    assert builtin_model_configs[0].model == "nvidia/nvidia-nemotron-nano-9b-v2"
+    assert builtin_model_configs[0].model == "nvidia/nemotron-3-nano-30b-a3b"
     assert builtin_model_configs[0].provider == "nvidia"
     assert builtin_model_configs[1].alias == "nvidia-reasoning"
     assert builtin_model_configs[1].model == "openai/gpt-oss-20b"

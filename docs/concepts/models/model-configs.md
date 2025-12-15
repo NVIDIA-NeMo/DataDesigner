@@ -13,7 +13,7 @@ The `ModelConfig` class has the following fields:
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `alias` | `str` | Yes | Unique identifier for this model configuration (e.g., `"my-text-model"`, `"reasoning-model"`) |
-| `model` | `str` | Yes | Model identifier as recognized by the provider (e.g., `"nvidia/nvidia-nemotron-nano-9b-v2"`, `"gpt-4"`) |
+| `model` | `str` | Yes | Model identifier as recognized by the provider (e.g., `"nvidia/nemotron-3-nano-30b-a3b"`, `"gpt-4"`) |
 | `inference_parameters` | `InferenceParamsT` | No | Controls model behavior during generation. Use `ChatCompletionInferenceParams` for text/code/structured generation or `EmbeddingInferenceParams` for embeddings. Defaults to `ChatCompletionInferenceParams()` if not provided. The generation type is automatically determined by the inference parameters type. See [Inference Parameters](inference_parameters.md) for details. |
 | `provider` | `str` | No | Reference to the name of the Provider to use (e.g., `"nvidia"`, `"openai"`). If not specified, one set as the default provider, which may resolve to the first provider if there are more than one |
 
@@ -28,7 +28,7 @@ from data_designer.essentials import ChatCompletionInferenceParams, ModelConfig
 # Simple model configuration with fixed parameters
 model_config = ModelConfig(
     alias="my-text-model",
-    model="nvidia/nvidia-nemotron-nano-9b-v2",
+    model="nvidia/nemotron-3-nano-30b-a3b",
     provider="nvidia",
     inference_parameters=ChatCompletionInferenceParams(
         temperature=0.85,
@@ -52,7 +52,7 @@ model_configs = [
     # Creative tasks
     ModelConfig(
         alias="creative-model",
-        model="nvidia/nvidia-nemotron-nano-9b-v2",
+        model="nvidia/nemotron-3-nano-30b-a3b",
         provider="nvidia",
         inference_parameters=ChatCompletionInferenceParams(
             temperature=0.9,
@@ -63,7 +63,7 @@ model_configs = [
     # Critic tasks
     ModelConfig(
         alias="critic-model",
-        model="nvidia/nvidia-nemotron-nano-9b-v2",
+        model="nvidia/nemotron-3-nano-30b-a3b",
         provider="nvidia",
         inference_parameters=ChatCompletionInferenceParams(
             temperature=0.25,
