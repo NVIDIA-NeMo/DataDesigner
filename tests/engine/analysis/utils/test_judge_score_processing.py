@@ -22,66 +22,66 @@ from data_designer.engine.analysis.utils.judge_score_processing import (
 
 def test_extract_judge_score_distributions_numerical_scores(stub_judge_column_config):
     sample_judge_data = [
-        {"quality": {"score": 4, "reasoning": "Excellent implementation"}},
-        {"quality": {"score": 3, "reasoning": "Good implementation"}},
-        {"quality": {"score": 2, "reasoning": "Fair implementation"}},
-        {"quality": {"score": 1, "reasoning": "Poor implementation"}},
-        {"quality": {"score": 0, "reasoning": "Very poor implementation"}},
+        {"Quality": {"score": 4, "reasoning": "Excellent implementation"}},
+        {"Quality": {"score": 3, "reasoning": "Good implementation"}},
+        {"Quality": {"score": 2, "reasoning": "Fair implementation"}},
+        {"Quality": {"score": 1, "reasoning": "Poor implementation"}},
+        {"Quality": {"score": 0, "reasoning": "Very poor implementation"}},
     ]
     sample_judge_dataframe = pd.DataFrame({"judge_scores": sample_judge_data})
     result = extract_judge_score_distributions(stub_judge_column_config, sample_judge_dataframe)
 
     assert isinstance(result, JudgeScoreDistributions)
-    assert "quality" in result.scores
-    assert result.scores["quality"] == [4, 3, 2, 1, 0]
-    assert result.distribution_types["quality"] == ColumnDistributionType.NUMERICAL
-    assert isinstance(result.distributions["quality"], NumericalDistribution)
-    assert isinstance(result.histograms["quality"], CategoricalHistogramData)
+    assert "Quality" in result.scores
+    assert result.scores["Quality"] == [4, 3, 2, 1, 0]
+    assert result.distribution_types["Quality"] == ColumnDistributionType.NUMERICAL
+    assert isinstance(result.distributions["Quality"], NumericalDistribution)
+    assert isinstance(result.histograms["Quality"], CategoricalHistogramData)
 
 
 def test_extract_judge_score_distributions_categorical_scores(stub_judge_column_config):
     mixed_type_judge_data = [
-        {"quality": {"score": 4, "reasoning": "Excellent implementation"}},
-        {"quality": {"score": "good", "reasoning": "Good implementation"}},
-        {"quality": {"score": 2, "reasoning": "Fair implementation"}},
-        {"quality": {"score": "poor", "reasoning": "Poor implementation"}},
+        {"Quality": {"score": 4, "reasoning": "Excellent implementation"}},
+        {"Quality": {"score": "good", "reasoning": "Good implementation"}},
+        {"Quality": {"score": 2, "reasoning": "Fair implementation"}},
+        {"Quality": {"score": "poor", "reasoning": "Poor implementation"}},
     ]
     mixed_type_judge_dataframe = pd.DataFrame({"judge_scores": mixed_type_judge_data})
     result = extract_judge_score_distributions(stub_judge_column_config, mixed_type_judge_dataframe)
 
     assert isinstance(result, JudgeScoreDistributions)
-    assert "quality" in result.scores
-    assert result.scores["quality"] == [4, "good", 2, "poor"]
-    assert result.distribution_types["quality"] == ColumnDistributionType.CATEGORICAL
-    assert isinstance(result.distributions["quality"], CategoricalDistribution)
+    assert "Quality" in result.scores
+    assert result.scores["Quality"] == [4, "good", 2, "poor"]
+    assert result.distribution_types["Quality"] == ColumnDistributionType.CATEGORICAL
+    assert isinstance(result.distributions["Quality"], CategoricalDistribution)
 
 
 def test_extract_judge_score_distributions_edge_cases(stub_judge_column_config):
     malformed_data = [
-        {"quality": {"score": 4, "reasoning": "Good reasoning"}},
-        {"quality": {"reasoning": "Missing score"}},  # Missing score field
-        {"quality": {"score": 2, "reasoning": "Valid entry"}},
+        {"Quality": {"score": 4, "reasoning": "Good reasoning"}},
+        {"Quality": {"reasoning": "Missing score"}},  # Missing score field
+        {"Quality": {"score": 2, "reasoning": "Valid entry"}},
     ]
     df = pd.DataFrame({"judge_scores": malformed_data})
     result = extract_judge_score_distributions(stub_judge_column_config, df)
-    assert result.scores["quality"] == [4, "None", 2]
+    assert result.scores["Quality"] == [4, "None", 2]
 
     none_data = [
-        {"quality": {"score": None, "reasoning": "No score provided"}},
-        {"quality": {"score": 4, "reasoning": "Good score"}},
+        {"Quality": {"score": None, "reasoning": "No score provided"}},
+        {"Quality": {"score": 4, "reasoning": "Good score"}},
     ]
     df = pd.DataFrame({"judge_scores": none_data})
     result = extract_judge_score_distributions(stub_judge_column_config, df)
-    assert result.scores["quality"] == ["None", 4]
-    assert result.distribution_types["quality"] == ColumnDistributionType.CATEGORICAL
+    assert result.scores["Quality"] == ["None", 4]
+    assert result.distribution_types["Quality"] == ColumnDistributionType.CATEGORICAL
 
-    missing_reasoning_data = [{"quality": {"score": 4}}]  # Missing reasoning
+    missing_reasoning_data = [{"Quality": {"score": 4}}]  # Missing reasoning
     df = pd.DataFrame({"judge_scores": missing_reasoning_data})
     result = extract_judge_score_distributions(stub_judge_column_config, df)
-    assert result.scores["quality"] == [4]
-    assert result.reasoning["quality"] == ["No reasoning provided"]
+    assert result.scores["Quality"] == [4]
+    assert result.reasoning["Quality"] == ["No reasoning provided"]
 
-    malformed_data = ["not a dict", {"quality": "not a dict either"}, {"quality": {"score": 4, "reasoning": "valid"}}]
+    malformed_data = ["not a dict", {"Quality": "not a dict either"}, {"Quality": {"score": 4, "reasoning": "valid"}}]
     df = pd.DataFrame({"judge_scores": malformed_data})
     result = extract_judge_score_distributions(stub_judge_column_config, df)
     assert result == MissingValue.OUTPUT_FORMAT_ERROR
@@ -104,17 +104,17 @@ def test_extract_judge_score_distributions_multiple_scores():
     )
 
     data = [
-        {"quality": {"score": 4, "reasoning": "Excellent quality"}, "clarity": {"score": 3, "reasoning": "Clear code"}},
-        {"quality": {"score": 2, "reasoning": "Fair quality"}, "clarity": {"score": 4, "reasoning": "Very clear code"}},
+        {"Quality": {"score": 4, "reasoning": "Excellent quality"}, "Clarity": {"score": 3, "reasoning": "Clear code"}},
+        {"Quality": {"score": 2, "reasoning": "Fair quality"}, "Clarity": {"score": 4, "reasoning": "Very clear code"}},
     ]
 
     df = pd.DataFrame({"judge_scores": data})
     result = extract_judge_score_distributions(config, df)
 
     assert isinstance(result, JudgeScoreDistributions)
-    assert "quality" in result.scores and "clarity" in result.scores
-    assert result.scores["quality"] == [4, 2]
-    assert result.scores["clarity"] == [3, 4]
+    assert "Quality" in result.scores and "Clarity" in result.scores
+    assert result.scores["Quality"] == [4, 2]
+    assert result.scores["Clarity"] == [3, 4]
 
 
 def test_sample_scores_and_reasoning_basic_cases():

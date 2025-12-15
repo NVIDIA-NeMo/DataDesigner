@@ -69,7 +69,7 @@ class JudgeScoreProfiler(ColumnProfiler[JudgeScoreProfilerConfig]):
             )
 
         for score in column_config.scores:
-            score_name = score.name.lower()
+            score_name = score.name
             logger.info(f"{random.choice(['👩‍⚖️', '👨‍⚖️'])} Summarizing LLM-as-judge score: '{score_name}'")
             score_sample = sample_scores_and_reasoning(
                 scores=score_distributions.scores[score_name],

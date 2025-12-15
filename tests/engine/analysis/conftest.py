@@ -139,11 +139,11 @@ def stub_judge_column_config(stub_score):
 @fixture
 def stub_judge_distributions():
     return JudgeScoreDistributions(
-        scores={"quality": [4, 3, 2, 1, 0]},
-        reasoning={"quality": ["Excellent", "Good", "Fair", "Poor", "Very Poor"]},
-        distribution_types={"quality": ColumnDistributionType.NUMERICAL},
-        distributions={"quality": NumericalDistribution(min=0, max=4, mean=2.0, stddev=1.4, median=2.0)},
-        histograms={"quality": CategoricalHistogramData(categories=[4, 3, 2, 1, 0], counts=[1, 1, 1, 1, 1])},
+        scores={"Quality": [4, 3, 2, 1, 0]},
+        reasoning={"Quality": ["Excellent", "Good", "Fair", "Poor", "Very Poor"]},
+        distribution_types={"Quality": ColumnDistributionType.NUMERICAL},
+        distributions={"Quality": NumericalDistribution(min=0, max=4, mean=2.0, stddev=1.4, median=2.0)},
+        histograms={"Quality": CategoricalHistogramData(categories=[4, 3, 2, 1, 0], counts=[1, 1, 1, 1, 1])},
     )
 
 
