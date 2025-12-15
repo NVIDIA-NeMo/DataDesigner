@@ -18,28 +18,35 @@ from data_designer.config.default_model_settings import (
     get_default_providers,
     resolve_seed_default_model_settings,
 )
-from data_designer.config.models import ChatCompletionInferenceParams
+from data_designer.config.models import ChatCompletionInferenceParams, EmbeddingInferenceParams
 from data_designer.config.utils.visualization import get_nvidia_api_key, get_openai_api_key
 
 
 def test_get_default_inference_parameters():
-    assert get_default_inference_parameters("text") == ChatCompletionInferenceParams(
+    assert get_default_inference_parameters("text", "nvidia") == ChatCompletionInferenceParams(
         temperature=0.85,
         top_p=0.95,
     )
-    assert get_default_inference_parameters("reasoning") == ChatCompletionInferenceParams(
+    assert get_default_inference_parameters("reasoning", "nvidia") == ChatCompletionInferenceParams(
         temperature=0.35,
         top_p=0.95,
     )
-    assert get_default_inference_parameters("vision") == ChatCompletionInferenceParams(
+    assert get_default_inference_parameters("vision", "nvidia") == ChatCompletionInferenceParams(
         temperature=0.85,
         top_p=0.95,
+    )
+    assert get_default_inference_parameters("embedding", "nvidia") == EmbeddingInferenceParams(
+        encoding_format="float",
+        extra_body={"input_type": "query"},
+    )
+    assert get_default_inference_parameters("embedding", "openai") == EmbeddingInferenceParams(
+        encoding_format="float",
     )
 
 
 def test_get_builtin_model_configs():
     builtin_model_configs = get_builtin_model_configs()
-    assert len(builtin_model_configs) == 6
+    assert len(builtin_model_configs) == 8
     assert builtin_model_configs[0].alias == "nvidia-text"
     assert builtin_model_configs[0].model == "nvidia/nvidia-nemotron-nano-9b-v2"
     assert builtin_model_configs[0].provider == "nvidia"
@@ -49,11 +56,21 @@ def test_get_builtin_model_configs():
     assert builtin_model_configs[2].alias == "nvidia-vision"
     assert builtin_model_configs[2].model == "nvidia/nemotron-nano-12b-v2-vl"
     assert builtin_model_configs[2].provider == "nvidia"
-    assert builtin_model_configs[3].alias == "openai-text"
-    assert builtin_model_configs[3].model == "gpt-4.1"
-    assert builtin_model_configs[3].provider == "openai"
-    assert builtin_model_configs[4].alias == "openai-reasoning"
-    assert builtin_model_configs[4].model == "gpt-5"
+    assert builtin_model_configs[3].alias == "nvidia-embedding"
+    assert builtin_model_configs[3].model == "nvidia/llama-3.2-nv-embedqa-1b-v2"
+    assert builtin_model_configs[3].provider == "nvidia"
+    assert builtin_model_configs[4].alias == "openai-text"
+    assert builtin_model_configs[4].model == "gpt-4.1"
+    assert builtin_model_configs[4].provider == "openai"
+    assert builtin_model_configs[5].alias == "openai-reasoning"
+    assert builtin_model_configs[5].model == "gpt-5"
+    assert builtin_model_configs[5].provider == "openai"
+    assert builtin_model_configs[6].alias == "openai-vision"
+    assert builtin_model_configs[6].model == "gpt-5"
+    assert builtin_model_configs[6].provider == "openai"
+    assert builtin_model_configs[7].alias == "openai-embedding"
+    assert builtin_model_configs[7].model == "text-embedding-3-large"
+    assert builtin_model_configs[7].provider == "openai"
 
 
 def test_get_builtin_model_providers():

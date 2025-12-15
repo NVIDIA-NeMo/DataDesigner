@@ -83,7 +83,7 @@ def calculate_general_column_info(column_config: SingleColumnConfig, df: pd.Data
         }
 
 
-def calculate_prompt_token_stats(
+def calculate_input_token_stats(
     column_config: LLMTextColumnConfig, df: pd.DataFrame
 ) -> dict[str, float | MissingValue]:
     try:
@@ -100,22 +100,20 @@ def calculate_prompt_token_stats(
             concatenated_prompt = str(system_prompt + "\n\n" + prompt)
             num_tokens.append(len(TOKENIZER.encode(concatenated_prompt, disallowed_special=())))
     except Exception as e:
-        logger.warning(
-            f"{WARNING_PREFIX} failed to calculate prompt token stats for column {column_config.name!r}: {e}"
-        )
+        logger.warning(f"{WARNING_PREFIX} failed to calculate input token stats for column {column_config.name!r}: {e}")
         return {
-            "prompt_tokens_mean": MissingValue.CALCULATION_FAILED,
-            "prompt_tokens_median": MissingValue.CALCULATION_FAILED,
-            "prompt_tokens_stddev": MissingValue.CALCULATION_FAILED,
+            "input_tokens_mean": MissingValue.CALCULATION_FAILED,
+            "input_tokens_median": MissingValue.CALCULATION_FAILED,
+            "input_tokens_stddev": MissingValue.CALCULATION_FAILED,
         }
     return {
-        "prompt_tokens_mean": np.mean(num_tokens),
-        "prompt_tokens_median": np.median(num_tokens),
-        "prompt_tokens_stddev": np.std(num_tokens),
+        "input_tokens_mean": np.mean(num_tokens),
+        "input_tokens_median": np.median(num_tokens),
+        "input_tokens_stddev": np.std(num_tokens),
     }
 
 
-def calculate_completion_token_stats(
+def calculate_output_token_stats(
     column_config: LLMTextColumnConfig, df: pd.DataFrame
 ) -> dict[str, float | MissingValue]:
     try:
@@ -123,25 +121,23 @@ def calculate_completion_token_stats(
             lambda value: len(TOKENIZER.encode(str(value), disallowed_special=()))
         )
         return {
-            "completion_tokens_mean": tokens_per_record.mean(),
-            "completion_tokens_median": tokens_per_record.median(),
-            "completion_tokens_stddev": tokens_per_record.std(),
+            "output_tokens_mean": tokens_per_record.mean(),
+            "output_tokens_median": tokens_per_record.median(),
+            "output_tokens_stddev": tokens_per_record.std(),
         }
     except Exception as e:
-        logger.warning(
-            f"{WARNING_PREFIX} failed to calculate completion token stats for column {column_config.name}: {e}"
-        )
+        logger.warning(f"{WARNING_PREFIX} failed to calculate output token stats for column {column_config.name}: {e}")
         return {
-            "completion_tokens_mean": MissingValue.CALCULATION_FAILED,
-            "completion_tokens_median": MissingValue.CALCULATION_FAILED,
-            "completion_tokens_stddev": MissingValue.CALCULATION_FAILED,
+            "output_tokens_mean": MissingValue.CALCULATION_FAILED,
+            "output_tokens_median": MissingValue.CALCULATION_FAILED,
+            "output_tokens_stddev": MissingValue.CALCULATION_FAILED,
         }
 
 
 def calculate_token_stats(column_config: LLMTextColumnConfig, df: pd.DataFrame) -> dict[str, float | MissingValue]:
     return {
-        **calculate_prompt_token_stats(column_config, df),
-        **calculate_completion_token_stats(column_config, df),
+        **calculate_input_token_stats(column_config, df),
+        **calculate_output_token_stats(column_config, df),
     }
 
 
