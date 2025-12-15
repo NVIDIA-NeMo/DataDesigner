@@ -59,7 +59,7 @@ class GeneralColumnStatisticsCalculator(BaseModel):
         )
 
     def calculate_general_column_info(self) -> dict[str, Any]:
-        return calculate_general_column_info(self.column_config, self.df)
+        return calculate_general_column_info(self.column_config.name, self.df)
 
     def __repr__(self) -> str:
         params = []
@@ -93,7 +93,7 @@ class SamplerColumnStatisticsCalculator(GeneralColumnStatisticsCalculator):
         return (
             {
                 "sampler_type": SamplerType(self.column_config.sampler_type),
-                **calculate_column_distribution(self.column_config, self.df, dist_type),
+                **calculate_column_distribution(self.column_config.name, self.df, dist_type),
             }
             if make_dist
             else {
@@ -109,7 +109,7 @@ class SeedDatasetColumnStatisticsCalculator(GeneralColumnStatisticsCalculator): 
 
 class ValidationColumnStatisticsCalculator(GeneralColumnStatisticsCalculator):
     def calculate_validation_column_info(self) -> dict[str, Any]:
-        return calculate_validation_column_info(self.column_config, self.df)
+        return calculate_validation_column_info(self.column_config.name, self.df)
 
 
 class ExpressionColumnStatisticsCalculator(GeneralColumnStatisticsCalculator): ...
