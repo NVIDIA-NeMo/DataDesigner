@@ -28,10 +28,8 @@ ADDITIONAL_DEPENDENCIES = {
 }
 
 COLAB_INSTALL_CELL = """\
-!pip install -qU data-designer"""
-
-COLAB_DEPENDENCIES_CELL = """\
-!pip install -q {deps}"""
+%%capture
+!pip install -U data-designer"""
 
 COLAB_API_KEY_CELL = """\
 import getpass
@@ -49,9 +47,12 @@ def create_colab_setup_cells(additional_dependencies: str) -> list[NotebookNode]
     """Create the Colab-specific setup cells to inject before imports."""
     cells = []
     cells += [new_markdown_cell(source=COLAB_SETUP_MARKDOWN)]
-    cells += [new_code_cell(source=COLAB_INSTALL_CELL)]
+
+    install_cell = COLAB_INSTALL_CELL
     if additional_dependencies:
-        cells += [new_code_cell(source=COLAB_DEPENDENCIES_CELL.format(deps=additional_dependencies))]
+        install_cell += f" {additional_dependencies}"
+    cells += [new_code_cell(source=install_cell)]
+
     cells += [new_code_cell(source=COLAB_API_KEY_CELL)]
     return cells
 
