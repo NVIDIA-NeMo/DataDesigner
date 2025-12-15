@@ -23,7 +23,7 @@
 # - ✨ **Visual Document Processing**: Converting images to chat-ready format for model consumption
 # - 🔍 **Vision-Language Generation**: Using vision models to generate detailed summaries from images
 #
-# If this is your first time using Data Designer, we recommend starting with the [first notebook](/notebooks/1-the-basics/) in this tutorial series.
+# If this is your first time using Data Designer, we recommend starting with the [first notebook](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/1-the-basics/) in this tutorial series.
 #
 
 # %% [markdown]
@@ -62,7 +62,7 @@ from data_designer.essentials import (
 #
 # - `DataDesigner` is the main object is responsible for managing the data generation process.
 #
-# - When initialized without arguments, the [default model providers](https://nvidia-nemo.github.io/DataDesigner/concepts/models/default-model-settings/) are used.
+# - When initialized without arguments, the [default model providers](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/) are used.
 #
 
 # %%
@@ -75,7 +75,7 @@ data_designer = DataDesigner()
 #
 # - The "model alias" is used to reference the model in the Data Designer config (as we will see below).
 #
-# - The "model provider" is the external service that hosts the model (see the [model config](https://nvidia-nemo.github.io/DataDesigner/concepts/models/default-model-settings/) docs for more details).
+# - The "model provider" is the external service that hosts the model (see the [model config](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/) docs for more details).
 #
 # - By default, we use [build.nvidia.com](https://build.nvidia.com/models) as the model provider.
 #

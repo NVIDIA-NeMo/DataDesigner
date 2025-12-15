@@ -46,7 +46,7 @@ from data_designer.essentials import (
 #
 # - `DataDesigner` is the main object is responsible for managing the data generation process.
 #
-# - When initialized without arguments, the [default model providers](https://nvidia-nemo.github.io/DataDesigner/concepts/models/default-model-settings/) are used.
+# - When initialized without arguments, the [default model providers](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/) are used.
 #
 
 # %%
@@ -59,7 +59,7 @@ data_designer = DataDesigner()
 #
 # - The "model alias" is used to reference the model in the Data Designer config (as we will see below).
 #
-# - The "model provider" is the external service that hosts the model (see the [model config](https://nvidia-nemo.github.io/DataDesigner/concepts/models/default-model-settings/) docs for more details).
+# - The "model provider" is the external service that hosts the model (see the [model config](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/) docs for more details).
 #
 # - By default, we use [build.nvidia.com](https://build.nvidia.com/models) as the model provider.
 #
@@ -336,7 +336,9 @@ analysis.to_report()
 #
 # Now that you've seen the basics of Data Designer, check out the following notebooks to learn more about:
 #
-# - [Structured outputs and jinja expressions](/notebooks/2-structured-outputs-and-jinja-expressions/)
+# - [Structured outputs and jinja expressions](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/2-structured-outputs-and-jinja-expressions/)
 #
-# - [Seeding synthetic data generation with an external dataset](/notebooks/3-seeding-with-a-dataset/)
+# - [Seeding synthetic data generation with an external dataset](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/3-seeding-with-a-dataset/)
+#
+# - [Providing images as context](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/4-providing-images-as-context/)
 #
