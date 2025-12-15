@@ -32,24 +32,24 @@ from data_designer.essentials import (
 
 # Create custom models using default providers
 custom_models = [
-    # High-temperature creative model
+    # High-temperature for more variability
     ModelConfig(
         alias="creative-writer",
         model="nvidia/nvidia-nemotron-nano-9b-v2",
         provider="nvidia",  # Uses default NVIDIA provider
         inference_parameters=ChatCompletionInferenceParams(
-            temperature=1.2,  # Very creative
+            temperature=1.2,
             top_p=0.98,
             max_tokens=4096,
         ),
     ),
-    # Low-temperature factual model
+    # Low-temperature for less variability
     ModelConfig(
         alias="fact-checker",
         model="nvidia/nvidia-nemotron-nano-9b-v2",
         provider="nvidia",  # Uses default NVIDIA provider
         inference_parameters=ChatCompletionInferenceParams(
-            temperature=0.1,  # Very deterministic
+            temperature=0.1,
             top_p=0.9,
             max_tokens=2048,
         ),
@@ -99,7 +99,7 @@ preview_result.display_sample_record()
     When you only specify `model_configs`, the default model providers (NVIDIA and OpenAI) are still available. You only need to create custom providers if you want to connect to different endpoints or modify provider settings.
 
 !!! tip "Mixing Custom and Default Models"
-    When you provide custom `model_configs` to `DataDesignerConfigBuilder`, they **replace** the defaults entirely. To add custom models while keeping the defaults:
+    When you provide custom `model_configs` to `DataDesignerConfigBuilder`, they **replace** the defaults entirely. To use custom model configs in addition to the default configs, use the add_model_config method:
 
     ```python
     # Load defaults first
@@ -127,7 +127,7 @@ preview_result.display_sample_record()
 
 Define both custom providers and custom model configurations when you need to connect to services not included in the defaults:
 
-!!! note "Network Accessibility"
+!!! warning "Network Accessibility"
     The custom provider endpoints must be reachable from where Data Designer runs. Ensure network connectivity, firewall rules, and any VPN requirements are properly configured.
 
 ```python
