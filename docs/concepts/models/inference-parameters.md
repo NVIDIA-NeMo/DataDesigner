@@ -4,7 +4,7 @@ Inference parameters control how models generate responses during synthetic data
 
 ## Overview
 
-When you create a `ModelConfig`, you can specify inference parameters to fine-tune model behavior. These parameters control aspects like randomness (temperature), diversity (top_p), context size (max_tokens), and more. Data Designer supports both static values and dynamic distribution-based sampling for certain parameters.
+When you create a `ModelConfig`, you can specify inference parameters to adjust model behavior. These parameters control aspects like randomness (temperature), diversity (top_p), context size (max_tokens), and more. Data Designer supports both static values and dynamic distribution-based sampling for certain parameters.
 
 ## Chat Completion Inference Parameters
 
