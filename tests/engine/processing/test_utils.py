@@ -9,6 +9,7 @@ import pytest
 from data_designer.engine.processing.utils import (
     concat_datasets,
     deserialize_json_values,
+    parse_list_string,
 )
 
 
@@ -115,4 +116,20 @@ def test_concat_datasets_logging(mock_logger, stub_sample_dataframes):
 )
 def test_deserialize_json_values_scenarios(test_case, input_data, expected_result):
     result = deserialize_json_values(input_data)
+    assert result == expected_result
+
+
+@pytest.mark.parametrize(
+    "input_string,expected_result",
+    [
+        ('["a", "b", "c"]', ["a", "b", "c"]),  # valid stringified json array
+        ('[" a ", " b", "c "]', ["a", "b", "c"]),  # valid stringified json array with whitespace
+        ('["a", "b", "c",]', ["a", "b", "c"]),  # valid stringified json array with trailing comma
+        ("['a', 'b', 'c']", ["a", "b", "c"]),  # valid python-style list with single quotes
+        ("['a', 'b', 'c', ]", ["a", "b", "c"]),  # valid python-style list with trailing comma
+        ("simple string   ", ["simple string"]),  # simple string with whitespace
+    ],
+)
+def test_parse_list_string_scenarios(input_string, expected_result):
+    result = parse_list_string(input_string)
     assert result == expected_result

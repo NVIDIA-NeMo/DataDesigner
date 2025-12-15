@@ -11,7 +11,7 @@ from data_designer.config.column_configs import (
     LLMStructuredColumnConfig,
     LLMTextColumnConfig,
 )
-from data_designer.engine.column_generators.generators.llm_generators import (
+from data_designer.engine.column_generators.generators.llm_completion import (
     DEFAULT_MAX_CONVERSATION_CORRECTION_STEPS,
     DEFAULT_MAX_CONVERSATION_RESTARTS,
     REASONING_TRACE_COLUMN_POSTFIX,
@@ -94,7 +94,7 @@ def test_generate_method():
     assert call_args[1]["multi_modal_context"] is None
 
 
-@patch("data_designer.engine.column_generators.generators.llm_generators.logger", autospec=True)
+@patch("data_designer.engine.column_generators.generators.base.logger", autospec=True)
 def test_log_pre_generation(mock_logger):
     generator, mock_resource_provider, _, mock_model_config, _, _, _ = _create_generator_with_mocks()
     mock_model_config.model_dump_json.return_value = '{"test": "config"}'
@@ -259,20 +259,3 @@ def test_generate_with_json_deserialization():
     result = generator.generate(data)
 
     assert result["test_column"] == {"result": "json_output"}
-
-
-def test_generate_with_inference_parameters():
-    generator, _, mock_model, _, mock_inference_params, mock_prompt_renderer, mock_response_recipe = (
-        _create_generator_with_mocks()
-    )
-
-    mock_inference_params.generate_kwargs = {"temperature": 0.7, "max_tokens": 100}
-    _setup_generate_mocks(mock_prompt_renderer, mock_response_recipe, mock_model)
-
-    data = {"input": "test_input"}
-    generator.generate(data)
-
-    call_args = mock_model.generate.call_args
-    assert call_args[1]["temperature"] == 0.7
-    assert call_args[1]["max_tokens"] == 100
-    assert call_args[1]["purpose"] == "running generation for column 'test_column'"

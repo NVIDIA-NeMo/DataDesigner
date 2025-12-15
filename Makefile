@@ -36,6 +36,7 @@ help:
 	@echo "🛠️  Utilities:"
 	@echo "  clean                     - Remove coverage reports and cache files"
 	@echo "  convert-execute-notebooks - Convert notebooks from .py to .ipynb using jupytext"
+	@echo "  generate-colab-notebooks  - Generate Colab-compatible notebooks"
 	@echo "  serve-docs-locally        - Serve documentation locally"
 	@echo "  check-license-headers     - Check if all files have license headers"
 	@echo "  update-license-headers    - Add license headers to all files"
@@ -95,6 +96,11 @@ convert-execute-notebooks:
 	rm docs/notebook_source/*.csv
 	@echo "✅ Notebooks created in docs/notebooks/"
 
+generate-colab-notebooks:
+	@echo "📓 Generating Colab-compatible notebooks..."
+	uv run --group notebooks python docs/scripts/generate_colab_notebooks.py
+	@echo "✅ Colab notebooks created in docs/colab_notebooks/"
+
 serve-docs-locally:
 	@echo "📝 Building and serving docs..."
 	uv sync --group docs
@@ -125,4 +131,4 @@ install-dev-notebooks:
 	$(call install-pre-commit-hooks)
 	@echo "✅ Dev + notebooks installation complete!"
 
-.PHONY: clean coverage format format-check lint lint-fix test check-license-headers update-license-headers check-all check-all-fix install install-dev install-dev-notebooks
+.PHONY: clean coverage format format-check lint lint-fix test check-license-headers update-license-headers check-all check-all-fix install install-dev install-dev-notebooks generate-colab-notebooks

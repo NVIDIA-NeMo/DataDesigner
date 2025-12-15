@@ -38,12 +38,12 @@ def sample_llm_text_column_stats():
         num_unique=490,
         pyarrow_dtype="string",
         simple_dtype="str",
-        completion_tokens_mean=150.5,
-        completion_tokens_median=150.0,
-        completion_tokens_stddev=25.2,
-        prompt_tokens_mean=50.0,
-        prompt_tokens_median=50.0,
-        prompt_tokens_stddev=10.0,
+        output_tokens_mean=150.5,
+        output_tokens_median=150.0,
+        output_tokens_stddev=25.2,
+        input_tokens_mean=50.0,
+        input_tokens_median=50.0,
+        input_tokens_stddev=10.0,
     )
 
 
