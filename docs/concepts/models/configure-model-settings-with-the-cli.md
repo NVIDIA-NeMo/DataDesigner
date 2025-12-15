@@ -129,6 +129,8 @@ The CLI will show which configuration files exist and ask for confirmation befor
 
 ## See Also
 
+- **[Model Providers](model-providers.md)**: Learn about the `ModelProvider` class and provider configuration
+- **[Model Configurations](model-configs.md)**: Learn about `ModelConfig`
 - **[Default Model Settings](default-model-settings.md)**: Pre-configured providers and model settings included with Data Designer
 - **[Custom Model Settings](custom-model-settings.md)**: Learn how to create custom providers and model configurations
 - **[Model Providers](model-providers.md)**: Learn about the `ModelProvider` class and provider configuration
