@@ -129,8 +129,10 @@ class ConfigRepository(ABC, Generic[T]):
 - Field-level validation
 - Auto-completion support
 - History navigation (arrow keys)
-- Default value handling
+- Current value display when editing (`(current value: X)` instead of `(default: X)`)
+- Value clearing support (type `'clear'` to remove optional parameter values)
 - Back navigation support
+- Empty input handling (Enter key keeps current value or skips optional fields)
 
 #### 6. **UI Utilities** (`ui.py`)
 - **Purpose**: User interface utilities for terminal output and input
@@ -179,17 +181,29 @@ model_configs:
     model: meta/llama-3.1-70b-instruct
     provider: nvidia
     inference_parameters:
+      generation_type: chat-completion
       temperature: 0.7
       top_p: 0.9
       max_tokens: 2048
       max_parallel_requests: 4
+      timeout: 60
   - alias: gpt-4
     model: gpt-4-turbo
     provider: openai
     inference_parameters:
+      generation_type: chat-completion
       temperature: 0.8
       top_p: 0.95
       max_tokens: 4096
+      max_parallel_requests: 4
+  - alias: embedder
+    model: text-embedding-3-large
+    provider: openai
+    inference_parameters:
+      generation_type: embedding
+      encoding_format: float
+      dimensions: 1024
+      max_parallel_requests: 4
 ```
 
 ## Usage Examples

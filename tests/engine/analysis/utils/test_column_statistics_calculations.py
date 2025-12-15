@@ -19,9 +19,9 @@ from data_designer.config.column_configs import LLMTextColumnConfig
 from data_designer.config.utils.numerical_helpers import prepare_number_for_reporting
 from data_designer.engine.analysis.utils.column_statistics_calculations import (
     calculate_column_distribution,
-    calculate_completion_token_stats,
     calculate_general_column_info,
-    calculate_prompt_token_stats,
+    calculate_input_token_stats,
+    calculate_output_token_stats,
     calculate_validation_column_info,
     convert_pyarrow_dtype_to_simple_dtype,
     ensure_boolean,
@@ -169,38 +169,39 @@ def test_calculate_general_column_info(stub_df_with_mixed_column_types):
     assert result["num_unique"] == MissingValue.CALCULATION_FAILED
 
 
-def test_calculate_prompt_token_stats(mock_prompt_renderer_render, stub_column_config, stub_df_responses):
+def test_calculate_input_token_stats(mock_prompt_renderer_render, stub_column_config, stub_df_responses):
     prompt_cycle = cycle(["System prompt", "Test prompt"])
     mock_prompt_renderer_render.side_effect = lambda *args, **kwargs: next(prompt_cycle)
 
-    result = calculate_prompt_token_stats(stub_column_config, stub_df_responses)
-    assert "prompt_tokens_mean" in result
-    assert "prompt_tokens_stddev" in result
-    assert "prompt_tokens_median" in result
-    assert isinstance(result["prompt_tokens_mean"], float)
-    assert isinstance(result["prompt_tokens_stddev"], float)
-    assert isinstance(result["prompt_tokens_median"], float)
+    result = calculate_input_token_stats(stub_column_config, stub_df_responses)
+    assert "input_tokens_mean" in result
+    assert "input_tokens_stddev" in result
+    assert "input_tokens_median" in result
+    assert isinstance(result["input_tokens_mean"], float)
+    assert isinstance(result["input_tokens_stddev"], float)
+    assert isinstance(result["input_tokens_median"], float)
 
     mock_prompt_renderer_render.side_effect = Exception("Test error")
-    result = calculate_prompt_token_stats(stub_column_config, stub_df_responses)
-    assert result["prompt_tokens_mean"] == MissingValue.CALCULATION_FAILED
-    assert result["prompt_tokens_stddev"] == MissingValue.CALCULATION_FAILED
-    assert result["prompt_tokens_median"] == MissingValue.CALCULATION_FAILED
+    result = calculate_input_token_stats(stub_column_config, stub_df_responses)
+    assert result["input_tokens_mean"] == MissingValue.CALCULATION_FAILED
+    assert result["input_tokens_stddev"] == MissingValue.CALCULATION_FAILED
+    assert result["input_tokens_median"] == MissingValue.CALCULATION_FAILED
 
 
-def test_calculate_completion_token_stats(stub_column_config, stub_df_responses):
-    result = calculate_completion_token_stats(stub_column_config.name, stub_df_responses)
-    assert "completion_tokens_mean" in result
-    assert "completion_tokens_stddev" in result
-    assert "completion_tokens_median" in result
-    assert isinstance(result["completion_tokens_mean"], float)
-    assert isinstance(result["completion_tokens_stddev"], float)
-    assert isinstance(result["completion_tokens_median"], float)
+def test_calculate_output_token_stats(stub_column_config, stub_df_responses):
+    result = calculate_output_token_stats(stub_column_config, stub_df_responses)
+    assert "output_tokens_mean" in result
+    assert "output_tokens_stddev" in result
+    assert "output_tokens_median" in result
+    assert isinstance(result["output_tokens_mean"], float)
+    assert isinstance(result["output_tokens_stddev"], float)
+    assert isinstance(result["output_tokens_median"], float)
 
-    result = calculate_completion_token_stats("nonexistent_column", stub_df_responses)
-    assert result["completion_tokens_mean"] == MissingValue.CALCULATION_FAILED
-    assert result["completion_tokens_stddev"] == MissingValue.CALCULATION_FAILED
-    assert result["completion_tokens_median"] == MissingValue.CALCULATION_FAILED
+    stub_column_config.name = "nonexistent_column"
+    result = calculate_output_token_stats(stub_column_config, stub_df_responses)
+    assert result["output_tokens_mean"] == MissingValue.CALCULATION_FAILED
+    assert result["output_tokens_stddev"] == MissingValue.CALCULATION_FAILED
+    assert result["output_tokens_median"] == MissingValue.CALCULATION_FAILED
 
 
 def test_calculate_validation_column_info(stub_column_config, stub_df_code_validation):

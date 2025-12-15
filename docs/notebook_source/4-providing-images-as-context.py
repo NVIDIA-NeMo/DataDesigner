@@ -47,11 +47,11 @@ from rich.panel import Panel
 
 # Data Designer imports
 from data_designer.essentials import (
+    ChatCompletionInferenceParams,
     DataDesigner,
     DataDesignerConfigBuilder,
     ImageContext,
     ImageFormat,
-    InferenceParameters,
     LLMTextColumnConfig,
     ModalityDataType,
     ModelConfig,
@@ -89,7 +89,7 @@ model_configs = [
         alias="vision",
         model="meta/llama-4-scout-17b-16e-instruct",
         provider=MODEL_PROVIDER,
-        inference_parameters=InferenceParameters(
+        inference_parameters=ChatCompletionInferenceParams(
             temperature=0.60,
             top_p=0.95,
             max_tokens=2048,

@@ -1,8 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import ast
 import json
 import logging
+import re
 from typing import Any, TypeVar, Union, overload
 
 import pandas as pd
@@ -98,6 +100,42 @@ def deserialize_json_values(data):
     # Fallback for other data types
     else:
         return data
+
+
+def parse_list_string(text: str) -> list[str]:
+    """Parse a list from a string, handling JSON arrays, Python lists, and trailing commas."""
+    text = text.strip()
+
+    # Try JSON first
+    try:
+        list_obj = json.loads(text)
+        if isinstance(list_obj, list):
+            return _clean_whitespace(list_obj)
+    except json.JSONDecodeError:
+        pass
+
+    # Remove trailing commas before closing brackets (common in JSON-like strings)
+    text_cleaned = re.sub(r",\s*]", "]", text)
+    text_cleaned = re.sub(r",\s*}", "}", text_cleaned)
+
+    # Try JSON again with cleaned text
+    try:
+        return _clean_whitespace(json.loads(text_cleaned))
+    except json.JSONDecodeError:
+        pass
+
+    # Try Python literal eval (handles single quotes)
+    try:
+        return _clean_whitespace(ast.literal_eval(text_cleaned))
+    except (ValueError, SyntaxError):
+        pass
+
+    # If all else fails, return the original text
+    return [text.strip()]
+
+
+def _clean_whitespace(texts: list[str]) -> list[str]:
+    return [text.strip() for text in texts]
 
 
 def _verify_columns_are_unique(datasets: list[pd.DataFrame]) -> None:

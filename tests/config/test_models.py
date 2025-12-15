@@ -11,9 +11,11 @@ from pydantic import ValidationError
 
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.models import (
+    ChatCompletionInferenceParams,
+    EmbeddingInferenceParams,
+    GenerationType,
     ImageContext,
     ImageFormat,
-    InferenceParameters,
     ManualDistribution,
     ManualDistributionParams,
     ModalityDataType,
@@ -46,13 +48,13 @@ def test_image_context_validate_image_format():
 
 
 def test_inference_parameters_default_construction():
-    empty_inference_parameters = InferenceParameters()
+    empty_inference_parameters = ChatCompletionInferenceParams()
     assert empty_inference_parameters.generate_kwargs == {}
     assert empty_inference_parameters.max_parallel_requests == 4
 
 
 def test_inference_parameters_generate_kwargs():
-    assert InferenceParameters(
+    assert ChatCompletionInferenceParams(
         temperature=0.95,
         top_p=0.95,
         max_tokens=100,
@@ -67,9 +69,9 @@ def test_inference_parameters_generate_kwargs():
         "extra_body": {"reasoning_effort": "high"},
     }
 
-    assert InferenceParameters().generate_kwargs == {}
+    assert ChatCompletionInferenceParams().generate_kwargs == {}
 
-    inference_parameters_kwargs = InferenceParameters(
+    inference_parameters_kwargs = ChatCompletionInferenceParams(
         temperature=UniformDistribution(params=UniformDistributionParams(low=0.0, high=1.0)),
         top_p=ManualDistribution(params=ManualDistributionParams(values=[0.0, 1.0], weights=[0.5, 0.5])),
     ).generate_kwargs
@@ -131,32 +133,38 @@ def test_inference_parameters_temperature_validation():
 
     # All temp values provide in a manual destribution should be valid
     with pytest.raises(ValidationError, match=expected_error_msg):
-        InferenceParameters(
+        ChatCompletionInferenceParams(
             temperature=ManualDistribution(params=ManualDistributionParams(values=[0.5, 2.5], weights=[0.5, 0.5]))
         )
 
     # High and low values of uniform distribution should be valid
     with pytest.raises(ValidationError, match=expected_error_msg):
-        InferenceParameters(temperature=UniformDistribution(params=UniformDistributionParams(low=0.5, high=2.5)))
+        ChatCompletionInferenceParams(
+            temperature=UniformDistribution(params=UniformDistributionParams(low=0.5, high=2.5))
+        )
 
     with pytest.raises(ValidationError, match=expected_error_msg):
-        InferenceParameters(temperature=UniformDistribution(params=UniformDistributionParams(low=-0.5, high=2.0)))
+        ChatCompletionInferenceParams(
+            temperature=UniformDistribution(params=UniformDistributionParams(low=-0.5, high=2.0))
+        )
 
     # Static values should be valid
     with pytest.raises(ValidationError, match=expected_error_msg):
-        InferenceParameters(temperature=3.0)
+        ChatCompletionInferenceParams(temperature=3.0)
     with pytest.raises(ValidationError, match=expected_error_msg):
-        InferenceParameters(temperature=-1.0)
+        ChatCompletionInferenceParams(temperature=-1.0)
 
     # Valid temperature values shouldn't raise validation errors
     try:
-        InferenceParameters(temperature=0.1)
-        InferenceParameters(temperature=UniformDistribution(params=UniformDistributionParams(low=0.5, high=2.0)))
-        InferenceParameters(
+        ChatCompletionInferenceParams(temperature=0.1)
+        ChatCompletionInferenceParams(
+            temperature=UniformDistribution(params=UniformDistributionParams(low=0.5, high=2.0))
+        )
+        ChatCompletionInferenceParams(
             temperature=ManualDistribution(params=ManualDistributionParams(values=[0.5, 2.0], weights=[0.5, 0.5]))
         )
     except Exception:
-        pytest.fail("Unexpected exception raised during InferenceParameters temperature validation")
+        pytest.fail("Unexpected exception raised during CompletionInferenceParameters temperature validation")
 
 
 def test_generation_parameters_top_p_validation():
@@ -164,31 +172,31 @@ def test_generation_parameters_top_p_validation():
 
     # All top_p values provide in a manual destribution should be valid
     with pytest.raises(ValidationError, match=expected_error_msg):
-        InferenceParameters(
+        ChatCompletionInferenceParams(
             top_p=ManualDistribution(params=ManualDistributionParams(values=[0.5, 1.5], weights=[0.5, 0.5]))
         )
 
     # High and low values of uniform distribution should be valid
     with pytest.raises(ValidationError, match=expected_error_msg):
-        InferenceParameters(top_p=UniformDistribution(params=UniformDistributionParams(low=0.5, high=1.5)))
+        ChatCompletionInferenceParams(top_p=UniformDistribution(params=UniformDistributionParams(low=0.5, high=1.5)))
     with pytest.raises(ValidationError, match=expected_error_msg):
-        InferenceParameters(top_p=UniformDistribution(params=UniformDistributionParams(low=-0.5, high=1.0)))
+        ChatCompletionInferenceParams(top_p=UniformDistribution(params=UniformDistributionParams(low=-0.5, high=1.0)))
 
     # Static values should be valid
     with pytest.raises(ValidationError, match=expected_error_msg):
-        InferenceParameters(top_p=1.5)
+        ChatCompletionInferenceParams(top_p=1.5)
     with pytest.raises(ValidationError, match=expected_error_msg):
-        InferenceParameters(top_p=-0.1)
+        ChatCompletionInferenceParams(top_p=-0.1)
 
     # Valid top_p values shouldn't raise validation errors
     try:
-        InferenceParameters(top_p=0.1)
-        InferenceParameters(top_p=UniformDistribution(params=UniformDistributionParams(low=0.5, high=1.0)))
-        InferenceParameters(
+        ChatCompletionInferenceParams(top_p=0.1)
+        ChatCompletionInferenceParams(top_p=UniformDistribution(params=UniformDistributionParams(low=0.5, high=1.0)))
+        ChatCompletionInferenceParams(
             top_p=ManualDistribution(params=ManualDistributionParams(values=[0.5, 1.0], weights=[0.5, 0.5]))
         )
     except Exception:
-        pytest.fail("Unexpected exception raised during InferenceParameters top_p validation")
+        pytest.fail("Unexpected exception raised during CompletionInferenceParameters top_p validation")
 
 
 def test_generation_parameters_max_tokens_validation():
@@ -196,15 +204,15 @@ def test_generation_parameters_max_tokens_validation():
         ValidationError,
         match="Input should be greater than or equal to 1",
     ):
-        InferenceParameters(max_tokens=0)
+        ChatCompletionInferenceParams(max_tokens=0)
 
     # Valid max_tokens values shouldn't raise validation errors
     try:
-        InferenceParameters(max_tokens=128_000)
-        InferenceParameters(max_tokens=4096)
-        InferenceParameters(max_tokens=1)
+        ChatCompletionInferenceParams(max_tokens=128_000)
+        ChatCompletionInferenceParams(max_tokens=4096)
+        ChatCompletionInferenceParams(max_tokens=1)
     except Exception:
-        pytest.fail("Unexpected exception raised during InferenceParameters max_tokens validation")
+        pytest.fail("Unexpected exception raised during CompletionInferenceParameters max_tokens validation")
 
 
 def test_load_model_configs():
@@ -212,7 +220,7 @@ def test_load_model_configs():
         ModelConfig(alias="test", model="test"),
         ModelConfig(alias="test2", model="test2"),
     ]
-    stub_model_configs_dict_list = [mc.model_dump() for mc in stub_model_configs]
+    stub_model_configs_dict_list = [mc.model_dump(mode="json") for mc in stub_model_configs]
     assert load_model_configs([]) == []
     assert load_model_configs(stub_model_configs) == stub_model_configs
 
@@ -248,6 +256,43 @@ def test_load_model_configs():
             load_model_configs(tmp_file.name)
 
 
-def test_model_config_default_construction():
+def test_model_config_construction():
+    # test default construction
     model_config = ModelConfig(alias="test", model="test")
-    assert model_config.inference_parameters == InferenceParameters()
+    assert model_config.inference_parameters == ChatCompletionInferenceParams()
+    assert model_config.generation_type == GenerationType.CHAT_COMPLETION
+
+    # test construction with completion inference parameters
+    completion_params = ChatCompletionInferenceParams(temperature=0.5, top_p=0.5, max_tokens=100)
+    model_config = ModelConfig(alias="test", model="test", inference_parameters=completion_params)
+    assert model_config.inference_parameters == completion_params
+    assert model_config.generation_type == GenerationType.CHAT_COMPLETION
+
+    # test construction with embedding inference parameters
+    embedding_params = EmbeddingInferenceParams(dimensions=100)
+    model_config = ModelConfig(alias="test", model="test", inference_parameters=embedding_params)
+    assert model_config.inference_parameters == embedding_params
+    assert model_config.generation_type == GenerationType.EMBEDDING
+
+
+def test_model_config_generation_type_from_dict():
+    # Test that generation_type in dict is used to create the right inference params type
+    model_config = ModelConfig.model_validate(
+        {
+            "alias": "test",
+            "model": "test",
+            "inference_parameters": {"generation_type": "embedding", "dimensions": 100},
+        }
+    )
+    assert isinstance(model_config.inference_parameters, EmbeddingInferenceParams)
+    assert model_config.generation_type == GenerationType.EMBEDDING
+
+    model_config = ModelConfig.model_validate(
+        {
+            "alias": "test",
+            "model": "test",
+            "inference_parameters": {"generation_type": "chat-completion", "temperature": 0.5},
+        }
+    )
+    assert isinstance(model_config.inference_parameters, ChatCompletionInferenceParams)
+    assert model_config.generation_type == GenerationType.CHAT_COMPLETION
