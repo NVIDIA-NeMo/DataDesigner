@@ -95,7 +95,7 @@ def display_models(model_repo: ModelRepository) -> None:
         # Display as table
         table = Table(title="Model Configurations", border_style=NordColor.NORD8.value)
         table.add_column("Alias", style=NordColor.NORD14.value, no_wrap=True)
-        table.add_column("Model ID", style=NordColor.NORD4.value)
+        table.add_column("Model", style=NordColor.NORD4.value)
         table.add_column("Provider", style=NordColor.NORD9.value, no_wrap=True)
         table.add_column("Inference Parameters", style=NordColor.NORD15.value)
 
