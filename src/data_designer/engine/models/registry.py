@@ -4,12 +4,16 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from data_designer.config.models import GenerationType, ModelConfig
 from data_designer.engine.model_provider import ModelProvider, ModelProviderRegistry
 from data_designer.engine.models.facade import ModelFacade
 from data_designer.engine.models.litellm_overrides import apply_litellm_patches
 from data_designer.engine.secret_resolver import SecretResolver
+
+if TYPE_CHECKING:
+    from data_designer.engine.models.usage import ModelUsageStats
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +69,13 @@ class ModelRegistry:
     def get_model_usage_stats(self, total_time_elapsed: float) -> dict[str, dict]:
         return {
             model.model_name: model.usage_stats.get_usage_stats(total_time_elapsed=total_time_elapsed)
+            for model in self._models.values()
+            if model.usage_stats.has_usage
+        }
+
+    def get_model_usage_snapshot(self) -> dict[str, ModelUsageStats]:
+        return {
+            model.model_name: model.usage_stats.model_copy(deep=True)
             for model in self._models.values()
             if model.usage_stats.has_usage
         }

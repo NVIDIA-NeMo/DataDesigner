@@ -119,7 +119,13 @@ data-designer config list      # View current settings
 
 ## Telemetry
 
-Data Designer logs which models are being used for synthetic data generation (SDG) along with the counts of input and output tokens during generation tasks. No user or device information is collected. This data is used purely to understand the best models for SDG and this data will be shared with the community.
+Data Designer collects telemetry to help us improve the library for developers. We collect:
+
+* The names of models used
+* The count of input tokens
+* The count of output tokens
+
+**No user or device information is collected.** This data is not used to track any individual user behavior. It is used to see an aggregation of which models are the most popular for SDG. We will share this usage data with the community.
 
 Specifically, a model name that is defined a `ModelConfig` object, is what will be collected. In the below example config:
 

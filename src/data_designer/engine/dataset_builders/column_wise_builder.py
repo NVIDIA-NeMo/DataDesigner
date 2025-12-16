@@ -1,5 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+from __future__ import annotations
 
 import functools
 import importlib.metadata
@@ -7,9 +8,8 @@ import json
 import logging
 import time
 import uuid
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 import pandas as pd
 
@@ -44,16 +44,13 @@ from data_designer.engine.processing.processors.drop_columns import DropColumnsP
 from data_designer.engine.registry.data_designer_registry import DataDesignerRegistry
 from data_designer.engine.resources.resource_provider import ResourceProvider
 
+if TYPE_CHECKING:
+    from data_designer.engine.models.usage import ModelUsageStats
+
 logger = logging.getLogger(__name__)
 
 
 _CLIENT_VERSION: str = importlib.metadata.version("data_designer")
-
-
-@dataclass
-class UsageSnapshot:
-    prompt_tokens: int = 0
-    completion_tokens: int = 0
 
 
 class ColumnWiseDatasetBuilder:
@@ -160,7 +157,7 @@ class ColumnWiseDatasetBuilder:
     def _run_batch(
         self, generators: list[ColumnGenerator], *, batch_mode: str, save_partial_results: bool = True, group_id: str
     ) -> None:
-        usage_snapshot = self._snapshot_model_usage()
+        pre_batch_snapshot = self._resource_provider.model_registry.get_model_usage_snapshot()
         for generator in generators:
             generator.log_pre_generation()
             try:
@@ -184,7 +181,7 @@ class ColumnWiseDatasetBuilder:
                 raise DatasetGenerationError(f"🛑 Failed to process {column_error_str}:\n{e}")
 
         try:
-            self._emit_batch_inference_events(batch_mode, usage_snapshot, group_id)
+            self._emit_batch_inference_events(batch_mode, pre_batch_snapshot, group_id)
         except Exception:
             pass
 
@@ -312,23 +309,18 @@ class ColumnWiseDatasetBuilder:
             configs=self._resource_provider.model_registry.model_configs.values(),
         )
 
-    def _snapshot_model_usage(self) -> dict[str, UsageSnapshot]:
-        snapshot = {}
-        for model in self._resource_provider.model_registry.models.values():
-            snapshot[model.model_name] = UsageSnapshot(
-                prompt_tokens=model.usage_stats.token_usage.prompt_tokens,
-                completion_tokens=model.usage_stats.token_usage.completion_tokens,
-            )
-        return snapshot
-
     def _emit_batch_inference_events(
-        self, batch_mode: str, usage_snapshot: dict[str, UsageSnapshot], group_id: str
+        self, batch_mode: str, pre_batch_snapshot: dict[str, ModelUsageStats], group_id: str
     ) -> None:
+        current_snapshot = self._resource_provider.model_registry.get_model_usage_snapshot()
         events = []
-        for model in self._resource_provider.model_registry.models.values():
-            prev = usage_snapshot.get(model.model_name, UsageSnapshot())
-            delta_prompt = model.usage_stats.token_usage.prompt_tokens - prev.prompt_tokens
-            delta_completion = model.usage_stats.token_usage.completion_tokens - prev.completion_tokens
+        for model_name, current_stats in current_snapshot.items():
+            if (prev_stats := pre_batch_snapshot.get(model_name)) is not None:
+                delta_prompt = current_stats.token_usage.input_tokens - prev_stats.token_usage.input_tokens
+                delta_completion = current_stats.token_usage.output_tokens - prev_stats.token_usage.output_tokens
+            else:
+                delta_prompt = current_stats.token_usage.input_tokens
+                delta_completion = current_stats.token_usage.output_tokens
 
             if delta_prompt > 0 or delta_completion > 0:
                 events.append(
@@ -336,7 +328,7 @@ class ColumnWiseDatasetBuilder:
                         nemo_source=NemoSourceEnum.DATADESIGNER,
                         task=batch_mode,
                         task_status=TaskStatusEnum.SUCCESS,
-                        model=model.model_name,
+                        model=model_name,
                         input_tokens=delta_prompt,
                         output_tokens=delta_completion,
                     )

@@ -27,13 +27,11 @@ TELEMETRY_ENABLED = os.getenv("NEMO_TELEMETRY_ENABLED", "true").lower() in ("1",
 CLIENT_ID = "184482118588404"
 NEMO_TELEMETRY_VERSION = "nemo-telemetry/1.0"
 MAX_RETRIES = 3
-NEMO_TELEMETRY_ENDPOINT = os.getenv("NEMO_TELEMETRY_ENDPOINT", "...").lower()
+NEMO_TELEMETRY_ENDPOINT = os.getenv("NEMO_TELEMETRY_ENDPOINT", "https://events.telemetry.data.nvidia.com").lower()
 CPU_ARCHITECTURE = platform.uname().machine
 
 
 class NemoSourceEnum(str, Enum):
-    """The NeMo product that created the event."""
-
     INFERENCE = "inference"
     AUDITOR = "auditor"
     DATADESIGNER = "datadesigner"
@@ -43,8 +41,6 @@ class NemoSourceEnum(str, Enum):
 
 
 class DeploymentTypeEnum(str, Enum):
-    """The deployment type the event came from."""
-
     LIBRARY = "library"
     API = "api"
     UNDEFINED = "undefined"
@@ -61,8 +57,6 @@ except ValueError:
 
 
 class TaskStatusEnum(str, Enum):
-    """The status of the task."""
-
     SUCCESS = "success"
     FAILURE = "failure"
     UNDEFINED = "undefined"
@@ -157,7 +151,6 @@ def _get_iso_timestamp(dt: datetime | None = None) -> str:
 def build_payload(
     events: list[QueuedEvent], *, source_client_version: str, session_id: str = "undefined"
 ) -> dict[str, Any]:
-    """Build the full GFE telemetry payload from a list of queued events."""
     return {
         "browserType": "undefined",  # do not change
         "clientId": CLIENT_ID,
@@ -210,6 +203,9 @@ class TelemetryHandler:
         source_client_version (str): The version of the source client. This should be the version of
             the actual NeMo product that is sending the events, typically the same as the version of
             a PyPi package that a user would install.
+        session_id (str): An optional session ID to associate with the events.
+            This should be a unique identifier for the session, such as a UUID.
+            It is used to group events together.
     """
 
     def __init__(

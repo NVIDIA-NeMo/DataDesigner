@@ -12,11 +12,11 @@ from data_designer.config.processors import DropColumnsProcessorConfig
 from data_designer.engine.dataset_builders.column_wise_builder import (
     MAX_CONCURRENCY_PER_NON_LLM_GENERATOR,
     ColumnWiseDatasetBuilder,
-    UsageSnapshot,
 )
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 from data_designer.engine.dataset_builders.multi_column_configs import SamplerMultiColumnConfig
 from data_designer.engine.models.telemetry import InferenceEvent, NemoSourceEnum, TaskStatusEnum
+from data_designer.engine.models.usage import ModelUsageStats, TokenUsageStats
 from data_designer.engine.registry.data_designer_registry import DataDesignerRegistry
 
 
@@ -217,98 +217,6 @@ def test_constants_max_concurrency_constant():
     assert MAX_CONCURRENCY_PER_NON_LLM_GENERATOR == 4
 
 
-@pytest.fixture
-def mock_model_with_usage() -> Mock:
-    """Create a mock model with configurable usage stats."""
-    mock_model = Mock()
-    mock_model.model_name = "test-model"
-    mock_model.usage_stats.token_usage.prompt_tokens = 100
-    mock_model.usage_stats.token_usage.completion_tokens = 200
-    return mock_model
-
-
-@pytest.fixture
-def mock_model_registry_with_models(mock_model_with_usage: Mock) -> Mock:
-    """Create a mock model registry with models that have usage stats."""
-    mock_registry = Mock()
-    mock_registry.models = {"test-model": mock_model_with_usage}
-    mock_registry.model_configs = {}
-    return mock_registry
-
-
-def test_snapshot_model_usage_captures_current_stats(
-    stub_resource_provider: Mock,
-    stub_test_column_configs: list,
-    stub_test_processor_configs: list,
-    mock_model_with_usage: Mock,
-) -> None:
-    stub_resource_provider.model_registry.models = {"test-model": mock_model_with_usage}
-
-    builder = ColumnWiseDatasetBuilder(
-        column_configs=stub_test_column_configs,
-        processor_configs=stub_test_processor_configs,
-        resource_provider=stub_resource_provider,
-    )
-
-    snapshot = builder._snapshot_model_usage()
-
-    assert "test-model" in snapshot
-    assert isinstance(snapshot["test-model"], UsageSnapshot)
-    assert snapshot["test-model"].prompt_tokens == 100
-    assert snapshot["test-model"].completion_tokens == 200
-
-
-def test_snapshot_model_usage_empty_when_no_models(
-    stub_resource_provider: Mock,
-    stub_test_column_configs: list,
-    stub_test_processor_configs: list,
-) -> None:
-    stub_resource_provider.model_registry.models = {}
-
-    builder = ColumnWiseDatasetBuilder(
-        column_configs=stub_test_column_configs,
-        processor_configs=stub_test_processor_configs,
-        resource_provider=stub_resource_provider,
-    )
-
-    snapshot = builder._snapshot_model_usage()
-
-    assert snapshot == {}
-
-
-def test_snapshot_model_usage_multiple_models(
-    stub_resource_provider: Mock,
-    stub_test_column_configs: list,
-    stub_test_processor_configs: list,
-) -> None:
-    mock_model_1 = Mock()
-    mock_model_1.model_name = "model-1"
-    mock_model_1.usage_stats.token_usage.prompt_tokens = 50
-    mock_model_1.usage_stats.token_usage.completion_tokens = 100
-
-    mock_model_2 = Mock()
-    mock_model_2.model_name = "model-2"
-    mock_model_2.usage_stats.token_usage.prompt_tokens = 150
-    mock_model_2.usage_stats.token_usage.completion_tokens = 300
-
-    stub_resource_provider.model_registry.models = {
-        "model-1": mock_model_1,
-        "model-2": mock_model_2,
-    }
-
-    builder = ColumnWiseDatasetBuilder(
-        column_configs=stub_test_column_configs,
-        processor_configs=stub_test_processor_configs,
-        resource_provider=stub_resource_provider,
-    )
-
-    snapshot = builder._snapshot_model_usage()
-
-    assert len(snapshot) == 2
-    assert snapshot["model-1"].prompt_tokens == 50
-    assert snapshot["model-2"].completion_tokens == 300
-
-
 @patch("data_designer.engine.dataset_builders.column_wise_builder.TelemetryHandler")
 def test_emit_batch_inference_events_computes_deltas(
     mock_telemetry_handler_class: Mock,
@@ -316,12 +224,12 @@ def test_emit_batch_inference_events_computes_deltas(
     stub_test_column_configs: list,
     stub_test_processor_configs: list,
 ) -> None:
-    mock_model = Mock()
-    mock_model.model_name = "test-model"
-    mock_model.usage_stats.token_usage.prompt_tokens = 150
-    mock_model.usage_stats.token_usage.completion_tokens = 350
+    pre_batch_snapshot = {
+        "test-model": ModelUsageStats(token_usage=TokenUsageStats(input_tokens=100, output_tokens=200))
+    }
 
-    stub_resource_provider.model_registry.models = {"test-model": mock_model}
+    current_snapshot = {"test-model": ModelUsageStats(token_usage=TokenUsageStats(input_tokens=150, output_tokens=350))}
+    stub_resource_provider.model_registry.get_model_usage_snapshot.return_value = current_snapshot
 
     builder = ColumnWiseDatasetBuilder(
         column_configs=stub_test_column_configs,
@@ -329,22 +237,18 @@ def test_emit_batch_inference_events_computes_deltas(
         resource_provider=stub_resource_provider,
     )
 
-    # Snapshot represents state BEFORE batch
-    usage_snapshot = {"test-model": UsageSnapshot(prompt_tokens=100, completion_tokens=200)}
     session_id = "550e8400-e29b-41d4-a716-446655440000"
 
     mock_handler_instance = Mock()
     mock_telemetry_handler_class.return_value.__enter__ = Mock(return_value=mock_handler_instance)
     mock_telemetry_handler_class.return_value.__exit__ = Mock(return_value=False)
 
-    builder._emit_batch_inference_events("batch", usage_snapshot, session_id)
+    builder._emit_batch_inference_events("batch", pre_batch_snapshot, session_id)
 
-    # Verify TelemetryHandler was called with session_id
     mock_telemetry_handler_class.assert_called_once()
     call_kwargs = mock_telemetry_handler_class.call_args[1]
     assert call_kwargs["session_id"] == session_id
 
-    # Verify an event was enqueued
     mock_handler_instance.enqueue.assert_called_once()
     event = mock_handler_instance.enqueue.call_args[0][0]
 
@@ -364,24 +268,44 @@ def test_emit_batch_inference_events_skips_when_no_usage_change(
     stub_test_column_configs: list,
     stub_test_processor_configs: list,
 ) -> None:
-    mock_model = Mock()
-    mock_model.model_name = "test-model"
-    mock_model.usage_stats.token_usage.prompt_tokens = 100
-    mock_model.usage_stats.token_usage.completion_tokens = 200
-
-    stub_resource_provider.model_registry.models = {"test-model": mock_model}
-
+    snapshot_stats = ModelUsageStats(token_usage=TokenUsageStats(input_tokens=100, output_tokens=200))
+    pre_batch_snapshot = {"test-model": snapshot_stats}
+    current_snapshot = {"test-model": snapshot_stats.model_copy(deep=True)}
+    stub_resource_provider.model_registry.get_model_usage_snapshot.return_value = current_snapshot
     builder = ColumnWiseDatasetBuilder(
         column_configs=stub_test_column_configs,
         processor_configs=stub_test_processor_configs,
         resource_provider=stub_resource_provider,
     )
-
-    # Snapshot matches current state - no change
-    usage_snapshot = {"test-model": UsageSnapshot(prompt_tokens=100, completion_tokens=200)}
     session_id = "550e8400-e29b-41d4-a716-446655440000"
-
-    builder._emit_batch_inference_events("batch", usage_snapshot, session_id)
-
-    # TelemetryHandler should not be called when there are no events
+    builder._emit_batch_inference_events("batch", pre_batch_snapshot, session_id)
     mock_telemetry_handler_class.assert_not_called()
+
+
+@patch("data_designer.engine.dataset_builders.column_wise_builder.TelemetryHandler")
+def test_emit_batch_inference_events_handles_new_model_in_batch(
+    mock_telemetry_handler_class: Mock,
+    stub_resource_provider: Mock,
+    stub_test_column_configs: list,
+    stub_test_processor_configs: list,
+) -> None:
+    pre_batch_snapshot: dict[str, ModelUsageStats] = {}
+    current_snapshot = {"new-model": ModelUsageStats(token_usage=TokenUsageStats(input_tokens=100, output_tokens=200))}
+    stub_resource_provider.model_registry.get_model_usage_snapshot.return_value = current_snapshot
+    builder = ColumnWiseDatasetBuilder(
+        column_configs=stub_test_column_configs,
+        processor_configs=stub_test_processor_configs,
+        resource_provider=stub_resource_provider,
+    )
+    session_id = "550e8400-e29b-41d4-a716-446655440000"
+    mock_handler_instance = Mock()
+    mock_telemetry_handler_class.return_value.__enter__ = Mock(return_value=mock_handler_instance)
+    mock_telemetry_handler_class.return_value.__exit__ = Mock(return_value=False)
+    builder._emit_batch_inference_events("preview", pre_batch_snapshot, session_id)
+
+    mock_handler_instance.enqueue.assert_called_once()
+    event = mock_handler_instance.enqueue.call_args[0][0]
+
+    assert event.model == "new-model"
+    assert event.input_tokens == 100
+    assert event.output_tokens == 200
