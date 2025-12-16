@@ -19,7 +19,7 @@
 #
 # In this notebook, we will continue our exploration of Data Designer, demonstrating more advanced data generation using structured outputs and Jinja expressions.
 #
-# If this is your first time using Data Designer, we recommend starting with the [first notebook](/notebooks/1-the-basics/) in this tutorial series.
+# If this is your first time using Data Designer, we recommend starting with the [first notebook](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/1-the-basics/) in this tutorial series.
 #
 
 # %% [markdown]
@@ -31,10 +31,10 @@
 # %%
 from data_designer.essentials import (
     CategorySamplerParams,
+    ChatCompletionInferenceParams,
     DataDesigner,
     DataDesignerConfigBuilder,
     ExpressionColumnConfig,
-    InferenceParameters,
     LLMStructuredColumnConfig,
     ModelConfig,
     PersonFromFakerSamplerParams,
@@ -48,7 +48,7 @@ from data_designer.essentials import (
 #
 # - `DataDesigner` is the main object that is used to interface with the library.
 #
-# - When initialized without arguments, the [default model providers](https://nvidia-nemo.github.io/DataDesigner/concepts/models/default-model-settings/) are used.
+# - When initialized without arguments, the [default model providers](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/) are used.
 #
 
 # %%
@@ -61,7 +61,7 @@ data_designer_client = DataDesigner()
 #
 # - The "model alias" is used to reference the model in the Data Designer config (as we will see below).
 #
-# - The "model provider" is the external service that hosts the model (see the [model config](https://nvidia-nemo.github.io/DataDesigner/concepts/models/default-model-settings/) docs for more details).
+# - The "model provider" is the external service that hosts the model (see the [model config](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/) docs for more details).
 #
 # - By default, we use [build.nvidia.com](https://build.nvidia.com/models) as the model provider.
 #
@@ -71,7 +71,7 @@ data_designer_client = DataDesigner()
 MODEL_PROVIDER = "nvidia"
 
 # The model ID is from build.nvidia.com.
-MODEL_ID = "nvidia/nvidia-nemotron-nano-9b-v2"
+MODEL_ID = "nvidia/nemotron-3-nano-30b-a3b"
 
 # We choose this alias to be descriptive for our use case.
 MODEL_ALIAS = "nemotron-nano-v2"
@@ -84,7 +84,7 @@ model_configs = [
         alias=MODEL_ALIAS,
         model=MODEL_ID,
         provider=MODEL_PROVIDER,
-        inference_parameters=InferenceParameters(
+        inference_parameters=ChatCompletionInferenceParams(
             temperature=0.5,
             top_p=1.0,
             max_tokens=1024,
@@ -380,5 +380,7 @@ analysis.to_report()
 #
 # Check out the following notebook to learn more about:
 #
-# - [Seeding synthetic data generation with an external dataset](/notebooks/3-seeding-with-a-dataset/)
+# - [Seeding synthetic data generation with an external dataset](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/3-seeding-with-a-dataset/)
+#
+# - [Providing images as context](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/4-providing-images-as-context/)A
 #

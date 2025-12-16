@@ -160,9 +160,10 @@ class ModelController:
             return
 
         # Check if model has distribution-based parameters
-        if hasattr(model.inference_parameters.temperature, "sample") or hasattr(
-            model.inference_parameters.top_p, "sample"
-        ):
+        params_dict = model.inference_parameters.model_dump(mode="json", exclude_none=True)
+        has_distribution = any(isinstance(v, dict) and "distribution_type" in v for v in params_dict.values())
+
+        if has_distribution:
             print_warning(
                 "This model uses distribution-based inference parameters, "
                 "which cannot be edited via the CLI. Please edit the configuration file directly."

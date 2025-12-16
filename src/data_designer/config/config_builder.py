@@ -19,7 +19,7 @@ from data_designer.config.column_configs import SeedDatasetColumnConfig
 from data_designer.config.column_types import (
     ColumnConfigT,
     DataDesignerColumnType,
-    column_type_is_llm_generated,
+    column_type_is_model_generated,
     get_column_config_from_kwargs,
     get_column_display_order,
 )
@@ -447,12 +447,21 @@ class DataDesignerConfigBuilder:
         return [c for c in self._constraints if c.target_column == target_column]
 
     def get_llm_gen_columns(self) -> list[ColumnConfigT]:
-        """Get all LLM-generated column configurations.
+        """Get all model-generated column configurations.
 
         Returns:
-            A list of column configurations that use LLM generation.
+            A list of column configurations that use model generation.
         """
-        return [c for c in self._column_configs.values() if column_type_is_llm_generated(c.column_type)]
+        logger.warning("get_llm_gen_columns is deprecated. Use get_model_gen_columns instead.")
+        return self.get_model_gen_columns()
+
+    def get_model_gen_columns(self) -> list[ColumnConfigT]:
+        """Get all model-generated column configurations.
+
+        Returns:
+            A list of column configurations that use model generation.
+        """
+        return [c for c in self._column_configs.values() if column_type_is_model_generated(c.column_type)]
 
     def get_columns_of_type(self, column_type: DataDesignerColumnType) -> list[ColumnConfigT]:
         """Get all column configurations of the specified type.

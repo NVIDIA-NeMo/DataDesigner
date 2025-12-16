@@ -34,7 +34,7 @@ The following model configurations are automatically available when `NVIDIA_API_
 
 | Alias | Model | Use Case | Temperature | Top P |
 |-------|-------|----------|-------------|-------|
-| `nvidia-text` | `nvidia/nvidia-nemotron-nano-9b-v2` | General text generation | 0.85 | 0.95 |
+| `nvidia-text` | `nvidia/nemotron-3-nano-30b-a3b` | General text generation | 0.85 | 0.95 |
 | `nvidia-reasoning` | `openai/gpt-oss-20b` | Reasoning and analysis tasks | 0.35 | 0.95 |
 | `nvidia-vision` | `nvidia/nemotron-nano-12b-v2-vl` | Vision and image understanding | 0.85 | 0.95 |
 
@@ -49,6 +49,12 @@ The following model configurations are automatically available when `OPENAI_API_
 | `openai-reasoning` | `gpt-5` | Reasoning and analysis tasks | 0.35 | 0.95 |
 | `openai-vision` | `gpt-5` | Vision and image understanding | 0.85 | 0.95 |
 
+
+## Using Default Settings
+
+Default settings work out of the box - no configuration needed! Simply create `DataDesigner` and `DataDesignerConfigBuilder` instances without any arguments, and reference the default model aliases in your column configurations.
+
+For a complete example showing how to use default model settings, see the **[Quick Start Guide](../../quick-start.md)**.
 
 ### How Default Model Providers and Configurations Work
 
@@ -90,6 +96,6 @@ Both methods operate on the same files, ensuring consistency across your entire 
 
 ## See Also
 
-- **[Configure Model Settings With the CLI](configure-model-settings-with-the-cli.md)**: Learn how to use the CLI to manage model settings.
-- **[Quick Start Guide](../../quick-start.md)**: Get started with a simple example
+- **[Custom Model Settings](custom-model-settings.md)**: Learn how to create custom providers and model configurations
+- **[Configure Model Settings With the CLI](configure-model-settings-with-the-cli.md)**: Learn how to use the CLI to manage model settings
 - **[Model Configurations](model-configs.md)**: Learn about model configurations

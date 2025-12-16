@@ -8,7 +8,11 @@ import pytest
 
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.utils.code_lang import CodeLang
-from data_designer.config.utils.visualization import display_sample_record, mask_api_key
+from data_designer.config.utils.visualization import (
+    display_sample_record,
+    get_truncated_list_as_string,
+    mask_api_key,
+)
 from data_designer.config.validator_params import CodeValidatorParams
 
 
@@ -75,3 +79,14 @@ def test_mask_api_key():
     # None or empty returns "(not set)"
     assert mask_api_key(None) == "(not set)"
     assert mask_api_key("") == "(not set)"
+
+
+def test_get_truncated_list_as_string():
+    assert get_truncated_list_as_string([1, 2, 3, 4, 5]) == "[1, 2, ...]"
+    assert get_truncated_list_as_string([1, 2, 3, 4, 5], max_items=1) == "[1, ...]"
+    assert get_truncated_list_as_string([1, 2, 3, 4, 5], max_items=3) == "[1, 2, 3, ...]"
+    assert get_truncated_list_as_string([1, 2, 3, 4, 5], max_items=10) == "[1, 2, 3, 4, 5]"
+    with pytest.raises(ValueError):
+        get_truncated_list_as_string([1, 2, 3, 4, 5], max_items=-1)
+    with pytest.raises(ValueError):
+        get_truncated_list_as_string([1, 2, 3, 4, 5], max_items=0)

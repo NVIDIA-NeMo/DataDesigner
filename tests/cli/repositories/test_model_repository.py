@@ -21,7 +21,9 @@ def test_load_does_not_exist():
 
 def test_load_exists(tmp_path: Path, stub_model_configs: list[ModelConfig]):
     model_configs_file_path = tmp_path / MODEL_CONFIGS_FILE_NAME
-    save_config_file(model_configs_file_path, {"model_configs": [mc.model_dump() for mc in stub_model_configs]})
+    save_config_file(
+        model_configs_file_path, {"model_configs": [mc.model_dump(mode="json") for mc in stub_model_configs]}
+    )
     repository = ModelRepository(tmp_path)
     assert repository.load() is not None
     assert repository.load().model_configs == stub_model_configs

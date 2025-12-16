@@ -32,7 +32,7 @@ def extract_judge_score_distributions(
 
     for score in column_config.scores:
         is_numerical = True
-        name = score.name.lower()
+        name = score.name
         for results in df[column_config.name]:
             try:
                 score = results[name].get("score", None)

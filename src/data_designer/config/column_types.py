@@ -6,6 +6,7 @@ from typing import Union
 from typing_extensions import TypeAlias
 
 from data_designer.config.column_configs import (
+    EmbeddingColumnConfig,
     ExpressionColumnConfig,
     LLMCodeColumnConfig,
     LLMJudgeColumnConfig,
@@ -35,6 +36,7 @@ ColumnConfigT: TypeAlias = Union[
     SamplerColumnConfig,
     SeedDatasetColumnConfig,
     ValidationColumnConfig,
+    EmbeddingColumnConfig,
 ]
 ColumnConfigT = plugin_manager.inject_into_column_config_type_union(ColumnConfigT)
 
@@ -54,6 +56,7 @@ COLUMN_TYPE_EMOJI_MAP = {
     DataDesignerColumnType.SEED_DATASET: "🌱",
     DataDesignerColumnType.SAMPLER: "🎲",
     DataDesignerColumnType.VALIDATION: "🔍",
+    DataDesignerColumnType.EMBEDDING: "🧬",
 }
 COLUMN_TYPE_EMOJI_MAP.update(
     {DataDesignerColumnType(p.name): p.emoji for p in plugin_manager.get_column_generator_plugins()}
@@ -70,27 +73,29 @@ def column_type_used_in_execution_dag(column_type: Union[str, DataDesignerColumn
         DataDesignerColumnType.LLM_STRUCTURED,
         DataDesignerColumnType.LLM_TEXT,
         DataDesignerColumnType.VALIDATION,
+        DataDesignerColumnType.EMBEDDING,
     }
     dag_column_types.update(plugin_manager.get_plugin_column_types(DataDesignerColumnType))
     return column_type in dag_column_types
 
 
-def column_type_is_llm_generated(column_type: Union[str, DataDesignerColumnType]) -> bool:
-    """Return True if the column type is an LLM-generated column."""
+def column_type_is_model_generated(column_type: Union[str, DataDesignerColumnType]) -> bool:
+    """Return True if the column type is a model-generated column."""
     column_type = resolve_string_enum(column_type, DataDesignerColumnType)
-    llm_generated_column_types = {
+    model_generated_column_types = {
         DataDesignerColumnType.LLM_TEXT,
         DataDesignerColumnType.LLM_CODE,
         DataDesignerColumnType.LLM_STRUCTURED,
         DataDesignerColumnType.LLM_JUDGE,
+        DataDesignerColumnType.EMBEDDING,
     }
-    llm_generated_column_types.update(
+    model_generated_column_types.update(
         plugin_manager.get_plugin_column_types(
             DataDesignerColumnType,
             required_resources=["model_registry"],
         )
     )
-    return column_type in llm_generated_column_types
+    return column_type in model_generated_column_types
 
 
 def get_column_config_from_kwargs(name: str, column_type: DataDesignerColumnType, **kwargs) -> ColumnConfigT:
@@ -121,6 +126,8 @@ def get_column_config_from_kwargs(name: str, column_type: DataDesignerColumnType
         return SamplerColumnConfig(name=name, **_resolve_sampler_kwargs(name, kwargs))
     if column_type == DataDesignerColumnType.SEED_DATASET:
         return SeedDatasetColumnConfig(name=name, **kwargs)
+    if column_type == DataDesignerColumnType.EMBEDDING:
+        return EmbeddingColumnConfig(name=name, **kwargs)
     if plugin := plugin_manager.get_column_generator_plugin_if_exists(column_type.value):
         return plugin.config_cls(name=name, **kwargs)
     raise InvalidColumnTypeError(f"🛑 {column_type} is not a valid column type.")  # pragma: no cover
@@ -135,6 +142,7 @@ def get_column_display_order() -> list[DataDesignerColumnType]:
         DataDesignerColumnType.LLM_CODE,
         DataDesignerColumnType.LLM_STRUCTURED,
         DataDesignerColumnType.LLM_JUDGE,
+        DataDesignerColumnType.EMBEDDING,
         DataDesignerColumnType.VALIDATION,
         DataDesignerColumnType.EXPRESSION,
     ]

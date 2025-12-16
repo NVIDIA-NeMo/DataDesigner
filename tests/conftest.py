@@ -17,7 +17,7 @@ from data_designer.config.column_configs import SamplerColumnConfig
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.datastore import DatastoreSettings
-from data_designer.config.models import InferenceParameters, ModelConfig, ModelProvider
+from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig, ModelProvider
 
 
 @pytest.fixture
@@ -135,7 +135,7 @@ def stub_model_configs() -> list[ModelConfig]:
         ModelConfig(
             alias="stub-model",
             model="stub-model",
-            inference_parameters=InferenceParameters(
+            inference_parameters=ChatCompletionInferenceParams(
                 temperature=0.9,
                 top_p=0.9,
                 max_tokens=2048,

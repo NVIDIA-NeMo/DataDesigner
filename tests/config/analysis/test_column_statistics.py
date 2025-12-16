@@ -124,12 +124,12 @@ def test_llm_text_column_statistics_with_missing_values(
 ):
     llm_text_column_statistics = llm_text_column_statistics_based_class(
         **stub_general_stats_args_with_missing_values,
-        completion_tokens_mean=MissingValue.CALCULATION_FAILED,
-        completion_tokens_median=MissingValue.CALCULATION_FAILED,
-        completion_tokens_stddev=MissingValue.CALCULATION_FAILED,
-        prompt_tokens_mean=MissingValue.CALCULATION_FAILED,
-        prompt_tokens_median=MissingValue.CALCULATION_FAILED,
-        prompt_tokens_stddev=MissingValue.CALCULATION_FAILED,
+        output_tokens_mean=MissingValue.CALCULATION_FAILED,
+        output_tokens_median=MissingValue.CALCULATION_FAILED,
+        output_tokens_stddev=MissingValue.CALCULATION_FAILED,
+        input_tokens_mean=MissingValue.CALCULATION_FAILED,
+        input_tokens_median=MissingValue.CALCULATION_FAILED,
+        input_tokens_stddev=MissingValue.CALCULATION_FAILED,
     )
     assert llm_text_column_statistics.column_type == column_type
     assert llm_text_column_statistics.create_report_row_data() == {
@@ -155,12 +155,12 @@ def test_llm_text_column_statistics_with_valid_values(
 ):
     llm_text_column_statistics = llm_text_column_statistics_based_class(
         **stub_general_stats_args_with_valid_values,
-        completion_tokens_mean=150.0,
-        completion_tokens_median=150.0,
-        completion_tokens_stddev=25.2,
-        prompt_tokens_mean=50.0,
-        prompt_tokens_median=50.0,
-        prompt_tokens_stddev=10.0,
+        output_tokens_mean=150.0,
+        output_tokens_median=150.0,
+        output_tokens_stddev=25.2,
+        input_tokens_mean=50.0,
+        input_tokens_median=50.0,
+        input_tokens_stddev=10.0,
     )
     assert llm_text_column_statistics.column_type == column_type
     assert llm_text_column_statistics.create_report_row_data() == {
