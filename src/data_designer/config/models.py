@@ -239,6 +239,37 @@ class BaseInferenceParams(ConfigBase, ABC):
             result["extra_body"] = self.extra_body
         return result
 
+    def format_for_display(self) -> str:
+        """Format inference parameters for display.
+
+        Returns:
+            Formatted string of inference parameters
+        """
+        params_dict = self.model_dump(exclude_none=True, mode="json")
+
+        if not params_dict:
+            return "(none)"
+
+        parts = []
+        for key, value in params_dict.items():
+            formatted_value = self._format_value(key, value)
+            parts.append(f"{key}={formatted_value}")
+        return ", ".join(parts)
+
+    def _format_value(self, key: str, value: Any) -> str:
+        """Format a single parameter value. Override in subclasses for custom formatting.
+
+        Args:
+            key: Parameter name
+            value: Parameter value
+
+        Returns:
+            Formatted string representation of the value
+        """
+        if isinstance(value, float):
+            return f"{value:.2f}"
+        return str(value)
+
 
 class ChatCompletionInferenceParams(BaseInferenceParams):
     """Configuration for LLM inference parameters.
@@ -310,6 +341,20 @@ class ChatCompletionInferenceParams(BaseInferenceParams):
 
     def _is_value_in_range(self, value: float, min_value: float, max_value: float) -> bool:
         return min_value <= value <= max_value
+
+    def _format_value(self, key: str, value: Any) -> str:
+        """Format chat completion parameter values, including distributions.
+
+        Args:
+            key: Parameter name
+            value: Parameter value
+
+        Returns:
+            Formatted string representation of the value
+        """
+        if isinstance(value, dict) and "distribution_type" in value:
+            return "dist"
+        return super()._format_value(key, value)
 
 
 # Maintain backwards compatibility with a deprecation warning

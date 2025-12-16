@@ -321,15 +321,15 @@ def display_model_configs_table(model_configs: list[ModelConfig]) -> None:
     table_model_configs.add_column("Alias")
     table_model_configs.add_column("Model")
     table_model_configs.add_column("Provider")
-    table_model_configs.add_column("Temperature")
-    table_model_configs.add_column("Top P")
+    table_model_configs.add_column("Inference Parameters")
     for model_config in model_configs:
+        params_display = model_config.inference_parameters.format_for_display()
+
         table_model_configs.add_row(
             model_config.alias,
             model_config.model,
             model_config.provider,
-            str(model_config.inference_parameters.temperature),
-            str(model_config.inference_parameters.top_p),
+            params_display,
         )
     group_args: list = [Rule(title="Model Configs"), table_model_configs]
     if len(model_configs) == 0:
