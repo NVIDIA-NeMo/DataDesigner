@@ -3,8 +3,8 @@
 
 import typer
 
+from data_designer.cli.commands import download, models, providers, reset
 from data_designer.cli.commands import list as list_cmd
-from data_designer.cli.commands import models, providers, reset
 from data_designer.config.default_model_settings import resolve_seed_default_model_settings
 from data_designer.config.utils.misc import can_run_data_designer_locally
 
@@ -33,6 +33,7 @@ config_app.command(name="list", help="List current configurations")(list_cmd.lis
 config_app.command(name="reset", help="Reset configuration files")(reset.reset_command)
 
 app.add_typer(config_app, name="config")
+app.add_typer(download.download_app, name="download")
 
 
 def main() -> None:

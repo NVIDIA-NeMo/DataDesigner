@@ -182,6 +182,137 @@ def select_with_arrows(
         return None
 
 
+def select_multiple_with_arrows(
+    options: dict[str, str],
+    prompt_text: str,
+    default_keys: list[str] | None = None,
+    allow_empty: bool = False,
+) -> list[str] | None:
+    """Interactive multi-selection with arrow key navigation and space to toggle.
+
+    Uses prompt_toolkit's Application for an inline checkbox-style menu experience.
+
+    Args:
+        options: Dictionary of {key: display_text} options
+        prompt_text: Prompt to display above options
+        default_keys: List of keys that should be pre-selected
+        allow_empty: If True, allows user to submit with no selections
+
+    Returns:
+        List of selected keys, or None if cancelled
+    """
+    if not options:
+        return None
+
+    # Build list of keys and track selected state
+    keys = list(options.keys())
+    selected_set = set(default_keys) if default_keys else set()
+    current_index = 0
+
+    # Store result
+    result = {"value": None, "cancelled": False}
+
+    def get_formatted_text() -> list[tuple[str, str]]:
+        """Generate the formatted text for the multi-select menu."""
+        text = []
+        # Add prompt with padding
+        padding = " " * LEFT_PADDING
+        text.append(("", f"{padding}{prompt_text}\n"))
+
+        # Add options with checkboxes
+        for i, key in enumerate(keys):
+            display = options[key]
+            checkbox = "[✓]" if key in selected_set else "[ ]"
+
+            if i == current_index:
+                # Highlighted item with Nord8 color
+                text.append((f"fg:{NordColor.NORD8.value} bold", f"{padding}  → {checkbox} {display}\n"))
+            else:
+                # Unselected item
+                text.append(("", f"{padding}    {checkbox} {display}\n"))
+
+        # Add hint
+        count = len(selected_set)
+        text.append(
+            (
+                "fg:#666666",
+                f"{padding}  (↑/↓: navigate, Space: toggle, Enter: confirm ({count} selected), Esc: cancel)\n",
+            )
+        )
+        return text
+
+    # Create key bindings
+    kb = KeyBindings()
+
+    @kb.add("up")
+    @kb.add("c-p")  # Ctrl+P
+    def _move_up(event) -> None:
+        nonlocal current_index
+        current_index = (current_index - 1) % len(keys)
+
+    @kb.add("down")
+    @kb.add("c-n")  # Ctrl+N
+    def _move_down(event) -> None:
+        nonlocal current_index
+        current_index = (current_index + 1) % len(keys)
+
+    @kb.add("c-h")  # Ctrl+H as alternative
+    @kb.add(" ", eager=True)  # Space key - eager to capture immediately
+    def _toggle(event) -> None:
+        key = keys[current_index]
+        if key in selected_set:
+            selected_set.remove(key)
+        else:
+            selected_set.add(key)
+
+    @kb.add("enter")
+    def _confirm(event) -> None:
+        if not allow_empty and not selected_set:
+            # Don't allow empty selection if not permitted
+            return
+        result["value"] = list(selected_set)
+        event.app.exit()
+
+    @kb.add("escape")
+    @kb.add("c-c")  # Ctrl+C
+    def _cancel(event) -> None:
+        result["cancelled"] = True
+        event.app.exit()
+
+    # Create the application
+    app = Application(
+        layout=Layout(
+            HSplit(
+                [
+                    Window(
+                        content=FormattedTextControl(get_formatted_text),
+                        dont_extend_height=True,
+                        always_hide_cursor=True,
+                    )
+                ]
+            )
+        ),
+        key_bindings=kb,
+        full_screen=False,
+        mouse_support=False,
+    )
+
+    try:
+        # Run the application
+        app.run()
+
+        # Handle the result
+        if result["cancelled"]:
+            print_warning("Cancelled")
+            return None
+        else:
+            return result["value"]
+
+    except (KeyboardInterrupt, EOFError):
+        print_warning("Cancelled")
+        return None
+
+
 def prompt_text_input(
     prompt_msg: str,
     default: str | None = None,
