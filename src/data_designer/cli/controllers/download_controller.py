@@ -199,7 +199,7 @@ def check_ngc_cli_with_instructions() -> bool:
     if check_ngc_cli_available():
         version = get_ngc_version()
         if version:
-            print_info(f"NGC CLI: {version}")
+            print_info(version)
         return True
 
     print_error("NGC CLI not found!")
