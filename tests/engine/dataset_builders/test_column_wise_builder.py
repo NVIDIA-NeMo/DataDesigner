@@ -218,18 +218,13 @@ def test_constants_max_concurrency_constant():
 
 
 @patch("data_designer.engine.dataset_builders.column_wise_builder.TelemetryHandler")
-def test_emit_batch_inference_events_computes_deltas(
+def test_emit_batch_inference_events_emits_from_deltas(
     mock_telemetry_handler_class: Mock,
     stub_resource_provider: Mock,
     stub_test_column_configs: list,
     stub_test_processor_configs: list,
 ) -> None:
-    pre_batch_snapshot = {
-        "test-model": ModelUsageStats(token_usage=TokenUsageStats(input_tokens=100, output_tokens=200))
-    }
-
-    current_snapshot = {"test-model": ModelUsageStats(token_usage=TokenUsageStats(input_tokens=150, output_tokens=350))}
-    stub_resource_provider.model_registry.get_model_usage_snapshot.return_value = current_snapshot
+    usage_deltas = {"test-model": ModelUsageStats(token_usage=TokenUsageStats(input_tokens=50, output_tokens=150))}
 
     builder = ColumnWiseDatasetBuilder(
         column_configs=stub_test_column_configs,
@@ -243,7 +238,7 @@ def test_emit_batch_inference_events_computes_deltas(
     mock_telemetry_handler_class.return_value.__enter__ = Mock(return_value=mock_handler_instance)
     mock_telemetry_handler_class.return_value.__exit__ = Mock(return_value=False)
 
-    builder._emit_batch_inference_events("batch", pre_batch_snapshot, session_id)
+    builder._emit_batch_inference_events("batch", usage_deltas, session_id)
 
     mock_telemetry_handler_class.assert_called_once()
     call_kwargs = mock_telemetry_handler_class.call_args[1]
@@ -257,55 +252,57 @@ def test_emit_batch_inference_events_computes_deltas(
     assert event.task_status == TaskStatusEnum.SUCCESS
     assert event.nemo_source == NemoSourceEnum.DATADESIGNER
     assert event.model == "test-model"
-    assert event.input_tokens == 50  # 150 - 100
-    assert event.output_tokens == 150  # 350 - 200
+    assert event.input_tokens == 50
+    assert event.output_tokens == 150
 
 
 @patch("data_designer.engine.dataset_builders.column_wise_builder.TelemetryHandler")
-def test_emit_batch_inference_events_skips_when_no_usage_change(
+def test_emit_batch_inference_events_skips_when_no_deltas(
     mock_telemetry_handler_class: Mock,
     stub_resource_provider: Mock,
     stub_test_column_configs: list,
     stub_test_processor_configs: list,
 ) -> None:
-    snapshot_stats = ModelUsageStats(token_usage=TokenUsageStats(input_tokens=100, output_tokens=200))
-    pre_batch_snapshot = {"test-model": snapshot_stats}
-    current_snapshot = {"test-model": snapshot_stats.model_copy(deep=True)}
-    stub_resource_provider.model_registry.get_model_usage_snapshot.return_value = current_snapshot
+    usage_deltas: dict[str, ModelUsageStats] = {}
+
     builder = ColumnWiseDatasetBuilder(
         column_configs=stub_test_column_configs,
         processor_configs=stub_test_processor_configs,
         resource_provider=stub_resource_provider,
     )
+
     session_id = "550e8400-e29b-41d4-a716-446655440000"
-    builder._emit_batch_inference_events("batch", pre_batch_snapshot, session_id)
+    builder._emit_batch_inference_events("batch", usage_deltas, session_id)
+
     mock_telemetry_handler_class.assert_not_called()
 
 
 @patch("data_designer.engine.dataset_builders.column_wise_builder.TelemetryHandler")
-def test_emit_batch_inference_events_handles_new_model_in_batch(
+def test_emit_batch_inference_events_handles_multiple_models(
     mock_telemetry_handler_class: Mock,
     stub_resource_provider: Mock,
     stub_test_column_configs: list,
     stub_test_processor_configs: list,
 ) -> None:
-    pre_batch_snapshot: dict[str, ModelUsageStats] = {}
-    current_snapshot = {"new-model": ModelUsageStats(token_usage=TokenUsageStats(input_tokens=100, output_tokens=200))}
-    stub_resource_provider.model_registry.get_model_usage_snapshot.return_value = current_snapshot
+    usage_deltas = {
+        "model-a": ModelUsageStats(token_usage=TokenUsageStats(input_tokens=100, output_tokens=200)),
+        "model-b": ModelUsageStats(token_usage=TokenUsageStats(input_tokens=50, output_tokens=75)),
+    }
+
     builder = ColumnWiseDatasetBuilder(
         column_configs=stub_test_column_configs,
         processor_configs=stub_test_processor_configs,
         resource_provider=stub_resource_provider,
     )
+
     session_id = "550e8400-e29b-41d4-a716-446655440000"
     mock_handler_instance = Mock()
     mock_telemetry_handler_class.return_value.__enter__ = Mock(return_value=mock_handler_instance)
     mock_telemetry_handler_class.return_value.__exit__ = Mock(return_value=False)
-    builder._emit_batch_inference_events("preview", pre_batch_snapshot, session_id)
 
-    mock_handler_instance.enqueue.assert_called_once()
-    event = mock_handler_instance.enqueue.call_args[0][0]
+    builder._emit_batch_inference_events("preview", usage_deltas, session_id)
 
-    assert event.model == "new-model"
-    assert event.input_tokens == 100
-    assert event.output_tokens == 200
+    assert mock_handler_instance.enqueue.call_count == 2
+    events = [call[0][0] for call in mock_handler_instance.enqueue.call_args_list]
+    model_names = {e.model for e in events}
+    assert model_names == {"model-a", "model-b"}

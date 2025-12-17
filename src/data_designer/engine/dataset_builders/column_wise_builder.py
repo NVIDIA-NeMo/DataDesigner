@@ -181,7 +181,8 @@ class ColumnWiseDatasetBuilder:
                 raise DatasetGenerationError(f"🛑 Failed to process {column_error_str}:\n{e}")
 
         try:
-            self._emit_batch_inference_events(batch_mode, pre_batch_snapshot, group_id)
+            usage_deltas = self._resource_provider.model_registry.get_usage_deltas(pre_batch_snapshot)
+            self._emit_batch_inference_events(batch_mode, usage_deltas, group_id)
         except Exception:
             pass
 
@@ -310,31 +311,23 @@ class ColumnWiseDatasetBuilder:
         )
 
     def _emit_batch_inference_events(
-        self, batch_mode: str, pre_batch_snapshot: dict[str, ModelUsageStats], group_id: str
+        self, batch_mode: str, usage_deltas: dict[str, ModelUsageStats], group_id: str
     ) -> None:
-        current_snapshot = self._resource_provider.model_registry.get_model_usage_snapshot()
-        events = []
-        for model_name, current_stats in current_snapshot.items():
-            if (prev_stats := pre_batch_snapshot.get(model_name)) is not None:
-                delta_input = current_stats.token_usage.input_tokens - prev_stats.token_usage.input_tokens
-                delta_output = current_stats.token_usage.output_tokens - prev_stats.token_usage.output_tokens
-            else:
-                delta_input = current_stats.token_usage.input_tokens
-                delta_output = current_stats.token_usage.output_tokens
+        if not usage_deltas:
+            return
 
-            if delta_input > 0 or delta_output > 0:
-                events.append(
-                    InferenceEvent(
-                        nemo_source=NemoSourceEnum.DATADESIGNER,
-                        task=batch_mode,
-                        task_status=TaskStatusEnum.SUCCESS,
-                        model=model_name,
-                        input_tokens=delta_input,
-                        output_tokens=delta_output,
-                    )
-                )
+        events = [
+            InferenceEvent(
+                nemo_source=NemoSourceEnum.DATADESIGNER,
+                task=batch_mode,
+                task_status=TaskStatusEnum.SUCCESS,
+                model=model_name,
+                input_tokens=delta.token_usage.input_tokens,
+                output_tokens=delta.token_usage.output_tokens,
+            )
+            for model_name, delta in usage_deltas.items()
+        ]
 
-        if events:
-            with TelemetryHandler(source_client_version=_CLIENT_VERSION, session_id=group_id) as telemetry_handler:
-                for event in events:
-                    telemetry_handler.enqueue(event)
+        with TelemetryHandler(source_client_version=_CLIENT_VERSION, session_id=group_id) as telemetry_handler:
+            for event in events:
+                telemetry_handler.enqueue(event)

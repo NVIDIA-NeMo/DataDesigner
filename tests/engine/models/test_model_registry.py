@@ -207,6 +207,70 @@ def test_get_model_usage_snapshot(
         assert snapshot == {}
 
 
+@pytest.mark.parametrize(
+    "test_case,expected_keys",
+    [
+        ("no_prior_usage", ["stub-model-text"]),
+        ("with_prior_usage", ["stub-model-text"]),
+        ("no_change", []),
+    ],
+)
+def test_get_usage_deltas(
+    stub_model_registry: ModelRegistry,
+    test_case: str,
+    expected_keys: list[str],
+) -> None:
+    text_model = stub_model_registry.get_model(model_alias="stub-text")
+
+    if test_case == "no_prior_usage":
+        # Empty snapshot, then add usage
+        pre_snapshot: dict[str, ModelUsageStats] = {}
+        text_model.usage_stats.extend(
+            token_usage=TokenUsageStats(input_tokens=50, output_tokens=100),
+            request_usage=RequestUsageStats(successful_requests=5, failed_requests=1),
+        )
+
+        deltas = stub_model_registry.get_usage_deltas(pre_snapshot)
+
+        assert set(deltas.keys()) == set(expected_keys)
+        assert deltas["stub-model-text"].token_usage.input_tokens == 50
+        assert deltas["stub-model-text"].token_usage.output_tokens == 100
+        assert deltas["stub-model-text"].request_usage.successful_requests == 5
+        assert deltas["stub-model-text"].request_usage.failed_requests == 1
+
+    elif test_case == "with_prior_usage":
+        # Add initial usage, take snapshot, add more usage
+        text_model.usage_stats.extend(
+            token_usage=TokenUsageStats(input_tokens=100, output_tokens=200),
+            request_usage=RequestUsageStats(successful_requests=10, failed_requests=2),
+        )
+        pre_snapshot = stub_model_registry.get_model_usage_snapshot()
+
+        text_model.usage_stats.extend(
+            token_usage=TokenUsageStats(input_tokens=50, output_tokens=75),
+            request_usage=RequestUsageStats(successful_requests=3, failed_requests=1),
+        )
+
+        deltas = stub_model_registry.get_usage_deltas(pre_snapshot)
+
+        assert set(deltas.keys()) == set(expected_keys)
+        assert deltas["stub-model-text"].token_usage.input_tokens == 50
+        assert deltas["stub-model-text"].token_usage.output_tokens == 75
+        assert deltas["stub-model-text"].request_usage.successful_requests == 3
+        assert deltas["stub-model-text"].request_usage.failed_requests == 1
+
+    else:  # no_change
+        text_model.usage_stats.extend(
+            token_usage=TokenUsageStats(input_tokens=100, output_tokens=200),
+            request_usage=RequestUsageStats(successful_requests=10, failed_requests=2),
+        )
+        pre_snapshot = stub_model_registry.get_model_usage_snapshot()
+
+        # No additional usage after snapshot
+        deltas = stub_model_registry.get_usage_deltas(pre_snapshot)
+        assert deltas == {}
+
+
 @patch("data_designer.engine.models.facade.ModelFacade.generate_text_embeddings", autospec=True)
 @patch("data_designer.engine.models.facade.ModelFacade.completion", autospec=True)
 def test_run_health_check_success(mock_completion, mock_generate_text_embeddings, stub_model_registry):
