@@ -27,57 +27,32 @@ from data_designer.config.utils.io_helpers import load_config_file, save_config_
 logger = logging.getLogger(__name__)
 
 
-def get_default_text_alias_inference_parameters() -> ChatCompletionInferenceParams:
-    return ChatCompletionInferenceParams(
-        temperature=0.85,
-        top_p=0.95,
-    )
-
-
-def get_default_reasoning_alias_inference_parameters() -> ChatCompletionInferenceParams:
-    return ChatCompletionInferenceParams(
-        temperature=0.35,
-        top_p=0.95,
-    )
-
-
-def get_default_vision_alias_inference_parameters() -> ChatCompletionInferenceParams:
-    return ChatCompletionInferenceParams(
-        temperature=0.85,
-        top_p=0.95,
-    )
-
-
-def get_default_embedding_alias_inference_parameters(provider: str) -> EmbeddingInferenceParams:
-    args = dict(encoding_format="float")
-    if provider == "nvidia":
-        args["extra_body"] = {"input_type": "query"}
-    return EmbeddingInferenceParams(**args)
-
-
 def get_default_inference_parameters(
-    model_alias: Literal["text", "reasoning", "vision", "embedding"], provider: str
+    model_alias: Literal["text", "reasoning", "vision", "embedding"],
+    inference_parameters: dict[str, Any],
 ) -> InferenceParamsT:
     if model_alias == "reasoning":
-        return get_default_reasoning_alias_inference_parameters()
+        return ChatCompletionInferenceParams(**inference_parameters)
     elif model_alias == "vision":
-        return get_default_vision_alias_inference_parameters()
+        return ChatCompletionInferenceParams(**inference_parameters)
     elif model_alias == "embedding":
-        return get_default_embedding_alias_inference_parameters(provider)
+        return EmbeddingInferenceParams(**inference_parameters)
     else:
-        return get_default_text_alias_inference_parameters()
+        return ChatCompletionInferenceParams(**inference_parameters)
 
 
 def get_builtin_model_configs() -> list[ModelConfig]:
     model_configs = []
     for provider, model_alias_map in PREDEFINED_PROVIDERS_MODEL_MAP.items():
-        for model_alias, model_id in model_alias_map.items():
+        for model_alias, settings in model_alias_map.items():
             model_configs.append(
                 ModelConfig(
                     alias=f"{provider}-{model_alias}",
-                    model=model_id,
+                    model=settings["model"],
                     provider=provider,
-                    inference_parameters=get_default_inference_parameters(model_alias, provider),
+                    inference_parameters=get_default_inference_parameters(
+                        model_alias, settings["inference_parameters"]
+                    ),
                 )
             )
     return model_configs
