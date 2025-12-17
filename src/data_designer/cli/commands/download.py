@@ -24,13 +24,18 @@ def personas_command(
         "--dry-run",
         help="Show what would be downloaded without actually downloading",
     ),
+    list_available: bool = typer.Option(
+        False,
+        "--list",
+        help="List available persona datasets and their sizes",
+    ),
 ) -> None:
-    """Download persona datasets for synthetic data generation.
-
-    Persona datasets contain diverse character profiles that can be used
-    to generate contextually rich synthetic data.
+    """Download Nemotron-Personas datasets for synthetic data generation.
 
     Examples:
+        # List available datasets
+        data-designer download personas --list
+
         # Interactive selection
         data-designer download personas
 
@@ -44,4 +49,8 @@ def personas_command(
         data-designer download personas --all --dry-run
     """
     controller = DownloadController(DATA_DESIGNER_HOME)
-    controller.run_personas(locales=locales, all_locales=all_locales, dry_run=dry_run)
+
+    if list_available:
+        controller.list_personas()
+    else:
+        controller.run_personas(locales=locales, all_locales=all_locales, dry_run=dry_run)

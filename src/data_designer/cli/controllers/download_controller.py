@@ -28,6 +28,25 @@ class DownloadController:
         self.config_dir = config_dir
         self.service = DownloadService(config_dir)
 
+    def list_personas(self) -> None:
+        """List available persona datasets and their sizes."""
+        print_header("Available Nemotron-Persona Datasets")
+        console.print()
+
+        available_locales = self.service.get_available_locales()
+
+        print_text("📦 Available locales:")
+        console.print()
+
+        for locale in available_locales.keys():
+            size = DATASET_SIZES[locale]
+            already_downloaded = self.service.is_locale_downloaded(locale)
+            status = " (downloaded)" if already_downloaded else ""
+            print_text(f"  • {locale}: {size}{status}")
+
+        console.print()
+        print_info(f"Total: {len(available_locales)} datasets available")
+
     def run_personas(self, locales: list[str] | None, all_locales: bool, dry_run: bool = False) -> None:
         """Main entry point for persona dataset downloads.
 

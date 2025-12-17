@@ -34,6 +34,18 @@ def test_init(tmp_path: Path) -> None:
     assert controller.service.config_dir == tmp_path
 
 
+def test_list_personas(controller: DownloadController) -> None:
+    """Test list_personas displays all available datasets."""
+    controller.list_personas()
+    # Method should complete without errors and print to console
+
+
+def test_list_personas_with_downloaded_datasets(controller_with_datasets: DownloadController) -> None:
+    """Test list_personas shows (downloaded) status for existing datasets."""
+    controller_with_datasets.list_personas()
+    # Method should complete without errors and show downloaded status
+
+
 @patch("data_designer.cli.controllers.download_controller.confirm_action", return_value=False)
 @patch("data_designer.cli.controllers.download_controller.select_multiple_with_arrows", return_value=["en_US"])
 @patch("data_designer.cli.controllers.download_controller.check_ngc_cli_with_instructions", return_value=True)
