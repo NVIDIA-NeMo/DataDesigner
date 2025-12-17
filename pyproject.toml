@@ -105,26 +105,22 @@ required-version = ">=0.7.10"
 [tool.ruff]
 line-length = 120
 indent-width = 4
+target-version = "py310"
 
 [tool.ruff.lint]
 select = [
-    # "E",   # pycodestyle errors
     "W",   # pycodestyle warnings
     "F",   # pyflakes
     "I",   # isort (import sorting)
-    # "N",   # pep8-naming
-    # "UP",  # pyupgrade (modern Python syntax)
-    # "ANN", # flake8-annotations (enforce type hints)
-    # "B",   # fla e8-bugbear (common bugs)
-    # "C4",  # flake8-comprehensions
-    # "DTZ", # flake8-datetimez (timezone awareness)
     "ICN", # flake8-import-conventions
     "PIE", # flake8-pie (misc lints)
-    # "RET", # flake8-return
-    # "SIM", # flake8-simplify
-    # "PTH", # flake8-use-pathlib
     "TID", # flake8-tidy-imports (ban relative imports)
 ]
+# Enable specific pyupgrade rules for modern type hints
+# UP006: List[A] -> list[A]
+# UP007: Union[A, B] -> A | B
+# UP045: Optional[A] -> A | None
+extend-select = ["UP006", "UP007", "UP045"]
 ignore = [
     "ANN401", # Dynamically typed expressions (Any)
 ]
