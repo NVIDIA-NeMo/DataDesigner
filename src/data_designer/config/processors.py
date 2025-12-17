@@ -30,7 +30,7 @@ class ProcessorType(str, Enum):
 class ProcessorConfig(ConfigBase, ABC):
     """Abstract base class for all processor configuration types.
 
-    Processors are post-generation transformations that run after columns are generated.
+    Processors are transformations that run before or after columns are generated.
     They can modify, reshape, or augment the dataset before it's saved.
 
     Attributes:
