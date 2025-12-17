@@ -109,18 +109,16 @@ target-version = "py310"
 
 [tool.ruff.lint]
 select = [
-    "W",   # pycodestyle warnings
-    "F",   # pyflakes
-    "I",   # isort (import sorting)
-    "ICN", # flake8-import-conventions
-    "PIE", # flake8-pie (misc lints)
-    "TID", # flake8-tidy-imports (ban relative imports)
+    "W",     # pycodestyle warnings
+    "F",     # pyflakes
+    "I",     # isort (import sorting)
+    "ICN",   # flake8-import-conventions
+    "PIE",   # flake8-pie (misc lints)
+    "TID",   # flake8-tidy-imports (ban relative imports)
+    "UP006", # List[A] -> list[A]
+    "UP007", # Union[A, B] -> A | B
+    "UP045", # Optional[A] -> A | None
 ]
-# Enable specific pyupgrade rules for modern type hints
-# UP006: List[A] -> list[A]
-# UP007: Union[A, B] -> A | B
-# UP045: Optional[A] -> A | None
-extend-select = ["UP006", "UP007", "UP045"]
 ignore = [
     "ANN401", # Dynamically typed expressions (Any)
 ]
