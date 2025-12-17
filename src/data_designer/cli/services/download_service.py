@@ -7,8 +7,15 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+DATASET_SIZES = {
+    "en_US": "1.24 GB",
+    "en_IN": "2.39 GB",
+    "hi_Deva_IN": "4.14 GB",
+    "hi_Latn_IN": "2.7 GB",
+    "ja_JP": "1.69 GB",
+}
+SUPPORTED_LOCALES = list[str](DATASET_SIZES.keys())
 DATASET_PREFIX = "nemotron-personas-dataset-"
-SUPPORTED_LOCALES = ["en_US", "en_IN", "hi_Deva_IN", "hi_Latn_IN", "ja_JP"]
 
 
 class DownloadService:
@@ -17,31 +24,6 @@ class DownloadService:
     def __init__(self, config_dir: Path):
         self.config_dir = config_dir
         self.managed_assets_dir = config_dir / "managed-assets" / "datasets"
-
-    def check_ngc_cli_available(self) -> bool:
-        """Check if NGC CLI is installed and available.
-
-        Returns:
-            True if NGC CLI is in PATH and executable, False otherwise.
-        """
-        if shutil.which("ngc") is None:
-            return False
-
-        return self.get_ngc_version() is not None
-
-    def get_ngc_version(self) -> str | None:
-        """Get the NGC CLI version if available."""
-        try:
-            result = subprocess.run(
-                ["ngc", "--version"],
-                capture_output=True,
-                text=True,
-                check=True,
-                timeout=5,
-            )
-            return result.stdout.strip()
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
-            return None
 
     def get_available_locales(self) -> dict[str, str]:
         """Get dictionary of available persona locales (locale code -> locale code)."""
@@ -73,14 +55,14 @@ class DownloadService:
                 "registry",
                 "resource",
                 "download-version",
-                f"nvidia/nemotron-personas/{_get_dataset_name(locale)}",
+                f"nvidia/nemotron-personas/{_get_downloaded_dataset_name(locale)}",
                 "--dest",
                 temp_dir,
             ]
 
             subprocess.run(cmd, check=True)
 
-            dataset_pattern = _get_dataset_name(locale)
+            dataset_pattern = _get_downloaded_dataset_name(locale)
             download_pattern = f"{temp_dir}/{dataset_pattern}*/*.parquet"
             parquet_files = glob.glob(download_pattern)
 
@@ -114,16 +96,14 @@ class DownloadService:
         if not self.managed_assets_dir.exists():
             return False
 
-        # Check for parquet files matching this locale in managed assets
-        dataset_pattern = _get_dataset_name(locale)
         # Look for any parquet files that start with the dataset pattern
-        parquet_files = glob.glob(str(self.managed_assets_dir / f"{dataset_pattern}*.parquet"))
+        parquet_files = glob.glob(str(self.managed_assets_dir / f"{locale}.parquet"))
 
         return len(parquet_files) > 0
 
 
-def _get_dataset_name(locale: str) -> str:
-    """Build dataset name pattern for the given locale.
+def _get_downloaded_dataset_name(locale: str) -> str:
+    """Build the downloaded dataset name pattern for the given locale.
 
     Args:
         locale: Locale code (e.g., 'en_US', 'ja_JP')

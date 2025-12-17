@@ -23,7 +23,7 @@ def controller_with_datasets(tmp_path: Path) -> DownloadController:
     # Create managed assets directory with sample parquet files
     managed_assets_dir = tmp_path / "managed-assets" / "datasets"
     managed_assets_dir.mkdir(parents=True, exist_ok=True)
-    (managed_assets_dir / "nemotron-personas-dataset-en_us_0.parquet").touch()
+    (managed_assets_dir / "en_US.parquet").touch()
     return controller
 
 
@@ -36,7 +36,7 @@ def test_init(tmp_path: Path) -> None:
 
 @patch("data_designer.cli.controllers.download_controller.confirm_action", return_value=False)
 @patch("data_designer.cli.controllers.download_controller.select_multiple_with_arrows", return_value=["en_US"])
-@patch.object(DownloadController, "_check_ngc_cli", return_value=True)
+@patch("data_designer.cli.controllers.download_controller.check_ngc_cli_with_instructions", return_value=True)
 def test_run_personas_user_cancels_confirmation(
     mock_check_ngc: MagicMock,
     mock_select: MagicMock,
@@ -58,7 +58,7 @@ def test_run_personas_user_cancels_confirmation(
 
 @patch.object(DownloadController, "_download_locale", return_value=True)
 @patch("data_designer.cli.controllers.download_controller.confirm_action", return_value=True)
-@patch.object(DownloadController, "_check_ngc_cli", return_value=True)
+@patch("data_designer.cli.controllers.download_controller.check_ngc_cli_with_instructions", return_value=True)
 def test_run_personas_with_all_flag(
     mock_check_ngc: MagicMock,
     mock_confirm: MagicMock,
@@ -85,7 +85,7 @@ def test_run_personas_with_all_flag(
 
 @patch.object(DownloadController, "_download_locale", return_value=True)
 @patch("data_designer.cli.controllers.download_controller.confirm_action", return_value=True)
-@patch.object(DownloadController, "_check_ngc_cli", return_value=True)
+@patch("data_designer.cli.controllers.download_controller.check_ngc_cli_with_instructions", return_value=True)
 def test_run_personas_with_specific_locales(
     mock_check_ngc: MagicMock,
     mock_confirm: MagicMock,
@@ -105,7 +105,7 @@ def test_run_personas_with_specific_locales(
     assert "ja_JP" in downloaded_locales
 
 
-@patch.object(DownloadController, "_check_ngc_cli", return_value=True)
+@patch("data_designer.cli.controllers.download_controller.check_ngc_cli_with_instructions", return_value=True)
 def test_run_personas_with_invalid_locales(
     mock_check_ngc: MagicMock,
     controller: DownloadController,
@@ -122,7 +122,7 @@ def test_run_personas_with_invalid_locales(
 @patch.object(DownloadController, "_download_locale", return_value=True)
 @patch("data_designer.cli.controllers.download_controller.confirm_action", return_value=True)
 @patch("data_designer.cli.controllers.download_controller.select_multiple_with_arrows", return_value=["en_US"])
-@patch.object(DownloadController, "_check_ngc_cli", return_value=True)
+@patch("data_designer.cli.controllers.download_controller.check_ngc_cli_with_instructions", return_value=True)
 def test_run_personas_interactive_selection(
     mock_check_ngc: MagicMock,
     mock_select: MagicMock,
@@ -147,7 +147,7 @@ def test_run_personas_interactive_selection(
 
 
 @patch("data_designer.cli.controllers.download_controller.select_multiple_with_arrows", return_value=None)
-@patch.object(DownloadController, "_check_ngc_cli", return_value=True)
+@patch("data_designer.cli.controllers.download_controller.check_ngc_cli_with_instructions", return_value=True)
 def test_run_personas_interactive_cancelled(
     mock_check_ngc: MagicMock,
     mock_select: MagicMock,
@@ -165,7 +165,7 @@ def test_run_personas_interactive_cancelled(
     # Function should exit early
 
 
-@patch.object(DownloadController, "_check_ngc_cli", return_value=False)
+@patch("data_designer.cli.controllers.download_controller.check_ngc_cli_with_instructions", return_value=False)
 def test_run_personas_ngc_cli_not_available(
     mock_check_ngc: MagicMock,
     controller: DownloadController,
@@ -177,20 +177,24 @@ def test_run_personas_ngc_cli_not_available(
     mock_check_ngc.assert_called_once()
 
 
-def test_check_ngc_cli_available_with_version(controller: DownloadController) -> None:
-    """Test _check_ngc_cli displays version when NGC CLI is available."""
-    with patch.object(controller.service, "check_ngc_cli_available", return_value=True):
-        with patch.object(controller.service, "get_ngc_version", return_value="NGC CLI 3.41.4"):
-            result = controller._check_ngc_cli()
+def test_check_ngc_cli_available_with_version() -> None:
+    """Test check_ngc_cli_with_instructions displays version when NGC CLI is available."""
+    from data_designer.cli.controllers.download_controller import check_ngc_cli_with_instructions
+
+    with patch("data_designer.cli.controllers.download_controller.check_ngc_cli_available", return_value=True):
+        with patch("data_designer.cli.controllers.download_controller.get_ngc_version", return_value="NGC CLI 3.41.4"):
+            result = check_ngc_cli_with_instructions()
 
     assert result is True
 
 
-def test_check_ngc_cli_available_without_version(controller: DownloadController) -> None:
-    """Test _check_ngc_cli when version cannot be determined."""
-    with patch.object(controller.service, "check_ngc_cli_available", return_value=True):
-        with patch.object(controller.service, "get_ngc_version", return_value=None):
-            result = controller._check_ngc_cli()
+def test_check_ngc_cli_available_without_version() -> None:
+    """Test check_ngc_cli_with_instructions when version cannot be determined."""
+    from data_designer.cli.controllers.download_controller import check_ngc_cli_with_instructions
+
+    with patch("data_designer.cli.controllers.download_controller.check_ngc_cli_available", return_value=True):
+        with patch("data_designer.cli.controllers.download_controller.get_ngc_version", return_value=None):
+            result = check_ngc_cli_with_instructions()
 
     assert result is True
 
@@ -276,7 +280,7 @@ def test_download_locale_generic_error(controller: DownloadController) -> None:
 
 @patch.object(DownloadController, "_download_locale")
 @patch("data_designer.cli.controllers.download_controller.confirm_action", return_value=True)
-@patch.object(DownloadController, "_check_ngc_cli", return_value=True)
+@patch("data_designer.cli.controllers.download_controller.check_ngc_cli_with_instructions", return_value=True)
 def test_run_personas_mixed_success_and_failure(
     mock_check_ngc: MagicMock,
     mock_confirm: MagicMock,
@@ -295,7 +299,7 @@ def test_run_personas_mixed_success_and_failure(
 
 @patch.object(DownloadController, "_download_locale", return_value=True)
 @patch("data_designer.cli.controllers.download_controller.confirm_action", return_value=True)
-@patch.object(DownloadController, "_check_ngc_cli", return_value=True)
+@patch("data_designer.cli.controllers.download_controller.check_ngc_cli_with_instructions", return_value=True)
 def test_run_personas_shows_existing_status(
     mock_check_ngc: MagicMock,
     mock_confirm: MagicMock,
@@ -311,7 +315,7 @@ def test_run_personas_shows_existing_status(
 
 @patch.object(DownloadController, "_download_locale")
 @patch("data_designer.cli.controllers.download_controller.confirm_action")
-@patch.object(DownloadController, "_check_ngc_cli")
+@patch("data_designer.cli.controllers.download_controller.check_ngc_cli_with_instructions")
 def test_run_personas_with_dry_run_flag(
     mock_check_ngc: MagicMock,
     mock_confirm: MagicMock,
@@ -333,7 +337,7 @@ def test_run_personas_with_dry_run_flag(
 
 @patch.object(DownloadController, "_download_locale")
 @patch("data_designer.cli.controllers.download_controller.confirm_action")
-@patch.object(DownloadController, "_check_ngc_cli")
+@patch("data_designer.cli.controllers.download_controller.check_ngc_cli_with_instructions")
 def test_run_personas_with_all_and_dry_run(
     mock_check_ngc: MagicMock,
     mock_confirm: MagicMock,
@@ -356,7 +360,7 @@ def test_run_personas_with_all_and_dry_run(
 @patch.object(DownloadController, "_download_locale")
 @patch("data_designer.cli.controllers.download_controller.confirm_action")
 @patch("data_designer.cli.controllers.download_controller.select_multiple_with_arrows", return_value=["en_US"])
-@patch.object(DownloadController, "_check_ngc_cli")
+@patch("data_designer.cli.controllers.download_controller.check_ngc_cli_with_instructions")
 def test_run_personas_interactive_with_dry_run(
     mock_check_ngc: MagicMock,
     mock_select: MagicMock,

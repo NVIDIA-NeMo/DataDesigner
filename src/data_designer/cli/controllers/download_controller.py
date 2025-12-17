@@ -4,7 +4,7 @@
 import subprocess
 from pathlib import Path
 
-from data_designer.cli.services.download_service import DownloadService
+from data_designer.cli.services.download_service import DATASET_SIZES, DownloadService
 from data_designer.cli.ui import (
     confirm_action,
     console,
@@ -15,6 +15,7 @@ from data_designer.cli.ui import (
     print_text,
     select_multiple_with_arrows,
 )
+from data_designer.cli.utils import check_ngc_cli_available, get_ngc_version
 
 NGC_URL = "https://catalog.ngc.nvidia.com/"
 NGC_CLI_INSTALL_URL = "https://org.ngc.nvidia.com/setup/installers/cli"
@@ -40,8 +41,8 @@ class DownloadController:
         print_info(f"Datasets will be saved to: {self.service.get_managed_assets_directory()}")
         console.print()
 
-        # Check NGC CLI availability (skip in dry run mode)
-        if not dry_run and not self._check_ngc_cli():
+        # Check NGC CLI availability (skip checking in dry run mode)
+        if not dry_run and not check_ngc_cli_with_instructions():
             return
 
         # Determine which locales to download
@@ -57,8 +58,8 @@ class DownloadController:
         print_text(f"📦 {action} {len(selected_locales)} Nemotron-Persona dataset(s):")
         for locale in selected_locales:
             already_downloaded = self.service.is_locale_downloaded(locale)
-            status = " (already exists, will update)" if already_downloaded else ""
-            print_text(f"  • {locale}{status}")
+            status = " - already exists, will update" if already_downloaded else ""
+            print_text(f"  • {locale} ({DATASET_SIZES[locale]}){status}")
 
         console.print()
 
@@ -87,28 +88,10 @@ class DownloadController:
         console.print()
         if successful:
             print_success(f"Successfully downloaded {len(successful)} dataset(s): {', '.join(successful)}")
-            print_info(f"Location: {self.service.get_managed_assets_directory()}")
+            print_info(f"Saved datasets to: {self.service.get_managed_assets_directory()}")
 
         if failed:
             print_error(f"Failed to download {len(failed)} dataset(s): {', '.join(failed)}")
-
-    def _check_ngc_cli(self) -> bool:
-        """Check if NGC CLI is installed and guide user if not."""
-        if self.service.check_ngc_cli_available():
-            version = self.service.get_ngc_version()
-            if version:
-                print_info(f"NGC CLI: {version}")
-            return True
-
-        print_error("NGC CLI not found!")
-        console.print()
-        print_text("The NGC CLI is required to download the Nemotron-Personas datasets.")
-        console.print()
-        print_text("To download the Nemotron-Personas datasets, follow these steps:")
-        print_text(f"    1. Create an NVIDIA NGC account: {NGC_URL}")
-        print_text(f"    2. Install the NGC CLI: {NGC_CLI_INSTALL_URL}")
-        print_text("    3. Following the install instructions to set up the NGC CLI")
-        print_text("    4. Run 'data-designer download personas'")
 
     def _determine_locales(self, locales: list[str] | None, all_locales: bool) -> list[str]:
         """Determine which locales to download based on user input.
@@ -190,3 +173,23 @@ class DownloadController:
             print_error(f"✗ Failed to download Nemotron-Persona dataset for {locale}")
             print_error(f"Unexpected error: {e}")
             return False
+
+
+def check_ngc_cli_with_instructions() -> bool:
+    """Check if NGC CLI is installed and guide user if not."""
+    if check_ngc_cli_available():
+        version = get_ngc_version()
+        if version:
+            print_info(f"NGC CLI: {version}")
+        return True
+
+    print_error("NGC CLI not found!")
+    console.print()
+    print_text("The NGC CLI is required to download the Nemotron-Personas datasets.")
+    console.print()
+    print_text("To download the Nemotron-Personas datasets, follow these steps:")
+    print_text(f"    1. Create an NVIDIA NGC account: {NGC_URL}")
+    print_text(f"    2. Install the NGC CLI: {NGC_CLI_INSTALL_URL}")
+    print_text("    3. Following the install instructions to set up the NGC CLI")
+    print_text("    4. Run 'data-designer download personas'")
+    return False

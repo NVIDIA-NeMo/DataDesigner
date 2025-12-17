@@ -25,9 +25,8 @@ def service_with_datasets(tmp_path: Path) -> DownloadService:
     managed_assets_dir.mkdir(parents=True, exist_ok=True)
 
     # Create sample parquet files for en_US and ja_JP
-    (managed_assets_dir / "nemotron-personas-dataset-en_us_0.parquet").touch()
-    (managed_assets_dir / "nemotron-personas-dataset-en_us_1.parquet").touch()
-    (managed_assets_dir / "nemotron-personas-dataset-ja_jp_0.parquet").touch()
+    (managed_assets_dir / "en_US.parquet").touch()
+    (managed_assets_dir / "ja_JP.parquet").touch()
 
     return service
 
@@ -60,73 +59,6 @@ def test_get_managed_assets_directory(service: DownloadService, tmp_path: Path) 
     """Test getting managed assets directory path."""
     expected = tmp_path / "managed-assets" / "datasets"
     assert service.get_managed_assets_directory() == expected
-
-
-@patch("data_designer.cli.services.download_service.shutil.which")
-def test_check_ngc_cli_available_returns_true(mock_which: MagicMock, service: DownloadService) -> None:
-    """Test NGC CLI availability check when NGC CLI is installed."""
-    mock_which.return_value = "/usr/local/bin/ngc"
-
-    assert service.check_ngc_cli_available() is True
-    mock_which.assert_called_once_with("ngc")
-
-
-@patch("data_designer.cli.services.download_service.shutil.which")
-def test_check_ngc_cli_available_returns_false(mock_which: MagicMock, service: DownloadService) -> None:
-    """Test NGC CLI availability check when NGC CLI is not installed."""
-    mock_which.return_value = None
-
-    assert service.check_ngc_cli_available() is False
-    mock_which.assert_called_once_with("ngc")
-
-
-@patch("data_designer.cli.services.download_service.subprocess.run")
-def test_get_ngc_version_success(mock_run: MagicMock, service: DownloadService) -> None:
-    """Test getting NGC CLI version successfully."""
-    mock_result = MagicMock()
-    mock_result.stdout = "NGC CLI 3.41.4\n"
-    mock_run.return_value = mock_result
-
-    version = service.get_ngc_version()
-
-    assert version == "NGC CLI 3.41.4"
-    mock_run.assert_called_once_with(
-        ["ngc", "--version"],
-        capture_output=True,
-        text=True,
-        check=True,
-        timeout=5,
-    )
-
-
-@patch("data_designer.cli.services.download_service.subprocess.run")
-def test_get_ngc_version_handles_error(mock_run: MagicMock, service: DownloadService) -> None:
-    """Test getting NGC CLI version when command fails."""
-    mock_run.side_effect = subprocess.CalledProcessError(1, "ngc")
-
-    version = service.get_ngc_version()
-
-    assert version is None
-
-
-@patch("data_designer.cli.services.download_service.subprocess.run")
-def test_get_ngc_version_handles_timeout(mock_run: MagicMock, service: DownloadService) -> None:
-    """Test getting NGC CLI version when command times out."""
-    mock_run.side_effect = subprocess.TimeoutExpired("ngc", 5)
-
-    version = service.get_ngc_version()
-
-    assert version is None
-
-
-@patch("data_designer.cli.services.download_service.subprocess.run")
-def test_get_ngc_version_handles_file_not_found(mock_run: MagicMock, service: DownloadService) -> None:
-    """Test getting NGC CLI version when NGC CLI is not found."""
-    mock_run.side_effect = FileNotFoundError()
-
-    version = service.get_ngc_version()
-
-    assert version is None
 
 
 def test_is_locale_downloaded_returns_true(service_with_datasets: DownloadService) -> None:
