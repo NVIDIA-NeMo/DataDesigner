@@ -4,9 +4,10 @@
 import json
 from abc import ABC
 from enum import Enum
-from typing import Any, Literal
+from typing import Any, Literal, Union
 
 from pydantic import Field, field_validator
+from typing_extensions import TypeAlias
 
 from data_designer.config.base import ConfigBase
 from data_designer.config.dataset_builders import BuildStage
@@ -47,6 +48,7 @@ class ProcessorConfig(ConfigBase, ABC):
         default=BuildStage.POST_BATCH,
         description=f"The stage at which the processor will run. Supported stages: {', '.join(SUPPORTED_STAGES)}",
     )
+    processor_type: ProcessorType
 
     @field_validator("build_stage")
     def validate_build_stage(cls, v: BuildStage) -> BuildStage:
@@ -139,3 +141,9 @@ class SchemaTransformProcessorConfig(ProcessorConfig):
             if "not JSON serializable" in str(e):
                 raise InvalidConfigError("Template must be JSON serializable")
         return v
+
+
+ProcessorConfigT: TypeAlias = Union[
+    DropColumnsProcessorConfig,
+    SchemaTransformProcessorConfig,
+]
