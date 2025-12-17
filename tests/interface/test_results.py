@@ -40,7 +40,7 @@ def test_init(stub_artifact_storage, stub_dataset_profiler_results, stub_complet
     )
     assert results.artifact_storage == stub_artifact_storage
     assert results._analysis == stub_dataset_profiler_results
-    assert results._config_builder == stub_complete_builder
+    assert results.config_builder == stub_complete_builder
 
 
 def test_load_dataset(stub_dataset_creation_results, stub_artifact_storage, stub_dataframe):

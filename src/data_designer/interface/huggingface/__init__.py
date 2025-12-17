@@ -1,8 +1,18 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from data_designer.interface.huggingface.hub_mixin import HuggingFaceHubMixin, pull_from_hub
-from data_designer.interface.huggingface.hub_results import HubDatasetResults
+# Backward compatibility: re-export from new location
+from data_designer.integrations.huggingface import (
+    HubDatasetResults,
+    HuggingFaceHubClient,
+    resolve_hf_token,
+)
 
-__all__ = ["HuggingFaceHubMixin", "pull_from_hub", "HubDatasetResults"]
+# For backward compatibility, provide pull_from_hub as a function
+pull_from_hub = HuggingFaceHubClient.pull_from_hub
+
+# Legacy alias for mixin (deprecated, use HuggingFaceHubClient instead)
+HuggingFaceHubMixin = HuggingFaceHubClient
+
+__all__ = ["HuggingFaceHubMixin", "HuggingFaceHubClient", "pull_from_hub", "HubDatasetResults", "resolve_hf_token"]
 

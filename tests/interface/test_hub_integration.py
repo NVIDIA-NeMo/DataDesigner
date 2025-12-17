@@ -18,7 +18,7 @@ from data_designer.essentials import (
     SamplerColumnConfig,
     SamplerType,
 )
-from data_designer.interface.huggingface import pull_from_hub
+from data_designer.integrations.huggingface import HuggingFaceHubClient
 from data_designer.interface.results import DatasetCreationResults
 
 
@@ -101,9 +101,9 @@ def simple_dataset_config():
 
 
 @pytest.mark.integration
-@patch("data_designer.interface.huggingface.hub_mixin.Dataset")
-@patch("data_designer.interface.huggingface.hub_mixin.HfApi")
-@patch("data_designer.interface.huggingface.hub_mixin.load_dataset")
+@patch("data_designer.integrations.huggingface.client.Dataset")
+@patch("data_designer.integrations.huggingface.client.HfApi")
+@patch("data_designer.integrations.huggingface.client.load_dataset")
 def test_push_and_pull_from_hub_integration(
     mock_load_dataset,
     mock_hf_api_class,
@@ -180,8 +180,9 @@ def test_push_and_pull_from_hub_integration(
 
     # Push to hub
     repo_id = "test-user/test-dataset"
-    with patch("data_designer.interface.huggingface.hub_mixin.hf_hub_download", side_effect=mock_hf_hub_download), patch(
-        "data_designer.interface.huggingface.hub_mixin.list_repo_files", side_effect=mock_list_repo_files
+    with (
+        patch("data_designer.integrations.huggingface.client.hf_hub_download", side_effect=mock_hf_hub_download),
+        patch("data_designer.integrations.huggingface.client.list_repo_files", side_effect=mock_list_repo_files),
     ):
         results.push_to_hub(repo_id, token="test-token", generate_card=True)
 
@@ -218,7 +219,7 @@ def test_push_and_pull_from_hub_integration(
         assert len(pulled_analysis.column_statistics) == len(original_analysis.column_statistics)
 
         # Verify config builder was reconstructed
-        pulled_config_builder = pulled_results._config_builder
+        pulled_config_builder = pulled_results.config_builder
         assert pulled_config_builder is not None
         pulled_column_configs = pulled_config_builder.get_column_configs()
         assert len(pulled_column_configs) == 2  # product_category and rating
@@ -229,9 +230,9 @@ def test_push_and_pull_from_hub_integration(
 
 
 @pytest.mark.integration
-@patch("data_designer.interface.huggingface.hub_mixin.Dataset")
-@patch("data_designer.interface.huggingface.hub_mixin.HfApi")
-@patch("data_designer.interface.huggingface.hub_mixin.load_dataset")
+@patch("data_designer.integrations.huggingface.client.Dataset")
+@patch("data_designer.integrations.huggingface.client.HfApi")
+@patch("data_designer.integrations.huggingface.client.load_dataset")
 def test_push_and_pull_with_pull_from_hub_function(
     mock_load_dataset,
     mock_hf_api_class,
@@ -297,13 +298,14 @@ def test_push_and_pull_with_pull_from_hub_function(
 
     # Push to hub
     repo_id = "test-user/test-dataset-2"
-    with patch("data_designer.interface.huggingface.hub_mixin.hf_hub_download", side_effect=mock_hf_hub_download), patch(
-        "data_designer.interface.huggingface.hub_mixin.list_repo_files", side_effect=mock_list_repo_files
+    with (
+        patch("data_designer.integrations.huggingface.client.hf_hub_download", side_effect=mock_hf_hub_download),
+        patch("data_designer.integrations.huggingface.client.list_repo_files", side_effect=mock_list_repo_files),
     ):
         results.push_to_hub(repo_id, token="test-token", generate_card=True)
 
         # Pull using pull_from_hub function
-        hub_results = pull_from_hub(
+        hub_results = HuggingFaceHubClient.pull_from_hub(
             repo_id=repo_id,
             token="test-token",
             include_analysis=True,

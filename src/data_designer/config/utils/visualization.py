@@ -120,10 +120,15 @@ class WithRecordSamplerMixin:
                     else:
                         processor_data_to_display[processor] = self.processor_artifacts[processor]
 
+        # Use property if available, otherwise fall back to protected attribute
+        try:
+            config_builder = self.config_builder
+        except AttributeError:
+            config_builder = self._config_builder
         display_sample_record(
             record=record,
             processor_data_to_display=processor_data_to_display,
-            config_builder=self._config_builder,
+            config_builder=config_builder,
             background_color=background_color,
             syntax_highlighting_theme=syntax_highlighting_theme,
             hide_seed_columns=hide_seed_columns,

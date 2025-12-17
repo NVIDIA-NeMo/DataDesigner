@@ -20,7 +20,7 @@ NeMo Data Designer is a general framework for generating high-quality synthetic 
 - **LLM-as-a-judge** scoring for quality assessment
 - **Fast iteration** with preview mode before full-scale generation
 
-For more information, visit: [https://github.com/NVIDIA-NeMo/DataDesigner](https://github.com/NVIDIA-NeMo/DataDesigner)
+For more information, visit: [https://github.com/NVIDIA-NeMo/DataDesigner](https://github.com/NVIDIA-NeMo/DataDesigner) (`pip install data-designer`)
 
 ## Quick Start
 
@@ -49,7 +49,7 @@ df = results.load_dataset()
 analysis = results.load_analysis()
 
 # Access the config builder
-config_builder = results._config_builder
+config_builder = results.config_builder
 ```
 
 ## Dataset Summary
@@ -80,10 +80,10 @@ No sample records available.
 ## Schema
 
 {% if all_columns is defined and all_columns %}
-| Column | Type | Description |
-|--------|------|-------------|
+| Column | Type |
+|--------|------|
 {% for col_name, dtype in all_columns | dictsort -%}
-| `{{ col_name }}` | {{ dtype }} | {% if column_configs %}{% for col_config in column_configs %}{% if col_config.get('name') == col_name %}{% set col_type = col_config.get('column_type') %}{% if col_type is mapping %}{{ col_type.get('value', '') }}{% elif col_type %}{{ col_type }}{% endif %}{% endif %}{% endfor %}{% endif %} |
+| `{{ col_name }}` | {{ dtype }} |
 {% endfor -%}
 {% else %}
 No column information available.
@@ -166,10 +166,11 @@ No column configurations available.
 If you use this dataset in your research, please cite:
 
 ```bibtex
-@software{data_designer,
-  title={NeMo Data Designer: A Framework for Synthetic Dataset Generation},
-  author={NVIDIA},
-  year={2025},
-  url={https://github.com/NVIDIA-NeMo/DataDesigner}
+@misc{nemo-data-designer,
+  author = {The NeMo Data Designer Team, NVIDIA},
+  title = {NeMo Data Designer: A framework for generating synthetic data from scratch or based on your own seed data},
+  howpublished = {\url{https://github.com/NVIDIA-NeMo/DataDesigner}},
+  year = {2025},
+  note = {GitHub Repository},
 }
 ```

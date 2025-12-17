@@ -15,7 +15,7 @@ class DataDesignerDatasetCard(DatasetCard):
 
     This class extends Hugging Face's DatasetCard with a custom template
     specifically designed for Data Designer generated datasets.
-    The template is located at `data_designer/interface/huggingface/dataset_card_template.md`.
+    The template is located at `data_designer/integrations/huggingface/dataset_card_template.md`.
     """
 
     default_template_path = TEMPLATE_DATA_DESIGNER_DATASET_CARD_PATH
