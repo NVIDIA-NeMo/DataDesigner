@@ -5,7 +5,6 @@ from __future__ import annotations
 
 from enum import Enum
 from string import Formatter
-from typing import Optional
 
 from jinja2 import meta
 from jinja2.sandbox import ImmutableSandboxedEnvironment
@@ -45,7 +44,7 @@ class ViolationLevel(str, Enum):
 
 
 class Violation(BaseModel):
-    column: Optional[str] = None
+    column: str | None = None
     type: ViolationType
     message: str
     level: ViolationLevel

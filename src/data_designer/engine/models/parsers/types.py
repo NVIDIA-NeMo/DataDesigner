@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from typing import Any, Optional, Protocol, Type, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from lxml.etree import _Element
 from pydantic import BaseModel, Field
@@ -30,7 +30,7 @@ class LLMStructuredResponse(BaseModel):
         out.parsed = out.parsed[-n:]
         return out
 
-    def filter(self, block_types: list[Type[BaseModel]]) -> Self:
+    def filter(self, block_types: list[type[BaseModel]]) -> Self:
         out = self.model_copy()
         out.parsed = [b for b in out.parsed if isinstance(b, tuple(block_types))]
         return out
@@ -44,7 +44,7 @@ class TagParser(Protocol):
     element, do some computation, and return some kind of structured
     output, represented as a subclass of Pydantic `BaseModel`.
     This protocol implementation can cover both classes as well
-    as curried fuctions as parsers (e.g. `partial`).
+    as curried functions as parsers (e.g. `partial`).
     """
 
     def __call__(self, element: _Element) -> BaseModel: ...
@@ -69,7 +69,7 @@ class TextBlock(BaseModel):
 
 class CodeBlock(BaseModel):
     code: str
-    code_lang: Optional[str] = None
+    code_lang: str | None = None
 
 
 class StructuredDataBlock(BaseModel):

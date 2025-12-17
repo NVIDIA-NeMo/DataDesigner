@@ -4,7 +4,7 @@
 import json
 from abc import ABC
 from enum import Enum
-from typing import Any, Literal, Union
+from typing import Any, Literal
 
 from pydantic import Field, field_validator
 from typing_extensions import TypeAlias
@@ -143,7 +143,4 @@ class SchemaTransformProcessorConfig(ProcessorConfig):
         return v
 
 
-ProcessorConfigT: TypeAlias = Union[
-    DropColumnsProcessorConfig,
-    SchemaTransformProcessorConfig,
-]
+ProcessorConfigT: TypeAlias = DropColumnsProcessorConfig | SchemaTransformProcessorConfig

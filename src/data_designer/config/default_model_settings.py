@@ -6,7 +6,7 @@ import logging
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 from data_designer.config.models import (
     ChatCompletionInferenceParams,
@@ -85,7 +85,7 @@ def get_default_providers() -> list[ModelProvider]:
     return []
 
 
-def get_default_provider_name() -> Optional[str]:
+def get_default_provider_name() -> str | None:
     return _get_default_providers_file_content(MODEL_PROVIDERS_FILE_PATH).get("default")
 
 

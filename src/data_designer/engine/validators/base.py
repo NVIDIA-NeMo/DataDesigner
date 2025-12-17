@@ -2,14 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from abc import ABC, abstractmethod
-from typing import Iterator, Optional
+from typing import Iterator
 
 from pydantic import BaseModel, ConfigDict
 from typing_extensions import Self
 
 
 class ValidationOutput(BaseModel):
-    is_valid: Optional[bool]
+    is_valid: bool | None
     model_config = ConfigDict(extra="allow")
 
 

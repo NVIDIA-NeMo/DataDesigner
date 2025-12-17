@@ -8,7 +8,7 @@ import os
 from collections import OrderedDict
 from enum import Enum
 from functools import cached_property
-from typing import TYPE_CHECKING, Any, Optional, Union
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
@@ -36,11 +36,11 @@ if TYPE_CHECKING:
 console = Console()
 
 
-def get_nvidia_api_key() -> Optional[str]:
+def get_nvidia_api_key() -> str | None:
     return os.getenv(NVIDIA_API_KEY_ENV_VAR_NAME)
 
 
-def get_openai_api_key() -> Optional[str]:
+def get_openai_api_key() -> str | None:
     return os.getenv(OPENAI_API_KEY_ENV_VAR_NAME)
 
 
@@ -77,12 +77,12 @@ class WithRecordSamplerMixin:
 
     def display_sample_record(
         self,
-        index: Optional[int] = None,
+        index: int | None = None,
         *,
         hide_seed_columns: bool = False,
         syntax_highlighting_theme: str = "dracula",
-        background_color: Optional[str] = None,
-        processors_to_display: Optional[list[str]] = None,
+        background_color: str | None = None,
+        processors_to_display: list[str] | None = None,
     ) -> None:
         """Display a sample record from the Data Designer dataset preview.
 
@@ -134,11 +134,11 @@ class WithRecordSamplerMixin:
 
 
 def create_rich_histogram_table(
-    data: dict[str, Union[int, float]],
+    data: dict[str, int | float],
     column_names: tuple[int, int],
     name_style: str = ColorPalette.BLUE.value,
     value_style: str = ColorPalette.TEAL.value,
-    title: Optional[str] = None,
+    title: str | None = None,
     **kwargs,
 ) -> Table:
     table = Table(title=title, **kwargs)
@@ -154,12 +154,12 @@ def create_rich_histogram_table(
 
 
 def display_sample_record(
-    record: Union[dict, pd.Series, pd.DataFrame],
+    record: dict | pd.Series | pd.DataFrame,
     config_builder: DataDesignerConfigBuilder,
-    processor_data_to_display: Optional[dict[str, Union[list[str], str]]] = None,
-    background_color: Optional[str] = None,
+    processor_data_to_display: dict[str, list[str] | str] | None = None,
+    background_color: str | None = None,
     syntax_highlighting_theme: str = "dracula",
-    record_index: Optional[int] = None,
+    record_index: int | None = None,
     hide_seed_columns: bool = False,
 ):
     if isinstance(record, (dict, pd.Series)):
@@ -286,7 +286,7 @@ def get_truncated_list_as_string(long_list: list[Any], max_items: int = 2) -> st
 
 def display_sampler_table(
     sampler_params: dict[SamplerType, ConfigBase],
-    title: Optional[str] = None,
+    title: str | None = None,
 ) -> None:
     table = Table(expand=True)
     table.add_column("Type")
