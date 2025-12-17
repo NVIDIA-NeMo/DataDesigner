@@ -7,15 +7,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-DATASET_SIZES = {
-    "en_US": "1.24 GB",
-    "en_IN": "2.39 GB",
-    "hi_Deva_IN": "4.14 GB",
-    "hi_Latn_IN": "2.7 GB",
-    "ja_JP": "1.69 GB",
-}
-SUPPORTED_LOCALES = list[str](DATASET_SIZES.keys())
-DATASET_PREFIX = "nemotron-personas-dataset-"
+from data_designer.config.utils.constants import LOCALES_WITH_MANAGED_DATASETS, NEMOTRON_PERSONAS_DATASET_PREFIX
 
 
 class DownloadService:
@@ -27,7 +19,7 @@ class DownloadService:
 
     def get_available_locales(self) -> dict[str, str]:
         """Get dictionary of available persona locales (locale code -> locale code)."""
-        return {locale: locale for locale in SUPPORTED_LOCALES}
+        return {locale: locale for locale in LOCALES_WITH_MANAGED_DATASETS}
 
     def download_persona_dataset(self, locale: str) -> Path:
         """Download persona dataset for a specific locale using NGC CLI and move to managed assets.
@@ -42,7 +34,7 @@ class DownloadService:
             ValueError: If locale is invalid
             subprocess.CalledProcessError: If NGC CLI command fails
         """
-        if locale not in SUPPORTED_LOCALES:
+        if locale not in LOCALES_WITH_MANAGED_DATASETS:
             raise ValueError(f"Invalid locale: {locale}")
 
         self.managed_assets_dir.mkdir(parents=True, exist_ok=True)
@@ -90,7 +82,7 @@ class DownloadService:
         Returns:
             True if the locale dataset exists in managed assets
         """
-        if locale not in SUPPORTED_LOCALES:
+        if locale not in LOCALES_WITH_MANAGED_DATASETS:
             return False
 
         if not self.managed_assets_dir.exists():
@@ -111,4 +103,4 @@ def _get_downloaded_dataset_name(locale: str) -> str:
     Returns:
         Dataset pattern (e.g., 'nemotron-personas-dataset-en_us')
     """
-    return f"{DATASET_PREFIX}{locale.lower()}"
+    return f"{NEMOTRON_PERSONAS_DATASET_PREFIX}{locale.lower()}"

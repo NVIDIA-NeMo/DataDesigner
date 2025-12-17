@@ -421,8 +421,8 @@ class PersonSamplerParams(ConfigBase):
 
     Attributes:
         locale: Locale string determining the language and geographic region for synthetic people.
-            Format: language_COUNTRY (e.g., "en_US", "en_GB", "fr_FR", "de_DE", "es_ES", "ja_JP").
-            Defaults to "en_US".
+            Must be a locale supported by a managed Nemotron Personas dataset. The dataset must
+            be downloaded and available in the managed assets directory.
         sex: If specified, filters to only sample people of the specified sex. Options: "Male" or
             "Female". If None, samples both sexes.
         city: If specified, filters to only sample people from the specified city or cities. Can be

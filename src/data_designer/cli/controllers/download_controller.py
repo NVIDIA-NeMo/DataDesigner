@@ -4,7 +4,7 @@
 import subprocess
 from pathlib import Path
 
-from data_designer.cli.services.download_service import DATASET_SIZES, DownloadService
+from data_designer.cli.services.download_service import DownloadService
 from data_designer.cli.ui import (
     confirm_action,
     console,
@@ -16,6 +16,7 @@ from data_designer.cli.ui import (
     select_multiple_with_arrows,
 )
 from data_designer.cli.utils import check_ngc_cli_available, get_ngc_version
+from data_designer.config.utils.constants import NEMOTRON_PERSONAS_DATASET_SIZES
 
 NGC_URL = "https://catalog.ngc.nvidia.com/"
 NGC_CLI_INSTALL_URL = "https://org.ngc.nvidia.com/setup/installers/cli"
@@ -39,7 +40,7 @@ class DownloadController:
         console.print()
 
         for locale in available_locales.keys():
-            size = DATASET_SIZES[locale]
+            size = NEMOTRON_PERSONAS_DATASET_SIZES[locale]
             already_downloaded = self.service.is_locale_downloaded(locale)
             status = " (downloaded)" if already_downloaded else ""
             print_text(f"  • {locale}: {size}{status}")
@@ -78,7 +79,7 @@ class DownloadController:
         for locale in selected_locales:
             already_downloaded = self.service.is_locale_downloaded(locale)
             status = " - already exists, will update" if already_downloaded else ""
-            print_text(f"  • {locale} ({DATASET_SIZES[locale]}){status}")
+            print_text(f"  • {locale} ({NEMOTRON_PERSONAS_DATASET_SIZES[locale]}){status}")
 
         console.print()
 
