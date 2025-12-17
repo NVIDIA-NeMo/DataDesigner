@@ -316,11 +316,11 @@ class ColumnWiseDatasetBuilder:
         events = []
         for model_name, current_stats in current_snapshot.items():
             if (prev_stats := pre_batch_snapshot.get(model_name)) is not None:
-                delta_prompt = current_stats.token_usage.input_tokens - prev_stats.token_usage.input_tokens
-                delta_completion = current_stats.token_usage.output_tokens - prev_stats.token_usage.output_tokens
+                delta_input = current_stats.token_usage.input_tokens - prev_stats.token_usage.input_tokens
+                delta_output = current_stats.token_usage.output_tokens - prev_stats.token_usage.output_tokens
             else:
-                delta_prompt = current_stats.token_usage.input_tokens
-                delta_completion = current_stats.token_usage.output_tokens
+                delta_input = current_stats.token_usage.input_tokens
+                delta_output = current_stats.token_usage.output_tokens
 
             if delta_prompt > 0 or delta_completion > 0:
                 events.append(
@@ -329,8 +329,8 @@ class ColumnWiseDatasetBuilder:
                         task=batch_mode,
                         task_status=TaskStatusEnum.SUCCESS,
                         model=model_name,
-                        input_tokens=delta_prompt,
-                        output_tokens=delta_completion,
+                        input_tokens=delta_input,
+                        output_tokens=delta_output,
                     )
                 )
 
