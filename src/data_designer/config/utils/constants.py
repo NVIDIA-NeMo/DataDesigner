@@ -97,8 +97,6 @@ DEFAULT_AGE_RANGE = [18, 114]
 MIN_AGE = 0
 MAX_AGE = 114
 
-LOCALES_WITH_MANAGED_DATASETS = ["en_US", "ja_JP", "en_IN", "hi_IN"]
-
 US_STATES_AND_MAJOR_TERRITORIES = {
     # States
     "AK",
@@ -323,3 +321,16 @@ PREDEFINED_PROVIDERS_MODEL_MAP = {
         "embedding": {"model": "text-embedding-3-large", "inference_parameters": DEFAULT_EMBEDDING_INFERENCE_PARAMS},
     },
 }
+
+# Persona locale metadata - used by the CLI and the person sampler.
+NEMOTRON_PERSONAS_DATASET_SIZES = {
+    "en_US": "1.24 GB",
+    "en_IN": "2.39 GB",
+    "hi_Deva_IN": "4.14 GB",
+    "hi_Latn_IN": "2.7 GB",
+    "ja_JP": "1.69 GB",
+}
+
+LOCALES_WITH_MANAGED_DATASETS = list[str](NEMOTRON_PERSONAS_DATASET_SIZES.keys())
+
+NEMOTRON_PERSONAS_DATASET_PREFIX = "nemotron-personas-dataset-"

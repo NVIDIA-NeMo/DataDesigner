@@ -1,6 +1,40 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import shutil
+import subprocess
+
+
+def check_ngc_cli_available() -> bool:
+    """Check if NGC CLI is installed and available.
+
+    Returns:
+        True if NGC CLI is in PATH and executable, False otherwise.
+    """
+    if shutil.which("ngc") is None:
+        return False
+
+    return get_ngc_version() is not None
+
+
+def get_ngc_version() -> str | None:
+    """Get the NGC CLI version if available.
+
+    Returns:
+        NGC CLI version string if available, None otherwise.
+    """
+    try:
+        result = subprocess.run(
+            ["ngc", "--version"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=5,
+        )
+        return result.stdout.strip()
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+        return None
+
 
 def validate_url(url: str) -> bool:
     """Validate that a string is a valid URL.
