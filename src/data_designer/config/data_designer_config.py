@@ -11,7 +11,7 @@ from data_designer.config.analysis.column_profilers import ColumnProfilerConfigT
 from data_designer.config.base import ExportableConfigBase
 from data_designer.config.column_types import ColumnConfigT
 from data_designer.config.models import ModelConfig
-from data_designer.config.processors import ProcessorConfig
+from data_designer.config.processors import ProcessorConfigT
 from data_designer.config.sampler_constraints import ColumnConstraintT
 from data_designer.config.seed import SeedConfig
 
@@ -37,4 +37,4 @@ class DataDesignerConfig(ExportableConfigBase):
     seed_config: Optional[SeedConfig] = None
     constraints: Optional[list[ColumnConstraintT]] = None
     profilers: Optional[list[ColumnProfilerConfigT]] = None
-    processors: Optional[list[ProcessorConfig]] = None
+    processors: Optional[list[Annotated[ProcessorConfigT, Field(discriminator="processor_type")]]] = None

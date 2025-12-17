@@ -29,7 +29,7 @@ from data_designer.config.datastore import DatastoreSettings, fetch_seed_dataset
 from data_designer.config.default_model_settings import get_default_model_configs
 from data_designer.config.errors import BuilderConfigurationError, InvalidColumnTypeError, InvalidConfigError
 from data_designer.config.models import ModelConfig, load_model_configs
-from data_designer.config.processors import ProcessorConfig, ProcessorType, get_processor_config_from_kwargs
+from data_designer.config.processors import ProcessorConfigT, ProcessorType, get_processor_config_from_kwargs
 from data_designer.config.sampler_constraints import (
     ColumnConstraintT,
     ColumnInequalityConstraint,
@@ -141,7 +141,7 @@ class DataDesignerConfigBuilder:
         """
         self._column_configs = {}
         self._model_configs = _load_model_configs(model_configs)
-        self._processor_configs: list[ProcessorConfig] = []
+        self._processor_configs: list[ProcessorConfigT] = []
         self._seed_config: Optional[SeedConfig] = None
         self._constraints: list[ColumnConstraintT] = []
         self._profilers: list[ColumnProfilerConfigT] = []
@@ -298,7 +298,7 @@ class DataDesignerConfigBuilder:
 
     def add_processor(
         self,
-        processor_config: Optional[ProcessorConfig] = None,
+        processor_config: Optional[ProcessorConfigT] = None,
         *,
         processor_type: Optional[ProcessorType] = None,
         **kwargs,
@@ -487,7 +487,7 @@ class DataDesignerConfigBuilder:
         column_type = resolve_string_enum(column_type, DataDesignerColumnType)
         return [c for c in self._column_configs.values() if c.column_type != column_type]
 
-    def get_processor_configs(self) -> dict[BuildStage, list[ProcessorConfig]]:
+    def get_processor_configs(self) -> dict[BuildStage, list[ProcessorConfigT]]:
         """Get processor configuration objects.
 
         Returns:
