@@ -23,23 +23,31 @@ from data_designer.config.utils.visualization import get_nvidia_api_key, get_ope
 
 
 def test_get_default_inference_parameters():
-    assert get_default_inference_parameters("text", "nvidia") == ChatCompletionInferenceParams(
+    assert get_default_inference_parameters(
+        "text", {"temperature": 0.85, "top_p": 0.95}
+    ) == ChatCompletionInferenceParams(
         temperature=0.85,
         top_p=0.95,
     )
-    assert get_default_inference_parameters("reasoning", "nvidia") == ChatCompletionInferenceParams(
+    assert get_default_inference_parameters(
+        "reasoning", {"temperature": 0.35, "top_p": 0.95}
+    ) == ChatCompletionInferenceParams(
         temperature=0.35,
         top_p=0.95,
     )
-    assert get_default_inference_parameters("vision", "nvidia") == ChatCompletionInferenceParams(
+    assert get_default_inference_parameters(
+        "vision", {"temperature": 0.85, "top_p": 0.95}
+    ) == ChatCompletionInferenceParams(
         temperature=0.85,
         top_p=0.95,
     )
-    assert get_default_inference_parameters("embedding", "nvidia") == EmbeddingInferenceParams(
+    assert get_default_inference_parameters(
+        "embedding", {"encoding_format": "float", "extra_body": {"input_type": "query"}}
+    ) == EmbeddingInferenceParams(
         encoding_format="float",
         extra_body={"input_type": "query"},
     )
-    assert get_default_inference_parameters("embedding", "openai") == EmbeddingInferenceParams(
+    assert get_default_inference_parameters("embedding", {"encoding_format": "float"}) == EmbeddingInferenceParams(
         encoding_format="float",
     )
 
