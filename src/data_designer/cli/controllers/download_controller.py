@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import subprocess
-import webbrowser
 from pathlib import Path
 
 from data_designer.cli.services.download_service import DownloadService
@@ -14,15 +13,15 @@ from data_designer.cli.ui import (
     print_info,
     print_success,
     print_text,
-    print_warning,
     select_multiple_with_arrows,
 )
+
+NGC_URL = "https://catalog.ngc.nvidia.com/"
+NGC_CLI_INSTALL_URL = "https://org.ngc.nvidia.com/setup/installers/cli"
 
 
 class DownloadController:
     """Controller for asset download workflows."""
-
-    NGC_CLI_INSTALL_URL = "https://org.ngc.nvidia.com/setup/installers/cli"
 
     def __init__(self, config_dir: Path):
         self.config_dir = config_dir
@@ -101,21 +100,15 @@ class DownloadController:
                 print_info(f"NGC CLI: {version}")
             return True
 
-        # NGC CLI not found
         print_error("NGC CLI not found!")
         console.print()
-        print_text("The NGC CLI is required to download persona datasets.")
-        print_text(f"Installation instructions: {self.NGC_CLI_INSTALL_URL}")
+        print_text("The NGC CLI is required to download the Nemotron-Personas datasets.")
         console.print()
-
-        if confirm_action("Open installation page in browser?", default=True):
-            try:
-                webbrowser.open(self.NGC_CLI_INSTALL_URL)
-                print_success("Opened installation page in browser")
-            except Exception as e:
-                print_warning(f"Could not open browser: {e}")
-
-        return False
+        print_text("To download the Nemotron-Personas datasets, follow these steps:")
+        print_text(f"    1. Create an NVIDIA NGC account: {NGC_URL}")
+        print_text(f"    2. Install the NGC CLI: {NGC_CLI_INSTALL_URL}")
+        print_text("    3. Following the install instructions to set up the NGC CLI")
+        print_text("    4. Run 'data-designer download personas'")
 
     def _determine_locales(self, locales: list[str] | None, all_locales: bool) -> list[str]:
         """Determine which locales to download based on user input.

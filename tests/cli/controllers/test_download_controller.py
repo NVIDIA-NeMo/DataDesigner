@@ -176,53 +176,6 @@ def test_run_personas_ngc_cli_not_available(
     # Verify NGC check was called
     mock_check_ngc.assert_called_once()
 
-    # Function should exit early without attempting download
-
-
-@patch("data_designer.cli.controllers.download_controller.webbrowser.open")
-@patch("data_designer.cli.controllers.download_controller.confirm_action", return_value=True)
-def test_check_ngc_cli_not_found_opens_browser(
-    mock_confirm: MagicMock,
-    mock_webbrowser: MagicMock,
-    controller: DownloadController,
-) -> None:
-    """Test _check_ngc_cli offers to open browser when NGC CLI not found."""
-    with patch.object(controller.service, "check_ngc_cli_available", return_value=False):
-        result = controller._check_ngc_cli()
-
-    assert result is False
-    mock_confirm.assert_called_once()
-    mock_webbrowser.assert_called_once_with(controller.NGC_CLI_INSTALL_URL)
-
-
-@patch("data_designer.cli.controllers.download_controller.confirm_action", return_value=False)
-def test_check_ngc_cli_not_found_user_declines_browser(
-    mock_confirm: MagicMock,
-    controller: DownloadController,
-) -> None:
-    """Test _check_ngc_cli when user declines to open browser."""
-    with patch.object(controller.service, "check_ngc_cli_available", return_value=False):
-        result = controller._check_ngc_cli()
-
-    assert result is False
-    mock_confirm.assert_called_once()
-
-
-@patch("data_designer.cli.controllers.download_controller.confirm_action", return_value=True)
-@patch("data_designer.cli.controllers.download_controller.webbrowser.open")
-def test_check_ngc_cli_browser_error_handled(
-    mock_webbrowser: MagicMock,
-    mock_confirm: MagicMock,
-    controller: DownloadController,
-) -> None:
-    """Test _check_ngc_cli handles browser open errors gracefully."""
-    mock_webbrowser.side_effect = Exception("Browser error")
-
-    with patch.object(controller.service, "check_ngc_cli_available", return_value=False):
-        result = controller._check_ngc_cli()
-
-    assert result is False
-
 
 def test_check_ngc_cli_available_with_version(controller: DownloadController) -> None:
     """Test _check_ngc_cli displays version when NGC CLI is available."""
