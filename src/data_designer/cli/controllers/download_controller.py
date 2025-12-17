@@ -28,19 +28,21 @@ class DownloadController:
         self.config_dir = config_dir
         self.service = DownloadService(config_dir)
 
-    def run_personas(self, locales: list[str] | None, all_locales: bool) -> None:
+    def run_personas(self, locales: list[str] | None, all_locales: bool, dry_run: bool = False) -> None:
         """Main entry point for persona dataset downloads.
 
         Args:
             locales: List of locale codes to download (if provided via CLI flags)
             all_locales: If True, download all available locales
+            dry_run: If True, only show what would be downloaded without actually downloading
         """
-        print_header("Download Persona Datasets")
+        header = "Download Nemotron-Persona Datasets (Dry Run)" if dry_run else "Download Nemotron-Persona Datasets"
+        print_header(header)
         print_info(f"Datasets will be saved to: {self.service.get_managed_assets_directory()}")
         console.print()
 
-        # Check NGC CLI availability
-        if not self._check_ngc_cli():
+        # Check NGC CLI availability (skip in dry run mode)
+        if not dry_run and not self._check_ngc_cli():
             return
 
         # Determine which locales to download
@@ -52,13 +54,19 @@ class DownloadController:
 
         # Show what will be downloaded
         console.print()
-        print_text(f"📦 Will download {len(selected_locales)} persona dataset(s):")
+        action = "Would download" if dry_run else "Will download"
+        print_text(f"📦 {action} {len(selected_locales)} Nemotron-Persona dataset(s):")
         for locale in selected_locales:
             already_downloaded = self.service.is_locale_downloaded(locale)
             status = " (already exists, will update)" if already_downloaded else ""
             print_text(f"  • {locale}{status}")
 
         console.print()
+
+        # In dry run mode, exit here
+        if dry_run:
+            print_info("Dry run complete - no files were downloaded")
+            return
 
         # Confirm download
         if not confirm_action("Proceed with download?", default=True):
@@ -147,12 +155,12 @@ class DownloadController:
             List of selected locale codes
         """
         console.print()
-        print_text("Select persona datasets to download:")
+        print_text("Select locales you want to download:")
         console.print()
 
         selected = select_multiple_with_arrows(
             options=available_locales,
-            prompt_text="Use ↑/↓ to navigate, Space to toggle, Enter to confirm:",
+            prompt_text="Use ↑/↓ to navigate, Space to toggle ✓, Enter to confirm:",
             default_keys=None,
             allow_empty=False,
         )
@@ -169,23 +177,23 @@ class DownloadController:
             True if download succeeded, False otherwise
         """
         # Print header before download (NGC CLI will show its own progress)
-        print_text(f"📦 Downloading {locale}...")
+        print_text(f"📦 Downloading Nemotron-Persona dataset for {locale}...")
         console.print()
 
         try:
             self.service.download_persona_dataset(locale)
             console.print()
-            print_success(f"✓ Downloaded {locale}")
+            print_success(f"✓ Downloaded Nemotron-Persona dataset for {locale}")
             return True
 
         except subprocess.CalledProcessError as e:
             console.print()
-            print_error(f"✗ Failed to download {locale}")
+            print_error(f"✗ Failed to download Nemotron-Persona dataset for {locale}")
             print_error(f"NGC CLI error: {e}")
             return False
 
         except Exception as e:
             console.print()
-            print_error(f"✗ Failed to download {locale}")
+            print_error(f"✗ Failed to download Nemotron-Persona dataset for {locale}")
             print_error(f"Unexpected error: {e}")
             return False

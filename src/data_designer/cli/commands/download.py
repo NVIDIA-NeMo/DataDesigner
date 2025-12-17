@@ -6,15 +6,7 @@ import typer
 from data_designer.cli.controllers.download_controller import DownloadController
 from data_designer.config.utils.constants import DATA_DESIGNER_HOME
 
-# Create download command group
-download_app = typer.Typer(
-    name="download",
-    help="Download assets for Data Designer",
-    no_args_is_help=True,
-)
 
-
-@download_app.command(name="personas")
 def personas_command(
     locales: list[str] = typer.Option(
         None,
@@ -26,6 +18,11 @@ def personas_command(
         False,
         "--all",
         help="Download all available locales",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Show what would be downloaded without actually downloading",
     ),
 ) -> None:
     """Download persona datasets for synthetic data generation.
@@ -42,6 +39,9 @@ def personas_command(
 
         # Download all available locales
         data-designer download personas --all
+
+        # Preview what would be downloaded
+        data-designer download personas --all --dry-run
     """
     controller = DownloadController(DATA_DESIGNER_HOME)
-    controller.run_personas(locales=locales, all_locales=all_locales)
+    controller.run_personas(locales=locales, all_locales=all_locales, dry_run=dry_run)
