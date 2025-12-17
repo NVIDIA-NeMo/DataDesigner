@@ -16,7 +16,7 @@ from rich.padding import Padding
 from rich.panel import Panel
 
 from data_designer.config.column_types import ColumnConfigT, DataDesignerColumnType, column_type_is_model_generated
-from data_designer.config.processors import ProcessorConfig, ProcessorType
+from data_designer.config.processors import ProcessorConfigT, ProcessorType
 from data_designer.config.utils.constants import RICH_CONSOLE_THEME
 from data_designer.config.utils.misc import (
     can_run_data_designer_locally,
@@ -57,7 +57,7 @@ class Violation(BaseModel):
 
 def validate_data_designer_config(
     columns: list[ColumnConfigT],
-    processor_configs: list[ProcessorConfig],
+    processor_configs: list[ProcessorConfigT],
     allowed_references: list[str],
 ) -> list[Violation]:
     violations = []
@@ -273,7 +273,7 @@ def validate_columns_not_all_dropped(
 
 def validate_drop_columns_processor(
     columns: list[ColumnConfigT],
-    processor_configs: list[ProcessorConfig],
+    processor_configs: list[ProcessorConfigT],
 ) -> list[Violation]:
     all_column_names = {c.name for c in columns}
     for processor_config in processor_configs:
@@ -294,7 +294,7 @@ def validate_drop_columns_processor(
 
 def validate_schema_transform_processor(
     columns: list[ColumnConfigT],
-    processor_configs: list[ProcessorConfig],
+    processor_configs: list[ProcessorConfigT],
 ) -> list[Violation]:
     violations = []
 

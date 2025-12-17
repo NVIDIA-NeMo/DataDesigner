@@ -8,7 +8,7 @@ from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.processors import (
     DropColumnsProcessorConfig,
-    ProcessorConfig,
+    ProcessorConfigT,
     ProcessorType,
     SchemaTransformProcessorConfig,
     get_processor_config_from_kwargs,
@@ -23,7 +23,7 @@ def test_drop_columns_processor_config_creation():
     assert config.build_stage == BuildStage.POST_BATCH
     assert config.column_names == ["col1", "col2"]
     assert config.processor_type == ProcessorType.DROP_COLUMNS
-    assert isinstance(config, ProcessorConfig)
+    assert isinstance(config, ProcessorConfigT)
 
 
 def test_drop_columns_processor_config_validation():
@@ -64,7 +64,7 @@ def test_schema_transform_processor_config_creation():
     assert config.build_stage == BuildStage.POST_BATCH
     assert config.template == {"text": "{{ col1 }}"}
     assert config.processor_type == ProcessorType.SCHEMA_TRANSFORM
-    assert isinstance(config, ProcessorConfig)
+    assert isinstance(config, ProcessorConfigT)
 
 
 def test_schema_transform_processor_config_validation():
