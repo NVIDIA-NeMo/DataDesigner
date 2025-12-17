@@ -48,7 +48,7 @@ class ProcessorConfig(ConfigBase, ABC):
         default=BuildStage.POST_BATCH,
         description=f"The stage at which the processor will run. Supported stages: {', '.join(SUPPORTED_STAGES)}",
     )
-    processor_type: ProcessorType
+    processor_type: str
 
     @field_validator("build_stage")
     def validate_build_stage(cls, v: BuildStage) -> BuildStage:
