@@ -32,6 +32,8 @@ def test_init(tmp_path: Path) -> None:
     controller = DownloadController(tmp_path)
     assert controller.config_dir == tmp_path
     assert controller.service.config_dir == tmp_path
+    assert controller.persona_repository is not None
+    assert controller.service.persona_repository is controller.persona_repository
 
 
 def test_list_personas(controller: DownloadController) -> None:

@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any, Union
 import pandas as pd
 from faker import Faker
 
-from data_designer.config.utils.constants import AVAILABLE_LOCALES, DEFAULT_AGE_RANGE
+from data_designer.config.utils.constants import DEFAULT_AGE_RANGE
 from data_designer.engine.resources.managed_dataset_generator import ManagedDatasetGenerator
 from data_designer.engine.sampling_gen.entities.dataset_based_person_fields import PERSONA_FIELDS, PII_FIELDS
 from data_designer.engine.sampling_gen.entities.person import (
@@ -34,10 +34,6 @@ class PeopleGen(ABC):
     """Unified interface for generating people data."""
 
     def __init__(self, engine: EngineT, locale: str):
-        if locale not in AVAILABLE_LOCALES:
-            raise ValueError(
-                f"Locale {locale} is not a supported locale.Supported locales: {', '.join(AVAILABLE_LOCALES)}"
-            )
         self.locale = locale
         self._engine = engine
 

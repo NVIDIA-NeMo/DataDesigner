@@ -312,9 +312,7 @@ PREDEFINED_PROVIDERS_MODEL_MAP = {
     },
 }
 
-
-MANAGED_DATASETS_PATH = MANAGED_ASSETS_PATH / "datasets"
-
+# Persona locale metadata - used by the CLI and the person sampler.
 NEMOTRON_PERSONAS_DATASET_SIZES = {
     "en_US": "1.24 GB",
     "en_IN": "2.39 GB",

@@ -7,19 +7,26 @@ from unittest.mock import MagicMock, call, patch
 
 import pytest
 
+from data_designer.cli.repositories.persona_repository import PersonaRepository
 from data_designer.cli.services.download_service import DownloadService
 
 
 @pytest.fixture
-def service(tmp_path: Path) -> DownloadService:
-    """Create a service instance for testing."""
-    return DownloadService(tmp_path)
+def persona_repository() -> PersonaRepository:
+    """Create a persona repository instance for testing."""
+    return PersonaRepository()
 
 
 @pytest.fixture
-def service_with_datasets(tmp_path: Path) -> DownloadService:
+def service(tmp_path: Path, persona_repository: PersonaRepository) -> DownloadService:
+    """Create a service instance for testing."""
+    return DownloadService(tmp_path, persona_repository)
+
+
+@pytest.fixture
+def service_with_datasets(tmp_path: Path, persona_repository: PersonaRepository) -> DownloadService:
     """Create a service instance with existing datasets."""
-    service = DownloadService(tmp_path)
+    service = DownloadService(tmp_path, persona_repository)
     # Create managed assets directory with sample parquet files
     managed_assets_dir = tmp_path / "managed-assets" / "datasets"
     managed_assets_dir.mkdir(parents=True, exist_ok=True)
@@ -31,11 +38,12 @@ def service_with_datasets(tmp_path: Path) -> DownloadService:
     return service
 
 
-def test_init(tmp_path: Path) -> None:
+def test_init(tmp_path: Path, persona_repository: PersonaRepository) -> None:
     """Test service initialization sets up paths correctly."""
-    service = DownloadService(tmp_path)
+    service = DownloadService(tmp_path, persona_repository)
     assert service.config_dir == tmp_path
     assert service.managed_assets_dir == tmp_path / "managed-assets" / "datasets"
+    assert service.persona_repository is persona_repository
 
 
 def test_get_available_locales(service: DownloadService) -> None:

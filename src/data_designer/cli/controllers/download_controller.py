@@ -4,6 +4,7 @@
 import subprocess
 from pathlib import Path
 
+from data_designer.cli.repositories.persona_repository import PersonaRepository
 from data_designer.cli.services.download_service import DownloadService
 from data_designer.cli.ui import (
     confirm_action,
@@ -16,7 +17,6 @@ from data_designer.cli.ui import (
     select_multiple_with_arrows,
 )
 from data_designer.cli.utils import check_ngc_cli_available, get_ngc_version
-from data_designer.config.utils.constants import NEMOTRON_PERSONAS_DATASET_SIZES
 
 NGC_URL = "https://catalog.ngc.nvidia.com/"
 NGC_CLI_INSTALL_URL = "https://org.ngc.nvidia.com/setup/installers/cli"
@@ -27,23 +27,23 @@ class DownloadController:
 
     def __init__(self, config_dir: Path):
         self.config_dir = config_dir
-        self.service = DownloadService(config_dir)
+        self.persona_repository = PersonaRepository()
+        self.service = DownloadService(config_dir, self.persona_repository)
 
     def list_personas(self) -> None:
         """List available persona datasets and their sizes."""
         print_header("Available Nemotron-Persona Datasets")
         console.print()
 
-        available_locales = self.service.get_available_locales()
+        available_locales = self.persona_repository.list_all()
 
         print_text("📦 Available locales:")
         console.print()
 
-        for locale in available_locales.keys():
-            size = NEMOTRON_PERSONAS_DATASET_SIZES[locale]
-            already_downloaded = self.service.is_locale_downloaded(locale)
+        for locale in available_locales:
+            already_downloaded = self.service.is_locale_downloaded(locale.code)
             status = " (downloaded)" if already_downloaded else ""
-            print_text(f"  • {locale}: {size}{status}")
+            print_text(f"  • {locale.code}: {locale.size}{status}")
 
         console.print()
         print_info(f"Total: {len(available_locales)} datasets available")
@@ -76,10 +76,12 @@ class DownloadController:
         console.print()
         action = "Would download" if dry_run else "Will download"
         print_text(f"📦 {action} {len(selected_locales)} Nemotron-Persona dataset(s):")
-        for locale in selected_locales:
-            already_downloaded = self.service.is_locale_downloaded(locale)
+        for locale_code in selected_locales:
+            locale = self.persona_repository.get_by_code(locale_code)
+            already_downloaded = self.service.is_locale_downloaded(locale_code)
             status = " - already exists, will update" if already_downloaded else ""
-            print_text(f"  • {locale} ({NEMOTRON_PERSONAS_DATASET_SIZES[locale]}){status}")
+            size = locale.size if locale else "unknown"
+            print_text(f"  • {locale_code} ({size}){status}")
 
         console.print()
 

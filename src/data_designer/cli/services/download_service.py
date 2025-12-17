@@ -7,19 +7,21 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from data_designer.config.utils.constants import LOCALES_WITH_MANAGED_DATASETS, NEMOTRON_PERSONAS_DATASET_PREFIX
+from data_designer.cli.repositories.persona_repository import PersonaRepository
 
 
 class DownloadService:
     """Business logic for downloading assets via NGC CLI."""
 
-    def __init__(self, config_dir: Path):
+    def __init__(self, config_dir: Path, persona_repository: PersonaRepository):
         self.config_dir = config_dir
         self.managed_assets_dir = config_dir / "managed-assets" / "datasets"
+        self.persona_repository = persona_repository
 
     def get_available_locales(self) -> dict[str, str]:
         """Get dictionary of available persona locales (locale code -> locale code)."""
-        return {locale: locale for locale in LOCALES_WITH_MANAGED_DATASETS}
+        locales = self.persona_repository.list_all()
+        return {locale.code: locale.code for locale in locales}
 
     def download_persona_dataset(self, locale: str) -> Path:
         """Download persona dataset for a specific locale using NGC CLI and move to managed assets.
@@ -34,7 +36,8 @@ class DownloadService:
             ValueError: If locale is invalid
             subprocess.CalledProcessError: If NGC CLI command fails
         """
-        if locale not in LOCALES_WITH_MANAGED_DATASETS:
+        locale_obj = self.persona_repository.get_by_code(locale)
+        if not locale_obj:
             raise ValueError(f"Invalid locale: {locale}")
 
         self.managed_assets_dir.mkdir(parents=True, exist_ok=True)
@@ -47,15 +50,14 @@ class DownloadService:
                 "registry",
                 "resource",
                 "download-version",
-                f"nvidia/nemotron-personas/{_get_downloaded_dataset_name(locale)}",
+                f"nvidia/nemotron-personas/{locale_obj.dataset_name}",
                 "--dest",
                 temp_dir,
             ]
 
             subprocess.run(cmd, check=True)
 
-            dataset_pattern = _get_downloaded_dataset_name(locale)
-            download_pattern = f"{temp_dir}/{dataset_pattern}*/*.parquet"
+            download_pattern = f"{temp_dir}/{locale_obj.dataset_name}*/*.parquet"
             parquet_files = glob.glob(download_pattern)
 
             if not parquet_files:
@@ -82,7 +84,8 @@ class DownloadService:
         Returns:
             True if the locale dataset exists in managed assets
         """
-        if locale not in LOCALES_WITH_MANAGED_DATASETS:
+        locale_obj = self.persona_repository.get_by_code(locale)
+        if not locale_obj:
             return False
 
         if not self.managed_assets_dir.exists():
@@ -92,15 +95,3 @@ class DownloadService:
         parquet_files = glob.glob(str(self.managed_assets_dir / f"{locale}.parquet"))
 
         return len(parquet_files) > 0
-
-
-def _get_downloaded_dataset_name(locale: str) -> str:
-    """Build the downloaded dataset name pattern for the given locale.
-
-    Args:
-        locale: Locale code (e.g., 'en_US', 'ja_JP')
-
-    Returns:
-        Dataset pattern (e.g., 'nemotron-personas-dataset-en_us')
-    """
-    return f"{NEMOTRON_PERSONAS_DATASET_PREFIX}{locale.lower()}"
