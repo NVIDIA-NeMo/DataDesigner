@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from enum import Enum
-from typing import Literal, Optional, Union
+from typing import Literal
 
 import pandas as pd
 from pydantic import Field, field_validator, model_validator
@@ -54,12 +54,12 @@ class CategorySamplerParams(ConfigBase):
             Larger weights result in higher sampling probability for the corresponding value.
     """
 
-    values: list[Union[str, int, float]] = Field(
+    values: list[str | int | float] = Field(
         ...,
         min_length=1,
         description="List of possible categorical values that can be sampled from.",
     )
-    weights: Optional[list[float]] = Field(
+    weights: list[float] | None = Field(
         default=None,
         description=(
             "List of unnormalized probability weights to assigned to each value, in order. "
@@ -134,7 +134,7 @@ class SubcategorySamplerParams(ConfigBase):
     """
 
     category: str = Field(..., description="Name of parent category to this subcategory.")
-    values: dict[str, list[Union[str, int, float]]] = Field(
+    values: dict[str, list[str | int | float]] = Field(
         ...,
         description="Mapping from each value of parent category to a list of subcategory values.",
     )
@@ -214,7 +214,7 @@ class UUIDSamplerParams(ConfigBase):
             lowercase UUIDs.
     """
 
-    prefix: Optional[str] = Field(default=None, description="String prepended to the front of the UUID.")
+    prefix: str | None = Field(default=None, description="String prepended to the front of the UUID.")
     short_form: bool = Field(
         default=False,
         description="If true, all UUIDs sampled will be truncated at 8 characters.",
@@ -259,7 +259,7 @@ class ScipySamplerParams(ConfigBase):
         ...,
         description="Parameters of the scipy.stats distribution given in `dist_name`.",
     )
-    decimal_places: Optional[int] = Field(
+    decimal_places: int | None = Field(
         default=None, description="Number of decimal places to round the sampled values to."
     )
     sampler_type: Literal[SamplerType.SCIPY] = SamplerType.SCIPY
@@ -356,7 +356,7 @@ class GaussianSamplerParams(ConfigBase):
 
     mean: float = Field(..., description="Mean of the Gaussian distribution")
     stddev: float = Field(..., description="Standard deviation of the Gaussian distribution")
-    decimal_places: Optional[int] = Field(
+    decimal_places: int | None = Field(
         default=None, description="Number of decimal places to round the sampled values to."
     )
     sampler_type: Literal[SamplerType.GAUSSIAN] = SamplerType.GAUSSIAN
@@ -398,7 +398,7 @@ class UniformSamplerParams(ConfigBase):
 
     low: float = Field(..., description="Lower bound of the uniform distribution, inclusive.")
     high: float = Field(..., description="Upper bound of the uniform distribution, inclusive.")
-    decimal_places: Optional[int] = Field(
+    decimal_places: int | None = Field(
         default=None, description="Number of decimal places to round the sampled values to."
     )
     sampler_type: Literal[SamplerType.UNIFORM] = SamplerType.UNIFORM
@@ -447,11 +447,11 @@ class PersonSamplerParams(ConfigBase):
             f"{', '.join(LOCALES_WITH_MANAGED_DATASETS)}."
         ),
     )
-    sex: Optional[SexT] = Field(
+    sex: SexT | None = Field(
         default=None,
         description="If specified, then only synthetic people of the specified sex will be sampled.",
     )
-    city: Optional[Union[str, list[str]]] = Field(
+    city: str | list[str] | None = Field(
         default=None,
         description="If specified, then only synthetic people from these cities will be sampled.",
     )
@@ -461,7 +461,7 @@ class PersonSamplerParams(ConfigBase):
         min_length=2,
         max_length=2,
     )
-    select_field_values: Optional[dict[str, list[str]]] = Field(
+    select_field_values: dict[str, list[str]] | None = Field(
         default=None,
         description=(
             "Sample synthetic people with the specified field values. This is meant to be a flexible argument for "
@@ -529,11 +529,11 @@ class PersonFromFakerSamplerParams(ConfigBase):
             "that a synthetic person will be sampled from. E.g, en_US, en_GB, fr_FR, ..."
         ),
     )
-    sex: Optional[SexT] = Field(
+    sex: SexT | None = Field(
         default=None,
         description="If specified, then only synthetic people of the specified sex will be sampled.",
     )
-    city: Optional[Union[str, list[str]]] = Field(
+    city: str | list[str] | None = Field(
         default=None,
         description="If specified, then only synthetic people from these cities will be sampled.",
     )
@@ -585,22 +585,22 @@ class PersonFromFakerSamplerParams(ConfigBase):
         return value
 
 
-SamplerParamsT: TypeAlias = Union[
-    SubcategorySamplerParams,
-    CategorySamplerParams,
-    DatetimeSamplerParams,
-    PersonSamplerParams,
-    PersonFromFakerSamplerParams,
-    TimeDeltaSamplerParams,
-    UUIDSamplerParams,
-    BernoulliSamplerParams,
-    BernoulliMixtureSamplerParams,
-    BinomialSamplerParams,
-    GaussianSamplerParams,
-    PoissonSamplerParams,
-    UniformSamplerParams,
-    ScipySamplerParams,
-]
+SamplerParamsT: TypeAlias = (
+    SubcategorySamplerParams
+    | CategorySamplerParams
+    | DatetimeSamplerParams
+    | PersonSamplerParams
+    | PersonFromFakerSamplerParams
+    | TimeDeltaSamplerParams
+    | UUIDSamplerParams
+    | BernoulliSamplerParams
+    | BernoulliMixtureSamplerParams
+    | BinomialSamplerParams
+    | GaussianSamplerParams
+    | PoissonSamplerParams
+    | UniformSamplerParams
+    | ScipySamplerParams
+)
 
 
 def is_numerical_sampler_type(sampler_type: SamplerType) -> bool:

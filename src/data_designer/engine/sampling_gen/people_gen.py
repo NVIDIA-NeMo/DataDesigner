@@ -8,7 +8,7 @@ import uuid
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from copy import deepcopy
-from typing import TYPE_CHECKING, Any, Union
+from typing import TYPE_CHECKING, Any, TypeAlias
 
 import pandas as pd
 from faker import Faker
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from data_designer.engine.sampling_gen.schema import DataSchema
 
 
-EngineT = Union[Faker, ManagedDatasetGenerator]
+EngineT: TypeAlias = Faker | ManagedDatasetGenerator
 
 
 class PeopleGen(ABC):

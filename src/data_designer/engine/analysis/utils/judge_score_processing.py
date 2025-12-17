@@ -3,7 +3,7 @@
 
 import logging
 from collections import defaultdict
-from typing import Any, Optional, Union
+from typing import Any
 
 import pandas as pd
 
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 def extract_judge_score_distributions(
     column_config: LLMJudgeColumnConfig, df: pd.DataFrame
-) -> Union[JudgeScoreDistributions, MissingValue]:
+) -> JudgeScoreDistributions | MissingValue:
     scores = defaultdict(list)
     reasoning = defaultdict(list)
 
@@ -79,10 +79,10 @@ def extract_judge_score_distributions(
 
 
 def sample_scores_and_reasoning(
-    scores: list[Union[int, str]],
+    scores: list[int | str],
     reasoning: list[str],
     num_samples: int,
-    random_seed: Optional[int] = None,
+    random_seed: int | None = None,
 ) -> list[JudgeScoreSample]:
     if len(scores) != len(reasoning):
         raise ValueError("scores and reasoning must have the same length")

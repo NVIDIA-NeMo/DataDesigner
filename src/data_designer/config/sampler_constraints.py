@@ -3,7 +3,6 @@
 
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Union
 
 from typing_extensions import TypeAlias
 
@@ -48,4 +47,4 @@ class ColumnInequalityConstraint(Constraint):
         return ConstraintType.COLUMN_INEQUALITY
 
 
-ColumnConstraintT: TypeAlias = Union[ScalarInequalityConstraint, ColumnInequalityConstraint]
+ColumnConstraintT: TypeAlias = ScalarInequalityConstraint | ColumnInequalityConstraint
