@@ -322,7 +322,7 @@ class ColumnWiseDatasetBuilder:
                 delta_input = current_stats.token_usage.input_tokens
                 delta_output = current_stats.token_usage.output_tokens
 
-            if delta_prompt > 0 or delta_completion > 0:
+            if delta_input > 0 or delta_output > 0:
                 events.append(
                     InferenceEvent(
                         nemo_source=NemoSourceEnum.DATADESIGNER,
