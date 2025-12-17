@@ -1,6 +1,6 @@
 # Processors
 
-Processors are post-generation transformations that modify your dataset after columns are generated. They run at different stages and can reshape, filter, or augment the data.
+Processors are transformations that modify your dataset before or after columns are generated. They run at different stages and can reshape, filter, or augment the data.
 
 !!! tip "When to Use Processors"
     Processors handle transformations that don't fit the "column" model: restructuring the schema for a specific output format, dropping intermediate columns in bulk, or applying batch-wide operations.
