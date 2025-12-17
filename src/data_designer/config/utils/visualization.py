@@ -8,7 +8,7 @@ import os
 from collections import OrderedDict
 from enum import Enum
 from functools import cached_property
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -194,6 +194,7 @@ def display_sample_record(
         + config_builder.get_columns_of_type(DataDesignerColumnType.EXPRESSION)
         + config_builder.get_columns_of_type(DataDesignerColumnType.LLM_TEXT)
         + config_builder.get_columns_of_type(DataDesignerColumnType.LLM_STRUCTURED)
+        + config_builder.get_columns_of_type(DataDesignerColumnType.EMBEDDING)
     )
     if len(non_code_columns) > 0:
         table = Table(title="Generated Columns", **table_kws)
@@ -201,6 +202,10 @@ def display_sample_record(
         table.add_column("Value")
         for col in non_code_columns:
             if not col.drop:
+                if col.column_type == DataDesignerColumnType.EMBEDDING:
+                    record[col.name]["embeddings"] = [
+                        get_truncated_list_as_string(embd) for embd in record[col.name].get("embeddings")
+                    ]
                 table.add_row(col.name, convert_to_row_element(record[col.name]))
         render_list.append(pad_console_element(table))
 
@@ -269,6 +274,16 @@ def display_sample_record(
     console.print(Group(*render_list), markup=False)
 
 
+def get_truncated_list_as_string(long_list: list[Any], max_items: int = 2) -> str:
+    if max_items <= 0:
+        raise ValueError("max_items must be greater than 0")
+    if len(long_list) > max_items:
+        truncated_part = long_list[:max_items]
+        return f"[{', '.join(str(x) for x in truncated_part)}, ...]"
+    else:
+        return str(long_list)
+
+
 def display_sampler_table(
     sampler_params: dict[SamplerType, ConfigBase],
     title: Optional[str] = None,
@@ -306,15 +321,15 @@ def display_model_configs_table(model_configs: list[ModelConfig]) -> None:
     table_model_configs.add_column("Alias")
     table_model_configs.add_column("Model")
     table_model_configs.add_column("Provider")
-    table_model_configs.add_column("Temperature")
-    table_model_configs.add_column("Top P")
+    table_model_configs.add_column("Inference Parameters")
     for model_config in model_configs:
+        params_display = model_config.inference_parameters.format_for_display()
+
         table_model_configs.add_row(
             model_config.alias,
             model_config.model,
             model_config.provider,
-            str(model_config.inference_parameters.temperature),
-            str(model_config.inference_parameters.top_p),
+            params_display,
         )
     group_args: list = [Rule(title="Model Configs"), table_model_configs]
     if len(model_configs) == 0:

@@ -301,13 +301,15 @@ PREDEFINED_PROVIDERS = [
 
 PREDEFINED_PROVIDERS_MODEL_MAP = {
     NVIDIA_PROVIDER_NAME: {
-        "text": "nvidia/nvidia-nemotron-nano-9b-v2",
+        "text": "nvidia/nemotron-3-nano-30b-a3b",
         "reasoning": "openai/gpt-oss-20b",
         "vision": "nvidia/nemotron-nano-12b-v2-vl",
+        "embedding": "nvidia/llama-3.2-nv-embedqa-1b-v2",
     },
     OPENAI_PROVIDER_NAME: {
         "text": "gpt-4.1",
         "reasoning": "gpt-5",
         "vision": "gpt-5",
+        "embedding": "text-embedding-3-large",
     },
 }

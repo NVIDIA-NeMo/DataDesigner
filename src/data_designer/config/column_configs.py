@@ -377,3 +377,24 @@ class SeedDatasetColumnConfig(SingleColumnConfig):
     """
 
     column_type: Literal["seed-dataset"] = "seed-dataset"
+
+
+class EmbeddingColumnConfig(SingleColumnConfig):
+    """Configuration for embedding generation columns.
+
+    Embedding columns generate embeddings for text input using a specified model.
+
+    Attributes:
+        target_column: The column to generate embeddings for. The column could be a single text string or a list of text strings in stringified JSON format.
+            If it is a list of text strings in stringified JSON format, the embeddings will be generated for each text string.
+        model_alias: The model to use for embedding generation.
+        column_type: Discriminator field, always "embedding" for this configuration type.
+    """
+
+    target_column: str
+    model_alias: str
+    column_type: Literal["embedding"] = "embedding"
+
+    @property
+    def required_columns(self) -> list[str]:
+        return [self.target_column]

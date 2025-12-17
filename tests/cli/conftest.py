@@ -9,16 +9,16 @@ from data_designer.cli.repositories.model_repository import ModelConfigRegistry,
 from data_designer.cli.repositories.provider_repository import ModelProviderRegistry, ProviderRepository
 from data_designer.cli.services.model_service import ModelService
 from data_designer.cli.services.provider_service import ProviderService
-from data_designer.config.models import InferenceParameters, ModelConfig, ModelProvider
+from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig, ModelProvider
 
 
 @pytest.fixture
-def stub_inference_parameters() -> InferenceParameters:
-    return InferenceParameters(temperature=0.7, top_p=0.9, max_tokens=2048, max_parallel_requests=4)
+def stub_inference_parameters() -> ChatCompletionInferenceParams:
+    return ChatCompletionInferenceParams(temperature=0.7, top_p=0.9, max_tokens=2048, max_parallel_requests=4)
 
 
 @pytest.fixture
-def stub_model_configs(stub_inference_parameters: InferenceParameters) -> list[ModelConfig]:
+def stub_model_configs(stub_inference_parameters: ChatCompletionInferenceParams) -> list[ModelConfig]:
     return [
         ModelConfig(
             alias="test-alias-1",
@@ -41,7 +41,7 @@ def stub_new_model_config() -> ModelConfig:
         alias="test-alias-3",
         model="test-model-3",
         provider="test-provider-1",
-        inference_parameters=InferenceParameters(
+        inference_parameters=ChatCompletionInferenceParams(
             temperature=0.7,
             top_p=0.9,
             max_tokens=2048,
