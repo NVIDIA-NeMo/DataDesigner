@@ -1,25 +1,28 @@
 # Processors
 
-Processors are post-generation transformations that modify your dataset after columns are generated. They run at the end of each batch and can reshape, filter, or augment the data before it's saved.
+Processors are post-generation transformations that modify your dataset after columns are generated. They run at different stages and can reshape, filter, or augment the data.
 
-!!! note "When to Use Processors"
-    Processors handle transformations that don't fit the column model—restructuring the schema for a specific output format, dropping intermediate columns in bulk, or applying batch-wide operations.
+!!! tip "When to Use Processors"
+    Processors handle transformations that don't fit the "column" model: restructuring the schema for a specific output format, dropping intermediate columns in bulk, or applying batch-wide operations.
 
 ## Overview
 
-Processors execute after all columns in a batch are generated. Each processor:
+Each processor:
 
 - Receives the complete batch DataFrame
 - Applies its transformation
 - Passes the result to the next processor (or to output)
 
-Currently, processors run at the `POST_BATCH` stage—after column generation completes for each batch.
+Currently, processors run only at the `POST_BATCH` stage, i.e., after column generation completes for each batch.
 
 ## Processor Types
 
 ### 🗑️ Drop Columns Processor
 
 Removes specified columns from the output dataset. Dropped columns are saved separately in the `dropped-columns` directory for reference.
+
+!!! tip "Dropping Columns is More Easily Achieved via `drop = True`"
+    The Drop Columns Processor is different from others in the sense that it does not need to be explicitly added: setting `drop = True` when configuring a column will accomplish the same.
 
 **Configuration:**
 
@@ -47,7 +50,7 @@ processor = DropColumnsProcessorConfig(
 
 ### 🔄 Schema Transform Processor
 
-Creates a new dataset with a transformed schema using Jinja2 templates. The output is written to a separate directory alongside the main dataset.
+Creates an additional dataset with a transformed schema using Jinja2 templates. The output is written to a separate directory alongside the main dataset.
 
 **Configuration:**
 
@@ -121,26 +124,6 @@ builder.add_processor(
             ],
         },
     )
-)
-```
-
-### Alternative: Using Processor Type
-
-You can also add processors by specifying the type and parameters:
-
-```python
-from data_designer.essentials import ProcessorType
-
-builder.add_processor(
-    processor_type=ProcessorType.DROP_COLUMNS,
-    name="cleanup",
-    column_names=["scratch_work"],
-)
-
-builder.add_processor(
-    processor_type=ProcessorType.SCHEMA_TRANSFORM,
-    name="chat_format",
-    template={"messages": [{"role": "user", "content": "{{ question }}"}]},
 )
 ```
 
