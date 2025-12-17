@@ -354,3 +354,74 @@ def test_run_personas_shows_existing_status(
 
     # Verify download was attempted (it would show the "already exists" message)
     mock_download.assert_called_once_with("en_US")
+
+
+@patch.object(DownloadController, "_download_locale")
+@patch("data_designer.cli.controllers.download_controller.confirm_action")
+@patch.object(DownloadController, "_check_ngc_cli")
+def test_run_personas_with_dry_run_flag(
+    mock_check_ngc: MagicMock,
+    mock_confirm: MagicMock,
+    mock_download: MagicMock,
+    controller: DownloadController,
+) -> None:
+    """Test run_personas with --dry-run flag does not download or check NGC CLI."""
+    controller.run_personas(locales=["en_US", "ja_JP"], all_locales=False, dry_run=True)
+
+    # Verify NGC check was NOT called in dry run mode
+    mock_check_ngc.assert_not_called()
+
+    # Verify confirmation was NOT requested in dry run mode
+    mock_confirm.assert_not_called()
+
+    # Verify no downloads were attempted
+    mock_download.assert_not_called()
+
+
+@patch.object(DownloadController, "_download_locale")
+@patch("data_designer.cli.controllers.download_controller.confirm_action")
+@patch.object(DownloadController, "_check_ngc_cli")
+def test_run_personas_with_all_and_dry_run(
+    mock_check_ngc: MagicMock,
+    mock_confirm: MagicMock,
+    mock_download: MagicMock,
+    controller: DownloadController,
+) -> None:
+    """Test run_personas with --all and --dry-run flags."""
+    controller.run_personas(locales=None, all_locales=True, dry_run=True)
+
+    # Verify NGC check was NOT called in dry run mode
+    mock_check_ngc.assert_not_called()
+
+    # Verify confirmation was NOT requested in dry run mode
+    mock_confirm.assert_not_called()
+
+    # Verify no downloads were attempted
+    mock_download.assert_not_called()
+
+
+@patch.object(DownloadController, "_download_locale")
+@patch("data_designer.cli.controllers.download_controller.confirm_action")
+@patch("data_designer.cli.controllers.download_controller.select_multiple_with_arrows", return_value=["en_US"])
+@patch.object(DownloadController, "_check_ngc_cli")
+def test_run_personas_interactive_with_dry_run(
+    mock_check_ngc: MagicMock,
+    mock_select: MagicMock,
+    mock_confirm: MagicMock,
+    mock_download: MagicMock,
+    controller: DownloadController,
+) -> None:
+    """Test run_personas with interactive selection and --dry-run flag."""
+    controller.run_personas(locales=None, all_locales=False, dry_run=True)
+
+    # Verify NGC check was NOT called in dry run mode
+    mock_check_ngc.assert_not_called()
+
+    # Verify interactive selection WAS called (user still needs to select)
+    mock_select.assert_called_once()
+
+    # Verify confirmation was NOT requested in dry run mode
+    mock_confirm.assert_not_called()
+
+    # Verify no downloads were attempted
+    mock_download.assert_not_called()
