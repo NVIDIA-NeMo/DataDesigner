@@ -68,10 +68,7 @@ MODEL_PROVIDER = "nvidia"
 MODEL_ID = "nvidia/nemotron-3-nano-30b-a3b"
 
 # We choose this alias to be descriptive for our use case.
-MODEL_ALIAS = "nemotron-nano-v2"
-
-# This sets reasoning to False for the nemotron-nano-v2 model.
-SYSTEM_PROMPT = "/no_think"
+MODEL_ALIAS = "nemotron-nano-v3"
 
 model_configs = [
     ModelConfig(
@@ -79,9 +76,10 @@ model_configs = [
         model=MODEL_ID,
         provider=MODEL_PROVIDER,
         inference_parameters=ChatCompletionInferenceParams(
-            temperature=0.5,
+            temperature=1.0,
             top_p=1.0,
-            max_tokens=1024,
+            max_tokens=2048,
+            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
         ),
     )
 ]
@@ -220,9 +218,9 @@ Write careful notes about your visit with {{ first_name }},
 as Dr. {{ doctor_sampler.first_name }} {{ doctor_sampler.last_name }}.
 
 Format the notes as a busy doctor might.
+Respond with only the notes, no other text.
 """,
     model_alias=MODEL_ALIAS,
-    system_prompt=SYSTEM_PROMPT,
 )
 
 config_builder.validate()

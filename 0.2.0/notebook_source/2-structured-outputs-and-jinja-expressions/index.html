@@ -2256,7 +2256,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </style>
 <!-- End of mermaid configuration --><div class="jupyter-wrapper">
 <div class="jp-Notebook" data-jp-theme-light="true" data-jp-theme-name="JupyterLab Light">
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=0d6ef6c4">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=d8b9a494">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2268,7 +2268,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=cf261cc1">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=b86d33d4">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2281,7 +2281,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=6ac2aa08">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=ff7f2d83">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2332,7 +2332,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=8a2b4c3e">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=6ade4d5b">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2348,7 +2348,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=d7b5f0ac">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=27d5b66b">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2375,7 +2375,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=511988c6">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=1cfed583">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2395,7 +2395,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=6ea459a5">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=74ad8eed">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2420,10 +2420,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <span class="n">MODEL_ID</span> <span class="o">=</span> <span class="s2">"nvidia/nemotron-3-nano-30b-a3b"</span>
 
 <span class="c1"># We choose this alias to be descriptive for our use case.</span>
-<span class="n">MODEL_ALIAS</span> <span class="o">=</span> <span class="s2">"nemotron-nano-v2"</span>
-
-<span class="c1"># This sets reasoning to False for the nemotron-nano-v2 model.</span>
-<span class="n">SYSTEM_PROMPT</span> <span class="o">=</span> <span class="s2">"/no_think"</span>
+<span class="n">MODEL_ALIAS</span> <span class="o">=</span> <span class="s2">"nemotron-nano-v3"</span>
 
 <span class="n">model_configs</span> <span class="o">=</span> <span class="p">[</span>
     <span class="n">ModelConfig</span><span class="p">(</span>
@@ -2431,9 +2428,10 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
         <span class="n">model</span><span class="o">=</span><span class="n">MODEL_ID</span><span class="p">,</span>
         <span class="n">provider</span><span class="o">=</span><span class="n">MODEL_PROVIDER</span><span class="p">,</span>
         <span class="n">inference_parameters</span><span class="o">=</span><span class="n">ChatCompletionInferenceParams</span><span class="p">(</span>
-            <span class="n">temperature</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span>
+            <span class="n">temperature</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
             <span class="n">top_p</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
-            <span class="n">max_tokens</span><span class="o">=</span><span class="mi">1024</span><span class="p">,</span>
+            <span class="n">max_tokens</span><span class="o">=</span><span class="mi">2048</span><span class="p">,</span>
+            <span class="n">extra_body</span><span class="o">=</span><span class="p">{</span><span class="s2">"chat_template_kwargs"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"enable_thinking"</span><span class="p">:</span> <span class="kc">False</span><span class="p">}},</span>
         <span class="p">),</span>
     <span class="p">)</span>
 <span class="p">]</span>
@@ -2445,10 +2443,7 @@ MODEL_PROVIDER = "nvidia"
 MODEL_ID = "nvidia/nemotron-3-nano-30b-a3b"
 
 # We choose this alias to be descriptive for our use case.
-MODEL_ALIAS = "nemotron-nano-v2"
-
-# This sets reasoning to False for the nemotron-nano-v2 model.
-SYSTEM_PROMPT = "/no_think"
+MODEL_ALIAS = "nemotron-nano-v3"
 
 model_configs = [
     ModelConfig(
@@ -2456,9 +2451,10 @@ model_configs = [
         model=MODEL_ID,
         provider=MODEL_PROVIDER,
         inference_parameters=ChatCompletionInferenceParams(
-            temperature=0.5,
+            temperature=1.0,
             top_p=1.0,
-            max_tokens=1024,
+            max_tokens=2048,
+            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
         ),
     )
 ]</div>
@@ -2468,7 +2464,7 @@ model_configs = [
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=5a365324">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=6f2a91e2">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2486,7 +2482,7 @@ model_configs = [
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=2de8b156">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=3a28fb0e">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2513,7 +2509,7 @@ model_configs = [
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=44f6b178">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=eeaf1a9e">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2544,7 +2540,7 @@ model_configs = [
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=14de8da4">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=8a909999">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2609,7 +2605,7 @@ class ProductReview(BaseModel):
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=9e21f797">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=275fe976">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2620,7 +2616,7 @@ class ProductReview(BaseModel):
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=bbb46293">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=0ca00b54">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2847,7 +2843,7 @@ config_builder.validate()</div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=d654bf23">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=9e84a15c">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2867,7 +2863,7 @@ config_builder.validate()</div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=aa5d214b">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=b26c8f65">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2901,7 +2897,6 @@ config_builder.validate()</div>
             <span class="s2">"related to '{{ product_subcategory }}'. The target age range of the ideal customer is "</span>
             <span class="s2">"{{ target_age_range }} years old. The product should be priced between $10 and $1000."</span>
         <span class="p">),</span>
-        <span class="n">system_prompt</span><span class="o">=</span><span class="n">SYSTEM_PROMPT</span><span class="p">,</span>
         <span class="n">output_format</span><span class="o">=</span><span class="n">Product</span><span class="p">,</span>
         <span class="n">model_alias</span><span class="o">=</span><span class="n">MODEL_ALIAS</span><span class="p">,</span>
     <span class="p">)</span>
@@ -2919,12 +2914,12 @@ config_builder.validate()</div>
             <span class="s2">"Imagine your name is {{ customer_name }} and you are from {{ customer.city }}, {{ customer.state }}. "</span>
             <span class="s2">"Write the review in a style that is '{{ review_style }}'."</span>
             <span class="s2">"{</span><span class="si">% i</span><span class="s2">f target_age_range == '18-25' %}"</span>
-            <span class="s2">"Make sure the review is more informal and conversational."</span>
+            <span class="s2">"Make sure the review is more informal and conversational.</span><span class="se">\n</span><span class="s2">"</span>
             <span class="s2">"{</span><span class="si">% e</span><span class="s2">lse %}"</span>
-            <span class="s2">"Make sure the review is more formal and structured."</span>
+            <span class="s2">"Make sure the review is more formal and structured.</span><span class="se">\n</span><span class="s2">"</span>
             <span class="s2">"{</span><span class="si">% e</span><span class="s2">ndif %}"</span>
+            <span class="s2">"The review field should contain only the review, no other text."</span>
         <span class="p">),</span>
-        <span class="n">system_prompt</span><span class="o">=</span><span class="n">SYSTEM_PROMPT</span><span class="p">,</span>
         <span class="n">output_format</span><span class="o">=</span><span class="n">ProductReview</span><span class="p">,</span>
         <span class="n">model_alias</span><span class="o">=</span><span class="n">MODEL_ALIAS</span><span class="p">,</span>
     <span class="p">)</span>
@@ -2948,7 +2943,6 @@ config_builder.add_column(
             "related to '{{ product_subcategory }}'. The target age range of the ideal customer is "
             "{{ target_age_range }} years old. The product should be priced between $10 and $1000."
         ),
-        system_prompt=SYSTEM_PROMPT,
         output_format=Product,
         model_alias=MODEL_ALIAS,
     )
@@ -2966,12 +2960,12 @@ config_builder.add_column(
             "Imagine your name is {{ customer_name }} and you are from {{ customer.city }}, {{ customer.state }}. "
             "Write the review in a style that is '{{ review_style }}'."
             "{% if target_age_range == '18-25' %}"
-            "Make sure the review is more informal and conversational."
+            "Make sure the review is more informal and conversational.\n"
             "{% else %}"
-            "Make sure the review is more formal and structured."
+            "Make sure the review is more formal and structured.\n"
             "{% endif %}"
+            "The review field should contain only the review, no other text."
         ),
-        system_prompt=SYSTEM_PROMPT,
         output_format=ProductReview,
         model_alias=MODEL_ALIAS,
     )
@@ -2984,7 +2978,7 @@ config_builder.validate()</div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=3459218d">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=9967d8ea">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -3004,7 +2998,7 @@ config_builder.validate()</div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=db61e3e6">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=299f2cb7">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -3031,7 +3025,7 @@ config_builder.validate()</div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=b5769495">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=54cbe99a">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -3060,7 +3054,7 @@ preview.display_sample_record()</div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=a38c8e16">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=39c0f9e7">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -3089,7 +3083,7 @@ preview.dataset</div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=a3fececd">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=9f4e7e5d">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -3105,7 +3099,7 @@ preview.dataset</div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=81819c07">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=79a89171">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -3134,7 +3128,7 @@ preview.analysis.to_report()</div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=7565333b">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=cda98c30">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -3150,7 +3144,7 @@ preview.analysis.to_report()</div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=d9c55469">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=166a3e1a">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -3177,7 +3171,7 @@ preview.analysis.to_report()</div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=4f4ad409">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=973b5e39">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -3210,7 +3204,7 @@ dataset.head()</div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=3bd0e493">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=cc1d2023">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -3243,7 +3237,7 @@ analysis.to_report()</div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=6b4dcd52">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=5530f1d3">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>

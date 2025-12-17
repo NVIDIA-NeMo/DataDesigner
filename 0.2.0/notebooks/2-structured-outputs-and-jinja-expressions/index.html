@@ -2397,7 +2397,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </style>
 <!-- End of mermaid configuration --><div class="jupyter-wrapper">
 <div class="jp-Notebook" data-jp-theme-light="true" data-jp-theme-name="JupyterLab Light">
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=6256978c">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=5ae9cb5a">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2409,7 +2409,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=83443c6d">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=cfe13888">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2422,7 +2422,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=b7b2c0df">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=2283c9ba">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2473,7 +2473,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=415b8cf7">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=2f34d553">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2489,7 +2489,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=0a4af8dc">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=d5949024">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2516,7 +2516,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=0bc4921b">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=7db4bb3f">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2536,7 +2536,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=1e620b49">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=99c86821">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2561,10 +2561,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <span class="n">MODEL_ID</span> <span class="o">=</span> <span class="s2">"nvidia/nemotron-3-nano-30b-a3b"</span>
 
 <span class="c1"># We choose this alias to be descriptive for our use case.</span>
-<span class="n">MODEL_ALIAS</span> <span class="o">=</span> <span class="s2">"nemotron-nano-v2"</span>
-
-<span class="c1"># This sets reasoning to False for the nemotron-nano-v2 model.</span>
-<span class="n">SYSTEM_PROMPT</span> <span class="o">=</span> <span class="s2">"/no_think"</span>
+<span class="n">MODEL_ALIAS</span> <span class="o">=</span> <span class="s2">"nemotron-nano-v3"</span>
 
 <span class="n">model_configs</span> <span class="o">=</span> <span class="p">[</span>
     <span class="n">ModelConfig</span><span class="p">(</span>
@@ -2572,9 +2569,10 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
         <span class="n">model</span><span class="o">=</span><span class="n">MODEL_ID</span><span class="p">,</span>
         <span class="n">provider</span><span class="o">=</span><span class="n">MODEL_PROVIDER</span><span class="p">,</span>
         <span class="n">inference_parameters</span><span class="o">=</span><span class="n">ChatCompletionInferenceParams</span><span class="p">(</span>
-            <span class="n">temperature</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span>
+            <span class="n">temperature</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
             <span class="n">top_p</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
-            <span class="n">max_tokens</span><span class="o">=</span><span class="mi">1024</span><span class="p">,</span>
+            <span class="n">max_tokens</span><span class="o">=</span><span class="mi">2048</span><span class="p">,</span>
+            <span class="n">extra_body</span><span class="o">=</span><span class="p">{</span><span class="s2">"chat_template_kwargs"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"enable_thinking"</span><span class="p">:</span> <span class="kc">False</span><span class="p">}},</span>
         <span class="p">),</span>
     <span class="p">)</span>
 <span class="p">]</span>
@@ -2586,10 +2584,7 @@ MODEL_PROVIDER = "nvidia"
 MODEL_ID = "nvidia/nemotron-3-nano-30b-a3b"
 
 # We choose this alias to be descriptive for our use case.
-MODEL_ALIAS = "nemotron-nano-v2"
-
-# This sets reasoning to False for the nemotron-nano-v2 model.
-SYSTEM_PROMPT = "/no_think"
+MODEL_ALIAS = "nemotron-nano-v3"
 
 model_configs = [
     ModelConfig(
@@ -2597,9 +2592,10 @@ model_configs = [
         model=MODEL_ID,
         provider=MODEL_PROVIDER,
         inference_parameters=ChatCompletionInferenceParams(
-            temperature=0.5,
+            temperature=1.0,
             top_p=1.0,
-            max_tokens=1024,
+            max_tokens=2048,
+            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
         ),
     )
 ]</div>
@@ -2609,7 +2605,7 @@ model_configs = [
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=0db0f23a">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=0fbfe528">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2627,7 +2623,7 @@ model_configs = [
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=e8507f14">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=169b6d82">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2654,7 +2650,7 @@ model_configs = [
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=17977a1c">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=718fd832">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2685,7 +2681,7 @@ model_configs = [
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=81a6d2e8">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=f03e4049">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2750,7 +2746,7 @@ class ProductReview(BaseModel):
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=c9f4cb9b">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=daef5043">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2761,7 +2757,7 @@ class ProductReview(BaseModel):
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=8c4ae223">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=13ef9fcc">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2993,7 +2989,7 @@ config_builder.validate()</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:28:36] [INFO] ✅ Validation passed
+<pre>[23:28:22] [INFO] ✅ Validation passed
 </pre>
 </div>
 </div>
@@ -3128,7 +3124,7 @@ span.linenos.special { color: #242933; background-color: #D8DEE9; padding-left: 
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=f8c4f9c5">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=e622f71f">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -3148,7 +3144,7 @@ span.linenos.special { color: #242933; background-color: #D8DEE9; padding-left: 
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=04819ba9">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=117fe82e">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -3182,7 +3178,6 @@ span.linenos.special { color: #242933; background-color: #D8DEE9; padding-left: 
             <span class="s2">"related to '{{ product_subcategory }}'. The target age range of the ideal customer is "</span>
             <span class="s2">"{{ target_age_range }} years old. The product should be priced between $10 and $1000."</span>
         <span class="p">),</span>
-        <span class="n">system_prompt</span><span class="o">=</span><span class="n">SYSTEM_PROMPT</span><span class="p">,</span>
         <span class="n">output_format</span><span class="o">=</span><span class="n">Product</span><span class="p">,</span>
         <span class="n">model_alias</span><span class="o">=</span><span class="n">MODEL_ALIAS</span><span class="p">,</span>
     <span class="p">)</span>
@@ -3200,12 +3195,12 @@ span.linenos.special { color: #242933; background-color: #D8DEE9; padding-left: 
             <span class="s2">"Imagine your name is {{ customer_name }} and you are from {{ customer.city }}, {{ customer.state }}. "</span>
             <span class="s2">"Write the review in a style that is '{{ review_style }}'."</span>
             <span class="s2">"{</span><span class="si">% i</span><span class="s2">f target_age_range == '18-25' %}"</span>
-            <span class="s2">"Make sure the review is more informal and conversational."</span>
+            <span class="s2">"Make sure the review is more informal and conversational.</span><span class="se">\n</span><span class="s2">"</span>
             <span class="s2">"{</span><span class="si">% e</span><span class="s2">lse %}"</span>
-            <span class="s2">"Make sure the review is more formal and structured."</span>
+            <span class="s2">"Make sure the review is more formal and structured.</span><span class="se">\n</span><span class="s2">"</span>
             <span class="s2">"{</span><span class="si">% e</span><span class="s2">ndif %}"</span>
+            <span class="s2">"The review field should contain only the review, no other text."</span>
         <span class="p">),</span>
-        <span class="n">system_prompt</span><span class="o">=</span><span class="n">SYSTEM_PROMPT</span><span class="p">,</span>
         <span class="n">output_format</span><span class="o">=</span><span class="n">ProductReview</span><span class="p">,</span>
         <span class="n">model_alias</span><span class="o">=</span><span class="n">MODEL_ALIAS</span><span class="p">,</span>
     <span class="p">)</span>
@@ -3229,7 +3224,6 @@ config_builder.add_column(
             "related to '{{ product_subcategory }}'. The target age range of the ideal customer is "
             "{{ target_age_range }} years old. The product should be priced between $10 and $1000."
         ),
-        system_prompt=SYSTEM_PROMPT,
         output_format=Product,
         model_alias=MODEL_ALIAS,
     )
@@ -3247,12 +3241,12 @@ config_builder.add_column(
             "Imagine your name is {{ customer_name }} and you are from {{ customer.city }}, {{ customer.state }}. "
             "Write the review in a style that is '{{ review_style }}'."
             "{% if target_age_range == '18-25' %}"
-            "Make sure the review is more informal and conversational."
+            "Make sure the review is more informal and conversational.\n"
             "{% else %}"
-            "Make sure the review is more formal and structured."
+            "Make sure the review is more formal and structured.\n"
             "{% endif %}"
+            "The review field should contain only the review, no other text."
         ),
-        system_prompt=SYSTEM_PROMPT,
         output_format=ProductReview,
         model_alias=MODEL_ALIAS,
     )
@@ -3270,7 +3264,7 @@ config_builder.validate()</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:28:36] [INFO] ✅ Validation passed
+<pre>[23:28:22] [INFO] ✅ Validation passed
 </pre>
 </div>
 </div>
@@ -3407,7 +3401,7 @@ span.linenos.special { color: #242933; background-color: #D8DEE9; padding-left: 
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=c3f860b3">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=201a70d6">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -3427,7 +3421,7 @@ span.linenos.special { color: #242933; background-color: #D8DEE9; padding-left: 
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=d913054e">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=c4b61d41">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -3459,95 +3453,99 @@ span.linenos.special { color: #242933; background-color: #D8DEE9; padding-left: 
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:28:36] [INFO] 🧐 Preview generation in progress
+<pre>[23:28:22] [INFO] 🔭 Preview generation in progress
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:28:36] [INFO] ✅ Validation passed
+<pre>[23:28:22] [INFO] ✅ Validation passed
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:28:36] [INFO] ⛓️ Sorting column configs into a Directed Acyclic Graph
+<pre>[23:28:22] [INFO] ⛓️ Sorting column configs into a Directed Acyclic Graph
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:28:36] [INFO] 🩺 Running health checks for models...
+<pre>[23:28:22] [INFO] 🩺 Running health checks for models...
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:28:36] [INFO]   |-- 👀 Checking 'nvidia/nemotron-3-nano-30b-a3b' in provider named 'nvidia' for model alias 'nemotron-nano-v2'...
+<pre>[23:28:22] [INFO]   |-- 👀 Checking 'nvidia/nemotron-3-nano-30b-a3b' in provider named 'nvidia' for model alias 'nemotron-nano-v3'...
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:28:37] [INFO]   |-- ✅ Passed!
+<pre>[23:28:25] [INFO]   |-- ✅ Passed!
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:28:37] [INFO] 🎲 Preparing samplers to generate 2 records across 5 columns
+<pre>[23:28:25] [INFO] 🎲 Preparing samplers to generate 2 records across 5 columns
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:28:37] [INFO] 🧩 Generating column `customer_name` from expression
+<pre>[23:28:25] [INFO] 🧩 Generating column `customer_name` from expression
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:28:37] [INFO] 🧩 Generating column `customer_age` from expression
+<pre>[23:28:25] [INFO] 🧩 Generating column `customer_age` from expression
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:28:37] [INFO] 🗂️ Preparing llm-structured column generation
+<pre>[23:28:25] [INFO] 🗂️ Preparing llm-structured column generation
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:28:37] [INFO]   |-- column name: 'product'
+<pre>[23:28:25] [INFO]   |-- column name: 'product'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:28:37] [INFO]   |-- model config:
+<pre>[23:28:25] [INFO]   |-- model config:
 {
-    "alias": "nemotron-nano-v2",
+    "alias": "nemotron-nano-v3",
     "model": "nvidia/nemotron-3-nano-30b-a3b",
     "inference_parameters": {
         "generation_type": "chat-completion",
         "max_parallel_requests": 4,
         "timeout": null,
-        "extra_body": null,
-        "temperature": 0.5,
+        "extra_body": {
+            "chat_template_kwargs": {
+                "enable_thinking": false
+            }
+        },
+        "temperature": 1.0,
         "top_p": 1.0,
-        "max_tokens": 1024
+        "max_tokens": 2048
     },
     "provider": "nvidia"
 }
@@ -3557,39 +3555,43 @@ span.linenos.special { color: #242933; background-color: #D8DEE9; padding-left: 
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:28:37] [INFO] 🐙 Processing llm-structured column 'product' with 4 concurrent workers
+<pre>[23:28:25] [INFO] 🐙 Processing llm-structured column 'product' with 4 concurrent workers
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:29:24] [INFO] 🗂️ Preparing llm-structured column generation
+<pre>[23:28:46] [INFO] 🗂️ Preparing llm-structured column generation
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:29:24] [INFO]   |-- column name: 'customer_review'
+<pre>[23:28:46] [INFO]   |-- column name: 'customer_review'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:29:24] [INFO]   |-- model config:
+<pre>[23:28:46] [INFO]   |-- model config:
 {
-    "alias": "nemotron-nano-v2",
+    "alias": "nemotron-nano-v3",
     "model": "nvidia/nemotron-3-nano-30b-a3b",
     "inference_parameters": {
         "generation_type": "chat-completion",
         "max_parallel_requests": 4,
         "timeout": null,
-        "extra_body": null,
-        "temperature": 0.5,
+        "extra_body": {
+            "chat_template_kwargs": {
+                "enable_thinking": false
+            }
+        },
+        "temperature": 1.0,
         "top_p": 1.0,
-        "max_tokens": 1024
+        "max_tokens": 2048
     },
     "provider": "nvidia"
 }
@@ -3599,28 +3601,28 @@ span.linenos.special { color: #242933; background-color: #D8DEE9; padding-left: 
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:29:24] [INFO] 🐙 Processing llm-structured column 'customer_review' with 4 concurrent workers
+<pre>[23:28:46] [INFO] 🐙 Processing llm-structured column 'customer_review' with 4 concurrent workers
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:32:34] [INFO] 📊 Model usage summary:
+<pre>[23:29:14] [INFO] 📊 Model usage summary:
 {
     "nvidia/nemotron-3-nano-30b-a3b": {
         "token_usage": {
-            "input_tokens": 1338,
-            "output_tokens": 1703,
-            "total_tokens": 3041
+            "input_tokens": 1306,
+            "output_tokens": 432,
+            "total_tokens": 1738
         },
         "request_usage": {
             "successful_requests": 4,
             "failed_requests": 0,
             "total_requests": 4
         },
-        "tokens_per_second": 12,
-        "requests_per_minute": 1
+        "tokens_per_second": 35,
+        "requests_per_minute": 4
     }
 }
 </pre>
@@ -3629,77 +3631,77 @@ span.linenos.special { color: #242933; background-color: #D8DEE9; padding-left: 
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:32:34] [INFO] 🙈 Dropping columns: ['customer']
+<pre>[23:29:14] [INFO] 🙈 Dropping columns: ['customer']
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:32:34] [INFO] 📐 Measuring dataset column statistics:
+<pre>[23:29:14] [INFO] 📐 Measuring dataset column statistics:
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:32:34] [INFO]   |-- 🎲 column: 'product_category'
+<pre>[23:29:14] [INFO]   |-- 🎲 column: 'product_category'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:32:34] [INFO]   |-- 🎲 column: 'product_subcategory'
+<pre>[23:29:14] [INFO]   |-- 🎲 column: 'product_subcategory'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:32:34] [INFO]   |-- 🎲 column: 'target_age_range'
+<pre>[23:29:14] [INFO]   |-- 🎲 column: 'target_age_range'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:32:34] [INFO]   |-- 🎲 column: 'review_style'
+<pre>[23:29:14] [INFO]   |-- 🎲 column: 'review_style'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:32:34] [INFO]   |-- 🧩 column: 'customer_name'
+<pre>[23:29:14] [INFO]   |-- 🧩 column: 'customer_name'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:32:34] [INFO]   |-- 🧩 column: 'customer_age'
+<pre>[23:29:14] [INFO]   |-- 🧩 column: 'customer_age'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:32:34] [INFO]   |-- 🗂️ column: 'product'
+<pre>[23:29:14] [INFO]   |-- 🗂️ column: 'product'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:32:34] [INFO]   |-- 🗂️ column: 'customer_review'
+<pre>[23:29:14] [INFO]   |-- 🗂️ column: 'customer_review'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:32:34] [INFO] 🎊 Preview complete!
+<pre>[23:29:14] [INFO] 🎆 Preview complete!
 </pre>
 </div>
 </div>
@@ -3707,7 +3709,7 @@ span.linenos.special { color: #242933; background-color: #D8DEE9; padding-left: 
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=c4bf7020">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=04aed2ef">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -3746,49 +3748,35 @@ preview.display_sample_record()</div>
 ┏━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃<span style="font-weight: bold"> Name                </span>┃<span style="font-weight: bold"> Value                                                                                     </span>┃
 ┡━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
-│ product_category    │ Electronics                                                                               │
+│ product_category    │ Home Office                                                                               │
 ├─────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────┤
-│ product_subcategory │ Laptops                                                                                   │
+│ product_subcategory │ Office Supplies                                                                           │
 ├─────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────┤
 │ target_age_range    │ 35-50                                                                                     │
 ├─────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────┤
-│ review_style        │ rambling                                                                                  │
+│ review_style        │ structured with bullet points                                                             │
 ├─────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────┤
-│ customer_name       │ Todd Wells                                                                                │
+│ customer_name       │ Stephanie Walker                                                                          │
 ├─────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────┤
-│ customer_age        │ <span style="color: #008080; text-decoration-color: #008080; font-weight: bold">86</span>                                                                                        │
+│ customer_age        │ <span style="color: #008080; text-decoration-color: #008080; font-weight: bold">109</span>                                                                                       │
 ├─────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────┤
 │ product             │ <span style="font-weight: bold">{</span>                                                                                         │
-│                     │     <span style="color: #008000; text-decoration-color: #008000">'name'</span>: <span style="color: #008000; text-decoration-color: #008000">'ErgoPro Elite 14" Business Laptop'</span>,                                          │
-│                     │     <span style="color: #008000; text-decoration-color: #008000">'description'</span>: <span style="color: #008000; text-decoration-color: #008000">'A sleek, high‑performance 14‑inch laptop designed for professionals </span>  │
-│                     │ <span style="color: #008000; text-decoration-color: #008000">aged 35‑50. Features an Intel Core i7 processor, 16\u202fGB RAM, 512\u202fGB SSD, and a </span>  │
-│                     │ <span style="color: #008000; text-decoration-color: #008000">premium ergonomic keyboard with backlit keys. Includes a 14" Full HD display with </span>        │
-│                     │ <span style="color: #008000; text-decoration-color: #008000">anti‑glare coating, robust security with fingerprint reader, and up to 12\u202fhours of </span>  │
-│                     │ <span style="color: #008000; text-decoration-color: #008000">battery life—perfect for multitasking, presentations, and on‑the‑go productivity.'</span>,       │
-│                     │     <span style="color: #008000; text-decoration-color: #008000">'price'</span>: <span style="color: #008080; text-decoration-color: #008080; font-weight: bold">299.99</span>                                                                       │
+│                     │     <span style="color: #008000; text-decoration-color: #008000">'name'</span>: <span style="color: #008000; text-decoration-color: #008000">'Ergonomic Adjustable Laptop Stand'</span>,                                          │
+│                     │     <span style="color: #008000; text-decoration-color: #008000">'description'</span>: <span style="color: #008000; text-decoration-color: #008000">'A premium, ergonomically designed laptop stand that adjusts height </span>   │
+│                     │ <span style="color: #008000; text-decoration-color: #008000">and angle for optimal posture, reduces neck and eye strain, and includes built-in cable </span>  │
+│                     │ <span style="color: #008000; text-decoration-color: #008000">management for a clutter‑free home office. Made from sustainable bamboo and aluminum, it </span> │
+│                     │ <span style="color: #008000; text-decoration-color: #008000">accommodates laptops from 11" to 17" and features an anti‑slip surface.'</span>,                 │
+│                     │     <span style="color: #008000; text-decoration-color: #008000">'price'</span>: <span style="color: #008080; text-decoration-color: #008080; font-weight: bold">79.99</span>                                                                        │
 │                     │ <span style="font-weight: bold">}</span>                                                                                         │
 ├─────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────┤
 │ customer_review     │ <span style="font-weight: bold">{</span>                                                                                         │
-│                     │     <span style="color: #008000; text-decoration-color: #008000">'rating'</span>: <span style="color: #008080; text-decoration-color: #008080; font-weight: bold">4</span>,                                                                          │
+│                     │     <span style="color: #008000; text-decoration-color: #008000">'rating'</span>: <span style="color: #008080; text-decoration-color: #008080; font-weight: bold">5</span>,                                                                          │
 │                     │     <span style="color: #008000; text-decoration-color: #008000">'customer_mood'</span>: <span style="color: #008000; text-decoration-color: #008000">'happy'</span>,                                                             │
-│                     │     <span style="color: #008000; text-decoration-color: #008000">'review'</span>: <span style="color: #008000; text-decoration-color: #008000">'As Todd Wells of North Jeffrey, Maine, I find the ErgoPro Elite 14" </span>       │
-│                     │ <span style="color: #008000; text-decoration-color: #008000">Business Laptop to be a commendable piece of equipment; its Intel Core i7 processor </span>      │
-│                     │ <span style="color: #008000; text-decoration-color: #008000">delivers the kind of swift, reliable performance that a seasoned professional expects </span>    │
-│                     │ <span style="color: #008000; text-decoration-color: #008000">when juggling multiple spreadsheets, video conferences, and presentation decks, while the</span> │
-│                     │ <span style="color: #008000; text-decoration-color: #008000">16\u202fGB of RAM ensures that even the most demanding multitasking scenarios unfold </span>     │
-│                     │ <span style="color: #008000; text-decoration-color: #008000">without a hitch, and the 512\u202fGB SSD provides ample, speedy storage for all of my </span>    │
-│                     │ <span style="color: #008000; text-decoration-color: #008000">critical documents and media, not to mention the premium ergonomic keyboard with backlit </span> │
-│                     │ <span style="color: #008000; text-decoration-color: #008000">keys, which feels surprisingly tactile and comfortable during those late‑night drafting </span>  │
-│                     │ <span style="color: #008000; text-decoration-color: #008000">sessions, complemented by a 14" Full HD anti‑glare display that renders crisp, clear </span>     │
-│                     │ <span style="color: #008000; text-decoration-color: #008000">visuals even under the variable lighting conditions of a home office or a coffee shop, </span>   │
-│                     │ <span style="color: #008000; text-decoration-color: #008000">robust security features such as the fingerprint reader add a layer of peace of mind that</span> │
-│                     │ <span style="color: #008000; text-decoration-color: #008000">is essential for any business‑focused device, and the advertised up to 12\u202fhours of </span>  │
-│                     │ <span style="color: #008000; text-decoration-color: #008000">battery life has, in my experience, proven sufficient to carry me through a full day of </span>  │
-│                     │ <span style="color: #008000; text-decoration-color: #008000">meetings without the constant need to hunt for a power outlet, all of which coalesce into</span> │
-│                     │ <span style="color: #008000; text-decoration-color: #008000">a device that, while perhaps not revolutionary, certainly meets—if not exceeds—my </span>        │
-│                     │ <span style="color: #008000; text-decoration-color: #008000">expectations for a high‑performance, professional‑grade laptop, making it a solid </span>        │
-│                     │ <span style="color: #008000; text-decoration-color: #008000">investment for anyone in the 35‑50 age bracket seeking reliability, efficiency, and a </span>    │
-│                     │ <span style="color: #008000; text-decoration-color: #008000">touch of ergonomic elegance in their daily workflow.'</span>                                     │
+│                     │     <span style="color: #008000; text-decoration-color: #008000">'review'</span>: <span style="color: #008000; text-decoration-color: #008000">'- Sturdy build with sustainable bamboo and aluminum improves durability </span>   │
+│                     │ <span style="color: #008000; text-decoration-color: #008000">and aesthetics\n- Adjustable height and tilt settings enhance ergonomics, reducing neck </span>  │
+│                     │ <span style="color: #008000; text-decoration-color: #008000">and eye strain\n- Accommodates 11"‑17" laptops securely thanks to an anti‑slip surface\n-</span> │
+│                     │ <span style="color: #008000; text-decoration-color: #008000">Integrated cable‑management channels keep the workspace tidy and clutter‑free\n- Price </span>   │
+│                     │ <span style="color: #008000; text-decoration-color: #008000">point of $79.99 reflects premium materials and thoughtful design, offering good value'</span>    │
 │                     │ <span style="font-weight: bold">}</span>                                                                                         │
 └─────────────────────┴───────────────────────────────────────────────────────────────────────────────────────────┘
                                                                                                                    
@@ -3800,7 +3788,7 @@ preview.display_sample_record()</div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=abd22025">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=6c3ad1ea">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -3859,37 +3847,31 @@ preview.dataset</div>
 <th>customer_name</th>
 <th>customer_age</th>
 <th>product</th>
-<th>product__reasoning_trace</th>
 <th>customer_review</th>
-<th>customer_review__reasoning_trace</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <th>0</th>
-<td>Electronics</td>
-<td>Laptops</td>
+<td>Home Office</td>
+<td>Office Supplies</td>
 <td>35-50</td>
-<td>rambling</td>
-<td>Todd Wells</td>
-<td>86</td>
-<td>{'name': 'ErgoPro Elite 14" Business Laptop', ...</td>
-<td>We need to output JSON within markdown code fe...</td>
-<td>{'rating': 4, 'customer_mood': 'happy', 'revie...</td>
-<td>We need to output JSON inside a markdown code ...</td>
+<td>structured with bullet points</td>
+<td>Stephanie Walker</td>
+<td>109</td>
+<td>{'name': 'Ergonomic Adjustable Laptop Stand', ...</td>
+<td>{'rating': 5, 'customer_mood': 'happy', 'revie...</td>
 </tr>
 <tr>
 <th>1</th>
-<td>Clothing</td>
-<td>Activewear</td>
-<td>35-50</td>
-<td>structured with bullet points</td>
-<td>Jamie Dixon</td>
-<td>108</td>
-<td>{'name': 'ElevateFlex High-Waist Performance L...</td>
-<td>We need to output JSON inside markdown code fe...</td>
-<td>{'rating': 5, 'customer_mood': 'happy', 'revie...</td>
-<td>We need to output JSON within markdown code fe...</td>
+<td>Books</td>
+<td>Non-Fiction</td>
+<td>65+</td>
+<td>detailed</td>
+<td>Katherine Ochoa</td>
+<td>111</td>
+<td>{'name': 'Lifelong Learner's Encyclopedia', 'd...</td>
+<td>{'rating': 5, 'customer_mood': 'neutral', 'rev...</td>
 </tr>
 </tbody>
 </table>
@@ -3900,7 +3882,7 @@ preview.dataset</div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=05005f66">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=986b45ed">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -3916,7 +3898,7 @@ preview.dataset</div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=f6056924">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=46f1de68">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -3969,21 +3951,21 @@ preview.analysis.to_report()</div>
 ├──────────────────────────────────┼──────────────────┼────────────────────────────────────┼──────────────────────┤
 │ product_subcategory              │           string │                         2 (100.0%) │          subcategory │
 ├──────────────────────────────────┼──────────────────┼────────────────────────────────────┼──────────────────────┤
-│ target_age_range                 │           string │                          1 (50.0%) │             category │
+│ target_age_range                 │           string │                         2 (100.0%) │             category │
 ├──────────────────────────────────┼──────────────────┼────────────────────────────────────┼──────────────────────┤
 │ review_style                     │           string │                         2 (100.0%) │             category │
 └──────────────────────────────────┴──────────────────┴────────────────────────────────────┴──────────────────────┘
                                                                                                                    
                                                                                                                    
 <span style="color: #76b900; text-decoration-color: #76b900; font-weight: bold">                                             🗂️ LLM-Structured Columns                                              </span>
-┏━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┓
-┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">                      </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">               </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">                            </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">       prompt tokens </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">     completion tokens </span>┃
-┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold"> column name          </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">     data type </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">       number unique values </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">          per record </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">            per record </span>┃
-┡━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━┩
-│ product              │          dict │                 2 (100.0%) │       268.0 +/- 0.0 │         99.5 +/- 43.1 │
-├──────────────────────┼───────────────┼────────────────────────────┼─────────────────────┼───────────────────────┤
-│ customer_review      │          dict │                 2 (100.0%) │      342.0 +/- 28.0 │       221.5 +/- 142.1 │
-└──────────────────────┴───────────────┴────────────────────────────┴─────────────────────┴───────────────────────┘
+┏━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">                       </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">               </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">                            </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">     prompt tokens </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">      completion tokens </span>┃
+┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold"> column name           </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">     data type </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">       number unique values </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">        per record </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">             per record </span>┃
+┡━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ product               │          dict │                 2 (100.0%) │     264.5 +/- 0.5 │           82.0 +/- 9.9 │
+├───────────────────────┼───────────────┼────────────────────────────┼───────────────────┼────────────────────────┤
+│ customer_review       │          dict │                 2 (100.0%) │     337.0 +/- 7.0 │          102.5 +/- 0.7 │
+└───────────────────────┴───────────────┴────────────────────────────┴───────────────────┴────────────────────────┘
                                                                                                                    
                                                                                                                    
 <span style="color: #76b900; text-decoration-color: #76b900; font-weight: bold">                                               🧩 Expression Columns                                               </span>
@@ -4011,7 +3993,7 @@ preview.analysis.to_report()</div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=02da3f0f">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=c8e1c20b">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -4027,7 +4009,7 @@ preview.analysis.to_report()</div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=f2f565e9">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=24281191">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -4059,110 +4041,114 @@ preview.analysis.to_report()</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:32:34] [INFO] 🎨 Creating Data Designer dataset
+<pre>[23:29:14] [INFO] 🎨 Creating Data Designer dataset
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:32:34] [INFO] ✅ Validation passed
+<pre>[23:29:14] [INFO] ✅ Validation passed
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:32:34] [INFO] ⛓️ Sorting column configs into a Directed Acyclic Graph
+<pre>[23:29:14] [INFO] ⛓️ Sorting column configs into a Directed Acyclic Graph
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:32:34] [INFO] 📂 Dataset path '/home/runner/work/DataDesigner/DataDesigner/docs/notebook_source/artifacts/dataset' already exists. Dataset from this session
-		     will be saved to '/home/runner/work/DataDesigner/DataDesigner/docs/notebook_source/artifacts/dataset_12-17-2025_223234' instead.
+<pre>[23:29:14] [INFO] 📂 Dataset path '/home/runner/work/DataDesigner/DataDesigner/docs/notebook_source/artifacts/dataset' already exists. Dataset from this session
+		     will be saved to '/home/runner/work/DataDesigner/DataDesigner/docs/notebook_source/artifacts/dataset_12-17-2025_232914' instead.
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:32:34] [INFO] 🩺 Running health checks for models...
+<pre>[23:29:14] [INFO] 🩺 Running health checks for models...
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:32:34] [INFO]   |-- 👀 Checking 'nvidia/nemotron-3-nano-30b-a3b' in provider named 'nvidia' for model alias 'nemotron-nano-v2'...
+<pre>[23:29:14] [INFO]   |-- 👀 Checking 'nvidia/nemotron-3-nano-30b-a3b' in provider named 'nvidia' for model alias 'nemotron-nano-v3'...
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:34:25] [INFO]   |-- ✅ Passed!
+<pre>[23:29:17] [INFO]   |-- ✅ Passed!
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:34:25] [INFO] ⏳ Processing batch 1 of 1
+<pre>[23:29:17] [INFO] ⏳ Processing batch 1 of 1
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:34:25] [INFO] 🎲 Preparing samplers to generate 10 records across 5 columns
+<pre>[23:29:17] [INFO] 🎲 Preparing samplers to generate 10 records across 5 columns
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:34:25] [INFO] 🧩 Generating column `customer_name` from expression
+<pre>[23:29:17] [INFO] 🧩 Generating column `customer_name` from expression
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:34:25] [INFO] 🧩 Generating column `customer_age` from expression
+<pre>[23:29:17] [INFO] 🧩 Generating column `customer_age` from expression
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:34:25] [INFO] 🗂️ Preparing llm-structured column generation
+<pre>[23:29:17] [INFO] 🗂️ Preparing llm-structured column generation
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:34:25] [INFO]   |-- column name: 'product'
+<pre>[23:29:17] [INFO]   |-- column name: 'product'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:34:25] [INFO]   |-- model config:
+<pre>[23:29:17] [INFO]   |-- model config:
 {
-    "alias": "nemotron-nano-v2",
+    "alias": "nemotron-nano-v3",
     "model": "nvidia/nemotron-3-nano-30b-a3b",
     "inference_parameters": {
         "generation_type": "chat-completion",
         "max_parallel_requests": 4,
         "timeout": null,
-        "extra_body": null,
-        "temperature": 0.5,
+        "extra_body": {
+            "chat_template_kwargs": {
+                "enable_thinking": false
+            }
+        },
+        "temperature": 1.0,
         "top_p": 1.0,
-        "max_tokens": 1024
+        "max_tokens": 2048
     },
     "provider": "nvidia"
 }
@@ -4172,39 +4158,43 @@ preview.analysis.to_report()</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:34:25] [INFO] 🐙 Processing llm-structured column 'product' with 4 concurrent workers
+<pre>[23:29:17] [INFO] 🐙 Processing llm-structured column 'product' with 4 concurrent workers
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:37:34] [INFO] 🗂️ Preparing llm-structured column generation
+<pre>[23:30:19] [INFO] 🗂️ Preparing llm-structured column generation
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:37:34] [INFO]   |-- column name: 'customer_review'
+<pre>[23:30:19] [INFO]   |-- column name: 'customer_review'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:37:34] [INFO]   |-- model config:
+<pre>[23:30:19] [INFO]   |-- model config:
 {
-    "alias": "nemotron-nano-v2",
+    "alias": "nemotron-nano-v3",
     "model": "nvidia/nemotron-3-nano-30b-a3b",
     "inference_parameters": {
         "generation_type": "chat-completion",
         "max_parallel_requests": 4,
         "timeout": null,
-        "extra_body": null,
-        "temperature": 0.5,
+        "extra_body": {
+            "chat_template_kwargs": {
+                "enable_thinking": false
+            }
+        },
+        "temperature": 1.0,
         "top_p": 1.0,
-        "max_tokens": 1024
+        "max_tokens": 2048
     },
     "provider": "nvidia"
 }
@@ -4214,57 +4204,35 @@ preview.analysis.to_report()</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:37:34] [INFO] 🐙 Processing llm-structured column 'customer_review' with 4 concurrent workers
+<pre>[23:30:19] [INFO] 🐙 Processing llm-structured column 'customer_review' with 4 concurrent workers
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:41:53] [WARNING] ⚠️ Generation for record at index 4 failed. Will omit this record from the dataset.
-  |----------
-  | Cause: The request to model 'nvidia/nemotron-3-nano-30b-a3b' timed out while running generation for column 'customer_review'.
-  | Solution: Check your connection and try again. You may need to increase the timeout setting for the model.
-  |----------
+<pre>[23:32:27] [INFO] 🙈 Dropping columns: ['customer']
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:43:56] [WARNING] ⚠️ Generation for record at index 6 failed. Will omit this record from the dataset.
-  |----------
-  | Cause: The request to model 'nvidia/nemotron-3-nano-30b-a3b' timed out while running generation for column 'customer_review'.
-  | Solution: Check your connection and try again. You may need to increase the timeout setting for the model.
-  |----------
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:43:56] [INFO] 🙈 Dropping columns: ['customer']
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:43:56] [INFO] 📊 Model usage summary:
+<pre>[23:32:27] [INFO] 📊 Model usage summary:
 {
     "nvidia/nemotron-3-nano-30b-a3b": {
         "token_usage": {
-            "input_tokens": 5736,
-            "output_tokens": 8081,
-            "total_tokens": 13817
+            "input_tokens": 6703,
+            "output_tokens": 3577,
+            "total_tokens": 10280
         },
         "request_usage": {
-            "successful_requests": 18,
+            "successful_requests": 20,
             "failed_requests": 0,
-            "total_requests": 18
+            "total_requests": 20
         },
-        "tokens_per_second": 24,
-        "requests_per_minute": 1
+        "tokens_per_second": 54,
+        "requests_per_minute": 6
     }
 }
 </pre>
@@ -4273,63 +4241,63 @@ preview.analysis.to_report()</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:43:56] [INFO] 📐 Measuring dataset column statistics:
+<pre>[23:32:27] [INFO] 📐 Measuring dataset column statistics:
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:43:56] [INFO]   |-- 🎲 column: 'product_category'
+<pre>[23:32:27] [INFO]   |-- 🎲 column: 'product_category'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:43:56] [INFO]   |-- 🎲 column: 'product_subcategory'
+<pre>[23:32:27] [INFO]   |-- 🎲 column: 'product_subcategory'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:43:56] [INFO]   |-- 🎲 column: 'target_age_range'
+<pre>[23:32:27] [INFO]   |-- 🎲 column: 'target_age_range'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:43:56] [INFO]   |-- 🎲 column: 'review_style'
+<pre>[23:32:27] [INFO]   |-- 🎲 column: 'review_style'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:43:56] [INFO]   |-- 🧩 column: 'customer_name'
+<pre>[23:32:27] [INFO]   |-- 🧩 column: 'customer_name'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:43:56] [INFO]   |-- 🧩 column: 'customer_age'
+<pre>[23:32:27] [INFO]   |-- 🧩 column: 'customer_age'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:43:56] [INFO]   |-- 🗂️ column: 'product'
+<pre>[23:32:27] [INFO]   |-- 🗂️ column: 'product'
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>[22:43:56] [INFO]   |-- 🗂️ column: 'customer_review'
+<pre>[23:32:27] [INFO]   |-- 🗂️ column: 'customer_review'
 </pre>
 </div>
 </div>
@@ -4337,7 +4305,7 @@ preview.analysis.to_report()</div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=2dd1cd0c">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=3f3e7399">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -4400,76 +4368,64 @@ dataset.head()</div>
 <th>customer_name</th>
 <th>customer_age</th>
 <th>product</th>
-<th>product__reasoning_trace</th>
 <th>customer_review</th>
-<th>customer_review__reasoning_trace</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <th>0</th>
-<td>Home Office</td>
-<td>Lighting</td>
-<td>18-25</td>
-<td>rambling</td>
-<td>Kristi Bush</td>
-<td>28</td>
-<td>{'description': 'A sleek, adjustable LED desk ...</td>
-<td>We need to output JSON inside markdown code fe...</td>
-<td>{'customer_mood': 'excited', 'rating': 5, 'rev...</td>
-<td>We need to output JSON inside markdown code fe...</td>
+<td>Home &amp; Kitchen</td>
+<td>Organization</td>
+<td>50-65</td>
+<td>detailed</td>
+<td>Michele Duke</td>
+<td>19</td>
+<td>{'description': 'A sturdy, wall-mounted rotati...</td>
+<td>{'customer_mood': 'happy', 'rating': 5, 'revie...</td>
 </tr>
 <tr>
 <th>1</th>
-<td>Home Office</td>
-<td>Storage</td>
-<td>35-50</td>
-<td>brief</td>
-<td>Audrey Maddox</td>
-<td>82</td>
-<td>{'description': 'A sleek, stackable storage so...</td>
-<td>We need to output JSON inside markdown code fe...</td>
-<td>{'customer_mood': 'happy', 'rating': 4, 'revie...</td>
-<td>We need to output JSON within a markdown code ...</td>
+<td>Home &amp; Kitchen</td>
+<td>Organization</td>
+<td>18-25</td>
+<td>rambling</td>
+<td>Chad Newton</td>
+<td>42</td>
+<td>{'description': 'A sleek, stackable set of int...</td>
+<td>{'customer_mood': 'happy', 'rating': 5, 'revie...</td>
 </tr>
 <tr>
 <th>2</th>
-<td>Home Office</td>
-<td>Desks</td>
-<td>35-50</td>
+<td>Books</td>
+<td>Fiction</td>
+<td>18-25</td>
 <td>rambling</td>
-<td>Amanda Pineda</td>
-<td>67</td>
-<td>{'description': 'A sleek, sturdy desk with ele...</td>
-<td>We need to output JSON within markdown code fe...</td>
-<td>{'customer_mood': 'happy', 'rating': 5, 'revie...</td>
-<td>We need to output JSON within markdown code fe...</td>
+<td>Justin Smith</td>
+<td>83</td>
+<td>{'description': 'An exclusive edition paperbac...</td>
+<td>{'customer_mood': 'excited', 'rating': 5, 'rev...</td>
 </tr>
 <tr>
 <th>3</th>
-<td>Home &amp; Kitchen</td>
-<td>Decor</td>
-<td>35-50</td>
-<td>structured with bullet points</td>
-<td>Alexander Lyons</td>
-<td>41</td>
-<td>{'description': 'Premium marble coasters with ...</td>
-<td>We need to output JSON within markdown code fe...</td>
-<td>{'customer_mood': 'happy', 'rating': 5, 'revie...</td>
-<td>We need to output JSON within markdown code fe...</td>
+<td>Clothing</td>
+<td>Accessories</td>
+<td>18-25</td>
+<td>rambling</td>
+<td>Julia Lee</td>
+<td>113</td>
+<td>{'description': 'These dazzling, hand-crafted ...</td>
+<td>{'customer_mood': 'excited', 'rating': 5, 'rev...</td>
 </tr>
 <tr>
 <th>4</th>
-<td>Home Office</td>
-<td>Lighting</td>
-<td>65+</td>
-<td>brief</td>
-<td>Daniel Parker</td>
-<td>45</td>
-<td>{'description': 'A sleek, adjustable LED desk ...</td>
-<td>We need to output JSON within markdown code fe...</td>
-<td>{'customer_mood': 'happy', 'rating': 4, 'revie...</td>
-<td>We need to output JSON within a markdown code ...</td>
+<td>Home &amp; Kitchen</td>
+<td>Furniture</td>
+<td>18-25</td>
+<td>rambling</td>
+<td>Nathaniel Roberts</td>
+<td>54</td>
+<td>{'description': 'A sleek, 4-tier floating wood...</td>
+<td>{'customer_mood': 'excited', 'rating': 5, 'rev...</td>
 </tr>
 </tbody>
 </table>
@@ -4480,7 +4436,7 @@ dataset.head()</div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=8c5eb15d">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=1f132580">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -4525,7 +4481,7 @@ analysis.to_report()</div>
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold"> number of records               </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold"> number of columns               </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold"> percent complete records                    </span>┃
 ┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
-│ 8                               │ 8                               │ 80.0%                                       │
+│ 10                              │ 8                               │ 100.0%                                      │
 └─────────────────────────────────┴─────────────────────────────────┴─────────────────────────────────────────────┘
                                                                                                                    
                                                                                                                    
@@ -4533,13 +4489,13 @@ analysis.to_report()</div>
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━┓
 ┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold"> column name                      </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">        data type </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">               number unique values </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">         sampler type </span>┃
 ┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━┩
-│ product_category                 │           string │                          3 (37.5%) │             category │
+│ product_category                 │           string │                          5 (50.0%) │             category │
 ├──────────────────────────────────┼──────────────────┼────────────────────────────────────┼──────────────────────┤
-│ product_subcategory              │           string │                          6 (75.0%) │          subcategory │
+│ product_subcategory              │           string │                          9 (90.0%) │          subcategory │
 ├──────────────────────────────────┼──────────────────┼────────────────────────────────────┼──────────────────────┤
-│ target_age_range                 │           string │                          4 (50.0%) │             category │
+│ target_age_range                 │           string │                          4 (40.0%) │             category │
 ├──────────────────────────────────┼──────────────────┼────────────────────────────────────┼──────────────────────┤
-│ review_style                     │           string │                          4 (50.0%) │             category │
+│ review_style                     │           string │                          3 (30.0%) │             category │
 └──────────────────────────────────┴──────────────────┴────────────────────────────────────┴──────────────────────┘
                                                                                                                    
                                                                                                                    
@@ -4548,9 +4504,9 @@ analysis.to_report()</div>
 ┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">                      </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">               </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">                            </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">       prompt tokens </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">     completion tokens </span>┃
 ┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold"> column name          </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">     data type </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">       number unique values </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">          per record </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">            per record </span>┃
 ┡━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━┩
-│ product              │          dict │                 8 (100.0%) │       268.0 +/- 0.4 │         67.5 +/- 22.6 │
+│ product              │          dict │                10 (100.0%) │       265.0 +/- 0.6 │         91.5 +/- 15.4 │
 ├──────────────────────┼───────────────┼────────────────────────────┼─────────────────────┼───────────────────────┤
-│ customer_review      │          dict │                 8 (100.0%) │      312.5 +/- 21.1 │        129.5 +/- 79.4 │
+│ customer_review      │          dict │                10 (100.0%) │      346.0 +/- 15.7 │        253.5 +/- 87.3 │
 └──────────────────────┴───────────────┴────────────────────────────┴─────────────────────┴───────────────────────┘
                                                                                                                    
                                                                                                                    
@@ -4558,9 +4514,9 @@ analysis.to_report()</div>
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold"> column name                       </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">                data type </span>┃<span style="color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold">                             number unique values </span>┃
 ┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
-│ customer_name                     │                   string │                                       8 (100.0%) │
+│ customer_name                     │                   string │                                      10 (100.0%) │
 ├───────────────────────────────────┼──────────────────────────┼──────────────────────────────────────────────────┤
-│ customer_age                      │                   string │                                       8 (100.0%) │
+│ customer_age                      │                   string │                                      10 (100.0%) │
 └───────────────────────────────────┴──────────────────────────┴──────────────────────────────────────────────────┘
                                                                                                                    
                                                                                                                    
@@ -4579,7 +4535,7 @@ analysis.to_report()</div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=ef227ace">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=2d0b0c4c">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
