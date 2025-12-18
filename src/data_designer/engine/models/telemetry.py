@@ -27,7 +27,9 @@ TELEMETRY_ENABLED = os.getenv("NEMO_TELEMETRY_ENABLED", "true").lower() in ("1",
 CLIENT_ID = "184482118588404"
 NEMO_TELEMETRY_VERSION = "nemo-telemetry/1.0"
 MAX_RETRIES = 3
-NEMO_TELEMETRY_ENDPOINT = os.getenv("NEMO_TELEMETRY_ENDPOINT", "https://events.telemetry.data.nvidia.com").lower()
+NEMO_TELEMETRY_ENDPOINT = os.getenv(
+    "NEMO_TELEMETRY_ENDPOINT", "https://events.telemetry.data.nvidia.com/v1.1/events/json"
+).lower()
 CPU_ARCHITECTURE = platform.uname().machine
 
 
