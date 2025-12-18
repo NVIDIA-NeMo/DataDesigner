@@ -55,6 +55,13 @@ Uses curated Nemotron Personas datasets from NVIDIA GPU Cloud (NGC) to generate 
 
 The NGC datasets are extended versions of the [open-source Nemotron Personas datasets on HuggingFace](https://huggingface.co/collections/nvidia/nemotron-personas), with additional fields and enhanced data quality.
 
+Supported locales:
+- `en_US`: United States
+- `ja_JP`: Japan
+- `en_IN`: India
+- `hi_Deva_IN`: India (Devanagari script)
+- `hi_Latn_IN`: India (Latin script)
+
 ### Features
 - **Demographically accurate personal details**: Names, ages, sex, marital status, education, occupation based on census data
 - **Rich persona details**: Comprehensive behavioral profiles including:
@@ -80,7 +87,22 @@ You need to download the Nemotron Personas datasets that you want to use from NG
 export NGC_API_KEY="your-ngc-api-key-here"
 ```
 
-#### Step 2: Download Nemotron Personas Datasets
+#### Step 2 (option 1): Download Nemotron Personas Datasets via the Data Designer CLI
+
+Once you have the NGC CLI and your NGC API key set up, you can download the datasets via the Data Designer CLI.
+
+You can pass the locales you want to download as arguments to the CLI command:
+```bash
+data-designer download personas --locale en_US --locale ja_JP
+```
+
+Or you can use the interactive mode to select the locales you want to download:
+```bash
+data-designer download personas
+```
+
+#### Step 2 (option 2): Download Nemotron Personas Datasets Directly
+
 Use the NGC CLI to download the datasets:
 ```bash
 # For Nemotron Personas USA
@@ -156,7 +178,7 @@ See the [`SamplerColumnConfig`](../api/columns.md#samplercolumnconfig) documenta
 **Japan-Specific Fields (`ja_JP`):**
 - `area`
 
-**India-Specific Fields (`en_IN`, `hi_IN`):**
+**India-Specific Fields (`en_IN`, `hi_IN`, `hi_Deva_IN`, `hi_Latn_IN`):**
 - `religion` - Census-reported religion
 - `education_degree` - Census-reported education degree
 - `first_language` - Native language
@@ -176,10 +198,9 @@ See the [`SamplerColumnConfig`](../api/columns.md#samplercolumnconfig) documenta
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `locale` | str | Language/region code - must be one of: "en_US", "ja_JP", "en_IN", "hi_IN" |
+| `locale` | str | Language/region code - must be one of: "en_US", "ja_JP", "en_IN", "hi_Deva_IN", "hi_Latn_IN" |
 | `sex` | str (optional) | Filter by "Male" or "Female" |
 | `city` | str or list[str] (optional) | Filter by specific city or cities within locale |
 | `age_range` | list[int] (optional) | Two-element list [min_age, max_age] (default: [18, 114]) |
 | `with_synthetic_personas` | bool (optional) | Include rich personality profiles (default: False) |
 | `select_field_values` | dict (optional) | Custom field-based filtering (e.g., {"state": ["NY", "CA"], "education_level": ["bachelors"]}) |
-
