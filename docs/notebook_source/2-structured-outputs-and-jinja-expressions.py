@@ -19,7 +19,7 @@
 #
 # In this notebook, we will continue our exploration of Data Designer, demonstrating more advanced data generation using structured outputs and Jinja expressions.
 #
-# If this is your first time using Data Designer, we recommend starting with the [first notebook](/notebooks/1-the-basics/) in this tutorial series.
+# If this is your first time using Data Designer, we recommend starting with the [first notebook](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/1-the-basics/) in this tutorial series.
 #
 
 # %% [markdown]
@@ -31,10 +31,10 @@
 # %%
 from data_designer.essentials import (
     CategorySamplerParams,
+    ChatCompletionInferenceParams,
     DataDesigner,
     DataDesignerConfigBuilder,
     ExpressionColumnConfig,
-    InferenceParameters,
     LLMStructuredColumnConfig,
     ModelConfig,
     PersonFromFakerSamplerParams,
@@ -48,11 +48,11 @@ from data_designer.essentials import (
 #
 # - `DataDesigner` is the main object that is used to interface with the library.
 #
-# - When initialized without arguments, the [default model providers](https://nvidia-nemo.github.io/DataDesigner/concepts/models/default-model-settings/) are used.
+# - When initialized without arguments, the [default model providers](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/) are used.
 #
 
 # %%
-data_designer_client = DataDesigner()
+data_designer = DataDesigner()
 
 # %% [markdown]
 # ### 🎛️ Define model configurations
@@ -61,7 +61,7 @@ data_designer_client = DataDesigner()
 #
 # - The "model alias" is used to reference the model in the Data Designer config (as we will see below).
 #
-# - The "model provider" is the external service that hosts the model (see the [model config](https://nvidia-nemo.github.io/DataDesigner/concepts/models/default-model-settings/) docs for more details).
+# - The "model provider" is the external service that hosts the model (see the [model config](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/) docs for more details).
 #
 # - By default, we use [build.nvidia.com](https://build.nvidia.com/models) as the model provider.
 #
@@ -71,23 +71,21 @@ data_designer_client = DataDesigner()
 MODEL_PROVIDER = "nvidia"
 
 # The model ID is from build.nvidia.com.
-MODEL_ID = "nvidia/nvidia-nemotron-nano-9b-v2"
+MODEL_ID = "nvidia/nemotron-3-nano-30b-a3b"
 
 # We choose this alias to be descriptive for our use case.
-MODEL_ALIAS = "nemotron-nano-v2"
-
-# This sets reasoning to False for the nemotron-nano-v2 model.
-SYSTEM_PROMPT = "/no_think"
+MODEL_ALIAS = "nemotron-nano-v3"
 
 model_configs = [
     ModelConfig(
         alias=MODEL_ALIAS,
         model=MODEL_ID,
         provider=MODEL_PROVIDER,
-        inference_parameters=InferenceParameters(
-            temperature=0.5,
+        inference_parameters=ChatCompletionInferenceParams(
+            temperature=1.0,
             top_p=1.0,
-            max_tokens=1024,
+            max_tokens=2048,
+            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
         ),
     )
 ]
@@ -286,7 +284,6 @@ config_builder.add_column(
             "related to '{{ product_subcategory }}'. The target age range of the ideal customer is "
             "{{ target_age_range }} years old. The product should be priced between $10 and $1000."
         ),
-        system_prompt=SYSTEM_PROMPT,
         output_format=Product,
         model_alias=MODEL_ALIAS,
     )
@@ -304,12 +301,12 @@ config_builder.add_column(
             "Imagine your name is {{ customer_name }} and you are from {{ customer.city }}, {{ customer.state }}. "
             "Write the review in a style that is '{{ review_style }}'."
             "{% if target_age_range == '18-25' %}"
-            "Make sure the review is more informal and conversational."
+            "Make sure the review is more informal and conversational.\n"
             "{% else %}"
-            "Make sure the review is more formal and structured."
+            "Make sure the review is more formal and structured.\n"
             "{% endif %}"
+            "The review field should contain only the review, no other text."
         ),
-        system_prompt=SYSTEM_PROMPT,
         output_format=ProductReview,
         model_alias=MODEL_ALIAS,
     )
@@ -330,7 +327,7 @@ config_builder.validate()
 #
 
 # %%
-preview = data_designer_client.preview(config_builder, num_records=2)
+preview = data_designer.preview(config_builder, num_records=2)
 
 # %%
 # Run this cell multiple times to cycle through the 2 preview records.
@@ -361,17 +358,17 @@ preview.analysis.to_report()
 #
 
 # %%
-job_results = data_designer_client.create(config_builder, num_records=10)
+results = data_designer.create(config_builder, num_records=10, dataset_name="tutorial-2")
 
 # %%
 # Load the generated dataset as a pandas DataFrame.
-dataset = job_results.load_dataset()
+dataset = results.load_dataset()
 
 dataset.head()
 
 # %%
 # Load the analysis results into memory.
-analysis = job_results.load_analysis()
+analysis = results.load_analysis()
 
 analysis.to_report()
 
@@ -380,5 +377,7 @@ analysis.to_report()
 #
 # Check out the following notebook to learn more about:
 #
-# - [Seeding synthetic data generation with an external dataset](/notebooks/3-seeding-with-a-dataset/)
+# - [Seeding synthetic data generation with an external dataset](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/3-seeding-with-a-dataset/)
+#
+# - [Providing images as context](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/4-providing-images-as-context/)A
 #

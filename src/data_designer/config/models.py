@@ -5,10 +5,10 @@ import logging
 from abc import ABC, abstractmethod
 from enum import Enum
 from pathlib import Path
-from typing import Any, Generic, List, Optional, TypeVar, Union
+from typing import Any, Generic, Literal, TypeVar
 
 import numpy as np
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing_extensions import Self, TypeAlias
 
 from data_designer.config.base import ConfigBase
@@ -74,7 +74,7 @@ class ImageContext(ModalityContext):
     """
 
     modality: Modality = Modality.IMAGE
-    image_format: Optional[ImageFormat] = None
+    image_format: ImageFormat | None = None
 
     def get_context(self, record: dict) -> dict[str, Any]:
         """Get the context for the image modality.
@@ -122,8 +122,8 @@ class ManualDistributionParams(ConfigBase):
         weights: Optional list of weights for each value. If not provided, all values have equal probability.
     """
 
-    values: List[float] = Field(min_length=1)
-    weights: Optional[List[float]] = None
+    values: list[float] = Field(min_length=1)
+    weights: list[float] | None = None
 
     @model_validator(mode="after")
     def _normalize_weights(self) -> Self:
@@ -149,7 +149,7 @@ class ManualDistribution(Distribution[ManualDistributionParams]):
         params: Distribution parameters (values, weights).
     """
 
-    distribution_type: Optional[DistributionType] = "manual"
+    distribution_type: DistributionType | None = "manual"
     params: ManualDistributionParams
 
     def sample(self) -> float:
@@ -190,7 +190,7 @@ class UniformDistribution(Distribution[UniformDistributionParams]):
         params: Distribution parameters (low, high).
     """
 
-    distribution_type: Optional[DistributionType] = "uniform"
+    distribution_type: DistributionType | None = "uniform"
     params: UniformDistributionParams
 
     def sample(self) -> float:
@@ -202,36 +202,93 @@ class UniformDistribution(Distribution[UniformDistributionParams]):
         return float(np.random.uniform(low=self.params.low, high=self.params.high, size=1)[0])
 
 
-DistributionT: TypeAlias = Union[UniformDistribution, ManualDistribution]
+DistributionT: TypeAlias = UniformDistribution | ManualDistribution
 
 
-class InferenceParameters(ConfigBase):
-    """Configuration for LLM inference parameters.
+class GenerationType(str, Enum):
+    CHAT_COMPLETION = "chat-completion"
+    EMBEDDING = "embedding"
+
+
+class BaseInferenceParams(ConfigBase, ABC):
+    """Base configuration for inference parameters.
 
     Attributes:
-        temperature: Sampling temperature (0.0-2.0). Can be a fixed value or a distribution for dynamic sampling.
-        top_p: Nucleus sampling probability (0.0-1.0). Can be a fixed value or a distribution for dynamic sampling.
-        max_tokens: Maximum number of tokens (includes both input and output tokens).
+        generation_type: Type of generation (chat-completion or embedding). Acts as discriminator.
         max_parallel_requests: Maximum number of parallel requests to the model API.
         timeout: Timeout in seconds for each request.
         extra_body: Additional parameters to pass to the model API.
     """
 
-    temperature: Optional[Union[float, DistributionT]] = None
-    top_p: Optional[Union[float, DistributionT]] = None
-    max_tokens: Optional[int] = Field(default=None, ge=1)
+    generation_type: GenerationType
     max_parallel_requests: int = Field(default=4, ge=1)
-    timeout: Optional[int] = Field(default=None, ge=1)
-    extra_body: Optional[dict[str, Any]] = None
+    timeout: int | None = Field(default=None, ge=1)
+    extra_body: dict[str, Any] | None = None
 
     @property
-    def generate_kwargs(self) -> dict[str, Union[float, int]]:
+    def generate_kwargs(self) -> dict[str, Any]:
         """Get the generate kwargs for the inference parameters.
 
         Returns:
             A dictionary of the generate kwargs.
         """
         result = {}
+        if self.timeout is not None:
+            result["timeout"] = self.timeout
+        if self.extra_body is not None and self.extra_body != {}:
+            result["extra_body"] = self.extra_body
+        return result
+
+    def format_for_display(self) -> str:
+        """Format inference parameters for display.
+
+        Returns:
+            Formatted string of inference parameters
+        """
+        params_dict = self.model_dump(exclude_none=True, mode="json")
+
+        if not params_dict:
+            return "(none)"
+
+        parts = []
+        for key, value in params_dict.items():
+            formatted_value = self._format_value(key, value)
+            parts.append(f"{key}={formatted_value}")
+        return ", ".join(parts)
+
+    def _format_value(self, key: str, value: Any) -> str:
+        """Format a single parameter value. Override in subclasses for custom formatting.
+
+        Args:
+            key: Parameter name
+            value: Parameter value
+
+        Returns:
+            Formatted string representation of the value
+        """
+        if isinstance(value, float):
+            return f"{value:.2f}"
+        return str(value)
+
+
+class ChatCompletionInferenceParams(BaseInferenceParams):
+    """Configuration for LLM inference parameters.
+
+    Attributes:
+        generation_type: Type of generation, always "chat-completion" for this class.
+        temperature: Sampling temperature (0.0-2.0). Can be a fixed value or a distribution for dynamic sampling.
+        top_p: Nucleus sampling probability (0.0-1.0). Can be a fixed value or a distribution for dynamic sampling.
+        max_tokens: Maximum number of tokens (includes both input and output tokens).
+    """
+
+    generation_type: Literal[GenerationType.CHAT_COMPLETION] = GenerationType.CHAT_COMPLETION
+    temperature: float | DistributionT | None = None
+    top_p: float | DistributionT | None = None
+    max_tokens: int | None = Field(default=None, ge=1)
+
+    @property
+    def generate_kwargs(self) -> dict[str, Any]:
+        result = super().generate_kwargs
         if self.temperature is not None:
             result["temperature"] = (
                 self.temperature.sample() if hasattr(self.temperature, "sample") else self.temperature
@@ -240,10 +297,6 @@ class InferenceParameters(ConfigBase):
             result["top_p"] = self.top_p.sample() if hasattr(self.top_p, "sample") else self.top_p
         if self.max_tokens is not None:
             result["max_tokens"] = self.max_tokens
-        if self.timeout is not None:
-            result["timeout"] = self.timeout
-        if self.extra_body is not None and self.extra_body != {}:
-            result["extra_body"] = self.extra_body
         return result
 
     @model_validator(mode="after")
@@ -266,7 +319,7 @@ class InferenceParameters(ConfigBase):
 
     def _run_validation(
         self,
-        value: Union[float, DistributionT, None],
+        value: float | DistributionT | None,
         param_name: str,
         min_value: float,
         max_value: float,
@@ -289,6 +342,61 @@ class InferenceParameters(ConfigBase):
     def _is_value_in_range(self, value: float, min_value: float, max_value: float) -> bool:
         return min_value <= value <= max_value
 
+    def _format_value(self, key: str, value: Any) -> str:
+        """Format chat completion parameter values, including distributions.
+
+        Args:
+            key: Parameter name
+            value: Parameter value
+
+        Returns:
+            Formatted string representation of the value
+        """
+        if isinstance(value, dict) and "distribution_type" in value:
+            return "dist"
+        return super()._format_value(key, value)
+
+
+# Maintain backwards compatibility with a deprecation warning
+class InferenceParameters(ChatCompletionInferenceParams):
+    """
+    Deprecated: Use ChatCompletionInferenceParams instead.
+    This alias will be removed in a future version.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        logger.warning(
+            "InferenceParameters is deprecated and will be removed in a future version. "
+            "Use ChatCompletionInferenceParams instead."
+        )
+        super().__init__(*args, **kwargs)
+
+
+class EmbeddingInferenceParams(BaseInferenceParams):
+    """Configuration for embedding generation parameters.
+
+    Attributes:
+        generation_type: Type of generation, always "embedding" for this class.
+        encoding_format: Format of the embedding encoding ("float" or "base64").
+        dimensions: Number of dimensions for the embedding.
+    """
+
+    generation_type: Literal[GenerationType.EMBEDDING] = GenerationType.EMBEDDING
+    encoding_format: Literal["float", "base64"] = "float"
+    dimensions: int | None = None
+
+    @property
+    def generate_kwargs(self) -> dict[str, float | int]:
+        result = super().generate_kwargs
+        if self.encoding_format is not None:
+            result["encoding_format"] = self.encoding_format
+        if self.dimensions is not None:
+            result["dimensions"] = self.dimensions
+        return result
+
+
+InferenceParamsT: TypeAlias = ChatCompletionInferenceParams | EmbeddingInferenceParams | InferenceParameters
+
 
 class ModelConfig(ConfigBase):
     """Configuration for a model used for generation.
@@ -297,13 +405,31 @@ class ModelConfig(ConfigBase):
         alias: User-defined alias to reference in column configurations.
         model: Model identifier (e.g., from build.nvidia.com or other providers).
         inference_parameters: Inference parameters for the model (temperature, top_p, max_tokens, etc.).
+            The generation_type is determined by the type of inference_parameters.
         provider: Optional model provider name if using custom providers.
     """
 
     alias: str
     model: str
-    inference_parameters: InferenceParameters = Field(default_factory=InferenceParameters)
-    provider: Optional[str] = None
+    inference_parameters: InferenceParamsT = Field(default_factory=ChatCompletionInferenceParams)
+    provider: str | None = None
+
+    @property
+    def generation_type(self) -> GenerationType:
+        """Get the generation type from the inference parameters."""
+        return self.inference_parameters.generation_type
+
+    @field_validator("inference_parameters", mode="before")
+    @classmethod
+    def _convert_inference_parameters(cls, value: Any) -> Any:
+        """Convert raw dict to appropriate inference parameters type based on field presence."""
+        if isinstance(value, dict):
+            # Infer type from presence of embedding-specific fields
+            if "encoding_format" in value or "dimensions" in value:
+                return EmbeddingInferenceParams(**value)
+            else:
+                return ChatCompletionInferenceParams(**value)
+        return value
 
 
 class ModelProvider(ConfigBase):
@@ -320,11 +446,11 @@ class ModelProvider(ConfigBase):
     name: str
     endpoint: str
     provider_type: str = "openai"
-    api_key: Optional[str] = None
-    extra_body: Optional[dict[str, Any]] = None
+    api_key: str | None = None
+    extra_body: dict[str, Any] | None = None
 
 
-def load_model_configs(model_configs: Union[list[ModelConfig], str, Path]) -> list[ModelConfig]:
+def load_model_configs(model_configs: list[ModelConfig] | str | Path) -> list[ModelConfig]:
     if isinstance(model_configs, list) and all(isinstance(mc, ModelConfig) for mc in model_configs):
         return model_configs
     json_config = smart_load_yaml(model_configs)

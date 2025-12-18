@@ -9,9 +9,9 @@ from copy import deepcopy
 from typing import Any
 
 from litellm.types.router import DeploymentTypedDict, LiteLLM_Params
-from litellm.types.utils import ModelResponse
+from litellm.types.utils import EmbeddingResponse, ModelResponse
 
-from data_designer.config.models import ModelConfig, ModelProvider
+from data_designer.config.models import GenerationType, ModelConfig, ModelProvider
 from data_designer.engine.model_provider import ModelProviderRegistry
 from data_designer.engine.models.errors import (
     GenerationValidationFailureError,
@@ -50,6 +50,10 @@ class ModelFacade:
         return self._model_provider_registry.get_provider(self._model_config.provider)
 
     @property
+    def model_generation_type(self) -> GenerationType:
+        return self._model_config.generation_type
+
+    @property
     def model_provider_name(self) -> str:
         return self.model_provider.name
 
@@ -64,13 +68,12 @@ class ModelFacade:
     def completion(self, messages: list[dict[str, str]], skip_usage_tracking: bool = False, **kwargs) -> ModelResponse:
         logger.debug(
             f"Prompting model {self.model_name!r}...",
-            extra={"model": self.model_name, "messages": messages, "sensitive": True},
+            extra={"model": self.model_name, "messages": messages},
         )
         response = None
-        if self.model_provider.extra_body:
-            kwargs["extra_body"] = {**kwargs.get("extra_body", {}), **self.model_provider.extra_body}
+        kwargs = self.consolidate_kwargs(**kwargs)
         try:
-            response = self._router.completion(self.model_name, messages, **kwargs)
+            response = self._router.completion(model=self.model_name, messages=messages, **kwargs)
             logger.debug(
                 f"Received completion from model {self.model_name!r}",
                 extra={
@@ -84,8 +87,49 @@ class ModelFacade:
         except Exception as e:
             raise e
         finally:
-            if not skip_usage_tracking:
+            if not skip_usage_tracking and response is not None:
                 self._track_usage(response)
+
+    def consolidate_kwargs(self, **kwargs) -> dict[str, Any]:
+        # Remove purpose from kwargs to avoid passing it to the model
+        kwargs.pop("purpose", None)
+        kwargs = {**self._model_config.inference_parameters.generate_kwargs, **kwargs}
+        if self.model_provider.extra_body:
+            kwargs["extra_body"] = {**kwargs.get("extra_body", {}), **self.model_provider.extra_body}
+        return kwargs
+
+    @catch_llm_exceptions
+    def generate_text_embeddings(
+        self, input_texts: list[str], skip_usage_tracking: bool = False, **kwargs
+    ) -> list[list[float]]:
+        logger.debug(
+            f"Generating embeddings with model {self.model_name!r}...",
+            extra={
+                "model": self.model_name,
+                "input_count": len(input_texts),
+            },
+        )
+        kwargs = self.consolidate_kwargs(**kwargs)
+        response = None
+        try:
+            response = self._router.embedding(model=self.model_name, input=input_texts, **kwargs)
+            logger.debug(
+                f"Received embeddings from model {self.model_name!r}",
+                extra={
+                    "model": self.model_name,
+                    "embedding_count": len(response.data) if response.data else 0,
+                    "usage": self._usage_stats.model_dump(),
+                },
+            )
+            if response.data and len(response.data) == len(input_texts):
+                return [data["embedding"] for data in response.data]
+            else:
+                raise ValueError(f"Expected {len(input_texts)} embeddings, but received {len(response.data)}")
+        except Exception as e:
+            raise e
+        finally:
+            if not skip_usage_tracking and response is not None:
+                self._track_usage_from_embedding(response)
 
     @catch_llm_exceptions
     def generate(
@@ -218,8 +262,21 @@ class ModelFacade:
         ):
             self._usage_stats.extend(
                 token_usage=TokenUsageStats(
-                    prompt_tokens=response.usage.prompt_tokens,
-                    completion_tokens=response.usage.completion_tokens,
+                    input_tokens=response.usage.prompt_tokens,
+                    output_tokens=response.usage.completion_tokens,
+                ),
+                request_usage=RequestUsageStats(successful_requests=1, failed_requests=0),
+            )
+
+    def _track_usage_from_embedding(self, response: EmbeddingResponse | None) -> None:
+        if response is None:
+            self._usage_stats.extend(request_usage=RequestUsageStats(successful_requests=0, failed_requests=1))
+            return
+        if response.usage is not None and response.usage.prompt_tokens is not None:
+            self._usage_stats.extend(
+                token_usage=TokenUsageStats(
+                    input_tokens=response.usage.prompt_tokens,
+                    output_tokens=0,
                 ),
                 request_usage=RequestUsageStats(successful_requests=1, failed_requests=0),
             )

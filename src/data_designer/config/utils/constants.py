@@ -97,8 +97,6 @@ DEFAULT_AGE_RANGE = [18, 114]
 MIN_AGE = 0
 MAX_AGE = 114
 
-LOCALES_WITH_MANAGED_DATASETS = ["en_US", "ja_JP", "en_IN", "hi_IN"]
-
 US_STATES_AND_MAJOR_TERRITORIES = {
     # States
     "AK",
@@ -299,15 +297,40 @@ PREDEFINED_PROVIDERS = [
     },
 ]
 
+
+DEFAULT_TEXT_INFERENCE_PARAMS = {"temperature": 0.85, "top_p": 0.95}
+DEFAULT_REASONING_INFERENCE_PARAMS = {"temperature": 0.35, "top_p": 0.95}
+DEFAULT_VISION_INFERENCE_PARAMS = {"temperature": 0.85, "top_p": 0.95}
+DEFAULT_EMBEDDING_INFERENCE_PARAMS = {"encoding_format": "float"}
+
+
 PREDEFINED_PROVIDERS_MODEL_MAP = {
     NVIDIA_PROVIDER_NAME: {
-        "text": "nvidia/nvidia-nemotron-nano-9b-v2",
-        "reasoning": "openai/gpt-oss-20b",
-        "vision": "nvidia/nemotron-nano-12b-v2-vl",
+        "text": {"model": "nvidia/nemotron-3-nano-30b-a3b", "inference_parameters": {"temperature": 1.0, "top_p": 1.0}},
+        "reasoning": {"model": "openai/gpt-oss-20b", "inference_parameters": DEFAULT_REASONING_INFERENCE_PARAMS},
+        "vision": {"model": "nvidia/nemotron-nano-12b-v2-vl", "inference_parameters": DEFAULT_VISION_INFERENCE_PARAMS},
+        "embedding": {
+            "model": "nvidia/llama-3.2-nv-embedqa-1b-v2",
+            "inference_parameters": DEFAULT_EMBEDDING_INFERENCE_PARAMS | {"extra_body": {"input_type": "query"}},
+        },
     },
     OPENAI_PROVIDER_NAME: {
-        "text": "gpt-4.1",
-        "reasoning": "gpt-5",
-        "vision": "gpt-5",
+        "text": {"model": "gpt-4.1", "inference_parameters": DEFAULT_TEXT_INFERENCE_PARAMS},
+        "reasoning": {"model": "gpt-5", "inference_parameters": DEFAULT_REASONING_INFERENCE_PARAMS},
+        "vision": {"model": "gpt-5", "inference_parameters": DEFAULT_VISION_INFERENCE_PARAMS},
+        "embedding": {"model": "text-embedding-3-large", "inference_parameters": DEFAULT_EMBEDDING_INFERENCE_PARAMS},
     },
 }
+
+# Persona locale metadata - used by the CLI and the person sampler.
+NEMOTRON_PERSONAS_DATASET_SIZES = {
+    "en_US": "1.24 GB",
+    "en_IN": "2.39 GB",
+    "hi_Deva_IN": "4.14 GB",
+    "hi_Latn_IN": "2.7 GB",
+    "ja_JP": "1.69 GB",
+}
+
+LOCALES_WITH_MANAGED_DATASETS = list[str](NEMOTRON_PERSONAS_DATASET_SIZES.keys())
+
+NEMOTRON_PERSONAS_DATASET_PREFIX = "nemotron-personas-dataset-"

@@ -7,7 +7,7 @@ Person sampling in Data Designer allows you to generate synthetic person data fo
 Data Designer provides two ways to generate synthetic people:
 
 1. **Faker-based sampling** - Quick, basic PII generation for testing or when realistic demographic distributions are not relevant for your use case
-2. **Nemotron Personas datasets** - Demographically accurate, rich persona data
+2. **Nemotron-Personas datasets** - Demographically accurate, rich persona data
 
 ---
 
@@ -44,16 +44,24 @@ config_builder.add_column(
 )
 ```
 
-See the [`SamplerColumnConfig`](../api/columns.md#samplercolumnconfig) documentation for more details.
+For mor details, see the documentation for [`SamplerColumnConfig`](../code_reference/column_configs.md#data_designer.config.column_configs.SamplerColumnConfig) and [`PersonFromFakerSamplerParams`](../code_reference/sampler_params.md#data_designer.config.sampler_params.PersonFromFakerSamplerParams).
 
 ---
 
-## Approach 2: Nemotron Personas Datasets
+## Approach 2: Nemotron-Personas Datasets
 
 ### What It Does
-Uses curated Nemotron Personas datasets from NVIDIA GPU Cloud (NGC) to generate demographically accurate person data with rich personality profiles and behavioral characteristics.
+Uses curated Nemotron-Personas datasets from NVIDIA GPU Cloud (NGC) to generate demographically accurate person data with rich personality profiles and behavioral characteristics.
 
-The NGC datasets are extended versions of the [open-source Nemotron Personas datasets on HuggingFace](https://huggingface.co/collections/nvidia/nemotron-personas), with additional fields and enhanced data quality.
+The NGC datasets are extended versions of the [open-source Nemotron-Personas datasets on HuggingFace](https://huggingface.co/collections/nvidia/nemotron-personas), with additional fields and enhanced data quality.
+
+Supported locales:
+
+- `en_US`: United States
+- `ja_JP`: Japan
+- `en_IN`: India
+- `hi_Deva_IN`: India (Devanagari script)
+- `hi_Latn_IN`: India (Latin script)
 
 ### Features
 - **Demographically accurate personal details**: Names, ages, sex, marital status, education, occupation based on census data
@@ -68,30 +76,52 @@ The NGC datasets are extended versions of the [open-source Nemotron Personas dat
 
 ### Prerequisites
 
-You need to download the Nemotron Personas datasets that you want to use from NGC, they are available [here](https://catalog.ngc.nvidia.com/search?orderBy=scoreDESC&query=nemotron+personas)
+To use the extended Nemotron-Personas datasets with Data Designer, you need to download them [from NGC](https://catalog.ngc.nvidia.com/search?orderBy=scoreDESC&query=nemotron+personas) and move them to the Data Designer managed assets directory.
+
+See below for step-by-step instructions.
+
+### Nemotron-Personas Datasets Setup Instructions
+
+#### Step 0: Obtain an NGC API Key and install the NGC CLI
+
+To download the Nemotron-Personas datasets from NGC, you will need to obtain an NGC API key and install the NGC CLI.
 
 1. **NGC API Key**: Obtain from [NVIDIA GPU Cloud](https://ngc.nvidia.com/)
 2. **NGC CLI**: [NGC CLI](https://org.ngc.nvidia.com/setup/installers/cli)
 
-### Setup Instructions
 
 #### Step 1: Set Your NGC API Key
 ```bash
 export NGC_API_KEY="your-ngc-api-key-here"
 ```
 
-#### Step 2: Download Nemotron Personas Datasets
+#### Step 2 (option 1): Download Nemotron-Personas Datasets via the Data Designer CLI
+
+Once you have the NGC CLI and your NGC API key set up, you can download the datasets via the Data Designer CLI.
+
+You can pass the locales you want to download as arguments to the CLI command:
+```bash
+data-designer download personas --locale en_US --locale ja_JP
+```
+
+Or you can use the interactive mode to select the locales you want to download:
+```bash
+data-designer download personas
+```
+
+#### Step 2 (option 2): Download Nemotron-Personas Datasets Directly
+
 Use the NGC CLI to download the datasets:
 ```bash
-# For Nemotron Personas USA
+# For Nemotron-Personas USA
 ngc registry resource download-version "nvidia/nemotron-personas/nemotron-personas-dataset-en_us"
 
-# For Nemotron Personas IN
+# For Nemotron-Personas IN
 ngc registry resource download-version "nvidia/nemotron-personas/nemotron-personas-dataset-hi_deva_in"
 ngc registry resource download-version "nvidia/nemotron-personas/nemotron-personas-dataset-hi_latn_in"
 ngc registry resource download-version "nvidia/nemotron-personas/nemotron-personas-dataset-en_in"
 
-# For Nemotron Personas JP
+# For Nemotron-Personas JP
 ngc registry resource download-version "nvidia/nemotron-personas/nemotron-personas-dataset-ja_jp"
 ```
 
@@ -123,7 +153,7 @@ config_builder.add_column(
 )
 ```
 
-See the [`SamplerColumnConfig`](../api/columns.md#samplercolumnconfig) documentation for more details.
+For more details, see the documentation for [`SamplerColumnConfig`](../code_reference/column_configs.md#data_designer.config.column_configs.SamplerColumnConfig) and [`PersonSamplerParams`](../code_reference/sampler_params.md#data_designer.config.sampler_params.PersonSamplerParams).
 
 ### Available Data Fields
 
@@ -154,9 +184,11 @@ See the [`SamplerColumnConfig`](../api/columns.md#samplercolumnconfig) documenta
 | `national_id` | string |
 
 **Japan-Specific Fields (`ja_JP`):**
+
 - `area`
 
-**India-Specific Fields (`en_IN`, `hi_IN`):**
+**India-Specific Fields (`en_IN`, `hi_IN`, `hi_Deva_IN`, `hi_Latn_IN`):**
+
 - `religion` - Census-reported religion
 - `education_degree` - Census-reported education degree
 - `first_language` - Native language
@@ -165,6 +197,7 @@ See the [`SamplerColumnConfig`](../api/columns.md#samplercolumnconfig) documenta
 - `zone` - Urban vs rural
 
 **With Synthetic Personas Enabled:**
+
 - Big Five personality traits (Openness, Conscientiousness, Extraversion, Agreeableness, Neuroticism) with t-scores and labels
 - Cultural background narratives
 - Skills and competencies
@@ -176,10 +209,9 @@ See the [`SamplerColumnConfig`](../api/columns.md#samplercolumnconfig) documenta
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `locale` | str | Language/region code - must be one of: "en_US", "ja_JP", "en_IN", "hi_IN" |
+| `locale` | str | Language/region code - must be one of: "en_US", "ja_JP", "en_IN", "hi_Deva_IN", "hi_Latn_IN" |
 | `sex` | str (optional) | Filter by "Male" or "Female" |
 | `city` | str or list[str] (optional) | Filter by specific city or cities within locale |
 | `age_range` | list[int] (optional) | Two-element list [min_age, max_age] (default: [18, 114]) |
 | `with_synthetic_personas` | bool (optional) | Include rich personality profiles (default: False) |
 | `select_field_values` | dict (optional) | Custom field-based filtering (e.g., {"state": ["NY", "CA"], "education_level": ["bachelors"]}) |
-

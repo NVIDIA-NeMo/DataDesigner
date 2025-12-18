@@ -5,6 +5,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from typing import Any, Generic, TypeVar
 
+from data_designer.cli.ui import BACK, prompt_text_input, select_with_arrows
 from data_designer.cli.utils import validate_numeric_range
 
 T = TypeVar("T")
@@ -40,8 +41,14 @@ class Field(ABC, Generic[T]):
         return self._value
 
     @value.setter
-    def value(self, val: T) -> None:
-        """Set and validate the field value."""
+    def value(self, val: T | str) -> None:
+        """Set and validate the field value. Converts empty strings to None for optional fields."""
+        # Handle empty string for optional fields (clearing the value)
+        if val == "" and not self.required:
+            self._value = None
+            return
+
+        # Standard validation for non-empty values
         if self.validator:
             # For string validators, convert to string first if needed
             val_str = str(val) if not isinstance(val, str) else val
@@ -49,6 +56,40 @@ class Field(ABC, Generic[T]):
             if not is_valid:
                 raise ValidationError(error_msg or "Invalid value")
         self._value = val
+
+    def _build_prompt_text(self) -> str:
+        """Build prompt text with current value information."""
+        has_current_value = self.default is not None
+
+        if has_current_value:
+            # Show as "current" instead of "default" with dimmed styling
+            if not self.required:
+                return f"{self.prompt} <dim>(current value: {self.default}, type 'clear' to remove)</dim>"
+            return f"{self.prompt} <dim>(current value: {self.default})</dim>"
+
+        return self.prompt
+
+    def _handle_prompt_result(self, result: str | None | Any) -> str | None | Any:
+        """Handle common prompt result logic (BACK, None, clear keywords, empty input)."""
+        if result is BACK:
+            return BACK
+
+        if result is None:
+            # User cancelled (ESC)
+            return None
+
+        # Check for special keywords to clear the value
+        if result and result.lower() in ("clear", "none", "default"):
+            return ""
+
+        if not result:
+            # Empty input: return current value if exists
+            has_current_value = self.default is not None
+            if has_current_value:
+                return self.default
+            return ""
+
+        return result
 
     @abstractmethod
     def prompt_user(self, allow_back: bool = False) -> T | None | Any:
@@ -75,21 +116,19 @@ class TextField(Field[str]):
 
     def prompt_user(self, allow_back: bool = False) -> str | None | Any:
         """Prompt user for text input."""
-        from data_designer.cli.ui import BACK, prompt_text_input
+        prompt_text = self._build_prompt_text()
 
+        # Don't pass default to prompt_text_input to avoid duplicate "(default: X)" text
         result = prompt_text_input(
-            self.prompt,
-            default=self.default,
+            prompt_text,
+            default=None,
             validator=self.validator,
             mask=self.mask,
             completions=self.completions,
             allow_back=allow_back,
         )
 
-        if result is BACK:
-            return BACK
-
-        return result
+        return self._handle_prompt_result(result)
 
 
 class SelectField(Field[str]):
@@ -109,8 +148,6 @@ class SelectField(Field[str]):
 
     def prompt_user(self, allow_back: bool = False) -> str | None | Any:
         """Prompt user for selection."""
-        from data_designer.cli.ui import BACK, select_with_arrows
-
         result = select_with_arrows(
             self.options,
             self.prompt,
@@ -144,6 +181,9 @@ class NumericField(Field[float]):
         def range_validator(value: str) -> tuple[bool, str | None]:
             if not value and not required:
                 return True, None
+            # Allow special keywords to clear the value
+            if value and value.lower() in ("clear", "none", "default"):
+                return True, None
             if min_value is not None and max_value is not None:
                 is_valid, parsed = validate_numeric_range(value, min_value, max_value)
                 if not is_valid:
@@ -163,18 +203,24 @@ class NumericField(Field[float]):
 
     def prompt_user(self, allow_back: bool = False) -> float | None | Any:
         """Prompt user for numeric input."""
-        from data_designer.cli.ui import BACK, prompt_text_input
+        prompt_text = self._build_prompt_text()
 
-        default_str = str(self.default) if self.default is not None else None
-
+        # Don't pass default to prompt_text_input to avoid duplicate "(default: X)" text
         result = prompt_text_input(
-            self.prompt,
-            default=default_str,
+            prompt_text,
+            default=None,
             validator=self.validator,
             allow_back=allow_back,
         )
 
-        if result is BACK:
-            return BACK
+        result = self._handle_prompt_result(result)
 
-        return float(result) if result else None
+        # Return special values (BACK, None, empty string, defaults) as-is
+        if result is BACK or result is None or result == "":
+            return result
+
+        # Convert numeric strings to float (but not if it's already a float from default)
+        if isinstance(result, str):
+            return float(result)
+
+        return result

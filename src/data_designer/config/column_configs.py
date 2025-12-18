@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from abc import ABC
-from typing import Annotated, Literal, Optional, Type, Union
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Discriminator, Field, model_validator
 from typing_extensions import Self
@@ -91,7 +91,7 @@ class SamplerColumnConfig(SingleColumnConfig):
     sampler_type: SamplerType
     params: Annotated[SamplerParamsT, Discriminator("sampler_type")]
     conditional_params: dict[str, Annotated[SamplerParamsT, Discriminator("sampler_type")]] = {}
-    convert_to: Optional[str] = None
+    convert_to: str | None = None
     column_type: Literal["sampler"] = "sampler"
 
     @model_validator(mode="before")
@@ -146,8 +146,8 @@ class LLMTextColumnConfig(SingleColumnConfig):
 
     prompt: str
     model_alias: str
-    system_prompt: Optional[str] = None
-    multi_modal_context: Optional[list[ImageContext]] = None
+    system_prompt: str | None = None
+    multi_modal_context: list[ImageContext] | None = None
     column_type: Literal["llm-text"] = "llm-text"
 
     @property
@@ -222,7 +222,7 @@ class LLMStructuredColumnConfig(LLMTextColumnConfig):
         column_type: Discriminator field, always "llm-structured" for this configuration type.
     """
 
-    output_format: Union[dict, Type[BaseModel]]
+    output_format: dict | type[BaseModel]
     column_type: Literal["llm-structured"] = "llm-structured"
 
     @model_validator(mode="after")
@@ -255,7 +255,7 @@ class Score(ConfigBase):
 
     name: str = Field(..., description="A clear name for this score.")
     description: str = Field(..., description="An informative and detailed assessment guide for using this score.")
-    options: dict[Union[int, str], str] = Field(..., description="Score options in the format of {score: description}.")
+    options: dict[int | str, str] = Field(..., description="Score options in the format of {score: description}.")
 
 
 class LLMJudgeColumnConfig(LLMTextColumnConfig):
@@ -377,3 +377,24 @@ class SeedDatasetColumnConfig(SingleColumnConfig):
     """
 
     column_type: Literal["seed-dataset"] = "seed-dataset"
+
+
+class EmbeddingColumnConfig(SingleColumnConfig):
+    """Configuration for embedding generation columns.
+
+    Embedding columns generate embeddings for text input using a specified model.
+
+    Attributes:
+        target_column: The column to generate embeddings for. The column could be a single text string or a list of text strings in stringified JSON format.
+            If it is a list of text strings in stringified JSON format, the embeddings will be generated for each text string.
+        model_alias: The model to use for embedding generation.
+        column_type: Discriminator field, always "embedding" for this configuration type.
+    """
+
+    target_column: str
+    model_alias: str
+    column_type: Literal["embedding"] = "embedding"
+
+    @property
+    def required_columns(self) -> list[str]:
+        return [self.target_column]

@@ -29,9 +29,9 @@
 # %%
 from data_designer.essentials import (
     CategorySamplerParams,
+    ChatCompletionInferenceParams,
     DataDesigner,
     DataDesignerConfigBuilder,
-    InferenceParameters,
     LLMTextColumnConfig,
     ModelConfig,
     PersonFromFakerSamplerParams,
@@ -46,7 +46,7 @@ from data_designer.essentials import (
 #
 # - `DataDesigner` is the main object is responsible for managing the data generation process.
 #
-# - When initialized without arguments, the [default model providers](https://nvidia-nemo.github.io/DataDesigner/concepts/models/default-model-settings/) are used.
+# - When initialized without arguments, the [default model providers](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/) are used.
 #
 
 # %%
@@ -59,7 +59,7 @@ data_designer = DataDesigner()
 #
 # - The "model alias" is used to reference the model in the Data Designer config (as we will see below).
 #
-# - The "model provider" is the external service that hosts the model (see the [model config](https://nvidia-nemo.github.io/DataDesigner/concepts/models/default-model-settings/) docs for more details).
+# - The "model provider" is the external service that hosts the model (see the [model config](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/) docs for more details).
 #
 # - By default, we use [build.nvidia.com](https://build.nvidia.com/models) as the model provider.
 #
@@ -69,23 +69,21 @@ data_designer = DataDesigner()
 MODEL_PROVIDER = "nvidia"
 
 # The model ID is from build.nvidia.com.
-MODEL_ID = "nvidia/nvidia-nemotron-nano-9b-v2"
+MODEL_ID = "nvidia/nemotron-3-nano-30b-a3b"
 
 # We choose this alias to be descriptive for our use case.
-MODEL_ALIAS = "nemotron-nano-v2"
-
-# This sets reasoning to False for the nemotron-nano-v2 model.
-SYSTEM_PROMPT = "/no_think"
+MODEL_ALIAS = "nemotron-nano-v3"
 
 model_configs = [
     ModelConfig(
         alias=MODEL_ALIAS,
         model=MODEL_ID,
         provider=MODEL_PROVIDER,
-        inference_parameters=InferenceParameters(
-            temperature=0.5,
+        inference_parameters=ChatCompletionInferenceParams(
+            temperature=1.0,
             top_p=1.0,
-            max_tokens=1024,
+            max_tokens=2048,
+            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
         ),
     )
 ]
@@ -252,7 +250,6 @@ config_builder.add_column(
             "on products related to '{{ product_subcategory }}'. The target age range of the ideal customer is "
             "{{ target_age_range }} years old. Respond with only the product name, no other text."
         ),
-        system_prompt=SYSTEM_PROMPT,
         model_alias=MODEL_ALIAS,
     )
 )
@@ -264,9 +261,9 @@ config_builder.add_column(
             "You are a customer named {{ customer.first_name }} from {{ customer.city }}, {{ customer.state }}. "
             "You are {{ customer.age }} years old and recently purchased a product called {{ product_name }}. "
             "Write a review of this product, which you gave a rating of {{ number_of_stars }} stars. "
-            "The style of the review should be '{{ review_style }}'."
+            "The style of the review should be '{{ review_style }}'. "
+            "Respond with only the review, no other text."
         ),
-        system_prompt=SYSTEM_PROMPT,
         model_alias=MODEL_ALIAS,
     )
 )
@@ -317,7 +314,7 @@ preview.analysis.to_report()
 #
 
 # %%
-results = data_designer.create(config_builder, num_records=10)
+results = data_designer.create(config_builder, num_records=10, dataset_name="tutorial-1")
 
 # %%
 # Load the generated dataset as a pandas DataFrame.
@@ -336,7 +333,9 @@ analysis.to_report()
 #
 # Now that you've seen the basics of Data Designer, check out the following notebooks to learn more about:
 #
-# - [Structured outputs and jinja expressions](/notebooks/2-structured-outputs-and-jinja-expressions/)
+# - [Structured outputs and jinja expressions](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/2-structured-outputs-and-jinja-expressions/)
 #
-# - [Seeding synthetic data generation with an external dataset](/notebooks/3-seeding-with-a-dataset/)
+# - [Seeding synthetic data generation with an external dataset](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/3-seeding-with-a-dataset/)
+#
+# - [Providing images as context](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/4-providing-images-as-context/)
 #

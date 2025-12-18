@@ -6,9 +6,15 @@ import logging
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
-from data_designer.config.models import InferenceParameters, ModelConfig, ModelProvider
+from data_designer.config.models import (
+    ChatCompletionInferenceParams,
+    EmbeddingInferenceParams,
+    InferenceParamsT,
+    ModelConfig,
+    ModelProvider,
+)
 from data_designer.config.utils.constants import (
     MANAGED_ASSETS_PATH,
     MODEL_CONFIGS_FILE_PATH,
@@ -21,46 +27,32 @@ from data_designer.config.utils.io_helpers import load_config_file, save_config_
 logger = logging.getLogger(__name__)
 
 
-def get_default_text_alias_inference_parameters() -> InferenceParameters:
-    return InferenceParameters(
-        temperature=0.85,
-        top_p=0.95,
-    )
-
-
-def get_default_reasoning_alias_inference_parameters() -> InferenceParameters:
-    return InferenceParameters(
-        temperature=0.35,
-        top_p=0.95,
-    )
-
-
-def get_default_vision_alias_inference_parameters() -> InferenceParameters:
-    return InferenceParameters(
-        temperature=0.85,
-        top_p=0.95,
-    )
-
-
-def get_default_inference_parameters(model_alias: Literal["text", "reasoning", "vision"]) -> InferenceParameters:
+def get_default_inference_parameters(
+    model_alias: Literal["text", "reasoning", "vision", "embedding"],
+    inference_parameters: dict[str, Any],
+) -> InferenceParamsT:
     if model_alias == "reasoning":
-        return get_default_reasoning_alias_inference_parameters()
+        return ChatCompletionInferenceParams(**inference_parameters)
     elif model_alias == "vision":
-        return get_default_vision_alias_inference_parameters()
+        return ChatCompletionInferenceParams(**inference_parameters)
+    elif model_alias == "embedding":
+        return EmbeddingInferenceParams(**inference_parameters)
     else:
-        return get_default_text_alias_inference_parameters()
+        return ChatCompletionInferenceParams(**inference_parameters)
 
 
 def get_builtin_model_configs() -> list[ModelConfig]:
     model_configs = []
     for provider, model_alias_map in PREDEFINED_PROVIDERS_MODEL_MAP.items():
-        for model_alias, model_id in model_alias_map.items():
+        for model_alias, settings in model_alias_map.items():
             model_configs.append(
                 ModelConfig(
                     alias=f"{provider}-{model_alias}",
-                    model=model_id,
+                    model=settings["model"],
                     provider=provider,
-                    inference_parameters=get_default_inference_parameters(model_alias),
+                    inference_parameters=get_default_inference_parameters(
+                        model_alias, settings["inference_parameters"]
+                    ),
                 )
             )
     return model_configs
@@ -93,7 +85,7 @@ def get_default_providers() -> list[ModelProvider]:
     return []
 
 
-def get_default_provider_name() -> Optional[str]:
+def get_default_provider_name() -> str | None:
     return _get_default_providers_file_content(MODEL_PROVIDERS_FILE_PATH).get("default")
 
 
@@ -103,7 +95,8 @@ def resolve_seed_default_model_settings() -> None:
             f"🍾 Default model configs were not found, so writing the following to {str(MODEL_CONFIGS_FILE_PATH)!r}"
         )
         save_config_file(
-            MODEL_CONFIGS_FILE_PATH, {"model_configs": [mc.model_dump() for mc in get_builtin_model_configs()]}
+            MODEL_CONFIGS_FILE_PATH,
+            {"model_configs": [mc.model_dump(mode="json") for mc in get_builtin_model_configs()]},
         )
 
     if not MODEL_PROVIDERS_FILE_PATH.exists():
@@ -111,7 +104,7 @@ def resolve_seed_default_model_settings() -> None:
             f"🪄  Default model providers were not found, so writing the following to {str(MODEL_PROVIDERS_FILE_PATH)!r}"
         )
         save_config_file(
-            MODEL_PROVIDERS_FILE_PATH, {"providers": [p.model_dump() for p in get_builtin_model_providers()]}
+            MODEL_PROVIDERS_FILE_PATH, {"providers": [p.model_dump(mode="json") for p in get_builtin_model_providers()]}
         )
 
     if not MANAGED_ASSETS_PATH.exists():

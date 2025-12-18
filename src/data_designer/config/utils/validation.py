@@ -5,7 +5,6 @@ from __future__ import annotations
 
 from enum import Enum
 from string import Formatter
-from typing import Optional
 
 from jinja2 import meta
 from jinja2.sandbox import ImmutableSandboxedEnvironment
@@ -15,8 +14,8 @@ from rich.console import Console, Group
 from rich.padding import Padding
 from rich.panel import Panel
 
-from data_designer.config.column_types import ColumnConfigT, DataDesignerColumnType, column_type_is_llm_generated
-from data_designer.config.processors import ProcessorConfig, ProcessorType
+from data_designer.config.column_types import ColumnConfigT, DataDesignerColumnType, column_type_is_model_generated
+from data_designer.config.processors import ProcessorConfigT, ProcessorType
 from data_designer.config.utils.constants import RICH_CONSOLE_THEME
 from data_designer.config.utils.misc import (
     can_run_data_designer_locally,
@@ -45,7 +44,7 @@ class ViolationLevel(str, Enum):
 
 
 class Violation(BaseModel):
-    column: Optional[str] = None
+    column: str | None = None
     type: ViolationType
     message: str
     level: ViolationLevel
@@ -57,7 +56,7 @@ class Violation(BaseModel):
 
 def validate_data_designer_config(
     columns: list[ColumnConfigT],
-    processor_configs: list[ProcessorConfig],
+    processor_configs: list[ProcessorConfigT],
     allowed_references: list[str],
 ) -> list[Violation]:
     violations = []
@@ -119,7 +118,7 @@ def validate_prompt_templates(
 ) -> list[Violation]:
     env = ImmutableSandboxedEnvironment()
 
-    columns_with_prompts = [c for c in columns if column_type_is_llm_generated(c.column_type)]
+    columns_with_prompts = [c for c in columns if column_type_is_model_generated(c.column_type)]
 
     violations = []
     for column in columns_with_prompts:
@@ -273,7 +272,7 @@ def validate_columns_not_all_dropped(
 
 def validate_drop_columns_processor(
     columns: list[ColumnConfigT],
-    processor_configs: list[ProcessorConfig],
+    processor_configs: list[ProcessorConfigT],
 ) -> list[Violation]:
     all_column_names = {c.name for c in columns}
     for processor_config in processor_configs:
@@ -294,7 +293,7 @@ def validate_drop_columns_processor(
 
 def validate_schema_transform_processor(
     columns: list[ColumnConfigT],
-    processor_configs: list[ProcessorConfig],
+    processor_configs: list[ProcessorConfigT],
 ) -> list[Violation]:
     violations = []
 

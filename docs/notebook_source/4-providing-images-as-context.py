@@ -23,14 +23,8 @@
 # - ✨ **Visual Document Processing**: Converting images to chat-ready format for model consumption
 # - 🔍 **Vision-Language Generation**: Using vision models to generate detailed summaries from images
 #
-# If this is your first time using Data Designer, we recommend starting with the [first notebook](/notebooks/1-the-basics/) in this tutorial series.
+# If this is your first time using Data Designer, we recommend starting with the [first notebook](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/1-the-basics/) in this tutorial series.
 #
-
-# %% [markdown]
-# ### ⬇️ Install dependencies (if required)
-
-# %%
-# !uv pip install pillow
 
 # %% [markdown]
 # ### 📦 Import the essentials
@@ -53,11 +47,11 @@ from rich.panel import Panel
 
 # Data Designer imports
 from data_designer.essentials import (
+    ChatCompletionInferenceParams,
     DataDesigner,
     DataDesignerConfigBuilder,
     ImageContext,
     ImageFormat,
-    InferenceParameters,
     LLMTextColumnConfig,
     ModalityDataType,
     ModelConfig,
@@ -68,7 +62,7 @@ from data_designer.essentials import (
 #
 # - `DataDesigner` is the main object is responsible for managing the data generation process.
 #
-# - When initialized without arguments, the [default model providers](https://nvidia-nemo.github.io/DataDesigner/concepts/models/default-model-settings/) are used.
+# - When initialized without arguments, the [default model providers](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/) are used.
 #
 
 # %%
@@ -81,7 +75,7 @@ data_designer = DataDesigner()
 #
 # - The "model alias" is used to reference the model in the Data Designer config (as we will see below).
 #
-# - The "model provider" is the external service that hosts the model (see the [model config](https://nvidia-nemo.github.io/DataDesigner/concepts/models/default-model-settings/) docs for more details).
+# - The "model provider" is the external service that hosts the model (see the [model config](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/) docs for more details).
 #
 # - By default, we use [build.nvidia.com](https://build.nvidia.com/models) as the model provider.
 #
@@ -95,7 +89,7 @@ model_configs = [
         alias="vision",
         model="meta/llama-4-scout-17b-16e-instruct",
         provider=MODEL_PROVIDER,
-        inference_parameters=InferenceParameters(
+        inference_parameters=ChatCompletionInferenceParams(
             temperature=0.60,
             top_p=0.95,
             max_tokens=2048,
@@ -292,7 +286,7 @@ rich.print(Panel(record.summary, title="Document Summary", title_align="left"))
 #
 
 # %%
-results = data_designer.create(config_builder, num_records=10)
+results = data_designer.create(config_builder, num_records=10, dataset_name="tutorial-4")
 
 # %%
 # Load the generated dataset as a pandas DataFrame.

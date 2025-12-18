@@ -77,6 +77,7 @@ docs = [
 notebooks = [
   "jupyter>=1.0.0",
   "ipykernel>=6.29.0",
+  "pillow>=12.0.0",
 ]
 
 [build-system]
@@ -97,6 +98,11 @@ env = [
     "DISABLE_DATA_DESIGNER_PLUGINS=true",
 ]
 
+[tool.coverage.run]
+omit = [
+    "src/data_designer/engine/models/telemetry.py",
+]
+
 [tool.uv]
 package = true
 required-version = ">=0.7.10"
@@ -104,25 +110,19 @@ required-version = ">=0.7.10"
 [tool.ruff]
 line-length = 120
 indent-width = 4
+target-version = "py310"
 
 [tool.ruff.lint]
 select = [
-    # "E",   # pycodestyle errors
-    "W",   # pycodestyle warnings
-    "F",   # pyflakes
-    "I",   # isort (import sorting)
-    # "N",   # pep8-naming
-    # "UP",  # pyupgrade (modern Python syntax)
-    # "ANN", # flake8-annotations (enforce type hints)
-    # "B",   # fla e8-bugbear (common bugs)
-    # "C4",  # flake8-comprehensions
-    # "DTZ", # flake8-datetimez (timezone awareness)
-    "ICN", # flake8-import-conventions
-    "PIE", # flake8-pie (misc lints)
-    # "RET", # flake8-return
-    # "SIM", # flake8-simplify
-    # "PTH", # flake8-use-pathlib
-    "TID", # flake8-tidy-imports (ban relative imports)
+    "W",     # pycodestyle warnings
+    "F",     # pyflakes
+    "I",     # isort (import sorting)
+    "ICN",   # flake8-import-conventions
+    "PIE",   # flake8-pie (misc lints)
+    "TID",   # flake8-tidy-imports (ban relative imports)
+    "UP006", # List[A] -> list[A]
+    "UP007", # Union[A, B] -> A | B
+    "UP045", # Optional[A] -> A | None
 ]
 ignore = [
     "ANN401", # Dynamically typed expressions (Any)
