@@ -286,7 +286,7 @@ rich.print(Panel(record.summary, title="Document Summary", title_align="left"))
 #
 
 # %%
-results = data_designer.create(config_builder, num_records=10)
+results = data_designer.create(config_builder, num_records=10, dataset_name="tutorial-4")
 
 # %%
 # Load the generated dataset as a pandas DataFrame.
