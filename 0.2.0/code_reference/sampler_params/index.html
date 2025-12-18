@@ -2181,7 +2181,7 @@ available sampler types and their parameters:
             <td><code><a class="autorefs autorefs-internal" title="            PersonFromFakerSamplerParams (data_designer.config.sampler_params.PersonFromFakerSamplerParams)" href="#data_designer.config.sampler_params.PersonFromFakerSamplerParams">PersonFromFakerSamplerParams</a></code></td>
             <td>
               <div class="doc-md-description">
-                
+                <p>Parameters for sampling synthetic person data with demographic attributes from Faker.</p>
               </div>
             </td>
           </tr>
@@ -2862,17 +2862,10 @@ values are not rounded.</p>
               Bases: <code><span title="data_designer.config.base.ConfigBase">ConfigBase</span></code></p>
 
 
-
-
-
-
-
-
-
-
-
-
-
+        <p>Parameters for sampling synthetic person data with demographic attributes from Faker.</p>
+<p>Uses the Faker library to generate random personal information. The data is basic and not demographically
+accurate, but is useful for quick testing, prototyping, or when realistic demographic distributions are not
+relevant for your use case. For demographically accurate person data, use the <code>PersonSamplerParams</code> sampler.</p>
 
 
 <p><span class="doc-section-title">Attributes:</span></p>
@@ -2886,22 +2879,79 @@ values are not rounded.</p>
       </thead>
       <tbody>
           <tr class="doc-section-item">
-            <td><code><a class="autorefs autorefs-internal" title="            generator_kwargs
-
-  
-      property
-   (data_designer.config.sampler_params.PersonFromFakerSamplerParams.generator_kwargs)" href="#data_designer.config.sampler_params.PersonFromFakerSamplerParams.generator_kwargs">generator_kwargs</a></code></td>
+            <td><code><span title="data_designer.config.sampler_params.PersonFromFakerSamplerParams.locale">locale</span></code></td>
             <td>
-                  <code><span title="list">list</span>[<span title="str">str</span>]</code>
+                  <code><span title="str">str</span></code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Keyword arguments to pass to the person generator.</p>
+                <p>Locale string determining the language and geographic region for synthetic people.
+Can be any locale supported by Faker.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.sampler_params.PersonFromFakerSamplerParams.sex">sex</span></code></td>
+            <td>
+                  <code><span title="data_designer.config.sampler_params.SexT">SexT</span> | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If specified, filters to only sample people of the specified sex. Options: "Male" or
+"Female". If None, samples both sexes.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.sampler_params.PersonFromFakerSamplerParams.city">city</span></code></td>
+            <td>
+                  <code><span title="str">str</span> | <span title="list">list</span>[<span title="str">str</span>] | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If specified, filters to only sample people from the specified city or cities. Can be
+a single city name (string) or a list of city names.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.sampler_params.PersonFromFakerSamplerParams.age_range">age_range</span></code></td>
+            <td>
+                  <code><span title="list">list</span>[<span title="int">int</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Two-element list [min_age, max_age] specifying the age range to sample from
+(inclusive). Defaults to a standard age range. Both values must be between the minimum and
+maximum allowed ages.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="data_designer.config.sampler_params.PersonFromFakerSamplerParams.sampler_type">sampler_type</span></code></td>
+            <td>
+                  <code><span title="typing.Literal">Literal</span>[<span title="data_designer.config.sampler_params.SamplerType.PERSON_FROM_FAKER">PERSON_FROM_FAKER</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Discriminator for the sampler type. Must be <code>SamplerType.PERSON_FROM_FAKER</code>.</p>
               </div>
             </td>
           </tr>
       </tbody>
     </table>
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

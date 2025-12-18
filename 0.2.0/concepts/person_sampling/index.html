@@ -970,11 +970,11 @@
         <li class="md-nav__item">
   <a href="#approach-2-nemotron-personas-datasets" class="md-nav__link">
     <span class="md-ellipsis">
-      Approach 2: Nemotron Personas Datasets
+      Approach 2: Nemotron-Personas Datasets
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Approach 2: Nemotron Personas Datasets">
+    <nav class="md-nav" aria-label="Approach 2: Nemotron-Personas Datasets">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -1005,14 +1005,23 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#setup-instructions" class="md-nav__link">
+  <a href="#nemotron-personas-datasets-setup-instructions" class="md-nav__link">
     <span class="md-ellipsis">
-      Setup Instructions
+      Nemotron-Personas Datasets Setup Instructions
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Setup Instructions">
+    <nav class="md-nav" aria-label="Nemotron-Personas Datasets Setup Instructions">
       <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#step-0-obtain-an-ngc-api-key-and-install-the-ngc-cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      Step 0: Obtain an NGC API Key and install the NGC CLI
+    </span>
+  </a>
+  
+</li>
         
           <li class="md-nav__item">
   <a href="#step-1-set-your-ngc-api-key" class="md-nav__link">
@@ -1026,7 +1035,7 @@
           <li class="md-nav__item">
   <a href="#step-2-option-1-download-nemotron-personas-datasets-via-the-data-designer-cli" class="md-nav__link">
     <span class="md-ellipsis">
-      Step 2 (option 1): Download Nemotron Personas Datasets via the Data Designer CLI
+      Step 2 (option 1): Download Nemotron-Personas Datasets via the Data Designer CLI
     </span>
   </a>
   
@@ -1035,7 +1044,7 @@
           <li class="md-nav__item">
   <a href="#step-2-option-2-download-nemotron-personas-datasets-directly" class="md-nav__link">
     <span class="md-ellipsis">
-      Step 2 (option 2): Download Nemotron Personas Datasets Directly
+      Step 2 (option 2): Download Nemotron-Personas Datasets Directly
     </span>
   </a>
   
@@ -1959,11 +1968,11 @@
         <li class="md-nav__item">
   <a href="#approach-2-nemotron-personas-datasets" class="md-nav__link">
     <span class="md-ellipsis">
-      Approach 2: Nemotron Personas Datasets
+      Approach 2: Nemotron-Personas Datasets
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Approach 2: Nemotron Personas Datasets">
+    <nav class="md-nav" aria-label="Approach 2: Nemotron-Personas Datasets">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -1994,14 +2003,23 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#setup-instructions" class="md-nav__link">
+  <a href="#nemotron-personas-datasets-setup-instructions" class="md-nav__link">
     <span class="md-ellipsis">
-      Setup Instructions
+      Nemotron-Personas Datasets Setup Instructions
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Setup Instructions">
+    <nav class="md-nav" aria-label="Nemotron-Personas Datasets Setup Instructions">
       <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#step-0-obtain-an-ngc-api-key-and-install-the-ngc-cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      Step 0: Obtain an NGC API Key and install the NGC CLI
+    </span>
+  </a>
+  
+</li>
         
           <li class="md-nav__item">
   <a href="#step-1-set-your-ngc-api-key" class="md-nav__link">
@@ -2015,7 +2033,7 @@
           <li class="md-nav__item">
   <a href="#step-2-option-1-download-nemotron-personas-datasets-via-the-data-designer-cli" class="md-nav__link">
     <span class="md-ellipsis">
-      Step 2 (option 1): Download Nemotron Personas Datasets via the Data Designer CLI
+      Step 2 (option 1): Download Nemotron-Personas Datasets via the Data Designer CLI
     </span>
   </a>
   
@@ -2024,7 +2042,7 @@
           <li class="md-nav__item">
   <a href="#step-2-option-2-download-nemotron-personas-datasets-directly" class="md-nav__link">
     <span class="md-ellipsis">
-      Step 2 (option 2): Download Nemotron Personas Datasets Directly
+      Step 2 (option 2): Download Nemotron-Personas Datasets Directly
     </span>
   </a>
   
@@ -2095,7 +2113,7 @@
 <p>Data Designer provides two ways to generate synthetic people:</p>
 <ol>
 <li><strong>Faker-based sampling</strong> - Quick, basic PII generation for testing or when realistic demographic distributions are not relevant for your use case</li>
-<li><strong>Nemotron Personas datasets</strong> - Demographically accurate, rich persona data</li>
+<li><strong>Nemotron-Personas datasets</strong> - Demographically accurate, rich persona data</li>
 </ol>
 <hr />
 <h2 id="approach-1-faker-based-sampling">Approach 1: Faker-Based Sampling</h2>
@@ -2128,18 +2146,20 @@
     <span class="p">)</span>
 <span class="p">)</span>
 </code></pre></div>
-<p>See the <a href="../api/columns.md#samplercolumnconfig"><code>SamplerColumnConfig</code></a> documentation for more details.</p>
+<p>For mor details, see the documentation for <a href="../../code_reference/column_configs/#data_designer.config.column_configs.SamplerColumnConfig"><code>SamplerColumnConfig</code></a> and <a href="../../code_reference/sampler_params/#data_designer.config.sampler_params.PersonFromFakerSamplerParams"><code>PersonFromFakerSamplerParams</code></a>.</p>
 <hr />
-<h2 id="approach-2-nemotron-personas-datasets">Approach 2: Nemotron Personas Datasets</h2>
+<h2 id="approach-2-nemotron-personas-datasets">Approach 2: Nemotron-Personas Datasets</h2>
 <h3 id="what-it-does_1">What It Does</h3>
-<p>Uses curated Nemotron Personas datasets from NVIDIA GPU Cloud (NGC) to generate demographically accurate person data with rich personality profiles and behavioral characteristics.</p>
-<p>The NGC datasets are extended versions of the <a href="https://huggingface.co/collections/nvidia/nemotron-personas">open-source Nemotron Personas datasets on HuggingFace</a>, with additional fields and enhanced data quality.</p>
-<p>Supported locales:
-- <code>en_US</code>: United States
-- <code>ja_JP</code>: Japan
-- <code>en_IN</code>: India
-- <code>hi_Deva_IN</code>: India (Devanagari script)
-- <code>hi_Latn_IN</code>: India (Latin script)</p>
+<p>Uses curated Nemotron-Personas datasets from NVIDIA GPU Cloud (NGC) to generate demographically accurate person data with rich personality profiles and behavioral characteristics.</p>
+<p>The NGC datasets are extended versions of the <a href="https://huggingface.co/collections/nvidia/nemotron-personas">open-source Nemotron-Personas datasets on HuggingFace</a>, with additional fields and enhanced data quality.</p>
+<p>Supported locales:</p>
+<ul>
+<li><code>en_US</code>: United States</li>
+<li><code>ja_JP</code>: Japan</li>
+<li><code>en_IN</code>: India</li>
+<li><code>hi_Deva_IN</code>: India (Devanagari script)</li>
+<li><code>hi_Latn_IN</code>: India (Latin script)</li>
+</ul>
 <h3 id="features_1">Features</h3>
 <ul>
 <li><strong>Demographically accurate personal details</strong>: Names, ages, sex, marital status, education, occupation based on census data</li>
@@ -2153,16 +2173,19 @@
 <li>Grounded in real-world demographic distributions</li>
 </ul>
 <h3 id="prerequisites">Prerequisites</h3>
-<p>You need to download the Nemotron Personas datasets that you want to use from NGC, they are available <a href="https://catalog.ngc.nvidia.com/search?orderBy=scoreDESC&amp;query=nemotron+personas">here</a></p>
+<p>To use the extended Nemotron-Personas datasets with Data Designer, you need to download them <a href="https://catalog.ngc.nvidia.com/search?orderBy=scoreDESC&amp;query=nemotron+personas">from NGC</a> and move them to the Data Designer managed assets directory.</p>
+<p>See below for step-by-step instructions.</p>
+<h3 id="nemotron-personas-datasets-setup-instructions">Nemotron-Personas Datasets Setup Instructions</h3>
+<h4 id="step-0-obtain-an-ngc-api-key-and-install-the-ngc-cli">Step 0: Obtain an NGC API Key and install the NGC CLI</h4>
+<p>To download the Nemotron-Personas datasets from NGC, you will need to obtain an NGC API key and install the NGC CLI.</p>
 <ol>
 <li><strong>NGC API Key</strong>: Obtain from <a href="https://ngc.nvidia.com/">NVIDIA GPU Cloud</a></li>
 <li><strong>NGC CLI</strong>: <a href="https://org.ngc.nvidia.com/setup/installers/cli">NGC CLI</a></li>
 </ol>
-<h3 id="setup-instructions">Setup Instructions</h3>
 <h4 id="step-1-set-your-ngc-api-key">Step 1: Set Your NGC API Key</h4>
 <div class="language-bash highlight"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">NGC_API_KEY</span><span class="o">=</span><span class="s2">&quot;your-ngc-api-key-here&quot;</span>
 </code></pre></div>
-<h4 id="step-2-option-1-download-nemotron-personas-datasets-via-the-data-designer-cli">Step 2 (option 1): Download Nemotron Personas Datasets via the Data Designer CLI</h4>
+<h4 id="step-2-option-1-download-nemotron-personas-datasets-via-the-data-designer-cli">Step 2 (option 1): Download Nemotron-Personas Datasets via the Data Designer CLI</h4>
 <p>Once you have the NGC CLI and your NGC API key set up, you can download the datasets via the Data Designer CLI.</p>
 <p>You can pass the locales you want to download as arguments to the CLI command:
 <div class="language-bash highlight"><pre><span></span><code>data-designer<span class="w"> </span>download<span class="w"> </span>personas<span class="w"> </span>--locale<span class="w"> </span>en_US<span class="w"> </span>--locale<span class="w"> </span>ja_JP
@@ -2170,17 +2193,17 @@
 <p>Or you can use the interactive mode to select the locales you want to download:
 <div class="language-bash highlight"><pre><span></span><code>data-designer<span class="w"> </span>download<span class="w"> </span>personas
 </code></pre></div></p>
-<h4 id="step-2-option-2-download-nemotron-personas-datasets-directly">Step 2 (option 2): Download Nemotron Personas Datasets Directly</h4>
+<h4 id="step-2-option-2-download-nemotron-personas-datasets-directly">Step 2 (option 2): Download Nemotron-Personas Datasets Directly</h4>
 <p>Use the NGC CLI to download the datasets:
-<div class="language-bash highlight"><pre><span></span><code><span class="c1"># For Nemotron Personas USA</span>
+<div class="language-bash highlight"><pre><span></span><code><span class="c1"># For Nemotron-Personas USA</span>
 ngc<span class="w"> </span>registry<span class="w"> </span>resource<span class="w"> </span>download-version<span class="w"> </span><span class="s2">&quot;nvidia/nemotron-personas/nemotron-personas-dataset-en_us&quot;</span>
 
-<span class="c1"># For Nemotron Personas IN</span>
+<span class="c1"># For Nemotron-Personas IN</span>
 ngc<span class="w"> </span>registry<span class="w"> </span>resource<span class="w"> </span>download-version<span class="w"> </span><span class="s2">&quot;nvidia/nemotron-personas/nemotron-personas-dataset-hi_deva_in&quot;</span>
 ngc<span class="w"> </span>registry<span class="w"> </span>resource<span class="w"> </span>download-version<span class="w"> </span><span class="s2">&quot;nvidia/nemotron-personas/nemotron-personas-dataset-hi_latn_in&quot;</span>
 ngc<span class="w"> </span>registry<span class="w"> </span>resource<span class="w"> </span>download-version<span class="w"> </span><span class="s2">&quot;nvidia/nemotron-personas/nemotron-personas-dataset-en_in&quot;</span>
 
-<span class="c1"># For Nemotron Personas JP</span>
+<span class="c1"># For Nemotron-Personas JP</span>
 ngc<span class="w"> </span>registry<span class="w"> </span>resource<span class="w"> </span>download-version<span class="w"> </span><span class="s2">&quot;nvidia/nemotron-personas/nemotron-personas-dataset-ja_jp&quot;</span>
 </code></pre></div></p>
 <p>Then move the downloaded dataset to the Data Designer managed assets directory:
@@ -2207,7 +2230,7 @@ mv<span class="w"> </span>nemotron-personas-dataset-*/*.parquet<span class="w"> 
     <span class="p">)</span>
 <span class="p">)</span>
 </code></pre></div>
-<p>See the <a href="../api/columns.md#samplercolumnconfig"><code>SamplerColumnConfig</code></a> documentation for more details.</p>
+<p>For more details, see the documentation for <a href="../../code_reference/column_configs/#data_designer.config.column_configs.SamplerColumnConfig"><code>SamplerColumnConfig</code></a> and <a href="../../code_reference/sampler_params/#data_designer.config.sampler_params.PersonSamplerParams"><code>PersonSamplerParams</code></a>.</p>
 <h3 id="available-data-fields">Available Data Fields</h3>
 <p><strong>Core Fields (all locales):</strong></p>
 <table>
@@ -2326,22 +2349,28 @@ mv<span class="w"> </span>nemotron-personas-dataset-*/*.parquet<span class="w"> 
 </tr>
 </tbody>
 </table>
-<p><strong>Japan-Specific Fields (<code>ja_JP</code>):</strong>
-- <code>area</code></p>
-<p><strong>India-Specific Fields (<code>en_IN</code>, <code>hi_IN</code>, <code>hi_Deva_IN</code>, <code>hi_Latn_IN</code>):</strong>
-- <code>religion</code> - Census-reported religion
-- <code>education_degree</code> - Census-reported education degree
-- <code>first_language</code> - Native language
-- <code>second_language</code> - Second language (if applicable)
-- <code>third_language</code> - Third language (if applicable)
-- <code>zone</code> - Urban vs rural</p>
-<p><strong>With Synthetic Personas Enabled:</strong>
-- Big Five personality traits (Openness, Conscientiousness, Extraversion, Agreeableness, Neuroticism) with t-scores and labels
-- Cultural background narratives
-- Skills and competencies
-- Hobbies and interests
-- Career goals
-- Context-specific personas (professional, financial, healthcare, sports, arts &amp; entertainment, travel, culinary, etc.)</p>
+<p><strong>Japan-Specific Fields (<code>ja_JP</code>):</strong></p>
+<ul>
+<li><code>area</code></li>
+</ul>
+<p><strong>India-Specific Fields (<code>en_IN</code>, <code>hi_IN</code>, <code>hi_Deva_IN</code>, <code>hi_Latn_IN</code>):</strong></p>
+<ul>
+<li><code>religion</code> - Census-reported religion</li>
+<li><code>education_degree</code> - Census-reported education degree</li>
+<li><code>first_language</code> - Native language</li>
+<li><code>second_language</code> - Second language (if applicable)</li>
+<li><code>third_language</code> - Third language (if applicable)</li>
+<li><code>zone</code> - Urban vs rural</li>
+</ul>
+<p><strong>With Synthetic Personas Enabled:</strong></p>
+<ul>
+<li>Big Five personality traits (Openness, Conscientiousness, Extraversion, Agreeableness, Neuroticism) with t-scores and labels</li>
+<li>Cultural background narratives</li>
+<li>Skills and competencies</li>
+<li>Hobbies and interests</li>
+<li>Career goals</li>
+<li>Context-specific personas (professional, financial, healthcare, sports, arts &amp; entertainment, travel, culinary, etc.)</li>
+</ul>
 <h3 id="configuration-parameters">Configuration Parameters</h3>
 <table>
 <thead>
