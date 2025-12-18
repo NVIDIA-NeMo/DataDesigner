@@ -113,7 +113,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
 
     @classmethod
     def make_seed_reference_from_dataframe(
-        cls, dataframe: "lazy_imports.pd.DataFrame", file_path: str | Path
+        cls, dataframe: lazy_imports.pd.DataFrame, file_path: str | Path
     ) -> LocalSeedDatasetReference:
         """Create a seed dataset reference from a pandas DataFrame.
 
