@@ -522,6 +522,25 @@ class PersonSamplerParams(ConfigBase):
 
 
 class PersonFromFakerSamplerParams(ConfigBase):
+    """Parameters for sampling synthetic person data with demographic attributes from Faker.
+
+    Uses the Faker library to generate random personal information. The data is basic and not demographically
+    accurate, but is useful for quick testing, prototyping, or when realistic demographic distributions are not
+    relevant for your use case. For demographically accurate person data, use the `PersonSamplerParams` sampler.
+
+    Attributes:
+        locale: Locale string determining the language and geographic region for synthetic people.
+            Can be any locale supported by Faker.
+        sex: If specified, filters to only sample people of the specified sex. Options: "Male" or
+            "Female". If None, samples both sexes.
+        city: If specified, filters to only sample people from the specified city or cities. Can be
+            a single city name (string) or a list of city names.
+        age_range: Two-element list [min_age, max_age] specifying the age range to sample from
+            (inclusive). Defaults to a standard age range. Both values must be between the minimum and
+            maximum allowed ages.
+        sampler_type: Discriminator for the sampler type. Must be `SamplerType.PERSON_FROM_FAKER`.
+    """
+
     locale: str = Field(
         default="en_US",
         description=(
