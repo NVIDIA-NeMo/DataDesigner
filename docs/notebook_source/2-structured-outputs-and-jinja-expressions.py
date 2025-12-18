@@ -52,7 +52,7 @@ from data_designer.essentials import (
 #
 
 # %%
-data_designer_client = DataDesigner()
+data_designer = DataDesigner()
 
 # %% [markdown]
 # ### 🎛️ Define model configurations
@@ -327,7 +327,7 @@ config_builder.validate()
 #
 
 # %%
-preview = data_designer_client.preview(config_builder, num_records=2)
+preview = data_designer.preview(config_builder, num_records=2)
 
 # %%
 # Run this cell multiple times to cycle through the 2 preview records.
@@ -358,17 +358,17 @@ preview.analysis.to_report()
 #
 
 # %%
-job_results = data_designer_client.create(config_builder, num_records=10)
+results = data_designer.create(config_builder, num_records=10, dataset_name="tutorial-2")
 
 # %%
 # Load the generated dataset as a pandas DataFrame.
-dataset = job_results.load_dataset()
+dataset = results.load_dataset()
 
 dataset.head()
 
 # %%
 # Load the analysis results into memory.
-analysis = job_results.load_analysis()
+analysis = results.load_analysis()
 
 analysis.to_report()
 
