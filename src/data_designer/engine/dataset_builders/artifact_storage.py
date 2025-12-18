@@ -7,7 +7,6 @@ import shutil
 from datetime import datetime
 from functools import cached_property
 from pathlib import Path
-from typing import Union
 
 import pandas as pd
 from pydantic import BaseModel, field_validator, model_validator
@@ -77,7 +76,7 @@ class ArtifactStorage(BaseModel):
         return self.base_dataset_path / self.processors_outputs_folder_name
 
     @field_validator("artifact_path")
-    def validate_artifact_path(cls, v: Union[Path, str]) -> Path:
+    def validate_artifact_path(cls, v: Path | str) -> Path:
         v = Path(v)
         if not v.is_dir():
             raise ArtifactStorageError("Artifact path must exist and be a directory")

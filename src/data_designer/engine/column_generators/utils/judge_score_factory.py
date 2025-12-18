@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from enum import Enum
-from typing import Type
 
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
@@ -19,7 +18,7 @@ class BaseJudgeResponse(BaseModel):
     reasoning: str = Field(..., description="Reasoning for the assigned score.")
 
 
-def _stringify_scoring(options: dict, enum_type: Type[Enum]) -> str:
+def _stringify_scoring(options: dict, enum_type: type[Enum]) -> str:
     """Convert score descriptions into a single text block."""
     list_block = "\n".join(
         [SCORING_FORMAT.format(score=score, description=description) for score, description in options.items()]
@@ -27,7 +26,7 @@ def _stringify_scoring(options: dict, enum_type: Type[Enum]) -> str:
     return SCORE_FIELD_DESCRIPTION_FORMAT.format(enum_name=enum_type.__name__, scoring=list_block)
 
 
-def create_judge_response_model(score: Score) -> Type[BaseJudgeResponse]:
+def create_judge_response_model(score: Score) -> type[BaseJudgeResponse]:
     """Create a JudgeResponse data type."""
     enum_members = {}
     for option in score.options.keys():
@@ -46,8 +45,8 @@ def create_judge_response_model(score: Score) -> Type[BaseJudgeResponse]:
 
 
 def create_judge_structured_output_model(
-    judge_responses: list[Type[BaseJudgeResponse]],
-) -> Type[BaseModel]:
+    judge_responses: list[type[BaseJudgeResponse]],
+) -> type[BaseModel]:
     """Create a JudgeStructuredOutput class dynamically."""
     return create_model(
         "JudgeStructuredOutput",

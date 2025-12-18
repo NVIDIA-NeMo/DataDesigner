@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Optional
+from typing import Annotated
 
 from pydantic import Field
 
@@ -33,8 +33,8 @@ class DataDesignerConfig(ExportableConfigBase):
     """
 
     columns: list[Annotated[ColumnConfigT, Field(discriminator="column_type")]] = Field(min_length=1)
-    model_configs: Optional[list[ModelConfig]] = None
-    seed_config: Optional[SeedConfig] = None
-    constraints: Optional[list[ColumnConstraintT]] = None
-    profilers: Optional[list[ColumnProfilerConfigT]] = None
-    processors: Optional[list[Annotated[ProcessorConfigT, Field(discriminator="processor_type")]]] = None
+    model_configs: list[ModelConfig] | None = None
+    seed_config: SeedConfig | None = None
+    constraints: list[ColumnConstraintT] | None = None
+    profilers: list[ColumnProfilerConfigT] | None = None
+    processors: list[Annotated[ProcessorConfigT, Field(discriminator="processor_type")]] | None = None

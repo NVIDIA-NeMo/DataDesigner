@@ -5,7 +5,7 @@ import logging
 from abc import ABC, abstractmethod
 from enum import Enum
 from pathlib import Path
-from typing import Any, Generic, List, Literal, Optional, TypeVar, Union
+from typing import Any, Generic, Literal, TypeVar
 
 import numpy as np
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -74,7 +74,7 @@ class ImageContext(ModalityContext):
     """
 
     modality: Modality = Modality.IMAGE
-    image_format: Optional[ImageFormat] = None
+    image_format: ImageFormat | None = None
 
     def get_context(self, record: dict) -> dict[str, Any]:
         """Get the context for the image modality.
@@ -122,8 +122,8 @@ class ManualDistributionParams(ConfigBase):
         weights: Optional list of weights for each value. If not provided, all values have equal probability.
     """
 
-    values: List[float] = Field(min_length=1)
-    weights: Optional[List[float]] = None
+    values: list[float] = Field(min_length=1)
+    weights: list[float] | None = None
 
     @model_validator(mode="after")
     def _normalize_weights(self) -> Self:
@@ -149,7 +149,7 @@ class ManualDistribution(Distribution[ManualDistributionParams]):
         params: Distribution parameters (values, weights).
     """
 
-    distribution_type: Optional[DistributionType] = "manual"
+    distribution_type: DistributionType | None = "manual"
     params: ManualDistributionParams
 
     def sample(self) -> float:
@@ -190,7 +190,7 @@ class UniformDistribution(Distribution[UniformDistributionParams]):
         params: Distribution parameters (low, high).
     """
 
-    distribution_type: Optional[DistributionType] = "uniform"
+    distribution_type: DistributionType | None = "uniform"
     params: UniformDistributionParams
 
     def sample(self) -> float:
@@ -202,7 +202,7 @@ class UniformDistribution(Distribution[UniformDistributionParams]):
         return float(np.random.uniform(low=self.params.low, high=self.params.high, size=1)[0])
 
 
-DistributionT: TypeAlias = Union[UniformDistribution, ManualDistribution]
+DistributionT: TypeAlias = UniformDistribution | ManualDistribution
 
 
 class GenerationType(str, Enum):
@@ -222,8 +222,8 @@ class BaseInferenceParams(ConfigBase, ABC):
 
     generation_type: GenerationType
     max_parallel_requests: int = Field(default=4, ge=1)
-    timeout: Optional[int] = Field(default=None, ge=1)
-    extra_body: Optional[dict[str, Any]] = None
+    timeout: int | None = Field(default=None, ge=1)
+    extra_body: dict[str, Any] | None = None
 
     @property
     def generate_kwargs(self) -> dict[str, Any]:
@@ -282,9 +282,9 @@ class ChatCompletionInferenceParams(BaseInferenceParams):
     """
 
     generation_type: Literal[GenerationType.CHAT_COMPLETION] = GenerationType.CHAT_COMPLETION
-    temperature: Optional[Union[float, DistributionT]] = None
-    top_p: Optional[Union[float, DistributionT]] = None
-    max_tokens: Optional[int] = Field(default=None, ge=1)
+    temperature: float | DistributionT | None = None
+    top_p: float | DistributionT | None = None
+    max_tokens: int | None = Field(default=None, ge=1)
 
     @property
     def generate_kwargs(self) -> dict[str, Any]:
@@ -319,7 +319,7 @@ class ChatCompletionInferenceParams(BaseInferenceParams):
 
     def _run_validation(
         self,
-        value: Union[float, DistributionT, None],
+        value: float | DistributionT | None,
         param_name: str,
         min_value: float,
         max_value: float,
@@ -383,10 +383,10 @@ class EmbeddingInferenceParams(BaseInferenceParams):
 
     generation_type: Literal[GenerationType.EMBEDDING] = GenerationType.EMBEDDING
     encoding_format: Literal["float", "base64"] = "float"
-    dimensions: Optional[int] = None
+    dimensions: int | None = None
 
     @property
-    def generate_kwargs(self) -> dict[str, Union[float, int]]:
+    def generate_kwargs(self) -> dict[str, float | int]:
         result = super().generate_kwargs
         if self.encoding_format is not None:
             result["encoding_format"] = self.encoding_format
@@ -395,7 +395,7 @@ class EmbeddingInferenceParams(BaseInferenceParams):
         return result
 
 
-InferenceParamsT: TypeAlias = Union[ChatCompletionInferenceParams, EmbeddingInferenceParams, InferenceParameters]
+InferenceParamsT: TypeAlias = ChatCompletionInferenceParams | EmbeddingInferenceParams | InferenceParameters
 
 
 class ModelConfig(ConfigBase):
@@ -412,7 +412,7 @@ class ModelConfig(ConfigBase):
     alias: str
     model: str
     inference_parameters: InferenceParamsT = Field(default_factory=ChatCompletionInferenceParams)
-    provider: Optional[str] = None
+    provider: str | None = None
 
     @property
     def generation_type(self) -> GenerationType:
@@ -446,11 +446,11 @@ class ModelProvider(ConfigBase):
     name: str
     endpoint: str
     provider_type: str = "openai"
-    api_key: Optional[str] = None
-    extra_body: Optional[dict[str, Any]] = None
+    api_key: str | None = None
+    extra_body: dict[str, Any] | None = None
 
 
-def load_model_configs(model_configs: Union[list[ModelConfig], str, Path]) -> list[ModelConfig]:
+def load_model_configs(model_configs: list[ModelConfig] | str | Path) -> list[ModelConfig]:
     if isinstance(model_configs, list) and all(isinstance(mc, ModelConfig) for mc in model_configs):
         return model_configs
     json_config = smart_load_yaml(model_configs)

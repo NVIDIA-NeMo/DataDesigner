@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Any, Literal, Optional, Union
+from typing import Any, Literal
 
 from pandas import Series
 from pydantic import BaseModel, ConfigDict, create_model, field_validator, model_validator
@@ -69,19 +69,19 @@ class GeneralColumnStatistics(BaseColumnStatistics):
     """
 
     column_name: str
-    num_records: Union[int, MissingValue]
-    num_null: Union[int, MissingValue]
-    num_unique: Union[int, MissingValue]
+    num_records: int | MissingValue
+    num_null: int | MissingValue
+    num_unique: int | MissingValue
     pyarrow_dtype: str
     simple_dtype: str
     column_type: Literal["general"] = "general"
 
     @field_validator("num_null", "num_unique", "num_records", mode="before")
-    def general_statistics_ensure_python_integers(cls, v: Union[int, MissingValue]) -> Union[int, MissingValue]:
+    def general_statistics_ensure_python_integers(cls, v: int | MissingValue) -> int | MissingValue:
         return v if isinstance(v, MissingValue) else prepare_number_for_reporting(v, int)
 
     @property
-    def percent_null(self) -> Union[float, MissingValue]:
+    def percent_null(self) -> float | MissingValue:
         return (
             self.num_null
             if self._is_missing_value(self.num_null)
@@ -89,7 +89,7 @@ class GeneralColumnStatistics(BaseColumnStatistics):
         )
 
     @property
-    def percent_unique(self) -> Union[float, MissingValue]:
+    def percent_unique(self) -> float | MissingValue:
         return (
             self.num_unique
             if self._is_missing_value(self.num_unique)
@@ -108,7 +108,7 @@ class GeneralColumnStatistics(BaseColumnStatistics):
     def create_report_row_data(self) -> dict[str, str]:
         return self._general_display_row
 
-    def _is_missing_value(self, v: Union[float, int, MissingValue]) -> bool:
+    def _is_missing_value(self, v: float | int | MissingValue) -> bool:
         return v in set(MissingValue)
 
 
@@ -128,12 +128,12 @@ class LLMTextColumnStatistics(GeneralColumnStatistics):
         column_type: Discriminator field, always "llm-text" for this statistics type.
     """
 
-    output_tokens_mean: Union[float, MissingValue]
-    output_tokens_median: Union[float, MissingValue]
-    output_tokens_stddev: Union[float, MissingValue]
-    input_tokens_mean: Union[float, MissingValue]
-    input_tokens_median: Union[float, MissingValue]
-    input_tokens_stddev: Union[float, MissingValue]
+    output_tokens_mean: float | MissingValue
+    output_tokens_median: float | MissingValue
+    output_tokens_stddev: float | MissingValue
+    input_tokens_mean: float | MissingValue
+    input_tokens_median: float | MissingValue
+    input_tokens_stddev: float | MissingValue
     column_type: Literal[DataDesignerColumnType.LLM_TEXT.value] = DataDesignerColumnType.LLM_TEXT.value
 
     @field_validator(
@@ -145,7 +145,7 @@ class LLMTextColumnStatistics(GeneralColumnStatistics):
         "input_tokens_stddev",
         mode="before",
     )
-    def llm_column_ensure_python_floats(cls, v: Union[float, int, MissingValue]) -> Union[float, int, MissingValue]:
+    def llm_column_ensure_python_floats(cls, v: float | int | MissingValue) -> float | int | MissingValue:
         return v if isinstance(v, MissingValue) else prepare_number_for_reporting(v, float)
 
     def create_report_row_data(self) -> dict[str, Any]:
@@ -225,7 +225,7 @@ class SamplerColumnStatistics(GeneralColumnStatistics):
 
     sampler_type: SamplerType
     distribution_type: ColumnDistributionType
-    distribution: Optional[Union[CategoricalDistribution, NumericalDistribution, MissingValue]]
+    distribution: CategoricalDistribution | NumericalDistribution | MissingValue | None
     column_type: Literal[DataDesignerColumnType.SAMPLER.value] = DataDesignerColumnType.SAMPLER.value
 
     def create_report_row_data(self) -> dict[str, str]:
@@ -273,15 +273,15 @@ class ValidationColumnStatistics(GeneralColumnStatistics):
         column_type: Discriminator field, always "validation" for this statistics type.
     """
 
-    num_valid_records: Union[int, MissingValue]
+    num_valid_records: int | MissingValue
     column_type: Literal[DataDesignerColumnType.VALIDATION.value] = DataDesignerColumnType.VALIDATION.value
 
     @field_validator("num_valid_records", mode="before")
-    def code_validation_column_ensure_python_integers(cls, v: Union[int, MissingValue]) -> Union[int, MissingValue]:
+    def code_validation_column_ensure_python_integers(cls, v: int | MissingValue) -> int | MissingValue:
         return v if isinstance(v, MissingValue) else prepare_number_for_reporting(v, int)
 
     @property
-    def percent_valid(self) -> Union[float, MissingValue]:
+    def percent_valid(self) -> float | MissingValue:
         return (
             self.num_valid_records
             if self._is_missing_value(self.num_valid_records)
@@ -303,7 +303,7 @@ class CategoricalHistogramData(BaseModel):
         counts: List of occurrence counts for each category.
     """
 
-    categories: list[Union[float, int, str]]
+    categories: list[float | int | str]
     counts: list[int]
 
     @model_validator(mode="after")
@@ -328,12 +328,12 @@ class CategoricalDistribution(BaseModel):
         histogram: Complete frequency distribution showing all categories and their counts.
     """
 
-    most_common_value: Union[str, int]
-    least_common_value: Union[str, int]
+    most_common_value: str | int
+    least_common_value: str | int
     histogram: CategoricalHistogramData
 
     @field_validator("most_common_value", "least_common_value", mode="before")
-    def ensure_python_types(cls, v: Union[str, int]) -> Union[str, int]:
+    def ensure_python_types(cls, v: str | int) -> str | int:
         return str(v) if not is_int(v) else prepare_number_for_reporting(v, int)
 
     @classmethod
@@ -357,14 +357,14 @@ class NumericalDistribution(BaseModel):
         median: Median value of the distribution.
     """
 
-    min: Union[float, int]
-    max: Union[float, int]
+    min: float | int
+    max: float | int
     mean: float
     stddev: float
     median: float
 
     @field_validator("min", "max", "mean", "stddev", "median", mode="before")
-    def ensure_python_types(cls, v: Union[float, int]) -> Union[float, int]:
+    def ensure_python_types(cls, v: float | int) -> float | int:
         return prepare_number_for_reporting(v, int if is_int(v) else float)
 
     @classmethod
@@ -378,17 +378,17 @@ class NumericalDistribution(BaseModel):
         )
 
 
-ColumnStatisticsT: TypeAlias = Union[
-    GeneralColumnStatistics,
-    LLMTextColumnStatistics,
-    LLMCodeColumnStatistics,
-    LLMStructuredColumnStatistics,
-    LLMJudgedColumnStatistics,
-    SamplerColumnStatistics,
-    SeedDatasetColumnStatistics,
-    ValidationColumnStatistics,
-    ExpressionColumnStatistics,
-]
+ColumnStatisticsT: TypeAlias = (
+    GeneralColumnStatistics
+    | LLMTextColumnStatistics
+    | LLMCodeColumnStatistics
+    | LLMStructuredColumnStatistics
+    | LLMJudgedColumnStatistics
+    | SamplerColumnStatistics
+    | SeedDatasetColumnStatistics
+    | ValidationColumnStatistics
+    | ExpressionColumnStatistics
+)
 
 
 DEFAULT_COLUMN_STATISTICS_MAP = {
