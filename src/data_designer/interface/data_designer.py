@@ -5,12 +5,6 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from data_designer.engine.analysis.dataset_profiler import DataDesignerDatasetProfiler
-    from data_designer.engine.dataset_builders.column_wise_builder import ColumnWiseDatasetBuilder
-    from data_designer.engine.resources.resource_provider import ResourceProvider
 
 # Lazy-loaded third-party and engine components via facades
 from data_designer import engine, lazy_imports
@@ -328,8 +322,8 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         return model_providers or []
 
     def _create_dataset_builder(
-        self, config_builder: DataDesignerConfigBuilder, resource_provider: ResourceProvider
-    ) -> ColumnWiseDatasetBuilder:
+        self, config_builder: DataDesignerConfigBuilder, resource_provider: engine.ResourceProvider
+    ) -> engine.ColumnWiseDatasetBuilder:
         return engine.ColumnWiseDatasetBuilder(
             column_configs=engine.compile_dataset_builder_column_configs(config_builder.build(raise_exceptions=True)),
             processor_configs=config_builder.get_processor_configs(),
@@ -337,8 +331,8 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         )
 
     def _create_dataset_profiler(
-        self, config_builder: DataDesignerConfigBuilder, resource_provider: ResourceProvider
-    ) -> DataDesignerDatasetProfiler:
+        self, config_builder: DataDesignerConfigBuilder, resource_provider: engine.ResourceProvider
+    ) -> engine.DataDesignerDatasetProfiler:
         return engine.DataDesignerDatasetProfiler(
             config=engine.DatasetProfilerConfig(
                 column_configs=config_builder.get_column_configs(),
@@ -349,7 +343,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
 
     def _create_resource_provider(
         self, dataset_name: str, config_builder: DataDesignerConfigBuilder
-    ) -> ResourceProvider:
+    ) -> engine.ResourceProvider:
         model_configs = config_builder.model_configs
         engine.ArtifactStorage.mkdir_if_needed(self._artifact_path)
         return engine.ResourceProvider(
