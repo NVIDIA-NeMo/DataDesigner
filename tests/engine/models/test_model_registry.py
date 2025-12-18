@@ -9,7 +9,7 @@ from data_designer.config.models import ChatCompletionInferenceParams, ModelConf
 from data_designer.engine.models.errors import ModelAuthenticationError
 from data_designer.engine.models.facade import ModelFacade
 from data_designer.engine.models.registry import ModelRegistry, create_model_registry
-from data_designer.engine.models.usage import RequestUsageStats, TokenUsageStats
+from data_designer.engine.models.usage import ModelUsageStats, RequestUsageStats, TokenUsageStats
 
 
 @pytest.fixture
@@ -155,6 +155,120 @@ def test_get_model_usage_stats(
         )
         usage_stats = stub_model_registry.get_model_usage_stats(total_time_elapsed=10)
         assert set(usage_stats.keys()) == set(expected_keys)
+
+
+@pytest.mark.parametrize(
+    "test_case,expected_keys",
+    [
+        ("no_models", []),
+        ("with_usage", ["stub-model-text", "stub-model-reasoning"]),
+        ("no_usage", []),
+    ],
+)
+def test_get_model_usage_snapshot(
+    stub_model_registry: ModelRegistry,
+    stub_empty_model_registry: ModelRegistry,
+    test_case: str,
+    expected_keys: list[str],
+) -> None:
+    if test_case == "no_models":
+        snapshot = stub_empty_model_registry.get_model_usage_snapshot()
+        assert snapshot == {}
+    elif test_case == "with_usage":
+        text_model = stub_model_registry.get_model(model_alias="stub-text")
+        reasoning_model = stub_model_registry.get_model(model_alias="stub-reasoning")
+
+        text_model.usage_stats.extend(
+            token_usage=TokenUsageStats(input_tokens=10, output_tokens=100),
+            request_usage=RequestUsageStats(successful_requests=5, failed_requests=1),
+        )
+        reasoning_model.usage_stats.extend(
+            token_usage=TokenUsageStats(input_tokens=20, output_tokens=200),
+            request_usage=RequestUsageStats(successful_requests=10, failed_requests=2),
+        )
+
+        snapshot = stub_model_registry.get_model_usage_snapshot()
+
+        assert set(snapshot.keys()) == set(expected_keys)
+        assert all(isinstance(stats, ModelUsageStats) for stats in snapshot.values())
+
+        assert snapshot["stub-model-text"].token_usage.input_tokens == 10
+        assert snapshot["stub-model-text"].token_usage.output_tokens == 100
+        assert snapshot["stub-model-reasoning"].token_usage.input_tokens == 20
+        assert snapshot["stub-model-reasoning"].token_usage.output_tokens == 200
+
+        snapshot["stub-model-text"].token_usage.input_tokens = 999
+        assert text_model.usage_stats.token_usage.input_tokens == 10
+    else:
+        stub_model_registry.get_model(model_alias="stub-text")
+        stub_model_registry.get_model(model_alias="stub-reasoning")
+
+        snapshot = stub_model_registry.get_model_usage_snapshot()
+        assert snapshot == {}
+
+
+@pytest.mark.parametrize(
+    "test_case,expected_keys",
+    [
+        ("no_prior_usage", ["stub-model-text"]),
+        ("with_prior_usage", ["stub-model-text"]),
+        ("no_change", []),
+    ],
+)
+def test_get_usage_deltas(
+    stub_model_registry: ModelRegistry,
+    test_case: str,
+    expected_keys: list[str],
+) -> None:
+    text_model = stub_model_registry.get_model(model_alias="stub-text")
+
+    if test_case == "no_prior_usage":
+        # Empty snapshot, then add usage
+        pre_snapshot: dict[str, ModelUsageStats] = {}
+        text_model.usage_stats.extend(
+            token_usage=TokenUsageStats(input_tokens=50, output_tokens=100),
+            request_usage=RequestUsageStats(successful_requests=5, failed_requests=1),
+        )
+
+        deltas = stub_model_registry.get_usage_deltas(pre_snapshot)
+
+        assert set(deltas.keys()) == set(expected_keys)
+        assert deltas["stub-model-text"].token_usage.input_tokens == 50
+        assert deltas["stub-model-text"].token_usage.output_tokens == 100
+        assert deltas["stub-model-text"].request_usage.successful_requests == 5
+        assert deltas["stub-model-text"].request_usage.failed_requests == 1
+
+    elif test_case == "with_prior_usage":
+        # Add initial usage, take snapshot, add more usage
+        text_model.usage_stats.extend(
+            token_usage=TokenUsageStats(input_tokens=100, output_tokens=200),
+            request_usage=RequestUsageStats(successful_requests=10, failed_requests=2),
+        )
+        pre_snapshot = stub_model_registry.get_model_usage_snapshot()
+
+        text_model.usage_stats.extend(
+            token_usage=TokenUsageStats(input_tokens=50, output_tokens=75),
+            request_usage=RequestUsageStats(successful_requests=3, failed_requests=1),
+        )
+
+        deltas = stub_model_registry.get_usage_deltas(pre_snapshot)
+
+        assert set(deltas.keys()) == set(expected_keys)
+        assert deltas["stub-model-text"].token_usage.input_tokens == 50
+        assert deltas["stub-model-text"].token_usage.output_tokens == 75
+        assert deltas["stub-model-text"].request_usage.successful_requests == 3
+        assert deltas["stub-model-text"].request_usage.failed_requests == 1
+
+    else:  # no_change
+        text_model.usage_stats.extend(
+            token_usage=TokenUsageStats(input_tokens=100, output_tokens=200),
+            request_usage=RequestUsageStats(successful_requests=10, failed_requests=2),
+        )
+        pre_snapshot = stub_model_registry.get_model_usage_snapshot()
+
+        # No additional usage after snapshot
+        deltas = stub_model_registry.get_usage_deltas(pre_snapshot)
+        assert deltas == {}
 
 
 @patch("data_designer.engine.models.facade.ModelFacade.generate_text_embeddings", autospec=True)
