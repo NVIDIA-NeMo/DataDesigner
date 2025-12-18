@@ -1024,9 +1024,18 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#step-2-download-nemotron-personas-datasets" class="md-nav__link">
+  <a href="#step-2-option-1-download-nemotron-personas-datasets-via-the-data-designer-cli" class="md-nav__link">
     <span class="md-ellipsis">
-      Step 2: Download Nemotron Personas Datasets
+      Step 2 (option 1): Download Nemotron Personas Datasets via the Data Designer CLI
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-2-option-2-download-nemotron-personas-datasets-directly" class="md-nav__link">
+    <span class="md-ellipsis">
+      Step 2 (option 2): Download Nemotron Personas Datasets Directly
     </span>
   </a>
   
@@ -2004,9 +2013,18 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#step-2-download-nemotron-personas-datasets" class="md-nav__link">
+  <a href="#step-2-option-1-download-nemotron-personas-datasets-via-the-data-designer-cli" class="md-nav__link">
     <span class="md-ellipsis">
-      Step 2: Download Nemotron Personas Datasets
+      Step 2 (option 1): Download Nemotron Personas Datasets via the Data Designer CLI
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-2-option-2-download-nemotron-personas-datasets-directly" class="md-nav__link">
+    <span class="md-ellipsis">
+      Step 2 (option 2): Download Nemotron Personas Datasets Directly
     </span>
   </a>
   
@@ -2116,6 +2134,12 @@
 <h3 id="what-it-does_1">What It Does</h3>
 <p>Uses curated Nemotron Personas datasets from NVIDIA GPU Cloud (NGC) to generate demographically accurate person data with rich personality profiles and behavioral characteristics.</p>
 <p>The NGC datasets are extended versions of the <a href="https://huggingface.co/collections/nvidia/nemotron-personas">open-source Nemotron Personas datasets on HuggingFace</a>, with additional fields and enhanced data quality.</p>
+<p>Supported locales:
+- <code>en_US</code>: United States
+- <code>ja_JP</code>: Japan
+- <code>en_IN</code>: India
+- <code>hi_Deva_IN</code>: India (Devanagari script)
+- <code>hi_Latn_IN</code>: India (Latin script)</p>
 <h3 id="features_1">Features</h3>
 <ul>
 <li><strong>Demographically accurate personal details</strong>: Names, ages, sex, marital status, education, occupation based on census data</li>
@@ -2138,7 +2162,15 @@
 <h4 id="step-1-set-your-ngc-api-key">Step 1: Set Your NGC API Key</h4>
 <div class="language-bash highlight"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">NGC_API_KEY</span><span class="o">=</span><span class="s2">&quot;your-ngc-api-key-here&quot;</span>
 </code></pre></div>
-<h4 id="step-2-download-nemotron-personas-datasets">Step 2: Download Nemotron Personas Datasets</h4>
+<h4 id="step-2-option-1-download-nemotron-personas-datasets-via-the-data-designer-cli">Step 2 (option 1): Download Nemotron Personas Datasets via the Data Designer CLI</h4>
+<p>Once you have the NGC CLI and your NGC API key set up, you can download the datasets via the Data Designer CLI.</p>
+<p>You can pass the locales you want to download as arguments to the CLI command:
+<div class="language-bash highlight"><pre><span></span><code>data-designer<span class="w"> </span>download<span class="w"> </span>personas<span class="w"> </span>--locale<span class="w"> </span>en_US<span class="w"> </span>--locale<span class="w"> </span>ja_JP
+</code></pre></div></p>
+<p>Or you can use the interactive mode to select the locales you want to download:
+<div class="language-bash highlight"><pre><span></span><code>data-designer<span class="w"> </span>download<span class="w"> </span>personas
+</code></pre></div></p>
+<h4 id="step-2-option-2-download-nemotron-personas-datasets-directly">Step 2 (option 2): Download Nemotron Personas Datasets Directly</h4>
 <p>Use the NGC CLI to download the datasets:
 <div class="language-bash highlight"><pre><span></span><code><span class="c1"># For Nemotron Personas USA</span>
 ngc<span class="w"> </span>registry<span class="w"> </span>resource<span class="w"> </span>download-version<span class="w"> </span><span class="s2">&quot;nvidia/nemotron-personas/nemotron-personas-dataset-en_us&quot;</span>
@@ -2296,7 +2328,7 @@ mv<span class="w"> </span>nemotron-personas-dataset-*/*.parquet<span class="w"> 
 </table>
 <p><strong>Japan-Specific Fields (<code>ja_JP</code>):</strong>
 - <code>area</code></p>
-<p><strong>India-Specific Fields (<code>en_IN</code>, <code>hi_IN</code>):</strong>
+<p><strong>India-Specific Fields (<code>en_IN</code>, <code>hi_IN</code>, <code>hi_Deva_IN</code>, <code>hi_Latn_IN</code>):</strong>
 - <code>religion</code> - Census-reported religion
 - <code>education_degree</code> - Census-reported education degree
 - <code>first_language</code> - Native language
@@ -2323,7 +2355,7 @@ mv<span class="w"> </span>nemotron-personas-dataset-*/*.parquet<span class="w"> 
 <tr>
 <td><code>locale</code></td>
 <td>str</td>
-<td>Language/region code - must be one of: "en_US", "ja_JP", "en_IN", "hi_IN"</td>
+<td>Language/region code - must be one of: "en_US", "ja_JP", "en_IN", "hi_Deva_IN", "hi_Latn_IN"</td>
 </tr>
 <tr>
 <td><code>sex</code></td>

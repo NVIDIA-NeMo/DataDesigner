@@ -4573,13 +4573,13 @@ additional keyword arguments to construct the processor config object.</p>
 
             <details class="quote">
               <summary>Source code in <code>src/data_designer/config/config_builder.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">613</span>
-<span class="normal">614</span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">614</span>
 <span class="normal">615</span>
 <span class="normal">616</span>
 <span class="normal">617</span>
 <span class="normal">618</span>
-<span class="normal">619</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">get_builder_config</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">BuilderConfig</span><span class="p">:</span>
+<span class="normal">619</span>
+<span class="normal">620</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">get_builder_config</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">BuilderConfig</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Get the builder config for the current Data Designer configuration.</span>
 
 <span class="sd">    Returns:</span>
@@ -5740,7 +5740,8 @@ additional keyword arguments to construct the processor config object.</p>
         <p>Add a seed dataset to the current Data Designer configuration.</p>
 <p>This method sets the seed dataset for the configuration and automatically creates
 SeedDatasetColumnConfig objects for each column found in the dataset. The column
-names are fetched from the dataset source (Hugging Face Hub or NeMo Microservices Datastore).</p>
+names are fetched from the dataset source, which can be the Hugging Face Hub, the
+NeMo Microservices Datastore, or in the case of direct library usage, a local file.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
@@ -5847,7 +5848,8 @@ Defaults to ORDERED sampling.</p>
 <span class="normal">588</span>
 <span class="normal">589</span>
 <span class="normal">590</span>
-<span class="normal">591</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">with_seed_dataset</span><span class="p">(</span>
+<span class="normal">591</span>
+<span class="normal">592</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">with_seed_dataset</span><span class="p">(</span>
     <span class="bp">self</span><span class="p">,</span>
     <span class="n">dataset_reference</span><span class="p">:</span> <span class="n">SeedDatasetReference</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
@@ -5858,7 +5860,8 @@ Defaults to ORDERED sampling.</p>
 
 <span class="sd">    This method sets the seed dataset for the configuration and automatically creates</span>
 <span class="sd">    SeedDatasetColumnConfig objects for each column found in the dataset. The column</span>
-<span class="sd">    names are fetched from the dataset source (Hugging Face Hub or NeMo Microservices Datastore).</span>
+<span class="sd">    names are fetched from the dataset source, which can be the Hugging Face Hub, the</span>
+<span class="sd">    NeMo Microservices Datastore, or in the case of direct library usage, a local file.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        dataset_reference: Seed dataset reference for fetching from the datastore.</span>
@@ -5986,8 +5989,7 @@ Defaults to ORDERED sampling.</p>
 
             <details class="quote">
               <summary>Source code in <code>src/data_designer/config/config_builder.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">593</span>
-<span class="normal">594</span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">594</span>
 <span class="normal">595</span>
 <span class="normal">596</span>
 <span class="normal">597</span>
@@ -6004,7 +6006,8 @@ Defaults to ORDERED sampling.</p>
 <span class="normal">608</span>
 <span class="normal">609</span>
 <span class="normal">610</span>
-<span class="normal">611</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">write_config</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span> <span class="n">indent</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="mi">2</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="normal">611</span>
+<span class="normal">612</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">write_config</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span> <span class="n">indent</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="mi">2</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Write the current configuration to a file.</span>
 
 <span class="sd">    Args:</span>

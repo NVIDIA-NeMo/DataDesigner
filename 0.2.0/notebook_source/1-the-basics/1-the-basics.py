@@ -314,7 +314,7 @@ preview.analysis.to_report()
 #
 
 # %%
-results = data_designer.create(config_builder, num_records=10)
+results = data_designer.create(config_builder, num_records=10, dataset_name="tutorial-1")
 
 # %%
 # Load the generated dataset as a pandas DataFrame.
