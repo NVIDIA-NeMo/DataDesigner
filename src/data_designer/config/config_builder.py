@@ -568,7 +568,8 @@ class DataDesignerConfigBuilder:
 
         This method sets the seed dataset for the configuration and automatically creates
         SeedDatasetColumnConfig objects for each column found in the dataset. The column
-        names are fetched from the dataset source (Hugging Face Hub or NeMo Microservices Datastore).
+        names are fetched from the dataset source, which can be the Hugging Face Hub, the
+        NeMo Microservices Datastore, or in the case of direct library usage, a local file.
 
         Args:
             dataset_reference: Seed dataset reference for fetching from the datastore.
