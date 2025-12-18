@@ -132,7 +132,7 @@ def test_get_file_column_names_with_filesystem_parquet():
     mock_schema = MagicMock()
     mock_schema.names = ["col1", "col2", "col3"]
 
-    with patch("data_designer.config.datastore.pq.read_schema") as mock_read_schema:
+    with patch("data_designer.lazy_imports.pq.read_schema") as mock_read_schema:
         mock_read_schema.return_value = mock_schema
         result = get_file_column_names("datasets/test/file.parquet", "parquet")
 
@@ -161,11 +161,11 @@ def test_get_file_column_names_error_handling():
     with pytest.raises(InvalidFilePathError, match="🛑 Unsupported file type: 'txt'"):
         get_file_column_names("test.txt", "txt")
 
-    with patch("data_designer.config.datastore.pq.read_schema") as mock_read_schema:
+    with patch("data_designer.lazy_imports.pq.read_schema") as mock_read_schema:
         mock_read_schema.side_effect = Exception("Test error")
         assert get_file_column_names("test.txt", "parquet") == []
 
-    with patch("data_designer.config.datastore.pq.read_schema") as mock_read_schema:
+    with patch("data_designer.lazy_imports.pq.read_schema") as mock_read_schema:
         mock_col1 = MagicMock()
         mock_col1.name = "col1"
         mock_col2 = MagicMock()

@@ -1,11 +1,19 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-import pandas as pd
+if TYPE_CHECKING:
+    from data_designer.engine.analysis.dataset_profiler import DataDesignerDatasetProfiler
+    from data_designer.engine.dataset_builders.column_wise_builder import ColumnWiseDatasetBuilder
+    from data_designer.engine.resources.resource_provider import ResourceProvider
 
+# Lazy-loaded third-party and engine components via facades
+from data_designer import engine, lazy_imports
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.default_model_settings import (
@@ -30,21 +38,7 @@ from data_designer.config.utils.constants import (
 )
 from data_designer.config.utils.info import InfoType, InterfaceInfo
 from data_designer.config.utils.io_helpers import write_seed_dataset
-from data_designer.engine.analysis.dataset_profiler import (
-    DataDesignerDatasetProfiler,
-    DatasetProfilerConfig,
-)
-from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
-from data_designer.engine.dataset_builders.column_wise_builder import ColumnWiseDatasetBuilder
-from data_designer.engine.dataset_builders.utils.config_compiler import compile_dataset_builder_column_configs
 from data_designer.engine.model_provider import resolve_model_provider_registry
-from data_designer.engine.models.registry import create_model_registry
-from data_designer.engine.resources.managed_storage import init_managed_blob_storage
-from data_designer.engine.resources.resource_provider import ResourceProvider
-from data_designer.engine.resources.seed_dataset_data_store import (
-    HfHubSeedDatasetDataStore,
-    LocalSeedDatasetDataStore,
-)
 from data_designer.engine.secret_resolver import (
     CompositeResolver,
     EnvironmentResolver,
@@ -119,7 +113,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
 
     @classmethod
     def make_seed_reference_from_dataframe(
-        cls, dataframe: pd.DataFrame, file_path: str | Path
+        cls, dataframe: "lazy_imports.pd.DataFrame", file_path: str | Path
     ) -> LocalSeedDatasetReference:
         """Create a seed dataset reference from a pandas DataFrame.
 
@@ -239,7 +233,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
 
         dropped_columns = raw_dataset.columns.difference(processed_dataset.columns)
         if len(dropped_columns) > 0:
-            dataset_for_profiler = pd.concat([processed_dataset, raw_dataset[dropped_columns]], axis=1)
+            dataset_for_profiler = lazy_imports.pd.concat([processed_dataset, raw_dataset[dropped_columns]], axis=1)
         else:
             dataset_for_profiler = processed_dataset
 
@@ -251,7 +245,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
 
         if builder.artifact_storage.processors_outputs_path.exists():
             processor_artifacts = {
-                processor_config.name: pd.read_parquet(
+                processor_config.name: lazy_imports.pd.read_parquet(
                     builder.artifact_storage.processors_outputs_path / f"{processor_config.name}.parquet",
                     dtype_backend="pyarrow",
                 ).to_dict(orient="records")
@@ -336,8 +330,8 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
     def _create_dataset_builder(
         self, config_builder: DataDesignerConfigBuilder, resource_provider: ResourceProvider
     ) -> ColumnWiseDatasetBuilder:
-        return ColumnWiseDatasetBuilder(
-            column_configs=compile_dataset_builder_column_configs(config_builder.build(raise_exceptions=True)),
+        return engine.ColumnWiseDatasetBuilder(
+            column_configs=engine.compile_dataset_builder_column_configs(config_builder.build(raise_exceptions=True)),
             processor_configs=config_builder.get_processor_configs(),
             resource_provider=resource_provider,
         )
@@ -345,8 +339,8 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
     def _create_dataset_profiler(
         self, config_builder: DataDesignerConfigBuilder, resource_provider: ResourceProvider
     ) -> DataDesignerDatasetProfiler:
-        return DataDesignerDatasetProfiler(
-            config=DatasetProfilerConfig(
+        return engine.DataDesignerDatasetProfiler(
+            config=engine.DatasetProfilerConfig(
                 column_configs=config_builder.get_column_configs(),
                 column_profiler_configs=config_builder.get_profilers(),
             ),
@@ -357,19 +351,19 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         self, dataset_name: str, config_builder: DataDesignerConfigBuilder
     ) -> ResourceProvider:
         model_configs = config_builder.model_configs
-        ArtifactStorage.mkdir_if_needed(self._artifact_path)
-        return ResourceProvider(
-            artifact_storage=ArtifactStorage(artifact_path=self._artifact_path, dataset_name=dataset_name),
-            model_registry=create_model_registry(
+        engine.ArtifactStorage.mkdir_if_needed(self._artifact_path)
+        return engine.ResourceProvider(
+            artifact_storage=engine.ArtifactStorage(artifact_path=self._artifact_path, dataset_name=dataset_name),
+            model_registry=engine.create_model_registry(
                 model_configs=model_configs,
                 model_provider_registry=self._model_provider_registry,
                 secret_resolver=self._secret_resolver,
             ),
-            blob_storage=init_managed_blob_storage(str(self._managed_assets_path)),
+            blob_storage=engine.init_managed_blob_storage(str(self._managed_assets_path)),
             datastore=(
-                LocalSeedDatasetDataStore()
+                engine.LocalSeedDatasetDataStore()
                 if (settings := config_builder.get_seed_datastore_settings()) is None
-                else HfHubSeedDatasetDataStore(
+                else engine.HfHubSeedDatasetDataStore(
                     endpoint=settings.endpoint,
                     token=settings.token,
                 )
