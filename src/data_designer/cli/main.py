@@ -3,7 +3,7 @@
 
 import typer
 
-from data_designer.cli.commands import download, models, providers, reset
+from data_designer.cli.commands import download, models, providers, reset, review
 from data_designer.cli.commands import list as list_cmd
 from data_designer.config.default_model_settings import resolve_seed_default_model_settings
 from data_designer.config.utils.misc import can_run_data_designer_locally
@@ -43,6 +43,9 @@ download_app.command(name="personas", help="Download Nemotron-Persona datasets")
 # Add command groups to main app
 app.add_typer(config_app, name="config")
 app.add_typer(download_app, name="download")
+
+# Add review command to main app
+app.command(name="review", help="Launch interactive dataset review UI")(review.review_command)
 
 
 def main() -> None:

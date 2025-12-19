@@ -110,6 +110,28 @@ data-designer config models    # Set up your model configurations
 data-designer config list      # View current settings
 ```
 
+### 📋 Review datasets
+
+Review and annotate generated datasets with an interactive web UI:
+
+```bash
+# Launch review UI for a dataset
+data-designer review --dataset output/my_dataset.parquet
+
+# Custom port and reviewer name
+data-designer review --dataset data.csv --port 8080 --reviewer john_doe
+```
+
+The review UI provides:
+- Navigate through records with Previous/Next buttons
+- Rate records with 👍/👎 feedback
+- Add optional comments for each record
+- Track review progress (X of Y records reviewed)
+- View all reviews in a filterable table
+- Export reviews to CSV for team sharing
+
+Reviews are saved as `{dataset_name}_reviews.csv` in the same directory as your dataset.
+
 ### 🤝 Get involved
 
 - **[Contributing Guide](https://nvidia-nemo.github.io/DataDesigner/latest/CONTRIBUTING)** – Help improve Data Designer
