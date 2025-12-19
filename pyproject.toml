@@ -44,7 +44,7 @@ dependencies = [
   "pyyaml>=6.0.1,<7",
   "requests<3,>=2.32.2",
   "rich>=13.7.1",
-  "ruff==0.12.3",
+  "ruff>=0.14.10,<1",
   "scipy>=1.11.0",
   "sqlfluff==3.2.0",
   "tiktoken>=0.8.0",
