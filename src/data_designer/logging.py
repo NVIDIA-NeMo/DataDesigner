@@ -6,7 +6,7 @@ import random
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TextIO, Union
+from typing import TextIO
 
 from pythonjsonlogger import jsonlogger
 
@@ -19,7 +19,7 @@ class LoggerConfig:
 
 @dataclass
 class OutputConfig:
-    destination: Union[TextIO, Path]
+    destination: TextIO | Path
     structured: bool
 
 

@@ -3,8 +3,8 @@
 
 import typer
 
+from data_designer.cli.commands import download, models, providers, reset
 from data_designer.cli.commands import list as list_cmd
-from data_designer.cli.commands import models, providers, reset
 from data_designer.config.default_model_settings import resolve_seed_default_model_settings
 from data_designer.config.utils.misc import can_run_data_designer_locally
 
@@ -32,7 +32,17 @@ config_app.command(name="models", help="Configure models interactively")(models.
 config_app.command(name="list", help="List current configurations")(list_cmd.list_command)
 config_app.command(name="reset", help="Reset configuration files")(reset.reset_command)
 
+# Create download command group
+download_app = typer.Typer(
+    name="download",
+    help="Download assets for Data Designer",
+    no_args_is_help=True,
+)
+download_app.command(name="personas", help="Download Nemotron-Persona datasets")(download.personas_command)
+
+# Add command groups to main app
 app.add_typer(config_app, name="config")
+app.add_typer(download_app, name="download")
 
 
 def main() -> None:

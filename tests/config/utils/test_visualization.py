@@ -8,7 +8,11 @@ import pytest
 
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.utils.code_lang import CodeLang
-from data_designer.config.utils.visualization import display_sample_record, get_truncated_list_as_string, mask_api_key
+from data_designer.config.utils.visualization import (
+    display_sample_record,
+    get_truncated_list_as_string,
+    mask_api_key,
+)
 from data_designer.config.validator_params import CodeValidatorParams
 
 

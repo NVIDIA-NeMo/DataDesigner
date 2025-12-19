@@ -296,3 +296,92 @@ def test_model_config_generation_type_from_dict():
     )
     assert isinstance(model_config.inference_parameters, ChatCompletionInferenceParams)
     assert model_config.generation_type == GenerationType.CHAT_COMPLETION
+
+
+def test_chat_completion_params_format_for_display_all_params():
+    """Test formatting chat completion model with all parameters."""
+    params = ChatCompletionInferenceParams(
+        temperature=0.7,
+        top_p=0.9,
+        max_tokens=2048,
+        max_parallel_requests=4,
+        timeout=60,
+    )
+    result = params.format_for_display()
+    assert "generation_type=chat-completion" in result
+    assert "temperature=0.70" in result
+    assert "top_p=0.90" in result
+    assert "max_tokens=2048" in result
+    assert "max_parallel_requests=4" in result
+    assert "timeout=60" in result
+
+
+def test_chat_completion_params_format_for_display_partial_params():
+    """Test formatting chat completion model with partial parameters (some None)."""
+    params = ChatCompletionInferenceParams(
+        temperature=0.5,
+        max_tokens=1024,
+    )
+    result = params.format_for_display()
+    assert "generation_type=chat-completion" in result
+    assert "temperature=0.50" in result
+    assert "max_tokens=1024" in result
+    # None values should be excluded
+    assert "top_p" not in result
+    assert "timeout" not in result
+
+
+def test_embedding_params_format_for_display():
+    """Test formatting embedding model parameters."""
+    params = EmbeddingInferenceParams(
+        encoding_format="float",
+        dimensions=1024,
+        max_parallel_requests=8,
+    )
+    result = params.format_for_display()
+    assert "generation_type=embedding" in result
+    assert "encoding_format=float" in result
+    assert "dimensions=1024" in result
+    assert "max_parallel_requests=8" in result
+    # Chat completion params should not appear
+    assert "temperature" not in result
+    assert "top_p" not in result
+
+
+def test_chat_completion_params_format_for_display_with_distribution():
+    """Test formatting parameters with distribution (should show 'dist')."""
+    params = ChatCompletionInferenceParams(
+        temperature=UniformDistribution(
+            distribution_type="uniform",
+            params=UniformDistributionParams(low=0.5, high=0.9),
+        ),
+        max_tokens=2048,
+    )
+    result = params.format_for_display()
+    assert "generation_type=chat-completion" in result
+    assert "temperature=dist" in result
+    assert "max_tokens=2048" in result
+
+
+def test_inference_params_format_for_display_float_formatting():
+    """Test that float values are formatted to 2 decimal places."""
+    params = ChatCompletionInferenceParams(
+        temperature=0.123456,
+        top_p=0.987654,
+    )
+    result = params.format_for_display()
+    assert "temperature=0.12" in result
+    assert "top_p=0.99" in result
+
+
+def test_inference_params_format_for_display_minimal_params():
+    """Test formatting with only required parameters."""
+    params = ChatCompletionInferenceParams()
+    result = params.format_for_display()
+    assert "generation_type=chat-completion" in result
+    assert "max_parallel_requests=4" in result  # Default value
+    # Optional params should not appear when None
+    assert "temperature" not in result
+    assert "top_p" not in result
+    assert "max_tokens" not in result
+    assert "timeout" not in result

@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any
 
 import yaml
 from pydantic import BaseModel, ConfigDict
@@ -31,7 +31,7 @@ class ExportableConfigBase(ConfigBase):
         """
         return self.model_dump(mode="json")
 
-    def to_yaml(self, path: Optional[Union[str, Path]] = None, *, indent: Optional[int] = 2, **kwargs) -> Optional[str]:
+    def to_yaml(self, path: str | Path | None = None, *, indent: int | None = 2, **kwargs) -> str | None:
         """Convert the configuration to a YAML string or file.
 
         Args:
@@ -49,7 +49,7 @@ class ExportableConfigBase(ConfigBase):
         with open(path, "w") as f:
             f.write(yaml_str)
 
-    def to_json(self, path: Optional[Union[str, Path]] = None, *, indent: Optional[int] = 2, **kwargs) -> Optional[str]:
+    def to_json(self, path: str | Path | None = None, *, indent: int | None = 2, **kwargs) -> str | None:
         """Convert the configuration to a JSON string or file.
 
         Args:

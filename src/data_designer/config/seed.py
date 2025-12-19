@@ -3,7 +3,6 @@
 
 from abc import ABC
 from enum import Enum
-from typing import Optional, Union
 
 from pydantic import Field, field_validator, model_validator
 from typing_extensions import Self
@@ -112,7 +111,7 @@ class SeedConfig(ConfigBase):
 
     dataset: str
     sampling_strategy: SamplingStrategy = SamplingStrategy.ORDERED
-    selection_strategy: Optional[Union[IndexRange, PartitionBlock]] = None
+    selection_strategy: IndexRange | PartitionBlock | None = None
 
 
 class SeedDatasetReference(ABC, ConfigBase):

@@ -1,7 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from typing import Union
 
 from typing_extensions import TypeAlias
 
@@ -27,17 +26,17 @@ from data_designer.plugin_manager import PluginManager
 
 plugin_manager = PluginManager()
 
-ColumnConfigT: TypeAlias = Union[
-    ExpressionColumnConfig,
-    LLMCodeColumnConfig,
-    LLMJudgeColumnConfig,
-    LLMStructuredColumnConfig,
-    LLMTextColumnConfig,
-    SamplerColumnConfig,
-    SeedDatasetColumnConfig,
-    ValidationColumnConfig,
-    EmbeddingColumnConfig,
-]
+ColumnConfigT: TypeAlias = (
+    ExpressionColumnConfig
+    | LLMCodeColumnConfig
+    | LLMJudgeColumnConfig
+    | LLMStructuredColumnConfig
+    | LLMTextColumnConfig
+    | SamplerColumnConfig
+    | SeedDatasetColumnConfig
+    | ValidationColumnConfig
+    | EmbeddingColumnConfig
+)
 ColumnConfigT = plugin_manager.inject_into_column_config_type_union(ColumnConfigT)
 
 DataDesignerColumnType = create_str_enum_from_discriminated_type_union(
@@ -63,7 +62,7 @@ COLUMN_TYPE_EMOJI_MAP.update(
 )
 
 
-def column_type_used_in_execution_dag(column_type: Union[str, DataDesignerColumnType]) -> bool:
+def column_type_used_in_execution_dag(column_type: str | DataDesignerColumnType) -> bool:
     """Return True if the column type is used in the workflow execution DAG."""
     column_type = resolve_string_enum(column_type, DataDesignerColumnType)
     dag_column_types = {
@@ -79,7 +78,7 @@ def column_type_used_in_execution_dag(column_type: Union[str, DataDesignerColumn
     return column_type in dag_column_types
 
 
-def column_type_is_model_generated(column_type: Union[str, DataDesignerColumnType]) -> bool:
+def column_type_is_model_generated(column_type: str | DataDesignerColumnType) -> bool:
     """Return True if the column type is a model-generated column."""
     column_type = resolve_string_enum(column_type, DataDesignerColumnType)
     model_generated_column_types = {

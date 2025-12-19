@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING
 
 from rich.align import Align
 from rich.console import Console, Group
@@ -48,8 +48,8 @@ DEFAULT_INCLUDE_SECTIONS = [
 
 def generate_analysis_report(
     analysis: DatasetProfilerResults,
-    save_path: Optional[Union[str, Path]] = None,
-    include_sections: Optional[list[Union[ReportSection, DataDesignerColumnType]]] = None,
+    save_path: str | Path | None = None,
+    include_sections: list[ReportSection | DataDesignerColumnType] | None = None,
 ) -> None:
     """Generate an analysis report for dataset profiling results.
 

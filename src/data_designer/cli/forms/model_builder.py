@@ -42,10 +42,10 @@ class ModelFormBuilder(FormBuilder[ModelConfig]):
         fields.append(
             TextField(
                 "model",
-                "Model ID",
+                "Model",
                 default=initial_data.get("model") if initial_data else None,
                 required=True,
-                validator=lambda x: (False, "Model ID is required") if not x else (True, None),
+                validator=lambda x: (False, "Model is required") if not x else (True, None),
             )
         )
 

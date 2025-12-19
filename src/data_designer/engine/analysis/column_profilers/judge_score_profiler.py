@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import logging
 import random
-from typing import Union
 
 from data_designer.config.analysis.column_profilers import (
     JudgeScoreProfilerConfig,
@@ -96,7 +95,7 @@ class JudgeScoreProfiler(ColumnProfiler[JudgeScoreProfilerConfig]):
         name: str,
         sample: list[JudgeScoreSample],
         histogram: CategoricalHistogramData,
-        distribution: Union[CategoricalDistribution, NumericalDistribution, MissingValue],
+        distribution: CategoricalDistribution | NumericalDistribution | MissingValue,
         distribution_type: ColumnDistributionType,
     ) -> JudgeScoreSummary:
         if isinstance(distribution, MissingValue) or not sample:

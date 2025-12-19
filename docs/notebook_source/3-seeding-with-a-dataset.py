@@ -34,7 +34,6 @@ from data_designer.essentials import (
     DataDesigner,
     DataDesignerConfigBuilder,
     ModelConfig,
-    SeedConfig,
 )
 
 # %% [markdown]
@@ -46,7 +45,7 @@ from data_designer.essentials import (
 #
 
 # %%
-data_designer_client = DataDesigner()
+data_designer = DataDesigner()
 
 # %% [markdown]
 # ### 🎛️ Define model configurations
@@ -68,10 +67,7 @@ MODEL_PROVIDER = "nvidia"
 MODEL_ID = "nvidia/nemotron-3-nano-30b-a3b"
 
 # We choose this alias to be descriptive for our use case.
-MODEL_ALIAS = "nemotron-nano-v2"
-
-# This sets reasoning to False for the nemotron-nano-v2 model.
-SYSTEM_PROMPT = "/no_think"
+MODEL_ALIAS = "nemotron-nano-v3"
 
 model_configs = [
     ModelConfig(
@@ -79,9 +75,10 @@ model_configs = [
         model=MODEL_ID,
         provider=MODEL_PROVIDER,
         inference_parameters=ChatCompletionInferenceParams(
-            temperature=0.5,
+            temperature=1.0,
             top_p=1.0,
-            max_tokens=1024,
+            max_tokens=2048,
+            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
         ),
     )
 ]
@@ -124,12 +121,12 @@ config_builder = DataDesignerConfigBuilder(model_configs=model_configs)
 import urllib.request
 
 url = "https://raw.githubusercontent.com/NVIDIA/GenerativeAIExamples/refs/heads/main/nemo/NeMo-Data-Designer/data/gretelai_symptom_to_diagnosis.csv"
-local_filename, headers = urllib.request.urlretrieve(url, "gretelai_symptom_to_diagnosis.csv")
+local_filename, _ = urllib.request.urlretrieve(url, "gretelai_symptom_to_diagnosis.csv")
 
-seed_dataset = SeedConfig(dataset=local_filename)
+# Seed datasets are passed as reference objects to the config builder.
+seed_dataset_reference = data_designer.make_seed_reference_from_file(local_filename)
 
-# Pass the reference to the config builder for use during generation.
-config_builder.with_seed_dataset(seed_dataset)
+config_builder.with_seed_dataset(seed_dataset_reference)
 
 # %% [markdown]
 # ## 🎨 Designing our synthetic patient notes dataset
@@ -220,9 +217,9 @@ Write careful notes about your visit with {{ first_name }},
 as Dr. {{ doctor_sampler.first_name }} {{ doctor_sampler.last_name }}.
 
 Format the notes as a busy doctor might.
+Respond with only the notes, no other text.
 """,
     model_alias=MODEL_ALIAS,
-    system_prompt=SYSTEM_PROMPT,
 )
 
 config_builder.validate()
@@ -240,7 +237,7 @@ config_builder.validate()
 #
 
 # %%
-preview = data_designer_client.preview(config_builder, num_records=2)
+preview = data_designer.preview(config_builder, num_records=2)
 
 # %%
 # Run this cell multiple times to cycle through the 2 preview records.
@@ -271,17 +268,17 @@ preview.analysis.to_report()
 #
 
 # %%
-job_results = data_designer_client.create(config_builder, num_records=10)
+results = data_designer.create(config_builder, num_records=10, dataset_name="tutorial-3")
 
 # %%
 # Load the generated dataset as a pandas DataFrame.
-dataset = job_results.load_dataset()
+dataset = results.load_dataset()
 
 dataset.head()
 
 # %%
 # Load the analysis results into memory.
-analysis = job_results.load_analysis()
+analysis = results.load_analysis()
 
 analysis.to_report()
 

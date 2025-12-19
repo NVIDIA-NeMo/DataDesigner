@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from enum import Enum
-from typing import Literal, Union
+from typing import Literal
 
 import pytest
 from pydantic import BaseModel
@@ -49,7 +49,7 @@ class NotAModel:
 
 
 def test_create_str_enum_from_type_union_basic() -> None:
-    type_union = Union[StubModelA, StubModelB]
+    type_union = StubModelA | StubModelB
     result = create_str_enum_from_discriminated_type_union("TestEnum", type_union, "column_type")
 
     assert issubclass(result, Enum)
@@ -64,7 +64,7 @@ def test_create_str_enum_from_type_union_basic() -> None:
 
 
 def test_create_str_enum_from_type_union_with_dashes() -> None:
-    type_union = Union[StubModelC, StubModelA]
+    type_union = StubModelC | StubModelA
     result = create_str_enum_from_discriminated_type_union("TestEnum", type_union, "column_type")
 
     assert hasattr(result, "TYPE_C_WITH_DASHES")
@@ -72,7 +72,7 @@ def test_create_str_enum_from_type_union_with_dashes() -> None:
 
 
 def test_create_str_enum_from_type_union_multiple_models() -> None:
-    type_union = Union[StubModelA, StubModelB, StubModelC]
+    type_union = StubModelA | StubModelB | StubModelC
     result = create_str_enum_from_discriminated_type_union("TestEnum", type_union, "column_type")
 
     assert len(result) == 4
@@ -87,7 +87,7 @@ def test_create_str_enum_from_type_union_duplicate_values() -> None:
         column_type: Literal["type-a"] = "type-a"
         extra: str
 
-    type_union = Union[StubModelA, StubModelD]
+    type_union = StubModelA | StubModelD
     result = create_str_enum_from_discriminated_type_union("TestEnum", type_union, "column_type")
 
     assert len(result) == 2
@@ -96,14 +96,14 @@ def test_create_str_enum_from_type_union_duplicate_values() -> None:
 
 
 def test_create_str_enum_from_type_union_not_pydantic_model() -> None:
-    type_union = Union[StubModelA, NotAModel]
+    type_union = StubModelA | NotAModel
 
     with pytest.raises(InvalidTypeUnionError, match="must be a subclass of pydantic.BaseModel"):
         create_str_enum_from_discriminated_type_union("TestEnum", type_union, "column_type")
 
 
 def test_create_str_enum_from_type_union_invalid_discriminator_field() -> None:
-    type_union = Union[StubModelA, StubModelWithoutDiscriminator]
+    type_union = StubModelA | StubModelWithoutDiscriminator
 
     with pytest.raises(InvalidDiscriminatorFieldError, match="'column_type' is not a field of"):
         create_str_enum_from_discriminated_type_union("TestEnum", type_union, "column_type")
@@ -121,7 +121,7 @@ def test_create_str_enum_from_type_union_custom_discriminator_name() -> None:
         type_field: Literal["another-type"] = "another-type"
         value: int
 
-    type_union = Union[StubModelE, StubModelF]
+    type_union = StubModelE | StubModelF
     result = create_str_enum_from_discriminated_type_union("TestEnum", type_union, "type_field")
 
     assert hasattr(result, "CUSTOM_TYPE")

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING
 
 import pandas as pd
 import pyarrow.parquet as pq
@@ -28,10 +28,10 @@ class DatastoreSettings(BaseModel):
         ...,
         description="Datastore endpoint. Use 'https://huggingface.co' for the Hugging Face Hub.",
     )
-    token: Optional[str] = Field(default=None, description="If needed, token to use for authentication.")
+    token: str | None = Field(default=None, description="If needed, token to use for authentication.")
 
 
-def get_file_column_names(file_reference: Union[str, Path, HfFileSystem], file_type: str) -> list[str]:
+def get_file_column_names(file_reference: str | Path | HfFileSystem, file_type: str) -> list[str]:
     """Get column names from a dataset file.
 
     Args:
@@ -80,7 +80,7 @@ def fetch_seed_dataset_column_names(seed_dataset_reference: SeedDatasetReference
 def fetch_seed_dataset_column_names_from_datastore(
     repo_id: str,
     filename: str,
-    datastore_settings: Optional[Union[DatastoreSettings, dict]] = None,
+    datastore_settings: DatastoreSettings | dict | None = None,
 ) -> list[str]:
     file_type = filename.split(".")[-1]
     if f".{file_type}" not in VALID_DATASET_FILE_EXTENSIONS:
@@ -115,7 +115,7 @@ def resolve_datastore_settings(datastore_settings: DatastoreSettings | dict | No
 
 
 def upload_to_hf_hub(
-    dataset_path: Union[str, Path],
+    dataset_path: str | Path,
     filename: str,
     repo_id: str,
     datastore_settings: DatastoreSettings,
@@ -171,7 +171,7 @@ def _extract_single_file_path_from_glob_pattern_if_present(
     return matching_files[0]
 
 
-def _validate_dataset_path(dataset_path: Union[str, Path], allow_glob_pattern: bool = False) -> Path:
+def _validate_dataset_path(dataset_path: str | Path, allow_glob_pattern: bool = False) -> Path:
     if allow_glob_pattern and "*" in str(dataset_path):
         parts = str(dataset_path).split("*.")
         file_path = parts[0]

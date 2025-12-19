@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from functools import reduce
-from typing import Optional
 
 import marko
 from lxml import etree
@@ -105,8 +104,8 @@ class LLMResponseParser:
 
     def __init__(
         self,
-        tag_parsers: Optional[dict[str, TagParser]] = None,
-        postprocessors: Optional[list[PostProcessor]] = None,
+        tag_parsers: dict[str, TagParser] | None = None,
+        postprocessors: list[PostProcessor] | None = None,
     ):
         """
         Initializes the LLMResponseParser with optional tag parsers and post-processors.

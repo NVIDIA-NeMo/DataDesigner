@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from abc import ABC, abstractmethod
-from typing import Type
 
 import numpy as np
 import pandas as pd
@@ -91,5 +90,5 @@ CONSTRAINT_TYPE_TO_CHECKER = {
 }
 
 
-def get_constraint_checker(constraint_type: ConstraintType) -> Type[ConstraintChecker]:
+def get_constraint_checker(constraint_type: ConstraintType) -> type[ConstraintChecker]:
     return CONSTRAINT_TYPE_TO_CHECKER[ConstraintType(constraint_type)]

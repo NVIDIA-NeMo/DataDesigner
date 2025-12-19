@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import ast
+import json
 import logging
-import re
 import subprocess
 import tempfile
 from collections import defaultdict
@@ -179,9 +179,8 @@ class PythonValidator(BaseValidator):
         for file in Path(codebase_path).glob("*.py"):
             processed[file.stem] = PythonLinterMessages()
 
-        # Run ruff linter
+        # Run ruff linter with JSON output
         ruff_bin = find_ruff_bin()
-        env = {"NO_COLOR": "1"}
 
         ruff_exec = subprocess.run(
             [
@@ -189,9 +188,9 @@ class PythonValidator(BaseValidator):
                 "check",
                 "--select",
                 "E,F6,F7,F8,SIM,PLC,PLE,PLR,PLW",
+                "--output-format=json",
                 codebase_path,
             ],
-            env=env,
             text=True,
             capture_output=True,
             check=False,
@@ -199,30 +198,34 @@ class PythonValidator(BaseValidator):
         )
         ruff_output = ruff_exec.stdout
 
-        # Parse ruff output
-        if "All checks passed!" in ruff_output:
+        # Parse JSON output
+        try:
+            diagnostics = json.loads(ruff_output)
+        except json.JSONDecodeError as e:
+            raise RuntimeError(f"Failed to parse ruff JSON output: {e}")
+
+        if not diagnostics:
             return processed  # no errors or warnings
 
-        pattern = r"(.*):([0-9]*):([0-9]*): ([A-Za-z0-9]*):? (?:\[\*\] )?(.*)\n"
-        errors = re.findall(pattern, ruff_output)
+        for diagnostic in diagnostics:
+            filename = diagnostic["filename"]
+            code = diagnostic["code"]
+            location = diagnostic["location"]
+            message = diagnostic["message"]
 
-        if errors == []:  # output could not be parsed
-            raise RuntimeError("ruff's output could not be parsed")
+            # Extract alphabetic prefix from code for type mapping
+            alpha_prefix = "".join(c for c in code if c.isalpha())
+            error_type = TYPE_FROM_SYMBOL.get(alpha_prefix, "warning")
 
-        try:
-            for error in errors:
-                filename, line, column, symbol, message = error
-                processed[Path(filename).stem].add(
-                    PythonLinterMessage(
-                        type=TYPE_FROM_SYMBOL[re.sub(r"[^A-Za-z]+", "", symbol)],
-                        symbol=symbol,
-                        line=int(line),
-                        column=int(column),
-                        message=message,
-                    )
+            processed[Path(filename).stem].add(
+                PythonLinterMessage(
+                    type=error_type,
+                    symbol=code,
+                    line=location["row"],
+                    column=location["column"],
+                    message=message,
                 )
-        except Exception:  # output not in expected format
-            raise RuntimeError("ruff's output not in expected format")
+            )
 
         return processed
 

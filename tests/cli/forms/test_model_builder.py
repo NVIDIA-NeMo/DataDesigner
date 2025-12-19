@@ -51,19 +51,19 @@ def test_alias_field_accepts_any_alias_when_no_existing() -> None:
     assert alias_field.value == "my-model"
 
 
-# Model ID validation tests
-def test_model_id_field_rejects_empty_string() -> None:
+# Model validation tests
+def test_model_field_rejects_empty_string() -> None:
     """Test model ID field rejects empty strings."""
     builder = ModelFormBuilder()
     form = builder.create_form()
     model_field = form.get_field("model")
 
-    with pytest.raises(ValidationError, match="Model ID is required"):
+    with pytest.raises(ValidationError, match="Model is required"):
         model_field.value = ""
 
 
-def test_model_id_field_accepts_any_non_empty_string() -> None:
-    """Test model ID field accepts any non-empty string."""
+def test_model_field_accepts_any_non_empty_string() -> None:
+    """Test model field accepts any non-empty string."""
     builder = ModelFormBuilder()
     form = builder.create_form()
     model_field = form.get_field("model")

@@ -3,7 +3,7 @@
 
 import inspect
 from enum import Enum
-from typing import Any, Literal, Type, get_args, get_origin
+from typing import Any, Literal, get_args, get_origin
 
 from pydantic import BaseModel
 
@@ -56,7 +56,7 @@ def create_str_enum_from_discriminated_type_union(
     return StrEnum(enum_name, {v.replace("-", "_").upper(): v for v in set(discriminator_field_values)})
 
 
-def get_sampler_params() -> dict[str, Type[BaseModel]]:
+def get_sampler_params() -> dict[str, type[BaseModel]]:
     """Returns a dictionary of sampler parameter classes."""
     params_cls_list = [
         params_cls
@@ -83,7 +83,7 @@ def get_sampler_params() -> dict[str, Type[BaseModel]]:
     return params_cls_dict
 
 
-def resolve_string_enum(enum_instance: Any, enum_type: Type[Enum]) -> Enum:
+def resolve_string_enum(enum_instance: Any, enum_type: type[Enum]) -> Enum:
     if not issubclass(enum_type, Enum):
         raise InvalidEnumValueError(f"🛑 `enum_type` must be a subclass of Enum. You provided: {enum_type}")
     invalid_enum_value_error = InvalidEnumValueError(

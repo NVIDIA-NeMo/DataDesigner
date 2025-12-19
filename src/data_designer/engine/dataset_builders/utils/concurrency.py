@@ -8,7 +8,7 @@ import json
 import logging
 from concurrent.futures import Future, ThreadPoolExecutor
 from threading import Lock, Semaphore
-from typing import Any, Optional, Protocol
+from typing import Any, Protocol
 
 from pydantic import BaseModel, Field
 
@@ -46,13 +46,13 @@ class ExecutorResults(BaseModel):
 class CallbackWithContext(Protocol):
     """Executor callback functions must accept a context kw argument."""
 
-    def __call__(self, result: Any, *, context: Optional[dict] = None) -> Any: ...
+    def __call__(self, result: Any, *, context: dict | None = None) -> Any: ...
 
 
 class ErrorCallbackWithContext(Protocol):
     """Error callbacks take the Exception instance and context."""
 
-    def __call__(self, exc: Exception, *, context: Optional[dict] = None) -> Any: ...
+    def __call__(self, exc: Exception, *, context: dict | None = None) -> Any: ...
 
 
 class ConcurrentThreadExecutor:
@@ -92,8 +92,8 @@ class ConcurrentThreadExecutor:
         *,
         max_workers: int,
         column_name: str,
-        result_callback: Optional[CallbackWithContext] = None,
-        error_callback: Optional[ErrorCallbackWithContext] = None,
+        result_callback: CallbackWithContext | None = None,
+        error_callback: ErrorCallbackWithContext | None = None,
         shutdown_error_rate: float = 0.50,
         shutdown_error_window: int = 10,
     ):
@@ -136,7 +136,7 @@ class ConcurrentThreadExecutor:
             )
         )
 
-    def submit(self, fn, *args, context: Optional[dict] = None, **kwargs) -> None:
+    def submit(self, fn, *args, context: dict | None = None, **kwargs) -> None:
         if self._executor is None:
             raise RuntimeError("Executor is not initialized, this class should be used as a context manager.")
 

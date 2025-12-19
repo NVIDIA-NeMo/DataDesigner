@@ -3,7 +3,7 @@
 
 from functools import cached_property
 from pathlib import Path
-from typing import Annotated, Optional, Union
+from typing import Annotated
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -34,8 +34,8 @@ class DatasetProfilerResults(BaseModel):
     num_records: int
     target_num_records: int
     column_statistics: list[Annotated[ColumnStatisticsT, Field(discriminator="column_type")]] = Field(..., min_length=1)
-    side_effect_column_names: Optional[list[str]] = None
-    column_profiles: Optional[list[ColumnProfilerResultsT]] = None
+    side_effect_column_names: list[str] | None = None
+    column_profiles: list[ColumnProfilerResultsT] | None = None
 
     @field_validator("num_records", "target_num_records", mode="before")
     def ensure_python_integers(cls, v: int) -> int:
@@ -61,8 +61,8 @@ class DatasetProfilerResults(BaseModel):
 
     def to_report(
         self,
-        save_path: Optional[Union[str, Path]] = None,
-        include_sections: Optional[list[Union[ReportSection, DataDesignerColumnType]]] = None,
+        save_path: str | Path | None = None,
+        include_sections: list[ReportSection | DataDesignerColumnType] | None = None,
     ) -> None:
         """Generate and print an analysis report based on the dataset profiling results.
 

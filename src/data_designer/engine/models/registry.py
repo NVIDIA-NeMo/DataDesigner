@@ -9,6 +9,7 @@ from data_designer.config.models import GenerationType, ModelConfig
 from data_designer.engine.model_provider import ModelProvider, ModelProviderRegistry
 from data_designer.engine.models.facade import ModelFacade
 from data_designer.engine.models.litellm_overrides import apply_litellm_patches
+from data_designer.engine.models.usage import ModelUsageStats, RequestUsageStats, TokenUsageStats
 from data_designer.engine.secret_resolver import SecretResolver
 
 logger = logging.getLogger(__name__)
@@ -25,7 +26,7 @@ class ModelRegistry:
         self._secret_resolver = secret_resolver
         self._model_provider_registry = model_provider_registry
         self._model_configs = {}
-        self._models = {}
+        self._models: dict[str, ModelFacade] = {}
         self._set_model_configs(model_configs)
 
     @property
@@ -68,6 +69,31 @@ class ModelRegistry:
             for model in self._models.values()
             if model.usage_stats.has_usage
         }
+
+    def get_model_usage_snapshot(self) -> dict[str, ModelUsageStats]:
+        return {
+            model.model_name: model.usage_stats.model_copy(deep=True)
+            for model in self._models.values()
+            if model.usage_stats.has_usage
+        }
+
+    def get_usage_deltas(self, snapshot: dict[str, ModelUsageStats]) -> dict[str, ModelUsageStats]:
+        deltas = {}
+        for model_name, current in self.get_model_usage_snapshot().items():
+            prev = snapshot.get(model_name)
+            delta_input = current.token_usage.input_tokens - (prev.token_usage.input_tokens if prev else 0)
+            delta_output = current.token_usage.output_tokens - (prev.token_usage.output_tokens if prev else 0)
+            delta_successful = current.request_usage.successful_requests - (
+                prev.request_usage.successful_requests if prev else 0
+            )
+            delta_failed = current.request_usage.failed_requests - (prev.request_usage.failed_requests if prev else 0)
+
+            if delta_input > 0 or delta_output > 0 or delta_successful > 0 or delta_failed > 0:
+                deltas[model_name] = ModelUsageStats(
+                    token_usage=TokenUsageStats(input_tokens=delta_input, output_tokens=delta_output),
+                    request_usage=RequestUsageStats(successful_requests=delta_successful, failed_requests=delta_failed),
+                )
+        return deltas
 
     def get_model_provider(self, *, model_alias: str) -> ModelProvider:
         model_config = self.get_model_config(model_alias=model_alias)

@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import TYPE_CHECKING, Type, TypeAlias
+from typing import TYPE_CHECKING, TypeAlias
 
 from data_designer.plugins.plugin import PluginType
 from data_designer.plugins.registry import PluginRegistry
@@ -37,7 +37,7 @@ class PluginManager:
         if self._plugin_registry.plugin_exists(plugin_name):
             return self._plugin_registry.get_plugin(plugin_name)
 
-    def get_plugin_column_types(self, enum_type: Type[Enum], required_resources: list[str] | None = None) -> list[Enum]:
+    def get_plugin_column_types(self, enum_type: type[Enum], required_resources: list[str] | None = None) -> list[Enum]:
         """Get a list of plugin column types.
 
         Args:
@@ -56,7 +56,7 @@ class PluginManager:
             type_list.append(enum_type(plugin.name))
         return type_list
 
-    def inject_into_column_config_type_union(self, column_config_type: Type[TypeAlias]) -> Type[TypeAlias]:
+    def inject_into_column_config_type_union(self, column_config_type: type[TypeAlias]) -> type[TypeAlias]:
         """Inject plugins into the column config type.
 
         Args:
