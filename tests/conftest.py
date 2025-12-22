@@ -164,7 +164,7 @@ def stub_empty_builder(stub_model_configs: list[ModelConfig]) -> DataDesignerCon
 @pytest.fixture
 def stub_complete_builder(stub_data_designer_builder_config_str: str) -> DataDesignerConfigBuilder:
     with patch("data_designer.config.config_builder.fetch_seed_dataset_column_names") as mock_fetch:
-        mock_fetch.return_value = ["id", "name", "age", "city"]
+        mock_fetch.return_value = ["id", "name", "city", "country"]
         return DataDesignerConfigBuilder.from_config(config=stub_data_designer_builder_config_str)
 
 

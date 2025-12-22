@@ -224,6 +224,9 @@ class DataDesignerConfigBuilder:
 
         Returns:
             The current Data Designer config builder instance.
+
+        Raises:
+            BuilderConfigurationError: If the column name collides with an existing seed dataset column.
         """
         if column_config is None:
             if name is None or column_type is None:
@@ -238,6 +241,13 @@ class DataDesignerConfigBuilder:
             raise InvalidColumnTypeError(
                 f"🛑 Invalid column config object: '{column_config}'. Valid column config options are: "
                 f"{', '.join([t.__name__ for t in allowed_column_configs])}"
+            )
+
+        existing_config = self._column_configs.get(column_config.name)
+        if existing_config is not None and isinstance(existing_config, SeedDatasetColumnConfig):
+            raise BuilderConfigurationError(
+                f"🛑 Column '{column_config.name}' already exists as a seed dataset column. "
+                "Please use a different column name or update the seed dataset."
             )
 
         self._column_configs[column_config.name] = column_config
@@ -578,7 +588,18 @@ class DataDesignerConfigBuilder:
 
         Returns:
             The current Data Designer config builder instance.
+
+        Raises:
+            BuilderConfigurationError: If any seed dataset column name collides with an existing column.
         """
+        seed_column_names = fetch_seed_dataset_column_names(dataset_reference)
+        colliding_columns = [name for name in seed_column_names if name in self._column_configs]
+        if colliding_columns:
+            raise BuilderConfigurationError(
+                f"🛑 Seed dataset column(s) {colliding_columns} collide with existing column(s). "
+                "Please remove the conflicting columns or use a seed dataset with different column names."
+            )
+
         self._seed_config = SeedConfig(
             dataset=dataset_reference.dataset,
             sampling_strategy=sampling_strategy,
@@ -587,7 +608,7 @@ class DataDesignerConfigBuilder:
         self.set_seed_datastore_settings(
             dataset_reference.datastore_settings if hasattr(dataset_reference, "datastore_settings") else None
         )
-        for column_name in fetch_seed_dataset_column_names(dataset_reference):
+        for column_name in seed_column_names:
             self._column_configs[column_name] = SeedDatasetColumnConfig(name=column_name)
         return self
 
