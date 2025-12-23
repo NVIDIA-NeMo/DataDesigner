@@ -246,7 +246,7 @@ class DataDesignerConfigBuilder:
         existing_config = self._column_configs.get(column_config.name)
         if existing_config is not None and isinstance(existing_config, SeedDatasetColumnConfig):
             raise BuilderConfigurationError(
-                f"🛑 Column '{column_config.name}' already exists as a seed dataset column. "
+                f"🛑 Column {column_config.name!r} already exists as a seed dataset column. "
                 "Please use a different column name or update the seed dataset."
             )
 
