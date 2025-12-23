@@ -8,7 +8,6 @@ from typing import overload
 
 import pandas as pd
 
-from data_designer.config.column_types import COLUMN_TYPE_EMOJI_MAP
 from data_designer.config.models import BaseInferenceParams, ModelConfig
 from data_designer.config.utils.type_helpers import StrEnum
 from data_designer.engine.configurable_task import ConfigurableTask, ConfigurableTaskMetadata, DataT, TaskConfigT
@@ -82,6 +81,8 @@ class WithModelGeneration:
         return self.model_config.inference_parameters
 
     def log_pre_generation(self) -> None:
+        from data_designer.config.column_types import COLUMN_TYPE_EMOJI_MAP
+
         emoji = COLUMN_TYPE_EMOJI_MAP[self.config.column_type]
         logger.info(f"{emoji} Preparing {self.config.column_type} column generation")
         logger.info(f"  |-- column name: {self.config.name!r}")
