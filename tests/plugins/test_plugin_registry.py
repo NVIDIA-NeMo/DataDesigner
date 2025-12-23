@@ -286,3 +286,47 @@ def test_plugin_registry_update_type_union(mock_plugin_discovery, mock_entry_poi
         assert StubPluginConfigB in updated_union.__args__
         assert ConfigBase in updated_union.__args__
         assert DummyConfig in updated_union.__args__
+
+
+# =============================================================================
+# Circular Import Prevention Tests
+# =============================================================================
+
+
+def test_plugin_importing_from_base_does_not_cause_circular_import() -> None:
+    """Test that a plugin importing from base.py doesn't cause circular imports during discovery."""
+    import subprocess
+    import sys
+
+    # Run a fresh Python process to test the import chain
+    # This is necessary because Python caches modules, so we need a clean slate
+    test_code = """
+import sys
+
+# Track which modules trigger plugin discovery
+original_modules = set(sys.modules.keys())
+
+# Import base.py - this should NOT cause column_types.py to be imported
+from data_designer.engine.column_generators.generators.base import ColumnGenerator
+
+# Check if column_types was imported (which would trigger plugin discovery)
+if 'data_designer.config.column_types' in sys.modules:
+    print("FAIL: column_types was imported when importing base.py")
+    sys.exit(1)
+else:
+    print("PASS: base.py does not import column_types at module level")
+    sys.exit(0)
+"""
+
+    result = subprocess.run(
+        [sys.executable, "-c", test_code],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, (
+        f"Importing base.py triggered column_types.py import, which causes circular imports "
+        f"for plugins that import from base.py.\n"
+        f"stdout: {result.stdout}\n"
+        f"stderr: {result.stderr}"
+    )
