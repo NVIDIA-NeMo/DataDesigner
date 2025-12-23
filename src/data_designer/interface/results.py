@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
@@ -12,6 +13,10 @@ from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.utils.visualization import WithRecordSamplerMixin
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
+from data_designer.integrations.huggingface import (
+    HuggingFaceHubClient,
+    reconstruct_dataset_creation_results,
+)
 
 
 class DatasetCreationResults(WithRecordSamplerMixin):
@@ -39,6 +44,12 @@ class DatasetCreationResults(WithRecordSamplerMixin):
         self.artifact_storage = artifact_storage
         self._analysis = analysis
         self._config_builder = config_builder
+        self._hub_client = HuggingFaceHubClient(
+            dataset_provider=self,
+            artifact_storage_provider=self,
+            analysis=analysis,
+            config_builder=config_builder,
+        )
 
     def load_analysis(self) -> DatasetProfilerResults:
         """Load the profiling analysis results for the generated dataset.
@@ -48,6 +59,15 @@ class DatasetCreationResults(WithRecordSamplerMixin):
                 for each column in the generated dataset.
         """
         return self._analysis
+
+    @property
+    def config_builder(self) -> DataDesignerConfigBuilder:
+        """Load the configuration builder used to create the dataset.
+
+        Returns:
+            DataDesignerConfigBuilder containing the configuration used to create the dataset.
+        """
+        return self._config_builder
 
     def load_dataset(self) -> pd.DataFrame:
         """Load the generated dataset as a pandas DataFrame.
@@ -89,3 +109,103 @@ class DatasetCreationResults(WithRecordSamplerMixin):
         if not self.artifact_storage.processors_outputs_path.exists():
             raise ArtifactStorageError(f"Processor {processor_name} has no artifacts.")
         return self.artifact_storage.processors_outputs_path / processor_name
+
+    def push_to_hub(
+        self,
+        repo_id: str,
+        *,
+        token: str | None = None,
+        generate_card: bool = True,
+        **kwargs: Any,
+    ) -> None:
+        """Push the dataset to Hugging Face Hub.
+
+        This method converts the pandas DataFrame to a HuggingFace Dataset, pushes it to
+        the Hugging Face Hub, and optionally generates and uploads a dataset card.
+
+        Args:
+            repo_id: The ID of the Hugging Face Hub repository (e.g., "username/dataset-name").
+            token: Hugging Face token for authentication. If None, will check environment
+                variables HF_TOKEN or HUGGINGFACE_HUB_TOKEN.
+            generate_card: Whether to generate and upload a dataset card. Defaults to True.
+            **kwargs: Additional arguments to pass to `dataset.push_to_hub()`.
+
+        Raises:
+            ArtifactStorageError: If there's an error loading the dataset or metadata.
+        """
+        self._hub_client.push_to_hub(
+            repo_id=repo_id,
+            token=token,
+            generate_card=generate_card,
+            **kwargs,
+        )
+
+    @classmethod
+    def pull_from_hub(
+        cls,
+        repo_id: str,
+        *,
+        token: str | None = None,
+        artifact_path: Path | str | None = None,
+        split: str | None = None,
+        **kwargs: Any,
+    ) -> DatasetCreationResults:
+        """Load a dataset and all artifacts from Hugging Face Hub as a DatasetCreationResults object.
+
+        This classmethod downloads all artifacts from the Hugging Face Hub and reconstructs
+        a DatasetCreationResults object that can be used just like one created from a local
+        dataset generation run.
+
+        Args:
+            repo_id: The ID of the Hugging Face Hub repository (e.g., "username/dataset-name").
+            token: Hugging Face token for authentication. If None, will check environment
+                variables HF_TOKEN or HUGGINGFACE_HUB_TOKEN.
+            artifact_path: Optional path to save downloaded artifacts. If None, a temporary
+                directory will be used (note: temporary directories are cleaned up when
+                the object is garbage collected).
+            split: The split to load from the dataset. If None, the default split will be used.
+            **kwargs: Additional arguments to pass to `pull_from_hub()` function.
+
+        Returns:
+            A DatasetCreationResults object containing the dataset, analysis, and all artifacts.
+
+        Example:
+            ```python
+            from data_designer.interface.results import DatasetCreationResults
+
+            # Load from hub (uses temporary directory)
+            results = DatasetCreationResults.pull_from_hub("username/dataset-name")
+
+            # Load to a specific directory
+            results = DatasetCreationResults.pull_from_hub(
+                "username/dataset-name",
+                artifact_path="./downloaded_datasets/my_dataset"
+            )
+
+            # Access the dataset and analysis
+            df = results.load_dataset()
+            analysis = results.load_analysis()
+            ```
+        """
+        hub_results = HuggingFaceHubClient.pull_from_hub(
+            repo_id=repo_id,
+            token=token,
+            split=split,
+            include_analysis=True,
+            include_processors=True,
+            include_configs=True,
+            **kwargs,
+        )
+
+        artifact_storage, config_builder = reconstruct_dataset_creation_results(
+            hub_results=hub_results,
+            repo_id=repo_id,
+            artifact_path=artifact_path,
+            token=token,
+        )
+
+        return cls(
+            artifact_storage=artifact_storage,
+            analysis=hub_results.analysis,
+            config_builder=config_builder,
+        )
