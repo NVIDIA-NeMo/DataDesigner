@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections import deque
-from typing import Optional, Type
 
 from jinja2 import nodes as j_nodes
 
@@ -33,7 +32,7 @@ def ast_max_depth(node: j_nodes.Node) -> int:
     return max_depth
 
 
-def ast_descendant_count(ast: j_nodes.Node, only_type: Optional[Type[j_nodes.Node]] = None) -> int:
+def ast_descendant_count(ast: j_nodes.Node, only_type: type[j_nodes.Node] | None = None) -> int:
     """Count the number of nodes which descend from the given node.
 
     Args:

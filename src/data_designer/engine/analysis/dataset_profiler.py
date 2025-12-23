@@ -1,11 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import logging
 from collections.abc import Sequence
 from functools import cached_property
-import logging
 
 import pandas as pd
+import pyarrow as pa
 from pydantic import Field, field_validator
 
 from data_designer.config.analysis.column_profilers import ColumnProfilerConfigT
@@ -19,10 +20,8 @@ from data_designer.config.column_types import (
 from data_designer.engine.analysis.column_profilers.base import ColumnConfigWithDataFrame, ColumnProfiler
 from data_designer.engine.analysis.column_statistics import get_column_statistics_calculator
 from data_designer.engine.analysis.errors import DatasetProfilerConfigurationError
-from data_designer.engine.dataset_builders.multi_column_configs import (
-    DatasetBuilderColumnConfigT,
-    MultiColumnConfig,
-)
+from data_designer.engine.analysis.utils.column_statistics_calculations import has_pyarrow_backend
+from data_designer.engine.dataset_builders.multi_column_configs import DatasetBuilderColumnConfigT, MultiColumnConfig
 from data_designer.engine.registry.data_designer_registry import DataDesignerRegistry
 from data_designer.engine.resources.resource_provider import ResourceProvider
 
@@ -68,6 +67,7 @@ class DataDesignerDatasetProfiler:
         logger.info("📐 Measuring dataset column statistics:")
 
         self._validate_schema_consistency(list(dataset.columns))
+        dataset = self._convert_to_pyarrow_backend_if_needed(dataset)
 
         column_statistics = []
         for c in self.config.column_configs:
@@ -99,6 +99,27 @@ class DataDesignerDatasetProfiler:
             column_statistics=column_statistics,
             column_profiles=column_profiles if column_profiles else None,
         )
+
+    def _convert_to_pyarrow_backend_if_needed(self, dataset: pd.DataFrame) -> pd.DataFrame:
+        if not has_pyarrow_backend(dataset):
+            try:
+                dataset = pa.Table.from_pandas(dataset).to_pandas(types_mapper=pd.ArrowDtype)
+            except Exception as e:
+                # For ArrowTypeError, the second arg contains the more informative message
+                if isinstance(e, pa.lib.ArrowTypeError) and len(e.args) > 1:
+                    error_msg = str(e.args[1])
+                else:
+                    error_msg = str(e)
+                for col in dataset.columns:
+                    # Make sure column names are clear in the error message
+                    error_msg = error_msg.replace(col, f"'{col}'")
+                logger.warning("⚠️ Unable to convert the dataset to a PyArrow backend")
+                logger.warning(f"  |-- Conversion Error Message: {error_msg}")
+                logger.warning("  |-- This is often due to at least one column having mixed data types")
+                logger.warning(
+                    "  |-- Note: Reported data types will be inferred from the first non-null value of each column"
+                )
+        return dataset
 
     def _create_column_profiler(self, profiler_config: ColumnProfilerConfigT) -> ColumnProfiler:
         return self.registry.column_profilers.get_for_config_type(type(profiler_config))(

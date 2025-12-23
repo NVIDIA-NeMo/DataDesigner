@@ -3,14 +3,13 @@
 
 from unittest.mock import patch
 
-from litellm import AuthenticationError
 import pytest
 
-from data_designer.config.models import CompletionInferenceParameters, ModelConfig
+from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig
 from data_designer.engine.models.errors import ModelAuthenticationError
 from data_designer.engine.models.facade import ModelFacade
 from data_designer.engine.models.registry import ModelRegistry, create_model_registry
-from data_designer.engine.models.usage import RequestUsageStats, TokenUsageStats
+from data_designer.engine.models.usage import ModelUsageStats, RequestUsageStats, TokenUsageStats
 
 
 @pytest.fixture
@@ -24,7 +23,7 @@ def stub_new_model_config():
         alias="stub-vision",
         model="stub-model-vision",
         provider="stub-model-provider",
-        inference_parameters=CompletionInferenceParameters(
+        inference_parameters=ChatCompletionInferenceParams(
             temperature=0.80, top_p=0.95, max_tokens=100, max_parallel_requests=10, timeout=100
         ),
     )
@@ -36,7 +35,7 @@ def stub_no_usage_config():
         alias="no-usage",
         model="no-usage-model",
         provider="stub-model-provider",
-        inference_parameters=CompletionInferenceParameters(),
+        inference_parameters=ChatCompletionInferenceParams(),
     )
 
 
@@ -72,14 +71,15 @@ def test_register_model_configs(stub_model_registry, stub_new_model_config):
     stub_model_registry.register_model_configs([stub_new_model_config])
 
     # Verify configs are registered
-    assert len(stub_model_registry.model_configs) == 3
+    assert len(stub_model_registry.model_configs) == 4
 
     # Trigger lazy initialization by requesting models
     assert stub_model_registry.get_model(model_alias="stub-text").model_name == "stub-model-text"
     assert stub_model_registry.get_model(model_alias="stub-reasoning").model_name == "stub-model-reasoning"
     assert stub_model_registry.get_model(model_alias="stub-vision").model_name == "stub-model-vision"
+    assert stub_model_registry.get_model(model_alias="stub-embedding").model_name == "stub-model-embedding"
 
-    assert len(stub_model_registry.models) == 3
+    assert len(stub_model_registry.models) == 4
     assert all(isinstance(model, ModelFacade) for model in stub_model_registry.models.values())
 
 
@@ -126,19 +126,19 @@ def test_get_model_usage_stats(
         reasoning_model = stub_model_registry.get_model(model_alias="stub-reasoning")
 
         text_model.usage_stats.extend(
-            token_usage=TokenUsageStats(prompt_tokens=10, completion_tokens=100),
+            token_usage=TokenUsageStats(input_tokens=10, output_tokens=100),
             request_usage=RequestUsageStats(successful_requests=10, failed_requests=0),
         )
         reasoning_model.usage_stats.extend(
-            token_usage=TokenUsageStats(prompt_tokens=5, completion_tokens=200),
+            token_usage=TokenUsageStats(input_tokens=5, output_tokens=200),
             request_usage=RequestUsageStats(successful_requests=100, failed_requests=10),
         )
         usage_stats = stub_model_registry.get_model_usage_stats(total_time_elapsed=10)
 
         assert set(usage_stats.keys()) == set(expected_keys)
         if "stub-model-text" in usage_stats:
-            assert usage_stats["stub-model-text"]["token_usage"]["prompt_tokens"] == 10
-            assert usage_stats["stub-model-text"]["token_usage"]["completion_tokens"] == 100
+            assert usage_stats["stub-model-text"]["token_usage"]["input_tokens"] == 10
+            assert usage_stats["stub-model-text"]["token_usage"]["output_tokens"] == 100
             assert usage_stats["stub-model-text"]["token_usage"]["total_tokens"] == 110
             assert usage_stats["stub-model-text"]["request_usage"]["successful_requests"] == 10
             assert usage_stats["stub-model-text"]["request_usage"]["failed_requests"] == 0
@@ -150,7 +150,7 @@ def test_get_model_usage_stats(
         # Trigger lazy initialization
         text_model = stub_model_registry.get_model(model_alias="stub-text")
         text_model.usage_stats.extend(
-            token_usage=TokenUsageStats(prompt_tokens=10, completion_tokens=100),
+            token_usage=TokenUsageStats(input_tokens=10, output_tokens=100),
             request_usage=RequestUsageStats(successful_requests=10, failed_requests=0),
         )
         usage_stats = stub_model_registry.get_model_usage_stats(total_time_elapsed=10)
@@ -158,34 +158,158 @@ def test_get_model_usage_stats(
 
 
 @pytest.mark.parametrize(
-    "test_case,mock_side_effect,expected_exception,expected_call_count",
+    "test_case,expected_keys",
     [
-        ("success", None, None, 2),
-        (
-            "authentication_error",
-            AuthenticationError("Invalid API key", llm_provider="openai", model="stub-model-text"),
-            ModelAuthenticationError,
-            1,
-        ),
+        ("no_models", []),
+        ("with_usage", ["stub-model-text", "stub-model-reasoning"]),
+        ("no_usage", []),
     ],
 )
-@patch("data_designer.engine.models.facade.ModelFacade.completion", autospec=True)
-def test_run_health_check(
-    mock_completion, stub_model_registry, test_case, mock_side_effect, expected_exception, expected_call_count
-):
-    if mock_side_effect:
-        mock_completion.side_effect = mock_side_effect
+def test_get_model_usage_snapshot(
+    stub_model_registry: ModelRegistry,
+    stub_empty_model_registry: ModelRegistry,
+    test_case: str,
+    expected_keys: list[str],
+) -> None:
+    if test_case == "no_models":
+        snapshot = stub_empty_model_registry.get_model_usage_snapshot()
+        assert snapshot == {}
+    elif test_case == "with_usage":
+        text_model = stub_model_registry.get_model(model_alias="stub-text")
+        reasoning_model = stub_model_registry.get_model(model_alias="stub-reasoning")
 
-    # Pass model aliases for health check
-    model_aliases = {"stub-text", "stub-reasoning"}
+        text_model.usage_stats.extend(
+            token_usage=TokenUsageStats(input_tokens=10, output_tokens=100),
+            request_usage=RequestUsageStats(successful_requests=5, failed_requests=1),
+        )
+        reasoning_model.usage_stats.extend(
+            token_usage=TokenUsageStats(input_tokens=20, output_tokens=200),
+            request_usage=RequestUsageStats(successful_requests=10, failed_requests=2),
+        )
 
-    if expected_exception:
-        with pytest.raises(expected_exception):
-            stub_model_registry.run_health_check(model_aliases)
+        snapshot = stub_model_registry.get_model_usage_snapshot()
+
+        assert set(snapshot.keys()) == set(expected_keys)
+        assert all(isinstance(stats, ModelUsageStats) for stats in snapshot.values())
+
+        assert snapshot["stub-model-text"].token_usage.input_tokens == 10
+        assert snapshot["stub-model-text"].token_usage.output_tokens == 100
+        assert snapshot["stub-model-reasoning"].token_usage.input_tokens == 20
+        assert snapshot["stub-model-reasoning"].token_usage.output_tokens == 200
+
+        snapshot["stub-model-text"].token_usage.input_tokens = 999
+        assert text_model.usage_stats.token_usage.input_tokens == 10
     else:
+        stub_model_registry.get_model(model_alias="stub-text")
+        stub_model_registry.get_model(model_alias="stub-reasoning")
+
+        snapshot = stub_model_registry.get_model_usage_snapshot()
+        assert snapshot == {}
+
+
+@pytest.mark.parametrize(
+    "test_case,expected_keys",
+    [
+        ("no_prior_usage", ["stub-model-text"]),
+        ("with_prior_usage", ["stub-model-text"]),
+        ("no_change", []),
+    ],
+)
+def test_get_usage_deltas(
+    stub_model_registry: ModelRegistry,
+    test_case: str,
+    expected_keys: list[str],
+) -> None:
+    text_model = stub_model_registry.get_model(model_alias="stub-text")
+
+    if test_case == "no_prior_usage":
+        # Empty snapshot, then add usage
+        pre_snapshot: dict[str, ModelUsageStats] = {}
+        text_model.usage_stats.extend(
+            token_usage=TokenUsageStats(input_tokens=50, output_tokens=100),
+            request_usage=RequestUsageStats(successful_requests=5, failed_requests=1),
+        )
+
+        deltas = stub_model_registry.get_usage_deltas(pre_snapshot)
+
+        assert set(deltas.keys()) == set(expected_keys)
+        assert deltas["stub-model-text"].token_usage.input_tokens == 50
+        assert deltas["stub-model-text"].token_usage.output_tokens == 100
+        assert deltas["stub-model-text"].request_usage.successful_requests == 5
+        assert deltas["stub-model-text"].request_usage.failed_requests == 1
+
+    elif test_case == "with_prior_usage":
+        # Add initial usage, take snapshot, add more usage
+        text_model.usage_stats.extend(
+            token_usage=TokenUsageStats(input_tokens=100, output_tokens=200),
+            request_usage=RequestUsageStats(successful_requests=10, failed_requests=2),
+        )
+        pre_snapshot = stub_model_registry.get_model_usage_snapshot()
+
+        text_model.usage_stats.extend(
+            token_usage=TokenUsageStats(input_tokens=50, output_tokens=75),
+            request_usage=RequestUsageStats(successful_requests=3, failed_requests=1),
+        )
+
+        deltas = stub_model_registry.get_usage_deltas(pre_snapshot)
+
+        assert set(deltas.keys()) == set(expected_keys)
+        assert deltas["stub-model-text"].token_usage.input_tokens == 50
+        assert deltas["stub-model-text"].token_usage.output_tokens == 75
+        assert deltas["stub-model-text"].request_usage.successful_requests == 3
+        assert deltas["stub-model-text"].request_usage.failed_requests == 1
+
+    else:  # no_change
+        text_model.usage_stats.extend(
+            token_usage=TokenUsageStats(input_tokens=100, output_tokens=200),
+            request_usage=RequestUsageStats(successful_requests=10, failed_requests=2),
+        )
+        pre_snapshot = stub_model_registry.get_model_usage_snapshot()
+
+        # No additional usage after snapshot
+        deltas = stub_model_registry.get_usage_deltas(pre_snapshot)
+        assert deltas == {}
+
+
+@patch("data_designer.engine.models.facade.ModelFacade.generate_text_embeddings", autospec=True)
+@patch("data_designer.engine.models.facade.ModelFacade.completion", autospec=True)
+def test_run_health_check_success(mock_completion, mock_generate_text_embeddings, stub_model_registry):
+    model_aliases = {"stub-text", "stub-reasoning", "stub-embedding"}
+    stub_model_registry.run_health_check(model_aliases)
+    assert mock_completion.call_count == 2
+    assert mock_generate_text_embeddings.call_count == 1
+
+
+@patch("data_designer.engine.models.facade.ModelFacade.generate_text_embeddings", autospec=True)
+@patch("data_designer.engine.models.facade.ModelFacade.completion", autospec=True)
+def test_run_health_check_completion_authentication_error(
+    mock_completion, mock_generate_text_embeddings, stub_model_registry
+):
+    auth_error = ModelAuthenticationError("Invalid API key for completion model")
+    mock_completion.side_effect = auth_error
+    model_aliases = ["stub-text", "stub-reasoning", "stub-embedding"]
+
+    with pytest.raises(ModelAuthenticationError):
         stub_model_registry.run_health_check(model_aliases)
 
-    assert mock_completion.call_count == expected_call_count
+    mock_completion.assert_called_once()
+    mock_generate_text_embeddings.assert_not_called()
+
+
+@patch("data_designer.engine.models.facade.ModelFacade.generate_text_embeddings", autospec=True)
+@patch("data_designer.engine.models.facade.ModelFacade.completion", autospec=True)
+def test_run_health_check_embedding_authentication_error(
+    mock_completion, mock_generate_text_embeddings, stub_model_registry
+):
+    auth_error = ModelAuthenticationError("Invalid API key for embedding model")
+    mock_generate_text_embeddings.side_effect = auth_error
+    model_aliases = ["stub-text", "stub-reasoning", "stub-embedding"]
+
+    with pytest.raises(ModelAuthenticationError):
+        stub_model_registry.run_health_check(model_aliases)
+
+    mock_completion.call_count == 2
+    mock_generate_text_embeddings.assert_called_once()
 
 
 @pytest.mark.parametrize(

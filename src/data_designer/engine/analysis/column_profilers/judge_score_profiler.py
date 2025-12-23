@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import logging
 import random
-from typing import Union
 
 from data_designer.config.analysis.column_profilers import (
     JudgeScoreProfilerConfig,
@@ -69,7 +68,7 @@ class JudgeScoreProfiler(ColumnProfiler[JudgeScoreProfilerConfig]):
             )
 
         for score in column_config.scores:
-            score_name = score.name.lower()
+            score_name = score.name
             logger.info(f"{random.choice(['👩‍⚖️', '👨‍⚖️'])} Summarizing LLM-as-judge score: '{score_name}'")
             score_sample = sample_scores_and_reasoning(
                 scores=score_distributions.scores[score_name],
@@ -96,7 +95,7 @@ class JudgeScoreProfiler(ColumnProfiler[JudgeScoreProfilerConfig]):
         name: str,
         sample: list[JudgeScoreSample],
         histogram: CategoricalHistogramData,
-        distribution: Union[CategoricalDistribution, NumericalDistribution, MissingValue],
+        distribution: CategoricalDistribution | NumericalDistribution | MissingValue,
         distribution_type: ColumnDistributionType,
     ) -> JudgeScoreSummary:
         if isinstance(distribution, MissingValue) or not sample:

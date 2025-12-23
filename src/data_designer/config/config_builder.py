@@ -6,37 +6,36 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Optional, Union
 
 from pygments import highlight
 from pygments.formatters import HtmlFormatter
 from pygments.lexers import PythonLexer
 from typing_extensions import Self
 
-from .analysis.column_profilers import ColumnProfilerConfigT
-from .base import ExportableConfigBase
-from .column_configs import SeedDatasetColumnConfig
-from .column_types import (
+from data_designer.config.analysis.column_profilers import ColumnProfilerConfigT
+from data_designer.config.base import ExportableConfigBase
+from data_designer.config.column_configs import SeedDatasetColumnConfig
+from data_designer.config.column_types import (
     ColumnConfigT,
     DataDesignerColumnType,
-    column_type_is_llm_generated,
+    column_type_is_model_generated,
     get_column_config_from_kwargs,
     get_column_display_order,
 )
-from .data_designer_config import DataDesignerConfig
-from .dataset_builders import BuildStage
-from .datastore import DatastoreSettings, fetch_seed_dataset_column_names
-from .default_model_settings import get_default_model_configs, resolve_seed_default_model_settings
-from .errors import BuilderConfigurationError, InvalidColumnTypeError, InvalidConfigError
-from .models import ModelConfig, load_model_configs
-from .processors import ProcessorConfig, ProcessorType, get_processor_config_from_kwargs
-from .sampler_constraints import (
+from data_designer.config.data_designer_config import DataDesignerConfig
+from data_designer.config.dataset_builders import BuildStage
+from data_designer.config.datastore import DatastoreSettings, fetch_seed_dataset_column_names
+from data_designer.config.default_model_settings import get_default_model_configs
+from data_designer.config.errors import BuilderConfigurationError, InvalidColumnTypeError, InvalidConfigError
+from data_designer.config.models import ModelConfig, load_model_configs
+from data_designer.config.processors import ProcessorConfigT, ProcessorType, get_processor_config_from_kwargs
+from data_designer.config.sampler_constraints import (
     ColumnConstraintT,
     ColumnInequalityConstraint,
     ConstraintType,
     ScalarInequalityConstraint,
 )
-from .seed import (
+from data_designer.config.seed import (
     DatastoreSeedDatasetReference,
     IndexRange,
     LocalSeedDatasetReference,
@@ -45,18 +44,14 @@ from .seed import (
     SeedConfig,
     SeedDatasetReference,
 )
-from .utils.constants import DEFAULT_REPR_HTML_STYLE, REPR_HTML_TEMPLATE
-from .utils.info import ConfigBuilderInfo
-from .utils.io_helpers import serialize_data, smart_load_yaml
-from .utils.misc import can_run_data_designer_locally, json_indent_list_of_strings, kebab_to_snake
-from .utils.type_helpers import resolve_string_enum
-from .utils.validation import ViolationLevel, rich_print_violations, validate_data_designer_config
+from data_designer.config.utils.constants import DEFAULT_REPR_HTML_STYLE, REPR_HTML_TEMPLATE
+from data_designer.config.utils.info import ConfigBuilderInfo
+from data_designer.config.utils.io_helpers import serialize_data, smart_load_yaml
+from data_designer.config.utils.misc import can_run_data_designer_locally, json_indent_list_of_strings, kebab_to_snake
+from data_designer.config.utils.type_helpers import resolve_string_enum
+from data_designer.config.utils.validation import ViolationLevel, rich_print_violations, validate_data_designer_config
 
 logger = logging.getLogger(__name__)
-
-# Resolve default model settings on import to ensure they are available when the library is used.
-if can_run_data_designer_locally():
-    resolve_seed_default_model_settings()
 
 
 class BuilderConfig(ExportableConfigBase):
@@ -73,7 +68,7 @@ class BuilderConfig(ExportableConfigBase):
     """
 
     data_designer: DataDesignerConfig
-    datastore_settings: Optional[DatastoreSettings]
+    datastore_settings: DatastoreSettings | None
 
 
 class DataDesignerConfigBuilder:
@@ -83,7 +78,7 @@ class DataDesignerConfigBuilder:
     """
 
     @classmethod
-    def from_config(cls, config: Union[dict, str, Path, BuilderConfig]) -> Self:
+    def from_config(cls, config: dict | str | Path | BuilderConfig) -> Self:
         """Create a DataDesignerConfigBuilder from an existing configuration.
 
         Args:
@@ -134,7 +129,7 @@ class DataDesignerConfigBuilder:
 
         return builder
 
-    def __init__(self, model_configs: Optional[Union[list[ModelConfig], str, Path]] = None):
+    def __init__(self, model_configs: list[ModelConfig] | str | Path | None = None):
         """Initialize a new DataDesignerConfigBuilder instance.
 
         Args:
@@ -143,16 +138,13 @@ class DataDesignerConfigBuilder:
                 - A list of ModelConfig objects
                 - A string or Path to a model configuration file
         """
-        if not can_run_data_designer_locally() and (model_configs is None or len(model_configs) == 0):
-            raise BuilderConfigurationError("🛑 Model configurations are required!")
-
         self._column_configs = {}
-        self._model_configs = load_model_configs(model_configs or get_default_model_configs())
-        self._processor_configs: list[ProcessorConfig] = []
-        self._seed_config: Optional[SeedConfig] = None
+        self._model_configs = _load_model_configs(model_configs)
+        self._processor_configs: list[ProcessorConfigT] = []
+        self._seed_config: SeedConfig | None = None
         self._constraints: list[ColumnConstraintT] = []
         self._profilers: list[ColumnProfilerConfigT] = []
-        self._datastore_settings: Optional[DatastoreSettings] = None
+        self._datastore_settings: DatastoreSettings | None = None
 
     @property
     def model_configs(self) -> list[ModelConfig]:
@@ -213,10 +205,10 @@ class DataDesignerConfigBuilder:
 
     def add_column(
         self,
-        column_config: Optional[ColumnConfigT] = None,
+        column_config: ColumnConfigT | None = None,
         *,
-        name: Optional[str] = None,
-        column_type: Optional[DataDesignerColumnType] = None,
+        name: str | None = None,
+        column_type: DataDesignerColumnType | None = None,
         **kwargs,
     ) -> Self:
         """Add a Data Designer column configuration to the current Data Designer configuration.
@@ -232,6 +224,9 @@ class DataDesignerConfigBuilder:
 
         Returns:
             The current Data Designer config builder instance.
+
+        Raises:
+            BuilderConfigurationError: If the column name collides with an existing seed dataset column.
         """
         if column_config is None:
             if name is None or column_type is None:
@@ -248,14 +243,21 @@ class DataDesignerConfigBuilder:
                 f"{', '.join([t.__name__ for t in allowed_column_configs])}"
             )
 
+        existing_config = self._column_configs.get(column_config.name)
+        if existing_config is not None and isinstance(existing_config, SeedDatasetColumnConfig):
+            raise BuilderConfigurationError(
+                f"🛑 Column {column_config.name!r} already exists as a seed dataset column. "
+                "Please use a different column name or update the seed dataset."
+            )
+
         self._column_configs[column_config.name] = column_config
         return self
 
     def add_constraint(
         self,
-        constraint: Optional[ColumnConstraintT] = None,
+        constraint: ColumnConstraintT | None = None,
         *,
-        constraint_type: Optional[ConstraintType] = None,
+        constraint_type: ConstraintType | None = None,
         **kwargs,
     ) -> Self:
         """Add a constraint to the current Data Designer configuration.
@@ -305,9 +307,9 @@ class DataDesignerConfigBuilder:
 
     def add_processor(
         self,
-        processor_config: Optional[ProcessorConfig] = None,
+        processor_config: ProcessorConfigT | None = None,
         *,
-        processor_type: Optional[ProcessorType] = None,
+        processor_type: ProcessorType | None = None,
         **kwargs,
     ) -> Self:
         """Add a processor to the current Data Designer configuration.
@@ -454,12 +456,21 @@ class DataDesignerConfigBuilder:
         return [c for c in self._constraints if c.target_column == target_column]
 
     def get_llm_gen_columns(self) -> list[ColumnConfigT]:
-        """Get all LLM-generated column configurations.
+        """Get all model-generated column configurations.
 
         Returns:
-            A list of column configurations that use LLM generation.
+            A list of column configurations that use model generation.
         """
-        return [c for c in self._column_configs.values() if column_type_is_llm_generated(c.column_type)]
+        logger.warning("get_llm_gen_columns is deprecated. Use get_model_gen_columns instead.")
+        return self.get_model_gen_columns()
+
+    def get_model_gen_columns(self) -> list[ColumnConfigT]:
+        """Get all model-generated column configurations.
+
+        Returns:
+            A list of column configurations that use model generation.
+        """
+        return [c for c in self._column_configs.values() if column_type_is_model_generated(c.column_type)]
 
     def get_columns_of_type(self, column_type: DataDesignerColumnType) -> list[ColumnConfigT]:
         """Get all column configurations of the specified type.
@@ -485,7 +496,7 @@ class DataDesignerConfigBuilder:
         column_type = resolve_string_enum(column_type, DataDesignerColumnType)
         return [c for c in self._column_configs.values() if c.column_type != column_type]
 
-    def get_processor_configs(self) -> dict[BuildStage, list[ProcessorConfig]]:
+    def get_processor_configs(self) -> dict[BuildStage, list[ProcessorConfigT]]:
         """Get processor configuration objects.
 
         Returns:
@@ -493,7 +504,7 @@ class DataDesignerConfigBuilder:
         """
         return self._processor_configs
 
-    def get_seed_config(self) -> Optional[SeedConfig]:
+    def get_seed_config(self) -> SeedConfig | None:
         """Get the seed config for the current Data Designer configuration.
 
         Returns:
@@ -501,7 +512,7 @@ class DataDesignerConfigBuilder:
         """
         return self._seed_config
 
-    def get_seed_datastore_settings(self) -> Optional[DatastoreSettings]:
+    def get_seed_datastore_settings(self) -> DatastoreSettings | None:
         """Get most recent datastore settings for the current Data Designer configuration.
 
         Returns:
@@ -520,7 +531,7 @@ class DataDesignerConfigBuilder:
         """
         return len(self.get_columns_of_type(column_type))
 
-    def set_seed_datastore_settings(self, datastore_settings: Optional[DatastoreSettings]) -> Self:
+    def set_seed_datastore_settings(self, datastore_settings: DatastoreSettings | None) -> Self:
         """Set the datastore settings for the seed dataset.
 
         Args:
@@ -561,13 +572,14 @@ class DataDesignerConfigBuilder:
         dataset_reference: SeedDatasetReference,
         *,
         sampling_strategy: SamplingStrategy = SamplingStrategy.ORDERED,
-        selection_strategy: Optional[Union[IndexRange, PartitionBlock]] = None,
+        selection_strategy: IndexRange | PartitionBlock | None = None,
     ) -> Self:
         """Add a seed dataset to the current Data Designer configuration.
 
         This method sets the seed dataset for the configuration and automatically creates
         SeedDatasetColumnConfig objects for each column found in the dataset. The column
-        names are fetched from the dataset source (Hugging Face Hub or NeMo Microservices Datastore).
+        names are fetched from the dataset source, which can be the Hugging Face Hub, the
+        NeMo Microservices Datastore, or in the case of direct library usage, a local file.
 
         Args:
             dataset_reference: Seed dataset reference for fetching from the datastore.
@@ -576,7 +588,18 @@ class DataDesignerConfigBuilder:
 
         Returns:
             The current Data Designer config builder instance.
+
+        Raises:
+            BuilderConfigurationError: If any seed dataset column name collides with an existing column.
         """
+        seed_column_names = fetch_seed_dataset_column_names(dataset_reference)
+        colliding_columns = [name for name in seed_column_names if name in self._column_configs]
+        if colliding_columns:
+            raise BuilderConfigurationError(
+                f"🛑 Seed dataset column(s) {colliding_columns} collide with existing column(s). "
+                "Please remove the conflicting columns or use a seed dataset with different column names."
+            )
+
         self._seed_config = SeedConfig(
             dataset=dataset_reference.dataset,
             sampling_strategy=sampling_strategy,
@@ -585,11 +608,11 @@ class DataDesignerConfigBuilder:
         self.set_seed_datastore_settings(
             dataset_reference.datastore_settings if hasattr(dataset_reference, "datastore_settings") else None
         )
-        for column_name in fetch_seed_dataset_column_names(dataset_reference):
+        for column_name in seed_column_names:
             self._column_configs[column_name] = SeedDatasetColumnConfig(name=column_name)
         return self
 
-    def write_config(self, path: Union[str, Path], indent: Optional[int] = 2, **kwargs) -> None:
+    def write_config(self, path: str | Path, indent: int | None = 2, **kwargs) -> None:
         """Write the current configuration to a file.
 
         Args:
@@ -658,3 +681,15 @@ class DataDesignerConfigBuilder:
         highlighted_html = highlight(repr_string, PythonLexer(), formatter)
         css = formatter.get_style_defs(".code")
         return REPR_HTML_TEMPLATE.format(css=css, highlighted_html=highlighted_html)
+
+
+def _load_model_configs(model_configs: list[ModelConfig] | str | Path | None = None) -> list[ModelConfig]:
+    """Resolves the provided model_configs, which may be a string or Path to a model configuration file.
+    If None or empty, returns default model configurations if possible, otherwise raises an error.
+    """
+    if model_configs:
+        return load_model_configs(model_configs)
+    elif can_run_data_designer_locally():
+        return get_default_model_configs()
+    else:
+        raise BuilderConfigurationError("🛑 Model configurations are required!")

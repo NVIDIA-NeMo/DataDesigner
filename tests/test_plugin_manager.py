@@ -51,10 +51,9 @@ def mock_plugin_system(registry: MagicMock) -> Generator[None, None, None]:
     This works regardless of whether the actual environment has plugins available or not
     by patching at the module level where PluginManager is instantiated.
     """
-    with patch("data_designer.plugin_manager.can_run_data_designer_locally", return_value=True):
-        with patch("data_designer.plugin_manager.PluginRegistry", return_value=registry, create=True):
-            with patch("data_designer.plugin_manager.PluginType", MockPluginType, create=True):
-                yield
+    with patch("data_designer.plugin_manager.PluginRegistry", return_value=registry, create=True):
+        with patch("data_designer.plugin_manager.PluginType", MockPluginType, create=True):
+            yield
 
 
 @pytest.fixture
@@ -86,18 +85,12 @@ def test_get_column_generator_plugins_with_plugins(mock_plugin_registry: MagicMo
     mock_plugin_registry.get_plugins.assert_called_once_with(MockPluginType.COLUMN_GENERATOR)
 
 
-@pytest.mark.parametrize("plugins_available", [True, False])
-def test_get_column_generator_plugins_empty(mock_plugin_registry: MagicMock, plugins_available: bool) -> None:
-    """Test getting plugin column configs when no plugins are registered or system is disabled."""
-    if plugins_available:
-        mock_plugin_registry.get_plugins.return_value = []
-        with mock_plugin_system(mock_plugin_registry):
-            manager = PluginManager()
-            result = manager.get_column_generator_plugins()
-    else:
-        with patch("data_designer.plugin_manager.can_run_data_designer_locally", return_value=False):
-            manager = PluginManager()
-            result = manager.get_column_generator_plugins()
+def test_get_column_generator_plugins_empty(mock_plugin_registry: MagicMock) -> None:
+    """Test getting plugin column configs when no plugins are registered."""
+    mock_plugin_registry.get_plugins.return_value = []
+    with mock_plugin_system(mock_plugin_registry):
+        manager = PluginManager()
+        result = manager.get_column_generator_plugins()
 
     assert result == []
 
@@ -128,15 +121,6 @@ def test_get_column_generator_plugin_if_exists_not_found(mock_plugin_registry: M
     assert result is None
     mock_plugin_registry.plugin_exists.assert_called_once_with("plugin-three")
     mock_plugin_registry.get_plugin.assert_not_called()
-
-
-def test_get_column_generator_plugin_if_exists_when_disabled() -> None:
-    """Test getting a specific plugin when plugin system is disabled."""
-    with patch("data_designer.plugin_manager.can_run_data_designer_locally", return_value=False):
-        manager = PluginManager()
-        result = manager.get_column_generator_plugin_if_exists("plugin-one")
-
-    assert result is None
 
 
 def test_get_plugin_column_types_with_plugins(mock_plugin_registry: MagicMock, mock_plugins: list[Mock]) -> None:
@@ -185,20 +169,14 @@ def test_get_plugin_column_types_filters_none_resources(mock_plugin_registry: Ma
     assert result == []
 
 
-@pytest.mark.parametrize("plugins_available", [True, False])
-def test_get_plugin_column_types_empty(mock_plugin_registry: MagicMock, plugins_available: bool) -> None:
-    """Test getting plugin column types when no plugins are registered or system is disabled."""
+def test_get_plugin_column_types_empty(mock_plugin_registry: MagicMock) -> None:
+    """Test getting plugin column types when no plugins are registered."""
     TestEnum = Enum("TestEnum", {}, type=str)
 
-    if plugins_available:
-        mock_plugin_registry.get_plugins.return_value = []
-        with mock_plugin_system(mock_plugin_registry):
-            manager = PluginManager()
-            result = manager.get_plugin_column_types(TestEnum)
-    else:
-        with patch("data_designer.plugin_manager.can_run_data_designer_locally", return_value=False):
-            manager = PluginManager()
-            result = manager.get_plugin_column_types(TestEnum)
+    mock_plugin_registry.get_plugins.return_value = []
+    with mock_plugin_system(mock_plugin_registry):
+        manager = PluginManager()
+        result = manager.get_plugin_column_types(TestEnum)
 
     assert result == []
 
@@ -217,16 +195,3 @@ def test_inject_into_column_config_type_union_with_plugins(mock_plugin_registry:
 
     assert result == str | int
     mock_plugin_registry.add_plugin_types_to_union.assert_called_once_with(BaseType, MockPluginType.COLUMN_GENERATOR)
-
-
-def test_inject_into_column_config_type_union_when_disabled() -> None:
-    """Test injecting plugins when plugin system is disabled."""
-
-    class BaseType:
-        pass
-
-    with patch("data_designer.plugin_manager.can_run_data_designer_locally", return_value=False):
-        manager = PluginManager()
-        result = manager.inject_into_column_config_type_union(BaseType)
-
-    assert result == BaseType

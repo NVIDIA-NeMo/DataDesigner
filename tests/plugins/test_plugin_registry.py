@@ -1,9 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import threading
 from contextlib import contextmanager
 from importlib.metadata import EntryPoint
-import threading
 from typing import Literal
 from unittest.mock import MagicMock, patch
 
@@ -269,7 +269,6 @@ def test_plugin_registry_get_plugin_names(mock_plugin_discovery, mock_entry_poin
 
 def test_plugin_registry_update_type_union(mock_plugin_discovery, mock_entry_points: list[MagicMock]) -> None:
     """Test update_type_union() adds plugin config types to union."""
-    from typing import Union
 
     from typing_extensions import TypeAlias
 
@@ -280,7 +279,7 @@ def test_plugin_registry_update_type_union(mock_plugin_discovery, mock_entry_poi
         manager = PluginRegistry()
 
         # Create a Union with at least 2 types so it has __args__
-        type_union: TypeAlias = Union[ConfigBase, DummyConfig]
+        type_union: TypeAlias = ConfigBase | DummyConfig
         updated_union = manager.add_plugin_types_to_union(type_union, PluginType.COLUMN_GENERATOR)
 
         assert StubPluginConfigA in updated_union.__args__

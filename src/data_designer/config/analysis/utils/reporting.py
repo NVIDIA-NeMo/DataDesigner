@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING
 
 from rich.align import Align
 from rich.console import Console, Group
@@ -14,18 +14,18 @@ from rich.rule import Rule
 from rich.table import Column, Table
 from rich.text import Text
 
-from ...analysis.column_statistics import CategoricalHistogramData
-from ...column_types import COLUMN_TYPE_EMOJI_MAP, DataDesignerColumnType, get_column_display_order
-from ...utils.visualization import (
+from data_designer.config.analysis.column_statistics import CategoricalHistogramData
+from data_designer.config.analysis.utils.errors import AnalysisReportError
+from data_designer.config.column_types import COLUMN_TYPE_EMOJI_MAP, DataDesignerColumnType, get_column_display_order
+from data_designer.config.utils.visualization import (
     ColorPalette,
     convert_to_row_element,
     create_rich_histogram_table,
     pad_console_element,
 )
-from .errors import AnalysisReportError
 
 if TYPE_CHECKING:
-    from ...analysis.dataset_profiler import DatasetProfilerResults
+    from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
 
 HEADER_STYLE = "dim"
 RULE_STYLE = f"bold {ColorPalette.NVIDIA_GREEN.value}"
@@ -48,8 +48,8 @@ DEFAULT_INCLUDE_SECTIONS = [
 
 def generate_analysis_report(
     analysis: DatasetProfilerResults,
-    save_path: Optional[Union[str, Path]] = None,
-    include_sections: Optional[list[Union[ReportSection, DataDesignerColumnType]]] = None,
+    save_path: str | Path | None = None,
+    include_sections: list[ReportSection | DataDesignerColumnType] | None = None,
 ) -> None:
     """Generate an analysis report for dataset profiling results.
 

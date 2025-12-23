@@ -1,16 +1,19 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+from __future__ import annotations
 
 import functools
+import importlib.metadata
 import json
 import logging
-from pathlib import Path
 import time
-from typing import Callable
+import uuid
+from pathlib import Path
+from typing import TYPE_CHECKING, Callable
 
 import pandas as pd
 
-from data_designer.config.column_types import ColumnConfigT, column_type_is_llm_generated
+from data_designer.config.column_types import ColumnConfigT, column_type_is_model_generated
 from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.processors import (
     DropColumnsProcessorConfig,
@@ -35,12 +38,19 @@ from data_designer.engine.dataset_builders.utils.concurrency import (
 from data_designer.engine.dataset_builders.utils.dataset_batch_manager import (
     DatasetBatchManager,
 )
+from data_designer.engine.models.telemetry import InferenceEvent, NemoSourceEnum, TaskStatusEnum, TelemetryHandler
 from data_designer.engine.processing.processors.base import Processor
 from data_designer.engine.processing.processors.drop_columns import DropColumnsProcessor
 from data_designer.engine.registry.data_designer_registry import DataDesignerRegistry
 from data_designer.engine.resources.resource_provider import ResourceProvider
 
+if TYPE_CHECKING:
+    from data_designer.engine.models.usage import ModelUsageStats
+
 logger = logging.getLogger(__name__)
+
+
+_CLIENT_VERSION: str = importlib.metadata.version("data_designer")
 
 
 class ColumnWiseDatasetBuilder:
@@ -75,7 +85,7 @@ class ColumnWiseDatasetBuilder:
 
     @functools.cached_property
     def llm_generated_column_configs(self) -> list[ColumnConfigT]:
-        return [config for config in self.single_column_configs if column_type_is_llm_generated(config.column_type)]
+        return [config for config in self.single_column_configs if column_type_is_model_generated(config.column_type)]
 
     def build(
         self,
@@ -89,11 +99,12 @@ class ColumnWiseDatasetBuilder:
 
         generators = self._initialize_generators()
         start_time = time.perf_counter()
+        group_id = uuid.uuid4().hex
 
         self.batch_manager.start(num_records=num_records, buffer_size=buffer_size)
-        for batch_idx in range(1, self.batch_manager.num_batches + 1):
-            logger.info(f"⏳ Processing batch {batch_idx} of {self.batch_manager.num_batches}")
-            self._run_batch(generators)
+        for batch_idx in range(self.batch_manager.num_batches):
+            logger.info(f"⏳ Processing batch {batch_idx + 1} of {self.batch_manager.num_batches}")
+            self._run_batch(generators, batch_mode="batch", group_id=group_id)
             df_batch = self._run_processors(
                 stage=BuildStage.POST_BATCH,
                 dataframe=self.batch_manager.get_current_batch(as_dataframe=True),
@@ -114,10 +125,10 @@ class ColumnWiseDatasetBuilder:
         self._run_model_health_check_if_needed()
 
         generators = self._initialize_generators()
-
+        group_id = uuid.uuid4().hex
         start_time = time.perf_counter()
         self.batch_manager.start(num_records=num_records, buffer_size=num_records)
-        self._run_batch(generators, save_partial_results=False)
+        self._run_batch(generators, batch_mode="preview", save_partial_results=False, group_id=group_id)
         dataset = self.batch_manager.get_current_batch(as_dataframe=True)
         self.batch_manager.reset()
 
@@ -143,7 +154,10 @@ class ColumnWiseDatasetBuilder:
             for config in self._column_configs
         ]
 
-    def _run_batch(self, generators: list[ColumnGenerator], *, save_partial_results: bool = True) -> None:
+    def _run_batch(
+        self, generators: list[ColumnGenerator], *, batch_mode: str, save_partial_results: bool = True, group_id: str
+    ) -> None:
+        pre_batch_snapshot = self._resource_provider.model_registry.get_model_usage_snapshot()
         for generator in generators:
             generator.log_pre_generation()
             try:
@@ -166,6 +180,12 @@ class ColumnWiseDatasetBuilder:
                 )
                 raise DatasetGenerationError(f"🛑 Failed to process {column_error_str}:\n{e}")
 
+        try:
+            usage_deltas = self._resource_provider.model_registry.get_usage_deltas(pre_batch_snapshot)
+            self._emit_batch_inference_events(batch_mode, usage_deltas, group_id)
+        except Exception:
+            pass
+
     def _run_from_scratch_column_generator(self, generator: ColumnGenerator) -> None:
         df = generator.generate_from_scratch(self.batch_manager.num_records_batch)
         self.batch_manager.add_records(df.to_dict(orient="records"))
@@ -181,9 +201,9 @@ class ColumnWiseDatasetBuilder:
         self.batch_manager.update_records(df.to_dict(orient="records"))
 
     def _run_model_health_check_if_needed(self) -> bool:
-        if any(column_type_is_llm_generated(config.column_type) for config in self.single_column_configs):
+        if any(column_type_is_model_generated(config.column_type) for config in self.single_column_configs):
             self._resource_provider.model_registry.run_health_check(
-                set(config.model_alias for config in self.llm_generated_column_configs)
+                list(set(config.model_alias for config in self.llm_generated_column_configs))
             )
 
     def _fan_out_with_threads(self, generator: WithModelGeneration, max_workers: int) -> None:
@@ -247,6 +267,7 @@ class ColumnWiseDatasetBuilder:
             processors[BuildStage.POST_BATCH].append(  # as post-batch by default
                 DropColumnsProcessor(
                     config=DropColumnsProcessorConfig(
+                        name="default_drop_columns_processor",
                         column_names=columns_to_drop,
                         build_stage=BuildStage.POST_BATCH,
                     ),
@@ -288,3 +309,25 @@ class ColumnWiseDatasetBuilder:
             json_file_name="model_configs.json",
             configs=self._resource_provider.model_registry.model_configs.values(),
         )
+
+    def _emit_batch_inference_events(
+        self, batch_mode: str, usage_deltas: dict[str, ModelUsageStats], group_id: str
+    ) -> None:
+        if not usage_deltas:
+            return
+
+        events = [
+            InferenceEvent(
+                nemo_source=NemoSourceEnum.DATADESIGNER,
+                task=batch_mode,
+                task_status=TaskStatusEnum.SUCCESS,
+                model=model_name,
+                input_tokens=delta.token_usage.input_tokens,
+                output_tokens=delta.token_usage.output_tokens,
+            )
+            for model_name, delta in usage_deltas.items()
+        ]
+
+        with TelemetryHandler(source_client_version=_CLIENT_VERSION, session_id=group_id) as telemetry_handler:
+            for event in events:
+                telemetry_handler.enqueue(event)

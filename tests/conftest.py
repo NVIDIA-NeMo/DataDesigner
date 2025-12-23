@@ -17,7 +17,7 @@ from data_designer.config.column_configs import SamplerColumnConfig
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.datastore import DatastoreSettings
-from data_designer.config.models import CompletionInferenceParameters, ModelConfig, ModelProvider
+from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig, ModelProvider
 
 
 @pytest.fixture
@@ -135,7 +135,7 @@ def stub_model_configs() -> list[ModelConfig]:
         ModelConfig(
             alias="stub-model",
             model="stub-model",
-            inference_parameters=CompletionInferenceParameters(
+            inference_parameters=ChatCompletionInferenceParams(
                 temperature=0.9,
                 top_p=0.9,
                 max_tokens=2048,
@@ -164,7 +164,7 @@ def stub_empty_builder(stub_model_configs: list[ModelConfig]) -> DataDesignerCon
 @pytest.fixture
 def stub_complete_builder(stub_data_designer_builder_config_str: str) -> DataDesignerConfigBuilder:
     with patch("data_designer.config.config_builder.fetch_seed_dataset_column_names") as mock_fetch:
-        mock_fetch.return_value = ["id", "name", "age", "city"]
+        mock_fetch.return_value = ["id", "name", "city", "country"]
         return DataDesignerConfigBuilder.from_config(config=stub_data_designer_builder_config_str)
 
 

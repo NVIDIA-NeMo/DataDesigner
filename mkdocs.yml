@@ -1,4 +1,5 @@
 site_name: NeMo Data Designer
+site_url: https://nvidia-nemo.github.io/DataDesigner/
 repo_url: https://github.com/NVIDIA-NeMo/DataDesigner
 
 nav:
@@ -8,28 +9,48 @@ nav:
       - Quick Start: quick-start.md
       - Contributing: CONTRIBUTING.md
   - Concepts:
+      - Models:
+          - Default Model Settings: concepts/models/default-model-settings.md
+          - Custom Model Settings: concepts/models/custom-model-settings.md
+          - Configure with the CLI: concepts/models/configure-model-settings-with-the-cli.md
+          - Model Providers: concepts/models/model-providers.md
+          - Model Configs: concepts/models/model-configs.md
+          - Inference Parameters: concepts/models/inference-parameters.md
       - Columns: concepts/columns.md
       - Validators: concepts/validators.md
+      - Processors: concepts/processors.md
       - Person Sampling: concepts/person_sampling.md
-  - Models:
-      - Default Model Settings: models/default-model-settings.md
-      - Configure with the CLI: models/configure-model-settings-with-the-cli.md
-      - Model Providers: models/model-providers.md
-      - Model Configs: models/model-configs.md
   - Tutorials:
       - Overview: notebooks/README.md
       - The Basics: notebooks/1-the-basics.ipynb
       - Structured Outputs and Jinja Expressions: notebooks/2-structured-outputs-and-jinja-expressions.ipynb
       - Seeding with an External Dataset: notebooks/3-seeding-with-a-dataset.ipynb
+      - Providing Images as Context: notebooks/4-providing-images-as-context.ipynb
+  - Recipes:
+      - Recipe Cards: recipes/cards.md
+      - Code Generation:
+          - Text to Python: recipes/code_generation/text_to_python.md
+          - Text to SQL: recipes/code_generation/text_to_sql.md
+      - QA and Chat:
+          - Product Info QA: recipes/qa_and_chat/product_info_qa.md
+          - Multi-Turn Chat: recipes/qa_and_chat/multi_turn_chat.md
+  - Plugins:
+      - Overview: plugins/overview.md
+      - Example Plugin: plugins/example.md
+      - Available Plugin List: plugins/available.md
   - Code Reference:
+      - models: code_reference/models.md
       - column_configs: code_reference/column_configs.md
       - config_builder: code_reference/config_builder.md
       - data_designer_config: code_reference/data_designer_config.md
       - sampler_params: code_reference/sampler_params.md
       - validator_params: code_reference/validator_params.md
+      - processors: code_reference/processors.md
+      - analysis: code_reference/analysis.md
 
 theme:
   name: material
+  custom_dir: docs/overrides
   font:
     text: Roboto
     code: Fira Code
@@ -52,9 +73,9 @@ theme:
             name: Switch to dark mode
   features:
       - navigation.tabs
-      - navigation.sections
       - navigation.expand
       - navigation.path
+      - navigation.footer
       - content.code.copy
       - content.code.select
       - content.code.annotate
@@ -62,6 +83,8 @@ theme:
 extra:
   version:
     provider: mike
+    alias: true
+    default: latest
 
 watch:
   - src/data_designer
@@ -76,6 +99,9 @@ plugins:
         execute: false
         include_requirejs: true
         ignore_h1_titles: True
+        include_source: True
+        ignore:
+          - "assets/recipes/**/*.py"
   - mkdocstrings:
       handlers:
           python:
@@ -99,13 +125,20 @@ extra_javascript:
   - js/toc-toggle.js
 
 markdown_extensions:
-  - pymdownx.highlight:
-        pygments_lang_class: true
-        use_pygments: true
   - tables
   - pymdownx.superfences
-  - pymdownx.tabbed:
-        alternate_style: true
   - attr_list
   - md_in_html
   - admonition
+  - pymdownx.snippets:
+      base_path:
+        - docs/
+        - .
+  - pymdownx.highlight:
+        pygments_lang_class: true
+        use_pygments: true
+  - pymdownx.tabbed:
+        alternate_style: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg

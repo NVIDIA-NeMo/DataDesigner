@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pandas as pd
 import pytest
@@ -15,6 +15,8 @@ from data_designer.engine.dataset_builders.column_wise_builder import (
 )
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 from data_designer.engine.dataset_builders.multi_column_configs import SamplerMultiColumnConfig
+from data_designer.engine.models.telemetry import InferenceEvent, NemoSourceEnum, TaskStatusEnum
+from data_designer.engine.models.usage import ModelUsageStats, TokenUsageStats
 from data_designer.engine.registry.data_designer_registry import DataDesignerRegistry
 
 
@@ -28,7 +30,11 @@ def stub_test_column_configs():
 
 @pytest.fixture
 def stub_test_processor_configs():
-    return [DropColumnsProcessorConfig(build_stage=BuildStage.POST_BATCH, column_names=["column_to_drop"])]
+    return [
+        DropColumnsProcessorConfig(
+            name="drop_columns_processor", build_stage=BuildStage.POST_BATCH, column_names=["column_to_drop"]
+        )
+    ]
 
 
 @pytest.fixture
@@ -143,6 +149,7 @@ def test_column_wise_dataset_builder_build_method_basic_flow(
 ):
     stub_resource_provider.model_registry.run_health_check = Mock()
     stub_resource_provider.model_registry.get_model_usage_stats = Mock(return_value={"test": "stats"})
+    stub_resource_provider.model_registry.models = {}
 
     # Mock the model config to return proper max_parallel_requests
     mock_model_config = Mock()
@@ -208,3 +215,94 @@ def test_column_wise_dataset_builder_initialize_processors(stub_column_wise_buil
 
 def test_constants_max_concurrency_constant():
     assert MAX_CONCURRENCY_PER_NON_LLM_GENERATOR == 4
+
+
+@patch("data_designer.engine.dataset_builders.column_wise_builder.TelemetryHandler")
+def test_emit_batch_inference_events_emits_from_deltas(
+    mock_telemetry_handler_class: Mock,
+    stub_resource_provider: Mock,
+    stub_test_column_configs: list,
+    stub_test_processor_configs: list,
+) -> None:
+    usage_deltas = {"test-model": ModelUsageStats(token_usage=TokenUsageStats(input_tokens=50, output_tokens=150))}
+
+    builder = ColumnWiseDatasetBuilder(
+        column_configs=stub_test_column_configs,
+        processor_configs=stub_test_processor_configs,
+        resource_provider=stub_resource_provider,
+    )
+
+    session_id = "550e8400-e29b-41d4-a716-446655440000"
+
+    mock_handler_instance = Mock()
+    mock_telemetry_handler_class.return_value.__enter__ = Mock(return_value=mock_handler_instance)
+    mock_telemetry_handler_class.return_value.__exit__ = Mock(return_value=False)
+
+    builder._emit_batch_inference_events("batch", usage_deltas, session_id)
+
+    mock_telemetry_handler_class.assert_called_once()
+    call_kwargs = mock_telemetry_handler_class.call_args[1]
+    assert call_kwargs["session_id"] == session_id
+
+    mock_handler_instance.enqueue.assert_called_once()
+    event = mock_handler_instance.enqueue.call_args[0][0]
+
+    assert isinstance(event, InferenceEvent)
+    assert event.task == "batch"
+    assert event.task_status == TaskStatusEnum.SUCCESS
+    assert event.nemo_source == NemoSourceEnum.DATADESIGNER
+    assert event.model == "test-model"
+    assert event.input_tokens == 50
+    assert event.output_tokens == 150
+
+
+@patch("data_designer.engine.dataset_builders.column_wise_builder.TelemetryHandler")
+def test_emit_batch_inference_events_skips_when_no_deltas(
+    mock_telemetry_handler_class: Mock,
+    stub_resource_provider: Mock,
+    stub_test_column_configs: list,
+    stub_test_processor_configs: list,
+) -> None:
+    usage_deltas: dict[str, ModelUsageStats] = {}
+
+    builder = ColumnWiseDatasetBuilder(
+        column_configs=stub_test_column_configs,
+        processor_configs=stub_test_processor_configs,
+        resource_provider=stub_resource_provider,
+    )
+
+    session_id = "550e8400-e29b-41d4-a716-446655440000"
+    builder._emit_batch_inference_events("batch", usage_deltas, session_id)
+
+    mock_telemetry_handler_class.assert_not_called()
+
+
+@patch("data_designer.engine.dataset_builders.column_wise_builder.TelemetryHandler")
+def test_emit_batch_inference_events_handles_multiple_models(
+    mock_telemetry_handler_class: Mock,
+    stub_resource_provider: Mock,
+    stub_test_column_configs: list,
+    stub_test_processor_configs: list,
+) -> None:
+    usage_deltas = {
+        "model-a": ModelUsageStats(token_usage=TokenUsageStats(input_tokens=100, output_tokens=200)),
+        "model-b": ModelUsageStats(token_usage=TokenUsageStats(input_tokens=50, output_tokens=75)),
+    }
+
+    builder = ColumnWiseDatasetBuilder(
+        column_configs=stub_test_column_configs,
+        processor_configs=stub_test_processor_configs,
+        resource_provider=stub_resource_provider,
+    )
+
+    session_id = "550e8400-e29b-41d4-a716-446655440000"
+    mock_handler_instance = Mock()
+    mock_telemetry_handler_class.return_value.__enter__ = Mock(return_value=mock_handler_instance)
+    mock_telemetry_handler_class.return_value.__exit__ = Mock(return_value=False)
+
+    builder._emit_batch_inference_events("preview", usage_deltas, session_id)
+
+    assert mock_handler_instance.enqueue.call_count == 2
+    events = [call[0][0] for call in mock_handler_instance.enqueue.call_args_list]
+    model_names = {e.model for e in events}
+    assert model_names == {"model-a", "model-b"}

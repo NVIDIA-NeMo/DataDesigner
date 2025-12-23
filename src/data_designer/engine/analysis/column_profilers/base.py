@@ -3,11 +3,10 @@
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 import logging
+from abc import ABC, abstractmethod
 
 import pandas as pd
-import pyarrow as pa
 from pydantic import BaseModel, model_validator
 from typing_extensions import Self
 
@@ -27,12 +26,6 @@ class ColumnConfigWithDataFrame(ConfigBase):
     def validate_column_exists(self) -> Self:
         if self.column_config.name not in self.df.columns:
             raise ValueError(f"Column {self.column_config.name!r} not found in DataFrame")
-        return self
-
-    @model_validator(mode="after")
-    def ensure_pyarrow_backend(self) -> Self:
-        if not all(isinstance(dtype, pd.ArrowDtype) for dtype in self.df.dtypes):
-            self.df = pa.Table.from_pandas(self.df).to_pandas(types_mapper=pd.ArrowDtype)
         return self
 
     def as_tuple(self) -> tuple[SingleColumnConfig, pd.DataFrame]:

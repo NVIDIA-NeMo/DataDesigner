@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Type, TypeAlias, Union
+from typing import Any, TypeAlias
 
 import pandas as pd
 from pydantic import BaseModel
@@ -41,7 +41,7 @@ class GeneralColumnStatisticsCalculator(BaseModel):
         return self.column_config_with_df.df
 
     @property
-    def column_statistics_type(self) -> Type[ColumnStatisticsT]:
+    def column_statistics_type(self) -> type[ColumnStatisticsT]:
         return DEFAULT_COLUMN_STATISTICS_MAP.get(self.column_config.column_type, GeneralColumnStatistics)
 
     def calculate(self) -> Self:
@@ -59,7 +59,7 @@ class GeneralColumnStatisticsCalculator(BaseModel):
         )
 
     def calculate_general_column_info(self) -> dict[str, Any]:
-        return calculate_general_column_info(self.column_config, self.df)
+        return calculate_general_column_info(self.column_config.name, self.df)
 
     def __repr__(self) -> str:
         params = []
@@ -93,7 +93,7 @@ class SamplerColumnStatisticsCalculator(GeneralColumnStatisticsCalculator):
         return (
             {
                 "sampler_type": SamplerType(self.column_config.sampler_type),
-                **calculate_column_distribution(self.column_config, self.df, dist_type),
+                **calculate_column_distribution(self.column_config.name, self.df, dist_type),
             }
             if make_dist
             else {
@@ -109,23 +109,23 @@ class SeedDatasetColumnStatisticsCalculator(GeneralColumnStatisticsCalculator): 
 
 class ValidationColumnStatisticsCalculator(GeneralColumnStatisticsCalculator):
     def calculate_validation_column_info(self) -> dict[str, Any]:
-        return calculate_validation_column_info(self.column_config, self.df)
+        return calculate_validation_column_info(self.column_config.name, self.df)
 
 
 class ExpressionColumnStatisticsCalculator(GeneralColumnStatisticsCalculator): ...
 
 
-ColumnStatisticsCalculatorT: TypeAlias = Union[
-    ExpressionColumnStatisticsCalculator,
-    ValidationColumnStatisticsCalculator,
-    GeneralColumnStatisticsCalculator,
-    LLMCodeColumnStatisticsCalculator,
-    LLMJudgedColumnStatisticsCalculator,
-    LLMStructuredColumnStatisticsCalculator,
-    LLMTextColumnStatisticsCalculator,
-    SamplerColumnStatisticsCalculator,
-    SeedDatasetColumnStatisticsCalculator,
-]
+ColumnStatisticsCalculatorT: TypeAlias = (
+    ExpressionColumnStatisticsCalculator
+    | ValidationColumnStatisticsCalculator
+    | GeneralColumnStatisticsCalculator
+    | LLMCodeColumnStatisticsCalculator
+    | LLMJudgedColumnStatisticsCalculator
+    | LLMStructuredColumnStatisticsCalculator
+    | LLMTextColumnStatisticsCalculator
+    | SamplerColumnStatisticsCalculator
+    | SeedDatasetColumnStatisticsCalculator
+)
 DEFAULT_COLUMN_STATISTICS_CALCULATOR_MAP = {
     DataDesignerColumnType.EXPRESSION: ExpressionColumnStatisticsCalculator,
     DataDesignerColumnType.VALIDATION: ValidationColumnStatisticsCalculator,

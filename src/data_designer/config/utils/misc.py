@@ -3,14 +3,13 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 import json
-from typing import Optional, Union
+from contextlib import contextmanager
 
 from jinja2 import TemplateSyntaxError, meta
 from jinja2.sandbox import ImmutableSandboxedEnvironment
 
-from .errors import UserJinjaTemplateSyntaxError
+from data_designer.config.utils.errors import UserJinjaTemplateSyntaxError
 
 REPR_LIST_LENGTH_USE_JSON = 4
 
@@ -43,7 +42,7 @@ def assert_valid_jinja2_template(template: str) -> None:
 def can_run_data_designer_locally() -> bool:
     """Returns True if Data Designer can be run locally, False otherwise."""
     try:
-        from ... import engine  # noqa: F401
+        from ... import engine  # noqa: F401, TID252
     except ImportError:
         return False
     return True
@@ -58,9 +57,7 @@ def get_prompt_template_keywords(template: str) -> set[str]:
     return keywords
 
 
-def json_indent_list_of_strings(
-    column_names: list[str], *, indent: Optional[Union[int, str]] = None
-) -> Optional[Union[list[str], str]]:
+def json_indent_list_of_strings(column_names: list[str], *, indent: int | str | None = None) -> list[str] | str | None:
     """Convert a list of column names to a JSON string if the list is long.
 
     This function helps keep Data Designer's __repr__ output clean and readable.

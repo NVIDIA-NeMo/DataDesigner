@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Union
 
 
 class CodeLang(str, Enum):
@@ -26,17 +25,17 @@ class CodeLang(str, Enum):
     SQL_ANSI = "sql:ansi"
 
     @staticmethod
-    def parse(value: Union[str, CodeLang]) -> tuple[str, Union[str, None]]:
+    def parse(value: str | CodeLang) -> tuple[str, str | None]:
         value = value.value if isinstance(value, CodeLang) else value
         split_vals = value.split(":")
         return (split_vals[0], split_vals[1] if len(split_vals) > 1 else None)
 
     @staticmethod
-    def parse_lang(value: Union[str, CodeLang]) -> str:
+    def parse_lang(value: str | CodeLang) -> str:
         return CodeLang.parse(value)[0]
 
     @staticmethod
-    def parse_dialect(value: Union[str, CodeLang]) -> Union[str, None]:
+    def parse_dialect(value: str | CodeLang) -> str | None:
         return CodeLang.parse(value)[1]
 
     @staticmethod
@@ -58,7 +57,7 @@ SQL_DIALECTS: set[CodeLang] = {
 ##########################################################
 
 
-def code_lang_to_syntax_lexer(code_lang: Union[CodeLang, str]) -> str:
+def code_lang_to_syntax_lexer(code_lang: CodeLang | str) -> str:
     """Convert the code language to a syntax lexer for Pygments.
 
     Reference: https://pygments.org/docs/lexers/

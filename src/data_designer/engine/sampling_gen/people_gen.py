@@ -3,17 +3,17 @@
 
 from __future__ import annotations
 
+import random
+import uuid
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from copy import deepcopy
-import random
-from typing import TYPE_CHECKING, Any, Union
-import uuid
+from typing import TYPE_CHECKING, Any, TypeAlias
 
-from faker import Faker
 import pandas as pd
+from faker import Faker
 
-from data_designer.config.utils.constants import AVAILABLE_LOCALES, DEFAULT_AGE_RANGE
+from data_designer.config.utils.constants import DEFAULT_AGE_RANGE
 from data_designer.engine.resources.managed_dataset_generator import ManagedDatasetGenerator
 from data_designer.engine.sampling_gen.entities.dataset_based_person_fields import PERSONA_FIELDS, PII_FIELDS
 from data_designer.engine.sampling_gen.entities.person import (
@@ -27,17 +27,13 @@ if TYPE_CHECKING:
     from data_designer.engine.sampling_gen.schema import DataSchema
 
 
-EngineT = Union[Faker, ManagedDatasetGenerator]
+EngineT: TypeAlias = Faker | ManagedDatasetGenerator
 
 
 class PeopleGen(ABC):
     """Unified interface for generating people data."""
 
     def __init__(self, engine: EngineT, locale: str):
-        if locale not in AVAILABLE_LOCALES:
-            raise ValueError(
-                f"Locale {locale} is not a supported locale.Supported locales: {', '.join(AVAILABLE_LOCALES)}"
-            )
         self.locale = locale
         self._engine = engine
 

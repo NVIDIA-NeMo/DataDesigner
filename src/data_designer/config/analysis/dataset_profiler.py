@@ -3,24 +3,39 @@
 
 from functools import cached_property
 from pathlib import Path
-from typing import Annotated, Optional, Union
+from typing import Annotated
 
 from pydantic import BaseModel, Field, field_validator
 
-from ..column_types import DataDesignerColumnType, get_column_display_order
-from ..utils.constants import EPSILON
-from ..utils.numerical_helpers import prepare_number_for_reporting
-from .column_profilers import ColumnProfilerResultsT
-from .column_statistics import ColumnStatisticsT
-from .utils.reporting import ReportSection, generate_analysis_report
+from data_designer.config.analysis.column_profilers import ColumnProfilerResultsT
+from data_designer.config.analysis.column_statistics import ColumnStatisticsT
+from data_designer.config.analysis.utils.reporting import ReportSection, generate_analysis_report
+from data_designer.config.column_types import DataDesignerColumnType, get_column_display_order
+from data_designer.config.utils.constants import EPSILON
+from data_designer.config.utils.numerical_helpers import prepare_number_for_reporting
 
 
 class DatasetProfilerResults(BaseModel):
+    """Container for complete dataset profiling and analysis results.
+
+    Stores profiling results for a generated dataset, including statistics for all columns,
+    dataset-level metadata, and optional advanced profiler results. Provides methods for
+    computing derived metrics and generating formatted reports.
+
+    Attributes:
+        num_records: Actual number of records successfully generated in the dataset.
+        target_num_records: Target number of records that were requested to be generated.
+        column_statistics: List of statistics objects for all columns in the dataset. Each
+            column has statistics appropriate to its type. Must contain at least one column.
+        side_effect_column_names: Column names that were generated as side effects of other columns.
+        column_profiles: Column profiler results for specific columns when configured.
+    """
+
     num_records: int
     target_num_records: int
     column_statistics: list[Annotated[ColumnStatisticsT, Field(discriminator="column_type")]] = Field(..., min_length=1)
-    side_effect_column_names: Optional[list[str]] = None
-    column_profiles: Optional[list[ColumnProfilerResultsT]] = None
+    side_effect_column_names: list[str] | None = None
+    column_profiles: list[ColumnProfilerResultsT] | None = None
 
     @field_validator("num_records", "target_num_records", mode="before")
     def ensure_python_integers(cls, v: int) -> int:
@@ -28,10 +43,12 @@ class DatasetProfilerResults(BaseModel):
 
     @property
     def percent_complete(self) -> float:
+        """Returns the completion percentage of the dataset."""
         return 100 * self.num_records / (self.target_num_records + EPSILON)
 
     @cached_property
     def column_types(self) -> list[str]:
+        """Returns a sorted list of unique column types present in the dataset."""
         display_order = get_column_display_order()
         return sorted(
             list(set([c.column_type for c in self.column_statistics])),
@@ -39,12 +56,13 @@ class DatasetProfilerResults(BaseModel):
         )
 
     def get_column_statistics_by_type(self, column_type: DataDesignerColumnType) -> list[ColumnStatisticsT]:
+        """Filters column statistics to return only those of the specified type."""
         return [c for c in self.column_statistics if c.column_type == column_type]
 
     def to_report(
         self,
-        save_path: Optional[Union[str, Path]] = None,
-        include_sections: Optional[list[Union[ReportSection, DataDesignerColumnType]]] = None,
+        save_path: str | Path | None = None,
+        include_sections: list[ReportSection | DataDesignerColumnType] | None = None,
     ) -> None:
         """Generate and print an analysis report based on the dataset profiling results.
 

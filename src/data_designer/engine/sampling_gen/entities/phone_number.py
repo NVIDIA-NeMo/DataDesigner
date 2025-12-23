@@ -1,9 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from pathlib import Path
 import random
-from typing import Optional
+from pathlib import Path
 
 import pandas as pd
 from pydantic import BaseModel, Field, field_validator
@@ -13,7 +12,7 @@ ZIPCODE_AREA_CODE_MAP = dict(zip(ZIP_AREA_CODE_DATA["zipcode"], ZIP_AREA_CODE_DA
 ZIPCODE_POPULATION_MAP = dict(zip(ZIP_AREA_CODE_DATA["zipcode"], ZIP_AREA_CODE_DATA["count"]))
 
 
-def get_area_code(zip_prefix: Optional[str] = None) -> str:
+def get_area_code(zip_prefix: str | None = None) -> str:
     """
     Sample an area code for the given ZIP code prefix, population-weighted.
 

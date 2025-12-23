@@ -2,14 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from enum import Enum
-from typing import Literal, Optional, Union
+from typing import Literal
 
 import pandas as pd
 from pydantic import Field, field_validator, model_validator
 from typing_extensions import Self, TypeAlias
 
-from .base import ConfigBase
-from .utils.constants import (
+from data_designer.config.base import ConfigBase
+from data_designer.config.utils.constants import (
     AVAILABLE_LOCALES,
     DEFAULT_AGE_RANGE,
     LOCALES_WITH_MANAGED_DATASETS,
@@ -54,12 +54,12 @@ class CategorySamplerParams(ConfigBase):
             Larger weights result in higher sampling probability for the corresponding value.
     """
 
-    values: list[Union[str, int, float]] = Field(
+    values: list[str | int | float] = Field(
         ...,
         min_length=1,
         description="List of possible categorical values that can be sampled from.",
     )
-    weights: Optional[list[float]] = Field(
+    weights: list[float] | None = Field(
         default=None,
         description=(
             "List of unnormalized probability weights to assigned to each value, in order. "
@@ -134,7 +134,7 @@ class SubcategorySamplerParams(ConfigBase):
     """
 
     category: str = Field(..., description="Name of parent category to this subcategory.")
-    values: dict[str, list[Union[str, int, float]]] = Field(
+    values: dict[str, list[str | int | float]] = Field(
         ...,
         description="Mapping from each value of parent category to a list of subcategory values.",
     )
@@ -214,7 +214,7 @@ class UUIDSamplerParams(ConfigBase):
             lowercase UUIDs.
     """
 
-    prefix: Optional[str] = Field(default=None, description="String prepended to the front of the UUID.")
+    prefix: str | None = Field(default=None, description="String prepended to the front of the UUID.")
     short_form: bool = Field(
         default=False,
         description="If true, all UUIDs sampled will be truncated at 8 characters.",
@@ -259,7 +259,7 @@ class ScipySamplerParams(ConfigBase):
         ...,
         description="Parameters of the scipy.stats distribution given in `dist_name`.",
     )
-    decimal_places: Optional[int] = Field(
+    decimal_places: int | None = Field(
         default=None, description="Number of decimal places to round the sampled values to."
     )
     sampler_type: Literal[SamplerType.SCIPY] = SamplerType.SCIPY
@@ -356,7 +356,7 @@ class GaussianSamplerParams(ConfigBase):
 
     mean: float = Field(..., description="Mean of the Gaussian distribution")
     stddev: float = Field(..., description="Standard deviation of the Gaussian distribution")
-    decimal_places: Optional[int] = Field(
+    decimal_places: int | None = Field(
         default=None, description="Number of decimal places to round the sampled values to."
     )
     sampler_type: Literal[SamplerType.GAUSSIAN] = SamplerType.GAUSSIAN
@@ -398,7 +398,7 @@ class UniformSamplerParams(ConfigBase):
 
     low: float = Field(..., description="Lower bound of the uniform distribution, inclusive.")
     high: float = Field(..., description="Upper bound of the uniform distribution, inclusive.")
-    decimal_places: Optional[int] = Field(
+    decimal_places: int | None = Field(
         default=None, description="Number of decimal places to round the sampled values to."
     )
     sampler_type: Literal[SamplerType.UNIFORM] = SamplerType.UNIFORM
@@ -421,8 +421,8 @@ class PersonSamplerParams(ConfigBase):
 
     Attributes:
         locale: Locale string determining the language and geographic region for synthetic people.
-            Format: language_COUNTRY (e.g., "en_US", "en_GB", "fr_FR", "de_DE", "es_ES", "ja_JP").
-            Defaults to "en_US".
+            Must be a locale supported by a managed Nemotron Personas dataset. The dataset must
+            be downloaded and available in the managed assets directory.
         sex: If specified, filters to only sample people of the specified sex. Options: "Male" or
             "Female". If None, samples both sexes.
         city: If specified, filters to only sample people from the specified city or cities. Can be
@@ -430,9 +430,6 @@ class PersonSamplerParams(ConfigBase):
         age_range: Two-element list [min_age, max_age] specifying the age range to sample from
             (inclusive). Defaults to a standard age range. Both values must be between minimum and
             maximum allowed ages.
-        state: Only supported for "en_US" locale. Filters to sample people from specified US state(s).
-            Must be provided as two-letter state abbreviations (e.g., "CA", "NY", "TX"). Can be a
-            single state or a list of states.
         with_synthetic_personas: If True, appends additional synthetic persona columns including
             personality traits, interests, and background descriptions. Only supported for certain
             locales with managed datasets.
@@ -450,11 +447,11 @@ class PersonSamplerParams(ConfigBase):
             f"{', '.join(LOCALES_WITH_MANAGED_DATASETS)}."
         ),
     )
-    sex: Optional[SexT] = Field(
+    sex: SexT | None = Field(
         default=None,
         description="If specified, then only synthetic people of the specified sex will be sampled.",
     )
-    city: Optional[Union[str, list[str]]] = Field(
+    city: str | list[str] | None = Field(
         default=None,
         description="If specified, then only synthetic people from these cities will be sampled.",
     )
@@ -464,7 +461,7 @@ class PersonSamplerParams(ConfigBase):
         min_length=2,
         max_length=2,
     )
-    select_field_values: Optional[dict[str, list[str]]] = Field(
+    select_field_values: dict[str, list[str]] | None = Field(
         default=None,
         description=(
             "Sample synthetic people with the specified field values. This is meant to be a flexible argument for "
@@ -525,6 +522,25 @@ class PersonSamplerParams(ConfigBase):
 
 
 class PersonFromFakerSamplerParams(ConfigBase):
+    """Parameters for sampling synthetic person data with demographic attributes from Faker.
+
+    Uses the Faker library to generate random personal information. The data is basic and not demographically
+    accurate, but is useful for quick testing, prototyping, or when realistic demographic distributions are not
+    relevant for your use case. For demographically accurate person data, use the `PersonSamplerParams` sampler.
+
+    Attributes:
+        locale: Locale string determining the language and geographic region for synthetic people.
+            Can be any locale supported by Faker.
+        sex: If specified, filters to only sample people of the specified sex. Options: "Male" or
+            "Female". If None, samples both sexes.
+        city: If specified, filters to only sample people from the specified city or cities. Can be
+            a single city name (string) or a list of city names.
+        age_range: Two-element list [min_age, max_age] specifying the age range to sample from
+            (inclusive). Defaults to a standard age range. Both values must be between the minimum and
+            maximum allowed ages.
+        sampler_type: Discriminator for the sampler type. Must be `SamplerType.PERSON_FROM_FAKER`.
+    """
+
     locale: str = Field(
         default="en_US",
         description=(
@@ -532,11 +548,11 @@ class PersonFromFakerSamplerParams(ConfigBase):
             "that a synthetic person will be sampled from. E.g, en_US, en_GB, fr_FR, ..."
         ),
     )
-    sex: Optional[SexT] = Field(
+    sex: SexT | None = Field(
         default=None,
         description="If specified, then only synthetic people of the specified sex will be sampled.",
     )
-    city: Optional[Union[str, list[str]]] = Field(
+    city: str | list[str] | None = Field(
         default=None,
         description="If specified, then only synthetic people from these cities will be sampled.",
     )
@@ -588,22 +604,22 @@ class PersonFromFakerSamplerParams(ConfigBase):
         return value
 
 
-SamplerParamsT: TypeAlias = Union[
-    SubcategorySamplerParams,
-    CategorySamplerParams,
-    DatetimeSamplerParams,
-    PersonSamplerParams,
-    PersonFromFakerSamplerParams,
-    TimeDeltaSamplerParams,
-    UUIDSamplerParams,
-    BernoulliSamplerParams,
-    BernoulliMixtureSamplerParams,
-    BinomialSamplerParams,
-    GaussianSamplerParams,
-    PoissonSamplerParams,
-    UniformSamplerParams,
-    ScipySamplerParams,
-]
+SamplerParamsT: TypeAlias = (
+    SubcategorySamplerParams
+    | CategorySamplerParams
+    | DatetimeSamplerParams
+    | PersonSamplerParams
+    | PersonFromFakerSamplerParams
+    | TimeDeltaSamplerParams
+    | UUIDSamplerParams
+    | BernoulliSamplerParams
+    | BernoulliMixtureSamplerParams
+    | BinomialSamplerParams
+    | GaussianSamplerParams
+    | PoissonSamplerParams
+    | UniformSamplerParams
+    | ScipySamplerParams
+)
 
 
 def is_numerical_sampler_type(sampler_type: SamplerType) -> bool:

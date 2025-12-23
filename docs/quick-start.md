@@ -82,4 +82,4 @@ preview_results.display_sample_record()
 
 🎉 Congratulations, you successfully ran one iteration designing your synthetic data. Follow along to learn more.
 
-To learn more about the default providers and model configurations available, see the [Default Model Settings](models/default-model-settings.md) guide.
+To learn more about the default providers and model configurations available, see the [Default Model Settings](concepts/models/default-model-settings.md) guide.

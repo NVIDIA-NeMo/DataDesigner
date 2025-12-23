@@ -1,9 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from collections import defaultdict
 import logging
-from typing import Any, Optional, Union
+from collections import defaultdict
+from typing import Any
 
 import pandas as pd
 
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 def extract_judge_score_distributions(
     column_config: LLMJudgeColumnConfig, df: pd.DataFrame
-) -> Union[JudgeScoreDistributions, MissingValue]:
+) -> JudgeScoreDistributions | MissingValue:
     scores = defaultdict(list)
     reasoning = defaultdict(list)
 
@@ -32,7 +32,7 @@ def extract_judge_score_distributions(
 
     for score in column_config.scores:
         is_numerical = True
-        name = score.name.lower()
+        name = score.name
         for results in df[column_config.name]:
             try:
                 score = results[name].get("score", None)
@@ -79,10 +79,10 @@ def extract_judge_score_distributions(
 
 
 def sample_scores_and_reasoning(
-    scores: list[Union[int, str]],
+    scores: list[int | str],
     reasoning: list[str],
     num_samples: int,
-    random_seed: Optional[int] = None,
+    random_seed: int | None = None,
 ) -> list[JudgeScoreSample]:
     if len(scores) != len(reasoning):
         raise ValueError("scores and reasoning must have the same length")

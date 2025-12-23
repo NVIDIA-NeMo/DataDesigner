@@ -2,14 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from functools import reduce
-from typing import Optional
 
+import marko
 from lxml import etree
 from lxml.etree import _Element
-import marko
 
-from data_designer.engine.models.parsers.postprocessors import merge_text_blocks
 import data_designer.engine.models.parsers.tag_parsers as tp
+from data_designer.engine.models.parsers.postprocessors import merge_text_blocks
 from data_designer.engine.models.parsers.types import (
     LLMStructuredResponse,
     PostProcessor,
@@ -105,8 +104,8 @@ class LLMResponseParser:
 
     def __init__(
         self,
-        tag_parsers: Optional[dict[str, TagParser]] = None,
-        postprocessors: Optional[list[PostProcessor]] = None,
+        tag_parsers: dict[str, TagParser] | None = None,
+        postprocessors: list[PostProcessor] | None = None,
     ):
         """
         Initializes the LLMResponseParser with optional tag parsers and post-processors.

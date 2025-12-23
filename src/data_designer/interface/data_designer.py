@@ -13,7 +13,6 @@ from data_designer.config.default_model_settings import (
     get_default_model_providers_missing_api_keys,
     get_default_provider_name,
     get_default_providers,
-    resolve_seed_default_model_settings,
 )
 from data_designer.config.interface import DataDesignerInterface
 from data_designer.config.models import (
@@ -31,7 +30,6 @@ from data_designer.config.utils.constants import (
 )
 from data_designer.config.utils.info import InfoType, InterfaceInfo
 from data_designer.config.utils.io_helpers import write_seed_dataset
-from data_designer.config.utils.misc import can_run_data_designer_locally
 from data_designer.engine.analysis.dataset_profiler import (
     DataDesignerDatasetProfiler,
     DatasetProfilerConfig,
@@ -64,11 +62,6 @@ from data_designer.logging import RandomEmoji
 DEFAULT_BUFFER_SIZE = 1000
 
 logger = logging.getLogger(__name__)
-
-
-# Resolve default model settings on import to ensure they are available when the library is used.
-if can_run_data_designer_locally():
-    resolve_seed_default_model_settings()
 
 
 class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
@@ -173,7 +166,11 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
                 configuration (columns, constraints, seed data, etc.).
             num_records: Number of records to generate.
             dataset_name: Name of the dataset. This name will be used as the dataset
-                folder name in the artifact path directory.
+                folder name in the artifact path directory. If a non-empty directory with the
+                same name already exists, dataset will be saved to a new directory with
+                a datetime stamp. For example, if the dataset name is "awesome_dataset" and a directory
+                with the same name already exists, the dataset will be saved to a new directory
+                with the name "awesome_dataset_2025-01-01_12-00-00".
 
         Returns:
             DatasetCreationResults object with methods for loading the generated dataset,
@@ -252,6 +249,17 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         except Exception as e:
             raise DataDesignerProfilingError(f"🛑 Error profiling preview dataset: {e}")
 
+        if builder.artifact_storage.processors_outputs_path.exists():
+            processor_artifacts = {
+                processor_config.name: pd.read_parquet(
+                    builder.artifact_storage.processors_outputs_path / f"{processor_config.name}.parquet",
+                    dtype_backend="pyarrow",
+                ).to_dict(orient="records")
+                for processor_config in config_builder.get_processor_configs()
+            }
+        else:
+            processor_artifacts = {}
+
         if (
             len(processed_dataset) > 0
             and isinstance(analysis, DatasetProfilerResults)
@@ -262,6 +270,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         return PreviewResults(
             dataset=processed_dataset,
             analysis=analysis,
+            processor_artifacts=processor_artifacts,
             config_builder=config_builder,
         )
 
@@ -311,18 +320,17 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
 
     def _resolve_model_providers(self, model_providers: list[ModelProvider] | None) -> list[ModelProvider]:
         if model_providers is None:
-            if can_run_data_designer_locally():
-                model_providers = get_default_providers()
-                missing_api_keys = get_default_model_providers_missing_api_keys()
-                if len(missing_api_keys) == len(PREDEFINED_PROVIDERS):
-                    logger.warning(
-                        "🚨 You are trying to use a default model provider but your API keys are missing."
-                        "\n\t\t\tSet the API key for the default providers you intend to use and re-initialize the Data Designer object."
-                        "\n\t\t\tAlternatively, you can provide your own model providers during Data Designer object initialization."
-                        "\n\t\t\tSee https://nvidia-nemo.github.io/DataDesigner/models/model-providers/ for more information."
-                    )
-                    self._get_interface_info(model_providers).display(InfoType.MODEL_PROVIDERS)
-                return model_providers
+            model_providers = get_default_providers()
+            missing_api_keys = get_default_model_providers_missing_api_keys()
+            if len(missing_api_keys) == len(PREDEFINED_PROVIDERS):
+                logger.warning(
+                    "🚨 You are trying to use a default model provider but your API keys are missing."
+                    "\n\t\t\tSet the API key for the default providers you intend to use and re-initialize the Data Designer object."
+                    "\n\t\t\tAlternatively, you can provide your own model providers during Data Designer object initialization."
+                    "\n\t\t\tSee https://nvidia-nemo.github.io/DataDesigner/concepts/models/model-providers/ for more information."
+                )
+                self._get_interface_info(model_providers).display(InfoType.MODEL_PROVIDERS)
+            return model_providers
         return model_providers or []
 
     def _create_dataset_builder(

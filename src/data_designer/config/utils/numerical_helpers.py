@@ -3,9 +3,9 @@
 
 import numbers
 from numbers import Number
-from typing import Any, Type
+from typing import Any
 
-from .constants import REPORTING_PRECISION
+from data_designer.config.utils.constants import REPORTING_PRECISION
 
 
 def is_int(val: Any) -> bool:
@@ -18,7 +18,7 @@ def is_float(val: Any) -> bool:
 
 def prepare_number_for_reporting(
     value: Number,
-    target_type: Type[Number],
+    target_type: type[Number],
     precision: int = REPORTING_PRECISION,
 ) -> Number:
     """Ensure native python types and round to `precision` decimal digits."""

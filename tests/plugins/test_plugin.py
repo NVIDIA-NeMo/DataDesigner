@@ -3,8 +3,8 @@
 
 from typing import Literal
 
-from pydantic import ValidationError
 import pytest
+from pydantic import ValidationError
 
 from data_designer.config.base import ConfigBase
 from data_designer.config.column_configs import SamplerColumnConfig, SingleColumnConfig

@@ -3,12 +3,12 @@
 
 from __future__ import annotations
 
+import json
+import os
 from collections import OrderedDict
 from enum import Enum
 from functools import cached_property
-import json
-import os
-from typing import TYPE_CHECKING, Any, Optional, Union
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
@@ -21,26 +21,26 @@ from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 
-from ..base import ConfigBase
-from ..column_types import DataDesignerColumnType
-from ..models import ModelConfig, ModelProvider
-from ..sampler_params import SamplerType
-from .code_lang import code_lang_to_syntax_lexer
-from .constants import NVIDIA_API_KEY_ENV_VAR_NAME, OPENAI_API_KEY_ENV_VAR_NAME
-from .errors import DatasetSampleDisplayError
+from data_designer.config.base import ConfigBase
+from data_designer.config.column_types import DataDesignerColumnType
+from data_designer.config.models import ModelConfig, ModelProvider
+from data_designer.config.sampler_params import SamplerType
+from data_designer.config.utils.code_lang import code_lang_to_syntax_lexer
+from data_designer.config.utils.constants import NVIDIA_API_KEY_ENV_VAR_NAME, OPENAI_API_KEY_ENV_VAR_NAME
+from data_designer.config.utils.errors import DatasetSampleDisplayError
 
 if TYPE_CHECKING:
-    from ..config_builder import DataDesignerConfigBuilder
+    from data_designer.config.config_builder import DataDesignerConfigBuilder
 
 
 console = Console()
 
 
-def get_nvidia_api_key() -> Optional[str]:
+def get_nvidia_api_key() -> str | None:
     return os.getenv(NVIDIA_API_KEY_ENV_VAR_NAME)
 
 
-def get_openai_api_key() -> Optional[str]:
+def get_openai_api_key() -> str | None:
     return os.getenv(OPENAI_API_KEY_ENV_VAR_NAME)
 
 
@@ -72,13 +72,17 @@ class WithRecordSamplerMixin:
         else:
             raise DatasetSampleDisplayError("No valid dataset found in results object.")
 
+    def _has_processor_artifacts(self) -> bool:
+        return hasattr(self, "processor_artifacts") and self.processor_artifacts is not None
+
     def display_sample_record(
         self,
-        index: Optional[int] = None,
+        index: int | None = None,
         *,
         hide_seed_columns: bool = False,
         syntax_highlighting_theme: str = "dracula",
-        background_color: Optional[str] = None,
+        background_color: str | None = None,
+        processors_to_display: list[str] | None = None,
     ) -> None:
         """Display a sample record from the Data Designer dataset preview.
 
@@ -90,6 +94,7 @@ class WithRecordSamplerMixin:
                 documentation from `rich` for information about available themes.
             background_color: Background color to use for the record. See the `Syntax`
                 documentation from `rich` for information about available background colors.
+            processors_to_display: List of processors to display the artifacts for. If None, all processors will be displayed.
         """
         i = index or self._display_cycle_index
 
@@ -99,8 +104,25 @@ class WithRecordSamplerMixin:
         except IndexError:
             raise DatasetSampleDisplayError(f"Index {i} is out of bounds for dataset of length {num_records}.")
 
+        processor_data_to_display = None
+        if self._has_processor_artifacts() and len(self.processor_artifacts) > 0:
+            if processors_to_display is None:
+                processors_to_display = list(self.processor_artifacts.keys())
+
+            if len(processors_to_display) > 0:
+                processor_data_to_display = {}
+                for processor in processors_to_display:
+                    if (
+                        isinstance(self.processor_artifacts[processor], list)
+                        and len(self.processor_artifacts[processor]) == num_records
+                    ):
+                        processor_data_to_display[processor] = self.processor_artifacts[processor][i]
+                    else:
+                        processor_data_to_display[processor] = self.processor_artifacts[processor]
+
         display_sample_record(
             record=record,
+            processor_data_to_display=processor_data_to_display,
             config_builder=self._config_builder,
             background_color=background_color,
             syntax_highlighting_theme=syntax_highlighting_theme,
@@ -112,11 +134,11 @@ class WithRecordSamplerMixin:
 
 
 def create_rich_histogram_table(
-    data: dict[str, Union[int, float]],
+    data: dict[str, int | float],
     column_names: tuple[int, int],
     name_style: str = ColorPalette.BLUE.value,
     value_style: str = ColorPalette.TEAL.value,
-    title: Optional[str] = None,
+    title: str | None = None,
     **kwargs,
 ) -> Table:
     table = Table(title=title, **kwargs)
@@ -132,11 +154,12 @@ def create_rich_histogram_table(
 
 
 def display_sample_record(
-    record: Union[dict, pd.Series, pd.DataFrame],
+    record: dict | pd.Series | pd.DataFrame,
     config_builder: DataDesignerConfigBuilder,
-    background_color: Optional[str] = None,
+    processor_data_to_display: dict[str, list[str] | str] | None = None,
+    background_color: str | None = None,
     syntax_highlighting_theme: str = "dracula",
-    record_index: Optional[int] = None,
+    record_index: int | None = None,
     hide_seed_columns: bool = False,
 ):
     if isinstance(record, (dict, pd.Series)):
@@ -235,6 +258,15 @@ def display_sample_record(
             table.add_row(*row)
             render_list.append(pad_console_element(table, (1, 0, 1, 0)))
 
+    if processor_data_to_display and len(processor_data_to_display) > 0:
+        for processor_name, processor_data in processor_data_to_display.items():
+            table = Table(title=f"Processor Outputs: {processor_name}", **table_kws)
+            table.add_column("Name")
+            table.add_column("Value")
+            for col, value in processor_data.items():
+                table.add_row(col, convert_to_row_element(value))
+        render_list.append(pad_console_element(table, (1, 0, 1, 0)))
+
     if record_index is not None:
         index_label = Text(f"[index: {record_index}]", justify="center")
         render_list.append(index_label)
@@ -243,16 +275,18 @@ def display_sample_record(
 
 
 def get_truncated_list_as_string(long_list: list[Any], max_items: int = 2) -> str:
+    if max_items <= 0:
+        raise ValueError("max_items must be greater than 0")
     if len(long_list) > max_items:
         truncated_part = long_list[:max_items]
-        return f"[{', '.join(str(x) for x in truncated_part)} ...]"
+        return f"[{', '.join(str(x) for x in truncated_part)}, ...]"
     else:
         return str(long_list)
 
 
 def display_sampler_table(
     sampler_params: dict[SamplerType, ConfigBase],
-    title: Optional[str] = None,
+    title: str | None = None,
 ) -> None:
     table = Table(expand=True)
     table.add_column("Type")
@@ -287,15 +321,15 @@ def display_model_configs_table(model_configs: list[ModelConfig]) -> None:
     table_model_configs.add_column("Alias")
     table_model_configs.add_column("Model")
     table_model_configs.add_column("Provider")
-    table_model_configs.add_column("Temperature")
-    table_model_configs.add_column("Top P")
+    table_model_configs.add_column("Inference Parameters")
     for model_config in model_configs:
+        params_display = model_config.inference_parameters.format_for_display()
+
         table_model_configs.add_row(
             model_config.alias,
             model_config.model,
             model_config.provider,
-            str(model_config.inference_parameters.temperature),
-            str(model_config.inference_parameters.top_p),
+            params_display,
         )
     group_args: list = [Rule(title="Model Configs"), table_model_configs]
     if len(model_configs) == 0:

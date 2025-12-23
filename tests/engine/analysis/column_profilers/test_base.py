@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import pandas as pd
-from pydantic import ValidationError
 import pytest
+from pydantic import ValidationError
 
 from data_designer.config.column_configs import SamplerColumnConfig
 from data_designer.config.column_types import DataDesignerColumnType
@@ -35,17 +35,6 @@ def test_column_config_with_dataframe_column_not_found_validation_error():
 
     with pytest.raises(ValidationError, match="Column 'test_column' not found in DataFrame"):
         ColumnConfigWithDataFrame(column_config=column_config, df=df)
-
-
-def test_column_config_with_dataframe_pyarrow_backend_conversion():
-    df = pd.DataFrame({"test_column": [1, 2, 3]})
-    column_config = SamplerColumnConfig(
-        name="test_column", sampler_type=SamplerType.CATEGORY, params={"values": [1, 2, 3]}
-    )
-
-    config_with_df = ColumnConfigWithDataFrame(column_config=column_config, df=df)
-
-    assert all(isinstance(dtype, pd.ArrowDtype) for dtype in config_with_df.df.dtypes)
 
 
 def test_column_config_with_dataframe_as_tuple_method():

@@ -1,20 +1,20 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from datetime import date, datetime, timedelta
-from decimal import Decimal
 import json
 import logging
-from numbers import Number
 import os
+from datetime import date, datetime, timedelta
+from decimal import Decimal
+from numbers import Number
 from pathlib import Path
-from typing import Any, Union
+from typing import Any
 
 import numpy as np
 import pandas as pd
 import yaml
 
-from ..errors import InvalidFileFormatError, InvalidFilePathError
+from data_designer.config.errors import InvalidFileFormatError, InvalidFilePathError
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ def load_config_file(file_path: Path) -> dict:
         InvalidFileFormatError: If YAML is malformed
         InvalidConfigError: If file is empty
     """
-    from ..errors import InvalidConfigError
+    from data_designer.config.errors import InvalidConfigError
 
     if not file_path.exists():
         raise InvalidFilePathError(f"Configuration file not found: {file_path}")
@@ -128,7 +128,7 @@ def write_seed_dataset(dataframe: pd.DataFrame, file_path: Path) -> None:
         dataframe.to_json(file_path, orient="records", lines=True)
 
 
-def validate_dataset_file_path(file_path: Union[str, Path], should_exist: bool = True) -> Path:
+def validate_dataset_file_path(file_path: str | Path, should_exist: bool = True) -> Path:
     """Validate that a dataset file path has a valid extension and optionally exists.
 
     Args:
@@ -165,7 +165,7 @@ def validate_path_contains_files_of_type(path: str | Path, file_extension: str) 
         raise InvalidFilePathError(f"🛑 Path {path!r} does not contain files of type {file_extension!r}.")
 
 
-def smart_load_dataframe(dataframe: Union[str, Path, pd.DataFrame]) -> pd.DataFrame:
+def smart_load_dataframe(dataframe: str | Path | pd.DataFrame) -> pd.DataFrame:
     """Load a dataframe from file if a path is given, otherwise return the dataframe.
 
     Args:
@@ -197,7 +197,7 @@ def smart_load_dataframe(dataframe: Union[str, Path, pd.DataFrame]) -> pd.DataFr
         raise ValueError(f"Unsupported file format: {dataframe}")
 
 
-def smart_load_yaml(yaml_in: Union[str, Path, dict]) -> dict:
+def smart_load_yaml(yaml_in: str | Path | dict) -> dict:
     """Return the yaml config as a dict given flexible input types.
 
     Args:
@@ -227,7 +227,7 @@ def smart_load_yaml(yaml_in: Union[str, Path, dict]) -> dict:
     return yaml_out
 
 
-def serialize_data(data: Union[dict, list, str, Number], **kwargs) -> str:
+def serialize_data(data: dict | list | str | Number, **kwargs) -> str:
     if isinstance(data, dict):
         return json.dumps(data, ensure_ascii=False, default=_convert_to_serializable, **kwargs)
     elif isinstance(data, list):

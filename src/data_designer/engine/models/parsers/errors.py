@@ -1,8 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from typing import Optional
-
 
 class ParserException(Exception):
     """Identifies errors resulting from generic parser errors.
@@ -12,7 +10,7 @@ class ParserException(Exception):
             attempted to parse.
     """
 
-    source: Optional[str]
+    source: str | None
 
     @staticmethod
     def _log_format(source: str) -> str:
@@ -24,7 +22,7 @@ class ParserException(Exception):
         # return f"<source>{source}</source>"
         return ""
 
-    def __init__(self, msg: Optional[str] = None, source: Optional[str] = None):
+    def __init__(self, msg: str | None = None, source: str | None = None):
         msg = "" if msg is None else msg.strip()
 
         if source is not None:

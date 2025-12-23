@@ -3,9 +3,10 @@
 
 import json
 import logging
-from pathlib import Path
 import shutil
-from typing import Union
+from datetime import datetime
+from functools import cached_property
+from pathlib import Path
 
 import pandas as pd
 from pydantic import BaseModel, field_validator, model_validator
@@ -23,6 +24,7 @@ class BatchStage(StrEnum):
     PARTIAL_RESULT = "partial_results_path"
     FINAL_RESULT = "final_dataset_path"
     DROPPED_COLUMNS = "dropped_columns_dataset_path"
+    PROCESSORS_OUTPUTS = "processors_outputs_path"
 
 
 class ArtifactStorage(BaseModel):
@@ -31,14 +33,27 @@ class ArtifactStorage(BaseModel):
     final_dataset_folder_name: str = "parquet-files"
     partial_results_folder_name: str = "tmp-partial-parquet-files"
     dropped_columns_folder_name: str = "dropped-columns-parquet-files"
+    processors_outputs_folder_name: str = "processors-files"
 
     @property
     def artifact_path_exists(self) -> bool:
         return self.artifact_path.exists()
 
+    @cached_property
+    def resolved_dataset_name(self) -> str:
+        dataset_path = self.artifact_path / self.dataset_name
+        if dataset_path.exists() and len(list(dataset_path.iterdir())) > 0:
+            new_dataset_name = f"{self.dataset_name}_{datetime.now().strftime('%m-%d-%Y_%H%M%S')}"
+            logger.info(
+                f"📂 Dataset path {str(dataset_path)!r} already exists. Dataset from this session"
+                f"\n\t\t     will be saved to {str(self.artifact_path / new_dataset_name)!r} instead."
+            )
+            return new_dataset_name
+        return self.dataset_name
+
     @property
     def base_dataset_path(self) -> Path:
-        return self.artifact_path / self.dataset_name
+        return self.artifact_path / self.resolved_dataset_name
 
     @property
     def dropped_columns_dataset_path(self) -> Path:
@@ -56,8 +71,12 @@ class ArtifactStorage(BaseModel):
     def partial_results_path(self) -> Path:
         return self.base_dataset_path / self.partial_results_folder_name
 
+    @property
+    def processors_outputs_path(self) -> Path:
+        return self.base_dataset_path / self.processors_outputs_folder_name
+
     @field_validator("artifact_path")
-    def validate_artifact_path(cls, v: Union[Path, str]) -> Path:
+    def validate_artifact_path(cls, v: Path | str) -> Path:
         v = Path(v)
         if not v.is_dir():
             raise ArtifactStorageError("Artifact path must exist and be a directory")
@@ -70,6 +89,7 @@ class ArtifactStorage(BaseModel):
             self.final_dataset_folder_name,
             self.partial_results_folder_name,
             self.dropped_columns_folder_name,
+            self.processors_outputs_folder_name,
         ]
 
         for name in folder_names:
@@ -155,9 +175,10 @@ class ArtifactStorage(BaseModel):
         batch_number: int,
         dataframe: pd.DataFrame,
         batch_stage: BatchStage,
+        subfolder: str | None = None,
     ) -> Path:
         file_path = self.create_batch_file_path(batch_number, batch_stage=batch_stage)
-        self.write_parquet_file(file_path.name, dataframe, batch_stage)
+        self.write_parquet_file(file_path.name, dataframe, batch_stage, subfolder=subfolder)
         return file_path
 
     def write_parquet_file(
@@ -165,9 +186,11 @@ class ArtifactStorage(BaseModel):
         parquet_file_name: str,
         dataframe: pd.DataFrame,
         batch_stage: BatchStage,
+        subfolder: str | None = None,
     ) -> Path:
-        self.mkdir_if_needed(self._get_stage_path(batch_stage))
-        file_path = self._get_stage_path(batch_stage) / parquet_file_name
+        subfolder = subfolder or ""
+        self.mkdir_if_needed(self._get_stage_path(batch_stage) / subfolder)
+        file_path = self._get_stage_path(batch_stage) / subfolder / parquet_file_name
         dataframe.to_parquet(file_path, index=False)
         return file_path
 

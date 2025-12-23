@@ -11,20 +11,20 @@ logger = logging.getLogger(__name__)
 
 
 class TokenUsageStats(BaseModel):
-    prompt_tokens: int = 0
-    completion_tokens: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
 
     @computed_field
     def total_tokens(self) -> int:
-        return self.prompt_tokens + self.completion_tokens
+        return self.input_tokens + self.output_tokens
 
     @property
     def has_usage(self) -> bool:
         return self.total_tokens > 0
 
-    def extend(self, *, prompt_tokens: int, completion_tokens: int) -> None:
-        self.prompt_tokens += prompt_tokens
-        self.completion_tokens += completion_tokens
+    def extend(self, *, input_tokens: int, output_tokens: int) -> None:
+        self.input_tokens += input_tokens
+        self.output_tokens += output_tokens
 
 
 class RequestUsageStats(BaseModel):
@@ -56,9 +56,7 @@ class ModelUsageStats(BaseModel):
         self, *, token_usage: TokenUsageStats | None = None, request_usage: RequestUsageStats | None = None
     ) -> None:
         if token_usage is not None:
-            self.token_usage.extend(
-                prompt_tokens=token_usage.prompt_tokens, completion_tokens=token_usage.completion_tokens
-            )
+            self.token_usage.extend(input_tokens=token_usage.input_tokens, output_tokens=token_usage.output_tokens)
         if request_usage is not None:
             self.request_usage.extend(
                 successful_requests=request_usage.successful_requests, failed_requests=request_usage.failed_requests

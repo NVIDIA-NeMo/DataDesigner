@@ -33,7 +33,7 @@ DEFAULT_MAX_CONVERSATION_RESTARTS = 5
 DEFAULT_MAX_CONVERSATION_CORRECTION_STEPS = 0
 
 
-class WithCompletionGeneration(WithModelGeneration):
+class WithChatCompletionGeneration(WithModelGeneration):
     @functools.cached_property
     def response_recipe(self) -> ResponseRecipe:
         return create_response_recipe(self.config, self.model_config)
@@ -92,7 +92,7 @@ class WithCompletionGeneration(WithModelGeneration):
         return data
 
 
-class LLMTextCellGenerator(WithCompletionGeneration, ColumnGenerator[LLMTextColumnConfig]):
+class LLMTextCellGenerator(WithChatCompletionGeneration, ColumnGenerator[LLMTextColumnConfig]):
     @staticmethod
     def metadata() -> GeneratorMetadata:
         return GeneratorMetadata(
@@ -103,7 +103,7 @@ class LLMTextCellGenerator(WithCompletionGeneration, ColumnGenerator[LLMTextColu
         )
 
 
-class LLMCodeCellGenerator(WithCompletionGeneration, ColumnGenerator[LLMCodeColumnConfig]):
+class LLMCodeCellGenerator(WithChatCompletionGeneration, ColumnGenerator[LLMCodeColumnConfig]):
     @staticmethod
     def metadata() -> GeneratorMetadata:
         return GeneratorMetadata(
@@ -114,7 +114,7 @@ class LLMCodeCellGenerator(WithCompletionGeneration, ColumnGenerator[LLMCodeColu
         )
 
 
-class LLMStructuredCellGenerator(WithCompletionGeneration, ColumnGenerator[LLMStructuredColumnConfig]):
+class LLMStructuredCellGenerator(WithChatCompletionGeneration, ColumnGenerator[LLMStructuredColumnConfig]):
     @staticmethod
     def metadata() -> GeneratorMetadata:
         return GeneratorMetadata(
@@ -125,7 +125,7 @@ class LLMStructuredCellGenerator(WithCompletionGeneration, ColumnGenerator[LLMSt
         )
 
 
-class LLMJudgeCellGenerator(WithCompletionGeneration, ColumnGenerator[LLMJudgeColumnConfig]):
+class LLMJudgeCellGenerator(WithChatCompletionGeneration, ColumnGenerator[LLMJudgeColumnConfig]):
     @staticmethod
     def metadata() -> GeneratorMetadata:
         return GeneratorMetadata(

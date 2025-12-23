@@ -48,7 +48,7 @@ export NVIDIA_API_KEY="your-api-key-here"
 export OPENAI_API_KEY="your-api-key-here"
 ```
 
-For more information, check the [Quick Start](../quick-start.md), [Default Model Settings](../models/default-model-settings.md) and how to [Configure Model Settings Using The CLI](../models/configure-model-settings-with-the-cli.md).
+For more information, check the [Quick Start](../quick-start.md), [Default Model Settings](../concepts/models/default-model-settings.md) and how to [Configure Model Settings Using The CLI](../concepts/models/configure-model-settings-with-the-cli.md).
 
 ## 📚 Tutorial Series
 
@@ -84,6 +84,15 @@ Learn how to leverage existing datasets to guide synthetic data generation:
 - Sampling from real data distributions
 - Combining seed data with LLM generation
 - Creating realistic synthetic data based on existing patterns
+
+### [4. Providing Images as Context](4-providing-images-as-context.ipynb)
+
+Learn how to use vision-language models to generate text descriptions from images:
+
+- Processing and converting images to base64 format for model consumption
+- Using vision-language models (VLMs) to analyze visual documents
+- Generating detailed summaries from document images
+- Inspecting and validating vision-based generation results
 
 ## 📖 Important Documentation Sections
 

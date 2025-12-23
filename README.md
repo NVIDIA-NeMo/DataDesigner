@@ -95,12 +95,12 @@ preview.display_sample_record()
 
 ### 📚 Learn more
 
-- **[Quick Start Guide](https://nvidia-nemo.github.io/DataDesigner/quick-start/)** – Detailed walkthrough with more examples
-- **[Tutorial Notebooks](https://nvidia-nemo.github.io/DataDesigner/notebooks/)** – Step-by-step interactive tutorials
-- **[Column Types](https://nvidia-nemo.github.io/DataDesigner/concepts/columns/)** – Explore samplers, LLM columns, validators, and more
-- **[Validators](https://nvidia-nemo.github.io/DataDesigner/concepts/validators/)** – Learn how to validate generated data with Python, SQL, and remote validators
-- **[Model Configuration](https://nvidia-nemo.github.io/DataDesigner/models/model-configs/)** – Configure custom models and providers
-- **[Person Sampling](https://nvidia-nemo.github.io/DataDesigner/concepts/person_sampling/)** – Learn how to sample realistic person data with demographic attributes
+- **[Quick Start Guide](https://nvidia-nemo.github.io/DataDesigner/latest/quick-start/)** – Detailed walkthrough with more examples
+- **[Tutorial Notebooks](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/)** – Step-by-step interactive tutorials
+- **[Column Types](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/columns/)** – Explore samplers, LLM columns, validators, and more
+- **[Validators](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/validators/)** – Learn how to validate generated data with Python, SQL, and remote validators
+- **[Model Configuration](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/model-configs/)** – Configure custom models and providers
+- **[Person Sampling](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/person_sampling/)** – Learn how to sample realistic person data with demographic attributes
 
 ### 🔧 Configure models via CLI
 
@@ -112,8 +112,39 @@ data-designer config list      # View current settings
 
 ### 🤝 Get involved
 
-- **[Contributing Guide](https://nvidia-nemo.github.io/DataDesigner/CONTRIBUTING)** – Help improve Data Designer
+- **[Contributing Guide](https://nvidia-nemo.github.io/DataDesigner/latest/CONTRIBUTING)** – Help improve Data Designer
 - **[GitHub Issues](https://github.com/NVIDIA-NeMo/DataDesigner/issues)** – Report bugs or make a feature request
+
+---
+
+## Telemetry
+
+Data Designer collects telemetry to help us improve the library for developers. We collect:
+
+* The names of models used
+* The count of input tokens
+* The count of output tokens
+
+**No user or device information is collected.** This data is not used to track any individual user behavior. It is used to see an aggregation of which models are the most popular for SDG. We will share this usage data with the community.
+
+Specifically, a model name that is defined a `ModelConfig` object, is what will be collected. In the below example config:
+
+```python
+ModelConfig(
+    alias="nv-reasoning",
+    model="openai/gpt-oss-20b",
+    provider="nvidia",
+    inference_parameters=InferenceParameters(
+        temperature=0.3,
+        top_p=0.9,
+        max_tokens=4096,
+    ),
+    )
+```
+
+The value `openai/gpt-oss-20b` would be collected.
+
+To disable telemetry capture, set `NEMO_TELEMETRY_ENABLED=false`.
 
 ---
 
@@ -129,7 +160,7 @@ If you use NeMo Data Designer in your research, please cite it using the followi
 
 ```bibtex
 @misc{nemo-data-designer,
-  author = {The NeMo Data Designer Team},
+  author = {The NeMo Data Designer Team, NVIDIA},
   title = {NeMo Data Designer: A framework for generating synthetic data from scratch or based on your own seed data},
   howpublished = {\url{https://github.com/NVIDIA-NeMo/DataDesigner}},
   year = {2025},

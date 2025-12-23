@@ -3,11 +3,10 @@
 
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Union
 
 from typing_extensions import TypeAlias
 
-from .base import ConfigBase
+from data_designer.config.base import ConfigBase
 
 
 class ConstraintType(str, Enum):
@@ -48,4 +47,4 @@ class ColumnInequalityConstraint(Constraint):
         return ConstraintType.COLUMN_INEQUALITY
 
 
-ColumnConstraintT: TypeAlias = Union[ScalarInequalityConstraint, ColumnInequalityConstraint]
+ColumnConstraintT: TypeAlias = ScalarInequalityConstraint | ColumnInequalityConstraint

@@ -7,7 +7,7 @@ import pytest
 
 from data_designer.cli.repositories.model_repository import ModelRepository
 from data_designer.cli.services.model_service import ModelService
-from data_designer.config.models import CompletionInferenceParameters, ModelConfig
+from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig
 
 
 def test_list_all(stub_model_service: ModelService, stub_model_configs: list[ModelConfig]):
@@ -31,7 +31,7 @@ def test_add(
 
 
 def test_add_duplicate_alias(
-    stub_model_service: ModelService, stub_inference_parameters: CompletionInferenceParameters
+    stub_model_service: ModelService, stub_inference_parameters: ChatCompletionInferenceParams
 ):
     """Test adding a model with an alias that already exists."""
     duplicate_model = ModelConfig(
@@ -64,7 +64,7 @@ def test_update_nonexistent_model(stub_model_service: ModelService, stub_new_mod
 
 
 def test_update_to_existing_alias(
-    stub_model_service: ModelService, stub_inference_parameters: CompletionInferenceParameters
+    stub_model_service: ModelService, stub_inference_parameters: ChatCompletionInferenceParams
 ):
     """Test updating a model to an alias that already exists."""
     updated_model = ModelConfig(

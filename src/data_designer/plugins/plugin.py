@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from enum import Enum
-from typing import Literal, Type, get_origin
+from typing import Literal, get_origin
 
 from pydantic import BaseModel, model_validator
 from typing_extensions import Self
@@ -27,8 +27,8 @@ class PluginType(str, Enum):
 
 
 class Plugin(BaseModel):
-    task_cls: Type[ConfigurableTask]
-    config_cls: Type[ConfigBase]
+    task_cls: type[ConfigurableTask]
+    config_cls: type[ConfigBase]
     plugin_type: PluginType
     emoji: str = "🔌"
 

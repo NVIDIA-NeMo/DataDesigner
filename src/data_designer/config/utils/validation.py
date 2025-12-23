@@ -5,7 +5,6 @@ from __future__ import annotations
 
 from enum import Enum
 from string import Formatter
-from typing import Optional
 
 from jinja2 import meta
 from jinja2.sandbox import ImmutableSandboxedEnvironment
@@ -15,11 +14,14 @@ from rich.console import Console, Group
 from rich.padding import Padding
 from rich.panel import Panel
 
-from ..column_types import ColumnConfigT, DataDesignerColumnType, column_type_is_llm_generated
-from ..processors import ProcessorConfig, ProcessorType
-from ..validator_params import ValidatorType
-from .constants import RICH_CONSOLE_THEME
-from .misc import can_run_data_designer_locally
+from data_designer.config.column_types import ColumnConfigT, DataDesignerColumnType, column_type_is_model_generated
+from data_designer.config.processors import ProcessorConfigT, ProcessorType
+from data_designer.config.utils.constants import RICH_CONSOLE_THEME
+from data_designer.config.utils.misc import (
+    can_run_data_designer_locally,
+    get_prompt_template_keywords,
+)
+from data_designer.config.validator_params import ValidatorType
 
 
 class ViolationType(str, Enum):
@@ -42,7 +44,7 @@ class ViolationLevel(str, Enum):
 
 
 class Violation(BaseModel):
-    column: Optional[str] = None
+    column: str | None = None
     type: ViolationType
     message: str
     level: ViolationLevel
@@ -54,7 +56,7 @@ class Violation(BaseModel):
 
 def validate_data_designer_config(
     columns: list[ColumnConfigT],
-    processor_configs: list[ProcessorConfig],
+    processor_configs: list[ProcessorConfigT],
     allowed_references: list[str],
 ) -> list[Violation]:
     violations = []
@@ -63,6 +65,7 @@ def validate_data_designer_config(
     violations.extend(validate_expression_references(columns=columns, allowed_references=allowed_references))
     violations.extend(validate_columns_not_all_dropped(columns=columns))
     violations.extend(validate_drop_columns_processor(columns=columns, processor_configs=processor_configs))
+    violations.extend(validate_schema_transform_processor(columns=columns, processor_configs=processor_configs))
     if not can_run_data_designer_locally():
         violations.extend(validate_local_only_columns(columns=columns))
     return violations
@@ -115,7 +118,7 @@ def validate_prompt_templates(
 ) -> list[Violation]:
     env = ImmutableSandboxedEnvironment()
 
-    columns_with_prompts = [c for c in columns if column_type_is_llm_generated(c.column_type)]
+    columns_with_prompts = [c for c in columns if column_type_is_model_generated(c.column_type)]
 
     violations = []
     for column in columns_with_prompts:
@@ -269,9 +272,9 @@ def validate_columns_not_all_dropped(
 
 def validate_drop_columns_processor(
     columns: list[ColumnConfigT],
-    processor_configs: list[ProcessorConfig],
+    processor_configs: list[ProcessorConfigT],
 ) -> list[Violation]:
-    all_column_names = set([c.name for c in columns])
+    all_column_names = {c.name for c in columns}
     for processor_config in processor_configs:
         if processor_config.processor_type == ProcessorType.DROP_COLUMNS:
             invalid_columns = set(processor_config.column_names) - all_column_names
@@ -286,6 +289,33 @@ def validate_drop_columns_processor(
                     for c in invalid_columns
                 ]
     return []
+
+
+def validate_schema_transform_processor(
+    columns: list[ColumnConfigT],
+    processor_configs: list[ProcessorConfigT],
+) -> list[Violation]:
+    violations = []
+
+    all_column_names = {c.name for c in columns}
+    for processor_config in processor_configs:
+        if processor_config.processor_type == ProcessorType.SCHEMA_TRANSFORM:
+            for col, template in processor_config.template.items():
+                template_keywords = get_prompt_template_keywords(template)
+                invalid_keywords = set(template_keywords) - all_column_names
+                if len(invalid_keywords) > 0:
+                    invalid_keywords = ", ".join([f"'{k}'" for k in invalid_keywords])
+                    message = f"Ancillary dataset processor attempts to reference columns {invalid_keywords} in the template for '{col}', but the columns are not defined in the dataset."
+                    violations.append(
+                        Violation(
+                            column=None,
+                            type=ViolationType.INVALID_REFERENCE,
+                            message=message,
+                            level=ViolationLevel.ERROR,
+                        )
+                    )
+
+    return violations
 
 
 def validate_expression_references(

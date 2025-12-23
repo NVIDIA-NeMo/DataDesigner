@@ -1,11 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from importlib.metadata import entry_points
 import logging
 import os
 import threading
-from typing import Type, TypeAlias
+from importlib.metadata import entry_points
+from typing import TypeAlias
 
 from typing_extensions import Self
 
@@ -37,7 +37,7 @@ class PluginRegistry:
             cls._plugins_discovered = False
             cls._plugins = {}
 
-    def add_plugin_types_to_union(self, type_union: Type[TypeAlias], plugin_type: PluginType) -> Type[TypeAlias]:
+    def add_plugin_types_to_union(self, type_union: type[TypeAlias], plugin_type: PluginType) -> type[TypeAlias]:
         for plugin in self.get_plugins(plugin_type):
             if plugin.config_cls not in type_union.__args__:
                 type_union |= plugin.config_cls

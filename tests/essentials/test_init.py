@@ -7,29 +7,30 @@ import logging
 
 import pytest
 
-from data_designer.config.utils.misc import can_run_data_designer_locally
 import data_designer.essentials as essentials
+from data_designer.config.utils.misc import can_run_data_designer_locally
 from data_designer.essentials import (
     BernoulliMixtureSamplerParams,
     BernoulliSamplerParams,
     BinomialSamplerParams,
     CategorySamplerParams,
+    ChatCompletionInferenceParams,
     CodeLang,
     CodeValidatorParams,
     ColumnInequalityConstraint,
-    CompletionInferenceParameters,
     DataDesignerColumnType,
     DataDesignerConfig,
     DataDesignerConfigBuilder,
     DatastoreSeedDatasetReference,
     DatastoreSettings,
     DatetimeSamplerParams,
-    EmbeddingInferenceParameters,
+    EmbeddingInferenceParams,
     ExpressionColumnConfig,
     GaussianSamplerParams,
     GenerationType,
     ImageContext,
     ImageFormat,
+    ImageGenerationInferenceParams,
     InferenceParameters,
     JudgeScoreProfilerConfig,
     LLMCodeColumnConfig,
@@ -112,8 +113,9 @@ def test_model_config_imports():
     assert ImageContext is not None
     assert ImageFormat is not None
     assert InferenceParameters is not None
-    assert CompletionInferenceParameters is not None
-    assert EmbeddingInferenceParameters is not None
+    assert ChatCompletionInferenceParams is not None
+    assert EmbeddingInferenceParams is not None
+    assert ImageGenerationInferenceParams is not None
     assert GenerationType is not None
     assert ManualDistribution is not None
     assert ManualDistributionParams is not None
@@ -272,8 +274,9 @@ def test_all_contains_model_configs():
     assert "ImageContext" in __all__
     assert "ImageFormat" in __all__
     assert "InferenceParameters" in __all__
-    assert "CompletionInferenceParameters" in __all__
-    assert "EmbeddingInferenceParameters" in __all__
+    assert "ChatCompletionInferenceParams" in __all__
+    assert "EmbeddingInferenceParams" in __all__
+    assert "ImageGenerationInferenceParams" in __all__
     assert "GenerationType" in __all__
     assert "ManualDistribution" in __all__
     assert "ManualDistributionParams" in __all__
