@@ -8,6 +8,7 @@ Before you begin, you'll need an API key from one of the default providers:
 
 - **NVIDIA API Key**: Get yours from [build.nvidia.com](https://build.nvidia.com)
 - **OpenAI API Key** (optional): Get yours from [platform.openai.com](https://platform.openai.com/api-keys)
+- **OpenRouter API Key** (optional): Get yours from [openrouter.ai](https://openrouter.ai)
 
 Set your API key as an environment variable:
 
@@ -15,6 +16,8 @@ Set your API key as an environment variable:
 export NVIDIA_API_KEY="your-api-key-here"
 # Or for OpenAI
 export OPENAI_API_KEY="your-openai-api-key-here"
+# Or for OpenRouter
+export OPENROUTER_API_KEY="your-openrouter-api-key-here"
 ```
 
 ## Example
