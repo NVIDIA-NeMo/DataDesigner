@@ -7,11 +7,10 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import pandas as pd
-import pyarrow.parquet as pq
 from huggingface_hub import HfApi, HfFileSystem
 from pydantic import BaseModel, Field
 
+from data_designer import lazy_imports
 from data_designer.config.errors import InvalidConfigError, InvalidFileFormatError, InvalidFilePathError
 from data_designer.config.utils.io_helpers import VALID_DATASET_FILE_EXTENSIONS, validate_path_contains_files_of_type
 
@@ -46,7 +45,7 @@ def get_file_column_names(file_reference: str | Path | HfFileSystem, file_type: 
     """
     if file_type == "parquet":
         try:
-            schema = pq.read_schema(file_reference)
+            schema = lazy_imports.pq.read_schema(file_reference)
             if hasattr(schema, "names"):
                 return schema.names
             else:
@@ -55,12 +54,12 @@ def get_file_column_names(file_reference: str | Path | HfFileSystem, file_type: 
             logger.warning(f"Failed to process parquet file {file_reference}: {e}")
             return []
     elif file_type in ["json", "jsonl"]:
-        return pd.read_json(file_reference, orient="records", lines=True, nrows=1).columns.tolist()
+        return lazy_imports.pd.read_json(file_reference, orient="records", lines=True, nrows=1).columns.tolist()
     elif file_type == "csv":
         try:
-            df = pd.read_csv(file_reference, nrows=1)
+            df = lazy_imports.pd.read_csv(file_reference, nrows=1)
             return df.columns.tolist()
-        except (pd.errors.EmptyDataError, pd.errors.ParserError) as e:
+        except (lazy_imports.pd.errors.EmptyDataError, lazy_imports.pd.errors.ParserError) as e:
             logger.warning(f"Failed to process CSV file {file_reference}: {e}")
             return []
     else:
