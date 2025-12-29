@@ -64,7 +64,7 @@ def has_license_header(file_content: str) -> bool:
 def should_add_license_header(file_path: Path) -> bool:
     """Determine if a file should have a license header added."""
     # Skip certain files
-    skip_patterns = [
+    skip_patterns = (
         "__pycache__",
         ".pyc",
         ".pyo",
@@ -76,13 +76,12 @@ def should_add_license_header(file_path: Path) -> bool:
         "node_modules",
         ".venv",
         "venv",
-    ]
+    )
 
     # Skip if file path contains any skip patterns
     file_str = str(file_path)
-    for pattern in skip_patterns:
-        if pattern in file_str:
-            return False
+    if file_str.endswith(skip_patterns):
+        return False
 
     # Only process Python files
     if file_path.suffix != ".py":
