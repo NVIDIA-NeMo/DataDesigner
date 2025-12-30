@@ -102,7 +102,7 @@ def test_log_pre_generation(mock_logger):
     generator.log_pre_generation()
 
     assert mock_logger.info.call_count == 3
-    mock_logger.info.assert_any_call("📝 Preparing llm-text column generation")
+    mock_logger.info.assert_any_call("Preparing llm-text column generation")
     mock_logger.info.assert_any_call("  |-- column name: 'test_column'")
     mock_logger.info.assert_any_call('  |-- model config:\n{"test": "config"}')
 

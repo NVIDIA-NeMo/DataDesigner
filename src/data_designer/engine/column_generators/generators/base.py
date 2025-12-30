@@ -1,23 +1,26 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+from __future__ import annotations
 
 import functools
 import logging
 from abc import ABC, abstractmethod
-from typing import overload
+from enum import Enum
+from typing import TYPE_CHECKING, overload
 
 import pandas as pd
 
-from data_designer.config.column_types import COLUMN_TYPE_EMOJI_MAP
-from data_designer.config.models import BaseInferenceParams, ModelConfig
-from data_designer.config.utils.type_helpers import StrEnum
 from data_designer.engine.configurable_task import ConfigurableTask, ConfigurableTaskMetadata, DataT, TaskConfigT
-from data_designer.engine.models.facade import ModelFacade
+
+if TYPE_CHECKING:
+    from data_designer.config.models import BaseInferenceParams, ModelConfig
+    from data_designer.engine.models.facade import ModelFacade
+
 
 logger = logging.getLogger(__name__)
 
 
-class GenerationStrategy(StrEnum):
+class GenerationStrategy(str, Enum):
     CELL_BY_CELL = "cell_by_cell"
     FULL_COLUMN = "full_column"
 
@@ -82,8 +85,7 @@ class WithModelGeneration:
         return self.model_config.inference_parameters
 
     def log_pre_generation(self) -> None:
-        emoji = COLUMN_TYPE_EMOJI_MAP[self.config.column_type]
-        logger.info(f"{emoji} Preparing {self.config.column_type} column generation")
+        logger.info(f"Preparing {self.config.column_type} column generation")
         logger.info(f"  |-- column name: {self.config.name!r}")
         logger.info(f"  |-- model config:\n{self.model_config.model_dump_json(indent=4)}")
         if self.model_config.provider is None:
