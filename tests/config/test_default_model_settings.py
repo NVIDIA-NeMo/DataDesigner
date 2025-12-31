@@ -54,7 +54,7 @@ def test_get_default_inference_parameters():
 
 def test_get_builtin_model_configs():
     builtin_model_configs = get_builtin_model_configs()
-    assert len(builtin_model_configs) == 8
+    assert len(builtin_model_configs) == 12
     assert builtin_model_configs[0].alias == "nvidia-text"
     assert builtin_model_configs[0].model == "nvidia/nemotron-3-nano-30b-a3b"
     assert builtin_model_configs[0].provider == "nvidia"
@@ -79,11 +79,23 @@ def test_get_builtin_model_configs():
     assert builtin_model_configs[7].alias == "openai-embedding"
     assert builtin_model_configs[7].model == "text-embedding-3-large"
     assert builtin_model_configs[7].provider == "openai"
+    assert builtin_model_configs[8].alias == "openrouter-text"
+    assert builtin_model_configs[8].model == "nvidia/nemotron-3-nano-30b-a3b"
+    assert builtin_model_configs[8].provider == "openrouter"
+    assert builtin_model_configs[9].alias == "openrouter-reasoning"
+    assert builtin_model_configs[9].model == "openai/gpt-oss-20b"
+    assert builtin_model_configs[9].provider == "openrouter"
+    assert builtin_model_configs[10].alias == "openrouter-vision"
+    assert builtin_model_configs[10].model == "nvidia/nemotron-nano-12b-v2-vl"
+    assert builtin_model_configs[10].provider == "openrouter"
+    assert builtin_model_configs[11].alias == "openrouter-embedding"
+    assert builtin_model_configs[11].model == "openai/text-embedding-3-large"
+    assert builtin_model_configs[11].provider == "openrouter"
 
 
 def test_get_builtin_model_providers():
     builtin_model_providers = get_builtin_model_providers()
-    assert len(builtin_model_providers) == 2
+    assert len(builtin_model_providers) == 3
     assert builtin_model_providers[0].name == "nvidia"
     assert builtin_model_providers[0].endpoint == "https://integrate.api.nvidia.com/v1"
     assert builtin_model_providers[0].provider_type == "openai"
@@ -92,6 +104,10 @@ def test_get_builtin_model_providers():
     assert builtin_model_providers[1].endpoint == "https://api.openai.com/v1"
     assert builtin_model_providers[1].provider_type == "openai"
     assert builtin_model_providers[1].api_key == "OPENAI_API_KEY"
+    assert builtin_model_providers[2].name == "openrouter"
+    assert builtin_model_providers[2].endpoint == "https://openrouter.ai/api/v1"
+    assert builtin_model_providers[2].provider_type == "openai"
+    assert builtin_model_providers[2].api_key == "OPENROUTER_API_KEY"
 
 
 def test_get_default_model_configs_path_exists(tmp_path: Path):
@@ -177,4 +193,4 @@ def test_resolve_seed_default_model_settings(tmp_path: Path):
 @patch("data_designer.config.default_model_settings.os.environ.get")
 def test_get_default_model_providers_missing_api_keys(mock_environ_get):
     mock_environ_get.return_value = None
-    assert get_default_model_providers_missing_api_keys() == ["NVIDIA_API_KEY", "OPENAI_API_KEY"]
+    assert get_default_model_providers_missing_api_keys() == ["NVIDIA_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY"]

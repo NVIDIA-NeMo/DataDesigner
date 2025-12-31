@@ -12,7 +12,7 @@ The `ModelProvider` class has the following fields:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `name` | `str` | Yes | Unique identifier for the provider (e.g., `"nvidia"`, `"openai"`) |
+| `name` | `str` | Yes | Unique identifier for the provider (e.g., `"nvidia"`, `"openai"`, `"openrouter"`) |
 | `endpoint` | `str` | Yes | API endpoint URL (e.g., `"https://integrate.api.nvidia.com/v1"`) |
 | `provider_type` | `str` | No | Provider type (default: `"openai"`). Uses OpenAI-compatible API format |
 | `api_key` | `str` | No | API key or environment variable name (e.g., `"NVIDIA_API_KEY"`) |
