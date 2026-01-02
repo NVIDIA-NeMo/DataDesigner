@@ -441,6 +441,7 @@ class ModelProvider(ConfigBase):
         provider_type: Provider type (default: "openai"). Determines the API format to use.
         api_key: Optional API key for authentication.
         extra_body: Additional parameters to pass in API requests.
+        extra_headers: Additional headers to pass in API requests.
     """
 
     name: str
@@ -448,6 +449,7 @@ class ModelProvider(ConfigBase):
     provider_type: str = "openai"
     api_key: str | None = None
     extra_body: dict[str, Any] | None = None
+    extra_headers: dict[str, str] | None = None
 
 
 def load_model_configs(model_configs: list[ModelConfig] | str | Path) -> list[ModelConfig]:
