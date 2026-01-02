@@ -10,6 +10,7 @@ from data_designer.engine.configurable_task import ConfigurableTask
 from data_designer.plugins.errors import PluginLoadError
 from data_designer.plugins.plugin import Plugin, PluginType
 from data_designer.plugins.testing.examples import MODULE_NAME, ValidTestConfig, ValidTestTask
+from data_designer.plugins.testing.utils import assert_valid_plugin
 
 
 @pytest.fixture
@@ -129,6 +130,31 @@ def test_validation_fails_with_invalid_modules() -> None:
             config_class_name="ValidTestConfig",
             plugin_type=PluginType.COLUMN_GENERATOR,
         )
+
+    with pytest.raises(PluginLoadError, match="Could not find class"):
+        Plugin(
+            task_class_name=f"{MODULE_NAME}.ValidTestTask",
+            config_class_name=f"{MODULE_NAME}.NotADefinedClass",
+            plugin_type=PluginType.COLUMN_GENERATOR,
+        )
+
+
+def test_helper_utility_identifies_invalid_classes() -> None:
+    """Test the helper utility provides deeper validation of config classes."""
+    valid_plugin = Plugin(
+        task_class_name=f"{MODULE_NAME}.ValidTestTask",
+        config_class_name=f"{MODULE_NAME}.ValidTestConfig",
+        plugin_type=PluginType.COLUMN_GENERATOR,
+    )
+    assert_valid_plugin(valid_plugin)
+
+    plugin_with_improper_task_class_type = Plugin(
+        task_class_name=f"{MODULE_NAME}.ValidTestConfig",
+        config_class_name=f"{MODULE_NAME}.ValidTestConfig",
+        plugin_type=PluginType.COLUMN_GENERATOR,
+    )
+    with pytest.raises(AssertionError):
+        assert_valid_plugin(plugin_with_improper_task_class_type)
 
 
 # =============================================================================

@@ -6,10 +6,6 @@ from data_designer.engine.configurable_task import ConfigurableTask
 from data_designer.plugins.plugin import Plugin
 
 
-def is_valid_plugin(plugin: Plugin) -> bool:
-    if not isinstance(plugin.config_cls, ConfigBase):
-        return False
-    if not isinstance(plugin.task_cls, ConfigurableTask):
-        return False
-
-    return True
+def assert_valid_plugin(plugin: Plugin) -> None:
+    assert issubclass(plugin.config_cls, ConfigBase), "Plugin config class is not a subclass of ConfigBase"
+    assert issubclass(plugin.task_cls, ConfigurableTask), "Plugin task class is not a subclass of ConfigurableTask"
