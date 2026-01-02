@@ -4,6 +4,9 @@
 from data_designer.errors import DataDesignerError
 
 
+class PluginLoadError(DataDesignerError): ...
+
+
 class PluginRegistrationError(DataDesignerError): ...
 
 
