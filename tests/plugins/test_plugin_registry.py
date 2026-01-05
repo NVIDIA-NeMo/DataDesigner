@@ -22,8 +22,8 @@ from data_designer.plugins.testing.stubs import MODULE_NAME, StubPluginConfigA, 
 @pytest.fixture
 def plugin_a() -> Plugin:
     return Plugin(
-        task_class_name=f"{MODULE_NAME}.StubPluginTaskA",
-        config_class_name=f"{MODULE_NAME}.StubPluginConfigA",
+        task_qualified_name=f"{MODULE_NAME}.StubPluginTaskA",
+        config_qualified_name=f"{MODULE_NAME}.StubPluginConfigA",
         plugin_type=PluginType.COLUMN_GENERATOR,
     )
 
@@ -31,8 +31,8 @@ def plugin_a() -> Plugin:
 @pytest.fixture
 def plugin_b() -> Plugin:
     return Plugin(
-        task_class_name=f"{MODULE_NAME}.StubPluginTaskB",
-        config_class_name=f"{MODULE_NAME}.StubPluginConfigB",
+        task_qualified_name=f"{MODULE_NAME}.StubPluginTaskB",
+        config_qualified_name=f"{MODULE_NAME}.StubPluginConfigB",
         plugin_type=PluginType.COLUMN_GENERATOR,
     )
 

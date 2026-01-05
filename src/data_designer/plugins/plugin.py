@@ -62,8 +62,13 @@ def _check_class_exists_in_file(filepath: str, class_name: str) -> None:
 
 
 class Plugin(BaseModel):
-    task_class_name: str = Field(..., description="The fully-qualified import path to the task class object")
-    config_class_name: str = Field(..., description="The fully-qualified import path to the config class object")
+    task_qualified_name: str = Field(
+        ...,
+        description="The fully-qualified name of the task class object, e.g. 'my_plugin.generator.MyColumnGenerator'",
+    )
+    config_qualified_name: str = Field(
+        ..., description="The fully-qualified name o the config class object, e.g. 'my_plugin.config.MyConfig'"
+    )
     plugin_type: PluginType = Field(..., description="The type of plugin")
     emoji: str = Field(default="🔌", description="The emoji to use in logs related to the plugin")
 
@@ -83,7 +88,7 @@ class Plugin(BaseModel):
     def discriminator_field(self) -> str:
         return self.plugin_type.discriminator_field
 
-    @field_validator("task_class_name", "config_class_name", mode="after")
+    @field_validator("task_qualified_name", "config_qualified_name", mode="after")
     @classmethod
     def validate_class_name(cls, value: str) -> str:
         module_name, object_name = _get_module_and_object_names(value)
@@ -101,7 +106,7 @@ class Plugin(BaseModel):
 
     @model_validator(mode="after")
     def validate_discriminator_field(self) -> Self:
-        _, cfg = _get_module_and_object_names(self.config_class_name)
+        _, cfg = _get_module_and_object_names(self.config_qualified_name)
         field = self.plugin_type.discriminator_field
         if field not in self.config_cls.model_fields:
             raise ValueError(f"Discriminator field {field!r} not found in config class {cfg!r}")
@@ -121,11 +126,11 @@ class Plugin(BaseModel):
 
     @cached_property
     def config_cls(self) -> type[ConfigBase]:
-        return self._load(self.config_class_name)
+        return self._load(self.config_qualified_name)
 
     @cached_property
     def task_cls(self) -> type[ConfigurableTask]:
-        return self._load(self.task_class_name)
+        return self._load(self.task_qualified_name)
 
     @staticmethod
     def _load(fully_qualified_object: str) -> type:

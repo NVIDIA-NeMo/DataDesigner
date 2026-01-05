@@ -17,8 +17,8 @@ from data_designer.plugins.testing.utils import assert_valid_plugin
 def valid_plugin() -> Plugin:
     """Fixture providing a valid plugin instance for testing."""
     return Plugin(
-        task_class_name=f"{MODULE_NAME}.ValidTestTask",
-        config_class_name=f"{MODULE_NAME}.ValidTestConfig",
+        task_qualified_name=f"{MODULE_NAME}.ValidTestTask",
+        config_qualified_name=f"{MODULE_NAME}.ValidTestConfig",
         plugin_type=PluginType.COLUMN_GENERATOR,
     )
 
@@ -72,8 +72,8 @@ def test_validation_fails_when_config_missing_discriminator_field() -> None:
 
     with pytest.raises(ValueError, match="Discriminator field 'column_type' not found in config class"):
         Plugin(
-            task_class_name=f"{MODULE_NAME}.ValidTestTask",
-            config_class_name=f"{MODULE_NAME}.ConfigWithoutDiscriminator",
+            task_qualified_name=f"{MODULE_NAME}.ValidTestTask",
+            config_qualified_name=f"{MODULE_NAME}.ConfigWithoutDiscriminator",
             plugin_type=PluginType.COLUMN_GENERATOR,
         )
 
@@ -82,8 +82,8 @@ def test_validation_fails_when_discriminator_field_not_literal_type() -> None:
     """Test validation fails when discriminator field is not a Literal type."""
     with pytest.raises(ValueError, match="Field 'column_type' of .* must be a Literal type"):
         Plugin(
-            task_class_name=f"{MODULE_NAME}.ValidTestTask",
-            config_class_name=f"{MODULE_NAME}.ConfigWithStringField",
+            task_qualified_name=f"{MODULE_NAME}.ValidTestTask",
+            config_qualified_name=f"{MODULE_NAME}.ConfigWithStringField",
             plugin_type=PluginType.COLUMN_GENERATOR,
         )
 
@@ -92,8 +92,8 @@ def test_validation_fails_when_discriminator_default_not_string() -> None:
     """Test validation fails when discriminator field default is not a string."""
     with pytest.raises(ValueError, match="The default of 'column_type' must be a string"):
         Plugin(
-            task_class_name=f"{MODULE_NAME}.ValidTestTask",
-            config_class_name=f"{MODULE_NAME}.ConfigWithNonStringDefault",
+            task_qualified_name=f"{MODULE_NAME}.ValidTestTask",
+            config_qualified_name=f"{MODULE_NAME}.ConfigWithNonStringDefault",
             plugin_type=PluginType.COLUMN_GENERATOR,
         )
 
@@ -102,8 +102,8 @@ def test_validation_fails_with_invalid_enum_key_conversion() -> None:
     """Test validation fails when default value cannot be converted to valid Python identifier."""
     with pytest.raises(ValueError, match="cannot be converted to a valid enum key"):
         Plugin(
-            task_class_name=f"{MODULE_NAME}.ValidTestTask",
-            config_class_name=f"{MODULE_NAME}.ConfigWithInvalidKey",
+            task_qualified_name=f"{MODULE_NAME}.ValidTestTask",
+            config_qualified_name=f"{MODULE_NAME}.ConfigWithInvalidKey",
             plugin_type=PluginType.COLUMN_GENERATOR,
         )
 
@@ -112,36 +112,36 @@ def test_validation_fails_with_invalid_modules() -> None:
     """Test validation fails when task or config class modules are invalid."""
     with pytest.raises(PluginLoadError, match="Could not find module"):
         Plugin(
-            task_class_name=f"{MODULE_NAME}.ValidTestTask",
-            config_class_name="invalid.module.ValidTestConfig",
+            task_qualified_name=f"{MODULE_NAME}.ValidTestTask",
+            config_qualified_name="invalid.module.ValidTestConfig",
             plugin_type=PluginType.COLUMN_GENERATOR,
         )
 
     with pytest.raises(PluginLoadError, match="Could not find module"):
         Plugin(
-            task_class_name="invalid.module.ValidTestTask",
-            config_class_name=f"{MODULE_NAME}.ValidTestConfig",
+            task_qualified_name="invalid.module.ValidTestTask",
+            config_qualified_name=f"{MODULE_NAME}.ValidTestConfig",
             plugin_type=PluginType.COLUMN_GENERATOR,
         )
 
     with pytest.raises(PluginLoadError, match="Expected a fully-qualified object name"):
         Plugin(
-            task_class_name="ValidTestTask",
-            config_class_name="ValidTestConfig",
+            task_qualified_name="ValidTestTask",
+            config_qualified_name="ValidTestConfig",
             plugin_type=PluginType.COLUMN_GENERATOR,
         )
 
     with pytest.raises(PluginLoadError, match="Could not find class"):
         Plugin(
-            task_class_name=f"{MODULE_NAME}.ValidTestTask",
-            config_class_name=f"{MODULE_NAME}.NotADefinedClass",
+            task_qualified_name=f"{MODULE_NAME}.ValidTestTask",
+            config_qualified_name=f"{MODULE_NAME}.NotADefinedClass",
             plugin_type=PluginType.COLUMN_GENERATOR,
         )
 
     with pytest.raises(PluginLoadError, match="Could not find class"):
         Plugin(
-            task_class_name=f"{MODULE_NAME}.NotADefinedClass",
-            config_class_name=f"{MODULE_NAME}.ValidTestConfig",
+            task_qualified_name=f"{MODULE_NAME}.NotADefinedClass",
+            config_qualified_name=f"{MODULE_NAME}.ValidTestConfig",
             plugin_type=PluginType.COLUMN_GENERATOR,
         )
 
@@ -149,15 +149,15 @@ def test_validation_fails_with_invalid_modules() -> None:
 def test_helper_utility_identifies_invalid_classes() -> None:
     """Test the helper utility provides deeper validation of config classes."""
     valid_plugin = Plugin(
-        task_class_name=f"{MODULE_NAME}.ValidTestTask",
-        config_class_name=f"{MODULE_NAME}.ValidTestConfig",
+        task_qualified_name=f"{MODULE_NAME}.ValidTestTask",
+        config_qualified_name=f"{MODULE_NAME}.ValidTestConfig",
         plugin_type=PluginType.COLUMN_GENERATOR,
     )
     assert_valid_plugin(valid_plugin)
 
     plugin_with_improper_task_class_type = Plugin(
-        task_class_name=f"{MODULE_NAME}.ValidTestConfig",
-        config_class_name=f"{MODULE_NAME}.ValidTestConfig",
+        task_qualified_name=f"{MODULE_NAME}.ValidTestConfig",
+        config_qualified_name=f"{MODULE_NAME}.ValidTestConfig",
         plugin_type=PluginType.COLUMN_GENERATOR,
     )
     with pytest.raises(AssertionError):
@@ -172,8 +172,8 @@ def test_helper_utility_identifies_invalid_classes() -> None:
 def test_plugin_works_with_real_sampler_column_generator() -> None:
     """Test that Plugin works with actual SamplerColumnGenerator from the codebase."""
     plugin = Plugin(
-        task_class_name="data_designer.engine.column_generators.generators.samplers.SamplerColumnGenerator",
-        config_class_name="data_designer.config.column_configs.SamplerColumnConfig",
+        task_qualified_name="data_designer.engine.column_generators.generators.samplers.SamplerColumnGenerator",
+        config_qualified_name="data_designer.config.column_configs.SamplerColumnConfig",
         plugin_type=PluginType.COLUMN_GENERATOR,
     )
 
