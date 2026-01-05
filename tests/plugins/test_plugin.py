@@ -9,7 +9,7 @@ from data_designer.engine.column_generators.generators.samplers import SamplerCo
 from data_designer.engine.configurable_task import ConfigurableTask
 from data_designer.plugins.errors import PluginLoadError
 from data_designer.plugins.plugin import Plugin, PluginType
-from data_designer.plugins.testing.examples import MODULE_NAME, ValidTestConfig, ValidTestTask
+from data_designer.plugins.testing.stubs import MODULE_NAME, ValidTestConfig, ValidTestTask
 from data_designer.plugins.testing.utils import assert_valid_plugin
 
 

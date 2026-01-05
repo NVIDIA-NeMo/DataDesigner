@@ -12,7 +12,7 @@ from data_designer.config.base import ConfigBase
 from data_designer.plugins.errors import PluginNotFoundError
 from data_designer.plugins.plugin import Plugin, PluginType
 from data_designer.plugins.registry import PluginRegistry
-from data_designer.plugins.testing.examples import MODULE_NAME, StubPluginConfigA, StubPluginConfigB
+from data_designer.plugins.testing.stubs import MODULE_NAME, StubPluginConfigA, StubPluginConfigB
 
 # =============================================================================
 # Test Fixtures
