@@ -7,9 +7,9 @@ import importlib
 import importlib.util
 from enum import Enum
 from functools import cached_property
-from typing import TYPE_CHECKING, Annotated, Literal, get_origin
+from typing import TYPE_CHECKING, Literal, get_origin
 
-from pydantic import AfterValidator, BaseModel, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing_extensions import Self
 
 from data_designer.plugins.errors import PluginLoadError
@@ -45,21 +45,11 @@ def _get_module_and_object_names(fully_qualified_object: str) -> tuple[str, str]
     return module_name, object_name
 
 
-def _is_valid_module(value: str) -> str:
-    module_name, _ = _get_module_and_object_names(value)
-    try:
-        importlib.util.find_spec(module_name)
-    except:
-        raise PluginLoadError(f"Could not find module {module_name!r}.")
-
-    return value
-
-
 class Plugin(BaseModel):
-    task_class_name: Annotated[str, AfterValidator(_is_valid_module)]
-    config_class_name: Annotated[str, AfterValidator(_is_valid_module)]
-    plugin_type: PluginType
-    emoji: str = "🔌"
+    task_class_name: str = Field(..., description="The fully-qualified import path to the task class object")
+    config_class_name: str = Field(..., description="The fully-qualified import path to the config class object")
+    plugin_type: PluginType = Field(..., description="The type of plugin")
+    emoji: str = Field(default="🔌", description="The emoji to use in logs related to the plugin")
 
     @property
     def config_type_as_class_name(self) -> str:
@@ -76,6 +66,17 @@ class Plugin(BaseModel):
     @property
     def discriminator_field(self) -> str:
         return self.plugin_type.discriminator_field
+
+    @field_validator("task_class_name", "config_class_name", mode="after")
+    @classmethod
+    def validate_class_name(cls, value: str) -> str:
+        module_name, _ = _get_module_and_object_names(value)
+        try:
+            importlib.util.find_spec(module_name)
+        except:
+            raise PluginLoadError(f"Could not find module {module_name!r}.")
+
+        return value
 
     @model_validator(mode="after")
     def validate_discriminator_field(self) -> Self:
