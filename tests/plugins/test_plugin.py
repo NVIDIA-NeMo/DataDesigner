@@ -138,6 +138,13 @@ def test_validation_fails_with_invalid_modules() -> None:
             plugin_type=PluginType.COLUMN_GENERATOR,
         )
 
+    with pytest.raises(PluginLoadError, match="Could not find class"):
+        Plugin(
+            task_class_name=f"{MODULE_NAME}.NotADefinedClass",
+            config_class_name=f"{MODULE_NAME}.ValidTestConfig",
+            plugin_type=PluginType.COLUMN_GENERATOR,
+        )
+
 
 def test_helper_utility_identifies_invalid_classes() -> None:
     """Test the helper utility provides deeper validation of config classes."""

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import ast
 import importlib
 import importlib.util
 from enum import Enum
@@ -45,6 +46,21 @@ def _get_module_and_object_names(fully_qualified_object: str) -> tuple[str, str]
     return module_name, object_name
 
 
+def _check_class_exists_in_file(filepath: str, class_name: str) -> None:
+    try:
+        with open(filepath, "r") as file:
+            source = file.read()
+    except FileNotFoundError:
+        raise PluginLoadError(f"Could not read source code at {filepath!r}")
+
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name == class_name:
+            return None
+
+    raise PluginLoadError(f"Could not find class named {class_name!r} in {filepath!r}")
+
+
 class Plugin(BaseModel):
     task_class_name: str = Field(..., description="The fully-qualified import path to the task class object")
     config_class_name: str = Field(..., description="The fully-qualified import path to the config class object")
@@ -70,11 +86,16 @@ class Plugin(BaseModel):
     @field_validator("task_class_name", "config_class_name", mode="after")
     @classmethod
     def validate_class_name(cls, value: str) -> str:
-        module_name, _ = _get_module_and_object_names(value)
+        module_name, object_name = _get_module_and_object_names(value)
         try:
-            importlib.util.find_spec(module_name)
+            spec = importlib.util.find_spec(module_name)
         except:
-            raise PluginLoadError(f"Could not find module {module_name!r}.")
+            raise PluginLoadError(f"Could not find module {module_name!r}")
+
+        if spec is None or spec.origin is None:
+            raise PluginLoadError(f"Error finding source for module {module_name!r}")
+
+        _check_class_exists_in_file(spec.origin, object_name)
 
         return value
 
