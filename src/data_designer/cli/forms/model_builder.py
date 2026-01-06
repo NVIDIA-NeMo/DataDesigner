@@ -125,11 +125,11 @@ class ModelFormBuilder(FormBuilder[ModelConfig]):
             fields.append(
                 NumericField(
                     "max_tokens",
-                    "Max tokens <dim>(maximum total tokens including input and output)</dim>",
+                    "Max tokens <dim>(maximum tokens to generate in response)</dim>",
                     default=initial_params.get("max_tokens"),
                     min_value=1.0,
                     required=False,
-                    help_text="Maximum number of tokens including both input prompt and generated response",
+                    help_text="Maximum number of tokens to generate in the response",
                 )
             )
 

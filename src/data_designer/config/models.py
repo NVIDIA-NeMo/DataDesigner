@@ -278,7 +278,7 @@ class ChatCompletionInferenceParams(BaseInferenceParams):
         generation_type: Type of generation, always "chat-completion" for this class.
         temperature: Sampling temperature (0.0-2.0). Can be a fixed value or a distribution for dynamic sampling.
         top_p: Nucleus sampling probability (0.0-1.0). Can be a fixed value or a distribution for dynamic sampling.
-        max_tokens: Maximum number of tokens (includes both input and output tokens).
+        max_tokens: Maximum number of tokens to generate in the response.
     """
 
     generation_type: Literal[GenerationType.CHAT_COMPLETION] = GenerationType.CHAT_COMPLETION

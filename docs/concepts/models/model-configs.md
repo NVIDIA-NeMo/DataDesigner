@@ -109,7 +109,7 @@ model_configs = [
 ```
 
 !!! tip "Experiment with max_tokens for Task-Specific Model Configurations"
-    The number of tokens required to generate a single data entry can vary significantly with use case. For example, reasoning models often need more tokens to "think through" problems before generating a response. Note that `max_tokens` includes **both input and output tokens** (the total context window used), so factor in your prompt length, any context data, and the expected response length when setting this parameter.
+    The number of tokens required to generate a single data entry can vary significantly with use case. For example, reasoning models often need more tokens to "think through" problems before generating a response. Note that `max_tokens` specifies the **maximum number of output tokens** to generate in the response, so set this value based on the expected length of the generated content.
 
 ## See Also
 
