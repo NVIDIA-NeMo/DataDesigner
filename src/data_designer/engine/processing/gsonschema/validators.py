@@ -85,13 +85,13 @@ def normalize_decimal_fields(obj: DataObjectT, schema: JSONSchemaT) -> DataObjec
         return obj
 
     defs = schema.get("$defs", {})
-    obj_schema = defs.get(schema.get("$ref", "")[len("#/$defs/"):], schema)
+    obj_schema = defs.get(schema.get("$ref", "")[len("#/$defs/") :], schema)
     props = obj_schema.get("properties", {})
 
     for key, value in obj.items():
         field_schema = props.get(key, {})
         if "$ref" in field_schema:
-            field_schema = defs.get(field_schema["$ref"][len("#/$defs/"):], {})
+            field_schema = defs.get(field_schema["$ref"][len("#/$defs/") :], {})
 
         if isinstance(value, dict):
             obj[key] = normalize_decimal_fields(value, schema)

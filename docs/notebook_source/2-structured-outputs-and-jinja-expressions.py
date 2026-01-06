@@ -358,7 +358,7 @@ preview.analysis.to_report()
 #
 
 # %%
-results = data_designer.create(config_builder, num_records=10, dataset_name="tutorial-2")
+results = data_designer.create(config_builder, num_records=100, dataset_name="tutorial-2")
 
 # %%
 # Load the generated dataset as a pandas DataFrame.
@@ -381,3 +381,5 @@ analysis.to_report()
 #
 # - [Providing images as context](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/4-providing-images-as-context/)A
 #
+
+# %%
