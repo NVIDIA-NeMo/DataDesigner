@@ -196,3 +196,24 @@ def test_invalid_data_type():
     data = {"num": "not a number", "extra": "should be removed"}
     with pytest.raises(JSONSchemaValidationError):
         validate(data, schema, pruning=True, no_extra_properties=True)
+
+
+def test_normalize_decimal_anyof_fields() -> None:
+    """Test that Decimal-like anyOf fields (number|string) are normalized to strings."""
+    schema = {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "price": {"anyOf": [{"type": "number"}, {"type": "string"}]},
+        },
+    }
+
+    # Numeric value should be converted to string
+    result1 = validate({"name": "Widget", "price": 189.99}, schema)
+    assert result1["price"] == "189.99"
+    assert isinstance(result1["price"], str)
+
+    # String value should remain a string
+    result2 = validate({"name": "Gadget", "price": "249.99"}, schema)
+    assert result2["price"] == "249.99"
+    assert isinstance(result2["price"], str)

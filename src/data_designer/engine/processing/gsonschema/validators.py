@@ -70,6 +70,39 @@ def extend_jsonschema_validator_with_pruning(validator):
     return validators.extend(validator, {"additionalProperties": prune_additional_properties})
 
 
+def _has_number_string_anyof(schema: dict) -> bool:
+    """Check if schema has anyOf with both number and string (Pydantic Decimal pattern)."""
+    any_of = schema.get("anyOf")
+    if not isinstance(any_of, list):
+        return False
+    types = {item.get("type") for item in any_of}
+    return "number" in types and "string" in types
+
+
+def normalize_decimal_fields(obj: DataObjectT, schema: JSONSchemaT) -> DataObjectT:
+    """Convert numeric values to strings for Decimal-like anyOf fields."""
+    if not isinstance(obj, dict):
+        return obj
+
+    defs = schema.get("$defs", {})
+    obj_schema = defs.get(schema.get("$ref", "")[len("#/$defs/"):], schema)
+    props = obj_schema.get("properties", {})
+
+    for key, value in obj.items():
+        field_schema = props.get(key, {})
+        if "$ref" in field_schema:
+            field_schema = defs.get(field_schema["$ref"][len("#/$defs/"):], {})
+
+        if isinstance(value, dict):
+            obj[key] = normalize_decimal_fields(value, schema)
+        elif isinstance(value, list):
+            obj[key] = [normalize_decimal_fields(v, schema) if isinstance(v, dict) else v for v in value]
+        elif isinstance(value, (int, float)) and not isinstance(value, bool) and _has_number_string_anyof(field_schema):
+            obj[key] = str(value)
+
+    return obj
+
+
 ## We don't expect the outer data type (e.g. dict, list, or const) to be
 ## modified by the pruning action.
 @overload
@@ -139,5 +172,8 @@ def validate(
         validator(schema).validate(final_object)
     except ValidationError as exc:
         raise JSONSchemaValidationError(str(exc)) from exc
+
+    # Normalize Decimal-like fields to ensure consistent string output
+    final_object = normalize_decimal_fields(final_object, schema)
 
     return final_object
