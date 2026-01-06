@@ -4,50 +4,15 @@
 import threading
 from contextlib import contextmanager
 from importlib.metadata import EntryPoint
-from typing import Literal
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from data_designer.config.base import ConfigBase
-from data_designer.config.column_configs import SingleColumnConfig
-from data_designer.engine.configurable_task import ConfigurableTask, ConfigurableTaskMetadata
 from data_designer.plugins.errors import PluginNotFoundError
 from data_designer.plugins.plugin import Plugin, PluginType
 from data_designer.plugins.registry import PluginRegistry
-
-# =============================================================================
-# Test Stubs
-# =============================================================================
-
-
-class StubPluginConfigA(SingleColumnConfig):
-    column_type: Literal["test-plugin-a"] = "test-plugin-a"
-
-
-class StubPluginConfigB(SingleColumnConfig):
-    column_type: Literal["test-plugin-b"] = "test-plugin-b"
-
-
-class StubPluginTaskA(ConfigurableTask[StubPluginConfigA]):
-    @staticmethod
-    def metadata() -> ConfigurableTaskMetadata:
-        return ConfigurableTaskMetadata(
-            name="test_plugin_a",
-            description="Test plugin A",
-            required_resources=None,
-        )
-
-
-class StubPluginTaskB(ConfigurableTask[StubPluginConfigB]):
-    @staticmethod
-    def metadata() -> ConfigurableTaskMetadata:
-        return ConfigurableTaskMetadata(
-            name="test_plugin_b",
-            description="Test plugin B",
-            required_resources=None,
-        )
-
+from data_designer.plugins.testing.stubs import MODULE_NAME, StubPluginConfigA, StubPluginConfigB
 
 # =============================================================================
 # Test Fixtures
@@ -57,8 +22,8 @@ class StubPluginTaskB(ConfigurableTask[StubPluginConfigB]):
 @pytest.fixture
 def plugin_a() -> Plugin:
     return Plugin(
-        task_cls=StubPluginTaskA,
-        config_cls=StubPluginConfigA,
+        task_qualified_name=f"{MODULE_NAME}.StubPluginTaskA",
+        config_qualified_name=f"{MODULE_NAME}.StubPluginConfigA",
         plugin_type=PluginType.COLUMN_GENERATOR,
     )
 
@@ -66,8 +31,8 @@ def plugin_a() -> Plugin:
 @pytest.fixture
 def plugin_b() -> Plugin:
     return Plugin(
-        task_cls=StubPluginTaskB,
-        config_cls=StubPluginConfigB,
+        task_qualified_name=f"{MODULE_NAME}.StubPluginTaskB",
+        config_qualified_name=f"{MODULE_NAME}.StubPluginConfigB",
         plugin_type=PluginType.COLUMN_GENERATOR,
     )
 
