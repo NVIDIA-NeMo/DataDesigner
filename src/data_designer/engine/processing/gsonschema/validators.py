@@ -173,7 +173,6 @@ def validate(
     except ValidationError as exc:
         raise JSONSchemaValidationError(str(exc)) from exc
 
-    # Normalize Decimal-like fields to ensure consistent string output
     final_object = normalize_decimal_fields(final_object, schema)
 
     return final_object
