@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import litellm
 import pytest
+from litellm.litellm_core_utils import logging_callback_manager as litellm_logging_callback_manager
 
 from data_designer.engine.models.litellm_overrides import (
     DEFAULT_MAX_CALLBACKS,
@@ -51,10 +52,7 @@ def test_custom_router_calculate_exponential_backoff(retry_count: int, jitter: f
 def test_apply_litellm_patches(mock_quiet_noisy_logger):
     apply_litellm_patches()
     assert isinstance(litellm.in_memory_llm_clients_cache, ThreadSafeCache)
-    assert (
-        litellm.litellm_core_utils.logging_callback_manager.LoggingCallbackManager.MAX_CALLBACKS
-        == DEFAULT_MAX_CALLBACKS
-    )
+    assert litellm_logging_callback_manager.LoggingCallbackManager.MAX_CALLBACKS == DEFAULT_MAX_CALLBACKS
     assert mock_quiet_noisy_logger.call_count == 3
     assert mock_quiet_noisy_logger.call_args_list[0][0][0] == "httpx"
     assert mock_quiet_noisy_logger.call_args_list[1][0][0] == "LiteLLM"
