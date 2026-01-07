@@ -11,7 +11,7 @@ When you create a `ModelConfig`, you can specify inference parameters to adjust 
 The `ChatCompletionInferenceParams` class controls how models generate text completions (for text, code, and structured data generation). It provides fine-grained control over generation behavior and supports both static values and dynamic distribution-based sampling.
 
 !!! warning "InferenceParameters is Deprecated"
-    The `InferenceParameters` class is deprecated and will be removed in a future version. Use `ChatCompletionInferenceParams` instead. The old `InferenceParameters` class now shows a deprecation warning when used.
+    The `` class is deprecated and has been removed. Use `ChatCompletionInferenceParams` instead.
 
 ### Fields
 

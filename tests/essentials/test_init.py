@@ -30,7 +30,6 @@ from data_designer.essentials import (
     GenerationType,
     ImageContext,
     ImageFormat,
-    InferenceParameters,
     JudgeScoreProfilerConfig,
     LLMCodeColumnConfig,
     LLMJudgeColumnConfig,
@@ -111,7 +110,6 @@ def test_model_config_imports():
     """Test model configuration imports"""
     assert ImageContext is not None
     assert ImageFormat is not None
-    assert InferenceParameters is not None
     assert ChatCompletionInferenceParams is not None
     assert EmbeddingInferenceParams is not None
     assert GenerationType is not None
@@ -271,7 +269,6 @@ def test_all_contains_model_configs():
     """Test __all__ contains model configuration classes"""
     assert "ImageContext" in __all__
     assert "ImageFormat" in __all__
-    assert "InferenceParameters" in __all__
     assert "ChatCompletionInferenceParams" in __all__
     assert "EmbeddingInferenceParams" in __all__
     assert "GenerationType" in __all__
