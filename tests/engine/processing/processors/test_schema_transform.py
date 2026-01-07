@@ -52,7 +52,7 @@ def test_metadata() -> None:
 
     assert metadata.name == "schema_transform_processor"
     assert metadata.description == "Generate dataset with transformed schema using a Jinja2 template."
-    assert metadata.required_resources is None
+    assert SchemaTransformProcessor.get_required_resources() == []
 
 
 def test_process_returns_original_dataframe(

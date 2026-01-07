@@ -1,8 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+
+from __future__ import annotations
+
 import functools
 import logging
+from typing import TYPE_CHECKING
 
 import duckdb
 import pandas as pd
@@ -16,7 +20,9 @@ from data_designer.engine.column_generators.generators.base import (
 from data_designer.engine.column_generators.utils.errors import SeedDatasetError
 from data_designer.engine.dataset_builders.multi_column_configs import SeedDatasetMultiColumnConfig
 from data_designer.engine.processing.utils import concat_datasets
-from data_designer.engine.resources.resource_provider import ResourceType
+
+if TYPE_CHECKING:
+    from data_designer.engine.resources.resource_provider import ResourceType
 
 MAX_ZERO_RECORD_RESPONSE_FACTOR = 2
 
@@ -25,12 +31,15 @@ logger = logging.getLogger(__name__)
 
 class SeedDatasetColumnGenerator(FromScratchColumnGenerator[SeedDatasetMultiColumnConfig]):
     @staticmethod
+    def get_required_resources() -> list[ResourceType]:
+        return [ResourceType.DATASTORE]
+
+    @staticmethod
     def metadata() -> GeneratorMetadata:
         return GeneratorMetadata(
             name="seed_dataset_column_generator",
             description="Sample columns from a seed dataset.",
             generation_strategy=GenerationStrategy.FULL_COLUMN,
-            required_resources=[ResourceType.SEED_READER],
         )
 
     @property

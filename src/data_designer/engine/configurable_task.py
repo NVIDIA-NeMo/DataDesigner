@@ -18,14 +18,12 @@ TaskConfigT = TypeVar("ConfigT", bound=ConfigBase)
 class ConfigurableTaskMetadata(ConfigBase):
     name: str
     description: str
-    required_resources: list[ResourceType] | None
 
 
 class ConfigurableTask(ABC, Generic[TaskConfigT]):
-    def __init__(self, config: TaskConfigT, *, resource_provider: ResourceProvider | None):
+    def __init__(self, config: TaskConfigT, resource_provider: ResourceProvider):
         self._config = self.get_config_type().model_validate(config)
         self._resource_provider = resource_provider
-        self._validate_resources()
         self._validate()
         self._initialize()
 
@@ -61,22 +59,18 @@ class ConfigurableTask(ABC, Generic[TaskConfigT]):
 
     @property
     def resource_provider(self) -> ResourceProvider:
-        if self._resource_provider is None:
-            raise ValueError(f"No resource provider provided for the `{self.metadata().name}` task.")
         return self._resource_provider
 
     @staticmethod
     @abstractmethod
     def metadata() -> ConfigurableTaskMetadata: ...
 
+    @staticmethod
+    @abstractmethod
+    def get_required_resources() -> list[ResourceType]: ...
+
     def _initialize(self) -> None:
         """An internal method for custom initialization logic, which will be called in the constructor."""
 
     def _validate(self) -> None:
         """An internal method for custom validation logic, which will be called in the constructor."""
-
-    def _validate_resources(self) -> None:
-        for resource in self.metadata().required_resources or []:
-            if resource is not None:
-                if getattr(self.resource_provider, ResourceType(resource).value) is None:
-                    raise ValueError(f"Resource {resource} is required for the `{self.metadata().name}`")

@@ -22,7 +22,6 @@ class SchemaTransformProcessor(WithJinja2UserTemplateRendering, Processor[Schema
         return ConfigurableTaskMetadata(
             name="schema_transform_processor",
             description="Generate dataset with transformed schema using a Jinja2 template.",
-            required_resources=None,
         )
 
     @property

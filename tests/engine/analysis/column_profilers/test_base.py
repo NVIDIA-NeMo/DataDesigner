@@ -56,7 +56,6 @@ def test_column_profiler_metadata_creation():
         name="test_profiler",
         description="Test profiler",
         applicable_column_types=[DataDesignerColumnType.SAMPLER, DataDesignerColumnType.LLM_TEXT],
-        required_resources=None,
     )
 
     assert metadata.name == "test_profiler"

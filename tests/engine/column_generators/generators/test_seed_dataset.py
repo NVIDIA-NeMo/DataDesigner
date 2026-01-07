@@ -111,7 +111,7 @@ def seed_dataset_jsonl(sample_dataframe):
 def test_seed_dataset_column_generator_metadata():
     metadata = SeedDatasetColumnGenerator.metadata()
     assert metadata.generation_strategy == GenerationStrategy.FULL_COLUMN
-    assert ResourceType.SEED_READER in metadata.required_resources
+    assert ResourceType.DATASTORE in SeedDatasetColumnGenerator.get_required_resources()
 
 
 def test_seed_dataset_column_generator_config_structure():

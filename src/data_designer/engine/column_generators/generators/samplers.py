@@ -1,10 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 import logging
 import random
 from functools import partial
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 import pandas as pd
 
@@ -17,22 +19,27 @@ from data_designer.engine.column_generators.generators.base import (
 from data_designer.engine.dataset_builders.multi_column_configs import SamplerMultiColumnConfig
 from data_designer.engine.processing.utils import concat_datasets
 from data_designer.engine.resources.managed_dataset_generator import ManagedDatasetGenerator
-from data_designer.engine.resources.resource_provider import ResourceType
 from data_designer.engine.sampling_gen.data_sources.sources import SamplerType
 from data_designer.engine.sampling_gen.entities.person import load_person_data_sampler
 from data_designer.engine.sampling_gen.generator import DatasetGenerator as SamplingDatasetGenerator
+
+if TYPE_CHECKING:
+    from data_designer.engine.resources.resource_provider import ResourceType
 
 logger = logging.getLogger(__name__)
 
 
 class SamplerColumnGenerator(FromScratchColumnGenerator[SamplerMultiColumnConfig]):
     @staticmethod
+    def get_required_resources() -> list[ResourceType]:
+        return [ResourceType.BLOB_STORAGE]
+
+    @staticmethod
     def metadata() -> GeneratorMetadata:
         return GeneratorMetadata(
             name="sampler_column_generator",
             description="Generate columns using sampling-based method.",
             generation_strategy=GenerationStrategy.FULL_COLUMN,
-            required_resources=[ResourceType.BLOB_STORAGE],
         )
 
     def generate(self, data: pd.DataFrame) -> pd.DataFrame:

@@ -38,11 +38,14 @@ logger = logging.getLogger(__name__)
 
 class JudgeScoreProfiler(ColumnProfiler[JudgeScoreProfilerConfig]):
     @staticmethod
+    def get_required_resources() -> list[ResourceType]:
+        return [ResourceType.MODEL_REGISTRY]
+
+    @staticmethod
     def metadata() -> ColumnProfilerMetadata:
         return ColumnProfilerMetadata(
             name="judge_score_profiler",
             description="Analyzes LLM-as-judge score distributions in a Data Designer dataset.",
-            required_resources=[ResourceType.MODEL_REGISTRY],
             applicable_column_types=[DataDesignerColumnType.LLM_JUDGE],
         )
 

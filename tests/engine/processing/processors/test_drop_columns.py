@@ -42,7 +42,7 @@ def test_metadata():
 
     assert metadata.name == "drop_columns_processor"
     assert metadata.description == "Drop columns from the input dataset."
-    assert metadata.required_resources is None
+    assert DropColumnsProcessor.get_required_resources() == []
 
 
 @pytest.mark.parametrize(

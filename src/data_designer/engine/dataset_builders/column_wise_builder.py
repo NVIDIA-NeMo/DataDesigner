@@ -22,8 +22,8 @@ from data_designer.config.processors import (
 )
 from data_designer.engine.column_generators.generators.base import (
     ColumnGenerator,
+    ColumnGeneratorWithSingleModel,
     GenerationStrategy,
-    WithModelGeneration,
 )
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError, DatasetProcessingError
@@ -42,7 +42,7 @@ from data_designer.engine.models.telemetry import InferenceEvent, NemoSourceEnum
 from data_designer.engine.processing.processors.base import Processor
 from data_designer.engine.processing.processors.drop_columns import DropColumnsProcessor
 from data_designer.engine.registry.data_designer_registry import DataDesignerRegistry
-from data_designer.engine.resources.resource_provider import ResourceProvider
+from data_designer.engine.resources.resource_provider import ResourceProvider, ResourceType
 
 if TYPE_CHECKING:
     from data_designer.engine.models.usage import ModelUsageStats
@@ -192,7 +192,7 @@ class ColumnWiseDatasetBuilder:
 
     def _run_cell_by_cell_generator(self, generator: ColumnGenerator) -> None:
         max_workers = MAX_CONCURRENCY_PER_NON_LLM_GENERATOR
-        if isinstance(generator, WithModelGeneration):
+        if ResourceType.MODEL_REGISTRY in generator.get_required_resources():
             max_workers = generator.inference_parameters.max_parallel_requests
         self._fan_out_with_threads(generator, max_workers=max_workers)
 
@@ -206,7 +206,7 @@ class ColumnWiseDatasetBuilder:
                 list(set(config.model_alias for config in self.llm_generated_column_configs))
             )
 
-    def _fan_out_with_threads(self, generator: WithModelGeneration, max_workers: int) -> None:
+    def _fan_out_with_threads(self, generator: ColumnGeneratorWithSingleModel, max_workers: int) -> None:
         if generator.generation_strategy != GenerationStrategy.CELL_BY_CELL:
             raise DatasetGenerationError(
                 f"Generator {generator.metadata().name} is not a {GenerationStrategy.CELL_BY_CELL} "

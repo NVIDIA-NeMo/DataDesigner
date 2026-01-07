@@ -12,7 +12,7 @@ from data_designer.engine.column_generators.generators.base import (
     GenerationStrategy,
     GeneratorMetadata,
 )
-from data_designer.engine.resources.resource_provider import ResourceProvider
+from data_designer.engine.resources.resource_provider import ResourceProvider, ResourceType
 
 
 def _create_test_metadata(name="test", description="test", strategy=GenerationStrategy.CELL_BY_CELL):
@@ -21,7 +21,6 @@ def _create_test_metadata(name="test", description="test", strategy=GenerationSt
         name=name,
         description=description,
         generation_strategy=strategy,
-        required_resources=None,
     )
 
 
@@ -29,6 +28,10 @@ def _create_test_generator_class(strategy=GenerationStrategy.CELL_BY_CELL):
     """Helper function to create a test generator class."""
 
     class TestGenerator(ColumnGenerator[ExpressionColumnConfig]):
+        @staticmethod
+        def get_required_resources() -> list[ResourceType]:
+            return []
+
         @staticmethod
         def metadata():
             return _create_test_metadata(strategy=strategy)
@@ -43,6 +46,10 @@ def _create_test_from_scratch_generator_class():
     """Helper function to create a test from-scratch generator class."""
 
     class TestFromScratchGenerator(FromScratchColumnGenerator[ExpressionColumnConfig]):
+        @staticmethod
+        def get_required_resources() -> list[ResourceType]:
+            return []
+
         @staticmethod
         def metadata():
             return _create_test_metadata()

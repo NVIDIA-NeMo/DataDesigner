@@ -19,7 +19,6 @@ class DropColumnsProcessor(Processor[DropColumnsProcessorConfig]):
         return ConfigurableTaskMetadata(
             name="drop_columns_processor",
             description="Drop columns from the input dataset.",
-            required_resources=None,
         )
 
     def process(self, data: pd.DataFrame, *, current_batch_number: int | None = None) -> pd.DataFrame:
