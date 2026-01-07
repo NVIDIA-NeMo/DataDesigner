@@ -21,7 +21,6 @@ from data_designer.engine.column_generators.generators.base import (
 )
 from data_designer.engine.dataset_builders.utils.concurrency import ConcurrentThreadExecutor
 from data_designer.engine.errors import DataDesignerRuntimeError
-from data_designer.engine.resources.resource_provider import ResourceType
 from data_designer.engine.validators import (
     BaseValidator,
     LocalCallableValidator,
@@ -47,10 +46,6 @@ def get_validator_from_params(validator_type: ValidatorType, validator_params: V
 
 
 class ValidationColumnGenerator(ColumnGenerator[ValidationColumnConfig]):
-    @staticmethod
-    def get_required_resources() -> list[ResourceType]:
-        return []
-
     @staticmethod
     def metadata() -> GeneratorMetadata:
         return GeneratorMetadata(

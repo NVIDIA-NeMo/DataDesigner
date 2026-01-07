@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
 
 import pandas as pd
 
@@ -18,18 +17,10 @@ from data_designer.engine.column_generators.utils.errors import ExpressionTempla
 from data_designer.engine.processing.ginja.environment import WithJinja2UserTemplateRendering
 from data_designer.engine.processing.utils import deserialize_json_values
 
-if TYPE_CHECKING:
-    from data_designer.engine.resources.resource_provider import ResourceType
-
-
 logger = logging.getLogger(__name__)
 
 
 class ExpressionColumnGenerator(WithJinja2UserTemplateRendering, ColumnGenerator[ExpressionColumnConfig]):
-    @staticmethod
-    def get_required_resources() -> list[ResourceType]:
-        return []
-
     @staticmethod
     def metadata() -> GeneratorMetadata:
         return GeneratorMetadata(

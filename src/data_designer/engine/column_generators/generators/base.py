@@ -56,6 +56,10 @@ class ColumnGenerator(ConfigurableTask[TaskConfigT], ABC):
     @abstractmethod
     def generate(self, data: DataT) -> DataT: ...
 
+    @staticmethod
+    def get_required_resources() -> list[ResourceType]:
+        return []
+
     def log_pre_generation(self) -> None:
         """A shared method to log info before the generator's `generate` method is called.
 
