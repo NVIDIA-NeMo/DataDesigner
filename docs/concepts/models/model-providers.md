@@ -17,6 +17,7 @@ The `ModelProvider` class has the following fields:
 | `provider_type` | `str` | No | Provider type (default: `"openai"`). Uses OpenAI-compatible API format |
 | `api_key` | `str` | No | API key or environment variable name (e.g., `"NVIDIA_API_KEY"`) |
 | `extra_body` | `dict[str, Any]` | No | Additional parameters to include in the request body of all API requests to the provider. |
+| `extra_headers` | `dict[str, str]` | No | Additional headers to include in all API requests to the provider. |
 
 ## API Key Configuration
 
