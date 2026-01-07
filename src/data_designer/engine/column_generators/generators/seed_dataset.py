@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import functools
 import logging
-from typing import TYPE_CHECKING
 
 import duckdb
 import pandas as pd
@@ -20,9 +19,7 @@ from data_designer.engine.column_generators.generators.base import (
 from data_designer.engine.column_generators.utils.errors import SeedDatasetError
 from data_designer.engine.dataset_builders.multi_column_configs import SeedDatasetMultiColumnConfig
 from data_designer.engine.processing.utils import concat_datasets
-
-if TYPE_CHECKING:
-    from data_designer.engine.resources.resource_provider import ResourceType
+from data_designer.engine.resources.resource_provider import ResourceType
 
 MAX_ZERO_RECORD_RESPONSE_FACTOR = 2
 

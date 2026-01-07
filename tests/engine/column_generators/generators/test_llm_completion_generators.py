@@ -31,12 +31,15 @@ def _create_generator_with_mocks(config_class=LLMTextColumnConfig, **config_kwar
     mock_inference_params = Mock()
     mock_prompt_renderer = Mock()
     mock_response_recipe = Mock()
+    mock_provider = Mock()
 
     mock_resource_provider.model_registry = mock_model_registry
     mock_model_registry.get_model.return_value = mock_model
     mock_model_registry.get_model_config.return_value = mock_model_config
+    mock_model_registry.get_model_provider.return_value = mock_provider
     mock_model_config.inference_parameters = mock_inference_params
     mock_model_config.alias = "test_model"
+    mock_provider.name = "test_provider"
 
     mock_inference_params.generate_kwargs = {"temperature": 0.7, "max_tokens": 100}
 
@@ -101,19 +104,20 @@ def test_log_pre_generation(mock_logger):
 
     generator.log_pre_generation()
 
-    assert mock_logger.info.call_count == 3
+    assert mock_logger.info.call_count == 4
     mock_logger.info.assert_any_call("Preparing llm-text column generation")
     mock_logger.info.assert_any_call("  |-- column name: 'test_column'")
     mock_logger.info.assert_any_call('  |-- model config:\n{"test": "config"}')
+    mock_logger.info.assert_any_call("  |-- model provider: 'test_provider'")
 
     # Test with provider
     mock_model_config.provider = None
     mock_provider = Mock()
-    mock_provider.name = "test_provider"
+    mock_provider.name = "test_provider_2"
     mock_resource_provider.model_registry.get_model_provider.return_value = mock_provider
 
     generator.log_pre_generation()
-    mock_logger.info.assert_any_call("  |-- default model provider: 'test_provider'")
+    mock_logger.info.assert_any_call("  |-- model provider: 'test_provider_2'")
 
 
 @pytest.mark.parametrize(
