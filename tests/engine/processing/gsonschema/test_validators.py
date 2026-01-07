@@ -199,21 +199,31 @@ def test_invalid_data_type():
 
 
 def test_normalize_decimal_anyof_fields() -> None:
-    """Test that Decimal-like anyOf fields (number|string) are normalized to strings."""
+    """Test that Decimal-like anyOf fields are normalized to floats with proper precision."""
     schema = {
         "type": "object",
         "properties": {
             "name": {"type": "string"},
-            "price": {"anyOf": [{"type": "number"}, {"type": "string"}]},
+            "price": {
+                "anyOf": [
+                    {"type": "number"},
+                    {"type": "string", "pattern": r"^(?!^[-+.]*$)[+-]?0*\d*\.?\d{0,2}0*$"},
+                ]
+            },
         },
     }
 
-    # Numeric value should be converted to string
-    result1 = validate({"name": "Widget", "price": 189.99}, schema)
-    assert result1["price"] == "189.99"
-    assert isinstance(result1["price"], str)
+    # Numeric value with extra precision should be rounded to 2 decimal places
+    result1 = validate({"name": "Widget", "price": 189.999}, schema)
+    assert result1["price"] == 190.0
+    assert isinstance(result1["price"], float)
 
-    # String value should remain a string
-    result2 = validate({"name": "Gadget", "price": "249.99"}, schema)
-    assert result2["price"] == "249.99"
-    assert isinstance(result2["price"], str)
+    # Numeric value should be converted to float
+    result2 = validate({"name": "Gadget", "price": 50.5}, schema)
+    assert result2["price"] == 50.5
+    assert isinstance(result2["price"], float)
+
+    # String value should be converted to float
+    result3 = validate({"name": "Gizmo", "price": "249.99"}, schema)
+    assert result3["price"] == 249.99
+    assert isinstance(result3["price"], float)

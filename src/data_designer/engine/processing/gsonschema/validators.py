@@ -2,7 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
+import re
 from copy import deepcopy
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, overload
 
 from jsonschema import Draft202012Validator, ValidationError, validators
@@ -70,17 +72,30 @@ def extend_jsonschema_validator_with_pruning(validator):
     return validators.extend(validator, {"additionalProperties": prune_additional_properties})
 
 
-def _has_number_string_anyof(schema: dict) -> bool:
-    """Check if schema has anyOf with both number and string (Pydantic Decimal pattern)."""
+def _get_decimal_info_from_anyof(schema: dict) -> tuple[bool, int | None]:
+    """Check if schema is a Decimal anyOf and extract decimal places.
+
+    Returns (is_decimal, decimal_places) where decimal_places is None if no constraint.
+    """
     any_of = schema.get("anyOf")
     if not isinstance(any_of, list):
-        return False
-    types = {item.get("type") for item in any_of}
-    return "number" in types and "string" in types
+        return False, None
+
+    has_number = any(item.get("type") == "number" for item in any_of)
+    if not has_number:
+        return False, None
+
+    for item in any_of:
+        if item.get("type") == "string" and "pattern" in item:
+            match = re.search(r"\\d\{0,(\d+)\}", item["pattern"])
+            if match:
+                return True, int(match.group(1))
+            return True, None  # Decimal without precision constraint
+    return False, None
 
 
 def normalize_decimal_fields(obj: DataObjectT, schema: JSONSchemaT) -> DataObjectT:
-    """Convert numeric values to strings for Decimal-like anyOf fields."""
+    """Normalize Decimal-like anyOf fields to floats with proper precision."""
     if not isinstance(obj, dict):
         return obj
 
@@ -97,8 +112,13 @@ def normalize_decimal_fields(obj: DataObjectT, schema: JSONSchemaT) -> DataObjec
             obj[key] = normalize_decimal_fields(value, schema)
         elif isinstance(value, list):
             obj[key] = [normalize_decimal_fields(v, schema) if isinstance(v, dict) else v for v in value]
-        elif isinstance(value, (int, float)) and not isinstance(value, bool) and _has_number_string_anyof(field_schema):
-            obj[key] = str(value)
+        elif isinstance(value, (int, float, str)) and not isinstance(value, bool):
+            is_decimal, decimal_places = _get_decimal_info_from_anyof(field_schema)
+            if is_decimal:
+                d = Decimal(str(value))
+                if decimal_places is not None:
+                    d = d.quantize(Decimal(f"0.{'0' * decimal_places}"), rounding=ROUND_HALF_UP)
+                obj[key] = float(d)
 
     return obj
 
