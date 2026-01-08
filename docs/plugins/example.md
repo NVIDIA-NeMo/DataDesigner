@@ -55,9 +55,9 @@ class IndexMultiplierColumnConfig(SingleColumnConfig):
 - Add any custom parameters your plugin needs (here: `multiplier`)
 - `SingleColumnConfig` is a Pydantic model, so you can leverage all of Pydantic's validation features
 
-## Step 3: Create the task class
+## Step 3: Create the implementation class
 
-The task class implements the actual business logic of the plugin. For column generator plugins, it inherits from [ColumnGenerator](../code_reference/column_generators.md#data_designer.engine.column_generators.generators.base.ColumnGenerator) and must implement a `metadata` static method and `generate` method:
+The implementation class defines the actual business logic of the plugin. For column generator plugins, it inherits from [ColumnGenerator](../code_reference/column_generators.md#data_designer.engine.column_generators.generators.base.ColumnGenerator) and must implement a `metadata` static method and `generate` method:
 
 
 ```python
@@ -131,7 +131,7 @@ from data_designer.plugins import Plugin, PluginType
 
 # Plugin instance - this is what gets loaded via entry point
 plugin = Plugin(
-    task_qualified_name="data_designer_index_multiplier.plugin.IndexMultiplierColumnGenerator",
+    impl_qualified_name="data_designer_index_multiplier.plugin.IndexMultiplierColumnGenerator",
     config_qualified_name="data_designer_index_multiplier.plugin.IndexMultiplierColumnConfig",
     plugin_type=PluginType.COLUMN_GENERATOR,
     emoji="🔌",
@@ -204,7 +204,7 @@ class IndexMultiplierColumnGenerator(ColumnGenerator[IndexMultiplierColumnConfig
 
 # Plugin instance - this is what gets loaded via entry point
 plugin = Plugin(
-    task_qualified_name="data_designer_index_multiplier.plugin.IndexMultiplierColumnGenerator",
+    impl_qualified_name="data_designer_index_multiplier.plugin.IndexMultiplierColumnGenerator",
     config_qualified_name="data_designer_index_multiplier.plugin.IndexMultiplierColumnConfig",
     plugin_type=PluginType.COLUMN_GENERATOR,
     emoji="🔌",

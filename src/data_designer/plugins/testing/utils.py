@@ -8,4 +8,4 @@ from data_designer.plugins.plugin import Plugin
 
 def assert_valid_plugin(plugin: Plugin) -> None:
     assert issubclass(plugin.config_cls, ConfigBase), "Plugin config class is not a subclass of ConfigBase"
-    assert issubclass(plugin.task_cls, ConfigurableTask), "Plugin task class is not a subclass of ConfigurableTask"
+    assert issubclass(plugin.impl_cls, ConfigurableTask), "Plugin impl class is not a subclass of ConfigurableTask"
