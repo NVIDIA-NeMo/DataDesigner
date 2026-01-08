@@ -310,60 +310,37 @@ def test_emit_batch_inference_events_handles_multiple_models(
 
 
 @pytest.mark.parametrize(
-    "enable_early_shutdown,shutdown_error_rate,shutdown_error_window",
+    "disable_early_shutdown,configured_rate,expected_rate,shutdown_error_window",
     [
-        (True, 0.5, 10),  # defaults
-        (False, 0.8, 25),  # custom values
-    ],
-)
-def test_column_wise_dataset_builder_stores_early_shutdown_params(
-    stub_resource_provider: Mock,
-    stub_test_column_configs: list,
-    stub_test_processor_configs: list,
-    enable_early_shutdown: bool,
-    shutdown_error_rate: float,
-    shutdown_error_window: int,
-) -> None:
-    """Test that ColumnWiseDatasetBuilder stores early shutdown parameters."""
-    builder = ColumnWiseDatasetBuilder(
-        column_configs=stub_test_column_configs,
-        processor_configs=stub_test_processor_configs,
-        resource_provider=stub_resource_provider,
-        enable_early_shutdown=enable_early_shutdown,
-        shutdown_error_rate=shutdown_error_rate,
-        shutdown_error_window=shutdown_error_window,
-    )
-
-    assert builder._enable_early_shutdown is enable_early_shutdown
-    assert builder._shutdown_error_rate == shutdown_error_rate
-    assert builder._shutdown_error_window == shutdown_error_window
-
-
-@pytest.mark.parametrize(
-    "enable_early_shutdown,configured_rate,expected_rate",
-    [
-        (True, 0.7, 0.7),  # enabled: use configured rate
-        (False, 0.7, 1.0),  # disabled: use 1.0 to effectively disable
+        (False, 0.7, 0.7, 20),  # enabled: use configured rate
+        (True, 0.7, 1.0, 20),  # disabled: use 1.0 to effectively disable
+        (False, 0.5, 0.5, 10),  # defaults
     ],
 )
 @patch("data_designer.engine.dataset_builders.column_wise_builder.ConcurrentThreadExecutor")
-def test_fan_out_with_threads_respects_enable_early_shutdown_flag(
+def test_fan_out_with_threads_uses_early_shutdown_settings_from_resource_provider(
     mock_executor_class: Mock,
     stub_resource_provider: Mock,
     stub_test_column_configs: list,
     stub_test_processor_configs: list,
-    enable_early_shutdown: bool,
+    disable_early_shutdown: bool,
     configured_rate: float,
     expected_rate: float,
+    shutdown_error_window: int,
 ) -> None:
-    """Test that _fan_out_with_threads passes correct shutdown_error_rate based on enable flag."""
+    """Test that _fan_out_with_threads uses run settings from resource_provider."""
+    from data_designer.config.run_settings import RunConfig
+
+    stub_resource_provider.run_config = RunConfig(
+        disable_early_shutdown=disable_early_shutdown,
+        shutdown_error_rate=configured_rate,
+        shutdown_error_window=shutdown_error_window,
+    )
+
     builder = ColumnWiseDatasetBuilder(
         column_configs=stub_test_column_configs,
         processor_configs=stub_test_processor_configs,
         resource_provider=stub_resource_provider,
-        enable_early_shutdown=enable_early_shutdown,
-        shutdown_error_rate=configured_rate,
-        shutdown_error_window=20,
     )
 
     mock_executor_class.return_value.__enter__ = Mock(return_value=Mock())
@@ -381,4 +358,4 @@ def test_fan_out_with_threads_respects_enable_early_shutdown_flag(
 
     call_kwargs = mock_executor_class.call_args[1]
     assert call_kwargs["shutdown_error_rate"] == expected_rate
-    assert call_kwargs["shutdown_error_window"] == 20
+    assert call_kwargs["shutdown_error_window"] == shutdown_error_window

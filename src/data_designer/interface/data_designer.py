@@ -20,6 +20,7 @@ from data_designer.config.models import (
     ModelProvider,
 )
 from data_designer.config.preview_results import PreviewResults
+from data_designer.config.run_settings import RunConfig
 from data_designer.config.seed import LocalSeedDatasetReference
 from data_designer.config.utils.constants import (
     DEFAULT_NUM_RECORDS,
@@ -97,6 +98,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         self._secret_resolver = secret_resolver or CompositeResolver([EnvironmentResolver(), PlaintextResolver()])
         self._artifact_path = Path(artifact_path) if artifact_path is not None else Path.cwd() / "artifacts"
         self._buffer_size = DEFAULT_BUFFER_SIZE
+        self._run_config = RunConfig()
         self._managed_assets_path = Path(managed_assets_path or MANAGED_ASSETS_PATH)
         self._model_providers = self._resolve_model_providers(model_providers)
         self._model_provider_registry = resolve_model_provider_registry(
@@ -154,9 +156,6 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         *,
         num_records: int = DEFAULT_NUM_RECORDS,
         dataset_name: str = "dataset",
-        enable_early_shutdown: bool = True,
-        shutdown_error_rate: float = 0.5,
-        shutdown_error_window: int = 10,
     ) -> DatasetCreationResults:
         """Create dataset and save results to the local artifact storage.
 
@@ -174,15 +173,6 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
                 a datetime stamp. For example, if the dataset name is "awesome_dataset" and a directory
                 with the same name already exists, the dataset will be saved to a new directory
                 with the name "awesome_dataset_2025-01-01_12-00-00".
-            enable_early_shutdown: If True (default), dataset generation will terminate
-                early if the error rate exceeds `shutdown_error_rate` after
-                `shutdown_error_window` tasks complete. Set to False to disable
-                early shutdown entirely (ignores `shutdown_error_rate` and
-                `shutdown_error_window`).
-            shutdown_error_rate: Error rate threshold (0.0-1.0) that triggers early
-                shutdown. Only used when `enable_early_shutdown=True`. Default is 0.5 (50%).
-            shutdown_error_window: Minimum number of completed tasks before error rate
-                monitoring begins. Only used when `enable_early_shutdown=True`. Default is 10.
 
         Returns:
             DatasetCreationResults object with methods for loading the generated dataset,
@@ -196,13 +186,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
 
         resource_provider = self._create_resource_provider(dataset_name, config_builder)
 
-        builder = self._create_dataset_builder(
-            config_builder,
-            resource_provider,
-            enable_early_shutdown=enable_early_shutdown,
-            shutdown_error_rate=shutdown_error_rate,
-            shutdown_error_window=shutdown_error_window,
-        )
+        builder = self._create_dataset_builder(config_builder, resource_provider)
 
         try:
             builder.build(num_records=num_records, buffer_size=self._buffer_size)
@@ -336,6 +320,20 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             raise InvalidBufferValueError("Buffer size must be greater than 0.")
         self._buffer_size = buffer_size
 
+    def set_run_config(self, run_config: RunConfig) -> None:
+        """Set the runtime configuration for dataset generation.
+
+        Args:
+            run_config: A RunConfig instance containing runtime settings such as
+                early shutdown behavior. Import RunConfig from data_designer.essentials.
+
+        Example:
+            >>> from data_designer.essentials import DataDesigner, RunConfig
+            >>> dd = DataDesigner()
+            >>> dd.set_run_config(RunConfig(disable_early_shutdown=True))
+        """
+        self._run_config = run_config
+
     def _resolve_model_providers(self, model_providers: list[ModelProvider] | None) -> list[ModelProvider]:
         if model_providers is None:
             model_providers = get_default_providers()
@@ -355,17 +353,11 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         self,
         config_builder: DataDesignerConfigBuilder,
         resource_provider: ResourceProvider,
-        enable_early_shutdown: bool = True,
-        shutdown_error_rate: float = 0.5,
-        shutdown_error_window: int = 10,
     ) -> ColumnWiseDatasetBuilder:
         return ColumnWiseDatasetBuilder(
             column_configs=compile_dataset_builder_column_configs(config_builder.build(raise_exceptions=True)),
             processor_configs=config_builder.get_processor_configs(),
             resource_provider=resource_provider,
-            enable_early_shutdown=enable_early_shutdown,
-            shutdown_error_rate=shutdown_error_rate,
-            shutdown_error_window=shutdown_error_window,
         )
 
     def _create_dataset_profiler(
@@ -400,6 +392,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
                     token=settings.token,
                 )
             ),
+            run_config=self._run_config,
         )
 
     def _get_interface_info(self, model_providers: list[ModelProvider]) -> InterfaceInfo:

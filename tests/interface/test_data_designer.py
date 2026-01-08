@@ -13,6 +13,7 @@ from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.errors import InvalidFileFormatError
 from data_designer.config.processors import DropColumnsProcessorConfig
+from data_designer.config.run_settings import RunConfig
 from data_designer.config.seed import LocalSeedDatasetReference
 from data_designer.engine.model_provider import ModelProvider
 from data_designer.engine.secret_resolver import CompositeResolver, EnvironmentResolver, PlaintextResolver
@@ -266,6 +267,63 @@ def test_set_buffer_size_raises_error_for_invalid_buffer_size(stub_artifact_path
     data_designer = DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
     with pytest.raises(InvalidBufferValueError, match="Buffer size must be greater than 0."):
         data_designer.set_buffer_size(0)
+
+
+def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
+    """Test that run config setting persists across multiple calls."""
+    data_designer = DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
+
+    # Test default values
+    assert data_designer._run_config.disable_early_shutdown is False
+    assert data_designer._run_config.shutdown_error_rate == 0.5
+    assert data_designer._run_config.shutdown_error_window == 10
+
+    # Test setting custom values (note: shutdown_error_rate is normalized to 1.0 when disabled)
+    data_designer.set_run_config(
+        RunConfig(
+            disable_early_shutdown=True,
+            shutdown_error_rate=0.8,
+            shutdown_error_window=25,
+        )
+    )
+    assert data_designer._run_config.disable_early_shutdown is True
+    assert data_designer._run_config.shutdown_error_rate == 1.0  # normalized when disabled
+    assert data_designer._run_config.shutdown_error_window == 25
+
+    # Test updating values
+    data_designer.set_run_config(
+        RunConfig(
+            disable_early_shutdown=False,
+            shutdown_error_rate=0.3,
+            shutdown_error_window=5,
+        )
+    )
+    assert data_designer._run_config.disable_early_shutdown is False
+    assert data_designer._run_config.shutdown_error_rate == 0.3
+    assert data_designer._run_config.shutdown_error_window == 5
+
+
+def test_run_config_normalizes_error_rate_when_disabled(stub_artifact_path, stub_model_providers):
+    """Test that shutdown_error_rate is normalized to 1.0 when disabled."""
+    data_designer = DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
+
+    # When enabled (default), shutdown_error_rate should use the configured value
+    data_designer.set_run_config(
+        RunConfig(
+            disable_early_shutdown=False,
+            shutdown_error_rate=0.7,
+        )
+    )
+    assert data_designer._run_config.shutdown_error_rate == 0.7
+
+    # When disabled, shutdown_error_rate should be normalized to 1.0
+    data_designer.set_run_config(
+        RunConfig(
+            disable_early_shutdown=True,
+            shutdown_error_rate=0.7,
+        )
+    )
+    assert data_designer._run_config.shutdown_error_rate == 1.0
 
 
 def test_multiple_seed_references_can_be_created():

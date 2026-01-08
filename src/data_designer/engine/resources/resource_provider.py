@@ -3,6 +3,7 @@
 
 from data_designer.config.base import ConfigBase
 from data_designer.config.models import ModelConfig
+from data_designer.config.run_settings import RunConfig
 from data_designer.config.utils.type_helpers import StrEnum
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.engine.model_provider import ModelProviderRegistry
@@ -23,6 +24,7 @@ class ResourceProvider(ConfigBase):
     blob_storage: ManagedBlobStorage | None = None
     datastore: SeedDatasetDataStore | None = None
     model_registry: ModelRegistry | None = None
+    run_config: RunConfig = RunConfig()
 
 
 def create_resource_provider(
