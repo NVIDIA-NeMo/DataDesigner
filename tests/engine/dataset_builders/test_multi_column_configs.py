@@ -16,6 +16,7 @@ from data_designer.config.sampler_params import (
     GaussianSamplerParams,
     SamplerType,
 )
+from data_designer.config.seed_source import HuggingFaceSeedSource
 from data_designer.engine.dataset_builders.multi_column_configs import (
     MultiColumnConfig,
     SamplerMultiColumnConfig,
@@ -147,11 +148,11 @@ def test_seed_dataset_multi_column_config_creation():
     ]
 
     config = SeedDatasetMultiColumnConfig(
-        dataset="test/dataset",
+        source=HuggingFaceSeedSource(path="hf://datasets/test/dataset"),
         columns=columns,
     )
 
-    assert config.dataset == "test/dataset"
+    assert config.source.path == "hf://datasets/test/dataset"
     assert len(config.columns) == 2
     assert config.column_names == ["col1", "col2"]
     assert config.column_type == DataDesignerColumnType.SEED_DATASET

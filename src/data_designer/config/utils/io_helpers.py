@@ -108,26 +108,6 @@ def read_parquet_dataset(path: Path) -> pd.DataFrame:
             raise e
 
 
-def write_seed_dataset(dataframe: pd.DataFrame, file_path: Path) -> None:
-    """Write a seed dataset to a file in the specified format.
-
-    Supported file extensions: .parquet, .csv, .json, .jsonl
-
-    Args:
-        dataframe: The pandas DataFrame to write.
-        file_path: The path where the dataset should be saved.
-            Format is inferred from the file extension.
-    """
-    file_path = validate_dataset_file_path(file_path, should_exist=False)
-    logger.info(f"💾 Saving seed dataset to {file_path}")
-    if file_path.suffix.lower() == ".parquet":
-        dataframe.to_parquet(file_path, index=False)
-    elif file_path.suffix.lower() == ".csv":
-        dataframe.to_csv(file_path, index=False)
-    elif file_path.suffix.lower() in {".json", ".jsonl"}:
-        dataframe.to_json(file_path, orient="records", lines=True)
-
-
 def validate_dataset_file_path(file_path: str | Path, should_exist: bool = True) -> Path:
     """Validate that a dataset file path has a valid extension and optionally exists.
 
