@@ -846,3 +846,18 @@ def test_with_seed_dataset_no_collision(stub_empty_builder: DataDesignerConfigBu
     assert stub_empty_builder.get_seed_config() is not None
     assert len(stub_empty_builder.get_columns_of_type(DataDesignerColumnType.SEED_DATASET)) == 3
     assert len(stub_empty_builder.get_columns_of_type(DataDesignerColumnType.SAMPLER)) == 1
+
+
+def test_from_config_does_not_duplicate_seed_dataset_columns(
+    stub_data_designer_builder: DataDesignerConfigBuilder,
+) -> None:
+    """Regression test: seed dataset columns should not be duplicated during deserialization."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        config_path = Path(temp_dir) / "config.json"
+        stub_data_designer_builder.write_config(config_path)
+
+        with patch("data_designer.config.config_builder.fetch_seed_dataset_column_names") as mock_fetch:
+            mock_fetch.return_value = ["id", "name", "city", "country"]
+            reloaded_builder = DataDesignerConfigBuilder.from_config(config_path)
+
+        assert reloaded_builder.num_columns_of_type(DataDesignerColumnType.SEED_DATASET) == 4
