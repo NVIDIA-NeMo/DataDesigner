@@ -3,8 +3,8 @@
 
 from data_designer.plugins.plugin import Plugin, PluginType
 
-plugin = Plugin(
-    config_qualified_name=f"{__name__}.TestSeedSource",
-    impl_qualified_name=f"{__name__}.TestSeedReader",
+column_generator_plugin = Plugin(
+    config_qualified_name="data_designer.plugins.testing.e2e.column_generator_plugin.config.TestColumnGeneratorConfig",
+    impl_qualified_name="data_designer.plugins.testing.e2e.column_generator_plugin.impl.TestColumnGeneratorImpl",
     plugin_type=PluginType.COLUMN_GENERATOR,
 )

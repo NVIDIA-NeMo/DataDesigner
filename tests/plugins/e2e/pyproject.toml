@@ -7,8 +7,8 @@ dependencies = [
 ]
 
 [project.entry-points."data_designer.plugins"]
-test-column-generator = "data_designer.plugins.testing.e2e.column_generator_plugin.plugin"
-test-seed-dataset = "data_designer.plugins.testing.e2e.seed_dataset_plugin.plugin"
+test-column-generator = "data_designer.plugins.testing.e2e.column_generator_plugin.plugin:column_generator_plugin"
+test-seed-dataset = "data_designer.plugins.testing.e2e.seed_dataset_plugin.plugin:seed_dataset_plugin"
 
 [build-system]
 requires = ["hatchling"]

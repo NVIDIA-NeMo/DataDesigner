@@ -3,8 +3,8 @@
 
 from data_designer.plugins.plugin import Plugin, PluginType
 
-plugin = Plugin(
-    config_qualified_name=f"{__name__}.TestSeedSource",
-    impl_qualified_name=f"{__name__}.TestSeedReader",
+seed_dataset_plugin = Plugin(
+    config_qualified_name="data_designer.plugins.testing.e2e.seed_dataset_plugin.config.TestSeedSource",
+    impl_qualified_name="data_designer.plugins.testing.e2e.seed_dataset_plugin.impl.TestSeedReader",
     plugin_type=PluginType.SEED_DATASET,
 )
