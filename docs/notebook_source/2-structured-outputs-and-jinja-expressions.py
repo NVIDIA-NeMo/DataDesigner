@@ -312,7 +312,7 @@ config_builder.add_column(
     )
 )
 
-config_builder.validate()
+data_designer.validate(config_builder)
 
 # %% [markdown]
 # ### 🔁 Iteration is key – preview the dataset!
