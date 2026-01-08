@@ -60,6 +60,9 @@ class ColumnWiseDatasetBuilder:
         processor_configs: list[ProcessorConfig],
         resource_provider: ResourceProvider,
         registry: DataDesignerRegistry | None = None,
+        enable_early_shutdown: bool = True,
+        shutdown_error_rate: float = 0.5,
+        shutdown_error_window: int = 10,
     ):
         self.batch_manager = DatasetBatchManager(resource_provider.artifact_storage)
         self._resource_provider = resource_provider
@@ -67,6 +70,9 @@ class ColumnWiseDatasetBuilder:
         self._registry = registry or DataDesignerRegistry()
         self._column_configs = column_configs
         self._processors: dict[BuildStage, list[Processor]] = self._initialize_processors(processor_configs)
+        self._enable_early_shutdown = enable_early_shutdown
+        self._shutdown_error_rate = shutdown_error_rate
+        self._shutdown_error_window = shutdown_error_window
         self._validate_column_configs()
 
     @property
@@ -222,6 +228,8 @@ class ColumnWiseDatasetBuilder:
             column_name=generator.config.name,
             result_callback=self._worker_result_callback,
             error_callback=self._worker_error_callback,
+            shutdown_error_rate=self._shutdown_error_rate if self._enable_early_shutdown else 1.0,
+            shutdown_error_window=self._shutdown_error_window,
         ) as executor:
             for i, record in self.batch_manager.iter_current_batch():
                 executor.submit(lambda record: generator.generate(record), record, context={"index": i})

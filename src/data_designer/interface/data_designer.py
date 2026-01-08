@@ -154,6 +154,9 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         *,
         num_records: int = DEFAULT_NUM_RECORDS,
         dataset_name: str = "dataset",
+        enable_early_shutdown: bool = True,
+        shutdown_error_rate: float = 0.5,
+        shutdown_error_window: int = 10,
     ) -> DatasetCreationResults:
         """Create dataset and save results to the local artifact storage.
 
@@ -171,6 +174,15 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
                 a datetime stamp. For example, if the dataset name is "awesome_dataset" and a directory
                 with the same name already exists, the dataset will be saved to a new directory
                 with the name "awesome_dataset_2025-01-01_12-00-00".
+            enable_early_shutdown: If True (default), dataset generation will terminate
+                early if the error rate exceeds `shutdown_error_rate` after
+                `shutdown_error_window` tasks complete. Set to False to disable
+                early shutdown entirely (ignores `shutdown_error_rate` and
+                `shutdown_error_window`).
+            shutdown_error_rate: Error rate threshold (0.0-1.0) that triggers early
+                shutdown. Only used when `enable_early_shutdown=True`. Default is 0.5 (50%).
+            shutdown_error_window: Minimum number of completed tasks before error rate
+                monitoring begins. Only used when `enable_early_shutdown=True`. Default is 10.
 
         Returns:
             DatasetCreationResults object with methods for loading the generated dataset,
@@ -184,7 +196,13 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
 
         resource_provider = self._create_resource_provider(dataset_name, config_builder)
 
-        builder = self._create_dataset_builder(config_builder, resource_provider)
+        builder = self._create_dataset_builder(
+            config_builder,
+            resource_provider,
+            enable_early_shutdown=enable_early_shutdown,
+            shutdown_error_rate=shutdown_error_rate,
+            shutdown_error_window=shutdown_error_window,
+        )
 
         try:
             builder.build(num_records=num_records, buffer_size=self._buffer_size)
@@ -334,12 +352,20 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         return model_providers or []
 
     def _create_dataset_builder(
-        self, config_builder: DataDesignerConfigBuilder, resource_provider: ResourceProvider
+        self,
+        config_builder: DataDesignerConfigBuilder,
+        resource_provider: ResourceProvider,
+        enable_early_shutdown: bool = True,
+        shutdown_error_rate: float = 0.5,
+        shutdown_error_window: int = 10,
     ) -> ColumnWiseDatasetBuilder:
         return ColumnWiseDatasetBuilder(
             column_configs=compile_dataset_builder_column_configs(config_builder.build(raise_exceptions=True)),
             processor_configs=config_builder.get_processor_configs(),
             resource_provider=resource_provider,
+            enable_early_shutdown=enable_early_shutdown,
+            shutdown_error_rate=shutdown_error_rate,
+            shutdown_error_window=shutdown_error_window,
         )
 
     def _create_dataset_profiler(
