@@ -51,7 +51,7 @@ def create_default_column_generator_registry(with_plugins: bool = True) -> Colum
         for plugin in PluginRegistry().get_plugins(PluginType.COLUMN_GENERATOR):
             registry.register(
                 DataDesignerColumnType(plugin.name),
-                plugin.task_cls,
+                plugin.impl_cls,
                 plugin.config_cls,
             )
 

@@ -50,7 +50,7 @@ class PluginManager:
         type_list = []
         for plugin in self._plugin_registry.get_plugins(PluginType.COLUMN_GENERATOR):
             if required_resources:
-                task_required_resources = plugin.task_cls.metadata().required_resources or []
+                task_required_resources = plugin.impl_cls.metadata().required_resources or []
                 if not all(resource in task_required_resources for resource in required_resources):
                     continue
             type_list.append(enum_type(plugin.name))

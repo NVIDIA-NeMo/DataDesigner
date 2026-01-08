@@ -4,194 +4,147 @@
 from collections.abc import Generator
 from contextlib import contextmanager
 from enum import Enum
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import patch
 
-import pytest
-
+from data_designer.engine.resources.resource_provider import ResourceType
 from data_designer.plugin_manager import PluginManager
+from data_designer.plugins.plugin import Plugin
+from data_designer.plugins.registry import PluginRegistry
+from data_designer.plugins.testing.stubs import (
+    StubPluginConfigModels,
+    plugin_blobs_and_seeds,
+    plugin_models,
+    plugin_models_and_blobs,
+    plugin_none,
+)
 
 
-class MockPluginType(str, Enum):
-    """Mock PluginType enum for testing."""
+class MockEntryPoint:
+    def __init__(self, plugin: Plugin):
+        self.plugin = plugin
 
-    COLUMN_GENERATOR = "column-generator"
-
-    @property
-    def discriminator_field(self) -> str:
-        return "column_type"
-
-
-def create_mock_plugin(name: str, plugin_type: MockPluginType, resources: list[str] | None = None) -> Mock:
-    """Create a mock plugin with specified name and resources.
-
-    Args:
-        name: Plugin name.
-        plugin_type: Plugin type enum.
-        resources: List of required resources, or None if no resource requirements.
-
-    Returns:
-        Mock plugin object.
-    """
-    plugin = Mock()
-    plugin.name = name
-    plugin.plugin_type = plugin_type
-    plugin.config_cls = Mock(name=name)
-
-    mock_task = Mock()
-    mock_task.metadata = Mock(return_value=Mock(required_resources=resources))
-    plugin.task_cls = mock_task
-
-    return plugin
+    def load(self) -> Plugin:
+        return self.plugin
 
 
 @contextmanager
-def mock_plugin_system(registry: MagicMock) -> Generator[None, None, None]:
-    """Context manager to mock the plugin system with a given registry.
+def mock_plugin_system(plugins: list[Plugin]) -> Generator[None, None, None]:
+    """Context manager to mock plugin entry points to return the provided plugins.
 
     This works regardless of whether the actual environment has plugins available or not
     by patching at the module level where PluginManager is instantiated.
     """
-    with patch("data_designer.plugin_manager.PluginRegistry", return_value=registry, create=True):
-        with patch("data_designer.plugin_manager.PluginType", MockPluginType, create=True):
-            yield
+    mock_entry_points = [MockEntryPoint(plugin) for plugin in plugins]
+    with (
+        patch("data_designer.plugins.registry.entry_points", return_value=mock_entry_points),
+        patch("data_designer.plugins.registry.PLUGINS_DISABLED", False),
+    ):
+        yield
+    PluginRegistry.reset()
 
 
-@pytest.fixture
-def mock_plugin_registry() -> MagicMock:
-    """Create a mock plugin registry."""
-    return MagicMock()
+def make_test_enum(plugins: list[Plugin]) -> type[Enum]:
+    TestEnum = Enum("TestEnum", {plugin.name.replace("-", "_").upper(): plugin.name for plugin in plugins}, type=str)
+    return TestEnum
 
 
-@pytest.fixture
-def mock_plugins() -> list[Mock]:
-    """Create mock plugins for testing."""
-    return [
-        create_mock_plugin("plugin-one", MockPluginType.COLUMN_GENERATOR, ["resource1", "resource2"]),
-        create_mock_plugin("plugin-two", MockPluginType.COLUMN_GENERATOR, ["resource1"]),
-        create_mock_plugin("plugin-three", MockPluginType.COLUMN_GENERATOR, ["resource2", "resource3"]),
-    ]
-
-
-def test_get_column_generator_plugins_with_plugins(mock_plugin_registry: MagicMock, mock_plugins: list[Mock]) -> None:
+def test_get_column_generator_plugins_with_plugins() -> None:
     """Test getting plugin column configs when plugins are available."""
-    mock_plugin_registry.get_plugins.return_value = [mock_plugins[0], mock_plugins[1]]
-
-    with mock_plugin_system(mock_plugin_registry):
+    with mock_plugin_system([plugin_blobs_and_seeds, plugin_models]):
         manager = PluginManager()
         result = manager.get_column_generator_plugins()
 
     assert len(result) == 2
-    assert [p.name for p in result] == ["plugin-one", "plugin-two"]
-    mock_plugin_registry.get_plugins.assert_called_once_with(MockPluginType.COLUMN_GENERATOR)
+    assert [p.name for p in result] == [plugin_blobs_and_seeds.name, plugin_models.name]
 
 
-def test_get_column_generator_plugins_empty(mock_plugin_registry: MagicMock) -> None:
+def test_get_column_generator_plugins_empty() -> None:
     """Test getting plugin column configs when no plugins are registered."""
-    mock_plugin_registry.get_plugins.return_value = []
-    with mock_plugin_system(mock_plugin_registry):
+    with mock_plugin_system([]):
         manager = PluginManager()
         result = manager.get_column_generator_plugins()
 
     assert result == []
 
 
-def test_get_column_generator_plugin_if_exists_found(mock_plugin_registry: MagicMock, mock_plugins: list[Mock]) -> None:
+def test_get_column_generator_plugin_if_exists_found() -> None:
     """Test getting a specific plugin by name when it exists."""
-    mock_plugin_registry.plugin_exists.return_value = True
-    mock_plugin_registry.get_plugin.return_value = mock_plugins[0]
-
-    with mock_plugin_system(mock_plugin_registry):
+    with mock_plugin_system([plugin_models]):
         manager = PluginManager()
-        result = manager.get_column_generator_plugin_if_exists("plugin-one")
+        result = manager.get_column_generator_plugin_if_exists(plugin_models.name)
 
-    assert result is not None
-    assert result.name == "plugin-one"
-    mock_plugin_registry.plugin_exists.assert_called_once_with("plugin-one")
-    mock_plugin_registry.get_plugin.assert_called_once_with("plugin-one")
+    assert result == plugin_models
 
 
-def test_get_column_generator_plugin_if_exists_not_found(mock_plugin_registry: MagicMock) -> None:
+def test_get_column_generator_plugin_if_exists_not_found() -> None:
     """Test getting a specific plugin by name when it doesn't exist."""
-    mock_plugin_registry.plugin_exists.return_value = False
-
-    with mock_plugin_system(mock_plugin_registry):
+    with mock_plugin_system([]):
         manager = PluginManager()
-        result = manager.get_column_generator_plugin_if_exists("plugin-three")
+        result = manager.get_column_generator_plugin_if_exists(plugin_models.name)
 
     assert result is None
-    mock_plugin_registry.plugin_exists.assert_called_once_with("plugin-three")
-    mock_plugin_registry.get_plugin.assert_not_called()
 
 
-def test_get_plugin_column_types_with_plugins(mock_plugin_registry: MagicMock, mock_plugins: list[Mock]) -> None:
+def test_get_plugin_column_types_with_plugins() -> None:
     """Test getting plugin column types when plugins are available."""
-    TestEnum = Enum(
-        "TestEnum", {plugin.name.replace("-", "_").upper(): plugin.name for plugin in mock_plugins}, type=str
-    )
-    mock_plugin_registry.get_plugins.return_value = mock_plugins
-
-    with mock_plugin_system(mock_plugin_registry):
+    all_plugins = [plugin_models, plugin_models_and_blobs, plugin_blobs_and_seeds]
+    TestEnum = make_test_enum(all_plugins)
+    with mock_plugin_system(all_plugins):
         manager = PluginManager()
         result = manager.get_plugin_column_types(TestEnum)
 
     assert len(result) == 3
     assert all(isinstance(item, TestEnum) for item in result)
-    mock_plugin_registry.get_plugins.assert_called_once_with(MockPluginType.COLUMN_GENERATOR)
 
 
-def test_get_plugin_column_types_with_resource_filtering(
-    mock_plugin_registry: MagicMock, mock_plugins: list[Mock]
-) -> None:
+def test_get_plugin_column_types_with_resource_filtering() -> None:
     """Test filtering plugins by required resources."""
-    TestEnum = Enum(
-        "TestEnum", {"PLUGIN_ONE": "plugin-one", "PLUGIN_TWO": "plugin-two", "PLUGIN_THREE": "plugin-three"}, type=str
-    )
-    mock_plugin_registry.get_plugins.return_value = mock_plugins
+    all_plugins = [plugin_models, plugin_models_and_blobs, plugin_blobs_and_seeds]
+    TestEnum = make_test_enum(all_plugins)
 
-    with mock_plugin_system(mock_plugin_registry):
+    with mock_plugin_system(all_plugins):
         manager = PluginManager()
-        result = manager.get_plugin_column_types(TestEnum, required_resources=["resource1"])
+        result = manager.get_plugin_column_types(TestEnum, required_resources=[ResourceType.MODEL_REGISTRY])
 
     assert len(result) == 2
-    assert set(result) == {TestEnum.PLUGIN_ONE, TestEnum.PLUGIN_TWO}
+    assert set(result) == {plugin_models.name, plugin_models_and_blobs.name}
 
 
-def test_get_plugin_column_types_filters_none_resources(mock_plugin_registry: MagicMock) -> None:
+def test_get_plugin_column_types_filters_none_resources() -> None:
     """Test filtering when plugin has None for required_resources."""
-    plugin = create_mock_plugin("plugin-one", MockPluginType.COLUMN_GENERATOR, None)
-    TestEnum = Enum("TestEnum", {"PLUGIN_ONE": "plugin-one"}, type=str)
-    mock_plugin_registry.get_plugins.return_value = [plugin]
+    TestEnum = make_test_enum([plugin_none])
 
-    with mock_plugin_system(mock_plugin_registry):
+    with mock_plugin_system([plugin_none]):
         manager = PluginManager()
-        result = manager.get_plugin_column_types(TestEnum, required_resources=["resource1"])
+        result = manager.get_plugin_column_types(TestEnum, required_resources=[ResourceType.MODEL_REGISTRY])
 
     assert result == []
 
 
-def test_get_plugin_column_types_empty(mock_plugin_registry: MagicMock) -> None:
+def test_get_plugin_column_types_empty() -> None:
     """Test getting plugin column types when no plugins are registered."""
-    TestEnum = Enum("TestEnum", {}, type=str)
+    TestEnum = make_test_enum([])
 
-    mock_plugin_registry.get_plugins.return_value = []
-    with mock_plugin_system(mock_plugin_registry):
+    with mock_plugin_system([]):
         manager = PluginManager()
         result = manager.get_plugin_column_types(TestEnum)
 
     assert result == []
 
 
-def test_inject_into_column_config_type_union_with_plugins(mock_plugin_registry: MagicMock) -> None:
+def test_inject_into_column_config_type_union_with_plugins() -> None:
     """Test injecting plugins into column config type union."""
 
-    class BaseType:
+    class BaseType1:
         pass
 
-    mock_plugin_registry.add_plugin_types_to_union.return_value = str | int
+    class BaseType2:
+        pass
 
-    with mock_plugin_system(mock_plugin_registry):
+    TestUnion = BaseType1 | BaseType2
+
+    with mock_plugin_system([plugin_models]):
         manager = PluginManager()
-        result = manager.inject_into_column_config_type_union(BaseType)
+        result = manager.inject_into_column_config_type_union(TestUnion)
 
-    assert result == str | int
-    mock_plugin_registry.add_plugin_types_to_union.assert_called_once_with(BaseType, MockPluginType.COLUMN_GENERATOR)
+    assert result == BaseType1 | BaseType2 | StubPluginConfigModels

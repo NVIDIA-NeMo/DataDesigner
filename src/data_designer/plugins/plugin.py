@@ -8,16 +8,13 @@ import importlib
 import importlib.util
 from enum import Enum
 from functools import cached_property
-from typing import TYPE_CHECKING, Literal, get_origin
+from typing import Literal, get_origin
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing_extensions import Self
 
+from data_designer.config.base import ConfigBase
 from data_designer.plugins.errors import PluginLoadError
-
-if TYPE_CHECKING:
-    from data_designer.config.base import ConfigBase
-    from data_designer.engine.configurable_task import ConfigurableTask
 
 
 class PluginType(str, Enum):
@@ -62,9 +59,9 @@ def _check_class_exists_in_file(filepath: str, class_name: str) -> None:
 
 
 class Plugin(BaseModel):
-    task_qualified_name: str = Field(
+    impl_qualified_name: str = Field(
         ...,
-        description="The fully-qualified name of the task class object, e.g. 'my_plugin.generator.MyColumnGenerator'",
+        description="The fully-qualified name of the implementation class object, e.g. 'my_plugin.generator.MyColumnGenerator'",
     )
     config_qualified_name: str = Field(
         ..., description="The fully-qualified name o the config class object, e.g. 'my_plugin.config.MyConfig'"
@@ -88,7 +85,7 @@ class Plugin(BaseModel):
     def discriminator_field(self) -> str:
         return self.plugin_type.discriminator_field
 
-    @field_validator("task_qualified_name", "config_qualified_name", mode="after")
+    @field_validator("impl_qualified_name", "config_qualified_name", mode="after")
     @classmethod
     def validate_class_name(cls, value: str) -> str:
         module_name, object_name = _get_module_and_object_names(value)
@@ -129,8 +126,8 @@ class Plugin(BaseModel):
         return self._load(self.config_qualified_name)
 
     @cached_property
-    def task_cls(self) -> type[ConfigurableTask]:
-        return self._load(self.task_qualified_name)
+    def impl_cls(self) -> type:
+        return self._load(self.impl_qualified_name)
 
     @staticmethod
     def _load(fully_qualified_object: str) -> type:
