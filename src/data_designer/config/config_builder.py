@@ -104,7 +104,8 @@ class DataDesignerConfigBuilder:
         config = builder_config.data_designer
 
         for col in config.columns:
-            builder.add_column(col)
+            if not isinstance(col, SeedDatasetColumnConfig):
+                builder.add_column(col)
 
         for constraint in config.constraints or []:
             builder.add_constraint(constraint=constraint)
