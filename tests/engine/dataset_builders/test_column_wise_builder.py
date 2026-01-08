@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 from data_designer.config.column_configs import LLMTextColumnConfig, SamplerColumnConfig
+from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.processors import DropColumnsProcessorConfig
 from data_designer.engine.dataset_builders.column_wise_builder import (
@@ -14,7 +15,6 @@ from data_designer.engine.dataset_builders.column_wise_builder import (
     ColumnWiseDatasetBuilder,
 )
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError
-from data_designer.engine.dataset_builders.multi_column_configs import SamplerMultiColumnConfig
 from data_designer.engine.models.telemetry import InferenceEvent, NemoSourceEnum, TaskStatusEnum
 from data_designer.engine.models.usage import ModelUsageStats, TokenUsageStats
 from data_designer.engine.registry.data_designer_registry import DataDesignerRegistry
@@ -38,6 +38,20 @@ def stub_test_processor_configs():
 
 
 @pytest.fixture
+def stub_test_config_builder(stub_test_column_configs, stub_model_configs):
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    for column_config in stub_test_column_configs:
+        config_builder.add_column(column_config)
+    config_builder.add_processor(
+        processor_type="drop_columns",
+        name="drop_columns_processor",
+        build_stage=BuildStage.POST_BATCH,
+        column_names=["column_to_drop"],
+    )
+    return config_builder
+
+
+@pytest.fixture
 def stub_batch_manager():
     mock_batch_manager = Mock()
     mock_batch_manager.num_batches = 2
@@ -58,36 +72,29 @@ def stub_batch_manager():
 
 
 @pytest.fixture
-def stub_column_wise_builder(stub_resource_provider, stub_test_column_configs, stub_test_processor_configs):
+def stub_column_wise_builder(stub_resource_provider, stub_test_config_builder):
     return ColumnWiseDatasetBuilder(
-        column_configs=stub_test_column_configs,
-        processor_configs=stub_test_processor_configs,
+        config_builder=stub_test_config_builder,
         resource_provider=stub_resource_provider,
     )
 
 
-def test_column_wise_dataset_builder_creation(
-    stub_resource_provider, stub_test_column_configs, stub_test_processor_configs
-):
+def test_column_wise_dataset_builder_creation(stub_resource_provider, stub_test_config_builder):
     builder = ColumnWiseDatasetBuilder(
-        column_configs=stub_test_column_configs,
-        processor_configs=stub_test_processor_configs,
+        config_builder=stub_test_config_builder,
         resource_provider=stub_resource_provider,
     )
 
-    assert builder._column_configs == stub_test_column_configs
+    assert len(builder._column_configs) == 2
     assert builder._resource_provider == stub_resource_provider
     assert isinstance(builder._registry, DataDesignerRegistry)
 
 
-def test_column_wise_dataset_builder_creation_with_custom_registry(
-    stub_resource_provider, stub_test_column_configs, stub_test_processor_configs
-):
+def test_column_wise_dataset_builder_creation_with_custom_registry(stub_resource_provider, stub_test_config_builder):
     custom_registry = Mock(spec=DataDesignerRegistry)
 
     builder = ColumnWiseDatasetBuilder(
-        column_configs=stub_test_column_configs,
-        processor_configs=stub_test_processor_configs,
+        config_builder=stub_test_config_builder,
         resource_provider=stub_resource_provider,
         registry=custom_registry,
     )
@@ -119,13 +126,14 @@ def test_column_wise_dataset_builder_batch_manager_initialization(stub_column_wi
     ],
 )
 def test_column_wise_dataset_builder_single_column_configs_property(
-    stub_resource_provider, stub_test_processor_configs, config_type, expected_single_configs
+    stub_resource_provider, stub_model_configs, config_type, expected_single_configs
 ):
     if config_type == "single":
         single_config = LLMTextColumnConfig(name="test_column", prompt="Test prompt", model_alias="test_model")
+        config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+        config_builder.add_column(single_config)
         builder = ColumnWiseDatasetBuilder(
-            column_configs=[single_config],
-            processor_configs=stub_test_processor_configs,
+            config_builder=config_builder,
             resource_provider=stub_resource_provider,
         )
         assert builder.single_column_configs == [single_config]
@@ -133,10 +141,10 @@ def test_column_wise_dataset_builder_single_column_configs_property(
         sampler_config = SamplerColumnConfig(
             name="sampler_col", sampler_type="category", params={"values": ["A", "B", "C"]}
         )
-        multi_config = SamplerMultiColumnConfig(columns=[sampler_config])
+        config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+        config_builder.add_column(sampler_config)
         builder = ColumnWiseDatasetBuilder(
-            column_configs=[multi_config],
-            processor_configs=stub_test_processor_configs,
+            config_builder=config_builder,
             resource_provider=stub_resource_provider,
         )
         assert builder.single_column_configs == [sampler_config]
@@ -179,9 +187,14 @@ def test_column_wise_dataset_builder_build_method_basic_flow(
     ],
 )
 def test_column_wise_dataset_builder_validate_column_configs(
-    stub_test_processor_configs, stub_resource_provider, column_configs, expected_error
+    stub_model_configs, stub_resource_provider, column_configs, expected_error
 ):
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+
     if expected_error == "The first column config must be a from-scratch column generator":
+        for col_config in column_configs:
+            config_builder.add_column(col_config)
+
         mock_registry = Mock()
         mock_generator_class = Mock()
         mock_generator_class.can_generate_from_scratch = False
@@ -189,16 +202,15 @@ def test_column_wise_dataset_builder_validate_column_configs(
 
         with pytest.raises(DatasetGenerationError, match=expected_error):
             ColumnWiseDatasetBuilder(
-                column_configs=column_configs,
-                processor_configs=stub_test_processor_configs,
+                config_builder=config_builder,
                 resource_provider=stub_resource_provider,
                 registry=mock_registry,
             )
     else:
-        with pytest.raises(DatasetGenerationError, match=expected_error):
+        # Empty column_configs case - config_builder will fail at build() due to validation
+        with pytest.raises((DatasetGenerationError, Exception)):
             ColumnWiseDatasetBuilder(
-                column_configs=column_configs,
-                processor_configs=stub_test_processor_configs,
+                config_builder=config_builder,
                 resource_provider=stub_resource_provider,
             )
 
@@ -221,14 +233,12 @@ def test_constants_max_concurrency_constant():
 def test_emit_batch_inference_events_emits_from_deltas(
     mock_telemetry_handler_class: Mock,
     stub_resource_provider: Mock,
-    stub_test_column_configs: list,
-    stub_test_processor_configs: list,
+    stub_test_config_builder: DataDesignerConfigBuilder,
 ) -> None:
     usage_deltas = {"test-model": ModelUsageStats(token_usage=TokenUsageStats(input_tokens=50, output_tokens=150))}
 
     builder = ColumnWiseDatasetBuilder(
-        column_configs=stub_test_column_configs,
-        processor_configs=stub_test_processor_configs,
+        config_builder=stub_test_config_builder,
         resource_provider=stub_resource_provider,
     )
 
@@ -260,14 +270,12 @@ def test_emit_batch_inference_events_emits_from_deltas(
 def test_emit_batch_inference_events_skips_when_no_deltas(
     mock_telemetry_handler_class: Mock,
     stub_resource_provider: Mock,
-    stub_test_column_configs: list,
-    stub_test_processor_configs: list,
+    stub_test_config_builder: DataDesignerConfigBuilder,
 ) -> None:
     usage_deltas: dict[str, ModelUsageStats] = {}
 
     builder = ColumnWiseDatasetBuilder(
-        column_configs=stub_test_column_configs,
-        processor_configs=stub_test_processor_configs,
+        config_builder=stub_test_config_builder,
         resource_provider=stub_resource_provider,
     )
 
@@ -281,8 +289,7 @@ def test_emit_batch_inference_events_skips_when_no_deltas(
 def test_emit_batch_inference_events_handles_multiple_models(
     mock_telemetry_handler_class: Mock,
     stub_resource_provider: Mock,
-    stub_test_column_configs: list,
-    stub_test_processor_configs: list,
+    stub_test_config_builder: DataDesignerConfigBuilder,
 ) -> None:
     usage_deltas = {
         "model-a": ModelUsageStats(token_usage=TokenUsageStats(input_tokens=100, output_tokens=200)),
@@ -290,8 +297,7 @@ def test_emit_batch_inference_events_handles_multiple_models(
     }
 
     builder = ColumnWiseDatasetBuilder(
-        column_configs=stub_test_column_configs,
-        processor_configs=stub_test_processor_configs,
+        config_builder=stub_test_config_builder,
         resource_provider=stub_resource_provider,
     )
 

@@ -36,7 +36,6 @@ from data_designer.engine.analysis.dataset_profiler import (
 )
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.engine.dataset_builders.column_wise_builder import ColumnWiseDatasetBuilder
-from data_designer.engine.dataset_builders.utils.config_compiler import compile_dataset_builder_column_configs
 from data_designer.engine.model_provider import resolve_model_provider_registry
 from data_designer.engine.models.registry import create_model_registry
 from data_designer.engine.resources.managed_storage import init_managed_blob_storage
@@ -337,8 +336,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         self, config_builder: DataDesignerConfigBuilder, resource_provider: ResourceProvider
     ) -> ColumnWiseDatasetBuilder:
         return ColumnWiseDatasetBuilder(
-            column_configs=compile_dataset_builder_column_configs(config_builder.build(raise_exceptions=True)),
-            processor_configs=config_builder.get_processor_configs(),
+            config_builder=config_builder,
             resource_provider=resource_provider,
         )
 

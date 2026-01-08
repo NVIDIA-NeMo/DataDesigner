@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Callable
 import pandas as pd
 
 from data_designer.config.column_types import ColumnConfigT, column_type_is_model_generated
+from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.processors import (
     DropColumnsProcessorConfig,
@@ -28,13 +29,13 @@ from data_designer.engine.column_generators.generators.base import (
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError, DatasetProcessingError
 from data_designer.engine.dataset_builders.multi_column_configs import (
-    DatasetBuilderColumnConfigT,
     MultiColumnConfig,
 )
 from data_designer.engine.dataset_builders.utils.concurrency import (
     MAX_CONCURRENCY_PER_NON_LLM_GENERATOR,
     ConcurrentThreadExecutor,
 )
+from data_designer.engine.dataset_builders.utils.config_compiler import compile_dataset_builder_column_configs
 from data_designer.engine.dataset_builders.utils.dataset_batch_manager import (
     DatasetBatchManager,
 )
@@ -56,8 +57,7 @@ _CLIENT_VERSION: str = importlib.metadata.version("data_designer")
 class ColumnWiseDatasetBuilder:
     def __init__(
         self,
-        column_configs: list[DatasetBuilderColumnConfigT],
-        processor_configs: list[ProcessorConfig],
+        config_builder: DataDesignerConfigBuilder,
         resource_provider: ResourceProvider,
         registry: DataDesignerRegistry | None = None,
     ):
@@ -65,8 +65,15 @@ class ColumnWiseDatasetBuilder:
         self._resource_provider = resource_provider
         self._records_to_drop: set[int] = set()
         self._registry = registry or DataDesignerRegistry()
-        self._column_configs = column_configs
-        self._processors: dict[BuildStage, list[Processor]] = self._initialize_processors(processor_configs)
+
+        # Extract configurations from the config builder
+        data_designer_config = config_builder.build(raise_exceptions=True)
+        self._column_configs = compile_dataset_builder_column_configs(data_designer_config)
+        self._processors: dict[BuildStage, list[Processor]] = self._initialize_processors(
+            config_builder.get_processor_configs()
+        )
+        self._builder_config = config_builder.get_builder_config()
+
         self._validate_column_configs()
 
     @property
@@ -94,7 +101,7 @@ class ColumnWiseDatasetBuilder:
         buffer_size: int,
         on_batch_complete: Callable[[Path], None] | None = None,
     ) -> Path:
-        self._write_configs()
+        self._builder_config.to_json(self.artifact_storage.base_dataset_path / "sdg.json")
         self._run_model_health_check_if_needed()
 
         generators = self._initialize_generators()
@@ -299,16 +306,6 @@ class ColumnWiseDatasetBuilder:
 
     def _worker_result_callback(self, result: dict, *, context: dict | None = None) -> None:
         self.batch_manager.update_record(context["index"], result)
-
-    def _write_configs(self) -> None:
-        self.artifact_storage.write_configs(
-            json_file_name="column_configs.json",
-            configs=self._column_configs,
-        )
-        self.artifact_storage.write_configs(
-            json_file_name="model_configs.json",
-            configs=self._resource_provider.model_registry.model_configs.values(),
-        )
 
     def _emit_batch_inference_events(
         self, batch_mode: str, usage_deltas: dict[str, ModelUsageStats], group_id: str

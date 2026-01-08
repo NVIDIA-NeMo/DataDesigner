@@ -89,7 +89,10 @@ class DatasetBatchManager:
                 "total_num_batches": self.num_batches,
                 "buffer_size": self._buffer_size,
                 "schema": {field.name: str(field.type) for field in pq.read_schema(final_file_path)},
-                "file_paths": [str(f) for f in sorted(self.artifact_storage.final_dataset_path.glob("*.parquet"))],
+                "file_paths": [
+                    str(f.relative_to(self.artifact_storage.base_dataset_path))
+                    for f in sorted(self.artifact_storage.final_dataset_path.glob("*.parquet"))
+                ],
                 "num_records": self.num_records_list[: self._current_batch_number + 1],
                 "num_completed_batches": self._current_batch_number + 1,
                 "dataset_name": self.artifact_storage.dataset_name,

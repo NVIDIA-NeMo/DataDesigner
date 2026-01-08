@@ -164,12 +164,6 @@ class ArtifactStorage(BaseModel):
         shutil.move(partial_result_path, final_file_path)
         return final_file_path
 
-    def write_configs(self, json_file_name: str, configs: list[dict]) -> Path:
-        self.mkdir_if_needed(self.base_dataset_path)
-        with open(self.base_dataset_path / json_file_name, "w") as file:
-            json.dump([c.model_dump(mode="json") for c in configs], file, indent=4)
-        return self.base_dataset_path / json_file_name
-
     def write_batch_to_parquet_file(
         self,
         batch_number: int,
