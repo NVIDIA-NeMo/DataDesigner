@@ -53,7 +53,11 @@ class HuggingFaceSeedSource(SeedSource):
 
     path: str = Field(
         ...,
-        description="Path to the seed data in HuggingFace. Wildcards are allowed. Examples include 'datasets/my-username/my-dataset/data/000_00000.parquet', 'datasets/my-username/my-dataset/data/*.parquet', 'datasets/my-username/my-dataset/**/*.parquet'",
+        description=(
+            "Path to the seed data in HuggingFace. Wildcards are allowed. Examples include "
+            "'datasets/my-username/my-dataset/data/000_00000.parquet', 'datasets/my-username/my-dataset/data/*.parquet', "
+            "and 'datasets/my-username/my-dataset/**/*.parquet'"
+        ),
     )
     token: str | None = None
     endpoint: str = "https://huggingface.co"
@@ -64,7 +68,14 @@ class DataFrameSeedSource(SeedSource):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    df: pd.DataFrame
+    df: pd.DataFrame = Field(
+        ...,
+        exclude=True,
+        description=(
+            "DataFrame to use directly as the seed dataset. NOTE: if you need to write a Data Designer config, "
+            "you should use `LocalFileSeedSource` instead, since DataFrame objects are not serializable."
+        ),
+    )
 
 
 SeedSourceT = Annotated[
