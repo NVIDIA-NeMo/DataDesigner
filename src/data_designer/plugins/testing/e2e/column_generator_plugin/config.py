@@ -1,0 +1,12 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+from typing import Literal
+
+from data_designer.config.column_configs import SingleColumnConfig
+
+
+class TestColumnGeneratorConfig(SingleColumnConfig):
+    column_type: Literal["test-column-generator"] = "test-column-generator"
+
+    text: str
