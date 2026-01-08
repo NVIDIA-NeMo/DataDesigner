@@ -13,7 +13,7 @@ from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.models import ModelProvider
 from data_designer.config.processors import DropColumnsProcessorConfig
-from data_designer.config.run_settings import RunConfig
+from data_designer.config.run_config import RunConfig
 from data_designer.config.sampler_params import CategorySamplerParams, SamplerType
 from data_designer.config.seed_source import HuggingFaceSeedSource
 from data_designer.engine.secret_resolver import CompositeResolver, EnvironmentResolver, PlaintextResolver

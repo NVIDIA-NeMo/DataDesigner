@@ -6,7 +6,7 @@ from unittest.mock import Mock
 import pandas as pd
 import pytest
 
-from data_designer.config.run_settings import RunConfig
+from data_designer.config.run_config import RunConfig
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.engine.models.facade import ModelFacade
 from data_designer.engine.models.registry import ModelRegistry

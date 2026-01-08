@@ -3,7 +3,7 @@
 
 from data_designer.config.base import ConfigBase
 from data_designer.config.models import ModelConfig
-from data_designer.config.run_settings import RunConfig
+from data_designer.config.run_config import RunConfig
 from data_designer.config.seed_source import SeedSource
 from data_designer.config.utils.type_helpers import StrEnum
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage

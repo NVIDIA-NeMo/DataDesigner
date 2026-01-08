@@ -20,7 +20,7 @@ from data_designer.config.models import (
     ModelProvider,
 )
 from data_designer.config.preview_results import PreviewResults
-from data_designer.config.run_settings import RunConfig
+from data_designer.config.run_config import RunConfig
 from data_designer.config.utils.constants import (
     DEFAULT_NUM_RECORDS,
     MANAGED_ASSETS_PATH,

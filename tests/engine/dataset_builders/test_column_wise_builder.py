@@ -329,7 +329,7 @@ def test_fan_out_with_threads_uses_early_shutdown_settings_from_resource_provide
     shutdown_error_window: int,
 ) -> None:
     """Test that _fan_out_with_threads uses run settings from resource_provider."""
-    from data_designer.config.run_settings import RunConfig
+    from data_designer.config.run_config import RunConfig
 
     stub_resource_provider.run_config = RunConfig(
         disable_early_shutdown=disable_early_shutdown,
