@@ -6,6 +6,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+import pandas as pd
 import pytest
 import yaml
 from pydantic import BaseModel, ValidationError
@@ -24,12 +25,17 @@ from data_designer.config.column_configs import (
 from data_designer.config.column_types import DataDesignerColumnType, get_column_config_from_kwargs
 from data_designer.config.config_builder import BuilderConfig, DataDesignerConfigBuilder
 from data_designer.config.data_designer_config import DataDesignerConfig
-from data_designer.config.datastore import DatastoreSettings
-from data_designer.config.errors import BuilderConfigurationError, InvalidColumnTypeError, InvalidConfigError
+from data_designer.config.errors import (
+    BuilderConfigurationError,
+    BuilderSerializationError,
+    InvalidColumnTypeError,
+    InvalidConfigError,
+)
 from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig
 from data_designer.config.sampler_constraints import ColumnInequalityConstraint, ScalarInequalityConstraint
 from data_designer.config.sampler_params import SamplerType, UUIDSamplerParams
-from data_designer.config.seed import DatastoreSeedDatasetReference, SamplingStrategy
+from data_designer.config.seed import SamplingStrategy
+from data_designer.config.seed_source import DataFrameSeedSource, HuggingFaceSeedSource
 from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.utils.info import ConfigBuilderInfo
 from data_designer.config.validator_params import CodeValidatorParams
@@ -40,17 +46,8 @@ class DummyStructuredModel(BaseModel):
 
 
 @pytest.fixture
-def mock_fetch_seed_dataset_column_names():
-    with patch("data_designer.config.config_builder.fetch_seed_dataset_column_names") as mock_fetch_seed:
-        mock_fetch_seed.return_value = ["id", "name", "city", "country"]
-        yield mock_fetch_seed
-
-
-@pytest.fixture
 def stub_data_designer_builder(stub_data_designer_builder_config_str):
-    with patch("data_designer.config.config_builder.fetch_seed_dataset_column_names") as mock_fetch_seed:
-        mock_fetch_seed.return_value = ["id", "name", "city", "country"]
-        yield DataDesignerConfigBuilder.from_config(config=stub_data_designer_builder_config_str)
+    yield DataDesignerConfigBuilder.from_config(config=stub_data_designer_builder_config_str)
 
 
 def test_loading_model_configs_in_constructor(stub_model_configs):
@@ -76,7 +73,7 @@ def test_loading_model_configs_in_constructor(stub_model_configs):
             builder = DataDesignerConfigBuilder(model_configs=tmp_file.name)
 
 
-def test_from_config(stub_data_designer_builder_config_str, mock_fetch_seed_dataset_column_names):
+def test_from_config(stub_data_designer_builder_config_str):
     builder = DataDesignerConfigBuilder.from_config(config=stub_data_designer_builder_config_str)
 
     assert isinstance(builder.get_column_config(name="code_id"), SamplerColumnConfig)
@@ -362,10 +359,6 @@ def test_build(stub_data_designer_builder):
     ndd_config = stub_data_designer_builder.build()
     assert isinstance(ndd_config, DataDesignerConfig)
 
-    with patch("data_designer.config.config_builder.DataDesignerConfigBuilder.validate") as mock_validate:
-        stub_data_designer_builder.build(skip_validation=True)
-        mock_validate.assert_not_called()
-
 
 def test_config_export_to_files(stub_data_designer_builder):
     """Test config export to JSON and YAML files via DataDesignerConfig methods."""
@@ -408,20 +401,15 @@ def test_delete_column(stub_data_designer_builder):
     stub_data_designer_builder.delete_column(column_name="code_id")
     assert len(stub_data_designer_builder.get_columns_of_type(DataDesignerColumnType.SAMPLER)) == 3
 
-    with pytest.raises(
-        BuilderConfigurationError, match="Seed columns cannot be deleted. Please update the seed dataset instead."
-    ):
-        stub_data_designer_builder.delete_column(column_name="id")
-
 
 def test_getters(stub_data_designer_builder):
-    assert len(stub_data_designer_builder.get_column_configs()) == 12
+    assert len(stub_data_designer_builder.get_column_configs()) == 8
     assert stub_data_designer_builder.get_column_config(name="code_id").name == "code_id"
     assert len(stub_data_designer_builder.get_constraints(target_column="age")) == 1
     assert len(stub_data_designer_builder.get_llm_gen_columns()) == 3
     assert len(stub_data_designer_builder.get_columns_of_type(DataDesignerColumnType.SAMPLER)) == 4
-    assert len(stub_data_designer_builder.get_columns_excluding_type(DataDesignerColumnType.SAMPLER)) == 8
-    assert stub_data_designer_builder.get_seed_config().dataset == "test-repo/testing/data.csv"
+    assert len(stub_data_designer_builder.get_columns_excluding_type(DataDesignerColumnType.SAMPLER)) == 4
+    assert stub_data_designer_builder.get_seed_config().source.path == "datasets/test-repo/testing/data.csv"
     assert stub_data_designer_builder.num_columns_of_type(DataDesignerColumnType.SAMPLER) == 4
 
 
@@ -444,32 +432,6 @@ def test_write_config(stub_data_designer_builder):
 
         with pytest.raises(BuilderConfigurationError, match="Unsupported file type"):
             stub_data_designer_builder.write_config(temp_path.with_suffix(".txt"))
-
-
-def test_validate(stub_empty_builder):
-    try:
-        stub_empty_builder.validate(raise_exceptions=False)
-    except Exception:
-        pytest.fail("Validate should not raise an exception if raise_exceptions is False")
-
-    with pytest.raises(
-        InvalidConfigError,
-        match="Your configuration contains validation errors. Please address the indicated issues and try again.",
-    ):
-        stub_empty_builder.validate(raise_exceptions=True)
-
-    with patch("data_designer.config.config_builder.logger") as mock_logger:
-        stub_empty_builder.add_column(
-            name="test_column",
-            column_type=DataDesignerColumnType.SAMPLER,
-            sampler_type=SamplerType.UUID,
-            params={"prefix": "test_", "short_form": True, "uppercase": True},
-        )
-        try:
-            stub_empty_builder.validate(raise_exceptions=True)
-        except Exception:
-            pytest.fail("Validate should not raise an exception for valid configuration")
-        mock_logger.info.assert_called_once_with("✅ Validation passed")
 
 
 def test_get_column_config_from_kwargs():
@@ -629,34 +591,28 @@ def test_get_column_config_from_kwargs():
 def test_seed_config(stub_complete_builder):
     seed_config = stub_complete_builder.get_seed_config()
     assert seed_config is not None
-    assert seed_config.dataset == "test-repo/testing/data.csv"
+    assert seed_config.source.path == "datasets/test-repo/testing/data.csv"
     assert seed_config.sampling_strategy == SamplingStrategy.SHUFFLE
 
 
-def test_with_seed_dataset_basic(stub_empty_builder, mock_fetch_seed_dataset_column_names):
+def test_with_seed_dataset_basic(stub_empty_builder):
     """Test with_seed_dataset method with basic parameters."""
-    datastore_settings = DatastoreSettings(endpoint="https://huggingface.co", token="test-token")
-    with patch("data_designer.config.config_builder.fetch_seed_dataset_column_names") as mock_fetch:
-        mock_fetch.return_value = ["id", "name", "age", "city"]
-        result = stub_empty_builder.with_seed_dataset(
-            DatastoreSeedDatasetReference(dataset="test-repo/test-data.parquet", datastore_settings=datastore_settings)
-        )
+    path = "datasets/test-repo/testing/data.csv"
+    source = HuggingFaceSeedSource(path=path)
+    result = stub_empty_builder.with_seed_dataset(source)
 
     assert result is stub_empty_builder
-    assert stub_empty_builder.get_seed_config().dataset == "test-repo/test-data.parquet"
-    assert len(stub_empty_builder.get_columns_of_type(DataDesignerColumnType.SEED_DATASET)) == 4
+    assert stub_empty_builder.get_seed_config().source.path == path
 
 
-def test_with_seed_dataset_sampling_strategy(stub_empty_builder, mock_fetch_seed_dataset_column_names):
+def test_with_seed_dataset_sampling_strategy(stub_empty_builder):
     """Test with_seed_dataset with different sampling strategies."""
-    datastore_settings = DatastoreSettings(endpoint="https://huggingface.co", token="test-token")
+    config = HuggingFaceSeedSource(path="datasets/test-repo/test-data.parquet", token="test-token")
 
-    with patch("data_designer.config.config_builder.fetch_seed_dataset_column_names") as mock_fetch:
-        mock_fetch.return_value = ["id", "name", "age", "city"]
-        stub_empty_builder.with_seed_dataset(
-            DatastoreSeedDatasetReference(dataset="test-repo/test-data.parquet", datastore_settings=datastore_settings),
-            sampling_strategy=SamplingStrategy.SHUFFLE,
-        )
+    stub_empty_builder.with_seed_dataset(
+        config,
+        sampling_strategy=SamplingStrategy.SHUFFLE,
+    )
 
     seed_config = stub_empty_builder.get_seed_config()
     assert seed_config.sampling_strategy == SamplingStrategy.SHUFFLE
@@ -761,88 +717,21 @@ def test_delete_model_config(stub_empty_builder):
     assert len(stub_empty_builder.model_configs) == 2
 
 
-def test_add_column_collision_with_seed_dataset(stub_empty_builder: DataDesignerConfigBuilder) -> None:
-    """Test that adding a column that collides with a seed dataset column raises an error."""
-    datastore_settings = DatastoreSettings(endpoint="https://huggingface.co", token="test-token")
+def test_cannot_write_config_with_dataframe_seed(stub_model_configs):
+    builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
 
-    with patch("data_designer.config.config_builder.fetch_seed_dataset_column_names") as mock_fetch:
-        mock_fetch.return_value = ["id", "name", "age"]
-        stub_empty_builder.with_seed_dataset(
-            DatastoreSeedDatasetReference(dataset="test-repo/test-data.parquet", datastore_settings=datastore_settings)
-        )
+    df = pd.DataFrame(data={"hello": [1, 2], "world": [10, 20]})
+    df_seed = DataFrameSeedSource(df=df)
+    builder.with_seed_dataset(df_seed)
 
-    with pytest.raises(
-        BuilderConfigurationError,
-        match="Column 'id' already exists as a seed dataset column",
-    ):
-        stub_empty_builder.add_column(
-            name="id",
-            column_type=DataDesignerColumnType.SAMPLER,
-            sampler_type=SamplerType.UUID,
-        )
-
-    with pytest.raises(
-        BuilderConfigurationError,
-        match="Column 'name' already exists as a seed dataset column",
-    ):
-        stub_empty_builder.add_column(
-            LLMTextColumnConfig(
-                name="name",
-                prompt="Write a name",
-                model_alias="stub-model",
-            )
-        )
-
-
-def test_with_seed_dataset_collision_with_existing_columns(stub_empty_builder: DataDesignerConfigBuilder) -> None:
-    """Test that adding a seed dataset with columns that collide with existing columns raises an error."""
-    stub_empty_builder.add_column(
-        name="name",
-        column_type=DataDesignerColumnType.LLM_TEXT,
-        prompt="Write a name",
-        model_alias="stub-model",
-    )
-    stub_empty_builder.add_column(
-        name="age",
-        column_type=DataDesignerColumnType.SAMPLER,
-        sampler_type=SamplerType.UNIFORM,
-        params={"low": 1, "high": 100},
-    )
-
-    datastore_settings = DatastoreSettings(endpoint="https://huggingface.co", token="test-token")
-
-    with patch("data_designer.config.config_builder.fetch_seed_dataset_column_names") as mock_fetch:
-        mock_fetch.return_value = ["id", "name", "age", "city"]
-        with pytest.raises(
-            BuilderConfigurationError,
-            match=r"Seed dataset column\(s\) \['name', 'age'\] collide with existing column\(s\)",
-        ):
-            stub_empty_builder.with_seed_dataset(
-                DatastoreSeedDatasetReference(
-                    dataset="test-repo/test-data.parquet", datastore_settings=datastore_settings
-                )
-            )
-
-    assert stub_empty_builder.get_seed_config() is None
-    assert len(stub_empty_builder.get_columns_of_type(DataDesignerColumnType.SEED_DATASET)) == 0
-
-
-def test_with_seed_dataset_no_collision(stub_empty_builder: DataDesignerConfigBuilder) -> None:
-    """Test that adding a seed dataset with non-colliding columns works fine."""
-    stub_empty_builder.add_column(
-        name="unique_column",
-        column_type=DataDesignerColumnType.SAMPLER,
+    sampler_column = SamplerColumnConfig(
+        name="test_id",
         sampler_type=SamplerType.UUID,
+        params=UUIDSamplerParams(prefix="code_", short_form=True, uppercase=True),
     )
+    builder.add_column(sampler_column)
 
-    datastore_settings = DatastoreSettings(endpoint="https://huggingface.co", token="test-token")
+    with pytest.raises(BuilderSerializationError) as excinfo:
+        builder.write_config("./config.json")
 
-    with patch("data_designer.config.config_builder.fetch_seed_dataset_column_names") as mock_fetch:
-        mock_fetch.return_value = ["id", "name", "age"]
-        stub_empty_builder.with_seed_dataset(
-            DatastoreSeedDatasetReference(dataset="test-repo/test-data.parquet", datastore_settings=datastore_settings)
-        )
-
-    assert stub_empty_builder.get_seed_config() is not None
-    assert len(stub_empty_builder.get_columns_of_type(DataDesignerColumnType.SEED_DATASET)) == 3
-    assert len(stub_empty_builder.get_columns_of_type(DataDesignerColumnType.SAMPLER)) == 1
+    assert "DataFrame seed dataset" in str(excinfo.value)

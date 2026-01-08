@@ -5,7 +5,7 @@ import logging
 from abc import ABC, abstractmethod
 from enum import Enum
 from pathlib import Path
-from typing import Any, Generic, Literal, TypeVar
+from typing import Annotated, Any, Generic, Literal, TypeVar
 
 import numpy as np
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -357,21 +357,6 @@ class ChatCompletionInferenceParams(BaseInferenceParams):
         return super()._format_value(key, value)
 
 
-# Maintain backwards compatibility with a deprecation warning
-class InferenceParameters(ChatCompletionInferenceParams):
-    """
-    Deprecated: Use ChatCompletionInferenceParams instead.
-    This alias will be removed in a future version.
-    """
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        logger.warning(
-            "InferenceParameters is deprecated and will be removed in a future version. "
-            "Use ChatCompletionInferenceParams instead."
-        )
-        super().__init__(*args, **kwargs)
-
-
 class EmbeddingInferenceParams(BaseInferenceParams):
     """Configuration for embedding generation parameters.
 
@@ -395,7 +380,9 @@ class EmbeddingInferenceParams(BaseInferenceParams):
         return result
 
 
-InferenceParamsT: TypeAlias = ChatCompletionInferenceParams | EmbeddingInferenceParams | InferenceParameters
+InferenceParamsT: TypeAlias = Annotated[
+    ChatCompletionInferenceParams | EmbeddingInferenceParams, Field(discriminator="generation_type")
+]
 
 
 class ModelConfig(ConfigBase):

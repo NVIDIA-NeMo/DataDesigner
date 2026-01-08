@@ -24,9 +24,8 @@ from data_designer.config.column_types import (
 )
 from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.dataset_builders import BuildStage
-from data_designer.config.datastore import DatastoreSettings, fetch_seed_dataset_column_names
 from data_designer.config.default_model_settings import get_default_model_configs
-from data_designer.config.errors import BuilderConfigurationError, InvalidColumnTypeError, InvalidConfigError
+from data_designer.config.errors import BuilderConfigurationError, BuilderSerializationError, InvalidColumnTypeError
 from data_designer.config.models import ModelConfig, load_model_configs
 from data_designer.config.processors import ProcessorConfigT, ProcessorType, get_processor_config_from_kwargs
 from data_designer.config.sampler_constraints import (
@@ -36,20 +35,17 @@ from data_designer.config.sampler_constraints import (
     ScalarInequalityConstraint,
 )
 from data_designer.config.seed import (
-    DatastoreSeedDatasetReference,
     IndexRange,
-    LocalSeedDatasetReference,
     PartitionBlock,
     SamplingStrategy,
     SeedConfig,
-    SeedDatasetReference,
 )
+from data_designer.config.seed_source import DataFrameSeedSource, SeedSource
 from data_designer.config.utils.constants import DEFAULT_REPR_HTML_STYLE, REPR_HTML_TEMPLATE
 from data_designer.config.utils.info import ConfigBuilderInfo
 from data_designer.config.utils.io_helpers import serialize_data, smart_load_yaml
 from data_designer.config.utils.misc import can_run_data_designer_locally, json_indent_list_of_strings, kebab_to_snake
 from data_designer.config.utils.type_helpers import resolve_string_enum
-from data_designer.config.utils.validation import ViolationLevel, rich_print_violations, validate_data_designer_config
 
 logger = logging.getLogger(__name__)
 
@@ -63,12 +59,9 @@ class BuilderConfig(ExportableConfigBase):
     Attributes:
         data_designer: The main Data Designer configuration containing columns,
             constraints, profilers, and other settings.
-        datastore_settings: Optional datastore settings for accessing external
-            datasets.
     """
 
     data_designer: DataDesignerConfig
-    datastore_settings: DatastoreSettings | None
 
 
 class DataDesignerConfigBuilder:
@@ -101,30 +94,19 @@ class DataDesignerConfigBuilder:
             builder_config = BuilderConfig.model_validate(json_config)
 
         builder = cls(model_configs=builder_config.data_designer.model_configs)
-        config = builder_config.data_designer
+        data_designer_config = builder_config.data_designer
 
-        for col in config.columns:
+        for col in data_designer_config.columns:
             builder.add_column(col)
 
-        for constraint in config.constraints or []:
+        for constraint in data_designer_config.constraints or []:
             builder.add_constraint(constraint=constraint)
 
-        if config.seed_config:
-            if builder_config.datastore_settings is None:
-                if can_run_data_designer_locally():
-                    seed_dataset_reference = LocalSeedDatasetReference(dataset=config.seed_config.dataset)
-                else:
-                    raise BuilderConfigurationError("🛑 Datastore settings are required.")
-            else:
-                seed_dataset_reference = DatastoreSeedDatasetReference(
-                    dataset=config.seed_config.dataset,
-                    datastore_settings=builder_config.datastore_settings,
-                )
-                builder.set_seed_datastore_settings(builder_config.datastore_settings)
+        if (seed_config := data_designer_config.seed_config) is not None:
             builder.with_seed_dataset(
-                seed_dataset_reference,
-                sampling_strategy=config.seed_config.sampling_strategy,
-                selection_strategy=config.seed_config.selection_strategy,
+                seed_config.source,
+                sampling_strategy=seed_config.sampling_strategy,
+                selection_strategy=seed_config.selection_strategy,
             )
 
         return builder
@@ -144,7 +126,6 @@ class DataDesignerConfigBuilder:
         self._seed_config: SeedConfig | None = None
         self._constraints: list[ColumnConstraintT] = []
         self._profilers: list[ColumnProfilerConfigT] = []
-        self._datastore_settings: DatastoreSettings | None = None
 
     @property
     def model_configs(self) -> list[ModelConfig]:
@@ -241,13 +222,6 @@ class DataDesignerConfigBuilder:
             raise InvalidColumnTypeError(
                 f"🛑 Invalid column config object: '{column_config}'. Valid column config options are: "
                 f"{', '.join([t.__name__ for t in allowed_column_configs])}"
-            )
-
-        existing_config = self._column_configs.get(column_config.name)
-        if existing_config is not None and isinstance(existing_config, SeedDatasetColumnConfig):
-            raise BuilderConfigurationError(
-                f"🛑 Column {column_config.name!r} already exists as a seed dataset column. "
-                "Please use a different column name or update the seed dataset."
             )
 
         self._column_configs[column_config.name] = column_config
@@ -371,19 +345,12 @@ class DataDesignerConfigBuilder:
         """
         return self._profilers
 
-    def build(self, *, skip_validation: bool = False, raise_exceptions: bool = False) -> DataDesignerConfig:
+    def build(self) -> DataDesignerConfig:
         """Build a DataDesignerConfig instance based on the current builder configuration.
-
-        Args:
-            skip_validation: Whether to skip validation of the configuration.
-            raise_exceptions: Whether to raise an exception if the configuration is invalid.
 
         Returns:
             The current Data Designer config object.
         """
-        if not skip_validation:
-            self.validate(raise_exceptions=raise_exceptions)
-
         return DataDesignerConfig(
             model_configs=self._model_configs,
             seed_config=self._seed_config,
@@ -512,14 +479,6 @@ class DataDesignerConfigBuilder:
         """
         return self._seed_config
 
-    def get_seed_datastore_settings(self) -> DatastoreSettings | None:
-        """Get most recent datastore settings for the current Data Designer configuration.
-
-        Returns:
-            The datastore settings if configured, None otherwise.
-        """
-        return None if not self._datastore_settings else DatastoreSettings.model_validate(self._datastore_settings)
-
     def num_columns_of_type(self, column_type: DataDesignerColumnType) -> int:
         """Get the count of columns of the specified type.
 
@@ -531,85 +490,33 @@ class DataDesignerConfigBuilder:
         """
         return len(self.get_columns_of_type(column_type))
 
-    def set_seed_datastore_settings(self, datastore_settings: DatastoreSettings | None) -> Self:
-        """Set the datastore settings for the seed dataset.
-
-        Args:
-            datastore_settings: The datastore settings to use for the seed dataset.
-        """
-        self._datastore_settings = datastore_settings
-        return self
-
-    def validate(self, *, raise_exceptions: bool = False) -> Self:
-        """Validate the current Data Designer configuration.
-
-        Args:
-            raise_exceptions: Whether to raise an exception if the configuration is invalid.
-
-        Returns:
-            The current Data Designer config builder instance.
-
-        Raises:
-            InvalidConfigError: If the configuration is invalid and raise_exceptions is True.
-        """
-
-        violations = validate_data_designer_config(
-            columns=list(self._column_configs.values()),
-            processor_configs=self._processor_configs,
-            allowed_references=self.allowed_references,
-        )
-        rich_print_violations(violations)
-        if raise_exceptions and len([v for v in violations if v.level == ViolationLevel.ERROR]) > 0:
-            raise InvalidConfigError(
-                "🛑 Your configuration contains validation errors. Please address the indicated issues and try again."
-            )
-        if len(violations) == 0:
-            logger.info("✅ Validation passed")
-        return self
-
     def with_seed_dataset(
         self,
-        dataset_reference: SeedDatasetReference,
+        seed_source: SeedSource,
         *,
         sampling_strategy: SamplingStrategy = SamplingStrategy.ORDERED,
         selection_strategy: IndexRange | PartitionBlock | None = None,
     ) -> Self:
         """Add a seed dataset to the current Data Designer configuration.
 
-        This method sets the seed dataset for the configuration and automatically creates
-        SeedDatasetColumnConfig objects for each column found in the dataset. The column
-        names are fetched from the dataset source, which can be the Hugging Face Hub, the
-        NeMo Microservices Datastore, or in the case of direct library usage, a local file.
+        This method sets the seed dataset for the configuration, but columns are not resolved until
+        compilation (including validation) is performed by the engine using a SeedReader.
 
         Args:
-            dataset_reference: Seed dataset reference for fetching from the datastore.
+            seed_source: The pointer to the seed dataset.
             sampling_strategy: The sampling strategy to use when generating data from the seed dataset.
                 Defaults to ORDERED sampling.
+            selection_strategy: An optional selection strategy to use when generating data from the seed dataset.
+                Defaults to None.
 
         Returns:
             The current Data Designer config builder instance.
-
-        Raises:
-            BuilderConfigurationError: If any seed dataset column name collides with an existing column.
         """
-        seed_column_names = fetch_seed_dataset_column_names(dataset_reference)
-        colliding_columns = [name for name in seed_column_names if name in self._column_configs]
-        if colliding_columns:
-            raise BuilderConfigurationError(
-                f"🛑 Seed dataset column(s) {colliding_columns} collide with existing column(s). "
-                "Please remove the conflicting columns or use a seed dataset with different column names."
-            )
-
         self._seed_config = SeedConfig(
-            dataset=dataset_reference.dataset,
+            source=seed_source,
             sampling_strategy=sampling_strategy,
             selection_strategy=selection_strategy,
         )
-        self.set_seed_datastore_settings(
-            dataset_reference.datastore_settings if hasattr(dataset_reference, "datastore_settings") else None
-        )
-        for column_name in seed_column_names:
-            self._column_configs[column_name] = SeedDatasetColumnConfig(name=column_name)
         return self
 
     def write_config(self, path: str | Path, indent: int | None = 2, **kwargs) -> None:
@@ -622,7 +529,17 @@ class DataDesignerConfigBuilder:
 
         Raises:
             BuilderConfigurationError: If the file format is unsupported.
+            BuilderSerializationError: If the configuration cannot be serialized.
         """
+        if (seed_config := self.get_seed_config()) is not None and isinstance(seed_config.source, DataFrameSeedSource):
+            raise BuilderSerializationError(
+                "This builder was configured with a DataFrame seed dataset. "
+                "DataFrame seeds cannot be serialized to config files. "
+                "To serialize this configuration, change your seed dataset to a more persistent, serializable source format. "
+                "For example, you could make a local file seed source from the dataframe:\n\n"
+                "LocalFileSeedSource.from_dataframe(my_dataframe, '/path/to/data.parquet')"
+            )
+
         cfg = self.get_builder_config()
         suffix = Path(path).suffix
         if suffix in {".yaml", ".yml"}:
@@ -638,7 +555,7 @@ class DataDesignerConfigBuilder:
         Returns:
             The builder config.
         """
-        return BuilderConfig(data_designer=self.build(), datastore_settings=self._datastore_settings)
+        return BuilderConfig(data_designer=self.build())
 
     def __repr__(self) -> str:
         """Generates a string representation of the DataDesignerConfigBuilder instance.
@@ -650,7 +567,7 @@ class DataDesignerConfigBuilder:
             return f"{self.__class__.__name__}()"
 
         props_to_repr = {
-            "seed_dataset": (None if self._seed_config is None else f"'{self._seed_config.dataset}'"),
+            "seed_dataset": (None if self._seed_config is None else f"{self._seed_config.source.seed_type} seed"),
         }
 
         for column_type in get_column_display_order():

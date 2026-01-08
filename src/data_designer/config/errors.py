@@ -7,6 +7,9 @@ from data_designer.errors import DataDesignerError
 class BuilderConfigurationError(DataDesignerError): ...
 
 
+class BuilderSerializationError(DataDesignerError): ...
+
+
 class InvalidColumnTypeError(DataDesignerError): ...
 
 

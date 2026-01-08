@@ -21,21 +21,21 @@ from data_designer.essentials import (
     DataDesignerColumnType,
     DataDesignerConfig,
     DataDesignerConfigBuilder,
-    DatastoreSeedDatasetReference,
-    DatastoreSettings,
+    DataFrameSeedSource,
     DatetimeSamplerParams,
     EmbeddingInferenceParams,
     ExpressionColumnConfig,
     GaussianSamplerParams,
     GenerationType,
+    HuggingFaceSeedSource,
     ImageContext,
     ImageFormat,
-    InferenceParameters,
     JudgeScoreProfilerConfig,
     LLMCodeColumnConfig,
     LLMJudgeColumnConfig,
     LLMStructuredColumnConfig,
     LLMTextColumnConfig,
+    LocalFileSeedSource,
     LoggingConfig,
     ManualDistribution,
     ManualDistributionParams,
@@ -84,7 +84,6 @@ def test_config_imports():
     """Test config-related imports"""
     assert DataDesignerConfig is not None
     assert DataDesignerConfigBuilder is not None
-    assert DatastoreSettings is not None
     assert isinstance(can_run_data_designer_locally(), bool)
 
 
@@ -111,7 +110,6 @@ def test_model_config_imports():
     """Test model configuration imports"""
     assert ImageContext is not None
     assert ImageFormat is not None
-    assert InferenceParameters is not None
     assert ChatCompletionInferenceParams is not None
     assert EmbeddingInferenceParams is not None
     assert GenerationType is not None
@@ -151,7 +149,9 @@ def test_sampler_params_imports():
 
 def test_seed_config_imports():
     """Test seed configuration imports"""
-    assert DatastoreSeedDatasetReference is not None
+    assert DataFrameSeedSource is not None
+    assert HuggingFaceSeedSource is not None
+    assert LocalFileSeedSource is not None
     assert SamplingStrategy is not None
     assert SeedConfig is not None
 
@@ -223,7 +223,6 @@ def test_all_contains_config_classes():
     """Test __all__ contains config classes"""
     assert "DataDesignerConfig" in __all__
     assert "DataDesignerConfigBuilder" in __all__
-    assert "DatastoreSettings" in __all__
 
 
 def test_all_contains_column_configs():
@@ -271,7 +270,6 @@ def test_all_contains_model_configs():
     """Test __all__ contains model configuration classes"""
     assert "ImageContext" in __all__
     assert "ImageFormat" in __all__
-    assert "InferenceParameters" in __all__
     assert "ChatCompletionInferenceParams" in __all__
     assert "EmbeddingInferenceParams" in __all__
     assert "GenerationType" in __all__
@@ -287,7 +285,6 @@ def test_all_contains_model_configs():
 
 def test_all_contains_seed_configs():
     """Test __all__ contains seed configuration classes"""
-    assert "DatastoreSeedDatasetReference" in __all__
     assert "SamplingStrategy" in __all__
     assert "SeedConfig" in __all__
 

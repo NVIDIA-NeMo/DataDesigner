@@ -193,7 +193,7 @@ config_builder.add_column(
 )
 
 # Optionally validate that the columns are configured correctly.
-config_builder.validate()
+data_designer.validate(config_builder)
 
 # %% [markdown]
 # Next, let's add samplers to generate data related to the customer and their review.

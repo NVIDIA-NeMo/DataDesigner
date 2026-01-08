@@ -1,7 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -11,11 +10,12 @@ import pytest
 from data_designer.config.column_configs import SamplerColumnConfig
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.dataset_builders import BuildStage
-from data_designer.config.errors import InvalidFileFormatError
+from data_designer.config.errors import InvalidConfigError
+from data_designer.config.models import ModelProvider
 from data_designer.config.processors import DropColumnsProcessorConfig
 from data_designer.config.run_settings import RunConfig
-from data_designer.config.seed import LocalSeedDatasetReference
-from data_designer.engine.model_provider import ModelProvider
+from data_designer.config.sampler_params import CategorySamplerParams, SamplerType
+from data_designer.config.seed_source import HuggingFaceSeedSource
 from data_designer.engine.secret_resolver import CompositeResolver, EnvironmentResolver, PlaintextResolver
 from data_designer.interface.data_designer import DataDesigner
 from data_designer.interface.errors import (
@@ -83,171 +83,6 @@ def test_init_with_path_object(stub_artifact_path, stub_model_providers):
     """Test DataDesigner accepts Path objects."""
     designer = DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
     assert designer is not None
-
-
-def test_make_seed_reference_from_dataframe(stub_dataframe):
-    """Test creating seed reference from DataFrame."""
-    with tempfile.TemporaryDirectory() as temp_dir:
-        file_path = Path(temp_dir) / "seed.parquet"
-        ref = DataDesigner.make_seed_reference_from_dataframe(stub_dataframe, file_path=file_path)
-
-        assert isinstance(ref, LocalSeedDatasetReference)
-        assert ref.dataset == str(file_path)
-        assert file_path.exists()
-
-        # Verify the file contains the correct data
-        loaded_df = pd.read_parquet(file_path)
-        pd.testing.assert_frame_equal(loaded_df, stub_dataframe)
-
-
-def test_make_seed_reference_from_dataframe_writes_parquet_format(stub_dataframe):
-    """Test that seed reference writes DataFrame as parquet."""
-    with tempfile.TemporaryDirectory() as temp_dir:
-        file_path = Path(temp_dir) / "seed.parquet"
-        DataDesigner.make_seed_reference_from_dataframe(stub_dataframe, file_path=file_path)
-
-        # Verify we can read it back as parquet
-        loaded_df = pd.read_parquet(file_path)
-        assert len(loaded_df) == len(stub_dataframe)
-        assert list(loaded_df.columns) == list(stub_dataframe.columns)
-
-
-def test_make_seed_reference_from_dataframe_writes_csv_format(stub_dataframe):
-    """Test that seed reference writes DataFrame as CSV."""
-    with tempfile.TemporaryDirectory() as temp_dir:
-        file_path = Path(temp_dir) / "seed.csv"
-        ref = DataDesigner.make_seed_reference_from_dataframe(stub_dataframe, file_path=file_path)
-
-        assert isinstance(ref, LocalSeedDatasetReference)
-        assert ref.dataset == str(file_path)
-        assert file_path.exists()
-
-        # Verify we can read it back as CSV
-        loaded_df = pd.read_csv(file_path)
-        assert len(loaded_df) == len(stub_dataframe)
-        assert list(loaded_df.columns) == list(stub_dataframe.columns)
-
-
-def test_make_seed_reference_from_dataframe_writes_json_format(stub_dataframe):
-    """Test that seed reference writes DataFrame as JSON."""
-    with tempfile.TemporaryDirectory() as temp_dir:
-        file_path = Path(temp_dir) / "seed.json"
-        ref = DataDesigner.make_seed_reference_from_dataframe(stub_dataframe, file_path=file_path)
-
-        assert isinstance(ref, LocalSeedDatasetReference)
-        assert ref.dataset == str(file_path)
-        assert file_path.exists()
-
-        # Verify we can read it back as JSON
-        loaded_df = pd.read_json(file_path, orient="records", lines=True)
-        assert len(loaded_df) == len(stub_dataframe)
-        assert list(loaded_df.columns) == list(stub_dataframe.columns)
-
-
-def test_make_seed_reference_from_dataframe_writes_jsonl_format(stub_dataframe):
-    """Test that seed reference writes DataFrame as JSONL."""
-    with tempfile.TemporaryDirectory() as temp_dir:
-        file_path = Path(temp_dir) / "seed.jsonl"
-        ref = DataDesigner.make_seed_reference_from_dataframe(stub_dataframe, file_path=file_path)
-
-        assert isinstance(ref, LocalSeedDatasetReference)
-        assert ref.dataset == str(file_path)
-        assert file_path.exists()
-
-        # Verify we can read it back as JSONL
-        loaded_df = pd.read_json(file_path, orient="records", lines=True)
-        assert len(loaded_df) == len(stub_dataframe)
-        assert list(loaded_df.columns) == list(stub_dataframe.columns)
-
-
-def test_make_seed_reference_from_dataframe_raises_error_for_invalid_extension(stub_dataframe):
-    """Test that make_seed_reference_from_dataframe raises error for invalid file extensions."""
-    with tempfile.TemporaryDirectory() as temp_dir:
-        # Test with .txt extension
-        txt_path = Path(temp_dir) / "seed.txt"
-        with pytest.raises(InvalidFileFormatError):
-            DataDesigner.make_seed_reference_from_dataframe(stub_dataframe, file_path=txt_path)
-
-        # Test with no extension
-        no_ext_path = Path(temp_dir) / "seed"
-        with pytest.raises(InvalidFileFormatError):
-            DataDesigner.make_seed_reference_from_dataframe(stub_dataframe, file_path=no_ext_path)
-
-
-def test_make_seed_reference_from_dataframe_accepts_uppercase_extensions(stub_dataframe):
-    """Test that make_seed_reference_from_dataframe accepts uppercase file extensions (case insensitive)."""
-    with tempfile.TemporaryDirectory() as temp_dir:
-        # Test .PARQUET
-        parquet_path = Path(temp_dir) / "seed.PARQUET"
-        ref = DataDesigner.make_seed_reference_from_dataframe(stub_dataframe, file_path=parquet_path)
-        assert isinstance(ref, LocalSeedDatasetReference)
-        assert ref.dataset == str(parquet_path)
-        assert parquet_path.exists()
-
-        # Test .CSV
-        csv_path = Path(temp_dir) / "seed.CSV"
-        ref = DataDesigner.make_seed_reference_from_dataframe(stub_dataframe, file_path=csv_path)
-        assert isinstance(ref, LocalSeedDatasetReference)
-        assert ref.dataset == str(csv_path)
-        assert csv_path.exists()
-
-        # Test .JSON
-        json_path = Path(temp_dir) / "seed.JSON"
-        ref = DataDesigner.make_seed_reference_from_dataframe(stub_dataframe, file_path=json_path)
-        assert isinstance(ref, LocalSeedDatasetReference)
-        assert ref.dataset == str(json_path)
-        assert json_path.exists()
-
-        # Test .JSONL
-        jsonl_path = Path(temp_dir) / "seed.JSONL"
-        ref = DataDesigner.make_seed_reference_from_dataframe(stub_dataframe, file_path=jsonl_path)
-        assert isinstance(ref, LocalSeedDatasetReference)
-        assert ref.dataset == str(jsonl_path)
-        assert jsonl_path.exists()
-
-
-def test_make_seed_reference_from_dataframe_overwrites_existing_file(stub_dataframe):
-    """Test that make_seed_reference_from_dataframe overwrites existing file."""
-    with tempfile.TemporaryDirectory() as temp_dir:
-        file_path = Path(temp_dir) / "seed.parquet"
-
-        # Create initial file with different data
-        initial_df = pd.DataFrame({"col": [999]})
-        initial_df.to_parquet(file_path)
-
-        # Overwrite with new data
-        new_df = pd.DataFrame({"col": [1, 2, 3]})
-        _ = DataDesigner.make_seed_reference_from_dataframe(new_df, file_path=file_path)
-
-        # Verify the file was overwritten
-        loaded_df = pd.read_parquet(file_path)
-        pd.testing.assert_frame_equal(loaded_df, new_df)
-        assert len(loaded_df) == 3  # Should have 3 rows, not 1
-
-
-def test_make_seed_reference_from_file_with_string_path():
-    """Test creating seed reference from file path string."""
-    with tempfile.TemporaryDirectory() as temp_dir:
-        file_path = Path(temp_dir) / "dataset.parquet"
-        df = pd.DataFrame({"col": [1, 2, 3]})
-        df.to_parquet(file_path)
-
-        ref = DataDesigner.make_seed_reference_from_file(str(file_path))
-
-        assert isinstance(ref, LocalSeedDatasetReference)
-        assert ref.dataset == str(file_path)
-
-
-def test_make_seed_reference_from_file_with_path_object(stub_dataframe):
-    """Test creating seed reference from Path object."""
-    with tempfile.TemporaryDirectory() as temp_dir:
-        file_path = Path(temp_dir) / "dataset.parquet"
-        stub_dataframe.to_parquet(file_path)
-
-        ref = DataDesigner.make_seed_reference_from_file(file_path)
-
-        assert isinstance(ref, LocalSeedDatasetReference)
-        assert ref.dataset == str(file_path)
 
 
 def test_buffer_size_setting_persists(stub_artifact_path, stub_model_providers):
@@ -325,27 +160,6 @@ def test_run_config_normalizes_error_rate_when_disabled(stub_artifact_path, stub
     )
     assert data_designer._run_config.shutdown_error_rate == 1.0
 
-
-def test_multiple_seed_references_can_be_created():
-    """Test that multiple seed references can be created from different sources."""
-    with tempfile.TemporaryDirectory() as temp_dir:
-        # Create seed reference from DataFrame
-        df1 = pd.DataFrame({"col": [1, 2, 3]})
-        file_path_1 = Path(temp_dir) / "seed1.parquet"
-        ref1 = DataDesigner.make_seed_reference_from_dataframe(df1, file_path=file_path_1)
-
-        # Create seed reference from another DataFrame
-        df2 = pd.DataFrame({"col": [4, 5, 6]})
-        file_path_2 = Path(temp_dir) / "seed2.parquet"
-        ref2 = DataDesigner.make_seed_reference_from_dataframe(df2, file_path=file_path_2)
-
-        # Create seed reference from existing file
-        ref3 = DataDesigner.make_seed_reference_from_file(file_path_1)
-
-        # Verify all references are unique and valid
-        assert ref1.dataset != ref2.dataset
-        assert ref1.dataset == ref3.dataset
-        assert all(isinstance(ref, LocalSeedDatasetReference) for ref in [ref1, ref2, ref3])
 
 
 def test_create_dataset_e2e_using_only_sampler_columns(
@@ -537,3 +351,32 @@ def test_preview_with_dropped_columns(
     assert "category" in analysis.side_effect_column_names, (
         "Dropped column 'category' should be tracked in side_effect_column_names"
     )
+
+
+def test_validate_raises_error_when_seed_collides(
+    stub_artifact_path,
+    stub_model_providers,
+    stub_model_configs,
+    stub_managed_assets_path,
+    stub_seed_reader,
+):
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config_builder.with_seed_dataset(HuggingFaceSeedSource(path="hf://datasets/test/data.csv"))
+    config_builder.add_column(
+        SamplerColumnConfig(
+            name="city",
+            sampler_type=SamplerType.CATEGORY,
+            params=CategorySamplerParams(values=["new york", "los angeles"]),
+        )
+    )
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+        seed_readers=[stub_seed_reader],
+    )
+
+    with pytest.raises(InvalidConfigError):
+        data_designer.validate(config_builder)

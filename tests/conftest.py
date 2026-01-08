@@ -5,7 +5,6 @@ import os
 import tarfile
 import tempfile
 import textwrap
-from unittest.mock import patch
 
 import pandas as pd
 import pytest
@@ -16,8 +15,9 @@ from data_designer.config.analysis.dataset_profiler import DatasetProfilerResult
 from data_designer.config.column_configs import SamplerColumnConfig
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.data_designer_config import DataDesignerConfig
-from data_designer.config.datastore import DatastoreSettings
 from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig, ModelProvider
+from data_designer.config.seed_source import HuggingFaceSeedSource
+from data_designer.engine.resources.seed_reader import SeedReader
 
 
 @pytest.fixture
@@ -39,7 +39,9 @@ model_configs:
             weights: [0.3, 0.2, 0.50]
 
 seed_config:
-  dataset: test-repo/testing/data.csv
+  source:
+    seed_type: hf
+    path: datasets/test-repo/testing/data.csv
   sampling_strategy: shuffle
 
 columns:
@@ -116,10 +118,6 @@ def stub_data_designer_builder_config_str(stub_data_designer_config_str: str) ->
     return f"""
 data_designer:
   {textwrap.indent(stub_data_designer_config_str, prefix="    ")}
-
-datastore_settings:
-  endpoint: http://test-endpoint:3000/v1/hf
-  token: stub-token
 """
 
 
@@ -163,15 +161,7 @@ def stub_empty_builder(stub_model_configs: list[ModelConfig]) -> DataDesignerCon
 
 @pytest.fixture
 def stub_complete_builder(stub_data_designer_builder_config_str: str) -> DataDesignerConfigBuilder:
-    with patch("data_designer.config.config_builder.fetch_seed_dataset_column_names") as mock_fetch:
-        mock_fetch.return_value = ["id", "name", "city", "country"]
-        return DataDesignerConfigBuilder.from_config(config=stub_data_designer_builder_config_str)
-
-
-@pytest.fixture
-def stub_datastore_settings():
-    """Test datastore settings with testing endpoint and token."""
-    return DatastoreSettings(endpoint="https://testing.com", token="stub-token")
+    return DataDesignerConfigBuilder.from_config(config=stub_data_designer_builder_config_str)
 
 
 @pytest.fixture
@@ -310,3 +300,19 @@ def stub_sampler_only_config_builder(stub_model_configs: list[ModelConfig]) -> D
         SamplerColumnConfig(name="uniform", sampler_type="uniform", params={"low": 1, "high": 100})
     )
     return config_builder
+
+
+class StubHuggingFaceSeedReader(SeedReader[HuggingFaceSeedSource]):
+    def get_column_names(self) -> list[str]:
+        return ["age", "city"]
+
+    def get_dataset_uri(self) -> str:
+        return "unused in these tests"
+
+    def create_duckdb_connection(self):
+        pass
+
+
+@pytest.fixture
+def stub_seed_reader():
+    return StubHuggingFaceSeedReader()
