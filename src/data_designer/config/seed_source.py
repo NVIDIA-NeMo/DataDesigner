@@ -73,7 +73,7 @@ class DataFrameSeedSource(SeedSource):
         exclude=True,
         description=(
             "DataFrame to use directly as the seed dataset. NOTE: if you need to write a Data Designer config, "
-            "you should use `LocalFileSeedSource` instead, since DataFrame objects are not serializable."
+            "you must use `LocalFileSeedSource` instead, since DataFrame objects are not serializable."
         ),
     )
 
