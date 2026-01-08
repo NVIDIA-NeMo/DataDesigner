@@ -39,7 +39,7 @@ from data_designer.config.seed import (
     SamplingStrategy,
     SeedConfig,
 )
-from data_designer.config.seed_source import DataFrameSeedSource, SeedSource
+from data_designer.config.seed_source import DataFrameSeedSource, SeedSourceT
 from data_designer.config.utils.constants import DEFAULT_REPR_HTML_STYLE, REPR_HTML_TEMPLATE
 from data_designer.config.utils.info import ConfigBuilderInfo
 from data_designer.config.utils.io_helpers import serialize_data, smart_load_yaml
@@ -474,7 +474,7 @@ class DataDesignerConfigBuilder:
 
     def with_seed_dataset(
         self,
-        seed_source: SeedSource,
+        seed_source: SeedSourceT,
         *,
         sampling_strategy: SamplingStrategy = SamplingStrategy.ORDERED,
         selection_strategy: IndexRange | PartitionBlock | None = None,

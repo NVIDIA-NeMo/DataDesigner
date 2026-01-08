@@ -60,6 +60,8 @@ from data_designer.interface.errors import (
 )
 from data_designer.interface.results import DatasetCreationResults
 from data_designer.logging import RandomEmoji
+from data_designer.plugins.plugin import PluginType
+from data_designer.plugins.registry import PluginRegistry
 
 DEFAULT_BUFFER_SIZE = 1000
 
@@ -70,6 +72,8 @@ DEFAULT_SEED_READERS = [
     LocalFileSeedReader(),
     DataFrameSeedReader(),
 ]
+for plugin in PluginRegistry().get_plugins(PluginType.SEED_DATASET):
+    DEFAULT_SEED_READERS.append(plugin.impl_cls())
 
 logger = logging.getLogger(__name__)
 
