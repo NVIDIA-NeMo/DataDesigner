@@ -278,7 +278,7 @@ def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
     assert data_designer._run_config.shutdown_error_rate == 0.5
     assert data_designer._run_config.shutdown_error_window == 10
 
-    # Test setting custom values (note: shutdown_error_rate is normalized to 1.0 when disabled)
+    # Test setting custom values
     data_designer.set_run_config(
         RunConfig(
             disable_early_shutdown=True,
