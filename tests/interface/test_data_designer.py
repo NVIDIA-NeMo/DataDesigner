@@ -161,7 +161,6 @@ def test_run_config_normalizes_error_rate_when_disabled(stub_artifact_path, stub
     assert data_designer._run_config.shutdown_error_rate == 1.0
 
 
-
 def test_create_dataset_e2e_using_only_sampler_columns(
     stub_sampler_only_config_builder, stub_artifact_path, stub_model_providers, stub_managed_assets_path
 ):
