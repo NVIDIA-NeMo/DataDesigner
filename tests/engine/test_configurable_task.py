@@ -15,7 +15,7 @@ from data_designer.engine.configurable_task import (
 )
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.engine.models.registry import ModelRegistry
-from data_designer.engine.resources.resource_provider import ResourceProvider, ResourceType
+from data_designer.engine.resources.resource_provider import ResourceProvider
 
 
 def test_configurable_task_metadata_creation():
@@ -46,10 +46,6 @@ def test_configurable_task_concrete_implementation():
         @classmethod
         def get_config_type(cls) -> type[TestConfig]:
             return TestConfig
-
-        @staticmethod
-        def get_required_resources() -> list[ResourceType]:
-            return []
 
         @classmethod
         def metadata(cls) -> ConfigurableTaskMetadata:
@@ -85,10 +81,6 @@ def test_configurable_task_config_validation():
         def get_config_type(cls) -> type[TestConfig]:
             return TestConfig
 
-        @staticmethod
-        def get_required_resources() -> list[ResourceType]:
-            return []
-
         @classmethod
         def metadata(cls) -> ConfigurableTaskMetadata:
             return ConfigurableTaskMetadata(name="test_task", description="Test task")
@@ -123,10 +115,6 @@ def test_configurable_task_resource_validation():
         def get_config_type(cls) -> type[TestConfig]:
             return TestConfig
 
-        @staticmethod
-        def get_required_resources() -> list[ResourceType]:
-            return [ResourceType.MODEL_REGISTRY]
-
         @classmethod
         def metadata(cls) -> ConfigurableTaskMetadata:
             return ConfigurableTaskMetadata(name="test_task", description="Test task")
@@ -156,10 +144,6 @@ def test_configurable_task_resource_provider_is_none():
         value: str
 
     class TestTask(ConfigurableTask[TestConfig]):
-        @staticmethod
-        def get_required_resources() -> list[ResourceType]:
-            return []
-
         @classmethod
         def metadata(cls) -> ConfigurableTaskMetadata:
             return ConfigurableTaskMetadata(name="test_task", description="Test task")

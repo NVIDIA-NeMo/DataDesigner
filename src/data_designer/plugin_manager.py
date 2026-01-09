@@ -37,22 +37,17 @@ class PluginManager:
         if self._plugin_registry.plugin_exists(plugin_name):
             return self._plugin_registry.get_plugin(plugin_name)
 
-    def get_plugin_column_types(self, enum_type: type[Enum], required_resources: list[str] | None = None) -> list[Enum]:
+    def get_plugin_column_types(self, enum_type: type[Enum]) -> list[Enum]:
         """Get a list of plugin column types.
 
         Args:
             enum_type: The enum type to use for plugin entries.
-            required_resources: If provided, only return plugins with the required resources.
 
         Returns:
             A list of plugin column types.
         """
         type_list = []
         for plugin in self._plugin_registry.get_plugins(PluginType.COLUMN_GENERATOR):
-            if required_resources:
-                task_required_resources = plugin.task_cls.get_required_resources()
-                if not all(resource in task_required_resources for resource in required_resources):
-                    continue
             type_list.append(enum_type(plugin.name))
         return type_list
 

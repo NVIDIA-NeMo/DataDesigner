@@ -406,7 +406,6 @@ def test_getters(stub_data_designer_builder):
     assert len(stub_data_designer_builder.get_column_configs()) == 8
     assert stub_data_designer_builder.get_column_config(name="code_id").name == "code_id"
     assert len(stub_data_designer_builder.get_constraints(target_column="age")) == 1
-    assert len(stub_data_designer_builder.get_llm_gen_columns()) == 3
     assert len(stub_data_designer_builder.get_columns_of_type(DataDesignerColumnType.SAMPLER)) == 4
     assert len(stub_data_designer_builder.get_columns_excluding_type(DataDesignerColumnType.SAMPLER)) == 4
     assert stub_data_designer_builder.get_seed_config().source.path == "datasets/test-repo/testing/data.csv"

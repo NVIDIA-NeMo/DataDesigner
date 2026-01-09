@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Callable
 
 import pandas as pd
 
-from data_designer.config.column_types import ColumnConfigT, column_type_is_model_generated
+from data_designer.config.column_types import ColumnConfigT
 from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.processors import (
     DropColumnsProcessorConfig,
@@ -25,6 +25,7 @@ from data_designer.engine.column_generators.generators.base import (
     ColumnGeneratorWithSingleModel,
     GenerationStrategy,
 )
+from data_designer.engine.column_generators.utils.generator_classification import column_type_is_model_generated
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError, DatasetProcessingError
 from data_designer.engine.dataset_builders.multi_column_configs import (
@@ -42,7 +43,7 @@ from data_designer.engine.models.telemetry import InferenceEvent, NemoSourceEnum
 from data_designer.engine.processing.processors.base import Processor
 from data_designer.engine.processing.processors.drop_columns import DropColumnsProcessor
 from data_designer.engine.registry.data_designer_registry import DataDesignerRegistry
-from data_designer.engine.resources.resource_provider import ResourceProvider, ResourceType
+from data_designer.engine.resources.resource_provider import ResourceProvider
 
 if TYPE_CHECKING:
     from data_designer.engine.models.usage import ModelUsageStats
@@ -192,7 +193,7 @@ class ColumnWiseDatasetBuilder:
 
     def _run_cell_by_cell_generator(self, generator: ColumnGenerator) -> None:
         max_workers = MAX_CONCURRENCY_PER_NON_LLM_GENERATOR
-        if ResourceType.MODEL_REGISTRY in generator.get_required_resources():
+        if isinstance(generator, ColumnGeneratorWithSingleModel):
             max_workers = generator.inference_parameters.max_parallel_requests
         self._fan_out_with_threads(generator, max_workers=max_workers)
 

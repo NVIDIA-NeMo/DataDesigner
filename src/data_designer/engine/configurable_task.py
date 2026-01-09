@@ -9,7 +9,7 @@ import pandas as pd
 
 from data_designer.config.base import ConfigBase
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
-from data_designer.engine.resources.resource_provider import ResourceProvider, ResourceType
+from data_designer.engine.resources.resource_provider import ResourceProvider
 
 DataT = TypeVar("DataT", dict, pd.DataFrame)
 TaskConfigT = TypeVar("ConfigT", bound=ConfigBase)
@@ -64,10 +64,6 @@ class ConfigurableTask(ABC, Generic[TaskConfigT]):
     @staticmethod
     @abstractmethod
     def metadata() -> ConfigurableTaskMetadata: ...
-
-    @staticmethod
-    @abstractmethod
-    def get_required_resources() -> list[ResourceType]: ...
 
     def _initialize(self) -> None:
         """An internal method for custom initialization logic, which will be called in the constructor."""

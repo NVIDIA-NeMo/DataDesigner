@@ -6,7 +6,6 @@ from typing import Literal
 from data_designer.config.base import ConfigBase
 from data_designer.config.column_configs import SingleColumnConfig
 from data_designer.engine.configurable_task import ConfigurableTask, ConfigurableTaskMetadata
-from data_designer.engine.resources.resource_provider import ResourceType
 from data_designer.plugins.plugin import Plugin, PluginType
 
 MODULE_NAME = __name__
@@ -27,7 +26,6 @@ class ValidTestTask(ConfigurableTask[ValidTestConfig]):
         return ConfigurableTaskMetadata(
             name="test_generator",
             description="Test generator",
-            required_resources=None,
         )
 
 
@@ -61,7 +59,6 @@ class StubPluginTaskA(ConfigurableTask[StubPluginConfigA]):
         return ConfigurableTaskMetadata(
             name="test_plugin_a",
             description="Test plugin A",
-            required_resources=None,
         )
 
 
@@ -71,7 +68,6 @@ class StubPluginTaskB(ConfigurableTask[StubPluginConfigB]):
         return ConfigurableTaskMetadata(
             name="test_plugin_b",
             description="Test plugin B",
-            required_resources=None,
         )
 
 
@@ -96,7 +92,6 @@ class StubPluginTaskModels(ConfigurableTask[StubPluginConfigModels]):
         return ConfigurableTaskMetadata(
             name="test_plugin_models",
             description="Test plugin requiring models",
-            required_resources=[ResourceType.MODEL_REGISTRY],
         )
 
 
@@ -106,7 +101,6 @@ class StubPluginTaskModelsAndBlobs(ConfigurableTask[StubPluginConfigModelsAndBlo
         return ConfigurableTaskMetadata(
             name="test_plugin_models_and_blobs",
             description="Test plugin requiring models and blobs",
-            required_resources=[ResourceType.MODEL_REGISTRY, ResourceType.BLOB_STORAGE],
         )
 
 
@@ -116,7 +110,6 @@ class StubPluginTaskBlobsAndSeeds(ConfigurableTask[StubPluginConfigBlobsAndSeeds
         return ConfigurableTaskMetadata(
             name="test_plugin_blobs_and_seeds",
             description="Test plugin requiring blobs and seeds",
-            required_resources=[ResourceType.BLOB_STORAGE, ResourceType.SEED_READER],
         )
 
 

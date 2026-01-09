@@ -19,7 +19,7 @@ from data_designer.engine.column_generators.generators.seed_dataset import (
 )
 from data_designer.engine.column_generators.utils.errors import SeedDatasetError
 from data_designer.engine.dataset_builders.multi_column_configs import SeedDatasetMultiColumnConfig
-from data_designer.engine.resources.resource_provider import ResourceProvider, ResourceType
+from data_designer.engine.resources.resource_provider import ResourceProvider
 
 
 @pytest.fixture
@@ -111,7 +111,6 @@ def seed_dataset_jsonl(sample_dataframe):
 def test_seed_dataset_column_generator_metadata():
     metadata = SeedDatasetColumnGenerator.metadata()
     assert metadata.generation_strategy == GenerationStrategy.FULL_COLUMN
-    assert ResourceType.DATASTORE in SeedDatasetColumnGenerator.get_required_resources()
 
 
 def test_seed_dataset_column_generator_config_structure():

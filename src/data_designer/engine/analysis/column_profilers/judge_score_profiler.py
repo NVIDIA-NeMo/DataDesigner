@@ -31,16 +31,11 @@ from data_designer.engine.analysis.utils.judge_score_processing import (
 )
 from data_designer.engine.models.facade import ModelFacade
 from data_designer.engine.models.recipes.response_recipes import TextResponseRecipe
-from data_designer.engine.resources.resource_provider import ResourceType
 
 logger = logging.getLogger(__name__)
 
 
 class JudgeScoreProfiler(ColumnProfiler[JudgeScoreProfilerConfig]):
-    @staticmethod
-    def get_required_resources() -> list[ResourceType]:
-        return [ResourceType.MODEL_REGISTRY]
-
     @staticmethod
     def metadata() -> ColumnProfilerMetadata:
         return ColumnProfilerMetadata(

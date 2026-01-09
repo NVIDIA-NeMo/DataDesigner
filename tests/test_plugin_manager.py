@@ -6,7 +6,6 @@ from contextlib import contextmanager
 from enum import Enum
 from unittest.mock import patch
 
-from data_designer.engine.resources.resource_provider import ResourceType
 from data_designer.plugin_manager import PluginManager
 from data_designer.plugins.plugin import Plugin
 from data_designer.plugins.registry import PluginRegistry
@@ -15,7 +14,6 @@ from data_designer.plugins.testing.stubs import (
     plugin_blobs_and_seeds,
     plugin_models,
     plugin_models_and_blobs,
-    plugin_none,
 )
 
 
@@ -95,30 +93,6 @@ def test_get_plugin_column_types_with_plugins() -> None:
 
     assert len(result) == 3
     assert all(isinstance(item, TestEnum) for item in result)
-
-
-def test_get_plugin_column_types_with_resource_filtering() -> None:
-    """Test filtering plugins by required resources."""
-    all_plugins = [plugin_models, plugin_models_and_blobs, plugin_blobs_and_seeds]
-    TestEnum = make_test_enum(all_plugins)
-
-    with mock_plugin_system(all_plugins):
-        manager = PluginManager()
-        result = manager.get_plugin_column_types(TestEnum, required_resources=[ResourceType.MODEL_REGISTRY])
-
-    assert len(result) == 2
-    assert set(result) == {plugin_models.name, plugin_models_and_blobs.name}
-
-
-def test_get_plugin_column_types_filters_none_resources() -> None:
-    """Test filtering when plugin has None for required_resources."""
-    TestEnum = make_test_enum([plugin_none])
-
-    with mock_plugin_system([plugin_none]):
-        manager = PluginManager()
-        result = manager.get_plugin_column_types(TestEnum, required_resources=[ResourceType.MODEL_REGISTRY])
-
-    assert result == []
 
 
 def test_get_plugin_column_types_empty() -> None:

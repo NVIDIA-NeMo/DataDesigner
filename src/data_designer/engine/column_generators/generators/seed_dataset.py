@@ -19,7 +19,6 @@ from data_designer.engine.column_generators.generators.base import (
 from data_designer.engine.column_generators.utils.errors import SeedDatasetError
 from data_designer.engine.dataset_builders.multi_column_configs import SeedDatasetMultiColumnConfig
 from data_designer.engine.processing.utils import concat_datasets
-from data_designer.engine.resources.resource_provider import ResourceType
 
 MAX_ZERO_RECORD_RESPONSE_FACTOR = 2
 
@@ -27,10 +26,6 @@ logger = logging.getLogger(__name__)
 
 
 class SeedDatasetColumnGenerator(FromScratchColumnGenerator[SeedDatasetMultiColumnConfig]):
-    @staticmethod
-    def get_required_resources() -> list[ResourceType]:
-        return [ResourceType.DATASTORE]
-
     @staticmethod
     def metadata() -> GeneratorMetadata:
         return GeneratorMetadata(

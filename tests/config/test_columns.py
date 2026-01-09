@@ -18,8 +18,6 @@ from data_designer.config.column_configs import (
 )
 from data_designer.config.column_types import (
     DataDesignerColumnType,
-    column_type_is_model_generated,
-    column_type_used_in_execution_dag,
     get_column_config_from_kwargs,
     get_column_display_order,
 )
@@ -36,6 +34,10 @@ from data_designer.config.sampler_params import (
 from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.utils.errors import UserJinjaTemplateSyntaxError
 from data_designer.config.validator_params import CodeValidatorParams
+from data_designer.engine.column_generators.utils.generator_classification import (
+    column_type_is_model_generated,
+    column_type_used_in_execution_dag,
+)
 
 stub_prompt = "test_prompt {{some_column}}"
 stub_system_prompt = "test_system_prompt {{some_other_column}}"

@@ -5,7 +5,8 @@ import logging
 
 import networkx as nx
 
-from data_designer.config.column_types import ColumnConfigT, column_type_used_in_execution_dag
+from data_designer.config.column_types import ColumnConfigT
+from data_designer.engine.column_generators.utils.generator_classification import column_type_used_in_execution_dag
 from data_designer.engine.dataset_builders.utils.errors import DAGCircularDependencyError
 
 logger = logging.getLogger(__name__)

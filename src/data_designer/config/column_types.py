@@ -62,41 +62,6 @@ COLUMN_TYPE_EMOJI_MAP.update(
 )
 
 
-def column_type_used_in_execution_dag(column_type: str | DataDesignerColumnType) -> bool:
-    """Return True if the column type is used in the workflow execution DAG."""
-    column_type = resolve_string_enum(column_type, DataDesignerColumnType)
-    dag_column_types = {
-        DataDesignerColumnType.EXPRESSION,
-        DataDesignerColumnType.LLM_CODE,
-        DataDesignerColumnType.LLM_JUDGE,
-        DataDesignerColumnType.LLM_STRUCTURED,
-        DataDesignerColumnType.LLM_TEXT,
-        DataDesignerColumnType.VALIDATION,
-        DataDesignerColumnType.EMBEDDING,
-    }
-    dag_column_types.update(plugin_manager.get_plugin_column_types(DataDesignerColumnType))
-    return column_type in dag_column_types
-
-
-def column_type_is_model_generated(column_type: str | DataDesignerColumnType) -> bool:
-    """Return True if the column type is a model-generated column."""
-    column_type = resolve_string_enum(column_type, DataDesignerColumnType)
-    model_generated_column_types = {
-        DataDesignerColumnType.LLM_TEXT,
-        DataDesignerColumnType.LLM_CODE,
-        DataDesignerColumnType.LLM_STRUCTURED,
-        DataDesignerColumnType.LLM_JUDGE,
-        DataDesignerColumnType.EMBEDDING,
-    }
-    model_generated_column_types.update(
-        plugin_manager.get_plugin_column_types(
-            DataDesignerColumnType,
-            required_resources=["model_registry"],
-        )
-    )
-    return column_type in model_generated_column_types
-
-
 def get_column_config_from_kwargs(name: str, column_type: DataDesignerColumnType, **kwargs) -> ColumnConfigT:
     """Create a Data Designer column config object from kwargs.
 

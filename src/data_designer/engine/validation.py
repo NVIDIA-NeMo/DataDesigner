@@ -14,7 +14,7 @@ from rich.console import Console, Group
 from rich.padding import Padding
 from rich.panel import Panel
 
-from data_designer.config.column_types import ColumnConfigT, DataDesignerColumnType, column_type_is_model_generated
+from data_designer.config.column_types import ColumnConfigT, DataDesignerColumnType
 from data_designer.config.processors import ProcessorConfigT, ProcessorType
 from data_designer.config.utils.constants import RICH_CONSOLE_THEME
 from data_designer.config.utils.misc import (
@@ -22,6 +22,7 @@ from data_designer.config.utils.misc import (
     get_prompt_template_keywords,
 )
 from data_designer.config.validator_params import ValidatorType
+from data_designer.engine.column_generators.utils.generator_classification import column_type_is_model_generated
 
 
 class ViolationType(str, Enum):

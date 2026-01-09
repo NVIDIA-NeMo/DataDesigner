@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING, overload
 import pandas as pd
 
 from data_designer.engine.configurable_task import ConfigurableTask, ConfigurableTaskMetadata, DataT, TaskConfigT
-from data_designer.engine.resources.resource_provider import ResourceType
 
 if TYPE_CHECKING:
     from data_designer.config.models import BaseInferenceParams, ModelConfig
@@ -56,10 +55,6 @@ class ColumnGenerator(ConfigurableTask[TaskConfigT], ABC):
     @abstractmethod
     def generate(self, data: DataT) -> DataT: ...
 
-    @staticmethod
-    def get_required_resources() -> list[ResourceType]:
-        return []
-
     def log_pre_generation(self) -> None:
         """A shared method to log info before the generator's `generate` method is called.
 
@@ -79,16 +74,9 @@ class FromScratchColumnGenerator(ColumnGenerator[TaskConfigT], ABC):
 
 
 class ColumnGeneratorWithModelRegistry(ColumnGenerator[TaskConfigT], ABC):
-    @staticmethod
-    def get_required_resources() -> list[ResourceType]:
-        return [ResourceType.MODEL_REGISTRY]
-
     @property
     def model_registry(self) -> ModelRegistry:
         return self.resource_provider.model_registry
-
-    def get_inference_parameters(self, model_alias: str) -> BaseInferenceParams:
-        return self.get_model_config(model_alias=model_alias).inference_parameters
 
     def get_model(self, model_alias: str) -> ModelFacade:
         return self.model_registry.get_model(model_alias=model_alias)
@@ -112,7 +100,7 @@ class ColumnGeneratorWithSingleModel(ColumnGeneratorWithModelRegistry[TaskConfig
 
     @functools.cached_property
     def inference_parameters(self) -> BaseInferenceParams:
-        return self.get_inference_parameters(model_alias=self.config.model_alias)
+        return self.model_config.inference_parameters
 
     def log_pre_generation(self) -> None:
         logger.info(f"Preparing {self.config.column_type} column generation")

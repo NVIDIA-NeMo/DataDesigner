@@ -6,7 +6,7 @@ from __future__ import annotations
 import logging
 import random
 from functools import partial
-from typing import TYPE_CHECKING, Callable
+from typing import Callable
 
 import pandas as pd
 
@@ -23,17 +23,10 @@ from data_designer.engine.sampling_gen.data_sources.sources import SamplerType
 from data_designer.engine.sampling_gen.entities.person import load_person_data_sampler
 from data_designer.engine.sampling_gen.generator import DatasetGenerator as SamplingDatasetGenerator
 
-if TYPE_CHECKING:
-    from data_designer.engine.resources.resource_provider import ResourceType
-
 logger = logging.getLogger(__name__)
 
 
 class SamplerColumnGenerator(FromScratchColumnGenerator[SamplerMultiColumnConfig]):
-    @staticmethod
-    def get_required_resources() -> list[ResourceType]:
-        return [ResourceType.BLOB_STORAGE]
-
     @staticmethod
     def metadata() -> GeneratorMetadata:
         return GeneratorMetadata(

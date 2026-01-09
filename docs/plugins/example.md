@@ -81,7 +81,6 @@ class IndexMultiplierColumnGenerator(ColumnGenerator[IndexMultiplierColumnConfig
             name="index-multiplier",
             description="Generates values by multiplying the row index by a user-specified multiplier",
             generation_strategy=GenerationStrategy.FULL_COLUMN,
-            required_resources=None,
         )
 
     def generate(self, data: pd.DataFrame) -> pd.DataFrame:
@@ -110,7 +109,6 @@ class IndexMultiplierColumnGenerator(ColumnGenerator[IndexMultiplierColumnConfig
 - `metadata()` describes your generator and its requirements
 - `generation_strategy` can be `FULL_COLUMN`, `CELL_BY_CELL`
 - You have access to the configuration parameters via `self.config`
-- `required_resources` lists any required resources (models, artifact storages, etc.). This parameter will evolve in the near future, so keeping it as `None` is safe for now. That said, if your task will use the model registry, adding `data_designer.engine.resources.ResourceType.MODEL_REGISTRY` will enable automatic model health checking for your column generation task.
 
 !!! info "Understanding generation_strategy"
     The `generation_strategy` specifies how the column generator will generate data.
@@ -179,7 +177,6 @@ class IndexMultiplierColumnGenerator(ColumnGenerator[IndexMultiplierColumnConfig
             name="index-multiplier",
             description="Generates values by multiplying the row index by a user-specified multiplier",
             generation_strategy=GenerationStrategy.FULL_COLUMN,
-            required_resources=None,
         )
 
     def generate(self, data: pd.DataFrame) -> pd.DataFrame:
