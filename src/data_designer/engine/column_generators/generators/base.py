@@ -107,5 +107,4 @@ class ColumnGeneratorWithModel(ColumnGeneratorWithModelRegistry[TaskConfigT], AB
         logger.info(f"  |-- model: {self.model_config.model!r}")
         logger.info(f"  |-- model alias: {self.config.model_alias!r}")
         logger.info(f"  |-- model provider: {self.get_model_provider_name(model_alias=self.config.model_alias)!r}")
-        logger.info(f"  |-- generation type: {self.model_config.generation_type.value!r}")
         logger.info(f"  |-- inference parameters: {self.inference_parameters.format_for_display()}")
