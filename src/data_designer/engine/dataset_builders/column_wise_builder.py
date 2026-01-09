@@ -1,5 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+
 from __future__ import annotations
 
 import functools
@@ -46,6 +47,7 @@ from data_designer.engine.registry.data_designer_registry import DataDesignerReg
 from data_designer.engine.resources.resource_provider import ResourceProvider
 
 if TYPE_CHECKING:
+    from data_designer.engine.column_generators.generators.base import ColumnGeneratorWithModelRegistry
     from data_designer.engine.models.usage import ModelUsageStats
 
 logger = logging.getLogger(__name__)
@@ -207,7 +209,7 @@ class ColumnWiseDatasetBuilder:
                 list(set(config.model_alias for config in self.llm_generated_column_configs))
             )
 
-    def _fan_out_with_threads(self, generator: ColumnGeneratorWithModel, max_workers: int) -> None:
+    def _fan_out_with_threads(self, generator: ColumnGeneratorWithModelRegistry, max_workers: int) -> None:
         if generator.generation_strategy != GenerationStrategy.CELL_BY_CELL:
             raise DatasetGenerationError(
                 f"Generator {generator.metadata().name} is not a {GenerationStrategy.CELL_BY_CELL} "
