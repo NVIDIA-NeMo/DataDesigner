@@ -139,7 +139,7 @@ ModelConfig(
         top_p=0.9,
         max_tokens=4096,
     ),
-    )
+)
 ```
 
 The value `openai/gpt-oss-20b` would be collected.
