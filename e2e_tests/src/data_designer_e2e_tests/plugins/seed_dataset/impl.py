@@ -4,10 +4,10 @@
 import duckdb
 
 from data_designer.engine.resources.seed_reader import SeedReader
-from data_designer_e2e_tests.plugins.seed_dataset.config import TestSeedSource
+from data_designer_e2e_tests.plugins.seed_dataset.config import DemoSeedSource
 
 
-class TestSeedReader(SeedReader[TestSeedSource]):
+class DemoSeedReader(SeedReader[DemoSeedSource]):
     def create_duckdb_connection(self) -> duckdb.DuckDBPyConnection:
         return duckdb.connect()
 

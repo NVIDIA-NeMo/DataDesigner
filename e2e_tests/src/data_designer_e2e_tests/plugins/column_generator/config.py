@@ -6,7 +6,7 @@ from typing import Literal
 from data_designer.config.column_configs import SingleColumnConfig
 
 
-class TestColumnGeneratorConfig(SingleColumnConfig):
+class DemoColumnGeneratorConfig(SingleColumnConfig):
     column_type: Literal["test-column-generator"] = "test-column-generator"
 
     text: str

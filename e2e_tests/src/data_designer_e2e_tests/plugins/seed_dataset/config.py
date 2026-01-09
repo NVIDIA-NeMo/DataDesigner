@@ -6,7 +6,7 @@ from typing import Literal
 from data_designer.config.seed_source import SeedSource
 
 
-class TestSeedSource(SeedSource):
+class DemoSeedSource(SeedSource):
     seed_type: Literal["test-seed-dataset"] = "test-seed-dataset"
 
     directory: str

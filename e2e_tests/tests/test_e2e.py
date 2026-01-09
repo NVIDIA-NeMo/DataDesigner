@@ -4,8 +4,8 @@
 from pathlib import Path
 
 from data_designer.essentials import CategorySamplerParams, DataDesigner, DataDesignerConfigBuilder, ExpressionColumnConfig, SamplerColumnConfig, SamplerType
-from data_designer_e2e_tests.plugins.column_generator.config import TestColumnGeneratorConfig
-# from data_designer_e2e_tests.plugins.seed_dataset.config import TestSeedSource
+from data_designer_e2e_tests.plugins.column_generator.config import DemoColumnGeneratorConfig
+# from data_designer_e2e_tests.plugins.seed_dataset.config import DemoSeedSource
 
 current_dir = Path(__file__).parent
 
@@ -23,7 +23,7 @@ def test_column_generator_plugin():
         )
     )
     config_builder.add_column(
-        TestColumnGeneratorConfig(
+        DemoColumnGeneratorConfig(
             name="upper",
             text="hello world",
         )
@@ -40,7 +40,7 @@ def test_column_generator_plugin():
 #
 #     config_builder = DataDesignerConfigBuilder()
 #     config_builder.with_seed_dataset(
-#         TestSeedSource(
+#         DemoSeedSource(
 #             directory=str(current_dir),
 #             filename="test.csv",
 #         )

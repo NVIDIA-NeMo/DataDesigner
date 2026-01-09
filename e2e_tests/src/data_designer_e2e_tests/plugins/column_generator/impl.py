@@ -8,10 +8,10 @@ from data_designer.engine.column_generators.generators.base import (
     GenerationStrategy,
     GeneratorMetadata,
 )
-from data_designer_e2e_tests.plugins.column_generator.config import TestColumnGeneratorConfig
+from data_designer_e2e_tests.plugins.column_generator.config import DemoColumnGeneratorConfig
 
 
-class TestColumnGeneratorImpl(ColumnGenerator[TestColumnGeneratorConfig]):
+class DemoColumnGeneratorImpl(ColumnGenerator[DemoColumnGeneratorConfig]):
     @staticmethod
     def metadata() -> GeneratorMetadata:
         return GeneratorMetadata(
