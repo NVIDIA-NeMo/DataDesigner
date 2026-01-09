@@ -85,6 +85,10 @@ test:
 	@echo "🧪 Running unit tests..."
 	uv run --group dev pytest
 
+test-e2e:
+	@echo "🧪 Running e2e tests..."
+	uv run --directory e2e_tests pytest
+
 convert-execute-notebooks:
 	@echo "📓 Converting Python tutorials to notebooks and executing..."
 	@mkdir -p docs/notebooks
