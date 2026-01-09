@@ -18,7 +18,6 @@ class DemoColumnGeneratorImpl(ColumnGenerator[DemoColumnGeneratorConfig]):
             name="demo-column-generator",
             description="Shouts at you",
             generation_strategy=GenerationStrategy.FULL_COLUMN,
-            required_resources=None,
         )
 
     def generate(self, data: pd.DataFrame) -> pd.DataFrame:
