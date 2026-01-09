@@ -1,8 +1,9 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 import argparse
 import re
+import subprocess
 import sys
 from dataclasses import dataclass
 from datetime import datetime
@@ -230,14 +231,58 @@ def should_process_file(file_path: Path) -> bool:
     return not any(pattern in file_str for pattern in SKIP_PATTERNS)
 
 
-def main(path: Path, check_only: bool = False) -> tuple[int, int, int, list[Path]]:
-    """Process all Python files in a directory."""
-    current_year = datetime.now().year
-    license_header = (
-        f"# SPDX-FileCopyrightText: Copyright (c) {current_year} "
+def get_file_creation_year(file_path: Path) -> int | None:
+    """Get the year when the file was first committed to git.
+
+    Returns:
+        The year of the first commit, or None if not tracked by git.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "log", "--diff-filter=A", "--follow", "--format=%ai", "--", str(file_path)],
+            capture_output=True,
+            text=True,
+            cwd=file_path.parent,
+            check=False,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            # Output format: "2025-01-15 10:30:00 -0800"
+            # Take the last line (earliest commit due to --follow)
+            lines = result.stdout.strip().split("\n")
+            first_commit_date = lines[-1].split()[0]  # Get "YYYY-MM-DD"
+            return int(first_commit_date.split("-")[0])
+    except (subprocess.SubprocessError, ValueError, IndexError):
+        pass
+    return None
+
+
+def get_copyright_year_string(file_path: Path, current_year: int) -> str:
+    """Generate the copyright year string for a file.
+
+    Returns:
+        - Just the current year if file was created this year (e.g., "2026")
+        - A range if file was created in a previous year (e.g., "2025-2026")
+    """
+    creation_year = get_file_creation_year(file_path)
+
+    if creation_year is None or creation_year >= current_year:
+        return str(current_year)
+
+    return f"{creation_year}-{current_year}"
+
+
+def generate_license_header(copyright_year: str) -> str:
+    """Generate the license header with the given copyright year."""
+    return (
+        f"# SPDX-FileCopyrightText: Copyright (c) {copyright_year} "
         "NVIDIA CORPORATION & AFFILIATES. All rights reserved.\n"
         "# SPDX-License-Identifier: Apache-2.0\n\n"
     )
+
+
+def main(path: Path, check_only: bool = False) -> tuple[int, int, int, list[Path]]:
+    """Process all Python files in a directory."""
+    current_year = datetime.now().year
 
     processed = updated = skipped = 0
     files_needing_update: list[Path] = []
@@ -247,6 +292,9 @@ def main(path: Path, check_only: bool = False) -> tuple[int, int, int, list[Path
             continue
 
         processed += 1
+
+        copyright_year = get_copyright_year_string(file_path, current_year)
+        license_header = generate_license_header(copyright_year)
 
         if check_only:
             matches, _ = check_license_header_matches(file_path, license_header)
