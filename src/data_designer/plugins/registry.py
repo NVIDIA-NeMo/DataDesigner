@@ -61,13 +61,9 @@ class PluginRegistry:
         return plugin_name in self._plugins
 
     def _discover(self) -> Self:
-        print("top of discover")
         if PLUGINS_DISABLED:
-            print("XXX plugins are disabled")
             return self
-        print("looking for dd plugins...")
         for ep in entry_points(group="data_designer.plugins"):
-            print(f"ep: {ep}")
             try:
                 plugin = ep.load()
                 if isinstance(plugin, Plugin):
