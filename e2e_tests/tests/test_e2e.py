@@ -3,7 +3,7 @@
 
 from pathlib import Path
 
-from data_designer.essentials import DataDesigner, DataDesignerConfigBuilder, ExpressionColumnConfig
+from data_designer.essentials import CategorySamplerParams, DataDesigner, DataDesignerConfigBuilder, ExpressionColumnConfig, SamplerColumnConfig, SamplerType
 from data_designer_e2e_tests.plugins.column_generator.config import TestColumnGeneratorConfig
 # from data_designer_e2e_tests.plugins.seed_dataset.config import TestSeedSource
 
@@ -14,10 +14,18 @@ def test_column_generator_plugin():
     data_designer = DataDesigner()
 
     config_builder = DataDesignerConfigBuilder()
+    # This sampler column is necessary as a temporary workaround to https://github.com/NVIDIA-NeMo/DataDesigner/issues/4
     config_builder.add_column(
-        ExpressionColumnConfig(
+        SamplerColumnConfig(
+            name="irrelevant",
+            sampler_type=SamplerType.CATEGORY,
+            params=CategorySamplerParams(values=["irrelevant"]),
+        )
+    )
+    config_builder.add_column(
+        TestColumnGeneratorConfig(
             name="upper",
-            expr="HELLO WORLD",
+            text="hello world",
         )
     )
 
