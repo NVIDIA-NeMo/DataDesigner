@@ -168,7 +168,7 @@ if __name__ == "__main__":
     total_updated = 0
     total_skipped = 0
 
-    for folder in ["src", "tests", "scripts"]:
+    for folder in ["src", "tests", "scripts", "e2e_tests"]:
         folder_path = repo_path / folder
         if not folder_path.exists():
             continue
