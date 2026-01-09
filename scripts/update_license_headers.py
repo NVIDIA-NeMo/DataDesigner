@@ -26,6 +26,9 @@ SKIP_PATTERNS = frozenset(
 
 SKIP_FILES = frozenset(["_version.py"])
 
+# Maximum number of lines to search for SPDX license header
+MAX_HEADER_SEARCH_LINES = 10
+
 
 @dataclass
 class HeaderAnalysis:
@@ -45,6 +48,12 @@ class HeaderAnalysis:
 def extract_license_header(lines: list[str], start_idx: int) -> tuple[str, int]:
     """Extract existing SPDX license header from file lines.
 
+    This function searches for SPDX tags in comment lines and extracts the complete
+    header including any trailing blank line. It handles three states:
+    1. Searching: Looking for SPDX in comment lines, skipping blank lines and non-SPDX comments
+    2. Collecting: Found SPDX, gathering all SPDX comment lines
+    3. Done: Collected header plus optional trailing blank line, or hit non-header content
+
     Args:
         lines: List of lines from the file (with line endings preserved)
         start_idx: Index to start looking for the header
@@ -55,24 +64,31 @@ def extract_license_header(lines: list[str], start_idx: int) -> tuple[str, int]:
     header_lines: list[str] = []
     end_idx = start_idx
 
-    for i in range(start_idx, min(start_idx + 10, len(lines))):
+    for i in range(start_idx, min(start_idx + MAX_HEADER_SEARCH_LINES, len(lines))):
         line = lines[i]
         stripped = line.rstrip("\n\r")
 
+        # State: Collecting or searching for SPDX tags
         if re.search(r"SPDX", line, re.IGNORECASE):
-            header_lines.append(line)
-            end_idx = i + 1
+            # Only treat as header if it's in a comment line
+            if stripped.startswith("#"):
+                header_lines.append(line)
+                end_idx = i + 1
+            else:
+                # SPDX found in code/string literal, not a valid header
+                break
         elif header_lines:
-            # We've started collecting; check for trailing blank and stop
+            # State: We've started collecting header lines
+            # Check for trailing blank line after SPDX lines, then stop
             if stripped == "":
                 header_lines.append(line)
                 end_idx = i + 1
             break
         elif stripped == "" or stripped.startswith("#"):
-            # Skip leading blank lines and non-SPDX comments
+            # State: Still searching - skip leading blank lines and non-SPDX comments
             continue
         else:
-            # Hit code before finding SPDX header
+            # State: Hit actual code before finding any SPDX header
             break
 
     return "".join(header_lines), end_idx - start_idx
@@ -115,7 +131,11 @@ def _analyze_file_header(lines: list[str]) -> HeaderAnalysis:
 
 
 def _format_header(license_header: str, has_content_after: bool) -> str:
-    """Format header with or without trailing blank line based on context."""
+    """Format header with or without trailing blank line based on context.
+
+    When content follows the header, preserve the double newline for separation.
+    When the file is header-only, strip extra newlines to leave just one final newline.
+    """
     if has_content_after:
         return license_header
     return license_header.rstrip("\n") + "\n"

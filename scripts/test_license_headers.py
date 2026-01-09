@@ -735,6 +735,66 @@ def run_tests() -> TestResult:
     finally:
         path.unlink()
 
+    # Test 47: CRITICAL REGRESSION - SPDX in string literal should NOT be detected as header
+    spdx_in_string = "message = 'SPDX is a standard'\nprint(message)\n"
+    path = create_temp_file(spdx_in_string)
+    try:
+        was_modified, reason = update_license_header_in_file(path, LICENSE_HEADER)
+        content = path.read_text()
+        lines = content.split("\n")
+
+        # Verify: header should be added at top, string literal should be preserved
+        has_header_at_top = lines[0].startswith("#") and "SPDX-FileCopyrightText" in lines[0]
+        string_preserved = "message = 'SPDX is a standard'" in content
+        spdx_count = content.count("SPDX")
+
+        if (
+            was_modified
+            and reason == "added"
+            and has_header_at_top
+            and string_preserved
+            and spdx_count == 3  # 2 in header + 1 in string
+        ):
+            results.add_pass("CRITICAL: SPDX in string literal not treated as header")
+        else:
+            results.add_fail(
+                "CRITICAL: SPDX in string literal not treated as header",
+                f"modified={was_modified}, reason={reason}, header_at_top={has_header_at_top}, "
+                f"string_preserved={string_preserved}, spdx_count={spdx_count}",
+            )
+    finally:
+        path.unlink()
+
+    # Test 48: SPDX in variable name or function name
+    spdx_in_code = "def check_spdx_compliance():\n    return True\n"
+    path = create_temp_file(spdx_in_code)
+    try:
+        was_modified, reason = update_license_header_in_file(path, LICENSE_HEADER)
+        content = path.read_text()
+
+        # Should add header, not treat function name as header
+        if was_modified and reason == "added" and content.startswith("# SPDX"):
+            results.add_pass("edge: SPDX in function name not treated as header")
+        else:
+            results.add_fail("edge: SPDX in function name not treated as header", f"Got {was_modified}, {reason}")
+    finally:
+        path.unlink()
+
+    # Test 49: SPDX in multi-line string (docstring)
+    spdx_in_docstring = '"""This module handles SPDX compliance checking."""\nimport os\n'
+    path = create_temp_file(spdx_in_docstring)
+    try:
+        was_modified, reason = update_license_header_in_file(path, LICENSE_HEADER)
+        content = path.read_text()
+
+        # Should add header at top, before docstring
+        if was_modified and reason == "added" and content.startswith("# SPDX"):
+            results.add_pass("edge: SPDX in module docstring not treated as header")
+        else:
+            results.add_fail("edge: SPDX in module docstring not treated as header", f"Got {was_modified}, {reason}")
+    finally:
+        path.unlink()
+
     return results
 
 
