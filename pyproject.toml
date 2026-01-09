@@ -128,7 +128,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["data_designer"]
+known-first-party = ["data_designer", "data_designer_e2e_tests"]
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"

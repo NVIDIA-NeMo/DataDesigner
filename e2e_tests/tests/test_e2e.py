@@ -3,8 +3,6 @@
 
 from pathlib import Path
 
-from data_designer_e2e_tests.plugins.column_generator.config import DemoColumnGeneratorConfig
-
 from data_designer.essentials import (
     CategorySamplerParams,
     DataDesigner,
@@ -12,6 +10,7 @@ from data_designer.essentials import (
     SamplerColumnConfig,
     SamplerType,
 )
+from data_designer_e2e_tests.plugins.column_generator.config import DemoColumnGeneratorConfig
 
 # from data_designer_e2e_tests.plugins.seed_dataset.config import DemoSeedSource
 
