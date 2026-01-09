@@ -4,7 +4,7 @@
 from data_designer.plugins.plugin import Plugin, PluginType
 
 seed_dataset_plugin = Plugin(
-    config_qualified_name="data_designer_e2e_tests.plugins.seed_dataset.config.TestSeedSource",
-    impl_qualified_name="data_designer_e2e_tests.plugins.seed_dataset.impl.TestSeedReader",
+    config_qualified_name="data_designer_e2e_tests.plugins.seed_dataset.config.DemoSeedSource",
+    impl_qualified_name="data_designer_e2e_tests.plugins.seed_dataset.impl.DemoSeedReader",
     plugin_type=PluginType.SEED_DATASET,
 )

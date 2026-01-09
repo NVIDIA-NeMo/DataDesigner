@@ -7,7 +7,7 @@ from data_designer.config.seed_source import SeedSource
 
 
 class DemoSeedSource(SeedSource):
-    seed_type: Literal["test-seed-dataset"] = "test-seed-dataset"
+    seed_type: Literal["demo-seed-dataset"] = "demo-seed-dataset"
 
     directory: str
     filename: str

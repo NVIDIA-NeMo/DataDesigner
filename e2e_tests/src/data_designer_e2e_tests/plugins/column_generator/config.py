@@ -7,6 +7,6 @@ from data_designer.config.column_configs import SingleColumnConfig
 
 
 class DemoColumnGeneratorConfig(SingleColumnConfig):
-    column_type: Literal["test-column-generator"] = "test-column-generator"
+    column_type: Literal["demo-column-generator"] = "demo-column-generator"
 
     text: str
