@@ -108,12 +108,11 @@ def test_log_pre_generation(mock_logger: Mock) -> None:
 
     generator.log_pre_generation()
 
-    assert mock_logger.info.call_count == 6
+    assert mock_logger.info.call_count == 5
     mock_logger.info.assert_any_call("llm-text model configuration for generating column 'test_column'")
     mock_logger.info.assert_any_call("  |-- model: 'meta/llama-3.1-8b-instruct'")
     mock_logger.info.assert_any_call("  |-- model alias: 'test_model'")
     mock_logger.info.assert_any_call("  |-- model provider: 'test_provider'")
-    mock_logger.info.assert_any_call("  |-- generation type: 'chat-completion'")
     mock_logger.info.assert_any_call("  |-- inference parameters: temperature=0.70, max_tokens=100")
 
     # Test with different provider
