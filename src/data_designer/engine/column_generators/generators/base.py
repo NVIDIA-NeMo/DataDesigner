@@ -89,7 +89,7 @@ class ColumnGeneratorWithModelRegistry(ColumnGenerator[TaskConfigT], ABC):
         return provider.name
 
 
-class ColumnGeneratorWithSingleModel(ColumnGeneratorWithModelRegistry[TaskConfigT], ABC):
+class ColumnGeneratorWithModel(ColumnGeneratorWithModelRegistry[TaskConfigT], ABC):
     @functools.cached_property
     def model(self) -> ModelFacade:
         return self.get_model(model_alias=self.config.model_alias)

@@ -6,7 +6,7 @@ from pydantic import BaseModel, computed_field
 
 from data_designer.config.column_configs import EmbeddingColumnConfig
 from data_designer.engine.column_generators.generators.base import (
-    ColumnGeneratorWithSingleModel,
+    ColumnGeneratorWithModel,
     GenerationStrategy,
     GeneratorMetadata,
 )
@@ -25,7 +25,7 @@ class EmbeddingGenerationResult(BaseModel):
         return len(self.embeddings[0]) if len(self.embeddings) > 0 else 0
 
 
-class EmbeddingCellGenerator(ColumnGeneratorWithSingleModel[EmbeddingColumnConfig]):
+class EmbeddingCellGenerator(ColumnGeneratorWithModel[EmbeddingColumnConfig]):
     @staticmethod
     def metadata() -> GeneratorMetadata:
         return GeneratorMetadata(

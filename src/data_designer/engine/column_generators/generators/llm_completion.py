@@ -12,7 +12,7 @@ from data_designer.config.column_configs import (
 )
 from data_designer.config.utils.constants import REASONING_TRACE_COLUMN_POSTFIX
 from data_designer.engine.column_generators.generators.base import (
-    ColumnGeneratorWithSingleModel,
+    ColumnGeneratorWithModel,
     GenerationStrategy,
     GeneratorMetadata,
 )
@@ -32,7 +32,7 @@ DEFAULT_MAX_CONVERSATION_RESTARTS = 5
 DEFAULT_MAX_CONVERSATION_CORRECTION_STEPS = 0
 
 
-class ColumnGeneratorWithSingleModelChatCompletion(ColumnGeneratorWithSingleModel[TaskConfigT]):
+class ColumnGeneratorWithModelChatCompletion(ColumnGeneratorWithModel[TaskConfigT]):
     @functools.cached_property
     def response_recipe(self) -> ResponseRecipe:
         return create_response_recipe(self.config, self.model_config)
@@ -91,7 +91,7 @@ class ColumnGeneratorWithSingleModelChatCompletion(ColumnGeneratorWithSingleMode
         return data
 
 
-class LLMTextCellGenerator(ColumnGeneratorWithSingleModelChatCompletion[LLMTextColumnConfig]):
+class LLMTextCellGenerator(ColumnGeneratorWithModelChatCompletion[LLMTextColumnConfig]):
     @staticmethod
     def metadata() -> GeneratorMetadata:
         return GeneratorMetadata(
@@ -101,7 +101,7 @@ class LLMTextCellGenerator(ColumnGeneratorWithSingleModelChatCompletion[LLMTextC
         )
 
 
-class LLMCodeCellGenerator(ColumnGeneratorWithSingleModelChatCompletion[LLMCodeColumnConfig]):
+class LLMCodeCellGenerator(ColumnGeneratorWithModelChatCompletion[LLMCodeColumnConfig]):
     @staticmethod
     def metadata() -> GeneratorMetadata:
         return GeneratorMetadata(
@@ -111,7 +111,7 @@ class LLMCodeCellGenerator(ColumnGeneratorWithSingleModelChatCompletion[LLMCodeC
         )
 
 
-class LLMStructuredCellGenerator(ColumnGeneratorWithSingleModelChatCompletion[LLMStructuredColumnConfig]):
+class LLMStructuredCellGenerator(ColumnGeneratorWithModelChatCompletion[LLMStructuredColumnConfig]):
     @staticmethod
     def metadata() -> GeneratorMetadata:
         return GeneratorMetadata(
@@ -121,7 +121,7 @@ class LLMStructuredCellGenerator(ColumnGeneratorWithSingleModelChatCompletion[LL
         )
 
 
-class LLMJudgeCellGenerator(ColumnGeneratorWithSingleModelChatCompletion[LLMJudgeColumnConfig]):
+class LLMJudgeCellGenerator(ColumnGeneratorWithModelChatCompletion[LLMJudgeColumnConfig]):
     @staticmethod
     def metadata() -> GeneratorMetadata:
         return GeneratorMetadata(
