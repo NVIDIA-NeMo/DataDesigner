@@ -98,20 +98,26 @@ def test_generate_method():
 
 
 @patch("data_designer.engine.column_generators.generators.base.logger", autospec=True)
-def test_log_pre_generation(mock_logger):
-    generator, mock_resource_provider, _, mock_model_config, _, _, _ = _create_generator_with_mocks()
-    mock_model_config.model_dump_json.return_value = '{"test": "config"}'
+def test_log_pre_generation(mock_logger: Mock) -> None:
+    generator, mock_resource_provider, _, mock_model_config, mock_inference_params, _, _ = (
+        _create_generator_with_mocks()
+    )
+    mock_model_config.model = "meta/llama-3.1-8b-instruct"
+    mock_model_config.generation_type.value = "chat-completion"
+    mock_inference_params.format_for_display.return_value = "temperature=0.70, max_tokens=100"
 
     generator.log_pre_generation()
 
-    assert mock_logger.info.call_count == 4
-    mock_logger.info.assert_any_call("Preparing llm-text column generation")
-    mock_logger.info.assert_any_call("  |-- column name: 'test_column'")
-    mock_logger.info.assert_any_call('  |-- model config:\n{"test": "config"}')
+    assert mock_logger.info.call_count == 6
+    mock_logger.info.assert_any_call("llm-text model configuration for generating column 'test_column'")
+    mock_logger.info.assert_any_call("  |-- model: 'meta/llama-3.1-8b-instruct'")
+    mock_logger.info.assert_any_call("  |-- model alias: 'test_model'")
     mock_logger.info.assert_any_call("  |-- model provider: 'test_provider'")
+    mock_logger.info.assert_any_call("  |-- generation type: 'chat-completion'")
+    mock_logger.info.assert_any_call("  |-- inference parameters: temperature=0.70, max_tokens=100")
 
-    # Test with provider
-    mock_model_config.provider = None
+    # Test with different provider
+    mock_logger.reset_mock()
     mock_provider = Mock()
     mock_provider.name = "test_provider_2"
     mock_resource_provider.model_registry.get_model_provider.return_value = mock_provider
