@@ -60,7 +60,7 @@ jobs:
         run: |
           uv sync --group dev
 
-      - name: Run tests with coverage
+      - name: Run e2e tests
         run: |
           make test-e2e
 
