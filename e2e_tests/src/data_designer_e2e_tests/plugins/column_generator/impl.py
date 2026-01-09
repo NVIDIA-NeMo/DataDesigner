@@ -2,13 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import pandas as pd
+from data_designer_e2e_tests.plugins.column_generator.config import DemoColumnGeneratorConfig
 
 from data_designer.engine.column_generators.generators.base import (
     ColumnGenerator,
     GenerationStrategy,
     GeneratorMetadata,
 )
-from data_designer_e2e_tests.plugins.column_generator.config import DemoColumnGeneratorConfig
 
 
 class DemoColumnGeneratorImpl(ColumnGenerator[DemoColumnGeneratorConfig]):

@@ -63,22 +63,22 @@ check-all-fix: format lint-fix
 
 format:
 	@echo "📐 Formatting code with ruff..."
-	uv run ruff format src/ tests/ scripts/ --exclude '**/src/data_designer/_version.py'
+	uv run ruff format src/ tests/ scripts/ e2e_tests/ --exclude '**/src/data_designer/_version.py'
 	@echo "✅ Formatting complete!"
 
 format-check:
 	@echo "📐 Checking code formatting with ruff..."
-	uv run ruff format --check src/ tests/ scripts/ --exclude '**/src/data_designer/_version.py'
+	uv run ruff format --check src/ tests/ scripts/ e2e_tests/ --exclude '**/src/data_designer/_version.py'
 	@echo "✅ Formatting check complete! Run 'make format' to auto-fix issues."
 
 lint:
 	@echo "🔍 Linting code with ruff..."
-	uv run ruff check --output-format=full src/ tests/ scripts/ --exclude '**/src/data_designer/_version.py'
+	uv run ruff check --output-format=full src/ tests/ scripts/ e2e_tests/ --exclude '**/src/data_designer/_version.py'
 	@echo "✅ Linting complete! Run 'make lint-fix' to auto-fix issues."
 
 lint-fix:
 	@echo "🔍 Fixing linting issues with ruff..."
-	uv run ruff check --fix src/ tests/ scripts/ --exclude '**/src/data_designer/_version.py'
+	uv run ruff check --fix src/ tests/ scripts/ e2e_tests/ --exclude '**/src/data_designer/_version.py'
 	@echo "✅ Linting with autofix complete!"
 
 test:
