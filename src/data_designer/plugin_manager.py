@@ -64,3 +64,15 @@ class PluginManager:
             column_config_type, PluginType.COLUMN_GENERATOR
         )
         return column_config_type
+
+    def inject_into_seed_source_type_union(self, seed_source_type: type[TypeAlias]) -> type[TypeAlias]:
+        """Inject plugins into the seed source type.
+
+        Args:
+            seed_source_type: The seed source type to inject plugins into.
+
+        Returns:
+            The seed source type with plugins injected.
+        """
+        seed_source_type = self._plugin_registry.add_plugin_types_to_union(seed_source_type, PluginType.SEED_READER)
+        return seed_source_type

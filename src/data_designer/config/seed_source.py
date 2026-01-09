@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from abc import ABC
-from typing import Annotated, Literal
+from typing import Literal
 
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -76,9 +76,3 @@ class DataFrameSeedSource(SeedSource):
             "you must use `LocalFileSeedSource` instead, since DataFrame objects are not serializable."
         ),
     )
-
-
-SeedSourceT = Annotated[
-    LocalFileSeedSource | HuggingFaceSeedSource | DataFrameSeedSource,
-    Field(discriminator="seed_type"),
-]
