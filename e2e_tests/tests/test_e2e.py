@@ -49,7 +49,7 @@ def test_seed_dataset_plugin():
     config_builder.with_seed_dataset(
         DemoSeedSource(
             directory=str(current_dir),
-            filename="test.csv",
+            filename="test_seed.csv",
         )
     )
     # This sampler column is necessary as a temporary workaround to https://github.com/NVIDIA-NeMo/DataDesigner/issues/4

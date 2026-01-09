@@ -2,18 +2,17 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from abc import ABC
-from typing import Annotated, Literal
+from typing import Literal
 
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from typing_extensions import Self, TypeAlias
+from typing_extensions import Self
 
 from data_designer.config.utils.io_helpers import (
     VALID_DATASET_FILE_EXTENSIONS,
     validate_dataset_file_path,
     validate_path_contains_files_of_type,
 )
-from data_designer.plugin_manager import PluginManager
 
 
 class SeedSource(BaseModel, ABC):
@@ -77,11 +76,3 @@ class DataFrameSeedSource(SeedSource):
             "you must use `LocalFileSeedSource` instead, since DataFrame objects are not serializable."
         ),
     )
-
-
-plugin_manager = PluginManager()
-
-_SeedSourceT: TypeAlias = LocalFileSeedSource | HuggingFaceSeedSource | DataFrameSeedSource
-_SeedSourceT = plugin_manager.inject_into_seed_source_type_union(_SeedSourceT)
-
-SeedSourceT = Annotated[_SeedSourceT, Field(discriminator="seed_type")]
