@@ -19,13 +19,13 @@ from data_designer.plugins.errors import PluginLoadError
 
 class PluginType(str, Enum):
     COLUMN_GENERATOR = "column-generator"
-    SEED_DATASET = "seed-dataset"
+    SEED_READER = "seed-reader"
 
     @property
     def discriminator_field(self) -> str:
         if self == PluginType.COLUMN_GENERATOR:
             return "column_type"
-        elif self == PluginType.SEED_DATASET:
+        elif self == PluginType.SEED_READER:
             return "seed_type"
         else:
             raise ValueError(f"Invalid plugin type: {self.value}")

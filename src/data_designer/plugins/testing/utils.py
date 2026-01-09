@@ -14,7 +14,7 @@ def assert_valid_plugin(plugin: Plugin) -> None:
         assert issubclass(plugin.impl_cls, ConfigurableTask), (
             "Column generator plugin impl class must be a subclass of ConfigurableTask"
         )
-    elif plugin.plugin_type == PluginType.SEED_DATASET:
+    elif plugin.plugin_type == PluginType.SEED_READER:
         assert issubclass(plugin.impl_cls, SeedReader), (
-            "Seed dataset plugin impl class must be a subclass of SeedReader"
+            "Seed reader plugin impl class must be a subclass of SeedReader"
         )

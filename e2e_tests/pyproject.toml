@@ -17,7 +17,7 @@ dev = [
 
 [project.entry-points."data_designer.plugins"]
 demo-column-generator = "data_designer_e2e_tests.plugins.column_generator.plugin:column_generator_plugin"
-demo-seed-dataset = "data_designer_e2e_tests.plugins.seed_dataset.plugin:seed_dataset_plugin"
+demo-seed-reader = "data_designer_e2e_tests.plugins.seed_reader.plugin:seed_reader_plugin"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

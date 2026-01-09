@@ -12,7 +12,7 @@ from data_designer.essentials import (
     SamplerType,
 )
 from data_designer_e2e_tests.plugins.column_generator.config import DemoColumnGeneratorConfig
-from data_designer_e2e_tests.plugins.seed_dataset.config import DemoSeedSource
+from data_designer_e2e_tests.plugins.seed_reader.config import DemoSeedSource
 
 
 def test_column_generator_plugin():
@@ -40,7 +40,7 @@ def test_column_generator_plugin():
     assert capitalized == {"HELLO WORLD"}
 
 
-def test_seed_dataset_plugin():
+def test_seed_reader_plugin():
     current_dir = Path(__file__).parent
 
     data_designer = DataDesigner()

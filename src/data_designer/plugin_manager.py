@@ -74,5 +74,5 @@ class PluginManager:
         Returns:
             The seed source type with plugins injected.
         """
-        seed_source_type = self._plugin_registry.add_plugin_types_to_union(seed_source_type, PluginType.SEED_DATASET)
+        seed_source_type = self._plugin_registry.add_plugin_types_to_union(seed_source_type, PluginType.SEED_READER)
         return seed_source_type

@@ -72,7 +72,7 @@ DEFAULT_SEED_READERS = [
     LocalFileSeedReader(),
     DataFrameSeedReader(),
 ]
-for plugin in PluginRegistry().get_plugins(PluginType.SEED_DATASET):
+for plugin in PluginRegistry().get_plugins(PluginType.SEED_READER):
     DEFAULT_SEED_READERS.append(plugin.impl_cls())
 
 logger = logging.getLogger(__name__)
