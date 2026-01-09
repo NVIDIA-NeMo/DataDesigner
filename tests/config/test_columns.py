@@ -34,10 +34,6 @@ from data_designer.config.sampler_params import (
 from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.utils.errors import UserJinjaTemplateSyntaxError
 from data_designer.config.validator_params import CodeValidatorParams
-from data_designer.engine.column_generators.utils.generator_classification import (
-    column_type_is_model_generated,
-    column_type_used_in_execution_dag,
-)
 
 stub_prompt = "test_prompt {{some_column}}"
 stub_system_prompt = "test_system_prompt {{some_other_column}}"
@@ -56,30 +52,6 @@ def test_data_designer_column_type_get_display_order():
         DataDesignerColumnType.VALIDATION,
         DataDesignerColumnType.EXPRESSION,
     ]
-
-
-def test_data_designer_column_type_is_llm_generated():
-    assert column_type_is_model_generated(DataDesignerColumnType.LLM_TEXT)
-    assert column_type_is_model_generated(DataDesignerColumnType.LLM_CODE)
-    assert column_type_is_model_generated(DataDesignerColumnType.LLM_STRUCTURED)
-    assert column_type_is_model_generated(DataDesignerColumnType.LLM_JUDGE)
-    assert column_type_is_model_generated(DataDesignerColumnType.EMBEDDING)
-    assert not column_type_is_model_generated(DataDesignerColumnType.SAMPLER)
-    assert not column_type_is_model_generated(DataDesignerColumnType.VALIDATION)
-    assert not column_type_is_model_generated(DataDesignerColumnType.EXPRESSION)
-    assert not column_type_is_model_generated(DataDesignerColumnType.SEED_DATASET)
-
-
-def test_data_designer_column_type_is_in_dag():
-    assert column_type_used_in_execution_dag(DataDesignerColumnType.EXPRESSION)
-    assert column_type_used_in_execution_dag(DataDesignerColumnType.LLM_CODE)
-    assert column_type_used_in_execution_dag(DataDesignerColumnType.LLM_JUDGE)
-    assert column_type_used_in_execution_dag(DataDesignerColumnType.LLM_STRUCTURED)
-    assert column_type_used_in_execution_dag(DataDesignerColumnType.LLM_TEXT)
-    assert column_type_used_in_execution_dag(DataDesignerColumnType.VALIDATION)
-    assert column_type_used_in_execution_dag(DataDesignerColumnType.EMBEDDING)
-    assert not column_type_used_in_execution_dag(DataDesignerColumnType.SAMPLER)
-    assert not column_type_used_in_execution_dag(DataDesignerColumnType.SEED_DATASET)
 
 
 def test_sampler_column_config():
