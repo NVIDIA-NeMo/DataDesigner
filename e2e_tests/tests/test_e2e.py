@@ -45,6 +45,14 @@ def test_column_generator_plugin():
 #             filename="test.csv",
 #         )
 #     )
+#     # This sampler column is necessary as a temporary workaround to https://github.com/NVIDIA-NeMo/DataDesigner/issues/4
+#     config_builder.add_column(
+#         SamplerColumnConfig(
+#             name="irrelevant",
+#             sampler_type=SamplerType.CATEGORY,
+#             params=CategorySamplerParams(values=["irrelevant"]),
+#         )
+#     )
 #     config_builder.add_column(
 #         ExpressionColumnConfig(
 #             name="full_name",
