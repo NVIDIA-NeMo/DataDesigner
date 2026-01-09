@@ -1,6 +1,7 @@
 [project]
 name = "data-designer-e2e-tests"
 version = "0.0.1"
+requires-python = ">=3.10"
 
 dependencies = [
   "data-designer",
