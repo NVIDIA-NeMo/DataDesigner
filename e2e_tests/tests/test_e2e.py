@@ -4,8 +4,8 @@
 from pathlib import Path
 
 from data_designer.essentials import DataDesigner, DataDesignerConfigBuilder, ExpressionColumnConfig
-from data_designer.plugins.testing.e2e.column_generator_plugin.config import TestColumnGeneratorConfig
-from data_designer.plugins.testing.e2e.seed_dataset_plugin.config import TestSeedSource
+from data_designer_e2e_tests.plugins.column_generator.config import TestColumnGeneratorConfig
+from data_designer_e2e_tests.plugins.seed_dataset.config import TestSeedSource
 
 current_dir = Path(__file__).parent
 

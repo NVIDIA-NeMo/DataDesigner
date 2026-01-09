@@ -4,7 +4,7 @@
 import duckdb
 
 from data_designer.engine.resources.seed_reader import SeedReader
-from data_designer.plugins.testing.e2e.seed_dataset_plugin.config import TestSeedSource
+from data_designer_e2e_tests.plugins.seed_dataset.config import TestSeedSource
 
 
 class TestSeedReader(SeedReader[TestSeedSource]):

@@ -8,7 +8,7 @@ from data_designer.engine.column_generators.generators.base import (
     GenerationStrategy,
     GeneratorMetadata,
 )
-from data_designer.plugins.testing.e2e.column_generator_plugin.config import TestColumnGeneratorConfig
+from data_designer_e2e_tests.plugins.column_generator.config import TestColumnGeneratorConfig
 
 
 class TestColumnGeneratorImpl(ColumnGenerator[TestColumnGeneratorConfig]):

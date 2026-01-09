@@ -1,0 +1,32 @@
+[project]
+name = "data-designer-e2e-tests"
+version = "0.0.1"
+
+dependencies = [
+  "data-designer",
+  "pytest",
+]
+
+[project.entry-points."data_designer.plugins"]
+test-column-generator = "data_designer_e2e_tests.plugins.column_generator.plugin:column_generator_plugin"
+test-seed-dataset = "data_designer_e2e_tests.plugins.seed_dataset.plugin:seed_dataset_plugin"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+env = [
+  # ensure plugins are enabled
+  "DISABLE_DATA_DESIGNER_PLUGINS=false",
+]
+
+[tool.uv]
+package = true
+required-version = ">=0.7.10"
+
+[tool.uv.sources]
+data-designer = { path = "../" }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/data_designer_e2e_tests"]

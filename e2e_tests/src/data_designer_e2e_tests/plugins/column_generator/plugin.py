@@ -4,7 +4,7 @@
 from data_designer.plugins.plugin import Plugin, PluginType
 
 column_generator_plugin = Plugin(
-    config_qualified_name="data_designer.plugins.testing.e2e.column_generator_plugin.config.TestColumnGeneratorConfig",
-    impl_qualified_name="data_designer.plugins.testing.e2e.column_generator_plugin.impl.TestColumnGeneratorImpl",
+    config_qualified_name="data_designer_e2e_tests.plugins.column_generator.config.TestColumnGeneratorConfig",
+    impl_qualified_name="data_designer_e2e_tests.plugins.column_generator.impl.TestColumnGeneratorImpl",
     plugin_type=PluginType.COLUMN_GENERATOR,
 )
