@@ -4,23 +4,56 @@
 import argparse
 import re
 import sys
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+SKIP_PATTERNS = frozenset(
+    [
+        "__pycache__",
+        ".pyc",
+        ".pyo",
+        ".pyd",
+        ".so",
+        ".egg-info",
+        ".git",
+        ".pytest_cache",
+        "node_modules",
+        ".venv",
+        "venv",
+    ]
+)
 
-def extract_license_header(lines: list[str], start_idx: int) -> tuple[list[str], int]:
-    """Extract existing SPDX license header lines from file.
+SKIP_FILES = frozenset(["_version.py"])
+
+
+@dataclass
+class HeaderAnalysis:
+    """Result of analyzing a file's license header."""
+
+    lines: list[str]  # All file lines
+    header_start: int  # Where header starts (or should be inserted)
+    existing_header: str  # Existing header content (empty if none)
+    header_end: int  # Line index after header ends
+    has_content_after: bool  # Whether there's code after header position
+
+    @property
+    def has_header(self) -> bool:
+        return bool(self.existing_header)
+
+
+def extract_license_header(lines: list[str], start_idx: int) -> tuple[str, int]:
+    """Extract existing SPDX license header from file lines.
 
     Args:
         lines: List of lines from the file (with line endings preserved)
         start_idx: Index to start looking for the header
 
     Returns:
-        Tuple of (header_lines, num_lines_consumed) where header_lines includes
-        the SPDX comment lines and any trailing blank line.
+        Tuple of (header_content, num_lines_consumed)
     """
     header_lines: list[str] = []
-    consumed = 0
+    end_idx = start_idx
 
     for i in range(start_idx, min(start_idx + 10, len(lines))):
         line = lines[i]
@@ -28,35 +61,71 @@ def extract_license_header(lines: list[str], start_idx: int) -> tuple[list[str],
 
         if re.search(r"SPDX", line, re.IGNORECASE):
             header_lines.append(line)
-            consumed = i - start_idx + 1
+            end_idx = i + 1
         elif header_lines:
-            # We've collected header lines; check for trailing blank line
+            # We've started collecting; check for trailing blank and stop
             if stripped == "":
                 header_lines.append(line)
-                consumed = i - start_idx + 1
+                end_idx = i + 1
             break
-        elif stripped == "":
-            # Skip leading blank lines before header
-            continue
-        elif stripped.startswith("#"):
-            # Skip other comments before SPDX lines
+        elif stripped == "" or stripped.startswith("#"):
+            # Skip leading blank lines and non-SPDX comments
             continue
         else:
-            # Hit non-comment content before finding SPDX header
+            # Hit code before finding SPDX header
             break
 
-    return header_lines, consumed
+    return "".join(header_lines), end_idx - start_idx
+
+
+def _analyze_file_header(lines: list[str]) -> HeaderAnalysis:
+    """Analyze a file to find its current header state."""
+    if not lines:
+        return HeaderAnalysis(
+            lines=lines,
+            header_start=0,
+            existing_header="",
+            header_end=0,
+            has_content_after=False,
+        )
+
+    # Header goes after shebang if present
+    insert_pos = 1 if lines[0].startswith("#!") else 0
+
+    # Skip blank lines to find where header actually starts
+    header_search_start = insert_pos
+    while header_search_start < len(lines) and lines[header_search_start].strip() == "":
+        header_search_start += 1
+
+    # Extract existing header
+    existing_header, num_lines = extract_license_header(lines, header_search_start)
+    header_end = header_search_start + num_lines
+
+    # Check if there's content after the header position
+    remaining = lines[header_end:] if existing_header else lines[insert_pos:]
+    has_content = any(line.strip() for line in remaining)
+
+    return HeaderAnalysis(
+        lines=lines,
+        header_start=header_search_start if existing_header else insert_pos,
+        existing_header=existing_header,
+        header_end=header_end,
+        has_content_after=has_content,
+    )
+
+
+def _format_header(license_header: str, has_content_after: bool) -> str:
+    """Format header with or without trailing blank line based on context."""
+    if has_content_after:
+        return license_header
+    return license_header.rstrip("\n") + "\n"
 
 
 def update_license_header_in_file(file_path: Path, license_header: str) -> tuple[bool, str]:
     """Update license header in a single file.
 
-    Args:
-        file_path: Path to the file to update
-        license_header: The license header to add/update
-
     Returns:
-        Tuple of (was_modified, reason) where reason is one of:
+        Tuple of (was_modified, reason) where reason is:
         - "added" - header was added (none existed)
         - "updated" - header was replaced (different existed)
         - "unchanged" - header unchanged (identical existed)
@@ -67,59 +136,29 @@ def update_license_header_in_file(file_path: Path, license_header: str) -> tuple
         lines = content.splitlines(keepends=True)
 
         if not lines:
-            # Empty file, just add header (without trailing blank line)
-            header_only = license_header.rstrip("\n") + "\n"
-            file_path.write_text(header_only, encoding="utf-8")
+            file_path.write_text(_format_header(license_header, False), encoding="utf-8")
             return True, "added"
 
-        # Find where header should be (after shebang if present)
-        insert_pos = 0
-        if lines[0].startswith("#!"):
-            insert_pos = 1
+        analysis = _analyze_file_header(lines)
+        expected_header = _format_header(license_header, analysis.has_content_after)
 
-        # Find where to look for existing header (skip blank lines after shebang)
-        header_search_start = insert_pos
-        while header_search_start < len(lines) and lines[header_search_start].strip() == "":
-            header_search_start += 1
-
-        # Extract existing header if present
-        existing_header_lines, num_header_lines = extract_license_header(lines, header_search_start)
-        existing_header = "".join(existing_header_lines)
-
-        if existing_header:
-            # Calculate the range to replace (from header_search_start to end of header)
-            header_end = header_search_start + num_header_lines
-            remaining_lines = lines[header_end:]
-
-            # Only include trailing blank line if there's content after the header
-            has_content_after = any(line.strip() for line in remaining_lines)
-            header_to_use = license_header if has_content_after else license_header.rstrip("\n") + "\n"
-
-            # Compare exactly - header must match including whitespace
-            if existing_header == header_to_use:
+        if analysis.has_header:
+            if analysis.existing_header == expected_header:
                 return False, "unchanged"
 
-            # Build new content: before header + new header + after header
-            new_lines = lines[:header_search_start]
-            new_lines.append(header_to_use)
-            new_lines.extend(remaining_lines)
-
+            # Replace existing header
+            new_lines = lines[: analysis.header_start]
+            new_lines.append(expected_header)
+            new_lines.extend(lines[analysis.header_end :])
             file_path.write_text("".join(new_lines), encoding="utf-8")
             return True, "updated"
 
-        # No existing header found, add one
-        remaining_lines = lines[insert_pos:]
-        has_content_after = any(line.strip() for line in remaining_lines)
-
-        if has_content_after:
-            # File has content, add header with blank line separator
-            lines.insert(insert_pos, license_header)
+        # No existing header - add one
+        if analysis.has_content_after:
+            lines.insert(analysis.header_start, expected_header)
             file_path.write_text("".join(lines), encoding="utf-8")
         else:
-            # File has no real content, just write header without trailing blank line
-            header_only = license_header.rstrip("\n") + "\n"
-            file_path.write_text(header_only, encoding="utf-8")
-
+            file_path.write_text(expected_header, encoding="utf-8")
         return True, "added"
 
     except (UnicodeDecodeError, PermissionError) as e:
@@ -144,29 +183,13 @@ def check_license_header_matches(file_path: Path, license_header: str) -> tuple[
         if not lines:
             return False, "missing"
 
-        # Find where header should be
-        start_idx = 0
-        if lines[0].startswith("#!"):
-            start_idx = 1
+        analysis = _analyze_file_header(lines)
 
-        # Skip blank lines
-        while start_idx < len(lines) and lines[start_idx].strip() == "":
-            start_idx += 1
-
-        existing_header_lines, num_header_lines = extract_license_header(lines, start_idx)
-        existing_header = "".join(existing_header_lines)
-
-        if not existing_header:
+        if not analysis.has_header:
             return False, "missing"
 
-        # Determine expected header format based on whether there's content after
-        header_end = start_idx + num_header_lines
-        remaining_lines = lines[header_end:]
-        has_content_after = any(line.strip() for line in remaining_lines)
-        expected_header = license_header if has_content_after else license_header.rstrip("\n") + "\n"
-
-        # Compare exactly - header must match including whitespace
-        if existing_header == expected_header:
+        expected_header = _format_header(license_header, analysis.has_content_after)
+        if analysis.existing_header == expected_header:
             return True, "match"
 
         return False, "mismatch"
@@ -177,89 +200,51 @@ def check_license_header_matches(file_path: Path, license_header: str) -> tuple[
 
 def should_process_file(file_path: Path) -> bool:
     """Determine if a file should be processed for license headers."""
-    # Skip certain files
-    skip_patterns = [
-        "__pycache__",
-        ".pyc",
-        ".pyo",
-        ".pyd",
-        ".so",
-        ".egg-info",
-        ".git",
-        ".pytest_cache",
-        "node_modules",
-        ".venv",
-        "venv",
-    ]
-
-    # Skip if file path contains any skip patterns
-    file_str = str(file_path)
-    for pattern in skip_patterns:
-        if pattern in file_str:
-            return False
-
-    # Only process Python files
     if file_path.suffix != ".py":
         return False
 
-    # Skip certain specific files
-    skip_files = ["_version.py"]
-
-    if file_path.name in skip_files:
+    if file_path.name in SKIP_FILES:
         return False
 
-    return True
+    file_str = str(file_path)
+    return not any(pattern in file_str for pattern in SKIP_PATTERNS)
 
 
 def main(path: Path, check_only: bool = False) -> tuple[int, int, int, list[Path]]:
+    """Process all Python files in a directory."""
     current_year = datetime.now().year
-    LICENSE_HEADER = (
+    license_header = (
         f"# SPDX-FileCopyrightText: Copyright (c) {current_year} "
         "NVIDIA CORPORATION & AFFILIATES. All rights reserved.\n"
         "# SPDX-License-Identifier: Apache-2.0\n\n"
     )
 
-    # File patterns to process
-    patterns = ["**/*.py"]
-
-    processed_files = 0
-    updated_files = 0
-    skipped_files = 0
+    processed = updated = skipped = 0
     files_needing_update: list[Path] = []
 
-    for pattern in patterns:
-        for file_path in path.glob(pattern):
-            # Skip if not a file
-            if not file_path.is_file():
-                continue
+    for file_path in path.glob("**/*.py"):
+        if not file_path.is_file() or not should_process_file(file_path):
+            continue
 
-            # Skip if file shouldn't be processed
-            if not should_process_file(file_path):
-                continue
+        processed += 1
 
-            processed_files += 1
-
-            if check_only:
-                # Check mode - verify headers exist and match
-                matches, status = check_license_header_matches(file_path, LICENSE_HEADER)
-                if matches:
-                    skipped_files += 1
-                else:
-                    files_needing_update.append(file_path)
-                    updated_files += 1
+        if check_only:
+            matches, _ = check_license_header_matches(file_path, license_header)
+            if matches:
+                skipped += 1
             else:
-                # Update mode - add or replace headers as needed
-                was_modified, reason = update_license_header_in_file(file_path, LICENSE_HEADER)
-                if was_modified:
-                    if reason == "added":
-                        print(f"  ✏️  Added header to {file_path}")
-                    elif reason == "updated":
-                        print(f"  🔄 Updated header in {file_path}")
-                    updated_files += 1
-                else:
-                    skipped_files += 1
+                files_needing_update.append(file_path)
+                updated += 1
+        else:
+            was_modified, reason = update_license_header_in_file(file_path, license_header)
+            if was_modified:
+                action = "Added header to" if reason == "added" else "Updated header in"
+                print(f"  {'✏️' if reason == 'added' else '🔄'} {action} {file_path}")
+                updated += 1
+            else:
+                skipped += 1
 
-    return processed_files, updated_files, skipped_files, files_needing_update
+    return processed, updated, skipped, files_needing_update
 
 
 if __name__ == "__main__":
@@ -273,33 +258,29 @@ if __name__ == "__main__":
 
     repo_path = Path(__file__).parent.parent
     all_files_needing_update: list[Path] = []
-    total_processed = 0
-    total_updated = 0
-    total_skipped = 0
+    total_processed = total_updated = total_skipped = 0
 
     for folder in ["src", "tests", "scripts", "e2e_tests"]:
         folder_path = repo_path / folder
         if not folder_path.exists():
             continue
 
-        if args.check:
-            print(f"\n📂 Checking {folder}/")
-        else:
-            print(f"\n📂 Processing {folder}/")
+        action = "Checking" if args.check else "Processing"
+        print(f"\n📂 {action} {folder}/")
 
-        processed_files, updated_files, skipped_files, files_needing_update = main(folder_path, check_only=args.check)
+        processed, updated, skipped, files_needing_update = main(folder_path, check_only=args.check)
 
-        total_processed += processed_files
-        total_updated += updated_files
-        total_skipped += skipped_files
+        total_processed += processed
+        total_updated += updated
+        total_skipped += skipped
         all_files_needing_update.extend(files_needing_update)
 
         if args.check:
-            print(f"   ❌ Need update: {updated_files}")
-            print(f"   ✅ Up to date: {skipped_files}")
+            print(f"   ❌ Need update: {updated}")
+            print(f"   ✅ Up to date: {skipped}")
         else:
-            print(f"   ✏️  Updated: {updated_files}")
-            print(f"   ⏭️  Skipped: {skipped_files}")
+            print(f"   ✏️  Updated: {updated}")
+            print(f"   ⏭️  Skipped: {skipped}")
 
     print("\n" + "=" * 80)
     print(f"📊 Summary: {total_processed} files processed")
@@ -316,9 +297,9 @@ if __name__ == "__main__":
             sys.exit(1)
         else:
             print("\n🎉 All files have correct license headers!")
-            sys.exit(0)
     else:
         print(f"   ✏️  Updated: {total_updated}")
         print(f"   ⏭️  Skipped: {total_skipped}")
         print("\n✅ Done!")
-        sys.exit(0)
+
+    sys.exit(0)
