@@ -89,7 +89,7 @@ test-e2e:
 	@echo "🧹 Cleaning e2e test environment..."
 	rm -rf e2e_tests/uv.lock e2e_tests/.pycache e2e_tests/.venv
 	@echo "🧪 Running e2e tests..."
-	uv run --no-cache --refresh --directory e2e_tests pytest -s --full-trace
+	uv run --no-cache --refresh --directory e2e_tests pytest -s
 
 convert-execute-notebooks:
 	@echo "📓 Converting Python tutorials to notebooks and executing..."

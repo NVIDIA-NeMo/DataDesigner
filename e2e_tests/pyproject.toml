@@ -5,16 +5,19 @@ requires-python = ">=3.10"
 
 dependencies = [
   "data-designer",
-  "pytest",
+]
+
+[tool.uv.sources]
+data-designer = { path = "../" }
+
+[dependency-groups]
+dev = [
+  "pytest>=8.3.3,<9",
 ]
 
 [project.entry-points."data_designer.plugins"]
-test-column-generator = "data_designer_e2e_tests.plugins.column_generator.plugin:column_generator_plugin"
-test-seed-dataset = "data_designer_e2e_tests.plugins.seed_dataset.plugin:seed_dataset_plugin"
-
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+demo-column-generator = "data_designer_e2e_tests.plugins.column_generator.plugin:column_generator_plugin"
+demo-seed-dataset = "data_designer_e2e_tests.plugins.seed_dataset.plugin:seed_dataset_plugin"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -27,8 +30,9 @@ env = [
 package = true
 required-version = ">=0.7.10"
 
-[tool.uv.sources]
-data-designer = { path = "../" }
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/data_designer_e2e_tests"]

@@ -15,7 +15,7 @@ class DemoColumnGeneratorImpl(ColumnGenerator[DemoColumnGeneratorConfig]):
     @staticmethod
     def metadata() -> GeneratorMetadata:
         return GeneratorMetadata(
-            name="test-column-generator",
+            name="demo-column-generator",
             description="Shouts at you",
             generation_strategy=GenerationStrategy.FULL_COLUMN,
             required_resources=None,
