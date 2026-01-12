@@ -22,6 +22,10 @@ help:
 	@echo "🧪 Testing:"
 	@echo "  test                      - Run all unit tests"
 	@echo "  coverage                  - Run tests with coverage report"
+	@echo "  test-e2e                  - Run e2e plugin tests"
+	@echo "  test-run-tutorials        - Run tutorial notebooks as e2e tests"
+	@echo "  test-run-recipes          - Run recipe scripts as e2e tests"
+	@echo "  test-run-all-examples     - Run all tutorials and recipes as e2e tests"
 	@echo ""
 	@echo "✨ Code Quality:"
 	@echo "  format                    - Format code with ruff"
@@ -91,6 +95,33 @@ test-e2e:
 	@echo "🧪 Running e2e tests..."
 	uv run --no-cache --refresh --directory e2e_tests pytest -s
 
+test-run-tutorials:
+	@echo "🧪 Running tutorials as e2e tests..."
+	@TUTORIAL_WORKDIR=$$(mktemp -d); \
+	trap "rm -rf $$TUTORIAL_WORKDIR" EXIT; \
+	for f in docs/notebook_source/*.py; do \
+		echo "  📓 Running $$f..."; \
+		(cd "$$TUTORIAL_WORKDIR" && uv run python "$(REPO_PATH)/$$f") || exit 1; \
+	done; \
+	echo "🧹 Cleaning up tutorial artifacts..."; \
+	rm -rf "$$TUTORIAL_WORKDIR"; \
+	echo "✅ All tutorials completed successfully!"
+
+test-run-recipes:
+	@echo "🧪 Running recipes as e2e tests..."
+	@RECIPE_WORKDIR=$$(mktemp -d); \
+	trap "rm -rf $$RECIPE_WORKDIR" EXIT; \
+	for f in docs/assets/recipes/**/*.py; do \
+		echo "  📜 Running $$f..."; \
+		(cd "$$RECIPE_WORKDIR" && uv run python "$(REPO_PATH)/$$f" --model-alias nvidia-text --artifact-path "$$RECIPE_WORKDIR" --num-records 5) || exit 1; \
+	done; \
+	echo "🧹 Cleaning up recipe artifacts..."; \
+	rm -rf "$$RECIPE_WORKDIR"; \
+	echo "✅ All recipes completed successfully!"
+
+test-run-all-examples: test-run-tutorials test-run-recipes
+	@echo "✅ All examples (tutorials + recipes) completed successfully!"
+
 convert-execute-notebooks:
 	@echo "📓 Converting Python tutorials to notebooks and executing..."
 	@mkdir -p docs/notebooks
@@ -137,4 +168,4 @@ install-dev-notebooks:
 	$(call install-pre-commit-hooks)
 	@echo "✅ Dev + notebooks installation complete!"
 
-.PHONY: clean coverage format format-check lint lint-fix test check-license-headers update-license-headers check-all check-all-fix install install-dev install-dev-notebooks generate-colab-notebooks
+.PHONY: clean coverage format format-check lint lint-fix test test-e2e test-run-tutorials test-run-recipes test-run-all-examples check-license-headers update-license-headers check-all check-all-fix install install-dev install-dev-notebooks generate-colab-notebooks
