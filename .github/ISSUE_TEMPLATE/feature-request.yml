@@ -1,5 +1,5 @@
 name: ✨ Feature Request
-description: Suggest an idea for this project
+description: Put in a request for a new feature
 labels: ["enhancement"]
 body:
   - type: markdown
@@ -11,6 +11,7 @@ body:
     attributes:
       label: Priority Level
       description: How important is this feature to your workflow?
+      default: 2
       options:
         - Critical (Essential for use)
         - High (Major improvement)
