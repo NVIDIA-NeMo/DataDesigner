@@ -30,9 +30,11 @@ body:
         Please list *minimal* steps or code snippet for us to be able to reproduce the bug.
         A helpful guide on how to craft a minimal bug report: http://matthewrocklin.com/blog/work/2018/02/28/minimal-bug-reports
       placeholder: |
-        1. Go to '...'
-        2. Click on '....'
-        3. See error
+        Please include:
+          - Minimal code example that reproduces the issue
+          - Configuration used (if applicable)
+          - Commands run (if applicable)
+          - Error traceback
     validations:
       required: true
   - type: textarea
