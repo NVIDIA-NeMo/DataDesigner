@@ -108,6 +108,26 @@ class ConcurrentThreadExecutor:
         self._shutdown_window_size = shutdown_error_window
         self._results = ExecutorResults(failure_threshold=shutdown_error_rate)
 
+    @property
+    def results(self) -> ExecutorResults:
+        return self._results
+
+    @property
+    def max_workers(self) -> int:
+        return self._max_workers
+
+    @property
+    def shutdown_error_rate(self) -> float:
+        return self._shutdown_error_rate
+
+    @property
+    def shutdown_window_size(self) -> int:
+        return self._shutdown_window_size
+
+    @property
+    def semaphore(self) -> Semaphore:
+        return self._semaphore
+
     def __enter__(self) -> ConcurrentThreadExecutor:
         self._executor = ThreadPoolExecutor(
             max_workers=self._max_workers,
@@ -145,14 +165,16 @@ class ConcurrentThreadExecutor:
             self._raise_task_error()
 
         def _handle_future(future: Future) -> None:
-            self._results.completed_count += 1
             try:
                 result = future.result()
                 if self._result_callback is not None:
                     self._result_callback(result, context=context)
-                self._results.success_count += 1
+                with self._lock:
+                    self._results.completed_count += 1
+                    self._results.success_count += 1
             except Exception as err:
                 with self._lock:
+                    self._results.completed_count += 1
                     self._results.error_trap.handle_error(err)
                     if self._results.is_error_rate_exceeded(self._shutdown_window_size):
                         # Signal to shutdown early on the next submission (if received).
