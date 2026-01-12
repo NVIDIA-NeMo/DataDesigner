@@ -1,12 +1,13 @@
 name: 🐛 Bug Report
-description: Report a bug to help us improve
-labels: ["bug", "triage"]
+description: Report a bug
+labels: ["bug"]
 body:
   - type: dropdown
     id: priority
     attributes:
       label: Priority Level
       description: How urgent is this issue?
+      default: 2
       options:
         - Critical (Total blocker)
         - High (Major functionality broken)
