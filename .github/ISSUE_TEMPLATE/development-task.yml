@@ -1,0 +1,40 @@
+name: 🛠️ Development Task
+description: Track internal development work, refactoring, or infrastructure
+labels: ["task", "internal"]
+body:
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority Level
+      options:
+        - High
+        - Medium
+        - Low
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: Task Summary
+      placeholder: What is the core objective of this task?
+    validations:
+      required: true
+  - type: textarea
+    id: technical-details
+    attributes:
+      label: Technical Details & Implementation Plan
+      placeholder: Describe the technical approach, files affected, or logic changes.
+  - type: input
+    id: dependencies
+    attributes:
+      label: Dependencies
+      placeholder: "e.g., Blocked by issue #123, requires Node v20 upgrade"
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Definition of Done
+      options:
+        - label: Code implemented
+        - label: Unit tests written/updated
+        - label: Documentation updated (if applicable)
+        - label: Code reviewed
