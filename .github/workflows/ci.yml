@@ -54,7 +54,7 @@ jobs:
         with:
           version: "latest"
           python-version: ${{ matrix.python-version }}
-          enable-cache: true
+          enable-cache: false
 
       - name: Run e2e tests
         run: |
