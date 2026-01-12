@@ -150,14 +150,14 @@ def build_config(model_alias: str) -> DataDesignerConfigBuilder:
     config_builder.add_column(
         ExpressionColumnConfig(
             name="completeness_result",
-            expr="{{ llm_answer_metrics.completeness.score }}",
+            expr="{{ llm_answer_metrics.Completeness.score }}",
         )
     )
 
     config_builder.add_column(
         ExpressionColumnConfig(
             name="accuracy_result",
-            expr="{{ llm_answer_metrics.accuracy.score }}",
+            expr="{{ llm_answer_metrics.Accuracy.score }}",
         )
     )
 
