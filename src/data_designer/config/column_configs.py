@@ -40,7 +40,12 @@ class SingleColumnConfig(ConfigBase, ABC):
     def get_column_emoji(cls) -> str:
         """Get the emoji for the column type."""
         emoji = cls.__private_attributes__["_column_emoji"].default
-        return emoji if emoji and isinstance(emoji, str) else "🎨"
+        if not isinstance(emoji, str):
+            raise InvalidConfigError(
+                f"Column config class '{cls.__name__}' must define a default string for '_column_emoji'. "
+                f"Add '_column_emoji: str = \"🎨\"' (or another emoji) to your class definition."
+            )
+        return emoji
 
     @property
     @abstractmethod
