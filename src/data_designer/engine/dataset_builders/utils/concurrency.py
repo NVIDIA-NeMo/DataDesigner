@@ -202,6 +202,8 @@ class ConcurrentThreadExecutor:
             self._semaphore.release()
             if not isinstance(err, RuntimeError) and "after shutdown" not in str(err):
                 raise err
+            if self._disable_early_shutdown:
+                raise err
             self._raise_task_error()
 
 
