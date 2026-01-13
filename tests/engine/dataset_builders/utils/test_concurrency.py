@@ -234,12 +234,30 @@ def test_disable_early_shutdown_prevents_early_shutdown_raise() -> None:
         for _ in range(10):
             executor.submit(failing_func)
 
-        time.sleep(0.2)
+        deadline = time.time() + 5.0
+        while executor.results.completed_count < 10:
+            if time.time() > deadline:
+                raise AssertionError(
+                    f"Timed out waiting for tasks to complete. completed_count={executor.results.completed_count}"
+                )
+            time.sleep(0.01)
 
     assert executor.results.error_trap.error_count == 10
     assert executor.results.success_count == 0
     assert executor.results.completed_count == 10
     assert executor.results.early_shutdown is False
+
+
+def test_disable_early_shutdown_does_not_raise_early_shutdown_error_on_submit_after_shutdown() -> None:
+    executor = ConcurrentThreadExecutor(
+        max_workers=1,
+        column_name="test_column",
+        disable_early_shutdown=True,
+    )
+    with executor:
+        executor._executor.submit = Mock(side_effect=RuntimeError("cannot schedule new futures after shutdown"))
+        with pytest.raises(RuntimeError, match="cannot schedule new futures after shutdown"):
+            executor.submit(lambda: None)
 
 
 def test_context_variables_context_variable_propagation():

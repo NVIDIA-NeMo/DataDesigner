@@ -200,7 +200,10 @@ class ConcurrentThreadExecutor:
             # We'll re-raise a custom error that can be handled at the call-site and the summary
             # can also be inspected.
             self._semaphore.release()
-            if not isinstance(err, RuntimeError) and "after shutdown" not in str(err):
+            is_shutdown_error = isinstance(err, RuntimeError) and (
+                "after shutdown" in str(err) or "Pool shutdown" in str(err)
+            )
+            if not is_shutdown_error:
                 raise err
             if self._disable_early_shutdown:
                 raise err
