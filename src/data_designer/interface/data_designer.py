@@ -5,8 +5,8 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-# Lazy-loaded third-party and engine components via facades
 from data_designer import engine, lazy_imports
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
 from data_designer.config.config_builder import DataDesignerConfigBuilder
@@ -31,49 +31,45 @@ from data_designer.config.utils.constants import (
     PREDEFINED_PROVIDERS,
 )
 from data_designer.config.utils.info import InfoType, InterfaceInfo
-from data_designer.engine.compiler import compile_data_designer_config
-from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
-from data_designer.engine.dataset_builders.column_wise_builder import ColumnWiseDatasetBuilder
-from data_designer.engine.dataset_builders.utils.config_compiler import compile_dataset_builder_column_configs
-from data_designer.engine.model_provider import resolve_model_provider_registry
-from data_designer.engine.resources.managed_storage import init_managed_blob_storage
-from data_designer.engine.resources.resource_provider import ResourceProvider, create_resource_provider
-from data_designer.engine.resources.seed_reader import (
-    DataFrameSeedReader,
-    HuggingFaceSeedReader,
-    LocalFileSeedReader,
-    SeedReader,
-    SeedReaderRegistry,
-)
-from data_designer.engine.secret_resolver import (
-    CompositeResolver,
-    EnvironmentResolver,
-    PlaintextResolver,
-    SecretResolver,
-)
 from data_designer.interface.errors import (
     DataDesignerGenerationError,
     DataDesignerProfilingError,
     InvalidBufferValueError,
 )
 from data_designer.interface.results import DatasetCreationResults
+
+# Lazy-loaded third-party and engine components via facades
 from data_designer.logging import RandomEmoji
 from data_designer.plugins.plugin import PluginType
 from data_designer.plugins.registry import PluginRegistry
 
+# Import heavy engine modules only for type checking
+if TYPE_CHECKING:
+    from data_designer.engine.dataset_builders.column_wise_builder import ColumnWiseDatasetBuilder
+    from data_designer.engine.resources.resource_provider import ResourceProvider
+    from data_designer.engine.resources.seed_reader import SeedReader
+    from data_designer.engine.secret_resolver import SecretResolver
+
 DEFAULT_BUFFER_SIZE = 1000
 
-DEFAULT_SECRET_RESOLVER = CompositeResolver([EnvironmentResolver(), PlaintextResolver()])
-
-DEFAULT_SEED_READERS = [
-    HuggingFaceSeedReader(),
-    LocalFileSeedReader(),
-    DataFrameSeedReader(),
-]
-for plugin in PluginRegistry().get_plugins(PluginType.SEED_READER):
-    DEFAULT_SEED_READERS.append(plugin.impl_cls())
-
 logger = logging.getLogger(__name__)
+
+
+def _get_default_secret_resolver() -> SecretResolver:
+    """Lazily create default secret resolver."""
+    return engine.CompositeResolver([engine.EnvironmentResolver(), engine.PlaintextResolver()])
+
+
+def _get_default_seed_readers() -> list[SeedReader]:
+    """Lazily create default seed readers."""
+    readers = [
+        engine.HuggingFaceSeedReader(),
+        engine.LocalFileSeedReader(),
+        engine.DataFrameSeedReader(),
+    ]
+    for plugin in PluginRegistry().get_plugins(PluginType.SEED_READER):
+        readers.append(plugin.impl_cls())
+    return readers
 
 
 class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
@@ -108,16 +104,16 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         seed_readers: list[SeedReader] | None = None,
         managed_assets_path: Path | str | None = None,
     ):
-        self._secret_resolver = secret_resolver or DEFAULT_SECRET_RESOLVER
+        self._secret_resolver = secret_resolver or _get_default_secret_resolver()
         self._artifact_path = Path(artifact_path) if artifact_path is not None else Path.cwd() / "artifacts"
         self._buffer_size = DEFAULT_BUFFER_SIZE
         self._run_config = RunConfig()
         self._managed_assets_path = Path(managed_assets_path or MANAGED_ASSETS_PATH)
         self._model_providers = self._resolve_model_providers(model_providers)
-        self._model_provider_registry = resolve_model_provider_registry(
+        self._model_provider_registry = engine.resolve_model_provider_registry(
             self._model_providers, get_default_provider_name()
         )
-        self._seed_reader_registry = SeedReaderRegistry(readers=seed_readers or DEFAULT_SEED_READERS)
+        self._seed_reader_registry = engine.SeedReaderRegistry(readers=seed_readers or _get_default_seed_readers())
 
     @property
     def info(self) -> InterfaceInfo:
@@ -269,7 +265,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             InvalidConfigError: If the configuration is invalid.
         """
         resource_provider = self._create_resource_provider("validate-configuration", config_builder)
-        compile_data_designer_config(config_builder, resource_provider)
+        engine.compile_data_designer_config(config_builder, resource_provider)
 
     def get_default_model_configs(self) -> list[ModelConfig]:
         """Get the default model configurations.
@@ -353,10 +349,10 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         config_builder: DataDesignerConfigBuilder,
         resource_provider: ResourceProvider,
     ) -> ColumnWiseDatasetBuilder:
-        config = compile_data_designer_config(config_builder, resource_provider)
+        config = engine.compile_data_designer_config(config_builder, resource_provider)
 
-        return ColumnWiseDatasetBuilder(
-            column_configs=compile_dataset_builder_column_configs(config),
+        return engine.ColumnWiseDatasetBuilder(
+            column_configs=engine.compile_dataset_builder_column_configs(config),
             processor_configs=config.processors or [],
             resource_provider=resource_provider,
         )
@@ -375,18 +371,18 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
     def _create_resource_provider(
         self, dataset_name: str, config_builder: DataDesignerConfigBuilder
     ) -> ResourceProvider:
-        ArtifactStorage.mkdir_if_needed(self._artifact_path)
+        engine.ArtifactStorage.mkdir_if_needed(self._artifact_path)
 
         seed_dataset_source = None
         if (seed_config := config_builder.get_seed_config()) is not None:
             seed_dataset_source = seed_config.source
 
-        return create_resource_provider(
-            artifact_storage=ArtifactStorage(artifact_path=self._artifact_path, dataset_name=dataset_name),
+        return engine.create_resource_provider(
+            artifact_storage=engine.ArtifactStorage(artifact_path=self._artifact_path, dataset_name=dataset_name),
             model_configs=config_builder.model_configs,
             secret_resolver=self._secret_resolver,
             model_provider_registry=self._model_provider_registry,
-            blob_storage=init_managed_blob_storage(str(self._managed_assets_path)),
+            blob_storage=engine.init_managed_blob_storage(str(self._managed_assets_path)),
             seed_dataset_source=seed_dataset_source,
             seed_reader_registry=self._seed_reader_registry,
             run_config=self._run_config,
