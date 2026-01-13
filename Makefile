@@ -101,7 +101,7 @@ test-run-tutorials:
 	trap "rm -rf $$TUTORIAL_WORKDIR" EXIT; \
 	for f in docs/notebook_source/*.py; do \
 		echo "  📓 Running $$f..."; \
-		(cd "$$TUTORIAL_WORKDIR" && uv run python "$(REPO_PATH)/$$f") || exit 1; \
+		(cd "$$TUTORIAL_WORKDIR" && uv run --project "$(REPO_PATH)" --group notebooks python "$(REPO_PATH)/$$f") || exit 1; \
 	done; \
 	echo "🧹 Cleaning up tutorial artifacts..."; \
 	rm -rf "$$TUTORIAL_WORKDIR"; \
@@ -113,7 +113,7 @@ test-run-recipes:
 	trap "rm -rf $$RECIPE_WORKDIR" EXIT; \
 	for f in docs/assets/recipes/**/*.py; do \
 		echo "  📜 Running $$f..."; \
-		(cd "$$RECIPE_WORKDIR" && uv run python "$(REPO_PATH)/$$f" --model-alias nvidia-text --artifact-path "$$RECIPE_WORKDIR" --num-records 5) || exit 1; \
+		(cd "$$RECIPE_WORKDIR" && uv run --project "$(REPO_PATH)" --group notebooks python "$(REPO_PATH)/$$f" --model-alias nvidia-text --artifact-path "$$RECIPE_WORKDIR" --num-records 5) || exit 1; \
 	done; \
 	echo "🧹 Cleaning up recipe artifacts..."; \
 	rm -rf "$$RECIPE_WORKDIR"; \
