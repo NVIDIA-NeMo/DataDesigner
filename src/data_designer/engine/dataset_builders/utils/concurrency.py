@@ -178,7 +178,9 @@ class ConcurrentThreadExecutor:
                 with self._lock:
                     self._results.completed_count += 1
                     self._results.error_trap.handle_error(err)
-                    if not self._disable_early_shutdown and self._results.is_error_rate_exceeded(self._shutdown_window_size):
+                    if not self._disable_early_shutdown and self._results.is_error_rate_exceeded(
+                        self._shutdown_window_size
+                    ):
                         # Signal to shutdown early on the next submission (if received).
                         # We cannot trigger shutdown from within this thread as it can
                         # cause a deadlock.
