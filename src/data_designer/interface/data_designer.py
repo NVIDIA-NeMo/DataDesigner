@@ -56,14 +56,11 @@ from data_designer.engine.secret_resolver import (
 from data_designer.interface.errors import (
     DataDesignerGenerationError,
     DataDesignerProfilingError,
-    InvalidBufferValueError,
 )
 from data_designer.interface.results import DatasetCreationResults
 from data_designer.logging import RandomEmoji
 from data_designer.plugins.plugin import PluginType
 from data_designer.plugins.registry import PluginRegistry
-
-DEFAULT_BUFFER_SIZE = 1000
 
 DEFAULT_SECRET_RESOLVER = CompositeResolver([EnvironmentResolver(), PlaintextResolver()])
 
@@ -112,7 +109,6 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
     ):
         self._secret_resolver = secret_resolver or DEFAULT_SECRET_RESOLVER
         self._artifact_path = Path(artifact_path) if artifact_path is not None else Path.cwd() / "artifacts"
-        self._buffer_size = DEFAULT_BUFFER_SIZE
         self._run_config = RunConfig()
         self._managed_assets_path = Path(managed_assets_path or MANAGED_ASSETS_PATH)
         self._model_providers = self._resolve_model_providers(model_providers)
@@ -169,7 +165,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         builder = self._create_dataset_builder(config_builder, resource_provider)
 
         try:
-            builder.build(num_records=num_records, buffer_size=self._buffer_size)
+            builder.build(num_records=num_records)
         except Exception as e:
             raise DataDesignerGenerationError(f"🛑 Error generating dataset: {e}")
 
@@ -300,29 +296,13 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         """
         return self._secret_resolver
 
-    def set_buffer_size(self, buffer_size: int) -> None:
-        """Set the buffer size for dataset generation.
-
-        The buffer size controls how many records are processed in memory at once
-        during dataset generation using the `create` method. The default value is
-        set to the constant `DEFAULT_BUFFER_SIZE` defined in the data_designer module.
-
-        Args:
-            buffer_size: Number of records to process in each buffer.
-
-        Raises:
-            InvalidBufferValueError: If buffer size is less than or equal to 0.
-        """
-        if buffer_size <= 0:
-            raise InvalidBufferValueError("Buffer size must be greater than 0.")
-        self._buffer_size = buffer_size
-
     def set_run_config(self, run_config: RunConfig) -> None:
         """Set the runtime configuration for dataset generation.
 
         Args:
             run_config: A RunConfig instance containing runtime settings such as
-                early shutdown behavior. Import RunConfig from data_designer.essentials.
+                early shutdown behavior and batch sizing via `buffer_size`. Import RunConfig from
+                data_designer.essentials.
 
         Example:
             >>> from data_designer.essentials import DataDesigner, RunConfig

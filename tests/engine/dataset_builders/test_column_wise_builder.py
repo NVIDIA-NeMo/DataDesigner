@@ -9,6 +9,7 @@ import pytest
 from data_designer.config.column_configs import LLMTextColumnConfig, SamplerColumnConfig
 from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.processors import DropColumnsProcessorConfig
+from data_designer.config.run_config import RunConfig
 from data_designer.engine.column_generators.generators.base import GenerationStrategy
 from data_designer.engine.dataset_builders.column_wise_builder import (
     MAX_CONCURRENCY_PER_NON_LLM_GENERATOR,
@@ -148,6 +149,7 @@ def test_column_wise_dataset_builder_build_method_basic_flow(
     stub_batch_manager,
     stub_resource_provider,
 ):
+    stub_resource_provider.run_config = RunConfig(buffer_size=50)
     stub_resource_provider.model_registry.run_health_check = Mock()
     stub_resource_provider.model_registry.get_model_usage_stats = Mock(return_value={"test": "stats"})
     stub_resource_provider.model_registry.models = {}
@@ -162,9 +164,10 @@ def test_column_wise_dataset_builder_build_method_basic_flow(
 
     stub_column_wise_builder.batch_manager = stub_batch_manager
 
-    result_path = stub_column_wise_builder.build(num_records=100, buffer_size=50)
+    result_path = stub_column_wise_builder.build(num_records=100)
 
     stub_resource_provider.model_registry.run_health_check.assert_called_once()
+    stub_batch_manager.start.assert_called_once_with(num_records=100, buffer_size=50)
     stub_batch_manager.finish.assert_called_once()
     assert result_path == stub_resource_provider.artifact_storage.final_dataset_path
 
