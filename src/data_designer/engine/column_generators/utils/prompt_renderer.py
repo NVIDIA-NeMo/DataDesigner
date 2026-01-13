@@ -8,7 +8,7 @@ from data_designer.config.column_configs import SingleColumnConfig
 from data_designer.config.column_types import DataDesignerColumnType
 from data_designer.config.models import ModelConfig
 from data_designer.config.utils.code_lang import CodeLang
-from data_designer.config.utils.misc import get_prompt_template_keywords
+from data_designer.config.utils.misc import extract_keywords_from_jinja2_template
 from data_designer.config.utils.type_helpers import StrEnum
 from data_designer.engine.column_generators.utils.errors import PromptTemplateRenderError
 from data_designer.engine.column_generators.utils.judge_score_factory import (
@@ -56,7 +56,7 @@ class RecordBasedPromptRenderer(WithJinja2UserTemplateRendering):
                 dataset_variables=list(record.keys()),
             )
         except (UserTemplateUnsupportedFiltersError, UserTemplateError) as exc:
-            template_variables = get_prompt_template_keywords(prompt_template)
+            template_variables = extract_keywords_from_jinja2_template(prompt_template)
             missing_columns = list(set(template_variables) - set(record.keys()))
 
             error_msg = (

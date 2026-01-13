@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from abc import ABC
+from abc import ABC, abstractmethod
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, Discriminator, Field, model_validator
@@ -13,7 +13,7 @@ from data_designer.config.models import ImageContext
 from data_designer.config.sampler_params import SamplerParamsT, SamplerType
 from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.utils.constants import REASONING_TRACE_COLUMN_POSTFIX
-from data_designer.config.utils.misc import assert_valid_jinja2_template, get_prompt_template_keywords
+from data_designer.config.utils.misc import assert_valid_jinja2_template, extract_keywords_from_jinja2_template
 from data_designer.config.validator_params import ValidatorParamsT, ValidatorType
 
 
@@ -36,6 +36,7 @@ class SingleColumnConfig(ConfigBase, ABC):
     column_type: str
 
     @property
+    @abstractmethod
     def required_columns(self) -> list[str]:
         """Returns a list of column names that must exist before this column can be generated.
 
@@ -43,9 +44,9 @@ class SingleColumnConfig(ConfigBase, ABC):
             List of column names that this column depends on. Empty list indicates
             no dependencies. Override in subclasses to specify dependencies.
         """
-        return []
 
     @property
+    @abstractmethod
     def side_effect_columns(self) -> list[str]:
         """Returns a list of additional columns that this column will create as a side effect.
 
@@ -56,7 +57,6 @@ class SingleColumnConfig(ConfigBase, ABC):
             List of column names that this column will create as a side effect. Empty list
             indicates no side effect columns. Override in subclasses to specify side effects.
         """
-        return []
 
 
 class SamplerColumnConfig(SingleColumnConfig):
@@ -93,6 +93,14 @@ class SamplerColumnConfig(SingleColumnConfig):
     conditional_params: dict[str, Annotated[SamplerParamsT, Discriminator("sampler_type")]] = {}
     convert_to: str | None = None
     column_type: Literal["sampler"] = "sampler"
+
+    @property
+    def required_columns(self) -> list[str]:
+        return []
+
+    @property
+    def side_effect_columns(self) -> list[str]:
+        return []
 
     @model_validator(mode="before")
     @classmethod
@@ -157,9 +165,9 @@ class LLMTextColumnConfig(SingleColumnConfig):
         Returns:
             List of unique column names referenced in Jinja2 templates.
         """
-        required_cols = list(get_prompt_template_keywords(self.prompt))
+        required_cols = list(extract_keywords_from_jinja2_template(self.prompt))
         if self.system_prompt:
-            required_cols.extend(list(get_prompt_template_keywords(self.system_prompt)))
+            required_cols.extend(list(extract_keywords_from_jinja2_template(self.system_prompt)))
         return list(set(required_cols))
 
     @property
@@ -300,7 +308,11 @@ class ExpressionColumnConfig(SingleColumnConfig):
     @property
     def required_columns(self) -> list[str]:
         """Returns the columns referenced in the expression template."""
-        return list(get_prompt_template_keywords(self.expr))
+        return list(extract_keywords_from_jinja2_template(self.expr))
+
+    @property
+    def side_effect_columns(self) -> list[str]:
+        return []
 
     @model_validator(mode="after")
     def assert_expression_valid_jinja(self) -> Self:
@@ -364,6 +376,10 @@ class ValidationColumnConfig(SingleColumnConfig):
         """Returns the columns that need to be validated."""
         return self.target_columns
 
+    @property
+    def side_effect_columns(self) -> list[str]:
+        return []
+
 
 class SeedDatasetColumnConfig(SingleColumnConfig):
     """Configuration for columns sourced from seed datasets.
@@ -377,6 +393,14 @@ class SeedDatasetColumnConfig(SingleColumnConfig):
     """
 
     column_type: Literal["seed-dataset"] = "seed-dataset"
+
+    @property
+    def required_columns(self) -> list[str]:
+        return []
+
+    @property
+    def side_effect_columns(self) -> list[str]:
+        return []
 
 
 class EmbeddingColumnConfig(SingleColumnConfig):
@@ -398,3 +422,7 @@ class EmbeddingColumnConfig(SingleColumnConfig):
     @property
     def required_columns(self) -> list[str]:
         return [self.target_column]
+
+    @property
+    def side_effect_columns(self) -> list[str]:
+        return []
