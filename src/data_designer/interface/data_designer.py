@@ -328,6 +328,10 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             >>> from data_designer.essentials import DataDesigner, RunConfig
             >>> dd = DataDesigner()
             >>> dd.set_run_config(RunConfig(disable_early_shutdown=True))
+
+        Notes:
+            When `disable_early_shutdown=True`, DataDesigner will never terminate generation early
+            due to error-rate thresholds. Errors are still tracked for reporting.
         """
         self._run_config = run_config
 

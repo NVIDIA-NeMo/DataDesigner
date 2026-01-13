@@ -14,10 +14,11 @@ class RunConfig(ConfigBase):
     part of the dataset configuration itself.
 
     Attributes:
-        disable_early_shutdown: If True, disables early shutdown entirely. Generation
-            will continue regardless of error rate. Default is False.
-        shutdown_error_rate: Error rate threshold (0.0-1.0) that triggers early shutdown.
-            When early shutdown is disabled, this value is normalized to 1.0. Default is 0.5.
+        disable_early_shutdown: If True, disables the executor's early-shutdown behavior entirely.
+            Generation will continue regardless of error rate, and the early-shutdown exception
+            will never be raised. Error counts and summaries are still collected. Default is False.
+        shutdown_error_rate: Error rate threshold (0.0-1.0) that triggers early shutdown when
+            early shutdown is enabled. Default is 0.5.
         shutdown_error_window: Minimum number of completed tasks before error rate
             monitoring begins. Must be >= 0. Default is 10.
     """
@@ -28,7 +29,7 @@ class RunConfig(ConfigBase):
 
     @model_validator(mode="after")
     def normalize_shutdown_settings(self) -> Self:
-        """Set shutdown_error_rate to 1.0 when early shutdown is disabled."""
+        """Normalize shutdown settings for compatibility."""
         if self.disable_early_shutdown:
             self.shutdown_error_rate = 1.0
         return self
