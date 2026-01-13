@@ -94,7 +94,6 @@ class ColumnWiseDatasetBuilder:
         self,
         *,
         num_records: int,
-        buffer_size: int,
         on_batch_complete: Callable[[Path], None] | None = None,
     ) -> Path:
         self._write_configs()
@@ -104,6 +103,7 @@ class ColumnWiseDatasetBuilder:
         start_time = time.perf_counter()
         group_id = uuid.uuid4().hex
 
+        buffer_size = self._resource_provider.run_config.buffer_size
         self.batch_manager.start(num_records=num_records, buffer_size=buffer_size)
         for batch_idx in range(self.batch_manager.num_batches):
             logger.info(f"⏳ Processing batch {batch_idx + 1} of {self.batch_manager.num_batches}")

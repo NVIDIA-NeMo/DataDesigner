@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
+from pydantic import ValidationError
 
 from data_designer.config.column_configs import SamplerColumnConfig
 from data_designer.config.config_builder import DataDesignerConfigBuilder
@@ -21,7 +22,6 @@ from data_designer.interface.data_designer import DataDesigner
 from data_designer.interface.errors import (
     DataDesignerGenerationError,
     DataDesignerProfilingError,
-    InvalidBufferValueError,
 )
 
 
@@ -85,25 +85,6 @@ def test_init_with_path_object(stub_artifact_path, stub_model_providers):
     assert designer is not None
 
 
-def test_buffer_size_setting_persists(stub_artifact_path, stub_model_providers):
-    """Test that buffer size setting persists across multiple calls."""
-    data_designer = DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
-    custom_buffer_size = 500
-    data_designer.set_buffer_size(custom_buffer_size)
-    assert data_designer._buffer_size == custom_buffer_size
-
-    another_buffer_size = 750
-    data_designer.set_buffer_size(another_buffer_size)
-    assert data_designer._buffer_size == another_buffer_size
-
-
-def test_set_buffer_size_raises_error_for_invalid_buffer_size(stub_artifact_path, stub_model_providers):
-    """Test that set_buffer_size raises error for invalid buffer size."""
-    data_designer = DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
-    with pytest.raises(InvalidBufferValueError, match="Buffer size must be greater than 0."):
-        data_designer.set_buffer_size(0)
-
-
 def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
     """Test that run config setting persists across multiple calls."""
     data_designer = DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
@@ -112,6 +93,7 @@ def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
     assert data_designer._run_config.disable_early_shutdown is False
     assert data_designer._run_config.shutdown_error_rate == 0.5
     assert data_designer._run_config.shutdown_error_window == 10
+    assert data_designer._run_config.buffer_size == 1000
     assert data_designer._run_config.max_conversation_restarts == 5
     assert data_designer._run_config.max_conversation_correction_steps == 0
 
@@ -121,6 +103,7 @@ def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
             disable_early_shutdown=True,
             shutdown_error_rate=0.8,
             shutdown_error_window=25,
+            buffer_size=500,
             max_conversation_restarts=7,
             max_conversation_correction_steps=2,
         )
@@ -128,6 +111,7 @@ def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
     assert data_designer._run_config.disable_early_shutdown is True
     assert data_designer._run_config.shutdown_error_rate == 1.0  # normalized when disabled
     assert data_designer._run_config.shutdown_error_window == 25
+    assert data_designer._run_config.buffer_size == 500
     assert data_designer._run_config.max_conversation_restarts == 7
     assert data_designer._run_config.max_conversation_correction_steps == 2
 
@@ -137,6 +121,7 @@ def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
             disable_early_shutdown=False,
             shutdown_error_rate=0.3,
             shutdown_error_window=5,
+            buffer_size=750,
             max_conversation_restarts=9,
             max_conversation_correction_steps=1,
         )
@@ -144,6 +129,7 @@ def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
     assert data_designer._run_config.disable_early_shutdown is False
     assert data_designer._run_config.shutdown_error_rate == 0.3
     assert data_designer._run_config.shutdown_error_window == 5
+    assert data_designer._run_config.buffer_size == 750
     assert data_designer._run_config.max_conversation_restarts == 9
     assert data_designer._run_config.max_conversation_correction_steps == 1
 
@@ -169,6 +155,11 @@ def test_run_config_normalizes_error_rate_when_disabled(stub_artifact_path, stub
         )
     )
     assert data_designer._run_config.shutdown_error_rate == 1.0
+
+
+def test_run_config_rejects_invalid_buffer_size() -> None:
+    with pytest.raises(ValidationError, match="buffer_size"):
+        RunConfig(buffer_size=0)
 
 
 def test_create_dataset_e2e_using_only_sampler_columns(

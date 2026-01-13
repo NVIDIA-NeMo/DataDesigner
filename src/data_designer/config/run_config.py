@@ -21,6 +21,9 @@ class RunConfig(ConfigBase):
             early shutdown is enabled. Default is 0.5.
         shutdown_error_window: Minimum number of completed tasks before error rate
             monitoring begins. Must be >= 0. Default is 10.
+        buffer_size: Number of records to process in each batch during dataset generation.
+            A batch is processed end-to-end (column generation, post-batch processors, and writing the batch
+            to artifact storage) before moving on to the next batch. Must be > 0. Default is 1000.
         max_conversation_restarts: Maximum number of full conversation restarts permitted when
             generation tasks call `ModelFacade.generate(...)`. Must be >= 0. Default is 5.
         max_conversation_correction_steps: Maximum number of correction rounds permitted within a
@@ -31,6 +34,7 @@ class RunConfig(ConfigBase):
     disable_early_shutdown: bool = False
     shutdown_error_rate: float = Field(default=0.5, ge=0.0, le=1.0)
     shutdown_error_window: int = Field(default=10, ge=0)
+    buffer_size: int = Field(default=1000, gt=0)
     max_conversation_restarts: int = Field(default=5, ge=0)
     max_conversation_correction_steps: int = Field(default=0, ge=0)
 
