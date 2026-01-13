@@ -237,3 +237,6 @@ def test_validation_column_generator_validate_in_parallel_failure(mock_get_valid
             match="Validation task failed due to an unexpected error in parallel execution",
         ):
             generator.generate(df)
+
+        call_kwargs = mock_executor_class.call_args[1]
+        assert call_kwargs["disable_early_shutdown"] == stub_resource_provider.run_config.disable_early_shutdown

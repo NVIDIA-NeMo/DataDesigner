@@ -132,6 +132,7 @@ class ValidationColumnGenerator(ColumnGenerator[ValidationColumnConfig]):
             error_callback=error_callback,
             shutdown_error_rate=settings.shutdown_error_rate,
             shutdown_error_window=settings.shutdown_error_window,
+            disable_early_shutdown=settings.disable_early_shutdown,
         ) as executor:
             for i, batch in enumerate(batched_records):
                 executor.submit(lambda batch: self._validate_batch(validator, batch), batch, context={"index": i})

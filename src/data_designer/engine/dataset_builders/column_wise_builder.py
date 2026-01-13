@@ -228,6 +228,7 @@ class ColumnWiseDatasetBuilder:
             error_callback=self._worker_error_callback,
             shutdown_error_rate=settings.shutdown_error_rate,
             shutdown_error_window=settings.shutdown_error_window,
+            disable_early_shutdown=settings.disable_early_shutdown,
         ) as executor:
             for i, record in self.batch_manager.iter_current_batch():
                 executor.submit(lambda record: generator.generate(record), record, context={"index": i})

@@ -359,3 +359,4 @@ def test_fan_out_with_threads_uses_early_shutdown_settings_from_resource_provide
     call_kwargs = mock_executor_class.call_args[1]
     assert call_kwargs["shutdown_error_rate"] == expected_rate
     assert call_kwargs["shutdown_error_window"] == shutdown_error_window
+    assert call_kwargs["disable_early_shutdown"] == disable_early_shutdown

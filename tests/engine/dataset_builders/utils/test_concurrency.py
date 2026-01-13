@@ -214,6 +214,32 @@ def test_concurrent_thread_executor_custom_shutdown_parameters():
     assert executor.shutdown_error_rate == 0.3
     assert executor.shutdown_window_size == 5
     assert executor.results.failure_threshold == 0.3
+    assert executor.results.early_shutdown is False
+
+
+def test_disable_early_shutdown_prevents_early_shutdown_raise() -> None:
+    executor = ConcurrentThreadExecutor(
+        max_workers=2,
+        column_name="test_column",
+        shutdown_error_rate=0.0,
+        shutdown_error_window=0,
+        disable_early_shutdown=True,
+    )
+
+    with executor:
+
+        def failing_func() -> None:
+            raise ValueError("Test error")
+
+        for _ in range(10):
+            executor.submit(failing_func)
+
+        time.sleep(0.2)
+
+    assert executor.results.error_trap.error_count == 10
+    assert executor.results.success_count == 0
+    assert executor.results.completed_count == 10
+    assert executor.results.early_shutdown is False
 
 
 def test_context_variables_context_variable_propagation():

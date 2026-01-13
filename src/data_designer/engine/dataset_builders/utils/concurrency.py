@@ -96,6 +96,7 @@ class ConcurrentThreadExecutor:
         error_callback: ErrorCallbackWithContext | None = None,
         shutdown_error_rate: float = 0.50,
         shutdown_error_window: int = 10,
+        disable_early_shutdown: bool = False,
     ):
         self._executor = None
         self._column_name = column_name
@@ -106,6 +107,7 @@ class ConcurrentThreadExecutor:
         self._error_callback = error_callback
         self._shutdown_error_rate = shutdown_error_rate
         self._shutdown_window_size = shutdown_error_window
+        self._disable_early_shutdown = disable_early_shutdown
         self._results = ExecutorResults(failure_threshold=shutdown_error_rate)
 
     @property
@@ -139,7 +141,7 @@ class ConcurrentThreadExecutor:
 
     def __exit__(self, exc_type, exc_value, traceback):
         self._shutdown_executor()
-        if self._results.early_shutdown is True:
+        if not self._disable_early_shutdown and self._results.early_shutdown is True:
             self._raise_task_error()
 
     def _shutdown_executor(self) -> None:
@@ -160,7 +162,7 @@ class ConcurrentThreadExecutor:
         if self._executor is None:
             raise RuntimeError("Executor is not initialized, this class should be used as a context manager.")
 
-        if self._results.early_shutdown:
+        if not self._disable_early_shutdown and self._results.early_shutdown:
             self._shutdown_executor()
             self._raise_task_error()
 
@@ -176,7 +178,7 @@ class ConcurrentThreadExecutor:
                 with self._lock:
                     self._results.completed_count += 1
                     self._results.error_trap.handle_error(err)
-                    if self._results.is_error_rate_exceeded(self._shutdown_window_size):
+                    if not self._disable_early_shutdown and self._results.is_error_rate_exceeded(self._shutdown_window_size):
                         # Signal to shutdown early on the next submission (if received).
                         # We cannot trigger shutdown from within this thread as it can
                         # cause a deadlock.
