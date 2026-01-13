@@ -11,9 +11,8 @@ from data_designer.config.column_configs import (
     LLMStructuredColumnConfig,
     LLMTextColumnConfig,
 )
+from data_designer.config.run_config import RunConfig
 from data_designer.engine.column_generators.generators.llm_completion import (
-    DEFAULT_MAX_CONVERSATION_CORRECTION_STEPS,
-    DEFAULT_MAX_CONVERSATION_RESTARTS,
     REASONING_TRACE_COLUMN_POSTFIX,
     LLMCodeCellGenerator,
     LLMJudgeCellGenerator,
@@ -34,6 +33,10 @@ def _create_generator_with_mocks(config_class=LLMTextColumnConfig, **config_kwar
     mock_provider = Mock()
 
     mock_resource_provider.model_registry = mock_model_registry
+    mock_resource_provider.run_config = RunConfig(
+        max_conversation_restarts=7,
+        max_conversation_correction_steps=2,
+    )
     mock_model_registry.get_model.return_value = mock_model
     mock_model_registry.get_model_config.return_value = mock_model_config
     mock_model_registry.get_model_provider.return_value = mock_provider
@@ -80,6 +83,8 @@ def test_generate_method():
 
     assert mock_prompt_renderer.render.call_count == 2
     mock_model.generate.assert_called_once()
+    assert mock_model.generate.call_args[1]["max_correction_steps"] == 2
+    assert mock_model.generate.call_args[1]["max_conversation_restarts"] == 7
     assert result["test_column"] == {"result": "test_output"}
     assert "test_column" + REASONING_TRACE_COLUMN_POSTFIX not in result
 
@@ -202,6 +207,10 @@ def test_judge_generator_max_conversation_restarts_override():
     mock_inference_params = Mock()
 
     mock_resource_provider.model_registry = mock_model_registry
+    mock_resource_provider.run_config = RunConfig(
+        max_conversation_restarts=7,
+        max_conversation_correction_steps=2,
+    )
     mock_model_registry.get_model.return_value = mock_model
     mock_model_registry.get_model_config.return_value = mock_model_config
     mock_model_config.inference_parameters = mock_inference_params
@@ -215,8 +224,8 @@ def test_judge_generator_max_conversation_restarts_override():
 
     generator = LLMJudgeCellGenerator(config=config, resource_provider=mock_resource_provider)
 
-    assert generator.max_conversation_restarts == 2 * DEFAULT_MAX_CONVERSATION_RESTARTS
-    assert generator.max_conversation_correction_steps == DEFAULT_MAX_CONVERSATION_CORRECTION_STEPS
+    assert generator.max_conversation_restarts == 7
+    assert generator.max_conversation_correction_steps == 2
 
 
 @pytest.mark.parametrize(

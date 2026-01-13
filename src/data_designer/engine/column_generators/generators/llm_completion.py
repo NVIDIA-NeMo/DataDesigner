@@ -28,10 +28,6 @@ from data_designer.engine.processing.utils import deserialize_json_values
 logger = logging.getLogger(__name__)
 
 
-DEFAULT_MAX_CONVERSATION_RESTARTS = 5
-DEFAULT_MAX_CONVERSATION_CORRECTION_STEPS = 0
-
-
 class ColumnGeneratorWithModelChatCompletion(ColumnGeneratorWithModel[TaskConfigT]):
     @functools.cached_property
     def response_recipe(self) -> ResponseRecipe:
@@ -39,11 +35,11 @@ class ColumnGeneratorWithModelChatCompletion(ColumnGeneratorWithModel[TaskConfig
 
     @property
     def max_conversation_correction_steps(self) -> int:
-        return DEFAULT_MAX_CONVERSATION_CORRECTION_STEPS
+        return self.resource_provider.run_config.max_conversation_correction_steps
 
     @property
     def max_conversation_restarts(self) -> int:
-        return DEFAULT_MAX_CONVERSATION_RESTARTS
+        return self.resource_provider.run_config.max_conversation_restarts
 
     @functools.cached_property
     def prompt_renderer(self) -> RecordBasedPromptRenderer:
@@ -129,7 +125,3 @@ class LLMJudgeCellGenerator(ColumnGeneratorWithModelChatCompletion[LLMJudgeColum
             description="Judge a new dataset cell based on a set of rubrics",
             generation_strategy=GenerationStrategy.CELL_BY_CELL,
         )
-
-    @property
-    def max_conversation_restarts(self) -> int:
-        return 2 * DEFAULT_MAX_CONVERSATION_RESTARTS

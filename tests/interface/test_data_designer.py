@@ -112,6 +112,8 @@ def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
     assert data_designer._run_config.disable_early_shutdown is False
     assert data_designer._run_config.shutdown_error_rate == 0.5
     assert data_designer._run_config.shutdown_error_window == 10
+    assert data_designer._run_config.max_conversation_restarts == 5
+    assert data_designer._run_config.max_conversation_correction_steps == 0
 
     # Test setting custom values
     data_designer.set_run_config(
@@ -119,11 +121,15 @@ def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
             disable_early_shutdown=True,
             shutdown_error_rate=0.8,
             shutdown_error_window=25,
+            max_conversation_restarts=7,
+            max_conversation_correction_steps=2,
         )
     )
     assert data_designer._run_config.disable_early_shutdown is True
     assert data_designer._run_config.shutdown_error_rate == 1.0  # normalized when disabled
     assert data_designer._run_config.shutdown_error_window == 25
+    assert data_designer._run_config.max_conversation_restarts == 7
+    assert data_designer._run_config.max_conversation_correction_steps == 2
 
     # Test updating values
     data_designer.set_run_config(
@@ -131,11 +137,15 @@ def test_run_config_setting_persists(stub_artifact_path, stub_model_providers):
             disable_early_shutdown=False,
             shutdown_error_rate=0.3,
             shutdown_error_window=5,
+            max_conversation_restarts=9,
+            max_conversation_correction_steps=1,
         )
     )
     assert data_designer._run_config.disable_early_shutdown is False
     assert data_designer._run_config.shutdown_error_rate == 0.3
     assert data_designer._run_config.shutdown_error_window == 5
+    assert data_designer._run_config.max_conversation_restarts == 9
+    assert data_designer._run_config.max_conversation_correction_steps == 1
 
 
 def test_run_config_normalizes_error_rate_when_disabled(stub_artifact_path, stub_model_providers):
