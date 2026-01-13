@@ -19,7 +19,7 @@ from data_designer.config.analysis.column_statistics import (
     MissingValue,
     NumericalDistribution,
 )
-from data_designer.config.column_types import COLUMN_TYPE_EMOJI_MAP, DataDesignerColumnType
+from data_designer.config.column_types import DataDesignerColumnType
 from data_designer.engine.analysis.column_profilers.base import ColumnConfigWithDataFrame, ColumnProfiler
 from data_designer.engine.analysis.utils.judge_score_processing import (
     extract_judge_score_distributions,
@@ -42,10 +42,7 @@ class JudgeScoreProfiler(ColumnProfiler[JudgeScoreProfilerConfig]):
     def profile(self, column_config_with_df: ColumnConfigWithDataFrame) -> JudgeScoreProfilerResults:
         column_config, df = column_config_with_df.as_tuple()
 
-        logger.info(
-            f"{COLUMN_TYPE_EMOJI_MAP[column_config.column_type]} Analyzing LLM-as-judge "
-            f"scores for column: '{column_config.name}'"
-        )
+        logger.info(f"{column_config._column_emoji} Analyzing LLM-as-judge scores for column: '{column_config.name}'")
 
         score_summaries = {}
         score_distributions = extract_judge_score_distributions(column_config, df)

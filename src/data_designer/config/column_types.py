@@ -15,7 +15,7 @@ from data_designer.config.column_configs import (
     SeedDatasetColumnConfig,
     ValidationColumnConfig,
 )
-from data_designer.config.errors import InvalidColumnTypeError, InvalidConfigError
+from data_designer.config.errors import InvalidConfigError
 from data_designer.config.sampler_params import SamplerType
 from data_designer.config.utils.type_helpers import (
     SAMPLER_PARAMS,
@@ -45,22 +45,6 @@ DataDesignerColumnType = create_str_enum_from_discriminated_type_union(
     discriminator_field_name="column_type",
 )
 
-COLUMN_TYPE_EMOJI_MAP = {
-    "general": "⚛️",  # possible analysis column type
-    DataDesignerColumnType.EXPRESSION: "🧩",
-    DataDesignerColumnType.LLM_CODE: "💻",
-    DataDesignerColumnType.LLM_JUDGE: "⚖️",
-    DataDesignerColumnType.LLM_STRUCTURED: "🗂️",
-    DataDesignerColumnType.LLM_TEXT: "📝",
-    DataDesignerColumnType.SEED_DATASET: "🌱",
-    DataDesignerColumnType.SAMPLER: "🎲",
-    DataDesignerColumnType.VALIDATION: "🔍",
-    DataDesignerColumnType.EMBEDDING: "🧬",
-}
-COLUMN_TYPE_EMOJI_MAP.update(
-    {DataDesignerColumnType(p.name): p.emoji for p in plugin_manager.get_column_generator_plugins()}
-)
-
 
 def get_column_config_from_kwargs(name: str, column_type: DataDesignerColumnType, **kwargs) -> ColumnConfigT:
     """Create a Data Designer column config object from kwargs.
@@ -74,27 +58,20 @@ def get_column_config_from_kwargs(name: str, column_type: DataDesignerColumnType
         Data Designer column object of the appropriate type.
     """
     column_type = resolve_string_enum(column_type, DataDesignerColumnType)
-    if column_type == DataDesignerColumnType.LLM_TEXT:
-        return LLMTextColumnConfig(name=name, **kwargs)
-    if column_type == DataDesignerColumnType.LLM_CODE:
-        return LLMCodeColumnConfig(name=name, **kwargs)
-    if column_type == DataDesignerColumnType.LLM_STRUCTURED:
-        return LLMStructuredColumnConfig(name=name, **kwargs)
-    if column_type == DataDesignerColumnType.LLM_JUDGE:
-        return LLMJudgeColumnConfig(name=name, **kwargs)
-    if column_type == DataDesignerColumnType.VALIDATION:
-        return ValidationColumnConfig(name=name, **kwargs)
-    if column_type == DataDesignerColumnType.EXPRESSION:
-        return ExpressionColumnConfig(name=name, **kwargs)
+    config_cls = get_column_config_cls_from_type(column_type)
     if column_type == DataDesignerColumnType.SAMPLER:
-        return SamplerColumnConfig(name=name, **_resolve_sampler_kwargs(name, kwargs))
-    if column_type == DataDesignerColumnType.SEED_DATASET:
-        return SeedDatasetColumnConfig(name=name, **kwargs)
-    if column_type == DataDesignerColumnType.EMBEDDING:
-        return EmbeddingColumnConfig(name=name, **kwargs)
+        kwargs = _resolve_sampler_kwargs(name, kwargs)
+    return config_cls(name=name, **kwargs)
+
+
+def get_column_config_cls_from_type(column_type: DataDesignerColumnType) -> type[ColumnConfigT]:
+    """Get the column config class for a column type."""
+    column_type = resolve_string_enum(column_type, DataDesignerColumnType)
+    if column_type in _COLUMN_TYPE_CONFIG_CLS_MAP:
+        return _COLUMN_TYPE_CONFIG_CLS_MAP[column_type]
     if plugin := plugin_manager.get_column_generator_plugin_if_exists(column_type.value):
-        return plugin.config_cls(name=name, **kwargs)
-    raise InvalidColumnTypeError(f"🛑 {column_type} is not a valid column type.")  # pragma: no cover
+        return plugin.config_cls
+    raise InvalidConfigError(f"🛑 {column_type} is not a valid column type.")
 
 
 def get_column_display_order() -> list[DataDesignerColumnType]:
@@ -112,6 +89,12 @@ def get_column_display_order() -> list[DataDesignerColumnType]:
     ]
     display_order.extend(plugin_manager.get_plugin_column_types(DataDesignerColumnType))
     return display_order
+
+
+def get_column_emoji_from_type(column_type: DataDesignerColumnType) -> str:
+    """Get the emoji for a column type."""
+    config_cls = get_column_config_cls_from_type(resolve_string_enum(column_type, DataDesignerColumnType))
+    return config_cls.get_column_emoji()
 
 
 def _resolve_sampler_kwargs(name: str, kwargs: dict) -> dict:
@@ -142,3 +125,16 @@ def _resolve_sampler_kwargs(name: str, kwargs: dict) -> dict:
         "params": params,
         **{k: v for k, v in kwargs.items() if k not in ["sampler_type", "params"]},
     }
+
+
+_COLUMN_TYPE_CONFIG_CLS_MAP = {
+    DataDesignerColumnType.LLM_TEXT: LLMTextColumnConfig,
+    DataDesignerColumnType.LLM_CODE: LLMCodeColumnConfig,
+    DataDesignerColumnType.LLM_STRUCTURED: LLMStructuredColumnConfig,
+    DataDesignerColumnType.LLM_JUDGE: LLMJudgeColumnConfig,
+    DataDesignerColumnType.VALIDATION: ValidationColumnConfig,
+    DataDesignerColumnType.EXPRESSION: ExpressionColumnConfig,
+    DataDesignerColumnType.SAMPLER: SamplerColumnConfig,
+    DataDesignerColumnType.SEED_DATASET: SeedDatasetColumnConfig,
+    DataDesignerColumnType.EMBEDDING: EmbeddingColumnConfig,
+}

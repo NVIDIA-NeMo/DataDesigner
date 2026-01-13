@@ -95,7 +95,9 @@ class ColumnGeneratorWithModel(ColumnGeneratorWithModelRegistry[TaskConfigT], AB
         return self.model_config.inference_parameters
 
     def log_pre_generation(self) -> None:
-        logger.info(f"{self.config.column_type} model configuration for generating column '{self.config.name}'")
+        logger.info(
+            f"{self.config.get_column_emoji()} {self.config.column_type} model config for column '{self.config.name}'"
+        )
         logger.info(f"  |-- model: {self.model_config.model!r}")
         logger.info(f"  |-- model alias: {self.config.model_alias!r}")
         logger.info(f"  |-- model provider: {self.get_model_provider_name(model_alias=self.config.model_alias)!r}")

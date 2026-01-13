@@ -13,7 +13,7 @@ from data_designer.config.analysis.column_profilers import ColumnProfilerConfigT
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
 from data_designer.config.base import ConfigBase
 from data_designer.config.column_configs import SingleColumnConfig
-from data_designer.config.column_types import COLUMN_TYPE_EMOJI_MAP, ColumnConfigT
+from data_designer.config.column_types import ColumnConfigT
 from data_designer.engine.analysis.column_profilers.base import ColumnConfigWithDataFrame, ColumnProfiler
 from data_designer.engine.analysis.column_statistics import get_column_statistics_calculator
 from data_designer.engine.analysis.errors import DatasetProfilerConfigurationError
@@ -68,7 +68,7 @@ class DataDesignerDatasetProfiler:
 
         column_statistics = []
         for c in self.config.column_configs:
-            logger.info(f"  |-- {COLUMN_TYPE_EMOJI_MAP[c.column_type]} column: '{c.name}'")
+            logger.info(f"  |-- {c.get_column_emoji()} column: '{c.name}'")
             column_statistics.append(
                 get_column_statistics_calculator(c.column_type)(
                     column_config_with_df=ColumnConfigWithDataFrame(column_config=c, df=dataset)
