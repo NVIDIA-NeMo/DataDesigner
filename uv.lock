@@ -763,7 +763,7 @@ requires-dist = [
     { name = "python-json-logger", specifier = ">=3,<4" },
     { name = "pyyaml", specifier = ">=6.0.1,<7" },
     { name = "requests", specifier = ">=2.32.2,<3" },
-    { name = "rich", specifier = ">=14.0.0,<15" },
+    { name = "rich", specifier = ">=13.7.1,<15" },
     { name = "ruff", specifier = ">=0.14.10,<1" },
     { name = "scipy", specifier = ">=1.11.0,<2" },
     { name = "sqlfluff", specifier = ">=3.2.0,<4" },
