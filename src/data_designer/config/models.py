@@ -1,11 +1,11 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
 from abc import ABC, abstractmethod
 from enum import Enum
 from pathlib import Path
-from typing import Any, Generic, Literal, TypeVar
+from typing import Annotated, Any, Generic, Literal, TypeVar
 
 import numpy as np
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -278,7 +278,7 @@ class ChatCompletionInferenceParams(BaseInferenceParams):
         generation_type: Type of generation, always "chat-completion" for this class.
         temperature: Sampling temperature (0.0-2.0). Can be a fixed value or a distribution for dynamic sampling.
         top_p: Nucleus sampling probability (0.0-1.0). Can be a fixed value or a distribution for dynamic sampling.
-        max_tokens: Maximum number of tokens (includes both input and output tokens).
+        max_tokens: Maximum number of tokens to generate in the response.
     """
 
     generation_type: Literal[GenerationType.CHAT_COMPLETION] = GenerationType.CHAT_COMPLETION
@@ -357,21 +357,6 @@ class ChatCompletionInferenceParams(BaseInferenceParams):
         return super()._format_value(key, value)
 
 
-# Maintain backwards compatibility with a deprecation warning
-class InferenceParameters(ChatCompletionInferenceParams):
-    """
-    Deprecated: Use ChatCompletionInferenceParams instead.
-    This alias will be removed in a future version.
-    """
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        logger.warning(
-            "InferenceParameters is deprecated and will be removed in a future version. "
-            "Use ChatCompletionInferenceParams instead."
-        )
-        super().__init__(*args, **kwargs)
-
-
 class EmbeddingInferenceParams(BaseInferenceParams):
     """Configuration for embedding generation parameters.
 
@@ -395,7 +380,9 @@ class EmbeddingInferenceParams(BaseInferenceParams):
         return result
 
 
-InferenceParamsT: TypeAlias = ChatCompletionInferenceParams | EmbeddingInferenceParams | InferenceParameters
+InferenceParamsT: TypeAlias = Annotated[
+    ChatCompletionInferenceParams | EmbeddingInferenceParams, Field(discriminator="generation_type")
+]
 
 
 class ModelConfig(ConfigBase):
@@ -441,6 +428,7 @@ class ModelProvider(ConfigBase):
         provider_type: Provider type (default: "openai"). Determines the API format to use.
         api_key: Optional API key for authentication.
         extra_body: Additional parameters to pass in API requests.
+        extra_headers: Additional headers to pass in API requests.
     """
 
     name: str
@@ -448,6 +436,7 @@ class ModelProvider(ConfigBase):
     provider_type: str = "openai"
     api_key: str | None = None
     extra_body: dict[str, Any] | None = None
+    extra_headers: dict[str, str] | None = None
 
 
 def load_model_configs(model_configs: list[ModelConfig] | str | Path) -> list[ModelConfig]:

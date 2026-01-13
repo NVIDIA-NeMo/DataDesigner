@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
@@ -19,7 +19,6 @@ class DropColumnsProcessor(Processor[DropColumnsProcessorConfig]):
         return ConfigurableTaskMetadata(
             name="drop_columns_processor",
             description="Drop columns from the input dataset.",
-            required_resources=None,
         )
 
     def process(self, data: pd.DataFrame, *, current_batch_number: int | None = None) -> pd.DataFrame:

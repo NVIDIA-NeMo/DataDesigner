@@ -1,23 +1,28 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
 
 import functools
 import logging
 from abc import ABC, abstractmethod
-from typing import overload
+from enum import Enum
+from typing import TYPE_CHECKING, overload
 
 import pandas as pd
 
-from data_designer.config.column_types import COLUMN_TYPE_EMOJI_MAP
-from data_designer.config.models import BaseInferenceParams, ModelConfig
-from data_designer.config.utils.type_helpers import StrEnum
 from data_designer.engine.configurable_task import ConfigurableTask, ConfigurableTaskMetadata, DataT, TaskConfigT
-from data_designer.engine.models.facade import ModelFacade
+
+if TYPE_CHECKING:
+    from data_designer.config.models import BaseInferenceParams, ModelConfig
+    from data_designer.engine.models.facade import ModelFacade
+    from data_designer.engine.models.registry import ModelRegistry
+
 
 logger = logging.getLogger(__name__)
 
 
-class GenerationStrategy(StrEnum):
+class GenerationStrategy(str, Enum):
     CELL_BY_CELL = "cell_by_cell"
     FULL_COLUMN = "full_column"
 
@@ -68,28 +73,38 @@ class FromScratchColumnGenerator(ColumnGenerator[TaskConfigT], ABC):
     def generate_from_scratch(self, num_records: int) -> pd.DataFrame: ...
 
 
-class WithModelGeneration:
+class ColumnGeneratorWithModelRegistry(ColumnGenerator[TaskConfigT], ABC):
+    @property
+    def model_registry(self) -> ModelRegistry:
+        return self.resource_provider.model_registry
+
+    def get_model(self, model_alias: str) -> ModelFacade:
+        return self.model_registry.get_model(model_alias=model_alias)
+
+    def get_model_config(self, model_alias: str) -> ModelConfig:
+        return self.model_registry.get_model_config(model_alias=model_alias)
+
+    def get_model_provider_name(self, model_alias: str) -> str:
+        provider = self.model_registry.get_model_provider(model_alias=model_alias)
+        return provider.name
+
+
+class ColumnGeneratorWithModel(ColumnGeneratorWithModelRegistry[TaskConfigT], ABC):
     @functools.cached_property
     def model(self) -> ModelFacade:
-        return self.resource_provider.model_registry.get_model(model_alias=self.config.model_alias)
+        return self.get_model(model_alias=self.config.model_alias)
 
     @functools.cached_property
     def model_config(self) -> ModelConfig:
-        return self.resource_provider.model_registry.get_model_config(model_alias=self.config.model_alias)
+        return self.get_model_config(model_alias=self.config.model_alias)
 
     @functools.cached_property
     def inference_parameters(self) -> BaseInferenceParams:
         return self.model_config.inference_parameters
 
     def log_pre_generation(self) -> None:
-        emoji = COLUMN_TYPE_EMOJI_MAP[self.config.column_type]
-        logger.info(f"{emoji} Preparing {self.config.column_type} column generation")
-        logger.info(f"  |-- column name: {self.config.name!r}")
-        logger.info(f"  |-- model config:\n{self.model_config.model_dump_json(indent=4)}")
-        if self.model_config.provider is None:
-            logger.info(f"  |-- default model provider: {self._get_provider_name()!r}")
-
-    def _get_provider_name(self) -> str:
-        model_alias = self.model_config.alias
-        provider = self.resource_provider.model_registry.get_model_provider(model_alias=model_alias)
-        return provider.name
+        logger.info(f"{self.config.column_type} model configuration for generating column '{self.config.name}'")
+        logger.info(f"  |-- model: {self.model_config.model!r}")
+        logger.info(f"  |-- model alias: {self.config.model_alias!r}")
+        logger.info(f"  |-- model provider: {self.get_model_provider_name(model_alias=self.config.model_alias)!r}")
+        logger.info(f"  |-- inference parameters: {self.inference_parameters.format_for_display()}")

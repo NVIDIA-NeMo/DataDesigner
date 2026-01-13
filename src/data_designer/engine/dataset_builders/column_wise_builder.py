@@ -1,5 +1,6 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+
 from __future__ import annotations
 
 import functools
@@ -13,7 +14,7 @@ from typing import TYPE_CHECKING, Callable
 
 import pandas as pd
 
-from data_designer.config.column_types import ColumnConfigT, column_type_is_model_generated
+from data_designer.config.column_types import ColumnConfigT
 from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.processors import (
     DropColumnsProcessorConfig,
@@ -22,9 +23,10 @@ from data_designer.config.processors import (
 )
 from data_designer.engine.column_generators.generators.base import (
     ColumnGenerator,
+    ColumnGeneratorWithModel,
     GenerationStrategy,
-    WithModelGeneration,
 )
+from data_designer.engine.column_generators.utils.generator_classification import column_type_is_model_generated
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError, DatasetProcessingError
 from data_designer.engine.dataset_builders.multi_column_configs import (
@@ -45,6 +47,7 @@ from data_designer.engine.registry.data_designer_registry import DataDesignerReg
 from data_designer.engine.resources.resource_provider import ResourceProvider
 
 if TYPE_CHECKING:
+    from data_designer.engine.column_generators.generators.base import ColumnGeneratorWithModelRegistry
     from data_designer.engine.models.usage import ModelUsageStats
 
 logger = logging.getLogger(__name__)
@@ -192,7 +195,7 @@ class ColumnWiseDatasetBuilder:
 
     def _run_cell_by_cell_generator(self, generator: ColumnGenerator) -> None:
         max_workers = MAX_CONCURRENCY_PER_NON_LLM_GENERATOR
-        if isinstance(generator, WithModelGeneration):
+        if isinstance(generator, ColumnGeneratorWithModel):
             max_workers = generator.inference_parameters.max_parallel_requests
         self._fan_out_with_threads(generator, max_workers=max_workers)
 
@@ -206,7 +209,7 @@ class ColumnWiseDatasetBuilder:
                 list(set(config.model_alias for config in self.llm_generated_column_configs))
             )
 
-    def _fan_out_with_threads(self, generator: WithModelGeneration, max_workers: int) -> None:
+    def _fan_out_with_threads(self, generator: ColumnGeneratorWithModelRegistry, max_workers: int) -> None:
         if generator.generation_strategy != GenerationStrategy.CELL_BY_CELL:
             raise DatasetGenerationError(
                 f"Generator {generator.metadata().name} is not a {GenerationStrategy.CELL_BY_CELL} "
@@ -217,11 +220,15 @@ class ColumnWiseDatasetBuilder:
             f"🐙 Processing {generator.config.column_type} column '{generator.config.name}' "
             f"with {max_workers} concurrent workers"
         )
+        settings = self._resource_provider.run_config
         with ConcurrentThreadExecutor(
             max_workers=max_workers,
             column_name=generator.config.name,
             result_callback=self._worker_result_callback,
             error_callback=self._worker_error_callback,
+            shutdown_error_rate=settings.shutdown_error_rate,
+            shutdown_error_window=settings.shutdown_error_window,
+            disable_early_shutdown=settings.disable_early_shutdown,
         ) as executor:
             for i, record in self.batch_manager.iter_current_batch():
                 executor.submit(lambda record: generator.generate(record), record, context={"index": i})

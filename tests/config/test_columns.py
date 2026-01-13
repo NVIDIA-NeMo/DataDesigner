@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 import pytest
@@ -18,8 +18,6 @@ from data_designer.config.column_configs import (
 )
 from data_designer.config.column_types import (
     DataDesignerColumnType,
-    column_type_is_model_generated,
-    column_type_used_in_execution_dag,
     get_column_config_from_kwargs,
     get_column_display_order,
 )
@@ -54,30 +52,6 @@ def test_data_designer_column_type_get_display_order():
         DataDesignerColumnType.VALIDATION,
         DataDesignerColumnType.EXPRESSION,
     ]
-
-
-def test_data_designer_column_type_is_llm_generated():
-    assert column_type_is_model_generated(DataDesignerColumnType.LLM_TEXT)
-    assert column_type_is_model_generated(DataDesignerColumnType.LLM_CODE)
-    assert column_type_is_model_generated(DataDesignerColumnType.LLM_STRUCTURED)
-    assert column_type_is_model_generated(DataDesignerColumnType.LLM_JUDGE)
-    assert column_type_is_model_generated(DataDesignerColumnType.EMBEDDING)
-    assert not column_type_is_model_generated(DataDesignerColumnType.SAMPLER)
-    assert not column_type_is_model_generated(DataDesignerColumnType.VALIDATION)
-    assert not column_type_is_model_generated(DataDesignerColumnType.EXPRESSION)
-    assert not column_type_is_model_generated(DataDesignerColumnType.SEED_DATASET)
-
-
-def test_data_designer_column_type_is_in_dag():
-    assert column_type_used_in_execution_dag(DataDesignerColumnType.EXPRESSION)
-    assert column_type_used_in_execution_dag(DataDesignerColumnType.LLM_CODE)
-    assert column_type_used_in_execution_dag(DataDesignerColumnType.LLM_JUDGE)
-    assert column_type_used_in_execution_dag(DataDesignerColumnType.LLM_STRUCTURED)
-    assert column_type_used_in_execution_dag(DataDesignerColumnType.LLM_TEXT)
-    assert column_type_used_in_execution_dag(DataDesignerColumnType.VALIDATION)
-    assert column_type_used_in_execution_dag(DataDesignerColumnType.EMBEDDING)
-    assert not column_type_used_in_execution_dag(DataDesignerColumnType.SAMPLER)
-    assert not column_type_used_in_execution_dag(DataDesignerColumnType.SEED_DATASET)
 
 
 def test_sampler_column_config():

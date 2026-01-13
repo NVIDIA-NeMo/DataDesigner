@@ -10,16 +10,13 @@ When you create a `ModelConfig`, you can specify inference parameters to adjust 
 
 The `ChatCompletionInferenceParams` class controls how models generate text completions (for text, code, and structured data generation). It provides fine-grained control over generation behavior and supports both static values and dynamic distribution-based sampling.
 
-!!! warning "InferenceParameters is Deprecated"
-    The `InferenceParameters` class is deprecated and will be removed in a future version. Use `ChatCompletionInferenceParams` instead. The old `InferenceParameters` class now shows a deprecation warning when used.
-
 ### Fields
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `temperature` | `float` or `Distribution` | No | Controls randomness in generation (0.0 to 2.0). Higher values = more creative/random |
 | `top_p` | `float` or `Distribution` | No | Nucleus sampling parameter (0.0 to 1.0). Controls diversity by filtering low-probability tokens |
-| `max_tokens` | `int` | No | Maximum number of tokens for the request, including both input and output tokens (≥ 1) |
+| `max_tokens` | `int` | No | Maximum number of tokens to generate in the response (≥ 1) |
 | `max_parallel_requests` | `int` | No | Maximum concurrent API requests (default: 4, ≥ 1) |
 | `timeout` | `int` | No | API request timeout in seconds (≥ 1) |
 | `extra_body` | `dict[str, Any]` | No | Additional parameters to include in the API request body |

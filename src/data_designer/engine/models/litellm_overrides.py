@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
@@ -10,6 +10,7 @@ import httpx
 import litellm
 from litellm import RetryPolicy
 from litellm.caching.in_memory_cache import InMemoryCache
+from litellm.litellm_core_utils.logging_callback_manager import LoggingCallbackManager
 from litellm.router import Router
 from pydantic import BaseModel, Field
 from typing_extensions import override
@@ -154,7 +155,7 @@ def apply_litellm_patches():
     litellm.in_memory_llm_clients_cache = ThreadSafeCache()
 
     # Workaround for the litellm issue described in https://github.com/BerriAI/litellm/issues/9792
-    litellm.litellm_core_utils.logging_callback_manager.LoggingCallbackManager.MAX_CALLBACKS = DEFAULT_MAX_CALLBACKS
+    LoggingCallbackManager.MAX_CALLBACKS = DEFAULT_MAX_CALLBACKS
 
     quiet_noisy_logger("httpx")
     quiet_noisy_logger("LiteLLM")

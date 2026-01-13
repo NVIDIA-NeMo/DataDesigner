@@ -1,5 +1,7 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
 
 import logging
 
@@ -50,7 +52,6 @@ class ValidationColumnGenerator(ColumnGenerator[ValidationColumnConfig]):
             name="validate",
             description="Validate data.",
             generation_strategy=GenerationStrategy.FULL_COLUMN,
-            required_resources=None,
         )
 
     def generate(self, data: pd.DataFrame) -> pd.DataFrame:
@@ -123,11 +124,15 @@ class ValidationColumnGenerator(ColumnGenerator[ValidationColumnConfig]):
         def error_callback(error: Exception, context: dict):
             outputs[context["index"]] = ValidationResult.empty(size=len(batched_records[context["index"]]))
 
+        settings = self.resource_provider.run_config
         with ConcurrentThreadExecutor(
             max_workers=self.config.validator_params.max_parallel_requests,
             column_name=self.config.name,
             result_callback=result_callback,
             error_callback=error_callback,
+            shutdown_error_rate=settings.shutdown_error_rate,
+            shutdown_error_window=settings.shutdown_error_window,
+            disable_early_shutdown=settings.disable_early_shutdown,
         ) as executor:
             for i, batch in enumerate(batched_records):
                 executor.submit(lambda batch: self._validate_batch(validator, batch), batch, context={"index": i})

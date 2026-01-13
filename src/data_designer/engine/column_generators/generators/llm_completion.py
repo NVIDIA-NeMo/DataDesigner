@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 import functools
@@ -12,19 +12,18 @@ from data_designer.config.column_configs import (
 )
 from data_designer.config.utils.constants import REASONING_TRACE_COLUMN_POSTFIX
 from data_designer.engine.column_generators.generators.base import (
-    ColumnGenerator,
+    ColumnGeneratorWithModel,
     GenerationStrategy,
     GeneratorMetadata,
-    WithModelGeneration,
 )
 from data_designer.engine.column_generators.utils.prompt_renderer import (
     PromptType,
     RecordBasedPromptRenderer,
     create_response_recipe,
 )
+from data_designer.engine.configurable_task import TaskConfigT
 from data_designer.engine.models.recipes.base import ResponseRecipe
 from data_designer.engine.processing.utils import deserialize_json_values
-from data_designer.engine.resources.resource_provider import ResourceType
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +32,7 @@ DEFAULT_MAX_CONVERSATION_RESTARTS = 5
 DEFAULT_MAX_CONVERSATION_CORRECTION_STEPS = 0
 
 
-class WithChatCompletionGeneration(WithModelGeneration):
+class ColumnGeneratorWithModelChatCompletion(ColumnGeneratorWithModel[TaskConfigT]):
     @functools.cached_property
     def response_recipe(self) -> ResponseRecipe:
         return create_response_recipe(self.config, self.model_config)
@@ -92,47 +91,43 @@ class WithChatCompletionGeneration(WithModelGeneration):
         return data
 
 
-class LLMTextCellGenerator(WithChatCompletionGeneration, ColumnGenerator[LLMTextColumnConfig]):
+class LLMTextCellGenerator(ColumnGeneratorWithModelChatCompletion[LLMTextColumnConfig]):
     @staticmethod
     def metadata() -> GeneratorMetadata:
         return GeneratorMetadata(
             name="llm_text_generator",
             description="Generate a new dataset cell from a prompt template",
             generation_strategy=GenerationStrategy.CELL_BY_CELL,
-            required_resources=[ResourceType.MODEL_REGISTRY],
         )
 
 
-class LLMCodeCellGenerator(WithChatCompletionGeneration, ColumnGenerator[LLMCodeColumnConfig]):
+class LLMCodeCellGenerator(ColumnGeneratorWithModelChatCompletion[LLMCodeColumnConfig]):
     @staticmethod
     def metadata() -> GeneratorMetadata:
         return GeneratorMetadata(
             name="llm_code_generator",
             description="Generate a new dataset cell from a prompt template",
             generation_strategy=GenerationStrategy.CELL_BY_CELL,
-            required_resources=[ResourceType.MODEL_REGISTRY],
         )
 
 
-class LLMStructuredCellGenerator(WithChatCompletionGeneration, ColumnGenerator[LLMStructuredColumnConfig]):
+class LLMStructuredCellGenerator(ColumnGeneratorWithModelChatCompletion[LLMStructuredColumnConfig]):
     @staticmethod
     def metadata() -> GeneratorMetadata:
         return GeneratorMetadata(
             name="llm_structured_generator",
             description="Generate a new dataset cell from a prompt template",
             generation_strategy=GenerationStrategy.CELL_BY_CELL,
-            required_resources=[ResourceType.MODEL_REGISTRY],
         )
 
 
-class LLMJudgeCellGenerator(WithChatCompletionGeneration, ColumnGenerator[LLMJudgeColumnConfig]):
+class LLMJudgeCellGenerator(ColumnGeneratorWithModelChatCompletion[LLMJudgeColumnConfig]):
     @staticmethod
     def metadata() -> GeneratorMetadata:
         return GeneratorMetadata(
             name="llm_judge_generator",
             description="Judge a new dataset cell based on a set of rubrics",
             generation_strategy=GenerationStrategy.CELL_BY_CELL,
-            required_resources=[ResourceType.MODEL_REGISTRY],
         )
 
     @property

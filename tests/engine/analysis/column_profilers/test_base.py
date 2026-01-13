@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 import pandas as pd
@@ -56,7 +56,6 @@ def test_column_profiler_metadata_creation():
         name="test_profiler",
         description="Test profiler",
         applicable_column_types=[DataDesignerColumnType.SAMPLER, DataDesignerColumnType.LLM_TEXT],
-        required_resources=None,
     )
 
     assert metadata.name == "test_profiler"

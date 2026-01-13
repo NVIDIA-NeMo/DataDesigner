@@ -55,9 +55,9 @@ class IndexMultiplierColumnConfig(SingleColumnConfig):
 - Add any custom parameters your plugin needs (here: `multiplier`)
 - `SingleColumnConfig` is a Pydantic model, so you can leverage all of Pydantic's validation features
 
-## Step 3: Create the task class
+## Step 3: Create the implementation class
 
-The task class implements the actual business logic of the plugin. For column generator plugins, it inherits from [ColumnGenerator](../code_reference/column_generators.md#data_designer.engine.column_generators.generators.base.ColumnGenerator) and must implement a `metadata` static method and `generate` method:
+The implementation class defines the actual business logic of the plugin. For column generator plugins, it inherits from [ColumnGenerator](../code_reference/column_generators.md#data_designer.engine.column_generators.generators.base.ColumnGenerator) and must implement a `metadata` static method and `generate` method:
 
 
 ```python
@@ -81,7 +81,6 @@ class IndexMultiplierColumnGenerator(ColumnGenerator[IndexMultiplierColumnConfig
             name="index-multiplier",
             description="Generates values by multiplying the row index by a user-specified multiplier",
             generation_strategy=GenerationStrategy.FULL_COLUMN,
-            required_resources=None,
         )
 
     def generate(self, data: pd.DataFrame) -> pd.DataFrame:
@@ -110,7 +109,6 @@ class IndexMultiplierColumnGenerator(ColumnGenerator[IndexMultiplierColumnConfig
 - `metadata()` describes your generator and its requirements
 - `generation_strategy` can be `FULL_COLUMN`, `CELL_BY_CELL`
 - You have access to the configuration parameters via `self.config`
-- `required_resources` lists any required resources (models, artifact storages, etc.). This parameter will evolve in the near future, so keeping it as `None` is safe for now. That said, if your task will use the model registry, adding `data_designer.engine.resources.ResourceType.MODEL_REGISTRY` will enable automatic model health checking for your column generation task.
 
 !!! info "Understanding generation_strategy"
     The `generation_strategy` specifies how the column generator will generate data.
@@ -131,8 +129,8 @@ from data_designer.plugins import Plugin, PluginType
 
 # Plugin instance - this is what gets loaded via entry point
 plugin = Plugin(
-    task_cls=IndexMultiplierColumnGenerator,
-    config_cls=IndexMultiplierColumnConfig,
+    impl_qualified_name="data_designer_index_multiplier.plugin.IndexMultiplierColumnGenerator",
+    config_qualified_name="data_designer_index_multiplier.plugin.IndexMultiplierColumnConfig",
     plugin_type=PluginType.COLUMN_GENERATOR,
     emoji="🔌",
 )
@@ -179,7 +177,6 @@ class IndexMultiplierColumnGenerator(ColumnGenerator[IndexMultiplierColumnConfig
             name="index-multiplier",
             description="Generates values by multiplying the row index by a user-specified multiplier",
             generation_strategy=GenerationStrategy.FULL_COLUMN,
-            required_resources=None,
         )
 
     def generate(self, data: pd.DataFrame) -> pd.DataFrame:
@@ -204,8 +201,8 @@ class IndexMultiplierColumnGenerator(ColumnGenerator[IndexMultiplierColumnConfig
 
 # Plugin instance - this is what gets loaded via entry point
 plugin = Plugin(
-    task_cls=IndexMultiplierColumnGenerator,
-    config_cls=IndexMultiplierColumnConfig,
+    impl_qualified_name="data_designer_index_multiplier.plugin.IndexMultiplierColumnGenerator",
+    config_qualified_name="data_designer_index_multiplier.plugin.IndexMultiplierColumnConfig",
     plugin_type=PluginType.COLUMN_GENERATOR,
     emoji="🔌",
 )

@@ -1,5 +1,7 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
 
 import logging
 import random
@@ -17,7 +19,6 @@ from data_designer.engine.column_generators.generators.base import (
 from data_designer.engine.dataset_builders.multi_column_configs import SamplerMultiColumnConfig
 from data_designer.engine.processing.utils import concat_datasets
 from data_designer.engine.resources.managed_dataset_generator import ManagedDatasetGenerator
-from data_designer.engine.resources.resource_provider import ResourceType
 from data_designer.engine.sampling_gen.data_sources.sources import SamplerType
 from data_designer.engine.sampling_gen.entities.person import load_person_data_sampler
 from data_designer.engine.sampling_gen.generator import DatasetGenerator as SamplingDatasetGenerator
@@ -32,7 +33,6 @@ class SamplerColumnGenerator(FromScratchColumnGenerator[SamplerMultiColumnConfig
             name="sampler_column_generator",
             description="Generate columns using sampling-based method.",
             generation_strategy=GenerationStrategy.FULL_COLUMN,
-            required_resources=[ResourceType.BLOB_STORAGE],
         )
 
     def generate(self, data: pd.DataFrame) -> pd.DataFrame:

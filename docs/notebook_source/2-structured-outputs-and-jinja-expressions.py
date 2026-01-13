@@ -253,7 +253,7 @@ config_builder.add_column(
 )
 
 # Optionally validate that the columns are configured correctly.
-config_builder.validate()
+data_designer.validate(config_builder)
 
 # %% [markdown]
 # Next, we will use more advanced Jinja expressions to create new columns.
@@ -312,7 +312,7 @@ config_builder.add_column(
     )
 )
 
-config_builder.validate()
+data_designer.validate(config_builder)
 
 # %% [markdown]
 # ### 🔁 Iteration is key – preview the dataset!

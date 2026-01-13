@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from unittest.mock import Mock, patch
@@ -31,12 +31,15 @@ def _create_generator_with_mocks(config_class=LLMTextColumnConfig, **config_kwar
     mock_inference_params = Mock()
     mock_prompt_renderer = Mock()
     mock_response_recipe = Mock()
+    mock_provider = Mock()
 
     mock_resource_provider.model_registry = mock_model_registry
     mock_model_registry.get_model.return_value = mock_model
     mock_model_registry.get_model_config.return_value = mock_model_config
+    mock_model_registry.get_model_provider.return_value = mock_provider
     mock_model_config.inference_parameters = mock_inference_params
     mock_model_config.alias = "test_model"
+    mock_provider.name = "test_provider"
 
     mock_inference_params.generate_kwargs = {"temperature": 0.7, "max_tokens": 100}
 
@@ -95,25 +98,31 @@ def test_generate_method():
 
 
 @patch("data_designer.engine.column_generators.generators.base.logger", autospec=True)
-def test_log_pre_generation(mock_logger):
-    generator, mock_resource_provider, _, mock_model_config, _, _, _ = _create_generator_with_mocks()
-    mock_model_config.model_dump_json.return_value = '{"test": "config"}'
+def test_log_pre_generation(mock_logger: Mock) -> None:
+    generator, mock_resource_provider, _, mock_model_config, mock_inference_params, _, _ = (
+        _create_generator_with_mocks()
+    )
+    mock_model_config.model = "meta/llama-3.1-8b-instruct"
+    mock_model_config.generation_type.value = "chat-completion"
+    mock_inference_params.format_for_display.return_value = "temperature=0.70, max_tokens=100"
 
     generator.log_pre_generation()
 
-    assert mock_logger.info.call_count == 3
-    mock_logger.info.assert_any_call("📝 Preparing llm-text column generation")
-    mock_logger.info.assert_any_call("  |-- column name: 'test_column'")
-    mock_logger.info.assert_any_call('  |-- model config:\n{"test": "config"}')
+    assert mock_logger.info.call_count == 5
+    mock_logger.info.assert_any_call("llm-text model configuration for generating column 'test_column'")
+    mock_logger.info.assert_any_call("  |-- model: 'meta/llama-3.1-8b-instruct'")
+    mock_logger.info.assert_any_call("  |-- model alias: 'test_model'")
+    mock_logger.info.assert_any_call("  |-- model provider: 'test_provider'")
+    mock_logger.info.assert_any_call("  |-- inference parameters: temperature=0.70, max_tokens=100")
 
-    # Test with provider
-    mock_model_config.provider = None
+    # Test with different provider
+    mock_logger.reset_mock()
     mock_provider = Mock()
-    mock_provider.name = "test_provider"
+    mock_provider.name = "test_provider_2"
     mock_resource_provider.model_registry.get_model_provider.return_value = mock_provider
 
     generator.log_pre_generation()
-    mock_logger.info.assert_any_call("  |-- default model provider: 'test_provider'")
+    mock_logger.info.assert_any_call("  |-- model provider: 'test_provider_2'")
 
 
 @pytest.mark.parametrize(

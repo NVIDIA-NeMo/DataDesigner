@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 import json
@@ -22,7 +22,6 @@ class SchemaTransformProcessor(WithJinja2UserTemplateRendering, Processor[Schema
         return ConfigurableTaskMetadata(
             name="schema_transform_processor",
             description="Generate dataset with transformed schema using a Jinja2 template.",
-            required_resources=None,
         )
 
     @property

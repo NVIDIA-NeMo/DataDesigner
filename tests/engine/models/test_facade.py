@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from collections import namedtuple
@@ -130,6 +130,15 @@ def test_consolidate_kwargs(stub_model_configs, stub_model_facade):
     assert result == {
         **stub_model_configs[0].inference_parameters.generate_kwargs,
         "extra_body": {"foo_provider": "bar_provider", "foo": "bar"},
+    }
+
+    # Provider extra_headers
+    stub_model_facade.model_provider.extra_body = None
+    stub_model_facade.model_provider.extra_headers = {"hello": "world", "hola": "mundo"}
+    result = stub_model_facade.consolidate_kwargs()
+    assert result == {
+        **stub_model_configs[0].inference_parameters.generate_kwargs,
+        "extra_headers": {"hello": "world", "hola": "mundo"},
     }
 
 

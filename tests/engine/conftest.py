@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from unittest.mock import Mock
@@ -6,6 +6,7 @@ from unittest.mock import Mock
 import pandas as pd
 import pytest
 
+from data_designer.config.run_config import RunConfig
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.engine.models.facade import ModelFacade
 from data_designer.engine.models.registry import ModelRegistry
@@ -35,7 +36,8 @@ def stub_resource_provider(tmp_path, stub_model_facade):
     mock_provider.model_registry = mock_model_registry
     mock_provider.artifact_storage = ArtifactStorage(artifact_path=tmp_path)
     mock_provider.blob_storage = Mock(spec=ManagedBlobStorage)
-    mock_provider.datastore = Mock()
+    mock_provider.seed_reader = Mock()
+    mock_provider.run_config = RunConfig()
     return mock_provider
 
 

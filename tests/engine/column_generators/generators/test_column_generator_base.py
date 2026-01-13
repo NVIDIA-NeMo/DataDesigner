@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from unittest.mock import Mock
@@ -21,7 +21,6 @@ def _create_test_metadata(name="test", description="test", strategy=GenerationSt
         name=name,
         description=description,
         generation_strategy=strategy,
-        required_resources=None,
     )
 
 

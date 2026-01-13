@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 import pytest
@@ -196,3 +196,34 @@ def test_invalid_data_type():
     data = {"num": "not a number", "extra": "should be removed"}
     with pytest.raises(JSONSchemaValidationError):
         validate(data, schema, pruning=True, no_extra_properties=True)
+
+
+def test_normalize_decimal_anyof_fields() -> None:
+    """Test that Decimal-like anyOf fields are normalized to floats with proper precision."""
+    schema = {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "price": {
+                "anyOf": [
+                    {"type": "number"},
+                    {"type": "string", "pattern": r"^(?!^[-+.]*$)[+-]?0*\d*\.?\d{0,2}0*$"},
+                ]
+            },
+        },
+    }
+
+    # Numeric value with extra precision should be rounded to 2 decimal places
+    result1 = validate({"name": "Widget", "price": 189.999}, schema)
+    assert result1["price"] == 190.0
+    assert isinstance(result1["price"], float)
+
+    # Numeric value should be converted to float
+    result2 = validate({"name": "Gadget", "price": 50.5}, schema)
+    assert result2["price"] == 50.5
+    assert isinstance(result2["price"], float)
+
+    # String value should be converted to float
+    result3 = validate({"name": "Gizmo", "price": "249.99"}, schema)
+    assert result3["price"] == 249.99
+    assert isinstance(result3["price"], float)

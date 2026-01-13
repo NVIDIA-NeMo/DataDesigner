@@ -1,0 +1,51 @@
+name: 🐛 Bug Report
+description: Report a bug
+labels: ["bug"]
+body:
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority Level
+      description: How urgent is this issue?
+      default: 2
+      options:
+        - Critical (Total blocker)
+        - High (Major functionality broken)
+        - Medium (Annoying but has workaround)
+        - Low (Cosmetic / Minor)
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the bug
+      placeholder: A clear and concise description of what the bug is.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps/Code to reproduce bug
+      description: |
+        Please list *minimal* steps or code snippet for us to be able to reproduce the bug.
+        A helpful guide on how to craft a minimal bug report: http://matthewrocklin.com/blog/work/2018/02/28/minimal-bug-reports
+      placeholder: |
+        Please include:
+          - Minimal code example that reproduces the issue
+          - Configuration used (if applicable)
+          - Commands run (if applicable)
+          - Error traceback
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      placeholder: A clear and concise description of what you expected to happen.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      placeholder: Add any other context about the problem here (e.g., screenshots, logs, browser version).

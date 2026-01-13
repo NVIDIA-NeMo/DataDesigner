@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
@@ -96,6 +96,8 @@ class ModelFacade:
         kwargs = {**self._model_config.inference_parameters.generate_kwargs, **kwargs}
         if self.model_provider.extra_body:
             kwargs["extra_body"] = {**kwargs.get("extra_body", {}), **self.model_provider.extra_body}
+        if self.model_provider.extra_headers:
+            kwargs["extra_headers"] = self.model_provider.extra_headers
         return kwargs
 
     @catch_llm_exceptions

@@ -1,5 +1,7 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
 
 import logging
 
@@ -25,7 +27,6 @@ class ExpressionColumnGenerator(WithJinja2UserTemplateRendering, ColumnGenerator
             name="expression_generator",
             description="Generate a column from a jinja2 expression.",
             generation_strategy=GenerationStrategy.FULL_COLUMN,
-            required_resources=None,
         )
 
     def generate(self, data: pd.DataFrame) -> pd.DataFrame:
