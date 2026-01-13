@@ -6,6 +6,7 @@ from typing import Literal
 
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic.json_schema import SkipJsonSchema
 from typing_extensions import Self
 
 from data_designer.config.utils.io_helpers import (
@@ -68,7 +69,7 @@ class DataFrameSeedSource(SeedSource):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    df: pd.DataFrame = Field(
+    df: SkipJsonSchema[pd.DataFrame] = Field(
         ...,
         exclude=True,
         description=(
