@@ -274,9 +274,7 @@ def test_preview_results_seed_column_names() -> None:
     )
 
     # Patch display_sample_record to capture the seed_column_names argument
-    with patch(
-        "data_designer.config.utils.visualization.display_sample_record", wraps=display_fn
-    ) as mock_display:
+    with patch("data_designer.config.utils.visualization.display_sample_record", wraps=display_fn) as mock_display:
         results.display_sample_record(index=0)
 
         # Verify seed_column_names was passed to the display function
