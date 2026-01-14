@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+
+{% block outdated %}
+  You're not viewing the latest version.
+  <a href="{{ '../' ~ base_url }}">
+    <strong>Click here to go to latest.</strong>
+  </a>
+{% endblock %}
+
+{% block content %}
+{% if page.nb_url %}
+  <div data-md-component="latest-only" style="display: none;">
+    <a target="_blank" href="https://colab.research.google.com/github/NVIDIA-NeMo/DataDesigner/blob/main/docs/colab_notebooks/{{ page.nb_url.split('/')[-1] }}">
+      <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
+    </a>
+    <script>
+      var el = document.querySelector('[data-md-component="latest-only"]');
+      var base = new URL("{{ base_url }}", location);
+      var outdated = __md_get("__outdated", sessionStorage, base);
+      if (!outdated) {
+        el.style.display = "inline-block";
+      }
+    </script>
+  </div>
+  <a href="{{ page.nb_url }}" title="Download notebook" class="md-content__button md-icon" download>
+    {% include ".icons/material/download.svg" %}
+  </a>
+{% endif %}
+
+{{ super() }}
+{% endblock content %}
