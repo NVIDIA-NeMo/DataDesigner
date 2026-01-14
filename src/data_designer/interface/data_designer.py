@@ -245,11 +245,17 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         ):
             logger.info(f"{RandomEmoji.success()} Preview complete!")
 
+        # Get seed column names from the seed reader if available
+        seed_column_names = None
+        if resource_provider.seed_reader is not None:
+            seed_column_names = resource_provider.seed_reader.get_column_names()
+
         return PreviewResults(
             dataset=processed_dataset,
             analysis=analysis,
             processor_artifacts=processor_artifacts,
             config_builder=config_builder,
+            seed_column_names=seed_column_names,
         )
 
     def validate(self, config_builder: DataDesignerConfigBuilder) -> None:

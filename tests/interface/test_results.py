@@ -257,3 +257,29 @@ def test_load_dataset_independent_of_record_sampler_cache(stub_dataset_creation_
 
     # Should call load_dataset again (independent of cache)
     stub_artifact_storage.load_dataset.assert_called_once()
+
+
+def test_preview_results_seed_column_names() -> None:
+    """Regression test: PreviewResults should use seed_column_names in display_sample_record."""
+    from data_designer.config.preview_results import PreviewResults
+    from data_designer.config.utils.visualization import display_sample_record as display_fn
+
+    config_builder = MagicMock(spec=DataDesignerConfigBuilder)
+    config_builder.get_columns_of_type.return_value = []
+
+    results = PreviewResults(
+        config_builder=config_builder,
+        dataset=pd.DataFrame({"name": ["Alice"], "age": [25], "greeting": ["Hello"]}),
+        seed_column_names=["name", "age"],
+    )
+
+    # Patch display_sample_record to capture the seed_column_names argument
+    with patch(
+        "data_designer.config.utils.visualization.display_sample_record", wraps=display_fn
+    ) as mock_display:
+        results.display_sample_record(index=0)
+
+        # Verify seed_column_names was passed to the display function
+        mock_display.assert_called_once()
+        call_kwargs = mock_display.call_args.kwargs
+        assert call_kwargs["seed_column_names"] == ["name", "age"]

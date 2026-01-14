@@ -120,6 +120,9 @@ class WithRecordSamplerMixin:
                     else:
                         processor_data_to_display[processor] = self.processor_artifacts[processor]
 
+        # Get seed column names from the results object if available
+        seed_column_names = getattr(self, "_seed_column_names", None)
+
         display_sample_record(
             record=record,
             processor_data_to_display=processor_data_to_display,
@@ -128,6 +131,7 @@ class WithRecordSamplerMixin:
             syntax_highlighting_theme=syntax_highlighting_theme,
             hide_seed_columns=hide_seed_columns,
             record_index=i,
+            seed_column_names=seed_column_names,
         )
         if index is None:
             self._display_cycle_index = (self._display_cycle_index + 1) % num_records
@@ -161,6 +165,7 @@ def display_sample_record(
     syntax_highlighting_theme: str = "dracula",
     record_index: int | None = None,
     hide_seed_columns: bool = False,
+    seed_column_names: list[str] | None = None,
 ):
     if isinstance(record, (dict, pd.Series)):
         record = pd.DataFrame([record]).iloc[0]
@@ -179,14 +184,16 @@ def display_sample_record(
     render_list = []
     table_kws = dict(show_lines=True, expand=True)
 
+    # Use seed_column_names if provided, otherwise fall back to config_builder
     seed_columns = config_builder.get_columns_of_type(DataDesignerColumnType.SEED_DATASET)
-    if not hide_seed_columns and len(seed_columns) > 0:
+    seed_col_names_to_display = seed_column_names if seed_column_names else [col.name for col in seed_columns]
+    if not hide_seed_columns and len(seed_col_names_to_display) > 0:
         table = Table(title="Seed Columns", **table_kws)
         table.add_column("Name")
         table.add_column("Value")
-        for col in seed_columns:
-            if not col.drop:
-                table.add_row(col.name, convert_to_row_element(record[col.name]))
+        for col_name in seed_col_names_to_display:
+            if col_name in record.index:
+                table.add_row(col_name, convert_to_row_element(record[col_name]))
         render_list.append(pad_console_element(table))
 
     non_code_columns = (
