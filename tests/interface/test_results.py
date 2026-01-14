@@ -8,7 +8,10 @@ import pytest
 
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
 from data_designer.config.config_builder import DataDesignerConfigBuilder
+from data_designer.config.dataset_metadata import DatasetMetadata
+from data_designer.config.preview_results import PreviewResults
 from data_designer.config.utils.errors import DatasetSampleDisplayError
+from data_designer.config.utils.visualization import display_sample_record as display_fn
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.interface.results import DatasetCreationResults
 
@@ -88,7 +91,6 @@ def test_display_sample_record_with_default_params(
     # Verify the underlying display_sample_record function was called
     mock_display_sample_record.assert_called_once()
     call_kwargs = mock_display_sample_record.call_args.kwargs
-    assert call_kwargs["hide_seed_columns"] is False
     assert call_kwargs["syntax_highlighting_theme"] == "dracula"
     assert call_kwargs["background_color"] is None
     assert call_kwargs["record_index"] == 0
@@ -106,23 +108,10 @@ def test_display_sample_record_with_custom_index(
     mock_display_sample_record.assert_called_once()
     call_kwargs = mock_display_sample_record.call_args.kwargs
     assert call_kwargs["record_index"] == 5
-    assert call_kwargs["hide_seed_columns"] is False
     assert call_kwargs["syntax_highlighting_theme"] == "dracula"
     assert call_kwargs["background_color"] is None
     # Verify the record passed is the correct row
     pd.testing.assert_series_equal(mock_display_sample_record.call_args.kwargs["record"], stub_dataframe.iloc[5])
-
-
-@patch("data_designer.config.utils.visualization.display_sample_record", autospec=True)
-def test_display_sample_record_with_hide_seed_columns(mock_display_sample_record, stub_dataset_creation_results):
-    """Test display_sample_record with seed columns hidden."""
-    stub_dataset_creation_results.display_sample_record(hide_seed_columns=True)
-
-    mock_display_sample_record.assert_called_once()
-    call_kwargs = mock_display_sample_record.call_args.kwargs
-    assert call_kwargs["hide_seed_columns"] is True
-    assert call_kwargs["syntax_highlighting_theme"] == "dracula"
-    assert call_kwargs["background_color"] is None
 
 
 @patch("data_designer.config.utils.visualization.display_sample_record", autospec=True)
@@ -132,7 +121,6 @@ def test_display_sample_record_with_custom_theme(mock_display_sample_record, stu
 
     mock_display_sample_record.assert_called_once()
     call_kwargs = mock_display_sample_record.call_args.kwargs
-    assert call_kwargs["hide_seed_columns"] is False
     assert call_kwargs["syntax_highlighting_theme"] == "monokai"
     assert call_kwargs["background_color"] is None
 
@@ -144,7 +132,6 @@ def test_display_sample_record_with_custom_background_color(mock_display_sample_
 
     mock_display_sample_record.assert_called_once()
     call_kwargs = mock_display_sample_record.call_args.kwargs
-    assert call_kwargs["hide_seed_columns"] is False
     assert call_kwargs["syntax_highlighting_theme"] == "dracula"
     assert call_kwargs["background_color"] == "#282a36"
 
@@ -154,7 +141,6 @@ def test_display_sample_record_with_all_custom_params(mock_display_sample_record
     """Test display_sample_record with all parameters customized."""
     stub_dataset_creation_results.display_sample_record(
         index=3,
-        hide_seed_columns=True,
         syntax_highlighting_theme="monokai",
         background_color="#1e1e1e",
     )
@@ -162,7 +148,6 @@ def test_display_sample_record_with_all_custom_params(mock_display_sample_record
     mock_display_sample_record.assert_called_once()
     call_kwargs = mock_display_sample_record.call_args.kwargs
     assert call_kwargs["record_index"] == 3
-    assert call_kwargs["hide_seed_columns"] is True
     assert call_kwargs["syntax_highlighting_theme"] == "monokai"
     assert call_kwargs["background_color"] == "#1e1e1e"
 
@@ -259,19 +244,22 @@ def test_load_dataset_independent_of_record_sampler_cache(stub_dataset_creation_
     stub_artifact_storage.load_dataset.assert_called_once()
 
 
-def test_preview_results_seed_column_names() -> None:
-    """Regression test: PreviewResults should use seed_column_names in display_sample_record."""
-    from data_designer.config.preview_results import PreviewResults
-    from data_designer.config.utils.visualization import display_sample_record as display_fn
-
+def test_preview_results_dataset_metadata() -> None:
+    """Test that PreviewResults uses DatasetMetadata in display_sample_record."""
     config_builder = MagicMock(spec=DataDesignerConfigBuilder)
     config_builder.get_columns_of_type.return_value = []
+
+    dataset_metadata = DatasetMetadata(seed_column_names=["name", "age"])
 
     results = PreviewResults(
         config_builder=config_builder,
         dataset=pd.DataFrame({"name": ["Alice"], "age": [25], "greeting": ["Hello"]}),
-        seed_column_names=["name", "age"],
+        dataset_metadata=dataset_metadata,
     )
+
+    # Verify metadata is stored as public attribute
+    assert results.dataset_metadata == dataset_metadata
+    assert results.dataset_metadata.seed_column_names == ["name", "age"]
 
     # Patch display_sample_record to capture the seed_column_names argument
     with patch("data_designer.config.utils.visualization.display_sample_record", wraps=display_fn) as mock_display:
