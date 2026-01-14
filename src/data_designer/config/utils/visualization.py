@@ -84,6 +84,7 @@ class WithRecordSamplerMixin:
         syntax_highlighting_theme: str = "dracula",
         background_color: str | None = None,
         processors_to_display: list[str] | None = None,
+        hide_seed_columns: bool = False,
     ) -> None:
         """Display a sample record from the Data Designer dataset preview.
 
@@ -95,6 +96,7 @@ class WithRecordSamplerMixin:
             background_color: Background color to use for the record. See the `Syntax`
                 documentation from `rich` for information about available background colors.
             processors_to_display: List of processors to display the artifacts for. If None, all processors will be displayed.
+            hide_seed_columns: If True, seed columns will not be displayed separately.
         """
         i = index or self._display_cycle_index
 
@@ -120,7 +122,7 @@ class WithRecordSamplerMixin:
                     else:
                         processor_data_to_display[processor] = self.processor_artifacts[processor]
 
-        seed_column_names = self.dataset_metadata.seed_column_names
+        seed_column_names = None if hide_seed_columns else self.dataset_metadata.seed_column_names
 
         display_sample_record(
             record=record,
