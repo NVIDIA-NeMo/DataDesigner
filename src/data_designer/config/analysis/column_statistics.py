@@ -7,7 +7,6 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Any, Literal
 
-from pandas import Series
 from pydantic import BaseModel, ConfigDict, create_model, field_validator, model_validator
 from typing_extensions import Self, TypeAlias
 
@@ -15,6 +14,7 @@ from data_designer.config.column_types import DataDesignerColumnType
 from data_designer.config.sampler_params import SamplerType
 from data_designer.config.utils.constants import EPSILON
 from data_designer.config.utils.numerical_helpers import is_float, is_int, prepare_number_for_reporting
+from data_designer.lazy_imports import pd
 from data_designer.plugin_manager import PluginManager
 
 
@@ -314,7 +314,7 @@ class CategoricalHistogramData(BaseModel):
         return self
 
     @classmethod
-    def from_series(cls, series: Series) -> Self:
+    def from_series(cls, series: pd.Series) -> Self:
         counts = series.value_counts()
         return cls(categories=counts.index.tolist(), counts=counts.tolist())
 
@@ -337,7 +337,7 @@ class CategoricalDistribution(BaseModel):
         return str(v) if not is_int(v) else prepare_number_for_reporting(v, int)
 
     @classmethod
-    def from_series(cls, series: Series) -> Self:
+    def from_series(cls, series: pd.Series) -> Self:
         counts = series.value_counts()
         return cls(
             most_common_value=counts.index[0],
@@ -368,7 +368,7 @@ class NumericalDistribution(BaseModel):
         return prepare_number_for_reporting(v, int if is_int(v) else float)
 
     @classmethod
-    def from_series(cls, series: Series) -> Self:
+    def from_series(cls, series: pd.Series) -> Self:
         return cls(
             min=series.min(skipna=True),
             max=series.max(skipna=True),

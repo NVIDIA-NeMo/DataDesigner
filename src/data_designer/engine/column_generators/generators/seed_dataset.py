@@ -1,14 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-
 from __future__ import annotations
 
 import functools
 import logging
-
-import duckdb
-import pandas as pd
 
 from data_designer.config.seed import IndexRange, PartitionBlock, SamplingStrategy
 from data_designer.engine.column_generators.generators.base import (
@@ -19,6 +15,7 @@ from data_designer.engine.column_generators.generators.base import (
 from data_designer.engine.column_generators.utils.errors import SeedDatasetError
 from data_designer.engine.dataset_builders.multi_column_configs import SeedDatasetMultiColumnConfig
 from data_designer.engine.processing.utils import concat_datasets
+from data_designer.lazy_imports import duckdb, pd
 
 MAX_ZERO_RECORD_RESPONSE_FACTOR = 2
 

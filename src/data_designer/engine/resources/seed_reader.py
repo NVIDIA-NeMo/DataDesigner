@@ -1,11 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from typing import Generic, TypeVar, get_args, get_origin
 
-import duckdb
 from huggingface_hub import HfFileSystem
 from typing_extensions import Self
 
@@ -17,6 +18,7 @@ from data_designer.config.seed_source import (
 )
 from data_designer.engine.secret_resolver import SecretResolver
 from data_designer.errors import DataDesignerError
+from data_designer.lazy_imports import duckdb
 
 
 class SeedReaderError(DataDesignerError): ...

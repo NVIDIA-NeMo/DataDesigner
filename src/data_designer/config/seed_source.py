@@ -4,7 +4,6 @@
 from abc import ABC
 from typing import Literal
 
-import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic.json_schema import SkipJsonSchema
 from typing_extensions import Self
@@ -14,6 +13,7 @@ from data_designer.config.utils.io_helpers import (
     validate_dataset_file_path,
     validate_path_contains_files_of_type,
 )
+from data_designer.lazy_imports import pd
 
 
 class SeedSource(BaseModel, ABC):

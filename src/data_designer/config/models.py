@@ -7,7 +7,6 @@ from enum import Enum
 from pathlib import Path
 from typing import Annotated, Any, Generic, Literal, TypeVar
 
-import numpy as np
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing_extensions import Self, TypeAlias
 
@@ -20,6 +19,7 @@ from data_designer.config.utils.constants import (
     MIN_TOP_P,
 )
 from data_designer.config.utils.io_helpers import smart_load_yaml
+from data_designer.lazy_imports import np
 
 logger = logging.getLogger(__name__)
 

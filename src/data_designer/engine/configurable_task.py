@@ -5,11 +5,10 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Generic, TypeVar, get_origin
 
-import pandas as pd
-
 from data_designer.config.base import ConfigBase
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.engine.resources.resource_provider import ResourceProvider
+from data_designer.lazy_imports import pd
 
 DataT = TypeVar("DataT", dict, pd.DataFrame)
 TaskConfigT = TypeVar("ConfigT", bound=ConfigBase)

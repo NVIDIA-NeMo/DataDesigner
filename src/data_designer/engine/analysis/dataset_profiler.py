@@ -1,12 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 import logging
 from collections.abc import Sequence
 from functools import cached_property
 
-import pandas as pd
-import pyarrow as pa
 from pydantic import Field, field_validator
 
 from data_designer.config.analysis.column_profilers import ColumnProfilerConfigT
@@ -24,6 +24,7 @@ from data_designer.engine.analysis.utils.column_statistics_calculations import h
 from data_designer.engine.dataset_builders.multi_column_configs import DatasetBuilderColumnConfigT, MultiColumnConfig
 from data_designer.engine.registry.data_designer_registry import DataDesignerRegistry
 from data_designer.engine.resources.resource_provider import ResourceProvider
+from data_designer.lazy_imports import pa, pd
 
 logger = logging.getLogger(__name__)
 

@@ -80,12 +80,10 @@ class LLMResponseParser:
             code: str
             syntax: Optional[str] = None
 
-
         class CodeBlockParser:
             def __call__(self, element: _Element) -> CodeBlock:
                 # Implementation details...
                 return CodeBlock(code=element.text, syntax=element.get("class"))
-
 
         parser = LLMResponseParser(
             tag_parsers={

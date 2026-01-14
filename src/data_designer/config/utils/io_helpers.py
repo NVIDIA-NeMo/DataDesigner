@@ -10,11 +10,10 @@ from numbers import Number
 from pathlib import Path
 from typing import Any
 
-import numpy as np
-import pandas as pd
 import yaml
 
 from data_designer.config.errors import InvalidFileFormatError, InvalidFilePathError
+from data_designer.lazy_imports import np, pd
 
 logger = logging.getLogger(__name__)
 

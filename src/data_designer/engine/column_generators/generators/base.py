@@ -9,15 +9,13 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from typing import TYPE_CHECKING, overload
 
-import pandas as pd
-
 from data_designer.engine.configurable_task import ConfigurableTask, ConfigurableTaskMetadata, DataT, TaskConfigT
+from data_designer.lazy_imports import pd
 
 if TYPE_CHECKING:
     from data_designer.config.models import BaseInferenceParams, ModelConfig
     from data_designer.engine.models.facade import ModelFacade
     from data_designer.engine.models.registry import ModelRegistry
-
 
 logger = logging.getLogger(__name__)
 

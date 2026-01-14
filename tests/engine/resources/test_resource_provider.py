@@ -5,10 +5,8 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from data_designer.engine.resources.resource_provider import (
-    ResourceProvider,
-    create_resource_provider,
-)
+from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
+from data_designer.engine.resources.resource_provider import ResourceProvider
 
 
 def test_resource_provider_artifact_storage_required():
@@ -22,8 +20,8 @@ def test_resource_provider_artifact_storage_required():
         ("model_registry_creation_error", "Model registry creation failed"),
     ],
 )
-def test_create_resource_provider_error_cases(test_case, expected_error):
-    mock_artifact_storage = Mock()
+def test_create_resource_provider_error_cases(test_case, expected_error, tmp_path):
+    artifact_storage = ArtifactStorage(artifact_path=str(tmp_path), dataset_name="test")
     mock_model_configs = [Mock(), Mock()]
     mock_secret_resolver = Mock()
     mock_model_provider_registry = Mock()
@@ -33,8 +31,8 @@ def test_create_resource_provider_error_cases(test_case, expected_error):
         mock_create_model_registry.side_effect = Exception(expected_error)
 
         with pytest.raises(Exception, match=expected_error):
-            create_resource_provider(
-                artifact_storage=mock_artifact_storage,
+            ResourceProvider.create(
+                artifact_storage=artifact_storage,
                 model_configs=mock_model_configs,
                 secret_resolver=mock_secret_resolver,
                 model_provider_registry=mock_model_provider_registry,

@@ -4,13 +4,17 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from data_designer.config.models import GenerationType, ModelConfig
 from data_designer.engine.model_provider import ModelProvider, ModelProviderRegistry
-from data_designer.engine.models.facade import ModelFacade
-from data_designer.engine.models.litellm_overrides import apply_litellm_patches
 from data_designer.engine.models.usage import ModelUsageStats, RequestUsageStats, TokenUsageStats
 from data_designer.engine.secret_resolver import SecretResolver
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from data_designer.engine.models.facade import ModelFacade
 
 logger = logging.getLogger(__name__)
 
@@ -22,10 +26,12 @@ class ModelRegistry:
         secret_resolver: SecretResolver,
         model_provider_registry: ModelProviderRegistry,
         model_configs: list[ModelConfig] | None = None,
+        model_facade_factory: Callable[[ModelConfig, SecretResolver, ModelProviderRegistry], ModelFacade] | None = None,
     ):
         self._secret_resolver = secret_resolver
         self._model_provider_registry = model_provider_registry
-        self._model_configs = {}
+        self._model_facade_factory = model_facade_factory
+        self._model_configs: dict[str, ModelConfig] = {}
         self._models: dict[str, ModelFacade] = {}
         self._set_model_configs(model_configs)
 
@@ -136,18 +142,6 @@ class ModelRegistry:
         # Models are now lazily initialized in get_model() when first requested
 
     def _get_model(self, model_config: ModelConfig) -> ModelFacade:
-        return ModelFacade(model_config, self._secret_resolver, self._model_provider_registry)
-
-
-def create_model_registry(
-    *,
-    model_configs: list[ModelConfig] | None = None,
-    secret_resolver: SecretResolver,
-    model_provider_registry: ModelProviderRegistry,
-) -> ModelRegistry:
-    apply_litellm_patches()
-    return ModelRegistry(
-        model_configs=model_configs,
-        secret_resolver=secret_resolver,
-        model_provider_registry=model_provider_registry,
-    )
+        if self._model_facade_factory is None:
+            raise RuntimeError("ModelRegistry was not initialized with a model_facade_factory")
+        return self._model_facade_factory(model_config, self._secret_resolver, self._model_provider_registry)

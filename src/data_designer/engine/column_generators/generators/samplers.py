@@ -8,8 +8,6 @@ import random
 from functools import partial
 from typing import Callable
 
-import pandas as pd
-
 from data_designer.config.utils.constants import LOCALES_WITH_MANAGED_DATASETS
 from data_designer.engine.column_generators.generators.base import (
     FromScratchColumnGenerator,
@@ -22,6 +20,7 @@ from data_designer.engine.resources.managed_dataset_generator import ManagedData
 from data_designer.engine.sampling_gen.data_sources.sources import SamplerType
 from data_designer.engine.sampling_gen.entities.person import load_person_data_sampler
 from data_designer.engine.sampling_gen.generator import DatasetGenerator as SamplingDatasetGenerator
+from data_designer.lazy_imports import pd
 
 logger = logging.getLogger(__name__)
 

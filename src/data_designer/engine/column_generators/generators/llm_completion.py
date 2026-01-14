@@ -27,7 +27,6 @@ from data_designer.engine.processing.utils import deserialize_json_values
 
 logger = logging.getLogger(__name__)
 
-
 DEFAULT_MAX_CONVERSATION_RESTARTS = 5
 DEFAULT_MAX_CONVERSATION_CORRECTION_STEPS = 0
 

@@ -4,8 +4,9 @@
 import random
 from pathlib import Path
 
-import pandas as pd
 from pydantic import BaseModel, Field, field_validator
+
+from data_designer.lazy_imports import pd
 
 ZIP_AREA_CODE_DATA = pd.read_parquet(Path(__file__).parent / "assets" / "zip_area_code_map.parquet")
 ZIPCODE_AREA_CODE_MAP = dict(zip(ZIP_AREA_CODE_DATA["zipcode"], ZIP_AREA_CODE_DATA["area_code"]))

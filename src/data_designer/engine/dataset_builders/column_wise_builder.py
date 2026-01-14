@@ -12,8 +12,6 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
-import pandas as pd
-
 from data_designer.config.column_types import ColumnConfigT
 from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.processors import (
@@ -45,13 +43,13 @@ from data_designer.engine.processing.processors.base import Processor
 from data_designer.engine.processing.processors.drop_columns import DropColumnsProcessor
 from data_designer.engine.registry.data_designer_registry import DataDesignerRegistry
 from data_designer.engine.resources.resource_provider import ResourceProvider
+from data_designer.lazy_imports import pd
 
 if TYPE_CHECKING:
     from data_designer.engine.column_generators.generators.base import ColumnGeneratorWithModelRegistry
     from data_designer.engine.models.usage import ModelUsageStats
 
 logger = logging.getLogger(__name__)
-
 
 _CLIENT_VERSION: str = importlib.metadata.version("data_designer")
 

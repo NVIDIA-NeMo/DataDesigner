@@ -4,12 +4,11 @@
 import ast
 from typing import Any
 
-import pandas as pd
-
 from data_designer.engine.processing.ginja.environment import (
     UserTemplateSandboxEnvironment,
     WithJinja2UserTemplateRendering,
 )
+from data_designer.lazy_imports import pd
 
 
 class JinjaDataFrame(WithJinja2UserTemplateRendering):

@@ -6,18 +6,18 @@ from __future__ import annotations
 import random
 import threading
 
-import httpx
-import litellm
-from litellm import RetryPolicy
-from litellm.caching.in_memory_cache import InMemoryCache
-from litellm.litellm_core_utils.logging_callback_manager import LoggingCallbackManager
-from litellm.router import Router
 from pydantic import BaseModel, Field
 from typing_extensions import override
 
+from data_designer.lazy_imports import httpx, litellm
 from data_designer.logging import quiet_noisy_logger
 
 DEFAULT_MAX_CALLBACKS = 1000
+
+
+def _get_logging_callback_manager():
+    """Lazy accessor for LoggingCallbackManager to avoid loading litellm at import time."""
+    return litellm.litellm_core_utils.logging_callback_manager.LoggingCallbackManager
 
 
 class LiteLLMRouterDefaultKwargs(BaseModel):
@@ -35,15 +35,15 @@ class LiteLLMRouterDefaultKwargs(BaseModel):
 
     ## Sets the default retry policy, including the number
     ## of retries to use in particular scenarios.
-    retry_policy: RetryPolicy = Field(
-        default_factory=lambda: RetryPolicy(
+    retry_policy: litellm.RetryPolicy = Field(
+        default_factory=lambda: litellm.RetryPolicy(
             RateLimitErrorRetries=3,
             TimeoutErrorRetries=3,
         )
     )
 
 
-class ThreadSafeCache(InMemoryCache):
+class ThreadSafeCache(litellm.caching.in_memory_cache.InMemoryCache):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -78,7 +78,7 @@ class ThreadSafeCache(InMemoryCache):
             super().flush_cache()
 
 
-class CustomRouter(Router):
+class CustomRouter(litellm.router.Router):
     def __init__(
         self,
         *args,
@@ -155,7 +155,7 @@ def apply_litellm_patches():
     litellm.in_memory_llm_clients_cache = ThreadSafeCache()
 
     # Workaround for the litellm issue described in https://github.com/BerriAI/litellm/issues/9792
-    LoggingCallbackManager.MAX_CALLBACKS = DEFAULT_MAX_CALLBACKS
+    _get_logging_callback_manager().MAX_CALLBACKS = DEFAULT_MAX_CALLBACKS
 
     quiet_noisy_logger("httpx")
     quiet_noisy_logger("LiteLLM")

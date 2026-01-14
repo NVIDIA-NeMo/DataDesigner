@@ -3,10 +3,6 @@
 
 import uuid
 
-import numpy as np
-import pandas as pd
-from scipy import stats
-
 from data_designer.config.sampler_params import (
     BernoulliMixtureSamplerParams,
     BernoulliSamplerParams,
@@ -40,6 +36,7 @@ from data_designer.engine.sampling_gen.data_sources.errors import (
 )
 from data_designer.engine.sampling_gen.entities.dataset_based_person_fields import PERSONA_FIELDS, PII_FIELDS
 from data_designer.engine.sampling_gen.people_gen import PeopleGen
+from data_designer.lazy_imports import np, pd, scipy
 
 ONE_BILLION = 10**9
 
@@ -264,8 +261,8 @@ class ScipySampler(TypeConversionMixin, ScipyStatsSampler[ScipySamplerParams]):
     """Escape hatch sampler to give users access to any scipy.stats distribution."""
 
     @property
-    def distribution(self) -> stats.rv_continuous | stats.rv_discrete:
-        return getattr(stats, self.params.dist_name)(**self.params.dist_params)
+    def distribution(self) -> scipy.stats.rv_continuous | scipy.stats.rv_discrete:
+        return getattr(scipy.stats, self.params.dist_name)(**self.params.dist_params)
 
     def _validate(self) -> None:
         _validate_scipy_distribution(self.params.dist_name, self.params.dist_params)
@@ -274,16 +271,16 @@ class ScipySampler(TypeConversionMixin, ScipyStatsSampler[ScipySamplerParams]):
 @SamplerRegistry.register(SamplerType.BERNOULLI)
 class BernoulliSampler(TypeConversionMixin, ScipyStatsSampler[BernoulliSamplerParams]):
     @property
-    def distribution(self) -> stats.rv_discrete:
-        return stats.bernoulli(p=self.params.p)
+    def distribution(self) -> scipy.stats.rv_discrete:
+        return scipy.stats.bernoulli(p=self.params.p)
 
 
 @SamplerRegistry.register(SamplerType.BERNOULLI_MIXTURE)
 class BernoulliMixtureSampler(TypeConversionMixin, Sampler[BernoulliMixtureSamplerParams]):
     def sample(self, num_samples: int) -> NumpyArray1dT:
-        return stats.bernoulli(p=self.params.p).rvs(size=num_samples) * getattr(stats, self.params.dist_name)(
-            **self.params.dist_params
-        ).rvs(size=num_samples)
+        return scipy.stats.bernoulli(p=self.params.p).rvs(size=num_samples) * getattr(
+            scipy.stats, self.params.dist_name
+        )(**self.params.dist_params).rvs(size=num_samples)
 
     def _validate(self) -> None:
         _validate_scipy_distribution(self.params.dist_name, self.params.dist_params)
@@ -292,29 +289,29 @@ class BernoulliMixtureSampler(TypeConversionMixin, Sampler[BernoulliMixtureSampl
 @SamplerRegistry.register(SamplerType.BINOMIAL)
 class BinomialSampler(TypeConversionMixin, ScipyStatsSampler[BinomialSamplerParams]):
     @property
-    def distribution(self) -> stats.rv_discrete:
-        return stats.binom(n=self.params.n, p=self.params.p)
+    def distribution(self) -> scipy.stats.rv_discrete:
+        return scipy.stats.binom(n=self.params.n, p=self.params.p)
 
 
 @SamplerRegistry.register(SamplerType.GAUSSIAN)
 class GaussianSampler(TypeConversionMixin, ScipyStatsSampler[GaussianSamplerParams]):
     @property
-    def distribution(self) -> stats.rv_continuous:
-        return stats.norm(loc=self.params.mean, scale=self.params.stddev)
+    def distribution(self) -> scipy.stats.rv_continuous:
+        return scipy.stats.norm(loc=self.params.mean, scale=self.params.stddev)
 
 
 @SamplerRegistry.register(SamplerType.POISSON)
 class PoissonSampler(TypeConversionMixin, ScipyStatsSampler[PoissonSamplerParams]):
     @property
-    def distribution(self) -> stats.rv_discrete:
-        return stats.poisson(mu=self.params.mean)
+    def distribution(self) -> scipy.stats.rv_discrete:
+        return scipy.stats.poisson(mu=self.params.mean)
 
 
 @SamplerRegistry.register(SamplerType.UNIFORM)
 class UniformSampler(TypeConversionMixin, ScipyStatsSampler[UniformSamplerParams]):
     @property
-    def distribution(self) -> stats.rv_continuous:
-        return stats.uniform(loc=self.params.low, scale=self.params.high - self.params.low)
+    def distribution(self) -> scipy.stats.rv_continuous:
+        return scipy.stats.uniform(loc=self.params.low, scale=self.params.high - self.params.low)
 
 
 ###################################################
@@ -328,14 +325,14 @@ def load_sampler(sampler_type: SamplerType, **params) -> DataSource:
 
 
 def _validate_scipy_distribution(dist_name: str, dist_params: dict) -> None:
-    if not hasattr(stats, dist_name):
+    if not hasattr(scipy.stats, dist_name):
         raise InvalidSamplerParamsError(f"Distribution {dist_name} not found in scipy.stats")
-    if not hasattr(getattr(stats, dist_name), "rvs"):
+    if not hasattr(getattr(scipy.stats, dist_name), "rvs"):
         raise InvalidSamplerParamsError(
             f"Distribution {dist_name} does not have a `rvs` method, which is required for sampling."
         )
     try:
-        getattr(stats, dist_name)(**dist_params)
+        getattr(scipy.stats, dist_name)(**dist_params)
     except Exception:
         raise InvalidSamplerParamsError(
             f"Distribution parameters {dist_params} are not a valid for distribution '{dist_name}'"

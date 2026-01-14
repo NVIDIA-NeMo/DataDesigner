@@ -3,9 +3,8 @@
 
 from typing import Any
 
-import pandas as pd
-
 from data_designer.engine.resources.managed_dataset_repository import ManagedDatasetRepository
+from data_designer.lazy_imports import pd
 
 
 class ManagedDatasetGenerator:

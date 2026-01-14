@@ -8,23 +8,10 @@ from collections.abc import Callable
 from functools import wraps
 from typing import Any
 
-from litellm.exceptions import (
-    APIConnectionError,
-    APIError,
-    AuthenticationError,
-    BadRequestError,
-    ContextWindowExceededError,
-    InternalServerError,
-    NotFoundError,
-    PermissionDeniedError,
-    RateLimitError,
-    Timeout,
-    UnprocessableEntityError,
-    UnsupportedParamsError,
-)
 from pydantic import BaseModel
 
 from data_designer.engine.errors import DataDesignerError
+from data_designer.lazy_imports import litellm
 
 logger = logging.getLogger(__name__)
 
@@ -132,10 +119,10 @@ def handle_llm_exceptions(
     err_msg_parser = DownstreamLLMExceptionMessageParser(model_name, model_provider_name, purpose)
     match exception:
         # Common errors that can come from LiteLLM
-        case APIError():
+        case litellm.exceptions.APIError():
             raise err_msg_parser.parse_api_error(exception, authentication_error) from None
 
-        case APIConnectionError():
+        case litellm.exceptions.APIConnectionError():
             raise ModelAPIConnectionError(
                 FormattedLLMErrorMessage(
                     cause=f"Connection to model {model_name!r} hosted on model provider {model_provider_name!r} failed while {purpose}.",
@@ -143,13 +130,13 @@ def handle_llm_exceptions(
                 )
             ) from None
 
-        case AuthenticationError():
+        case litellm.exceptions.AuthenticationError():
             raise ModelAuthenticationError(authentication_error) from None
 
-        case ContextWindowExceededError():
+        case litellm.exceptions.ContextWindowExceededError():
             raise err_msg_parser.parse_context_window_exceeded_error(exception) from None
 
-        case UnsupportedParamsError():
+        case litellm.exceptions.UnsupportedParamsError():
             raise ModelUnsupportedParamsError(
                 FormattedLLMErrorMessage(
                     cause=f"One or more of the parameters you provided were found to be unsupported by model {model_name!r} while {purpose}.",
@@ -157,10 +144,10 @@ def handle_llm_exceptions(
                 )
             ) from None
 
-        case BadRequestError():
+        case litellm.exceptions.BadRequestError():
             raise err_msg_parser.parse_bad_request_error(exception) from None
 
-        case InternalServerError():
+        case litellm.exceptions.InternalServerError():
             raise ModelInternalServerError(
                 FormattedLLMErrorMessage(
                     cause=f"Model {model_name!r} is currently experiencing internal server issues while {purpose}.",
@@ -168,7 +155,7 @@ def handle_llm_exceptions(
                 )
             ) from None
 
-        case NotFoundError():
+        case litellm.exceptions.NotFoundError():
             raise ModelNotFoundError(
                 FormattedLLMErrorMessage(
                     cause=f"The specified model {model_name!r} could not be found while {purpose}.",
@@ -176,7 +163,7 @@ def handle_llm_exceptions(
                 )
             ) from None
 
-        case PermissionDeniedError():
+        case litellm.exceptions.PermissionDeniedError():
             raise ModelPermissionDeniedError(
                 FormattedLLMErrorMessage(
                     cause=f"Your API key was found to lack the necessary permissions to use model {model_name!r} while {purpose}.",
@@ -184,7 +171,7 @@ def handle_llm_exceptions(
                 )
             ) from None
 
-        case RateLimitError():
+        case litellm.exceptions.RateLimitError():
             raise ModelRateLimitError(
                 FormattedLLMErrorMessage(
                     cause=f"You have exceeded the rate limit for model {model_name!r} while {purpose}.",
@@ -192,7 +179,7 @@ def handle_llm_exceptions(
                 )
             ) from None
 
-        case Timeout():
+        case litellm.exceptions.Timeout():
             raise ModelTimeoutError(
                 FormattedLLMErrorMessage(
                     cause=f"The request to model {model_name!r} timed out while {purpose}.",
@@ -200,7 +187,7 @@ def handle_llm_exceptions(
                 )
             ) from None
 
-        case UnprocessableEntityError():
+        case litellm.exceptions.UnprocessableEntityError():
             raise ModelUnprocessableEntityError(
                 FormattedLLMErrorMessage(
                     cause=f"The request to model {model_name!r} failed despite correct request format while {purpose}.",
@@ -264,7 +251,7 @@ class DownstreamLLMExceptionMessageParser:
         self.model_provider_name = model_provider_name
         self.purpose = purpose
 
-    def parse_bad_request_error(self, exception: BadRequestError) -> DataDesignerError:
+    def parse_bad_request_error(self, exception: litellm.exceptions.BadRequestError) -> DataDesignerError:
         err_msg = FormattedLLMErrorMessage(
             cause=f"The request for model {self.model_name!r} was found to be malformed or missing required parameters while {self.purpose}.",
             solution="Check your request parameters and try again.",
@@ -276,7 +263,9 @@ class DownstreamLLMExceptionMessageParser:
             )
         return ModelBadRequestError(err_msg)
 
-    def parse_context_window_exceeded_error(self, exception: ContextWindowExceededError) -> DataDesignerError:
+    def parse_context_window_exceeded_error(
+        self, exception: litellm.exceptions.ContextWindowExceededError
+    ) -> DataDesignerError:
         cause = f"The input data for model '{self.model_name}' was found to exceed its supported context width while {self.purpose}."
         try:
             if "OpenAIException - This model's maximum context length is " in str(exception):
@@ -295,7 +284,7 @@ class DownstreamLLMExceptionMessageParser:
             )
 
     def parse_api_error(
-        self, exception: InternalServerError, auth_error_msg: FormattedLLMErrorMessage
+        self, exception: litellm.exceptions.InternalServerError, auth_error_msg: FormattedLLMErrorMessage
     ) -> DataDesignerError:
         if "Error code: 403" in str(exception):
             return ModelAuthenticationError(auth_error_msg)

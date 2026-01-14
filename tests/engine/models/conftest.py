@@ -11,7 +11,8 @@ from data_designer.config.models import (
     ModelConfig,
 )
 from data_designer.engine.model_provider import ModelProvider, ModelProviderRegistry
-from data_designer.engine.models.registry import ModelRegistry, create_model_registry
+from data_designer.engine.models.factory import create_model_registry
+from data_designer.engine.models.registry import ModelRegistry
 from data_designer.engine.secret_resolver import SecretsFileResolver
 
 

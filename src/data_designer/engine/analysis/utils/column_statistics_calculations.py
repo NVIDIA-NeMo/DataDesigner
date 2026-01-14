@@ -7,9 +7,6 @@ import logging
 from numbers import Number
 from typing import Any
 
-import numpy as np
-import pandas as pd
-import pyarrow as pa
 import tiktoken
 
 from data_designer.config.analysis.column_statistics import (
@@ -26,6 +23,7 @@ from data_designer.engine.column_generators.utils.prompt_renderer import (
     RecordBasedPromptRenderer,
     create_response_recipe,
 )
+from data_designer.lazy_imports import np, pa, pd
 
 RANDOM_SEED = 42
 MAX_PROMPT_SAMPLE_SIZE = 1000

@@ -1,11 +1,16 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 import subprocess
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from data_designer.cli.repositories.persona_repository import PersonaRepository
 from data_designer.cli.services.download_service import DownloadService
+
+if TYPE_CHECKING:
+    from pathlib import Path
 from data_designer.cli.ui import (
     confirm_action,
     console,

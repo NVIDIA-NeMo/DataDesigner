@@ -4,20 +4,16 @@
 from abc import ABC, abstractmethod
 from typing import Any, Generic, TypeVar
 
-import numpy as np
-import pandas as pd
 from numpy.typing import NDArray
-from scipy import stats
 
 from data_designer.config.sampler_params import SamplerParamsT
 from data_designer.engine.sampling_gen.utils import check_random_state
+from data_designer.lazy_imports import np, pd, scipy
 
 NumpyArray1dT = NDArray[Any]
 RadomStateT = int | np.random.RandomState
 
-
 GenericParamsT = TypeVar("GenericParamsT", bound=SamplerParamsT)
-
 
 ###########################################################
 # Processing Mixins
@@ -208,7 +204,7 @@ class Sampler(DataSource[GenericParamsT], ABC):
 class ScipyStatsSampler(Sampler[GenericParamsT], ABC):
     @property
     @abstractmethod
-    def distribution(self) -> stats.rv_continuous | stats.rv_discrete: ...
+    def distribution(self) -> scipy.stats.rv_continuous | scipy.stats.rv_discrete: ...
 
     def sample(self, num_samples: int) -> NumpyArray1dT:
         return self.distribution.rvs(size=num_samples, random_state=self.rng)

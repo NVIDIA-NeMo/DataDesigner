@@ -6,7 +6,6 @@ from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
 
-import pandas as pd
 from pydantic import BaseModel, model_validator
 from typing_extensions import Self
 
@@ -14,6 +13,7 @@ from data_designer.config.base import ConfigBase
 from data_designer.config.column_configs import SingleColumnConfig
 from data_designer.config.column_types import DataDesignerColumnType
 from data_designer.engine.configurable_task import ConfigurableTask, ConfigurableTaskMetadata, TaskConfigT
+from data_designer.lazy_imports import pd
 
 logger = logging.getLogger(__name__)
 

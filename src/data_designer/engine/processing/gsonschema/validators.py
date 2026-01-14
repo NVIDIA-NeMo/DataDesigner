@@ -7,13 +7,12 @@ from copy import deepcopy
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, overload
 
-from jsonschema import Draft202012Validator, ValidationError, validators
-
 from data_designer.engine.processing.gsonschema.exceptions import JSONSchemaValidationError
 from data_designer.engine.processing.gsonschema.schema_transformers import forbid_additional_properties
 from data_designer.engine.processing.gsonschema.types import DataObjectT, JSONSchemaT, T_primitive
+from data_designer.lazy_imports import jsonschema
 
-DEFAULT_JSONSCHEMA_VALIDATOR = Draft202012Validator
+DEFAULT_JSONSCHEMA_VALIDATOR = jsonschema.Draft202012Validator
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +68,7 @@ def extend_jsonschema_validator_with_pruning(validator):
         Type[jsonschema.Validator]: A validator class that will
             prune extra fields.
     """
-    return validators.extend(validator, {"additionalProperties": prune_additional_properties})
+    return jsonschema.validators.extend(validator, {"additionalProperties": prune_additional_properties})
 
 
 def _get_decimal_info_from_anyof(schema: dict) -> tuple[bool, int | None]:
@@ -190,7 +189,7 @@ def validate(
 
     try:
         validator(schema).validate(final_object)
-    except ValidationError as exc:
+    except jsonschema.ValidationError as exc:
         raise JSONSchemaValidationError(str(exc)) from exc
 
     final_object = normalize_decimal_fields(final_object, schema)

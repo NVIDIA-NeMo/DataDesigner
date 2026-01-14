@@ -5,19 +5,16 @@ from __future__ import annotations
 
 import logging
 import random
+from typing import TYPE_CHECKING
 
 from data_designer.config.analysis.column_profilers import (
     JudgeScoreProfilerConfig,
     JudgeScoreProfilerResults,
-    JudgeScoreSample,
     JudgeScoreSummary,
 )
 from data_designer.config.analysis.column_statistics import (
-    CategoricalDistribution,
-    CategoricalHistogramData,
     ColumnDistributionType,
     MissingValue,
-    NumericalDistribution,
 )
 from data_designer.config.column_types import COLUMN_TYPE_EMOJI_MAP, DataDesignerColumnType
 from data_designer.engine.analysis.column_profilers.base import (
@@ -29,8 +26,16 @@ from data_designer.engine.analysis.utils.judge_score_processing import (
     extract_judge_score_distributions,
     sample_scores_and_reasoning,
 )
-from data_designer.engine.models.facade import ModelFacade
 from data_designer.engine.models.recipes.response_recipes import TextResponseRecipe
+
+if TYPE_CHECKING:
+    from data_designer.config.analysis.column_profilers import JudgeScoreSample
+    from data_designer.config.analysis.column_statistics import (
+        CategoricalDistribution,
+        CategoricalHistogramData,
+        NumericalDistribution,
+    )
+    from data_designer.engine.models.facade import ModelFacade
 
 logger = logging.getLogger(__name__)
 

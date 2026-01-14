@@ -93,3 +93,7 @@ docs/notebook_source/*.csv
 docs/**/artifacts/
 
 e2e_tests/uv.lock
+
+# Performance profiling
+perf_*.txt
+tuna_*.html

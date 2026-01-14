@@ -6,7 +6,6 @@ from __future__ import annotations
 import logging
 from typing import Any, TypeAlias
 
-import pandas as pd
 from pydantic import BaseModel
 from typing_extensions import Self
 
@@ -25,6 +24,7 @@ from data_designer.engine.analysis.utils.column_statistics_calculations import (
     calculate_token_stats,
     calculate_validation_column_info,
 )
+from data_designer.lazy_imports import pd
 
 logger = logging.getLogger(__name__)
 

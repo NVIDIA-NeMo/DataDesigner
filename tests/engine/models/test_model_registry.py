@@ -8,7 +8,8 @@ import pytest
 from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig
 from data_designer.engine.models.errors import ModelAuthenticationError
 from data_designer.engine.models.facade import ModelFacade
-from data_designer.engine.models.registry import ModelRegistry, create_model_registry
+from data_designer.engine.models.factory import create_model_registry
+from data_designer.engine.models.registry import ModelRegistry
 from data_designer.engine.models.usage import ModelUsageStats, RequestUsageStats, TokenUsageStats
 
 
@@ -39,7 +40,7 @@ def stub_no_usage_config():
     )
 
 
-@patch("data_designer.engine.models.registry.apply_litellm_patches", autospec=True)
+@patch("data_designer.engine.models.litellm_overrides.apply_litellm_patches", autospec=True)
 def test_create_model_registry(
     mock_apply_litellm_patches, stub_model_configs, stub_secrets_resolver, stub_model_provider_registry
 ):

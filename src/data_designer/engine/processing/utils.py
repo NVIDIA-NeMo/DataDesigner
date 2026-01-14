@@ -7,7 +7,7 @@ import logging
 import re
 from typing import Any, TypeVar, overload
 
-import pandas as pd
+from data_designer.lazy_imports import pd
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,6 @@ def deserialize_json_values(data):
             - List of strings (list of JSON strings to deserialize)
             - Dictionary (potentially with nested JSON strings to deserialize)
             - Some other object that can't be deserialized.
-
 
     Returns:
         Deserialized data in the corresponding format:

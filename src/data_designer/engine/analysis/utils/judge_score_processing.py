@@ -5,8 +5,6 @@ import logging
 from collections import defaultdict
 from typing import Any
 
-import pandas as pd
-
 from data_designer.config.analysis.column_profilers import JudgeScoreDistributions, JudgeScoreSample
 from data_designer.config.analysis.column_statistics import (
     CategoricalDistribution,
@@ -15,6 +13,7 @@ from data_designer.config.analysis.column_statistics import (
     NumericalDistribution,
 )
 from data_designer.config.column_configs import LLMJudgeColumnConfig
+from data_designer.lazy_imports import pd
 
 logger = logging.getLogger(__name__)
 

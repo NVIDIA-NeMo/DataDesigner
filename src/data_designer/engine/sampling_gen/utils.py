@@ -3,7 +3,7 @@
 
 import numbers
 
-import numpy as np
+from data_designer.lazy_imports import np
 
 
 def check_random_state(seed):

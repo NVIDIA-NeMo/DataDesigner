@@ -10,12 +10,12 @@ from collections import defaultdict
 from pathlib import Path
 from uuid import uuid4
 
-import pandas as pd
 from pydantic import BaseModel
 from ruff.__main__ import find_ruff_bin
 
 from data_designer.config.validator_params import CodeValidatorParams
 from data_designer.engine.validators.base import BaseValidator, ValidationOutput, ValidationResult
+from data_designer.lazy_imports import pd
 
 logger = logging.getLogger(__name__)
 

@@ -10,8 +10,6 @@ from enum import Enum
 from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
-import numpy as np
-import pandas as pd
 from rich.console import Console, Group
 from rich.padding import Padding
 from rich.panel import Panel
@@ -28,6 +26,7 @@ from data_designer.config.sampler_params import SamplerType
 from data_designer.config.utils.code_lang import code_lang_to_syntax_lexer
 from data_designer.config.utils.constants import NVIDIA_API_KEY_ENV_VAR_NAME, OPENAI_API_KEY_ENV_VAR_NAME
 from data_designer.config.utils.errors import DatasetSampleDisplayError
+from data_designer.lazy_imports import np, pd
 
 if TYPE_CHECKING:
     from data_designer.config.config_builder import DataDesignerConfigBuilder

@@ -11,11 +11,9 @@ from functools import cached_property
 from pathlib import Path
 from typing import Any
 
-import duckdb
-import pandas as pd
-
 from data_designer.config.utils.constants import LOCALES_WITH_MANAGED_DATASETS
 from data_designer.engine.resources.managed_storage import LocalBlobStorageProvider, ManagedBlobStorage
+from data_designer.lazy_imports import duckdb, pd
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +49,6 @@ class Table:
 
 
 DataCatalog = list[Table]
-
 
 # For now we hardcode the remote data catalog in code. This make it easier
 # initialize the data catalog. Eventually we can make this work more

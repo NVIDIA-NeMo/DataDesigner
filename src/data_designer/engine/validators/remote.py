@@ -3,7 +3,6 @@
 
 import logging
 
-import httpx
 from httpx_retries import Retry, RetryTransport
 
 from data_designer.config.validator_params import RemoteValidatorParams
@@ -11,6 +10,7 @@ from data_designer.engine.errors import RemoteValidationSchemaError
 from data_designer.engine.processing.gsonschema.exceptions import JSONSchemaValidationError
 from data_designer.engine.processing.gsonschema.validators import validate
 from data_designer.engine.validators.base import BaseValidator, ValidationResult
+from data_designer.lazy_imports import httpx
 
 logger = logging.getLogger(__name__)
 

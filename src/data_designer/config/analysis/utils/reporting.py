@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 from enum import Enum
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from rich.align import Align
@@ -14,7 +13,6 @@ from rich.rule import Rule
 from rich.table import Column, Table
 from rich.text import Text
 
-from data_designer.config.analysis.column_statistics import CategoricalHistogramData
 from data_designer.config.analysis.utils.errors import AnalysisReportError
 from data_designer.config.column_types import COLUMN_TYPE_EMOJI_MAP, DataDesignerColumnType, get_column_display_order
 from data_designer.config.utils.visualization import (
@@ -25,6 +23,9 @@ from data_designer.config.utils.visualization import (
 )
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
+    from data_designer.config.analysis.column_statistics import CategoricalHistogramData
     from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
 
 HEADER_STYLE = "dim"

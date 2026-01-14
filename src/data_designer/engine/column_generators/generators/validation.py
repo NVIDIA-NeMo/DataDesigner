@@ -5,8 +5,6 @@ from __future__ import annotations
 
 import logging
 
-import pandas as pd
-
 from data_designer.config.column_configs import ValidationColumnConfig
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.utils.code_lang import SQL_DIALECTS, CodeLang
@@ -29,6 +27,7 @@ from data_designer.engine.validators import (
     SQLValidator,
     ValidationResult,
 )
+from data_designer.lazy_imports import pd
 
 logger = logging.getLogger(__name__)
 

@@ -8,9 +8,6 @@ from collections.abc import Callable
 from copy import deepcopy
 from typing import Any
 
-from litellm.types.router import DeploymentTypedDict, LiteLLM_Params
-from litellm.types.utils import EmbeddingResponse, ModelResponse
-
 from data_designer.config.models import GenerationType, ModelConfig, ModelProvider
 from data_designer.engine.model_provider import ModelProviderRegistry
 from data_designer.engine.models.errors import (
@@ -23,6 +20,7 @@ from data_designer.engine.models.parsers.errors import ParserException
 from data_designer.engine.models.usage import ModelUsageStats, RequestUsageStats, TokenUsageStats
 from data_designer.engine.models.utils import prompt_to_messages, str_to_message
 from data_designer.engine.secret_resolver import SecretResolver
+from data_designer.lazy_imports import litellm
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +63,9 @@ class ModelFacade:
     def usage_stats(self) -> ModelUsageStats:
         return self._usage_stats
 
-    def completion(self, messages: list[dict[str, str]], skip_usage_tracking: bool = False, **kwargs) -> ModelResponse:
+    def completion(
+        self, messages: list[dict[str, str]], skip_usage_tracking: bool = False, **kwargs
+    ) -> litellm.ModelResponse:
         logger.debug(
             f"Prompting model {self.model_name!r}...",
             extra={"model": self.model_name, "messages": messages},
@@ -236,14 +236,14 @@ class ModelFacade:
                     ) from exc
         return output_obj, reasoning_trace
 
-    def _get_litellm_deployment(self, model_config: ModelConfig) -> DeploymentTypedDict:
+    def _get_litellm_deployment(self, model_config: ModelConfig) -> litellm.DeploymentTypedDict:
         provider = self._model_provider_registry.get_provider(model_config.provider)
         api_key = None
         if provider.api_key:
             api_key = self._secret_resolver.resolve(provider.api_key)
         api_key = api_key or "not-used-but-required"
 
-        litellm_params = LiteLLM_Params(
+        litellm_params = litellm.LiteLLM_Params(
             model=f"{provider.provider_type}/{model_config.model}",
             api_base=provider.endpoint,
             api_key=api_key,
@@ -253,7 +253,7 @@ class ModelFacade:
             "litellm_params": litellm_params.model_dump(),
         }
 
-    def _track_usage(self, response: ModelResponse | None) -> None:
+    def _track_usage(self, response: litellm.types.utils.ModelResponse | None) -> None:
         if response is None:
             self._usage_stats.extend(request_usage=RequestUsageStats(successful_requests=0, failed_requests=1))
             return
@@ -270,7 +270,7 @@ class ModelFacade:
                 request_usage=RequestUsageStats(successful_requests=1, failed_requests=0),
             )
 
-    def _track_usage_from_embedding(self, response: EmbeddingResponse | None) -> None:
+    def _track_usage_from_embedding(self, response: litellm.types.utils.EmbeddingResponse | None) -> None:
         if response is None:
             self._usage_stats.extend(request_usage=RequestUsageStats(successful_requests=0, failed_requests=1))
             return

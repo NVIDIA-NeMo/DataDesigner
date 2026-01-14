@@ -45,6 +45,12 @@ help:
 	@echo "  check-license-headers     - Check if all files have license headers"
 	@echo "  update-license-headers    - Add license headers to all files"
 	@echo ""
+	@echo "⚡ Performance:"
+	@echo "  perf-import               - Profile import time and show summary"
+	@echo "  perf-import CLEAN=1       - Clean cache, then profile import time"
+	@echo "  perf-import-tuna          - Profile import time and visualize with tuna"
+	@echo "  perf-import-tuna CLEAN=1  - Clean cache, then profile with tuna"
+	@echo ""
 	@echo "═════════════════════════════════════════════════════════════"
 	@echo "💡 Tip: Run 'make <command>' to execute any command above"
 	@echo ""
@@ -53,6 +59,12 @@ clean:
 	@echo "🧹 Cleaning up coverage reports and cache files..."
 	rm -rf htmlcov .coverage .pytest_cache
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+
+clean-pycache:
+	@echo "🧹 Cleaning up Python cache files..."
+	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+	find . -type f -name "*.pyc" -delete 2>/dev/null || true
+	@echo "✅ Cache cleaned!"
 
 coverage:
 	@echo "📊 Running tests with coverage analysis..."
@@ -168,4 +180,35 @@ install-dev-notebooks:
 	$(call install-pre-commit-hooks)
 	@echo "✅ Dev + notebooks installation complete!"
 
-.PHONY: clean coverage format format-check lint lint-fix test test-e2e test-run-tutorials test-run-recipes test-run-all-examples check-license-headers update-license-headers check-all check-all-fix install install-dev install-dev-notebooks generate-colab-notebooks
+perf-import:
+ifdef CLEAN
+	@$(MAKE) clean-pycache
+endif
+	@echo "⚡ Profiling import time for data_designer.essentials..."
+	@PERF_FILE="perf_import_$$(date +%Y%m%d_%H%M%S).txt"; \
+	uv run python -X importtime -c "import data_designer.essentials" > "$$PERF_FILE" 2>&1; \
+	echo "📊 Import profile saved to $$PERF_FILE"; \
+	echo ""; \
+	echo "Summary:"; \
+	tail -1 "$$PERF_FILE" | awk '{printf "  Total: %.3fs\n", $$5/1000000}'; \
+	echo ""; \
+	echo "💡 Top 10 slowest imports:"; \
+	printf "%-12s %-12s %s\n" "Self (s)" "Cumulative (s)" "Module"; \
+	printf "%-12s %-12s %s\n" "--------" "--------------" "------"; \
+	grep "import time:" "$$PERF_FILE" | sort -rn -k5 | head -10 | awk '{printf "%-12.3f %-12.3f %s", $$3/1000000, $$5/1000000, $$7; for(i=8;i<=NF;i++) printf " %s", $$i; printf "\n"}'; \
+	echo ""; \
+	echo "💡 Run 'make perf-import-tuna' to visualize with tuna"
+
+perf-import-tuna:
+ifdef CLEAN
+	@$(MAKE) clean-pycache
+endif
+	@echo "⚡ Profiling import time for data_designer.essentials..."
+	@PERF_FILE="perf_import_$$(date +%Y%m%d_%H%M%S).txt"; \
+	uv run python -X importtime -c "import data_designer.essentials" > "$$PERF_FILE" 2>&1; \
+	echo "📊 Import profile saved to $$PERF_FILE"; \
+	echo ""; \
+	echo "🔍 Opening visualization with tuna..."; \
+	uv run tuna "$$PERF_FILE"
+
+.PHONY: clean clean-pycache coverage format format-check lint lint-fix test test-e2e test-run-tutorials test-run-recipes test-run-all-examples check-license-headers update-license-headers check-all check-all-fix install install-dev install-dev-notebooks generate-colab-notebooks perf-import perf-import-tuna

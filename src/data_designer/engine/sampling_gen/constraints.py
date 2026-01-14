@@ -3,8 +3,6 @@
 
 from abc import ABC, abstractmethod
 
-import numpy as np
-import pandas as pd
 from numpy.typing import NDArray
 
 from data_designer.config.base import ConfigBase
@@ -15,6 +13,7 @@ from data_designer.config.sampler_constraints import (
     InequalityOperator,
     ScalarInequalityConstraint,
 )
+from data_designer.lazy_imports import np, pd
 
 
 class ConstraintChecker(ConfigBase, ABC):
