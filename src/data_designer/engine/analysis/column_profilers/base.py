@@ -35,7 +35,8 @@ class ColumnConfigWithDataFrame(ConfigBase):
 class ColumnProfiler(ConfigurableTask[TaskConfigT], ABC):
     @staticmethod
     @abstractmethod
-    def get_applicable_column_types() -> list[DataDesignerColumnType]: ...
+    def get_applicable_column_types() -> list[DataDesignerColumnType]:
+        """Returns a list of column types that this profiler can be applied to during dataset profiling."""
 
     @abstractmethod
     def profile(self, column_config_with_df: ColumnConfigWithDataFrame) -> BaseModel: ...
