@@ -1,0 +1,185 @@
+---
+title: Column Configs
+description: API reference for column configuration objects.
+---
+
+# Column Configurations
+
+The `column_configs` module defines configuration objects for all Data Designer column types. Each configuration inherits from `SingleColumnConfig`, which provides shared arguments like the column `name`, whether to `drop` the column after generation, and the `column_type`.
+
+<Info title="column_type is a discriminator field">
+The `column_type` argument is used to identify column types when deserializing the Data Designer Config from JSON/YAML. It acts as the discriminator in a [discriminated union](https://docs.pydantic.dev/latest/concepts/unions/#discriminated-unions), allowing Pydantic to automatically determine which column configuration class to instantiate.
+</Info>
+
+## SingleColumnConfig (Base Class)
+
+```python
+class SingleColumnConfig(BaseModel):
+    """Base configuration for all column types."""
+    
+    name: str  # Column name (unique identifier)
+    drop: bool = False  # Whether to drop column from final output
+    column_type: str  # Discriminator field for column type
+    
+    @property
+    def required_columns(self) -> list[str]:
+        """Columns that must be generated before this one."""
+        ...
+    
+    @property
+    def side_effect_columns(self) -> list[str]:
+        """Columns created as side effects (e.g., reasoning traces)."""
+        ...
+```
+
+## SamplerColumnConfig
+
+```python
+class SamplerColumnConfig(SingleColumnConfig):
+    """Configuration for sampler-based columns."""
+    
+    column_type: Literal["sampler"] = "sampler"
+    sampler_type: SamplerType  # Type of sampler to use
+    params: SamplerParams | None = None  # Sampler-specific parameters
+    conditional_params: dict[str, SamplerParams] | None = None  # Condition-based params
+    convert_to: Literal["int", "float", "str"] | None = None  # Type conversion
+```
+
+## LLMTextColumnConfig
+
+```python
+class LLMTextColumnConfig(SingleColumnConfig):
+    """Configuration for LLM text generation columns."""
+    
+    column_type: Literal["llm-text"] = "llm-text"
+    model_alias: str  # Reference to model configuration
+    prompt: str  # Jinja2 template for the prompt
+    system_prompt: str | None = None  # Optional system prompt
+    multi_modal_context: list[ImageContext] | None = None  # Image inputs
+```
+
+## LLMCodeColumnConfig
+
+```python
+class LLMCodeColumnConfig(SingleColumnConfig):
+    """Configuration for LLM code generation columns."""
+    
+    column_type: Literal["llm-code"] = "llm-code"
+    model_alias: str  # Reference to model configuration
+    prompt: str  # Jinja2 template for the prompt
+    code_lang: CodeLang  # Target programming language
+    system_prompt: str | None = None  # Optional system prompt
+```
+
+## LLMStructuredColumnConfig
+
+```python
+class LLMStructuredColumnConfig(SingleColumnConfig):
+    """Configuration for LLM structured output columns."""
+    
+    column_type: Literal["llm-structured"] = "llm-structured"
+    model_alias: str  # Reference to model configuration
+    prompt: str  # Jinja2 template for the prompt
+    output_format: type[BaseModel] | dict  # Pydantic model or JSON schema
+    system_prompt: str | None = None  # Optional system prompt
+```
+
+## LLMJudgeColumnConfig
+
+```python
+class LLMJudgeColumnConfig(SingleColumnConfig):
+    """Configuration for LLM judge/scoring columns."""
+    
+    column_type: Literal["llm-judge"] = "llm-judge"
+    model_alias: str  # Reference to model configuration
+    prompt: str  # Jinja2 template for the judge prompt
+    scores: list[Score]  # Scoring rubrics
+    system_prompt: str | None = None  # Optional system prompt
+
+class Score(BaseModel):
+    """Scoring rubric definition."""
+    
+    name: str  # Score dimension name
+    description: str  # Description of what's being evaluated
+    options: dict[str | int, str]  # Score options with descriptions
+```
+
+## LLMEmbeddingColumnConfig
+
+```python
+class LLMEmbeddingColumnConfig(SingleColumnConfig):
+    """Configuration for embedding generation columns."""
+    
+    column_type: Literal["llm-embedding"] = "llm-embedding"
+    model_alias: str  # Reference to model configuration
+    target_column: str  # Column containing text to embed
+```
+
+## ExpressionColumnConfig
+
+```python
+class ExpressionColumnConfig(SingleColumnConfig):
+    """Configuration for Jinja2 expression columns."""
+    
+    column_type: Literal["expression"] = "expression"
+    expr: str  # Jinja2 expression
+    dtype: Literal["str", "int", "float", "bool"] | None = None  # Output type
+```
+
+## ValidationColumnConfig
+
+```python
+class ValidationColumnConfig(SingleColumnConfig):
+    """Configuration for validation columns."""
+    
+    column_type: Literal["validation"] = "validation"
+    validator_type: ValidatorType  # Type of validator
+    target_columns: list[str]  # Columns to validate
+    validator_params: ValidatorParams  # Validator-specific parameters
+    batch_size: int = 10  # Number of records per validation batch
+```
+
+## SeedDatasetColumnConfig
+
+```python
+class SeedDatasetColumnConfig(SingleColumnConfig):
+    """Configuration for seed dataset columns."""
+    
+    column_type: Literal["seed-dataset"] = "seed-dataset"
+    source_column: str  # Column name in the seed dataset
+```
+
+## CodeLang Enum
+
+```python
+class CodeLang(str, Enum):
+    """Supported programming languages for code generation."""
+    
+    PYTHON = "python"
+    JAVASCRIPT = "javascript"
+    TYPESCRIPT = "typescript"
+    JAVA = "java"
+    KOTLIN = "kotlin"
+    GO = "go"
+    RUST = "rust"
+    RUBY = "ruby"
+    SCALA = "scala"
+    SWIFT = "swift"
+    SQL_ANSI = "sql_ansi"
+    SQL_POSTGRES = "sql_postgres"
+    SQL_MYSQL = "sql_mysql"
+    SQL_SQLITE = "sql_sqlite"
+    SQL_TSQL = "sql_tsql"
+    SQL_BIGQUERY = "sql_bigquery"
+```
+
+## ValidatorType Enum
+
+```python
+class ValidatorType(str, Enum):
+    """Supported validator types."""
+    
+    CODE = "code"
+    LOCAL_CALLABLE = "local_callable"
+    REMOTE = "remote"
+```

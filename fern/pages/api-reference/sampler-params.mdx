@@ -1,0 +1,152 @@
+---
+title: Sampler Params
+description: API reference for sampler parameter configuration objects.
+---
+
+# Sampler Parameters
+
+The `sampler_params` module defines parameter configuration objects for all Data Designer sampler types. Sampler parameters are used within the `SamplerColumnConfig` to specify how values should be generated for sampled columns.
+
+<Tip title="Displaying available samplers and their parameters">
+The config builder has an `info` attribute that can be used to display the available sampler types and their parameters:
+
+```python
+config_builder.info.display("samplers")
+```
+</Tip>
+
+## CategorySamplerParams
+
+```python
+class CategorySamplerParams(BaseModel):
+    """Parameters for categorical sampling."""
+    
+    values: list[Any]  # List of categorical values to sample from
+    weights: list[float] | None = None  # Optional probability weights (normalized)
+```
+
+## SubcategorySamplerParams
+
+```python
+class SubcategorySamplerParams(BaseModel):
+    """Parameters for hierarchical categorical sampling."""
+    
+    category: str  # Name of parent category column
+    values: dict[str, list[Any]]  # Mapping of parent values to subcategory values
+```
+
+## UniformSamplerParams
+
+```python
+class UniformSamplerParams(BaseModel):
+    """Parameters for uniform distribution sampling."""
+    
+    low: float  # Lower bound (inclusive)
+    high: float  # Upper bound (exclusive for floats, inclusive for ints)
+```
+
+## GaussianSamplerParams
+
+```python
+class GaussianSamplerParams(BaseModel):
+    """Parameters for Gaussian (normal) distribution sampling."""
+    
+    mean: float = 0.0  # Distribution mean
+    std: float = 1.0  # Standard deviation
+```
+
+## BernoulliSamplerParams
+
+```python
+class BernoulliSamplerParams(BaseModel):
+    """Parameters for Bernoulli (binary) sampling."""
+    
+    p: float  # Probability of success (1)
+```
+
+## BinomialSamplerParams
+
+```python
+class BinomialSamplerParams(BaseModel):
+    """Parameters for binomial distribution sampling."""
+    
+    n: int  # Number of trials
+    p: float  # Probability of success per trial
+```
+
+## PoissonSamplerParams
+
+```python
+class PoissonSamplerParams(BaseModel):
+    """Parameters for Poisson distribution sampling."""
+    
+    lam: float  # Expected number of events (lambda)
+```
+
+## ScipySamplerParams
+
+```python
+class ScipySamplerParams(BaseModel):
+    """Parameters for scipy.stats distribution sampling."""
+    
+    distribution: str  # Name of scipy.stats distribution
+    params: dict[str, Any]  # Distribution-specific parameters
+```
+
+## UUIDSamplerParams
+
+```python
+class UUIDSamplerParams(BaseModel):
+    """Parameters for UUID generation."""
+    
+    prefix: str = ""  # Optional prefix for the UUID
+    short_form: bool = False  # Use shortened UUID format
+    uppercase: bool = False  # Convert to uppercase
+```
+
+## DateTimeSamplerParams
+
+```python
+class DateTimeSamplerParams(BaseModel):
+    """Parameters for datetime sampling."""
+    
+    start: str | datetime  # Start of date range
+    end: str | datetime  # End of date range
+    format: str | None = None  # Output format string (strftime)
+```
+
+## TimedeltaSamplerParams
+
+```python
+class TimedeltaSamplerParams(BaseModel):
+    """Parameters for timedelta (duration) sampling."""
+    
+    dt_min: int  # Minimum delta in days
+    dt_max: int  # Maximum delta in days
+    reference_column_name: str  # Column containing reference datetime
+```
+
+## PersonSamplerParams
+
+```python
+class PersonSamplerParams(BaseModel):
+    """Parameters for Nemotron-Personas person sampling."""
+    
+    locale: str  # Locale code (en_US, ja_JP, en_IN, hi_Deva_IN, hi_Latn_IN)
+    sex: str | None = None  # Filter by "Male" or "Female"
+    city: str | list[str] | None = None  # Filter by city
+    age_range: list[int] | None = None  # [min_age, max_age]
+    with_synthetic_personas: bool = False  # Include personality profiles
+    select_field_values: dict[str, list[str]] | None = None  # Custom field filters
+```
+
+## PersonFromFakerSamplerParams
+
+```python
+class PersonFromFakerSamplerParams(BaseModel):
+    """Parameters for Faker-based person sampling."""
+    
+    locale: str = "en_US"  # Faker locale
+    age_range: list[int] | None = None  # [min_age, max_age]
+    sex: str | None = None  # Filter by "Male" or "Female"
+```
