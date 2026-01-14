@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import copy
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from data_designer.cli.forms.provider_builder import ProviderFormBuilder
@@ -24,8 +25,6 @@ from data_designer.cli.ui import (
 )
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from data_designer.engine.model_provider import ModelProvider
 
 

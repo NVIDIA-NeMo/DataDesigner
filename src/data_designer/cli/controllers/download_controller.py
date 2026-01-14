@@ -4,13 +4,10 @@
 from __future__ import annotations
 
 import subprocess
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 from data_designer.cli.repositories.persona_repository import PersonaRepository
 from data_designer.cli.services.download_service import DownloadService
-
-if TYPE_CHECKING:
-    from pathlib import Path
 from data_designer.cli.ui import (
     confirm_action,
     console,

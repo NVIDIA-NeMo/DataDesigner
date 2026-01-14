@@ -3,16 +3,13 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import Any
 
 import yaml
 from pydantic import BaseModel, ConfigDict
 
 from data_designer.config.utils.io_helpers import serialize_data
-
-if TYPE_CHECKING:
-    from pathlib import Path
-    from typing import Any
 
 
 class ConfigBase(BaseModel):

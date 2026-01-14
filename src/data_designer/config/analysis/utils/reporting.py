@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from enum import Enum
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from rich.align import Align
@@ -23,8 +24,6 @@ from data_designer.config.utils.visualization import (
 )
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from data_designer.config.analysis.column_statistics import CategoricalHistogramData
     from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
 

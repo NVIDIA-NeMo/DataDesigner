@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from data_designer.cli.forms.model_builder import ModelFormBuilder
@@ -24,8 +25,6 @@ from data_designer.cli.ui import (
 )
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from data_designer.config.models import ModelConfig
 
 
