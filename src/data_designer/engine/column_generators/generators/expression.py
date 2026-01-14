@@ -8,11 +8,7 @@ import logging
 import pandas as pd
 
 from data_designer.config.column_configs import ExpressionColumnConfig
-from data_designer.engine.column_generators.generators.base import (
-    ColumnGenerator,
-    GenerationStrategy,
-    GeneratorMetadata,
-)
+from data_designer.engine.column_generators.generators.base import ColumnGeneratorFullColumn
 from data_designer.engine.column_generators.utils.errors import ExpressionTemplateRenderError
 from data_designer.engine.processing.ginja.environment import WithJinja2UserTemplateRendering
 from data_designer.engine.processing.utils import deserialize_json_values
@@ -20,15 +16,7 @@ from data_designer.engine.processing.utils import deserialize_json_values
 logger = logging.getLogger(__name__)
 
 
-class ExpressionColumnGenerator(WithJinja2UserTemplateRendering, ColumnGenerator[ExpressionColumnConfig]):
-    @staticmethod
-    def metadata() -> GeneratorMetadata:
-        return GeneratorMetadata(
-            name="expression_generator",
-            description="Generate a column from a jinja2 expression.",
-            generation_strategy=GenerationStrategy.FULL_COLUMN,
-        )
-
+class ExpressionColumnGenerator(WithJinja2UserTemplateRendering, ColumnGeneratorFullColumn[ExpressionColumnConfig]):
     def generate(self, data: pd.DataFrame) -> pd.DataFrame:
         logger.info(f"🧩 Generating column `{self.config.name}` from expression")
 

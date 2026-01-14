@@ -4,14 +4,15 @@
 from __future__ import annotations
 
 import functools
+import inspect
 import logging
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import TYPE_CHECKING, overload
+from typing import TYPE_CHECKING, Any, ClassVar, overload
 
 import pandas as pd
 
-from data_designer.engine.configurable_task import ConfigurableTask, ConfigurableTaskMetadata, DataT, TaskConfigT
+from data_designer.engine.configurable_task import ConfigurableTask, DataT, TaskConfigT
 
 if TYPE_CHECKING:
     from data_designer.config.models import BaseInferenceParams, ModelConfig
@@ -27,22 +28,12 @@ class GenerationStrategy(str, Enum):
     FULL_COLUMN = "full_column"
 
 
-class GeneratorMetadata(ConfigurableTaskMetadata):
-    generation_strategy: GenerationStrategy
-
-
 class ColumnGenerator(ConfigurableTask[TaskConfigT], ABC):
+    generation_strategy: ClassVar[GenerationStrategy]
+
     @property
     def can_generate_from_scratch(self) -> bool:
         return False
-
-    @property
-    def generation_strategy(self) -> GenerationStrategy:
-        return self.metadata().generation_strategy
-
-    @staticmethod
-    @abstractmethod
-    def metadata() -> GeneratorMetadata: ...
 
     @overload
     @abstractmethod
@@ -62,6 +53,13 @@ class ColumnGenerator(ConfigurableTask[TaskConfigT], ABC):
         `generate` method. This is to avoid logging the same information multiple times when running
         generators in parallel.
         """
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        if inspect.isabstract(cls):
+            return
+        if not hasattr(cls, "generation_strategy") or not isinstance(cls.generation_strategy, GenerationStrategy):
+            raise TypeError(f"{cls.__name__} must define 'generation_strategy' as a GenerationStrategy class variable")
 
 
 class FromScratchColumnGenerator(ColumnGenerator[TaskConfigT], ABC):
@@ -108,3 +106,17 @@ class ColumnGeneratorWithModel(ColumnGeneratorWithModelRegistry[TaskConfigT], AB
         logger.info(f"  |-- model alias: {self.config.model_alias!r}")
         logger.info(f"  |-- model provider: {self.get_model_provider_name(model_alias=self.config.model_alias)!r}")
         logger.info(f"  |-- inference parameters: {self.inference_parameters.format_for_display()}")
+
+
+class ColumnGeneratorCellByCell(ColumnGenerator[TaskConfigT], ABC):
+    generation_strategy: ClassVar[GenerationStrategy] = GenerationStrategy.CELL_BY_CELL
+
+    @abstractmethod
+    def generate(self, data: dict) -> dict: ...
+
+
+class ColumnGeneratorFullColumn(ColumnGenerator[TaskConfigT], ABC):
+    generation_strategy: ClassVar[GenerationStrategy] = GenerationStrategy.FULL_COLUMN
+
+    @abstractmethod
+    def generate(self, data: pd.DataFrame) -> pd.DataFrame: ...

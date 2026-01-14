@@ -5,11 +5,7 @@
 from pydantic import BaseModel, computed_field
 
 from data_designer.config.column_configs import EmbeddingColumnConfig
-from data_designer.engine.column_generators.generators.base import (
-    ColumnGeneratorWithModel,
-    GenerationStrategy,
-    GeneratorMetadata,
-)
+from data_designer.engine.column_generators.generators.base import ColumnGeneratorWithModel, GenerationStrategy
 from data_designer.engine.processing.utils import deserialize_json_values, parse_list_string
 
 
@@ -26,13 +22,7 @@ class EmbeddingGenerationResult(BaseModel):
 
 
 class EmbeddingCellGenerator(ColumnGeneratorWithModel[EmbeddingColumnConfig]):
-    @staticmethod
-    def metadata() -> GeneratorMetadata:
-        return GeneratorMetadata(
-            name="embedding_cell_generator",
-            description="Generate embeddings for a text column.",
-            generation_strategy=GenerationStrategy.CELL_BY_CELL,
-        )
+    generation_strategy = GenerationStrategy.CELL_BY_CELL
 
     def generate(self, data: dict) -> dict:
         deserialized_record = deserialize_json_values(data)

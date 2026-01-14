@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from abc import ABC, abstractmethod
+from abc import ABC
 from pathlib import Path
 from typing import Generic, TypeVar, get_origin
 
@@ -13,11 +13,6 @@ from data_designer.engine.resources.resource_provider import ResourceProvider
 
 DataT = TypeVar("DataT", dict, pd.DataFrame)
 TaskConfigT = TypeVar("ConfigT", bound=ConfigBase)
-
-
-class ConfigurableTaskMetadata(ConfigBase):
-    name: str
-    description: str
 
 
 class ConfigurableTask(ABC, Generic[TaskConfigT]):
@@ -58,12 +53,12 @@ class ConfigurableTask(ABC, Generic[TaskConfigT]):
         return self._config
 
     @property
+    def name(self) -> str:
+        return self.__class__.__name__
+
+    @property
     def resource_provider(self) -> ResourceProvider:
         return self._resource_provider
-
-    @staticmethod
-    @abstractmethod
-    def metadata() -> ConfigurableTaskMetadata: ...
 
     def _initialize(self) -> None:
         """An internal method for custom initialization logic, which will be called in the constructor."""

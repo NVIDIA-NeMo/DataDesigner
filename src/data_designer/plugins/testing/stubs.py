@@ -5,7 +5,7 @@ from typing import Literal
 
 from data_designer.config.base import ConfigBase
 from data_designer.config.column_configs import SingleColumnConfig
-from data_designer.engine.configurable_task import ConfigurableTask, ConfigurableTaskMetadata
+from data_designer.engine.column_generators.generators.base import ColumnGeneratorCellByCell
 from data_designer.plugins.plugin import Plugin, PluginType
 
 MODULE_NAME = __name__
@@ -18,15 +18,11 @@ class ValidTestConfig(SingleColumnConfig):
     name: str
 
 
-class ValidTestTask(ConfigurableTask[ValidTestConfig]):
+class ValidTestTask(ColumnGeneratorCellByCell[ValidTestConfig]):
     """Valid task for testing plugin creation."""
 
-    @staticmethod
-    def metadata() -> ConfigurableTaskMetadata:
-        return ConfigurableTaskMetadata(
-            name="test_generator",
-            description="Test generator",
-        )
+    def generate(self, data: dict) -> dict:
+        return data
 
 
 class ConfigWithoutDiscriminator(ConfigBase):
@@ -53,22 +49,14 @@ class StubPluginConfigB(SingleColumnConfig):
     column_type: Literal["test-plugin-b"] = "test-plugin-b"
 
 
-class StubPluginTaskA(ConfigurableTask[StubPluginConfigA]):
-    @staticmethod
-    def metadata() -> ConfigurableTaskMetadata:
-        return ConfigurableTaskMetadata(
-            name="test_plugin_a",
-            description="Test plugin A",
-        )
+class StubPluginTaskA(ColumnGeneratorCellByCell[StubPluginConfigA]):
+    def generate(self, data: dict) -> dict:
+        return data
 
 
-class StubPluginTaskB(ConfigurableTask[StubPluginConfigB]):
-    @staticmethod
-    def metadata() -> ConfigurableTaskMetadata:
-        return ConfigurableTaskMetadata(
-            name="test_plugin_b",
-            description="Test plugin B",
-        )
+class StubPluginTaskB(ColumnGeneratorCellByCell[StubPluginConfigB]):
+    def generate(self, data: dict) -> dict:
+        return data
 
 
 # Stub plugins requiring different combinations of resources
@@ -86,31 +74,19 @@ class StubPluginConfigBlobsAndSeeds(SingleColumnConfig):
     column_type: Literal["test-plugin-blobs-and-seeds"] = "test-plugin-blobs-and-seeds"
 
 
-class StubPluginTaskModels(ConfigurableTask[StubPluginConfigModels]):
-    @staticmethod
-    def metadata() -> ConfigurableTaskMetadata:
-        return ConfigurableTaskMetadata(
-            name="test_plugin_models",
-            description="Test plugin requiring models",
-        )
+class StubPluginTaskModels(ColumnGeneratorCellByCell[StubPluginConfigModels]):
+    def generate(self, data: dict) -> dict:
+        return data
 
 
-class StubPluginTaskModelsAndBlobs(ConfigurableTask[StubPluginConfigModelsAndBlobs]):
-    @staticmethod
-    def metadata() -> ConfigurableTaskMetadata:
-        return ConfigurableTaskMetadata(
-            name="test_plugin_models_and_blobs",
-            description="Test plugin requiring models and blobs",
-        )
+class StubPluginTaskModelsAndBlobs(ColumnGeneratorCellByCell[StubPluginConfigModelsAndBlobs]):
+    def generate(self, data: dict) -> dict:
+        return data
 
 
-class StubPluginTaskBlobsAndSeeds(ConfigurableTask[StubPluginConfigBlobsAndSeeds]):
-    @staticmethod
-    def metadata() -> ConfigurableTaskMetadata:
-        return ConfigurableTaskMetadata(
-            name="test_plugin_blobs_and_seeds",
-            description="Test plugin requiring blobs and seeds",
-        )
+class StubPluginTaskBlobsAndSeeds(ColumnGeneratorCellByCell[StubPluginConfigBlobsAndSeeds]):
+    def generate(self, data: dict) -> dict:
+        return data
 
 
 plugin_none = Plugin(

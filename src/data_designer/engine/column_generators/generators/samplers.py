@@ -11,11 +11,7 @@ from typing import Callable
 import pandas as pd
 
 from data_designer.config.utils.constants import LOCALES_WITH_MANAGED_DATASETS
-from data_designer.engine.column_generators.generators.base import (
-    FromScratchColumnGenerator,
-    GenerationStrategy,
-    GeneratorMetadata,
-)
+from data_designer.engine.column_generators.generators.base import FromScratchColumnGenerator, GenerationStrategy
 from data_designer.engine.dataset_builders.multi_column_configs import SamplerMultiColumnConfig
 from data_designer.engine.processing.utils import concat_datasets
 from data_designer.engine.resources.managed_dataset_generator import ManagedDatasetGenerator
@@ -27,13 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 class SamplerColumnGenerator(FromScratchColumnGenerator[SamplerMultiColumnConfig]):
-    @staticmethod
-    def metadata() -> GeneratorMetadata:
-        return GeneratorMetadata(
-            name="sampler_column_generator",
-            description="Generate columns using sampling-based method.",
-            generation_strategy=GenerationStrategy.FULL_COLUMN,
-        )
+    generation_strategy = GenerationStrategy.FULL_COLUMN
 
     def generate(self, data: pd.DataFrame) -> pd.DataFrame:
         df_samplers = self.generate_from_scratch(len(data))

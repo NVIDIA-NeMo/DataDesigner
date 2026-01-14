@@ -20,11 +20,7 @@ from data_designer.config.analysis.column_statistics import (
     NumericalDistribution,
 )
 from data_designer.config.column_types import COLUMN_TYPE_EMOJI_MAP, DataDesignerColumnType
-from data_designer.engine.analysis.column_profilers.base import (
-    ColumnConfigWithDataFrame,
-    ColumnProfiler,
-    ColumnProfilerMetadata,
-)
+from data_designer.engine.analysis.column_profilers.base import ColumnConfigWithDataFrame, ColumnProfiler
 from data_designer.engine.analysis.utils.judge_score_processing import (
     extract_judge_score_distributions,
     sample_scores_and_reasoning,
@@ -36,13 +32,7 @@ logger = logging.getLogger(__name__)
 
 
 class JudgeScoreProfiler(ColumnProfiler[JudgeScoreProfilerConfig]):
-    @staticmethod
-    def metadata() -> ColumnProfilerMetadata:
-        return ColumnProfilerMetadata(
-            name="judge_score_profiler",
-            description="Analyzes LLM-as-judge score distributions in a Data Designer dataset.",
-            applicable_column_types=[DataDesignerColumnType.LLM_JUDGE],
-        )
+    applicable_column_types = [DataDesignerColumnType.LLM_JUDGE]
 
     def get_model(self, model_alias: str) -> ModelFacade:
         return self.resource_provider.model_registry.get_model(model_alias=model_alias)
