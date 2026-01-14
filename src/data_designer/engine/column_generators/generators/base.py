@@ -4,11 +4,10 @@
 from __future__ import annotations
 
 import functools
-import inspect
 import logging
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import TYPE_CHECKING, Any, ClassVar, overload
+from typing import TYPE_CHECKING, overload
 
 import pandas as pd
 
@@ -29,11 +28,13 @@ class GenerationStrategy(str, Enum):
 
 
 class ColumnGenerator(ConfigurableTask[TaskConfigT], ABC):
-    generation_strategy: ClassVar[GenerationStrategy]
-
     @property
     def can_generate_from_scratch(self) -> bool:
         return False
+
+    @staticmethod
+    @abstractmethod
+    def get_generation_strategy() -> GenerationStrategy: ...
 
     @overload
     @abstractmethod
@@ -53,13 +54,6 @@ class ColumnGenerator(ConfigurableTask[TaskConfigT], ABC):
         `generate` method. This is to avoid logging the same information multiple times when running
         generators in parallel.
         """
-
-    def __init_subclass__(cls, **kwargs: Any) -> None:
-        super().__init_subclass__(**kwargs)
-        if inspect.isabstract(cls):
-            return
-        if not hasattr(cls, "generation_strategy") or not isinstance(cls.generation_strategy, GenerationStrategy):
-            raise TypeError(f"{cls.__name__} must define 'generation_strategy' as a GenerationStrategy class variable")
 
 
 class FromScratchColumnGenerator(ColumnGenerator[TaskConfigT], ABC):
@@ -109,14 +103,18 @@ class ColumnGeneratorWithModel(ColumnGeneratorWithModelRegistry[TaskConfigT], AB
 
 
 class ColumnGeneratorCellByCell(ColumnGenerator[TaskConfigT], ABC):
-    generation_strategy: ClassVar[GenerationStrategy] = GenerationStrategy.CELL_BY_CELL
+    @staticmethod
+    def get_generation_strategy() -> GenerationStrategy:
+        return GenerationStrategy.CELL_BY_CELL
 
     @abstractmethod
     def generate(self, data: dict) -> dict: ...
 
 
 class ColumnGeneratorFullColumn(ColumnGenerator[TaskConfigT], ABC):
-    generation_strategy: ClassVar[GenerationStrategy] = GenerationStrategy.FULL_COLUMN
+    @staticmethod
+    def get_generation_strategy() -> GenerationStrategy:
+        return GenerationStrategy.FULL_COLUMN
 
     @abstractmethod
     def generate(self, data: pd.DataFrame) -> pd.DataFrame: ...

@@ -18,7 +18,9 @@ def _create_test_generator_class(strategy=GenerationStrategy.CELL_BY_CELL):
     """Helper function to create a test generator class."""
 
     class TestGenerator(ColumnGenerator[ExpressionColumnConfig]):
-        generation_strategy = strategy
+        @staticmethod
+        def get_generation_strategy() -> GenerationStrategy:
+            return strategy
 
         def generate(self, data):
             return data
@@ -30,7 +32,9 @@ def _create_test_from_scratch_generator_class():
     """Helper function to create a test from-scratch generator class."""
 
     class TestFromScratchGenerator(FromScratchColumnGenerator[ExpressionColumnConfig]):
-        generation_strategy = GenerationStrategy.CELL_BY_CELL
+        @staticmethod
+        def get_generation_strategy() -> GenerationStrategy:
+            return GenerationStrategy.CELL_BY_CELL
 
         def generate(self, data):
             return data
@@ -59,7 +63,7 @@ def test_column_generator_generation_strategy_property():
     TestGenerator = _create_test_generator_class(GenerationStrategy.FULL_COLUMN)
     config, resource_provider = _create_test_config_and_provider()
     generator = TestGenerator(config=config, resource_provider=resource_provider)
-    assert generator.generation_strategy == GenerationStrategy.FULL_COLUMN
+    assert generator.get_generation_strategy() == GenerationStrategy.FULL_COLUMN
 
 
 def test_column_generator_log_pre_generation():

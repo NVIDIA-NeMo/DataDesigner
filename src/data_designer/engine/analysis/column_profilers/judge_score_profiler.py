@@ -32,7 +32,9 @@ logger = logging.getLogger(__name__)
 
 
 class JudgeScoreProfiler(ColumnProfiler[JudgeScoreProfilerConfig]):
-    applicable_column_types = [DataDesignerColumnType.LLM_JUDGE]
+    @staticmethod
+    def get_applicable_column_types() -> list[DataDesignerColumnType]:
+        return [DataDesignerColumnType.LLM_JUDGE]
 
     def get_model(self, model_alias: str) -> ModelFacade:
         return self.resource_provider.model_registry.get_model(model_alias=model_alias)

@@ -22,7 +22,9 @@ class EmbeddingGenerationResult(BaseModel):
 
 
 class EmbeddingCellGenerator(ColumnGeneratorWithModel[EmbeddingColumnConfig]):
-    generation_strategy = GenerationStrategy.CELL_BY_CELL
+    @staticmethod
+    def get_generation_strategy() -> GenerationStrategy:
+        return GenerationStrategy.CELL_BY_CELL
 
     def generate(self, data: dict) -> dict:
         deserialized_record = deserialize_json_values(data)

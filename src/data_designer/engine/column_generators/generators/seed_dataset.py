@@ -22,7 +22,9 @@ logger = logging.getLogger(__name__)
 
 
 class SeedDatasetColumnGenerator(FromScratchColumnGenerator[SeedDatasetMultiColumnConfig]):
-    generation_strategy = GenerationStrategy.FULL_COLUMN
+    @staticmethod
+    def get_generation_strategy() -> GenerationStrategy:
+        return GenerationStrategy.FULL_COLUMN
 
     @property
     def num_records_sampled(self) -> int:

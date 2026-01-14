@@ -350,7 +350,7 @@ def test_fan_out_with_threads_uses_early_shutdown_settings_from_resource_provide
     mock_executor_class.return_value.__exit__ = Mock(return_value=False)
 
     mock_generator = Mock()
-    mock_generator.generation_strategy = GenerationStrategy.CELL_BY_CELL
+    mock_generator.get_generation_strategy.return_value = GenerationStrategy.CELL_BY_CELL
     mock_generator.config.name = "test"
     mock_generator.config.column_type = "llm_text"
 

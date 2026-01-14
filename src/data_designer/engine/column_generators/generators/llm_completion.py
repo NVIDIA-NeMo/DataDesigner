@@ -25,7 +25,9 @@ logger = logging.getLogger(__name__)
 
 
 class ColumnGeneratorWithModelChatCompletion(ColumnGeneratorWithModel[TaskConfigT]):
-    generation_strategy = GenerationStrategy.CELL_BY_CELL
+    @staticmethod
+    def get_generation_strategy() -> GenerationStrategy:
+        return GenerationStrategy.CELL_BY_CELL
 
     @functools.cached_property
     def response_recipe(self) -> ResponseRecipe:

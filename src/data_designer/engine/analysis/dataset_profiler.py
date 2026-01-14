@@ -78,7 +78,7 @@ class DataDesignerDatasetProfiler:
         column_profiles = []
         for profiler_config in self.config.column_profiler_configs or []:
             profiler = self._create_column_profiler(profiler_config)
-            applicable_column_types = profiler.applicable_column_types
+            applicable_column_types = profiler.get_applicable_column_types()
             for c in self.config.column_configs:
                 if c.column_type in applicable_column_types:
                     params = ColumnConfigWithDataFrame(column_config=c, df=dataset)

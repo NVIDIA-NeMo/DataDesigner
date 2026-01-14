@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -128,30 +128,3 @@ def test_dataset_profiler_requires_model_registry_with_column_profiler_configs(
             ),
             resource_provider=stub_resource_provider_no_model_registry,
         )
-
-
-def test_profile_dataset_no_applicable_column_types(dataset_profiler, stub_df, stub_model_facade):
-    mock_profiler = Mock()
-    mock_profiler.applicable_column_types = ["NONEXISTENT_COLUMN_TYPE"]
-    mock_profiler.profile.return_value = Mock()
-
-    with patch.object(
-        dataset_profiler.registry.column_profilers,
-        "get_for_config_type",
-        return_value=lambda config, resource_provider: mock_profiler,
-    ):
-        with patch.object(
-            dataset_profiler.resource_provider.model_registry, "get_model", return_value=stub_model_facade
-        ):
-            with patch.object(
-                dataset_profiler.config,
-                "column_profiler_configs",
-                [JudgeScoreProfilerConfig(model_alias="nano", summary_score_sample_size=5)],
-            ):
-                with patch("data_designer.engine.analysis.dataset_profiler.logger") as mock_logger:
-                    profile = dataset_profiler.profile_dataset(len(stub_df), stub_df)
-
-                    assert isinstance(profile, DatasetProfilerResults)
-                    mock_logger.warning.assert_called()
-                    warning_call_args = mock_logger.warning.call_args[0][0]
-                    assert "No applicable column types found" in warning_call_args

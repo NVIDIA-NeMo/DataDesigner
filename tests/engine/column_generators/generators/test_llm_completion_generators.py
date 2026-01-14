@@ -141,7 +141,7 @@ def test_log_pre_generation(mock_logger: Mock) -> None:
     ],
 )
 def test_llm_generator_generation_strategy(generator_class: type) -> None:
-    assert generator_class.generation_strategy == GenerationStrategy.CELL_BY_CELL
+    assert generator_class.get_generation_strategy() == GenerationStrategy.CELL_BY_CELL
 
 
 @pytest.mark.parametrize(

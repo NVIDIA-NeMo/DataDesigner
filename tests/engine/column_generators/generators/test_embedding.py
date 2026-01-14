@@ -27,7 +27,7 @@ def test_embedding_cell_generator_generation_strategy(
     stub_embedding_column_config: EmbeddingColumnConfig, stub_resource_provider: None
 ) -> None:
     generator = EmbeddingCellGenerator(config=stub_embedding_column_config, resource_provider=stub_resource_provider)
-    assert generator.generation_strategy == GenerationStrategy.CELL_BY_CELL
+    assert generator.get_generation_strategy() == GenerationStrategy.CELL_BY_CELL
 
 
 def test_embedding_cell_generator_generate(stub_embedding_column_config, stub_resource_provider, stub_embeddings):

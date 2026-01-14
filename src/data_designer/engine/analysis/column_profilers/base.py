@@ -3,10 +3,8 @@
 
 from __future__ import annotations
 
-import inspect
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, ClassVar
 
 import pandas as pd
 from pydantic import BaseModel, model_validator
@@ -35,23 +33,12 @@ class ColumnConfigWithDataFrame(ConfigBase):
 
 
 class ColumnProfiler(ConfigurableTask[TaskConfigT], ABC):
-    applicable_column_types: ClassVar[list[DataDesignerColumnType]]
+    @staticmethod
+    @abstractmethod
+    def get_applicable_column_types() -> list[DataDesignerColumnType]: ...
 
     @abstractmethod
     def profile(self, column_config_with_df: ColumnConfigWithDataFrame) -> BaseModel: ...
 
     def _initialize(self) -> None:
         logger.info(f"💫 Initializing column profiler: '{self.name}'")
-
-    def __init_subclass__(cls, **kwargs: Any) -> None:
-        super().__init_subclass__(**kwargs)
-        if inspect.isabstract(cls):
-            return
-        if (
-            not hasattr(cls, "applicable_column_types")
-            or not isinstance(cls.applicable_column_types, list)
-            or not all(isinstance(item, DataDesignerColumnType) for item in cls.applicable_column_types)
-        ):
-            raise TypeError(
-                f"{cls.__name__} must define 'applicable_column_types' as a list[DataDesignerColumnType] class variable"
-            )

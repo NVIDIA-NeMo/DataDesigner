@@ -23,7 +23,9 @@ logger = logging.getLogger(__name__)
 
 
 class SamplerColumnGenerator(FromScratchColumnGenerator[SamplerMultiColumnConfig]):
-    generation_strategy = GenerationStrategy.FULL_COLUMN
+    @staticmethod
+    def get_generation_strategy() -> GenerationStrategy:
+        return GenerationStrategy.FULL_COLUMN
 
     def generate(self, data: pd.DataFrame) -> pd.DataFrame:
         df_samplers = self.generate_from_scratch(len(data))
