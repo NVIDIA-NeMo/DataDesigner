@@ -148,9 +148,11 @@ To disable telemetry capture, set `NEMO_TELEMETRY_ENABLED=false`.
 
 ### Top Models
 
+This chart represents the breakdown of models used for Data Designer across all synthetic data generation jobs from 12/18/2025 to 1/14/2026. 
+
 ![Top models used for synthetic data generation](docs/images/top-models.png)
 
-_Updated on 1/14/2026_
+_Last updated on 1/14/2026_
 
 ---
 
