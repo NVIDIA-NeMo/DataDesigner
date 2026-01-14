@@ -100,8 +100,9 @@ class DatasetBatchManager:
             final_file_path = None
 
             logger.warning(
-                f"⚠️ Batch {self._current_batch_number + 1} finished without any results to write. Data from this batch "
-                f"have been written to the partial results directory: {self.artifact_storage.partial_results_path}"
+                f"⚠️ Batch {self._current_batch_number + 1} finished without any results to write. "
+                "A partial dataset containing the currently available columns has been written to the partial results "
+                f"directory: {self.artifact_storage.partial_results_path}"
             )
 
         self._current_batch_number += 1
