@@ -12,7 +12,7 @@ from data_designer.engine.sampling_gen.jinja_utils import JinjaDataFrame
 from data_designer.engine.sampling_gen.people_gen import create_people_gen_resource
 from data_designer.engine.sampling_gen.schema import DataSchema
 from data_designer.engine.sampling_gen.utils import check_random_state
-from data_designer.lazy_imports import np, nx, pd
+from data_designer.lazy_heavy_imports import np, nx, pd
 
 if TYPE_CHECKING:
     from data_designer.engine.dataset_builders.multi_column_configs import SamplerMultiColumnConfig

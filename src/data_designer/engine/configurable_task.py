@@ -8,7 +8,7 @@ from typing import Generic, TypeVar, get_origin
 from data_designer.config.base import ConfigBase
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.engine.resources.resource_provider import ResourceProvider
-from data_designer.lazy_imports import pd
+from data_designer.lazy_heavy_imports import pd
 
 DataT = TypeVar("DataT", dict, pd.DataFrame)
 TaskConfigT = TypeVar("ConfigT", bound=ConfigBase)

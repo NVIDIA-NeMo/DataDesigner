@@ -8,7 +8,7 @@ from data_designer.engine.processing.ginja.environment import (
     UserTemplateSandboxEnvironment,
     WithJinja2UserTemplateRendering,
 )
-from data_designer.lazy_imports import pd
+from data_designer.lazy_heavy_imports import pd
 
 
 class JinjaDataFrame(WithJinja2UserTemplateRendering):

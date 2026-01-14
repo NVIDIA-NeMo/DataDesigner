@@ -13,7 +13,7 @@ from pydantic import BaseModel, field_validator, model_validator
 from data_designer.config.utils.io_helpers import read_parquet_dataset
 from data_designer.config.utils.type_helpers import StrEnum, resolve_string_enum
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
-from data_designer.lazy_imports import pd
+from data_designer.lazy_heavy_imports import pd
 
 logger = logging.getLogger(__name__)
 

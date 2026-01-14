@@ -13,7 +13,7 @@ from data_designer.config.base import ConfigBase
 from data_designer.config.column_configs import SingleColumnConfig
 from data_designer.config.column_types import DataDesignerColumnType
 from data_designer.engine.configurable_task import ConfigurableTask, ConfigurableTaskMetadata, TaskConfigT
-from data_designer.lazy_imports import pd
+from data_designer.lazy_heavy_imports import pd
 
 logger = logging.getLogger(__name__)
 

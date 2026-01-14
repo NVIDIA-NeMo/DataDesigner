@@ -19,7 +19,7 @@ from data_designer.engine.sampling_gen.entities.person import (
 )
 from data_designer.engine.sampling_gen.errors import ManagedDatasetGeneratorError
 from data_designer.engine.sampling_gen.person_constants import faker_constants
-from data_designer.lazy_imports import faker, pd
+from data_designer.lazy_heavy_imports import faker, pd
 
 if TYPE_CHECKING:
     from data_designer.engine.sampling_gen.schema import DataSchema

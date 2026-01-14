@@ -8,7 +8,7 @@ This module provides a centralized facade that lazily imports heavy dependencies
 only when accessed, significantly improving import performance.
 
 Usage:
-    from data_designer.lazy_imports import pd, np, faker, litellm
+    from data_designer.lazy_heavy_imports import pd, np, faker, litellm
 
     df = pd.DataFrame(...)
     arr = np.array([1, 2, 3])
@@ -85,7 +85,7 @@ def __getattr__(name: str) -> object:
 
         return jsonschema
 
-    raise AttributeError(f"module 'data_designer.lazy_imports' has no attribute {name!r}")
+    raise AttributeError(f"module 'data_designer.lazy_heavy_imports' has no attribute {name!r}")
 
 
 def __dir__() -> list[str]:

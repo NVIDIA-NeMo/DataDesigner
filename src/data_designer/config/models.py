@@ -19,7 +19,7 @@ from data_designer.config.utils.constants import (
     MIN_TOP_P,
 )
 from data_designer.config.utils.io_helpers import smart_load_yaml
-from data_designer.lazy_imports import np
+from data_designer.lazy_heavy_imports import np
 
 logger = logging.getLogger(__name__)
 

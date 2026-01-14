@@ -18,7 +18,7 @@ from data_designer.config.seed_source import (
 )
 from data_designer.engine.secret_resolver import SecretResolver
 from data_designer.errors import DataDesignerError
-from data_designer.lazy_imports import duckdb
+from data_designer.lazy_heavy_imports import duckdb
 
 
 class SeedReaderError(DataDesignerError): ...

@@ -20,7 +20,7 @@ from data_designer.engine.models.parsers.errors import ParserException
 from data_designer.engine.models.usage import ModelUsageStats, RequestUsageStats, TokenUsageStats
 from data_designer.engine.models.utils import prompt_to_messages, str_to_message
 from data_designer.engine.secret_resolver import SecretResolver
-from data_designer.lazy_imports import litellm
+from data_designer.lazy_heavy_imports import litellm
 
 logger = logging.getLogger(__name__)
 

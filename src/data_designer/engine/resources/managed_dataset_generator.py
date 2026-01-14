@@ -4,7 +4,7 @@
 from typing import Any
 
 from data_designer.engine.resources.managed_dataset_repository import ManagedDatasetRepository
-from data_designer.lazy_imports import pd
+from data_designer.lazy_heavy_imports import pd
 
 
 class ManagedDatasetGenerator:

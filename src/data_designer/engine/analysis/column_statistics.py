@@ -24,7 +24,7 @@ from data_designer.engine.analysis.utils.column_statistics_calculations import (
     calculate_token_stats,
     calculate_validation_column_info,
 )
-from data_designer.lazy_imports import pd
+from data_designer.lazy_heavy_imports import pd
 
 logger = logging.getLogger(__name__)
 

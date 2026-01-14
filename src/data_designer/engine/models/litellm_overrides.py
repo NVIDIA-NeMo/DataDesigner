@@ -9,7 +9,7 @@ import threading
 from pydantic import BaseModel, Field
 from typing_extensions import override
 
-from data_designer.lazy_imports import httpx, litellm
+from data_designer.lazy_heavy_imports import httpx, litellm
 from data_designer.logging import quiet_noisy_logger
 
 DEFAULT_MAX_CALLBACKS = 1000

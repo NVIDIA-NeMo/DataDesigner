@@ -7,7 +7,7 @@ import logging
 import re
 from typing import Any, TypeVar, overload
 
-from data_designer.lazy_imports import pd
+from data_designer.lazy_heavy_imports import pd
 
 logger = logging.getLogger(__name__)
 

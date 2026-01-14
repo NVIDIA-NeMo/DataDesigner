@@ -13,7 +13,7 @@ from data_designer.config.sampler_constraints import ColumnConstraintT
 from data_designer.config.sampler_params import SamplerType
 from data_designer.engine.sampling_gen.column import ConditionalDataColumn
 from data_designer.engine.sampling_gen.constraints import ConstraintChecker, get_constraint_checker
-from data_designer.lazy_imports import nx
+from data_designer.lazy_heavy_imports import nx
 
 
 class Dag(BaseModel):

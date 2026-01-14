@@ -24,7 +24,7 @@ from data_designer.engine.analysis.utils.column_statistics_calculations import h
 from data_designer.engine.dataset_builders.multi_column_configs import DatasetBuilderColumnConfigT, MultiColumnConfig
 from data_designer.engine.registry.data_designer_registry import DataDesignerRegistry
 from data_designer.engine.resources.resource_provider import ResourceProvider
-from data_designer.lazy_imports import pa, pd
+from data_designer.lazy_heavy_imports import pa, pd
 
 logger = logging.getLogger(__name__)
 

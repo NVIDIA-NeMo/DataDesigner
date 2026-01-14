@@ -10,7 +10,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, overload
 
 from data_designer.engine.configurable_task import ConfigurableTask, ConfigurableTaskMetadata, DataT, TaskConfigT
-from data_designer.lazy_imports import pd
+from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
     from data_designer.config.models import BaseInferenceParams, ModelConfig

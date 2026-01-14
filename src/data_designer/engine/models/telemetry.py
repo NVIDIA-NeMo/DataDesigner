@@ -22,7 +22,7 @@ from typing import Any, ClassVar
 
 from pydantic import BaseModel, Field
 
-from data_designer.lazy_imports import httpx
+from data_designer.lazy_heavy_imports import httpx
 
 TELEMETRY_ENABLED = os.getenv("NEMO_TELEMETRY_ENABLED", "true").lower() in ("1", "true", "yes")
 CLIENT_ID = "184482118588404"

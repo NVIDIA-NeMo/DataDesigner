@@ -26,7 +26,7 @@ from data_designer.config.sampler_params import SamplerType
 from data_designer.config.utils.code_lang import code_lang_to_syntax_lexer
 from data_designer.config.utils.constants import NVIDIA_API_KEY_ENV_VAR_NAME, OPENAI_API_KEY_ENV_VAR_NAME
 from data_designer.config.utils.errors import DatasetSampleDisplayError
-from data_designer.lazy_imports import np, pd
+from data_designer.lazy_heavy_imports import np, pd
 
 if TYPE_CHECKING:
     from data_designer.config.config_builder import DataDesignerConfigBuilder

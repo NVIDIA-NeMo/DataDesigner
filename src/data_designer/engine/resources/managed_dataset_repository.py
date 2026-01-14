@@ -13,7 +13,7 @@ from typing import Any
 
 from data_designer.config.utils.constants import LOCALES_WITH_MANAGED_DATASETS
 from data_designer.engine.resources.managed_storage import LocalBlobStorageProvider, ManagedBlobStorage
-from data_designer.lazy_imports import duckdb, pd
+from data_designer.lazy_heavy_imports import duckdb, pd
 
 logger = logging.getLogger(__name__)
 

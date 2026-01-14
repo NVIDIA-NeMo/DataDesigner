@@ -13,7 +13,7 @@ from data_designer.config.analysis.column_statistics import (
     NumericalDistribution,
 )
 from data_designer.config.column_configs import LLMJudgeColumnConfig
-from data_designer.lazy_imports import pd
+from data_designer.lazy_heavy_imports import pd
 
 logger = logging.getLogger(__name__)
 

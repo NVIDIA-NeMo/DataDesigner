@@ -6,7 +6,7 @@ from __future__ import annotations
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.utils.visualization import WithRecordSamplerMixin
-from data_designer.lazy_imports import pd
+from data_designer.lazy_heavy_imports import pd
 
 
 class PreviewResults(WithRecordSamplerMixin):

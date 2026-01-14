@@ -23,7 +23,7 @@ from data_designer.engine.column_generators.utils.prompt_renderer import (
     RecordBasedPromptRenderer,
     create_response_recipe,
 )
-from data_designer.lazy_imports import np, pa, pd
+from data_designer.lazy_heavy_imports import np, pa, pd
 
 RANDOM_SEED = 42
 MAX_PROMPT_SAMPLE_SIZE = 1000

@@ -10,7 +10,7 @@ from data_designer.engine.dataset_builders.artifact_storage import BatchStage
 from data_designer.engine.processing.ginja.environment import WithJinja2UserTemplateRendering
 from data_designer.engine.processing.processors.base import Processor
 from data_designer.engine.processing.utils import deserialize_json_values
-from data_designer.lazy_imports import pd
+from data_designer.lazy_heavy_imports import pd
 
 logger = logging.getLogger(__name__)
 

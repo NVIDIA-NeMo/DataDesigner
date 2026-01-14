@@ -43,7 +43,7 @@ from data_designer.engine.processing.processors.base import Processor
 from data_designer.engine.processing.processors.drop_columns import DropColumnsProcessor
 from data_designer.engine.registry.data_designer_registry import DataDesignerRegistry
 from data_designer.engine.resources.resource_provider import ResourceProvider
-from data_designer.lazy_imports import pd
+from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
     from data_designer.engine.column_generators.generators.base import ColumnGeneratorWithModelRegistry

@@ -15,7 +15,7 @@ from data_designer.engine.column_generators.generators.base import (
 from data_designer.engine.column_generators.utils.errors import SeedDatasetError
 from data_designer.engine.dataset_builders.multi_column_configs import SeedDatasetMultiColumnConfig
 from data_designer.engine.processing.utils import concat_datasets
-from data_designer.lazy_imports import duckdb, pd
+from data_designer.lazy_heavy_imports import duckdb, pd
 
 MAX_ZERO_RECORD_RESPONSE_FACTOR = 2
 

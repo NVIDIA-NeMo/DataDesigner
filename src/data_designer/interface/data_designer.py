@@ -6,7 +6,6 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from data_designer import engine, lazy_imports
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.default_model_settings import (
@@ -30,6 +29,7 @@ from data_designer.config.utils.constants import (
     PREDEFINED_PROVIDERS,
 )
 from data_designer.config.utils.info import InfoType, InterfaceInfo
+from data_designer.engine.analysis.dataset_profiler import DataDesignerDatasetProfiler, DatasetProfilerConfig
 from data_designer.engine.compiler import compile_data_designer_config
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.engine.dataset_builders.column_wise_builder import ColumnWiseDatasetBuilder
@@ -56,6 +56,7 @@ from data_designer.interface.errors import (
     InvalidBufferValueError,
 )
 from data_designer.interface.results import DatasetCreationResults
+from data_designer.lazy_heavy_imports import pd
 from data_designer.logging import RandomEmoji
 from data_designer.plugins.plugin import PluginType
 from data_designer.plugins.registry import PluginRegistry
@@ -219,7 +220,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
 
         dropped_columns = raw_dataset.columns.difference(processed_dataset.columns)
         if len(dropped_columns) > 0:
-            dataset_for_profiler = lazy_imports.pd.concat([processed_dataset, raw_dataset[dropped_columns]], axis=1)
+            dataset_for_profiler = pd.concat([processed_dataset, raw_dataset[dropped_columns]], axis=1)
         else:
             dataset_for_profiler = processed_dataset
 
@@ -231,7 +232,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
 
         if builder.artifact_storage.processors_outputs_path.exists():
             processor_artifacts = {
-                processor_config.name: lazy_imports.pd.read_parquet(
+                processor_config.name: pd.read_parquet(
                     builder.artifact_storage.processors_outputs_path / f"{processor_config.name}.parquet",
                     dtype_backend="pyarrow",
                 ).to_dict(orient="records")
@@ -362,10 +363,10 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         )
 
     def _create_dataset_profiler(
-        self, config_builder: DataDesignerConfigBuilder, resource_provider: engine.ResourceProvider
-    ) -> engine.DataDesignerDatasetProfiler:
-        return engine.DataDesignerDatasetProfiler(
-            config=engine.DatasetProfilerConfig(
+        self, config_builder: DataDesignerConfigBuilder, resource_provider: ResourceProvider
+    ) -> DataDesignerDatasetProfiler:
+        return DataDesignerDatasetProfiler(
+            config=DatasetProfilerConfig(
                 column_configs=config_builder.get_column_configs(),
                 column_profiler_configs=config_builder.get_profilers(),
             ),

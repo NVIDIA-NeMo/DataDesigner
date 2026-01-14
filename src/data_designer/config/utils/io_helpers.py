@@ -13,7 +13,7 @@ from typing import Any
 import yaml
 
 from data_designer.config.errors import InvalidFileFormatError, InvalidFilePathError
-from data_designer.lazy_imports import np, pd
+from data_designer.lazy_heavy_imports import np, pd
 
 logger = logging.getLogger(__name__)
 

@@ -14,7 +14,7 @@ from data_designer.config.column_types import DataDesignerColumnType
 from data_designer.config.sampler_params import SamplerType
 from data_designer.config.utils.constants import EPSILON
 from data_designer.config.utils.numerical_helpers import is_float, is_int, prepare_number_for_reporting
-from data_designer.lazy_imports import pd
+from data_designer.lazy_heavy_imports import pd
 from data_designer.plugin_manager import PluginManager
 
 

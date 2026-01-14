@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Generic, Protocol, TypeVar
 from data_designer.config.models import ModelConfig, ModelProvider
 from data_designer.config.utils.constants import DEFAULT_NUM_RECORDS
 from data_designer.config.utils.info import InterfaceInfo
-from data_designer.lazy_imports import pd
+from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
     from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults

@@ -8,7 +8,7 @@ from numpy.typing import NDArray
 
 from data_designer.config.sampler_params import SamplerParamsT
 from data_designer.engine.sampling_gen.utils import check_random_state
-from data_designer.lazy_imports import np, pd, scipy
+from data_designer.lazy_heavy_imports import np, pd, scipy
 
 NumpyArray1dT = NDArray[Any]
 RadomStateT = int | np.random.RandomState

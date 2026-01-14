@@ -8,7 +8,7 @@ from typing import Callable, Container, Iterator
 
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage, BatchStage
 from data_designer.engine.dataset_builders.utils.errors import DatasetBatchManagementError
-from data_designer.lazy_imports import pd, pq
+from data_designer.lazy_heavy_imports import pd, pq
 
 logger = logging.getLogger(__name__)
 

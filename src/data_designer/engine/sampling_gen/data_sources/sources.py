@@ -36,7 +36,7 @@ from data_designer.engine.sampling_gen.data_sources.errors import (
 )
 from data_designer.engine.sampling_gen.entities.dataset_based_person_fields import PERSONA_FIELDS, PII_FIELDS
 from data_designer.engine.sampling_gen.people_gen import PeopleGen
-from data_designer.lazy_imports import np, pd, scipy
+from data_designer.lazy_heavy_imports import np, pd, scipy
 
 ONE_BILLION = 10**9
 

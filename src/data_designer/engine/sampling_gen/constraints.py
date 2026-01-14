@@ -13,7 +13,7 @@ from data_designer.config.sampler_constraints import (
     InequalityOperator,
     ScalarInequalityConstraint,
 )
-from data_designer.lazy_imports import np, pd
+from data_designer.lazy_heavy_imports import np, pd
 
 
 class ConstraintChecker(ConfigBase, ABC):

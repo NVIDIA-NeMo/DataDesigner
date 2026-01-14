@@ -7,7 +7,7 @@ from data_designer.config.validator_params import LocalCallableValidatorParams
 from data_designer.engine.errors import LocalCallableValidationError
 from data_designer.engine.processing.gsonschema.validators import validate
 from data_designer.engine.validators.base import BaseValidator, ValidationOutput, ValidationResult
-from data_designer.lazy_imports import pd
+from data_designer.lazy_heavy_imports import pd
 
 logger = logging.getLogger(__name__)
 

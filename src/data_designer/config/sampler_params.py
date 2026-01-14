@@ -7,7 +7,7 @@ from typing import Literal
 from pydantic import Field, field_validator, model_validator
 from typing_extensions import Self, TypeAlias
 
-from data_designer import lazy_imports
+from data_designer import lazy_heavy_imports
 from data_designer.config.base import ConfigBase
 from data_designer.config.utils.constants import (
     AVAILABLE_LOCALES,
@@ -113,7 +113,7 @@ class DatetimeSamplerParams(ConfigBase):
     @classmethod
     def _validate_param_is_datetime(cls, value: str) -> str:
         try:
-            lazy_imports.pd.to_datetime(value)
+            lazy_heavy_imports.pd.to_datetime(value)
         except ValueError:
             raise ValueError(f"Invalid datetime format: {value}")
         return value

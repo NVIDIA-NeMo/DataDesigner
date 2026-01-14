@@ -11,7 +11,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from data_designer.engine.errors import DataDesignerError
-from data_designer.lazy_imports import litellm
+from data_designer.lazy_heavy_imports import litellm
 
 logger = logging.getLogger(__name__)
 

@@ -27,7 +27,7 @@ from data_designer.engine.validators import (
     SQLValidator,
     ValidationResult,
 )
-from data_designer.lazy_imports import pd
+from data_designer.lazy_heavy_imports import pd
 
 logger = logging.getLogger(__name__)
 

@@ -15,7 +15,7 @@ from ruff.__main__ import find_ruff_bin
 
 from data_designer.config.validator_params import CodeValidatorParams
 from data_designer.engine.validators.base import BaseValidator, ValidationOutput, ValidationResult
-from data_designer.lazy_imports import pd
+from data_designer.lazy_heavy_imports import pd
 
 logger = logging.getLogger(__name__)
 

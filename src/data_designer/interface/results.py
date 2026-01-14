@@ -10,7 +10,7 @@ from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.utils.visualization import WithRecordSamplerMixin
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
-from data_designer.lazy_imports import pd
+from data_designer.lazy_heavy_imports import pd
 
 
 class DatasetCreationResults(WithRecordSamplerMixin):
