@@ -1,0 +1,124 @@
+instances:
+  - url: https://nemo-datadesigner.docs.buildwithfern.com
+
+title: NeMo Data Designer
+
+tabs:
+  docs:
+    display-name: Documentation
+    slug: docs
+  api:
+    display-name: API Reference
+    slug: api
+
+navigation:
+  - tab: docs
+    layout:
+      - section: Getting Started
+        contents:
+          - page: Welcome
+            path: pages/index.mdx
+          - page: Installation
+            path: pages/installation.mdx
+          - page: Quick Start
+            path: pages/quick-start.mdx
+          - page: Contributing
+            path: pages/contributing.mdx
+      - section: Concepts
+        contents:
+          - section: Models
+            contents:
+              - page: Default Model Settings
+                path: pages/concepts/models/default-model-settings.mdx
+              - page: Custom Model Settings
+                path: pages/concepts/models/custom-model-settings.mdx
+              - page: Configure with CLI
+                path: pages/concepts/models/configure-with-cli.mdx
+              - page: Model Providers
+                path: pages/concepts/models/model-providers.mdx
+              - page: Model Configs
+                path: pages/concepts/models/model-configs.mdx
+              - page: Inference Parameters
+                path: pages/concepts/models/inference-parameters.mdx
+          - page: Columns
+            path: pages/concepts/columns.mdx
+          - page: Validators
+            path: pages/concepts/validators.mdx
+          - page: Processors
+            path: pages/concepts/processors.mdx
+          - page: Person Sampling
+            path: pages/concepts/person-sampling.mdx
+      - section: Tutorials
+        contents:
+          - page: Overview
+            path: pages/tutorials/overview.mdx
+          - page: The Basics
+            path: pages/tutorials/the-basics.mdx
+          - page: Structured Outputs
+            path: pages/tutorials/structured-outputs.mdx
+          - page: Seeding with a Dataset
+            path: pages/tutorials/seeding-with-dataset.mdx
+          - page: Images as Context
+            path: pages/tutorials/images-as-context.mdx
+      - section: Recipes
+        contents:
+          - page: Recipe Cards
+            path: pages/recipes/index.mdx
+          - section: Code Generation
+            contents:
+              - page: Text to Python
+                path: pages/recipes/code-generation/text-to-python.mdx
+              - page: Text to SQL
+                path: pages/recipes/code-generation/text-to-sql.mdx
+          - section: QA and Chat
+            contents:
+              - page: Product Info QA
+                path: pages/recipes/qa-and-chat/product-info-qa.mdx
+              - page: Multi-Turn Chat
+                path: pages/recipes/qa-and-chat/multi-turn-chat.mdx
+      - section: Plugins
+        contents:
+          - page: Overview
+            path: pages/plugins/overview.mdx
+          - page: Example Plugin
+            path: pages/plugins/example.mdx
+          - page: Available Plugins
+            path: pages/plugins/available.mdx
+  - tab: api
+    layout:
+      - section: API Reference
+        contents:
+          - page: Models
+            path: pages/api-reference/models.mdx
+          - page: Column Configs
+            path: pages/api-reference/column-configs.mdx
+          - page: Config Builder
+            path: pages/api-reference/config-builder.mdx
+          - page: Data Designer Config
+            path: pages/api-reference/data-designer-config.mdx
+          - page: Sampler Params
+            path: pages/api-reference/sampler-params.mdx
+          - page: Validator Params
+            path: pages/api-reference/validator-params.mdx
+          - page: Processors
+            path: pages/api-reference/processors.mdx
+          - page: Analysis
+            path: pages/api-reference/analysis.mdx
+
+colors:
+  accent-primary:
+    dark: "#76B900"
+    light: "#4a7300"
+  background:
+    dark: "#1a1a1a"
+    light: "#ffffff"
+
+logo:
+  dark: assets/favicon.png
+  light: assets/favicon.png
+
+favicon: assets/favicon.png
+
+navbar-links:
+  - type: github
+    value: https://github.com/NVIDIA-NeMo/DataDesigner

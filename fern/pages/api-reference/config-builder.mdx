@@ -1,0 +1,172 @@
+---
+title: Config Builder
+description: API reference for the DataDesignerConfigBuilder.
+---
+
+# Data Designer's Config Builder
+
+The `config_builder` module provides a high-level interface for constructing Data Designer configurations through the `DataDesignerConfigBuilder` class, enabling programmatic creation of `DataDesignerConfig` objects by incrementally adding column configurations, constraints, processors, and profilers.
+
+You can use the builder to create Data Designer configurations from scratch or from existing configurations stored in YAML/JSON files via `from_config()`. The builder includes validation capabilities to catch configuration errors early and can work with seed datasets from local sources or external datastores. Once configured, use `build()` to generate the final configuration object or `write_config()` to serialize it to disk.
+
+<Info title="Model configs are required">
+`DataDesignerConfigBuilder` requires a list of model configurations at initialization. This tells the builder which model aliases can be referenced by LLM-generated columns (such as `LLMTextColumnConfig`, `LLMCodeColumnConfig`, `LLMStructuredColumnConfig`, and `LLMJudgeColumnConfig`). Each model configuration specifies the model alias, model provider, model ID, and inference parameters that will be used during data generation.
+</Info>
+
+## DataDesignerConfigBuilder
+
+```python
+class DataDesignerConfigBuilder:
+    """Builder for constructing Data Designer configurations."""
+    
+    def __init__(
+        self,
+        model_configs: list[ModelConfig] | None = None,
+    ) -> None:
+        """Initialize the config builder.
+        
+        Args:
+            model_configs: List of model configurations. If None, loads defaults.
+        """
+        ...
+    
+    @classmethod
+    def from_config(
+        cls,
+        config_path: str | Path,
+        model_configs: list[ModelConfig] | None = None,
+    ) -> "DataDesignerConfigBuilder":
+        """Create a builder from an existing configuration file.
+        
+        Args:
+            config_path: Path to YAML/JSON configuration file.
+            model_configs: Optional model configurations (overrides config file).
+        
+        Returns:
+            Configured DataDesignerConfigBuilder instance.
+        """
+        ...
+    
+    def add_column(
+        self,
+        config: SingleColumnConfig | None = None,
+        **kwargs: Any,
+    ) -> "DataDesignerConfigBuilder":
+        """Add a column configuration to the builder.
+        
+        Args:
+            config: Column configuration object, OR
+            **kwargs: Keyword arguments to construct a column config.
+        
+        Returns:
+            Self for method chaining.
+        """
+        ...
+    
+    def add_model_config(
+        self,
+        model_config: ModelConfig,
+    ) -> "DataDesignerConfigBuilder":
+        """Add a model configuration to the builder.
+        
+        Args:
+            model_config: Model configuration to add.
+        
+        Returns:
+            Self for method chaining.
+        """
+        ...
+    
+    def add_processor(
+        self,
+        processor: ProcessorConfig,
+    ) -> "DataDesignerConfigBuilder":
+        """Add a processor to the configuration.
+        
+        Args:
+            processor: Processor configuration to add.
+        
+        Returns:
+            Self for method chaining.
+        """
+        ...
+    
+    def with_seed_dataset(
+        self,
+        seed_source: SeedSource,
+    ) -> "DataDesignerConfigBuilder":
+        """Configure a seed dataset for the generation.
+        
+        Args:
+            seed_source: Seed dataset source configuration.
+        
+        Returns:
+            Self for method chaining.
+        """
+        ...
+    
+    def build(self) -> DataDesignerConfig:
+        """Build the final configuration object.
+        
+        Returns:
+            Complete DataDesignerConfig object.
+        """
+        ...
+    
+    def write_config(
+        self,
+        path: str | Path,
+        format: Literal["yaml", "json"] = "yaml",
+    ) -> None:
+        """Write the configuration to a file.
+        
+        Args:
+            path: Output file path.
+            format: Output format (yaml or json).
+        """
+        ...
+    
+    @property
+    def info(self) -> ConfigBuilderInfo:
+        """Access to configuration information display utilities."""
+        ...
+```
+
+## ConfigBuilderInfo
+
+```python
+class ConfigBuilderInfo:
+    """Utility for displaying configuration information."""
+    
+    def display(
+        self,
+        info_type: str | InfoType,
+    ) -> None:
+        """Display information about the configuration.
+        
+        Args:
+            info_type: Type of information to display.
+                Options: "samplers", "model_configs", "model_providers", etc.
+        """
+        ...
+```
+
+## Seed Sources
+
+### LocalFileSeedSource
+
+```python
+class LocalFileSeedSource(BaseModel):
+    """Seed dataset from a local file."""
+    
+    path: str | Path  # Path to CSV, Parquet, or JSON file
+```
+
+### DataFrameSeedSource
+
+```python
+class DataFrameSeedSource(BaseModel):
+    """Seed dataset from a pandas DataFrame."""
+    
+    df: pd.DataFrame  # DataFrame to use as seed data
+```
