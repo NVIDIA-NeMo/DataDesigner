@@ -231,7 +231,18 @@ class ColumnWiseDatasetBuilder:
             disable_early_shutdown=settings.disable_early_shutdown,
         ) as executor:
             for i, record in self.batch_manager.iter_current_batch():
-                executor.submit(lambda record: generator.generate(record), record, context={"index": i})
+                executor.submit(
+                    lambda record: generator.generate(record),
+                    record,
+                    context={"index": i},
+                    acquire_timeout_s=settings.executor_hang_timeout_s,
+                    dump_stacks_on_timeout=settings.executor_dump_stacks_on_timeout,
+                )
+
+            executor.wait_for_completion(
+                timeout_s=settings.executor_hang_timeout_s,
+                dump_stacks_on_timeout=settings.executor_dump_stacks_on_timeout,
+            )
 
         if len(self._records_to_drop) > 0:
             self.batch_manager.drop_records(self._records_to_drop)

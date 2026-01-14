@@ -145,7 +145,11 @@ def create_model_registry(
     secret_resolver: SecretResolver,
     model_provider_registry: ModelProviderRegistry,
 ) -> ModelRegistry:
-    apply_litellm_patches()
+    max_parallel_requests = 0
+    for mc in model_configs or []:
+        max_parallel_requests = max(max_parallel_requests, mc.inference_parameters.max_parallel_requests)
+    # Keep callback capacity comfortably above max expected concurrency.
+    apply_litellm_patches(max_callbacks=max(1000, 2 * max_parallel_requests))
     return ModelRegistry(
         model_configs=model_configs,
         secret_resolver=secret_resolver,

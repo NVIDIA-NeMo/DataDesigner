@@ -29,6 +29,11 @@ class RunConfig(ConfigBase):
         max_conversation_correction_steps: Maximum number of correction rounds permitted within a
             single conversation when generation tasks call `ModelFacade.generate(...)`. Must be >= 0.
             Default is 0.
+        executor_hang_timeout_s: If set, maximum number of seconds to wait when (a) acquiring executor
+            capacity during threaded column generation and (b) waiting for all submitted work to finish.
+            If exceeded, generation fails fast with diagnostics instead of hanging forever. Default is None.
+        executor_dump_stacks_on_timeout: If True, dumps all thread stack traces (via `faulthandler`)
+            before raising on an executor timeout. Default is True.
     """
 
     disable_early_shutdown: bool = False
@@ -37,6 +42,8 @@ class RunConfig(ConfigBase):
     buffer_size: int = Field(default=1000, gt=0)
     max_conversation_restarts: int = Field(default=5, ge=0)
     max_conversation_correction_steps: int = Field(default=0, ge=0)
+    executor_hang_timeout_s: float | None = Field(default=None, gt=0)
+    executor_dump_stacks_on_timeout: bool = True
 
     @model_validator(mode="after")
     def normalize_shutdown_settings(self) -> Self:

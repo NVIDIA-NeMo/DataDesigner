@@ -151,11 +151,15 @@ class CustomRouter(Router):
         return sleep_s * jitter
 
 
-def apply_litellm_patches():
+def apply_litellm_patches(*, max_callbacks: int | None = None) -> None:
     litellm.in_memory_llm_clients_cache = ThreadSafeCache()
 
     # Workaround for the litellm issue described in https://github.com/BerriAI/litellm/issues/9792
-    LoggingCallbackManager.MAX_CALLBACKS = DEFAULT_MAX_CALLBACKS
+    # Ensure MAX_CALLBACKS is not lower than expected concurrency; some environments drive thousands
+    # of concurrent requests (e.g. vLLM on multi-GPU servers).
+    if max_callbacks is None:
+        max_callbacks = DEFAULT_MAX_CALLBACKS
+    LoggingCallbackManager.MAX_CALLBACKS = max(DEFAULT_MAX_CALLBACKS, max_callbacks)
 
     quiet_noisy_logger("httpx")
     quiet_noisy_logger("LiteLLM")
