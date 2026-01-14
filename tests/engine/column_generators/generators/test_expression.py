@@ -26,12 +26,6 @@ def _create_test_generator(config=None, resource_provider=None):
     return ExpressionColumnGenerator(config=config, resource_provider=resource_provider)
 
 
-def test_generation_strategy() -> None:
-    from data_designer.engine.column_generators.generators.base import GenerationStrategy
-
-    assert ExpressionColumnGenerator.generation_strategy == GenerationStrategy.FULL_COLUMN
-
-
 def test_generator_creation():
     config = _create_test_config("test_column", "{{ col1 + col2 }}", "int")
     generator = _create_test_generator(config)
