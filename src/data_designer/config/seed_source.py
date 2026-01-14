@@ -4,6 +4,7 @@
 from abc import ABC
 from typing import Literal
 
+import duckdb
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic.json_schema import SkipJsonSchema
@@ -24,6 +25,15 @@ class SeedSource(BaseModel, ABC):
     """
 
     seed_type: str
+
+    def get_column_names(self) -> list[str] | None:
+        """Returns the column names from the seed dataset, or None if not available without I/O.
+
+        Subclasses that can provide column names without expensive I/O (e.g., DataFrameSeedSource)
+        should override this method. File-based sources return None by default, deferring
+        column resolution to compile time.
+        """
+        return None
 
 
 class LocalFileSeedSource(SeedSource):
@@ -47,6 +57,13 @@ class LocalFileSeedSource(SeedSource):
     def from_dataframe(cls, df: pd.DataFrame, path: str) -> Self:
         df.to_parquet(path, index=False)
         return cls(path=path)
+
+    def get_column_names(self) -> list[str]:
+        """Returns column names by reading the file schema with DuckDB."""
+        conn = duckdb.connect()
+        describe_query = f"DESCRIBE SELECT * FROM '{self.path}'"
+        column_descriptions = conn.execute(describe_query).fetchall()
+        return [col[0] for col in column_descriptions]
 
 
 class HuggingFaceSeedSource(SeedSource):
@@ -77,3 +94,7 @@ class DataFrameSeedSource(SeedSource):
             "you must use `LocalFileSeedSource` instead, since DataFrame objects are not serializable."
         ),
     )
+
+    def get_column_names(self) -> list[str]:
+        """Returns column names from the DataFrame."""
+        return list(self.df.columns)

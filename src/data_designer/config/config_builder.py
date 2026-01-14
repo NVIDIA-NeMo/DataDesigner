@@ -482,8 +482,10 @@ class DataDesignerConfigBuilder:
     ) -> Self:
         """Add a seed dataset to the current Data Designer configuration.
 
-        This method sets the seed dataset for the configuration, but columns are not resolved until
-        compilation (including validation) is performed by the engine using a SeedReader.
+        This method sets the seed dataset for the configuration. When the seed source can provide
+        column names without expensive I/O (e.g., DataFrameSeedSource or LocalFileSeedSource),
+        the columns are registered immediately. For remote sources like HuggingFaceSeedSource,
+        columns are resolved during compilation by the engine.
 
         Args:
             seed_source: The pointer to the seed dataset.
@@ -494,12 +496,28 @@ class DataDesignerConfigBuilder:
 
         Returns:
             The current Data Designer config builder instance.
+
+        Raises:
+            BuilderConfigurationError: If any seed dataset column name collides with an existing column.
         """
         self._seed_config = SeedConfig(
             source=seed_source,
             sampling_strategy=sampling_strategy,
             selection_strategy=selection_strategy,
         )
+
+        # Extract column names from the seed source if available without expensive I/O
+        seed_column_names = seed_source.get_column_names()
+        if seed_column_names is not None:
+            colliding_columns = [name for name in seed_column_names if name in self._column_configs]
+            if colliding_columns:
+                raise BuilderConfigurationError(
+                    f"🛑 Seed dataset column(s) {colliding_columns} collide with existing column(s). "
+                    "Please remove the conflicting columns or use a seed dataset with different column names."
+                )
+            for column_name in seed_column_names:
+                self._column_configs[column_name] = SeedDatasetColumnConfig(name=column_name)
+
         return self
 
     def write_config(self, path: str | Path, indent: int | None = 2, **kwargs) -> None:

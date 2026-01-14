@@ -27,6 +27,9 @@ def compile_data_designer_config(
 def _resolve_and_add_seed_columns(config: DataDesignerConfig, seed_reader: SeedReader | None) -> None:
     """Fetches the seed dataset column names, ensures there are no conflicts
     with other columns, and adds seed column configs to the DataDesignerConfig.
+
+    Note: When using DataFrameSeedSource or LocalFileSeedSource, seed columns may already be
+    registered by the config builder. This function only adds columns that are not yet registered.
     """
 
     if not seed_reader:
@@ -34,14 +37,20 @@ def _resolve_and_add_seed_columns(config: DataDesignerConfig, seed_reader: SeedR
 
     seed_col_names = seed_reader.get_column_names()
     existing_columns = {column.name for column in config.columns}
-    colliding_columns = {name for name in seed_col_names if name in existing_columns}
+    existing_seed_columns = {column.name for column in config.columns if isinstance(column, SeedDatasetColumnConfig)}
+
+    # Only check for collisions with non-seed columns
+    non_seed_existing = existing_columns - existing_seed_columns
+    colliding_columns = {name for name in seed_col_names if name in non_seed_existing}
     if colliding_columns:
         raise InvalidConfigError(
             f"🛑 Seed dataset column(s) {colliding_columns} collide with existing column(s). "
             "Please remove the conflicting columns or use a seed dataset with different column names."
         )
 
-    config.columns.extend([SeedDatasetColumnConfig(name=col_name) for col_name in seed_col_names])
+    # Only add seed columns that are not already registered
+    new_seed_columns = [name for name in seed_col_names if name not in existing_seed_columns]
+    config.columns.extend([SeedDatasetColumnConfig(name=col_name) for col_name in new_seed_columns])
 
 
 def _validate(config: DataDesignerConfig) -> None:
