@@ -92,4 +92,4 @@ docs/notebook_source/*.ipynb
 docs/notebook_source/*.csv
 docs/**/artifacts/
 
-e2e_tests/uv.lock
+tests_e2e/uv.lock

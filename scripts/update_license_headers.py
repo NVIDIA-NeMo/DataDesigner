@@ -328,7 +328,7 @@ if __name__ == "__main__":
     all_files_needing_update: list[Path] = []
     total_processed = total_updated = total_skipped = 0
 
-    for folder in ["src", "tests", "scripts", "e2e_tests"]:
+    for folder in ["src", "tests", "scripts", "tests_e2e"]:
         folder_path = repo_path / folder
         if not folder_path.exists():
             continue

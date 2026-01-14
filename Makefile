@@ -67,22 +67,22 @@ check-all-fix: format lint-fix
 
 format:
 	@echo "📐 Formatting code with ruff..."
-	uv run ruff format src/ tests/ scripts/ e2e_tests/ --exclude '**/src/data_designer/_version.py'
+	uv run ruff format src/ tests/ scripts/ tests_e2e/ --exclude '**/src/data_designer/_version.py'
 	@echo "✅ Formatting complete!"
 
 format-check:
 	@echo "📐 Checking code formatting with ruff..."
-	uv run ruff format --check src/ tests/ scripts/ e2e_tests/ --exclude '**/src/data_designer/_version.py'
+	uv run ruff format --check src/ tests/ scripts/ tests_e2e/ --exclude '**/src/data_designer/_version.py'
 	@echo "✅ Formatting check complete! Run 'make format' to auto-fix issues."
 
 lint:
 	@echo "🔍 Linting code with ruff..."
-	uv run ruff check --output-format=full src/ tests/ scripts/ e2e_tests/ --exclude '**/src/data_designer/_version.py'
+	uv run ruff check --output-format=full src/ tests/ scripts/ tests_e2e/ --exclude '**/src/data_designer/_version.py'
 	@echo "✅ Linting complete! Run 'make lint-fix' to auto-fix issues."
 
 lint-fix:
 	@echo "🔍 Fixing linting issues with ruff..."
-	uv run ruff check --fix src/ tests/ scripts/ e2e_tests/ --exclude '**/src/data_designer/_version.py'
+	uv run ruff check --fix src/ tests/ scripts/ tests_e2e/ --exclude '**/src/data_designer/_version.py'
 	@echo "✅ Linting with autofix complete!"
 
 test:
@@ -91,9 +91,9 @@ test:
 
 test-e2e:
 	@echo "🧹 Cleaning e2e test environment..."
-	rm -rf e2e_tests/uv.lock e2e_tests/.pycache e2e_tests/.venv
+	rm -rf tests_e2e/uv.lock tests_e2e/.pycache tests_e2e/.venv
 	@echo "🧪 Running e2e tests..."
-	uv run --no-cache --refresh --directory e2e_tests pytest -s
+	uv run --no-cache --refresh --directory tests_e2e pytest -s
 
 test-run-tutorials:
 	@echo "🧪 Running tutorials as e2e tests..."
