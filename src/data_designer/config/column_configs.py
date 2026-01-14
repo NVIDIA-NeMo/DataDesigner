@@ -100,7 +100,6 @@ class SamplerColumnConfig(SingleColumnConfig):
 
     @staticmethod
     def get_column_emoji() -> str:
-        """Get the emoji for the column type."""
         return "🎲"
 
     @property
