@@ -146,6 +146,12 @@ The value `openai/gpt-oss-20b` would be collected.
 
 To disable telemetry capture, set `NEMO_TELEMETRY_ENABLED=false`.
 
+### Top Models
+
+![Top models used for synthetic data generation](docs/images/top-models.png)
+
+_Updated on 1/14/2026_
+
 ---
 
 ## License
