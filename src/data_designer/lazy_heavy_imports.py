@@ -15,6 +15,8 @@ Usage:
     fake = faker.Faker()
 """
 
+from __future__ import annotations
+
 
 def __getattr__(name: str) -> object:
     """Lazily import heavy third-party dependencies when accessed.

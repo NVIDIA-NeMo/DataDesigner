@@ -12,6 +12,8 @@ automatically exported.
 Note: Private modules (starting with _) are excluded from auto-discovery.
 """
 
+from __future__ import annotations
+
 import ast
 import importlib
 from pathlib import Path

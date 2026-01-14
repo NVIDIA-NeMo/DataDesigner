@@ -10,6 +10,8 @@ This file contains all possible fields that:
 Do not add any other code or logic in this file.
 """
 
+from __future__ import annotations
+
 REQUIRED_FIELDS = {"first_name", "last_name", "age", "locale"}
 
 PII_FIELDS = [

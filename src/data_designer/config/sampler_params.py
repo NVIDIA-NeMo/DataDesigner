@@ -1,5 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+from __future__ import annotations
 
 from enum import Enum
 from typing import Literal
@@ -7,7 +8,6 @@ from typing import Literal
 from pydantic import Field, field_validator, model_validator
 from typing_extensions import Self, TypeAlias
 
-from data_designer import lazy_heavy_imports
 from data_designer.config.base import ConfigBase
 from data_designer.config.utils.constants import (
     AVAILABLE_LOCALES,
@@ -16,6 +16,7 @@ from data_designer.config.utils.constants import (
     MAX_AGE,
     MIN_AGE,
 )
+from data_designer.lazy_heavy_imports import pd
 
 
 class SamplerType(str, Enum):
@@ -113,7 +114,7 @@ class DatetimeSamplerParams(ConfigBase):
     @classmethod
     def _validate_param_is_datetime(cls, value: str) -> str:
         try:
-            lazy_heavy_imports.pd.to_datetime(value)
+            pd.to_datetime(value)
         except ValueError:
             raise ValueError(f"Invalid datetime format: {value}")
         return value
