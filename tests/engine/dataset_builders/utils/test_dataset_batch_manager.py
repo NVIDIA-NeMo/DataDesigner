@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import json
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pandas as pd
 import pytest
@@ -232,6 +232,27 @@ def test_finish_batch_all_batches_processed(stub_batch_manager_with_data):
 
     with pytest.raises(DatasetBatchManagementError, match="All batches have been processed"):
         stub_batch_manager_with_data.finish_batch()
+
+
+def test_finish_batch_empty_buffer_logs_warning_and_returns_none(
+    stub_batch_manager_with_data, caplog: pytest.LogCaptureFixture
+) -> None:
+    result = stub_batch_manager_with_data.finish_batch()
+
+    assert result is None
+    assert "finished without any results to write" in caplog.text
+    assert stub_batch_manager_with_data.buffer_is_empty
+    assert stub_batch_manager_with_data.get_current_batch_number() == 1
+    assert not stub_batch_manager_with_data.artifact_storage.metadata_file_path.exists()
+
+
+def test_finish_batch_empty_buffer_does_not_call_on_complete(stub_batch_manager_with_data) -> None:
+    on_complete = Mock()
+
+    result = stub_batch_manager_with_data.finish_batch(on_complete=on_complete)
+
+    assert result is None
+    on_complete.assert_not_called()
 
 
 def test_finish_batch_metadata_content(stub_batch_manager_with_data):
