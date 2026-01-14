@@ -8,7 +8,10 @@ import pytest
 
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
 from data_designer.config.config_builder import DataDesignerConfigBuilder
+from data_designer.config.dataset_metadata import DatasetMetadata
+from data_designer.config.preview_results import PreviewResults
 from data_designer.config.utils.errors import DatasetSampleDisplayError
+from data_designer.config.utils.visualization import display_sample_record as display_fn
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.interface.results import DatasetCreationResults
 
@@ -22,25 +25,36 @@ def stub_artifact_storage(stub_dataframe):
 
 
 @pytest.fixture
-def stub_dataset_creation_results(stub_artifact_storage, stub_dataset_profiler_results, stub_complete_builder):
+def stub_dataset_metadata():
+    """Fixture providing a DatasetMetadata instance."""
+    return DatasetMetadata()
+
+
+@pytest.fixture
+def stub_dataset_creation_results(
+    stub_artifact_storage, stub_dataset_profiler_results, stub_complete_builder, stub_dataset_metadata
+):
     """Fixture providing a DatasetCreationResults instance."""
     return DatasetCreationResults(
         artifact_storage=stub_artifact_storage,
         analysis=stub_dataset_profiler_results,
         config_builder=stub_complete_builder,
+        dataset_metadata=stub_dataset_metadata,
     )
 
 
-def test_init(stub_artifact_storage, stub_dataset_profiler_results, stub_complete_builder):
+def test_init(stub_artifact_storage, stub_dataset_profiler_results, stub_complete_builder, stub_dataset_metadata):
     """Test DatasetCreationResults initialization."""
     results = DatasetCreationResults(
         artifact_storage=stub_artifact_storage,
         analysis=stub_dataset_profiler_results,
         config_builder=stub_complete_builder,
+        dataset_metadata=stub_dataset_metadata,
     )
     assert results.artifact_storage == stub_artifact_storage
     assert results._analysis == stub_dataset_profiler_results
     assert results._config_builder == stub_complete_builder
+    assert results.dataset_metadata == stub_dataset_metadata
 
 
 def test_load_dataset(stub_dataset_creation_results, stub_artifact_storage, stub_dataframe):
@@ -88,7 +102,6 @@ def test_display_sample_record_with_default_params(
     # Verify the underlying display_sample_record function was called
     mock_display_sample_record.assert_called_once()
     call_kwargs = mock_display_sample_record.call_args.kwargs
-    assert call_kwargs["hide_seed_columns"] is False
     assert call_kwargs["syntax_highlighting_theme"] == "dracula"
     assert call_kwargs["background_color"] is None
     assert call_kwargs["record_index"] == 0
@@ -106,23 +119,10 @@ def test_display_sample_record_with_custom_index(
     mock_display_sample_record.assert_called_once()
     call_kwargs = mock_display_sample_record.call_args.kwargs
     assert call_kwargs["record_index"] == 5
-    assert call_kwargs["hide_seed_columns"] is False
     assert call_kwargs["syntax_highlighting_theme"] == "dracula"
     assert call_kwargs["background_color"] is None
     # Verify the record passed is the correct row
     pd.testing.assert_series_equal(mock_display_sample_record.call_args.kwargs["record"], stub_dataframe.iloc[5])
-
-
-@patch("data_designer.config.utils.visualization.display_sample_record", autospec=True)
-def test_display_sample_record_with_hide_seed_columns(mock_display_sample_record, stub_dataset_creation_results):
-    """Test display_sample_record with seed columns hidden."""
-    stub_dataset_creation_results.display_sample_record(hide_seed_columns=True)
-
-    mock_display_sample_record.assert_called_once()
-    call_kwargs = mock_display_sample_record.call_args.kwargs
-    assert call_kwargs["hide_seed_columns"] is True
-    assert call_kwargs["syntax_highlighting_theme"] == "dracula"
-    assert call_kwargs["background_color"] is None
 
 
 @patch("data_designer.config.utils.visualization.display_sample_record", autospec=True)
@@ -132,7 +132,6 @@ def test_display_sample_record_with_custom_theme(mock_display_sample_record, stu
 
     mock_display_sample_record.assert_called_once()
     call_kwargs = mock_display_sample_record.call_args.kwargs
-    assert call_kwargs["hide_seed_columns"] is False
     assert call_kwargs["syntax_highlighting_theme"] == "monokai"
     assert call_kwargs["background_color"] is None
 
@@ -144,7 +143,6 @@ def test_display_sample_record_with_custom_background_color(mock_display_sample_
 
     mock_display_sample_record.assert_called_once()
     call_kwargs = mock_display_sample_record.call_args.kwargs
-    assert call_kwargs["hide_seed_columns"] is False
     assert call_kwargs["syntax_highlighting_theme"] == "dracula"
     assert call_kwargs["background_color"] == "#282a36"
 
@@ -154,7 +152,6 @@ def test_display_sample_record_with_all_custom_params(mock_display_sample_record
     """Test display_sample_record with all parameters customized."""
     stub_dataset_creation_results.display_sample_record(
         index=3,
-        hide_seed_columns=True,
         syntax_highlighting_theme="monokai",
         background_color="#1e1e1e",
     )
@@ -162,7 +159,6 @@ def test_display_sample_record_with_all_custom_params(mock_display_sample_record
     mock_display_sample_record.assert_called_once()
     call_kwargs = mock_display_sample_record.call_args.kwargs
     assert call_kwargs["record_index"] == 3
-    assert call_kwargs["hide_seed_columns"] is True
     assert call_kwargs["syntax_highlighting_theme"] == "monokai"
     assert call_kwargs["background_color"] == "#1e1e1e"
 
@@ -196,6 +192,7 @@ def test_display_sample_record_with_empty_dataset():
         artifact_storage=empty_storage,
         analysis=MagicMock(spec=DatasetProfilerResults),
         config_builder=MagicMock(spec=DataDesignerConfigBuilder),
+        dataset_metadata=DatasetMetadata(),
     )
 
     # Empty DataFrame is still a valid DataFrame, so accessing _record_sampler_dataset succeeds
@@ -214,6 +211,7 @@ def test_display_sample_record_with_none_dataset():
         artifact_storage=none_storage,
         analysis=MagicMock(spec=DatasetProfilerResults),
         config_builder=MagicMock(spec=DataDesignerConfigBuilder),
+        dataset_metadata=DatasetMetadata(),
     )
 
     # Mixin raises DatasetSampleDisplayError when dataset is None
@@ -257,3 +255,30 @@ def test_load_dataset_independent_of_record_sampler_cache(stub_dataset_creation_
 
     # Should call load_dataset again (independent of cache)
     stub_artifact_storage.load_dataset.assert_called_once()
+
+
+def test_preview_results_dataset_metadata() -> None:
+    """Test that PreviewResults uses DatasetMetadata in display_sample_record."""
+    config_builder = MagicMock(spec=DataDesignerConfigBuilder)
+    config_builder.get_columns_of_type.return_value = []
+
+    dataset_metadata = DatasetMetadata(seed_column_names=["name", "age"])
+
+    results = PreviewResults(
+        config_builder=config_builder,
+        dataset=pd.DataFrame({"name": ["Alice"], "age": [25], "greeting": ["Hello"]}),
+        dataset_metadata=dataset_metadata,
+    )
+
+    # Verify metadata is stored as public attribute
+    assert results.dataset_metadata == dataset_metadata
+    assert results.dataset_metadata.seed_column_names == ["name", "age"]
+
+    # Patch display_sample_record to capture the seed_column_names argument
+    with patch("data_designer.config.utils.visualization.display_sample_record", wraps=display_fn) as mock_display:
+        results.display_sample_record(index=0)
+
+        # Verify seed_column_names was passed to the display function
+        mock_display.assert_called_once()
+        call_kwargs = mock_display.call_args.kwargs
+        assert call_kwargs["seed_column_names"] == ["name", "age"]

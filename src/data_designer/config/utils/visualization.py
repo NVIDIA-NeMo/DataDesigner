@@ -30,6 +30,7 @@ from data_designer.lazy_heavy_imports import np, pd
 
 if TYPE_CHECKING:
     from data_designer.config.config_builder import DataDesignerConfigBuilder
+    from data_designer.config.dataset_metadata import DatasetMetadata
 
 
 console = Console()
@@ -56,6 +57,7 @@ class ColorPalette(str, Enum):
 
 class WithRecordSamplerMixin:
     _display_cycle_index: int = 0
+    dataset_metadata: DatasetMetadata
 
     @cached_property
     def _record_sampler_dataset(self) -> pd.DataFrame:
@@ -78,22 +80,22 @@ class WithRecordSamplerMixin:
         self,
         index: int | None = None,
         *,
-        hide_seed_columns: bool = False,
         syntax_highlighting_theme: str = "dracula",
         background_color: str | None = None,
         processors_to_display: list[str] | None = None,
+        hide_seed_columns: bool = False,
     ) -> None:
         """Display a sample record from the Data Designer dataset preview.
 
         Args:
             index: Index of the record to display. If None, the next record will be displayed.
                 This is useful for running the cell in a notebook multiple times.
-            hide_seed_columns: If True, the columns from the seed dataset (if any) will not be displayed.
             syntax_highlighting_theme: Theme to use for syntax highlighting. See the `Syntax`
                 documentation from `rich` for information about available themes.
             background_color: Background color to use for the record. See the `Syntax`
                 documentation from `rich` for information about available background colors.
             processors_to_display: List of processors to display the artifacts for. If None, all processors will be displayed.
+            hide_seed_columns: If True, seed columns will not be displayed separately.
         """
         i = index or self._display_cycle_index
 
@@ -119,14 +121,16 @@ class WithRecordSamplerMixin:
                     else:
                         processor_data_to_display[processor] = self.processor_artifacts[processor]
 
+        seed_column_names = None if hide_seed_columns else self.dataset_metadata.seed_column_names
+
         display_sample_record(
             record=record,
             processor_data_to_display=processor_data_to_display,
             config_builder=self._config_builder,
             background_color=background_color,
             syntax_highlighting_theme=syntax_highlighting_theme,
-            hide_seed_columns=hide_seed_columns,
             record_index=i,
+            seed_column_names=seed_column_names,
         )
         if index is None:
             self._display_cycle_index = (self._display_cycle_index + 1) % num_records
@@ -159,7 +163,7 @@ def display_sample_record(
     background_color: str | None = None,
     syntax_highlighting_theme: str = "dracula",
     record_index: int | None = None,
-    hide_seed_columns: bool = False,
+    seed_column_names: list[str] | None = None,
 ):
     if isinstance(record, (dict, pd.Series)):
         record = pd.DataFrame([record]).iloc[0]
@@ -178,14 +182,14 @@ def display_sample_record(
     render_list = []
     table_kws = dict(show_lines=True, expand=True)
 
-    seed_columns = config_builder.get_columns_of_type(DataDesignerColumnType.SEED_DATASET)
-    if not hide_seed_columns and len(seed_columns) > 0:
+    # Display seed columns if seed_column_names is provided and not empty
+    if seed_column_names:
         table = Table(title="Seed Columns", **table_kws)
         table.add_column("Name")
         table.add_column("Value")
-        for col in seed_columns:
-            if not col.drop:
-                table.add_row(col.name, convert_to_row_element(record[col.name]))
+        for col_name in seed_column_names:
+            if col_name in record.index:
+                table.add_row(col_name, convert_to_row_element(record[col_name]))
         render_list.append(pad_console_element(table))
 
     non_code_columns = (

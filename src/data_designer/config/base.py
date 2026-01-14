@@ -18,6 +18,7 @@ class ConfigBase(BaseModel):
         use_enum_values=True,
         arbitrary_types_allowed=True,
         extra="forbid",
+        json_schema_mode_override="validation",
     )
 
 

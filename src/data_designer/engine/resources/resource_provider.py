@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from data_designer.config.base import ConfigBase
+from data_designer.config.dataset_metadata import DatasetMetadata
 from data_designer.config.models import ModelConfig
 from data_designer.config.run_config import RunConfig
 from data_designer.config.seed_source import SeedSource
@@ -44,7 +45,6 @@ class ResourceProvider(ConfigBase):
         run_config: RunConfig | None = None,
     ) -> ResourceProvider:
         """Factory method for creating a ResourceProvider instance.
-
         This method triggers lazy loading of heavy dependencies like litellm.
         """
         seed_reader = None
@@ -65,3 +65,14 @@ class ResourceProvider(ConfigBase):
             seed_reader=seed_reader,
             run_config=run_config or RunConfig(),
         )
+
+    def get_dataset_metadata(self) -> DatasetMetadata:
+        """Get metadata about the dataset being generated.
+
+        Returns:
+            DatasetMetadata with seed column names and other metadata.
+        """
+        seed_column_names = []
+        if self.seed_reader is not None:
+            seed_column_names = self.seed_reader.get_column_names()
+        return DatasetMetadata(seed_column_names=seed_column_names)

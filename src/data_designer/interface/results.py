@@ -7,6 +7,7 @@ from pathlib import Path
 
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
 from data_designer.config.config_builder import DataDesignerConfigBuilder
+from data_designer.config.dataset_metadata import DatasetMetadata
 from data_designer.config.utils.visualization import WithRecordSamplerMixin
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
@@ -27,6 +28,7 @@ class DatasetCreationResults(WithRecordSamplerMixin):
         artifact_storage: ArtifactStorage,
         analysis: DatasetProfilerResults,
         config_builder: DataDesignerConfigBuilder,
+        dataset_metadata: DatasetMetadata,
     ):
         """Creates a new instance with results based on a dataset creation run.
 
@@ -34,10 +36,12 @@ class DatasetCreationResults(WithRecordSamplerMixin):
             artifact_storage: Storage manager for accessing generated artifacts.
             analysis: Profiling results for the generated dataset.
             config_builder: Configuration builder used to create the dataset.
+            dataset_metadata: Metadata about the generated dataset (e.g., seed column names).
         """
         self.artifact_storage = artifact_storage
         self._analysis = analysis
         self._config_builder = config_builder
+        self.dataset_metadata = dataset_metadata
 
     def load_analysis(self) -> DatasetProfilerResults:
         """Load the profiling analysis results for the generated dataset.
