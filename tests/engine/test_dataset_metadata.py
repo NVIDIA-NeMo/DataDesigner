@@ -4,7 +4,6 @@
 from unittest.mock import MagicMock
 
 from data_designer.config.dataset_metadata import DatasetMetadata
-from data_designer.engine.dataset_metadata import create_dataset_metadata
 from data_designer.engine.resources.resource_provider import ResourceProvider
 from data_designer.engine.resources.seed_reader import SeedReader
 
@@ -21,7 +20,7 @@ def test_dataset_metadata_with_seed_columns() -> None:
     assert metadata.seed_column_names == ["name", "age", "city"]
 
 
-def test_create_dataset_metadata_with_seed_reader() -> None:
+def test_get_dataset_metadata_with_seed_reader() -> None:
     """Test creating DatasetMetadata from ResourceProvider with seed reader."""
     seed_reader = MagicMock(spec=SeedReader)
     seed_reader.get_column_names.return_value = ["col1", "col2"]
@@ -29,18 +28,18 @@ def test_create_dataset_metadata_with_seed_reader() -> None:
     resource_provider = MagicMock(spec=ResourceProvider)
     resource_provider.seed_reader = seed_reader
 
-    metadata = create_dataset_metadata(resource_provider)
+    metadata = ResourceProvider.get_dataset_metadata(resource_provider)
 
     assert metadata.seed_column_names == ["col1", "col2"]
     seed_reader.get_column_names.assert_called_once()
 
 
-def test_create_dataset_metadata_without_seed_reader() -> None:
+def test_get_dataset_metadata_without_seed_reader() -> None:
     """Test creating DatasetMetadata from ResourceProvider without seed reader."""
     resource_provider = MagicMock(spec=ResourceProvider)
     resource_provider.seed_reader = None
 
-    metadata = create_dataset_metadata(resource_provider)
+    metadata = ResourceProvider.get_dataset_metadata(resource_provider)
 
     assert metadata.seed_column_names == []
 

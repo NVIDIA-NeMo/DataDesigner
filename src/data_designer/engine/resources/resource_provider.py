@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from data_designer.config.base import ConfigBase
+from data_designer.config.dataset_metadata import DatasetMetadata
 from data_designer.config.models import ModelConfig
 from data_designer.config.run_config import RunConfig
 from data_designer.config.seed_source import SeedSource
@@ -26,6 +27,17 @@ class ResourceProvider(ConfigBase):
     model_registry: ModelRegistry | None = None
     run_config: RunConfig = RunConfig()
     seed_reader: SeedReader | None = None
+
+    def get_dataset_metadata(self) -> DatasetMetadata:
+        """Get metadata about the dataset being generated.
+
+        Returns:
+            DatasetMetadata with seed column names and other metadata.
+        """
+        seed_column_names = []
+        if self.seed_reader is not None:
+            seed_column_names = self.seed_reader.get_column_names()
+        return DatasetMetadata(seed_column_names=seed_column_names)
 
 
 def create_resource_provider(

@@ -37,7 +37,6 @@ from data_designer.engine.compiler import compile_data_designer_config
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.engine.dataset_builders.column_wise_builder import ColumnWiseDatasetBuilder
 from data_designer.engine.dataset_builders.utils.config_compiler import compile_dataset_builder_column_configs
-from data_designer.engine.dataset_metadata import create_dataset_metadata
 from data_designer.engine.model_provider import resolve_model_provider_registry
 from data_designer.engine.resources.managed_storage import init_managed_blob_storage
 from data_designer.engine.resources.resource_provider import ResourceProvider, create_resource_provider
@@ -179,7 +178,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         except Exception as e:
             raise DataDesignerProfilingError(f"🛑 Error profiling dataset: {e}")
 
-        dataset_metadata = create_dataset_metadata(resource_provider)
+        dataset_metadata = resource_provider.get_dataset_metadata()
 
         return DatasetCreationResults(
             artifact_storage=builder.artifact_storage,
@@ -250,7 +249,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             logger.info(f"{RandomEmoji.success()} Preview complete!")
 
         # Create dataset metadata from the resource provider
-        dataset_metadata = create_dataset_metadata(resource_provider)
+        dataset_metadata = resource_provider.get_dataset_metadata()
 
         return PreviewResults(
             dataset=processed_dataset,
