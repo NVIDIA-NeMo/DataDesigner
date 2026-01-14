@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from data_designer.config.models import GenerationType, ModelConfig
@@ -12,8 +13,6 @@ from data_designer.engine.models.usage import ModelUsageStats, RequestUsageStats
 from data_designer.engine.secret_resolver import SecretResolver
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from data_designer.engine.models.facade import ModelFacade
 
 logger = logging.getLogger(__name__)
