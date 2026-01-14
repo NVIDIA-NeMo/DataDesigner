@@ -108,9 +108,8 @@ def seed_dataset_jsonl(sample_dataframe):
     os.unlink(f.name)
 
 
-def test_seed_dataset_column_generator_metadata():
-    metadata = SeedDatasetColumnGenerator.metadata()
-    assert metadata.generation_strategy == GenerationStrategy.FULL_COLUMN
+def test_seed_dataset_column_generator_generation_strategy() -> None:
+    assert SeedDatasetColumnGenerator.generation_strategy == GenerationStrategy.FULL_COLUMN
 
 
 def test_seed_dataset_column_generator_config_structure():

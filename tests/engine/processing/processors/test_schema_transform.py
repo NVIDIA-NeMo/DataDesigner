@@ -47,13 +47,6 @@ def stub_simple_dataframe() -> pd.DataFrame:
     )
 
 
-def test_metadata() -> None:
-    metadata = SchemaTransformProcessor.metadata()
-
-    assert metadata.name == "schema_transform_processor"
-    assert metadata.description == "Generate dataset with transformed schema using a Jinja2 template."
-
-
 def test_process_returns_original_dataframe(
     stub_processor: SchemaTransformProcessor, stub_sample_dataframe: pd.DataFrame
 ) -> None:

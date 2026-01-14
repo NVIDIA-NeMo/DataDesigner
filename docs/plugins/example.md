@@ -64,24 +64,13 @@ The implementation class defines the actual business logic of the plugin. For co
 import logging
 import pandas as pd
 
-from data_designer.engine.column_generators.generators.base import (
-    ColumnGenerator,
-    GenerationStrategy,
-    GeneratorMetadata,
-)
+from data_designer.engine.column_generators.generators.base import ColumnGenerator, GenerationStrategy
 
 # Data Designer uses the standard Python logging module for logging
 logger = logging.getLogger(__name__)
 
 class IndexMultiplierColumnGenerator(ColumnGenerator[IndexMultiplierColumnConfig]):
-    @staticmethod
-    def metadata() -> GeneratorMetadata:
-        """Define metadata about this generator."""
-        return GeneratorMetadata(
-            name="index-multiplier",
-            description="Generates values by multiplying the row index by a user-specified multiplier",
-            generation_strategy=GenerationStrategy.FULL_COLUMN,
-        )
+    generation_strategy = GenerationStrategy.FULL_COLUMN
 
     def generate(self, data: pd.DataFrame) -> pd.DataFrame:
         """Generate the column data.
@@ -106,8 +95,7 @@ class IndexMultiplierColumnGenerator(ColumnGenerator[IndexMultiplierColumnConfig
 **Key points:**
 
 - Generic type `ColumnGenerator[IndexMultiplierColumnConfig]` connects the task to its config
-- `metadata()` describes your generator and its requirements
-- `generation_strategy` can be `FULL_COLUMN`, `CELL_BY_CELL`
+- `generation_strategy` class attribute specifies how data is generated (can be `FULL_COLUMN` or `CELL_BY_CELL`)
 - You have access to the configuration parameters via `self.config`
 
 !!! info "Understanding generation_strategy"
@@ -150,7 +138,6 @@ from data_designer.config.column_configs import SingleColumnConfig
 from data_designer.engine.column_generators.generators.base import (
     ColumnGenerator,
     GenerationStrategy,
-    GeneratorMetadata,
 )
 from data_designer.plugins import Plugin, PluginType
 
@@ -170,14 +157,7 @@ class IndexMultiplierColumnConfig(SingleColumnConfig):
 
 
 class IndexMultiplierColumnGenerator(ColumnGenerator[IndexMultiplierColumnConfig]):
-    @staticmethod
-    def metadata() -> GeneratorMetadata:
-        """Define metadata about this generator."""
-        return GeneratorMetadata(
-            name="index-multiplier",
-            description="Generates values by multiplying the row index by a user-specified multiplier",
-            generation_strategy=GenerationStrategy.FULL_COLUMN,
-        )
+    generation_strategy = GenerationStrategy.FULL_COLUMN
 
     def generate(self, data: pd.DataFrame) -> pd.DataFrame:
         """Generate the column data.

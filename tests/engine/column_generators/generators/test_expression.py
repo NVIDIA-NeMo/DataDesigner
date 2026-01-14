@@ -26,12 +26,10 @@ def _create_test_generator(config=None, resource_provider=None):
     return ExpressionColumnGenerator(config=config, resource_provider=resource_provider)
 
 
-def test_metadata():
-    metadata = ExpressionColumnGenerator.metadata()
+def test_generation_strategy() -> None:
+    from data_designer.engine.column_generators.generators.base import GenerationStrategy
 
-    assert metadata.name == "expression_generator"
-    assert metadata.description == "Generate a column from a jinja2 expression."
-    assert metadata.generation_strategy == "full_column"
+    assert ExpressionColumnGenerator.generation_strategy == GenerationStrategy.FULL_COLUMN
 
 
 def test_generator_creation():

@@ -9,10 +9,7 @@ from data_designer.config.analysis.dataset_profiler import DatasetProfilerResult
 from data_designer.config.column_configs import SamplerColumnConfig
 from data_designer.config.sampler_params import CategorySamplerParams, SamplerType
 from data_designer.engine.analysis.column_profilers.judge_score_profiler import JudgeScoreProfilerConfig
-from data_designer.engine.analysis.dataset_profiler import (
-    DataDesignerDatasetProfiler,
-    DatasetProfilerConfig,
-)
+from data_designer.engine.analysis.dataset_profiler import DataDesignerDatasetProfiler, DatasetProfilerConfig
 from data_designer.engine.analysis.errors import DatasetProfilerConfigurationError
 from data_designer.engine.analysis.utils.judge_score_processing import JudgeScoreSample
 from data_designer.engine.dataset_builders.multi_column_configs import SamplerMultiColumnConfig
@@ -135,7 +132,7 @@ def test_dataset_profiler_requires_model_registry_with_column_profiler_configs(
 
 def test_profile_dataset_no_applicable_column_types(dataset_profiler, stub_df, stub_model_facade):
     mock_profiler = Mock()
-    mock_profiler.metadata.return_value.applicable_column_types = ["NONEXISTENT_COLUMN_TYPE"]
+    mock_profiler.applicable_column_types = ["NONEXISTENT_COLUMN_TYPE"]
     mock_profiler.profile.return_value = Mock()
 
     with patch.object(
