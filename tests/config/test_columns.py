@@ -14,7 +14,6 @@ from data_designer.config.column_configs import (
     SamplerColumnConfig,
     Score,
     SeedDatasetColumnConfig,
-    SingleColumnConfig,
     ValidationColumnConfig,
 )
 from data_designer.config.column_types import (
@@ -471,27 +470,3 @@ def test_column_emoji_not_in_serialization():
     assert "_column_emoji" not in sampler_config.model_dump()
     assert "_column_emoji" not in llm_text_config.model_dump()
     assert "_column_emoji" not in expression_config.model_dump()
-
-
-def test_get_column_emoji_raises_error_for_invalid_type():
-    """Test that get_column_emoji raises InvalidConfigError when _column_emoji is not a string."""
-
-    # Create a malformed column config class with non-string _column_emoji
-    class MalformedColumnConfig(SingleColumnConfig):
-        column_type: str = "malformed"
-        _column_emoji: int = 123  # Invalid type
-
-        @property
-        def required_columns(self) -> list[str]:
-            return []
-
-        @property
-        def side_effect_columns(self) -> list[str]:
-            return []
-
-    # Test that get_column_emoji raises InvalidConfigError
-    with pytest.raises(
-        InvalidConfigError,
-        match="Column config class 'MalformedColumnConfig' must define a default string for '_column_emoji'",
-    ):
-        MalformedColumnConfig.get_column_emoji()

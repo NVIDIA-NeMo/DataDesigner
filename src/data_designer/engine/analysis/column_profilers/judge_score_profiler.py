@@ -42,7 +42,9 @@ class JudgeScoreProfiler(ColumnProfiler[JudgeScoreProfilerConfig]):
     def profile(self, column_config_with_df: ColumnConfigWithDataFrame) -> JudgeScoreProfilerResults:
         column_config, df = column_config_with_df.as_tuple()
 
-        logger.info(f"{column_config._column_emoji} Analyzing LLM-as-judge scores for column: '{column_config.name}'")
+        logger.info(
+            f"{column_config.get_column_emoji()} Analyzing LLM-as-judge scores for column: '{column_config.name}'"
+        )
 
         score_summaries = {}
         score_distributions = extract_judge_score_distributions(column_config, df)

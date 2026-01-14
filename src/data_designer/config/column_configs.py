@@ -34,18 +34,10 @@ class SingleColumnConfig(ConfigBase, ABC):
     name: str
     drop: bool = False
     column_type: str
-    _column_emoji: str = "🎨"
 
-    @classmethod
-    def get_column_emoji(cls) -> str:
-        """Get the emoji for the column type."""
-        emoji = cls.__private_attributes__["_column_emoji"].default
-        if not isinstance(emoji, str):
-            raise InvalidConfigError(
-                f"Column config class '{cls.__name__}' must define a default string for '_column_emoji'. "
-                f"Add '_column_emoji: str = \"🎨\"' (or another emoji) to your class definition."
-            )
-        return emoji
+    @staticmethod
+    def get_column_emoji() -> str:
+        return "🎨"
 
     @property
     @abstractmethod
@@ -105,7 +97,11 @@ class SamplerColumnConfig(SingleColumnConfig):
     conditional_params: dict[str, Annotated[SamplerParamsT, Discriminator("sampler_type")]] = {}
     convert_to: str | None = None
     column_type: Literal["sampler"] = "sampler"
-    _column_emoji: str = "🎲"
+
+    @staticmethod
+    def get_column_emoji() -> str:
+        """Get the emoji for the column type."""
+        return "🎲"
 
     @property
     def required_columns(self) -> list[str]:
@@ -170,7 +166,10 @@ class LLMTextColumnConfig(SingleColumnConfig):
     system_prompt: str | None = None
     multi_modal_context: list[ImageContext] | None = None
     column_type: Literal["llm-text"] = "llm-text"
-    _column_emoji: str = "📝"
+
+    @staticmethod
+    def get_column_emoji() -> str:
+        return "📝"
 
     @property
     def required_columns(self) -> list[str]:
@@ -228,7 +227,10 @@ class LLMCodeColumnConfig(LLMTextColumnConfig):
 
     code_lang: CodeLang
     column_type: Literal["llm-code"] = "llm-code"
-    _column_emoji: str = "💻"
+
+    @staticmethod
+    def get_column_emoji() -> str:
+        return "💻"
 
 
 class LLMStructuredColumnConfig(LLMTextColumnConfig):
@@ -247,7 +249,10 @@ class LLMStructuredColumnConfig(LLMTextColumnConfig):
 
     output_format: dict | type[BaseModel]
     column_type: Literal["llm-structured"] = "llm-structured"
-    _column_emoji: str = "🗂️"
+
+    @staticmethod
+    def get_column_emoji() -> str:
+        return "🗂️"
 
     @model_validator(mode="after")
     def validate_output_format(self) -> Self:
@@ -298,7 +303,10 @@ class LLMJudgeColumnConfig(LLMTextColumnConfig):
 
     scores: list[Score] = Field(..., min_length=1)
     column_type: Literal["llm-judge"] = "llm-judge"
-    _column_emoji: str = "⚖️"
+
+    @staticmethod
+    def get_column_emoji() -> str:
+        return "⚖️"
 
 
 class ExpressionColumnConfig(SingleColumnConfig):
@@ -321,7 +329,10 @@ class ExpressionColumnConfig(SingleColumnConfig):
     expr: str
     dtype: Literal["int", "float", "str", "bool"] = "str"
     column_type: Literal["expression"] = "expression"
-    _column_emoji: str = "🧩"
+
+    @staticmethod
+    def get_column_emoji() -> str:
+        return "🧩"
 
     @property
     def required_columns(self) -> list[str]:
@@ -388,7 +399,10 @@ class ValidationColumnConfig(SingleColumnConfig):
     validator_params: ValidatorParamsT
     batch_size: int = Field(default=10, ge=1, description="Number of records to process in each batch")
     column_type: Literal["validation"] = "validation"
-    _column_emoji: str = "🔍"
+
+    @staticmethod
+    def get_column_emoji() -> str:
+        return "🔍"
 
     @property
     def required_columns(self) -> list[str]:
@@ -412,7 +426,10 @@ class SeedDatasetColumnConfig(SingleColumnConfig):
     """
 
     column_type: Literal["seed-dataset"] = "seed-dataset"
-    _column_emoji: str = "🌱"
+
+    @staticmethod
+    def get_column_emoji() -> str:
+        return "🌱"
 
     @property
     def required_columns(self) -> list[str]:
@@ -438,7 +455,10 @@ class EmbeddingColumnConfig(SingleColumnConfig):
     target_column: str
     model_alias: str
     column_type: Literal["embedding"] = "embedding"
-    _column_emoji: str = "🧬"
+
+    @staticmethod
+    def get_column_emoji() -> str:
+        return "🧬"
 
     @property
     def required_columns(self) -> list[str]:
