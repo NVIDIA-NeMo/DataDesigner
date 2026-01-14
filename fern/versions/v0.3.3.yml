@@ -1,0 +1,101 @@
+tabs:
+  docs:
+    display-name: Documentation
+    slug: docs
+  api:
+    display-name: API Reference
+    slug: api
+
+navigation:
+  - tab: docs
+    layout:
+      - section: Getting Started
+        contents:
+          - page: Welcome
+            path: ../v0.3.3/pages/index.mdx
+          - page: Installation
+            path: ../v0.3.3/pages/installation.mdx
+          - page: Quick Start
+            path: ../v0.3.3/pages/quick-start.mdx
+          - page: Contributing
+            path: ../v0.3.3/pages/contributing.mdx
+      - section: Concepts
+        contents:
+          - section: Models
+            contents:
+              - page: Default Model Settings
+                path: ../v0.3.3/pages/concepts/models/default-model-settings.mdx
+              - page: Custom Model Settings
+                path: ../v0.3.3/pages/concepts/models/custom-model-settings.mdx
+              - page: Configure with CLI
+                path: ../v0.3.3/pages/concepts/models/configure-with-cli.mdx
+              - page: Model Providers
+                path: ../v0.3.3/pages/concepts/models/model-providers.mdx
+              - page: Model Configs
+                path: ../v0.3.3/pages/concepts/models/model-configs.mdx
+              - page: Inference Parameters
+                path: ../v0.3.3/pages/concepts/models/inference-parameters.mdx
+          - page: Columns
+            path: ../v0.3.3/pages/concepts/columns.mdx
+          - page: Validators
+            path: ../v0.3.3/pages/concepts/validators.mdx
+          - page: Processors
+            path: ../v0.3.3/pages/concepts/processors.mdx
+          - page: Person Sampling
+            path: ../v0.3.3/pages/concepts/person-sampling.mdx
+      - section: Tutorials
+        contents:
+          - page: Overview
+            path: ../v0.3.3/pages/tutorials/overview.mdx
+          - page: The Basics
+            path: ../v0.3.3/pages/tutorials/the-basics.mdx
+          - page: Structured Outputs
+            path: ../v0.3.3/pages/tutorials/structured-outputs.mdx
+          - page: Seeding with a Dataset
+            path: ../v0.3.3/pages/tutorials/seeding-with-dataset.mdx
+          - page: Images as Context
+            path: ../v0.3.3/pages/tutorials/images-as-context.mdx
+      - section: Recipes
+        contents:
+          - page: Recipe Cards
+            path: ../v0.3.3/pages/recipes/index.mdx
+          - section: Code Generation
+            contents:
+              - page: Text to Python
+                path: ../v0.3.3/pages/recipes/code-generation/text-to-python.mdx
+              - page: Text to SQL
+                path: ../v0.3.3/pages/recipes/code-generation/text-to-sql.mdx
+          - section: QA and Chat
+            contents:
+              - page: Product Info QA
+                path: ../v0.3.3/pages/recipes/qa-and-chat/product-info-qa.mdx
+              - page: Multi-Turn Chat
+                path: ../v0.3.3/pages/recipes/qa-and-chat/multi-turn-chat.mdx
+      - section: Plugins
+        contents:
+          - page: Overview
+            path: ../v0.3.3/pages/plugins/overview.mdx
+          - page: Example Plugin
+            path: ../v0.3.3/pages/plugins/example.mdx
+          - page: Available Plugins
+            path: ../v0.3.3/pages/plugins/available.mdx
+  - tab: api
+    layout:
+      - section: API Reference
+        contents:
+          - page: Models
+            path: ../v0.3.3/pages/api-reference/models.mdx
+          - page: Column Configs
+            path: ../v0.3.3/pages/api-reference/column-configs.mdx
+          - page: Config Builder
+            path: ../v0.3.3/pages/api-reference/config-builder.mdx
+          - page: Data Designer Config
+            path: ../v0.3.3/pages/api-reference/data-designer-config.mdx
+          - page: Sampler Params
+            path: ../v0.3.3/pages/api-reference/sampler-params.mdx
+          - page: Validator Params
+            path: ../v0.3.3/pages/api-reference/validator-params.mdx
+          - page: Processors
+            path: ../v0.3.3/pages/api-reference/processors.mdx
+          - page: Analysis
+            path: ../v0.3.3/pages/api-reference/analysis.mdx
