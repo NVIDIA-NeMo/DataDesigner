@@ -4,18 +4,15 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import pandas as pd
 
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
 from data_designer.config.config_builder import DataDesignerConfigBuilder
+from data_designer.config.dataset_metadata import DatasetMetadata
 from data_designer.config.utils.visualization import WithRecordSamplerMixin
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
-
-if TYPE_CHECKING:
-    from data_designer.config.dataset_metadata import DatasetMetadata
 
 
 class DatasetCreationResults(WithRecordSamplerMixin):
@@ -32,7 +29,7 @@ class DatasetCreationResults(WithRecordSamplerMixin):
         artifact_storage: ArtifactStorage,
         analysis: DatasetProfilerResults,
         config_builder: DataDesignerConfigBuilder,
-        dataset_metadata: DatasetMetadata | None = None,
+        dataset_metadata: DatasetMetadata,
     ):
         """Creates a new instance with results based on a dataset creation run.
 

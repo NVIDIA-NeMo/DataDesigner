@@ -25,25 +25,36 @@ def stub_artifact_storage(stub_dataframe):
 
 
 @pytest.fixture
-def stub_dataset_creation_results(stub_artifact_storage, stub_dataset_profiler_results, stub_complete_builder):
+def stub_dataset_metadata():
+    """Fixture providing a DatasetMetadata instance."""
+    return DatasetMetadata()
+
+
+@pytest.fixture
+def stub_dataset_creation_results(
+    stub_artifact_storage, stub_dataset_profiler_results, stub_complete_builder, stub_dataset_metadata
+):
     """Fixture providing a DatasetCreationResults instance."""
     return DatasetCreationResults(
         artifact_storage=stub_artifact_storage,
         analysis=stub_dataset_profiler_results,
         config_builder=stub_complete_builder,
+        dataset_metadata=stub_dataset_metadata,
     )
 
 
-def test_init(stub_artifact_storage, stub_dataset_profiler_results, stub_complete_builder):
+def test_init(stub_artifact_storage, stub_dataset_profiler_results, stub_complete_builder, stub_dataset_metadata):
     """Test DatasetCreationResults initialization."""
     results = DatasetCreationResults(
         artifact_storage=stub_artifact_storage,
         analysis=stub_dataset_profiler_results,
         config_builder=stub_complete_builder,
+        dataset_metadata=stub_dataset_metadata,
     )
     assert results.artifact_storage == stub_artifact_storage
     assert results._analysis == stub_dataset_profiler_results
     assert results._config_builder == stub_complete_builder
+    assert results.dataset_metadata == stub_dataset_metadata
 
 
 def test_load_dataset(stub_dataset_creation_results, stub_artifact_storage, stub_dataframe):
@@ -181,6 +192,7 @@ def test_display_sample_record_with_empty_dataset():
         artifact_storage=empty_storage,
         analysis=MagicMock(spec=DatasetProfilerResults),
         config_builder=MagicMock(spec=DataDesignerConfigBuilder),
+        dataset_metadata=DatasetMetadata(),
     )
 
     # Empty DataFrame is still a valid DataFrame, so accessing _record_sampler_dataset succeeds
@@ -199,6 +211,7 @@ def test_display_sample_record_with_none_dataset():
         artifact_storage=none_storage,
         analysis=MagicMock(spec=DatasetProfilerResults),
         config_builder=MagicMock(spec=DataDesignerConfigBuilder),
+        dataset_metadata=DatasetMetadata(),
     )
 
     # Mixin raises DatasetSampleDisplayError when dataset is None

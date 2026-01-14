@@ -58,7 +58,7 @@ class ColorPalette(str, Enum):
 
 class WithRecordSamplerMixin:
     _display_cycle_index: int = 0
-    dataset_metadata: DatasetMetadata | None
+    dataset_metadata: DatasetMetadata
 
     @cached_property
     def _record_sampler_dataset(self) -> pd.DataFrame:
@@ -120,8 +120,7 @@ class WithRecordSamplerMixin:
                     else:
                         processor_data_to_display[processor] = self.processor_artifacts[processor]
 
-        # Get seed column names from dataset_metadata if available
-        seed_column_names = self.dataset_metadata.seed_column_names if self.dataset_metadata else None
+        seed_column_names = self.dataset_metadata.seed_column_names
 
         display_sample_record(
             record=record,

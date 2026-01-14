@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class DatasetMetadata(BaseModel):
@@ -15,4 +15,4 @@ class DatasetMetadata(BaseModel):
         seed_column_names: Names of columns from the seed dataset. Empty list if no seed dataset.
     """
 
-    seed_column_names: list[str] = []
+    seed_column_names: list[str] = Field(default_factory=list)
