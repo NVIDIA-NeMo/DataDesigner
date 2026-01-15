@@ -54,16 +54,16 @@ help:
 	@echo "💡 Tip: Run 'make <command>' to execute any command above"
 	@echo ""
 
-clean:
-	@echo "🧹 Cleaning up coverage reports and cache files..."
-	rm -rf htmlcov .coverage .pytest_cache
-	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
-
 clean-pycache:
 	@echo "🧹 Cleaning up Python cache files..."
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	find . -type f -name "*.pyc" -delete 2>/dev/null || true
 	@echo "✅ Cache cleaned!"
+
+clean: clean-pycache
+	@echo "🧹 Cleaning up coverage reports and test cache..."
+	rm -rf htmlcov .coverage .pytest_cache
+	@echo "✅ Cleaned!"
 
 coverage:
 	@echo "📊 Running tests with coverage analysis..."
