@@ -96,4 +96,3 @@ tests_e2e/uv.lock
 
 # Performance profiling
 perf_*.txt
-tuna_*.html
