@@ -16,7 +16,7 @@ class PreviewResults(WithRecordSamplerMixin):
         self,
         *,
         config_builder: DataDesignerConfigBuilder,
-        dataset_metadata: DatasetMetadata,
+        dataset_metadata: DatasetMetadata | None = None,
         dataset: pd.DataFrame | None = None,
         analysis: DatasetProfilerResults | None = None,
         processor_artifacts: dict[str, list[str] | str] | None = None,
@@ -33,5 +33,5 @@ class PreviewResults(WithRecordSamplerMixin):
         self.dataset: pd.DataFrame | None = dataset
         self.analysis: DatasetProfilerResults | None = analysis
         self.processor_artifacts: dict[str, list[str] | str] | None = processor_artifacts
-        self.dataset_metadata = dataset_metadata
+        self.dataset_metadata: DatasetMetadata | None = dataset_metadata
         self._config_builder = config_builder
