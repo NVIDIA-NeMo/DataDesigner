@@ -6,13 +6,14 @@ import subprocess
 from pathlib import Path
 
 # Maximum allowed average import time in seconds
-# Should be < 5 but leaving some room for CI variability
-MAX_IMPORT_TIME_SECONDS = 7.0
-PERF_TEST_TIMEOUT_SECONDS = 15.0
+# Average of 1 cold start + 4 warm cache runs
+# Should be < 3s realistically, but leaving room for CI variability
+MAX_IMPORT_TIME_SECONDS = 5.0
+PERF_TEST_TIMEOUT_SECONDS = 10.0
 
 
 def test_import_performance():
-    """Test that average import time never exceeds MAX_IMPORT_TIME_SECONDS (with clean cache)."""
+    """Test that average import time never exceeds MAX_IMPORT_TIME_SECONDS (cold start + warm cache)."""
     # Get the project root (where Makefile is located)
     project_root = Path(__file__).parent.parent
 
@@ -20,9 +21,13 @@ def test_import_performance():
     import_times = []
 
     for run in range(num_runs):
-        # Run make perf-import with clean cache and no file output
+        # Clean cache only on first run (cold start), rest use warm cache
+        cmd = ["make", "perf-import", "NOFILE=1"]
+        if run == 0:
+            cmd.append("CLEAN=1")
+
         result = subprocess.run(
-            ["make", "perf-import", "CLEAN=1", "NOFILE=1"],
+            cmd,
             cwd=project_root,
             capture_output=True,
             text=True,
@@ -44,8 +49,9 @@ def test_import_performance():
 
     # Print summary for debugging
     print("\nImport Performance Summary:")
-    print(f"  Runs: {num_runs}")
-    print(f"  Times: {', '.join(f'{t:.3f}s' for t in import_times)}")
+    print(f"  Runs: {num_runs} (1 cold start + {num_runs - 1} warm cache)")
+    print(f"  Cold start (run 1): {import_times[0]:.3f}s")
+    print(f"  Warm cache (runs 2-{num_runs}): {', '.join(f'{t:.3f}s' for t in import_times[1:])}")
     print(f"  Average: {avg_import_time:.3f}s")
     print(f"  Min: {min_import_time:.3f}s")
     print(f"  Max: {max_import_time:.3f}s")
