@@ -69,7 +69,7 @@ class DatasetBatchManager:
     def drop_records(self, index: Container[int]) -> None:
         self._buffer = [record for i, record in enumerate(self._buffer) if i not in index]
 
-    def finish_batch(self, on_complete: Callable[[Path], None] | None = None) -> Path:
+    def finish_batch(self, on_complete: Callable[[Path], None] | None = None) -> Path | None:
         """Finish the batch by moving the results from the partial results path to the final parquet folder.
 
         Returns:
@@ -78,28 +78,35 @@ class DatasetBatchManager:
         if self._current_batch_number >= self.num_batches:
             raise DatasetBatchManagementError("🛑 All batches have been processed.")
 
-        if not self.write():
-            raise DatasetBatchManagementError("🛑 Batch finished without any results to write.")
+        if self.write() is not None:
+            final_file_path = self.artifact_storage.move_partial_result_to_final_file_path(self._current_batch_number)
 
-        final_file_path = self.artifact_storage.move_partial_result_to_final_file_path(self._current_batch_number)
+            self.artifact_storage.write_metadata(
+                {
+                    "target_num_records": sum(self.num_records_list),
+                    "total_num_batches": self.num_batches,
+                    "buffer_size": self._buffer_size,
+                    "schema": {field.name: str(field.type) for field in pq.read_schema(final_file_path)},
+                    "file_paths": [str(f) for f in sorted(self.artifact_storage.final_dataset_path.glob("*.parquet"))],
+                    "num_records": self.num_records_list[: self._current_batch_number + 1],
+                    "num_completed_batches": self._current_batch_number + 1,
+                    "dataset_name": self.artifact_storage.dataset_name,
+                }
+            )
 
-        self.artifact_storage.write_metadata(
-            {
-                "target_num_records": sum(self.num_records_list),
-                "total_num_batches": self.num_batches,
-                "buffer_size": self._buffer_size,
-                "schema": {field.name: str(field.type) for field in pq.read_schema(final_file_path)},
-                "file_paths": [str(f) for f in sorted(self.artifact_storage.final_dataset_path.glob("*.parquet"))],
-                "num_records": self.num_records_list[: self._current_batch_number + 1],
-                "num_completed_batches": self._current_batch_number + 1,
-                "dataset_name": self.artifact_storage.dataset_name,
-            }
-        )
+            if on_complete:
+                on_complete(final_file_path)
+        else:
+            final_file_path = None
+
+            logger.warning(
+                f"⚠️ Batch {self._current_batch_number + 1} finished without any results to write. "
+                "A partial dataset containing the currently available columns has been written to the partial results "
+                f"directory: {self.artifact_storage.partial_results_path}"
+            )
+
         self._current_batch_number += 1
         self._buffer: list[dict] = []
-
-        if on_complete:
-            on_complete(final_file_path)
 
         return final_file_path
 
