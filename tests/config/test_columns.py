@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from typing import Literal
+
 import pytest
 from pydantic import ValidationError
 
@@ -14,6 +16,7 @@ from data_designer.config.column_configs import (
     SamplerColumnConfig,
     Score,
     SeedDatasetColumnConfig,
+    SingleColumnConfig,
     ValidationColumnConfig,
 )
 from data_designer.config.column_types import (
@@ -447,26 +450,19 @@ def test_sampler_column_config_discriminated_union_wrong_params_type():
         )
 
 
-def test_column_emoji_not_in_serialization():
-    """Test that _column_emoji private attribute is not included in serialization."""
-    # Test with a few different column config types
-    sampler_config = SamplerColumnConfig(
-        name="test_sampler",
-        sampler_type=SamplerType.UUID,
-        params=UUIDSamplerParams(prefix="test_", short_form=True),
-    )
-    llm_text_config = LLMTextColumnConfig(
-        name="test_llm_text",
-        prompt=stub_prompt,
-        model_alias=stub_model_alias,
-    )
-    expression_config = ExpressionColumnConfig(
-        name="test_expression",
-        expr="1 + 1 * {{some_column}}",
-        dtype="str",
-    )
+def test_default_column_emoji_for_custom_column_type() -> None:
+    """Ensure the base get_column_emoji implementation is used when not overridden."""
 
-    # Verify _column_emoji is not in serialized output
-    assert "_column_emoji" not in sampler_config.model_dump()
-    assert "_column_emoji" not in llm_text_config.model_dump()
-    assert "_column_emoji" not in expression_config.model_dump()
+    class StubColumnConfigWithoutEmoji(SingleColumnConfig):
+        column_type: Literal["stub-without-emoji"] = "stub-without-emoji"
+        value: str
+
+        @property
+        def required_columns(self) -> list[str]:
+            return []
+
+        @property
+        def side_effect_columns(self) -> list[str]:
+            return []
+
+    assert StubColumnConfigWithoutEmoji.get_column_emoji() == "🎨"
