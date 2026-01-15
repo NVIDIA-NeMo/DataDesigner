@@ -23,13 +23,11 @@ def stub_embeddings() -> list[list[float]]:
     return [[0.1, 0.2], [0.3, 0.4]]
 
 
-def test_embedding_cell_generator_metadata(stub_embedding_column_config, stub_resource_provider):
-    metadata = EmbeddingCellGenerator(
-        config=stub_embedding_column_config, resource_provider=stub_resource_provider
-    ).metadata()
-    assert metadata.name == "embedding_cell_generator"
-    assert metadata.description == "Generate embeddings for a text column."
-    assert metadata.generation_strategy == GenerationStrategy.CELL_BY_CELL
+def test_embedding_cell_generator_generation_strategy(
+    stub_embedding_column_config: EmbeddingColumnConfig, stub_resource_provider: None
+) -> None:
+    generator = EmbeddingCellGenerator(config=stub_embedding_column_config, resource_provider=stub_resource_provider)
+    assert generator.get_generation_strategy() == GenerationStrategy.CELL_BY_CELL
 
 
 def test_embedding_cell_generator_generate(stub_embedding_column_config, stub_resource_provider, stub_embeddings):

@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from typing import TYPE_CHECKING, overload
 
-from data_designer.engine.configurable_task import ConfigurableTask, ConfigurableTaskMetadata, DataT, TaskConfigT
+from data_designer.engine.configurable_task import ConfigurableTask, DataT, TaskConfigT
 from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
@@ -25,22 +25,14 @@ class GenerationStrategy(str, Enum):
     FULL_COLUMN = "full_column"
 
 
-class GeneratorMetadata(ConfigurableTaskMetadata):
-    generation_strategy: GenerationStrategy
-
-
 class ColumnGenerator(ConfigurableTask[TaskConfigT], ABC):
     @property
     def can_generate_from_scratch(self) -> bool:
         return False
 
-    @property
-    def generation_strategy(self) -> GenerationStrategy:
-        return self.metadata().generation_strategy
-
     @staticmethod
     @abstractmethod
-    def metadata() -> GeneratorMetadata: ...
+    def get_generation_strategy() -> GenerationStrategy: ...
 
     @overload
     @abstractmethod
@@ -106,3 +98,21 @@ class ColumnGeneratorWithModel(ColumnGeneratorWithModelRegistry[TaskConfigT], AB
         logger.info(f"  |-- model alias: {self.config.model_alias!r}")
         logger.info(f"  |-- model provider: {self.get_model_provider_name(model_alias=self.config.model_alias)!r}")
         logger.info(f"  |-- inference parameters: {self.inference_parameters.format_for_display()}")
+
+
+class ColumnGeneratorCellByCell(ColumnGenerator[TaskConfigT], ABC):
+    @staticmethod
+    def get_generation_strategy() -> GenerationStrategy:
+        return GenerationStrategy.CELL_BY_CELL
+
+    @abstractmethod
+    def generate(self, data: dict) -> dict: ...
+
+
+class ColumnGeneratorFullColumn(ColumnGenerator[TaskConfigT], ABC):
+    @staticmethod
+    def get_generation_strategy() -> GenerationStrategy:
+        return GenerationStrategy.FULL_COLUMN
+
+    @abstractmethod
+    def generate(self, data: pd.DataFrame) -> pd.DataFrame: ...

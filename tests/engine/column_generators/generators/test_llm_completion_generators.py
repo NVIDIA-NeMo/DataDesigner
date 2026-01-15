@@ -12,6 +12,7 @@ from data_designer.config.column_configs import (
     LLMTextColumnConfig,
 )
 from data_designer.config.run_config import RunConfig
+from data_designer.engine.column_generators.generators.base import GenerationStrategy
 from data_designer.engine.column_generators.generators.llm_completion import (
     REASONING_TRACE_COLUMN_POSTFIX,
     LLMCodeCellGenerator,
@@ -131,25 +132,16 @@ def test_log_pre_generation(mock_logger: Mock) -> None:
 
 
 @pytest.mark.parametrize(
-    "generator_class,config_class,expected_name,expected_description",
+    "generator_class",
     [
-        (LLMTextCellGenerator, LLMTextColumnConfig, "llm_text_generator", "generate a new dataset cell"),
-        (LLMCodeCellGenerator, LLMCodeColumnConfig, "llm_code_generator", "generate a new dataset cell"),
-        (LLMJudgeCellGenerator, LLMJudgeColumnConfig, "llm_judge_generator", "judge a new dataset cell"),
-        (
-            LLMStructuredCellGenerator,
-            LLMStructuredColumnConfig,
-            "llm_structured_generator",
-            "generate a new dataset cell",
-        ),
+        LLMTextCellGenerator,
+        LLMCodeCellGenerator,
+        LLMJudgeCellGenerator,
+        LLMStructuredCellGenerator,
     ],
 )
-def test_llm_generator_metadata(generator_class, config_class, expected_name, expected_description):
-    metadata = generator_class.metadata()
-
-    assert metadata.name == expected_name
-    assert expected_description.lower() in metadata.description.lower()
-    assert metadata.generation_strategy == "cell_by_cell"
+def test_llm_generator_generation_strategy(generator_class: type) -> None:
+    assert generator_class.get_generation_strategy() == GenerationStrategy.CELL_BY_CELL
 
 
 @pytest.mark.parametrize(

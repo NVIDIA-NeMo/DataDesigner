@@ -6,7 +6,6 @@ from __future__ import annotations
 import logging
 
 from data_designer.config.processors import DropColumnsProcessorConfig
-from data_designer.engine.configurable_task import ConfigurableTaskMetadata
 from data_designer.engine.dataset_builders.artifact_storage import BatchStage
 from data_designer.engine.processing.processors.base import Processor
 from data_designer.lazy_heavy_imports import pd
@@ -15,13 +14,6 @@ logger = logging.getLogger(__name__)
 
 
 class DropColumnsProcessor(Processor[DropColumnsProcessorConfig]):
-    @staticmethod
-    def metadata() -> ConfigurableTaskMetadata:
-        return ConfigurableTaskMetadata(
-            name="drop_columns_processor",
-            description="Drop columns from the input dataset.",
-        )
-
     def process(self, data: pd.DataFrame, *, current_batch_number: int | None = None) -> pd.DataFrame:
         logger.info(f"🙈 Dropping columns: {self.config.column_names}")
         if current_batch_number is not None:  # not in preview mode

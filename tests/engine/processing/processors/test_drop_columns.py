@@ -37,13 +37,6 @@ def stub_empty_dataframe():
     return pd.DataFrame()
 
 
-def test_metadata():
-    metadata = DropColumnsProcessor.metadata()
-
-    assert metadata.name == "drop_columns_processor"
-    assert metadata.description == "Drop columns from the input dataset."
-
-
 @pytest.mark.parametrize(
     "test_case,column_names,expected_result,expected_warning",
     [

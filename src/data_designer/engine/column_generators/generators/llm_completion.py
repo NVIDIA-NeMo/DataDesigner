@@ -13,11 +13,7 @@ from data_designer.config.column_configs import (
     LLMTextColumnConfig,
 )
 from data_designer.config.utils.constants import REASONING_TRACE_COLUMN_POSTFIX
-from data_designer.engine.column_generators.generators.base import (
-    ColumnGeneratorWithModel,
-    GenerationStrategy,
-    GeneratorMetadata,
-)
+from data_designer.engine.column_generators.generators.base import ColumnGeneratorWithModel, GenerationStrategy
 from data_designer.engine.column_generators.utils.prompt_renderer import (
     PromptType,
     RecordBasedPromptRenderer,
@@ -31,6 +27,10 @@ logger = logging.getLogger(__name__)
 
 
 class ColumnGeneratorWithModelChatCompletion(ColumnGeneratorWithModel[TaskConfigT]):
+    @staticmethod
+    def get_generation_strategy() -> GenerationStrategy:
+        return GenerationStrategy.CELL_BY_CELL
+
     @functools.cached_property
     def response_recipe(self) -> ResponseRecipe:
         return create_response_recipe(self.config, self.model_config)
@@ -89,41 +89,13 @@ class ColumnGeneratorWithModelChatCompletion(ColumnGeneratorWithModel[TaskConfig
         return data
 
 
-class LLMTextCellGenerator(ColumnGeneratorWithModelChatCompletion[LLMTextColumnConfig]):
-    @staticmethod
-    def metadata() -> GeneratorMetadata:
-        return GeneratorMetadata(
-            name="llm_text_generator",
-            description="Generate a new dataset cell from a prompt template",
-            generation_strategy=GenerationStrategy.CELL_BY_CELL,
-        )
+class LLMTextCellGenerator(ColumnGeneratorWithModelChatCompletion[LLMTextColumnConfig]): ...
 
 
-class LLMCodeCellGenerator(ColumnGeneratorWithModelChatCompletion[LLMCodeColumnConfig]):
-    @staticmethod
-    def metadata() -> GeneratorMetadata:
-        return GeneratorMetadata(
-            name="llm_code_generator",
-            description="Generate a new dataset cell from a prompt template",
-            generation_strategy=GenerationStrategy.CELL_BY_CELL,
-        )
+class LLMCodeCellGenerator(ColumnGeneratorWithModelChatCompletion[LLMCodeColumnConfig]): ...
 
 
-class LLMStructuredCellGenerator(ColumnGeneratorWithModelChatCompletion[LLMStructuredColumnConfig]):
-    @staticmethod
-    def metadata() -> GeneratorMetadata:
-        return GeneratorMetadata(
-            name="llm_structured_generator",
-            description="Generate a new dataset cell from a prompt template",
-            generation_strategy=GenerationStrategy.CELL_BY_CELL,
-        )
+class LLMStructuredCellGenerator(ColumnGeneratorWithModelChatCompletion[LLMStructuredColumnConfig]): ...
 
 
-class LLMJudgeCellGenerator(ColumnGeneratorWithModelChatCompletion[LLMJudgeColumnConfig]):
-    @staticmethod
-    def metadata() -> GeneratorMetadata:
-        return GeneratorMetadata(
-            name="llm_judge_generator",
-            description="Judge a new dataset cell based on a set of rubrics",
-            generation_strategy=GenerationStrategy.CELL_BY_CELL,
-        )
+class LLMJudgeCellGenerator(ColumnGeneratorWithModelChatCompletion[LLMJudgeColumnConfig]): ...

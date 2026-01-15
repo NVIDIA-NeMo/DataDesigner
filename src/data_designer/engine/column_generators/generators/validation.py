@@ -8,15 +8,8 @@ import logging
 from data_designer.config.column_configs import ValidationColumnConfig
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.utils.code_lang import SQL_DIALECTS, CodeLang
-from data_designer.config.validator_params import (
-    ValidatorParamsT,
-    ValidatorType,
-)
-from data_designer.engine.column_generators.generators.base import (
-    ColumnGenerator,
-    GenerationStrategy,
-    GeneratorMetadata,
-)
+from data_designer.config.validator_params import ValidatorParamsT, ValidatorType
+from data_designer.engine.column_generators.generators.base import ColumnGeneratorFullColumn
 from data_designer.engine.dataset_builders.utils.concurrency import ConcurrentThreadExecutor
 from data_designer.engine.errors import DataDesignerRuntimeError
 from data_designer.engine.validators import (
@@ -44,15 +37,7 @@ def get_validator_from_params(validator_type: ValidatorType, validator_params: V
         return LocalCallableValidator(validator_params)
 
 
-class ValidationColumnGenerator(ColumnGenerator[ValidationColumnConfig]):
-    @staticmethod
-    def metadata() -> GeneratorMetadata:
-        return GeneratorMetadata(
-            name="validate",
-            description="Validate data.",
-            generation_strategy=GenerationStrategy.FULL_COLUMN,
-        )
-
+class ValidationColumnGenerator(ColumnGeneratorFullColumn[ValidationColumnConfig]):
     def generate(self, data: pd.DataFrame) -> pd.DataFrame:
         logger.info(f"🔍 Validating column {self.config.name!r} with {len(data)} records")
         logger.info(f"  |-- target columns: {self.config.target_columns}")

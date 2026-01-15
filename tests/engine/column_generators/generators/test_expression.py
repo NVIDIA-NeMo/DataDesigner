@@ -26,14 +26,6 @@ def _create_test_generator(config=None, resource_provider=None):
     return ExpressionColumnGenerator(config=config, resource_provider=resource_provider)
 
 
-def test_metadata():
-    metadata = ExpressionColumnGenerator.metadata()
-
-    assert metadata.name == "expression_generator"
-    assert metadata.description == "Generate a column from a jinja2 expression."
-    assert metadata.generation_strategy == "full_column"
-
-
 def test_generator_creation():
     config = _create_test_config("test_column", "{{ col1 + col2 }}", "int")
     generator = _create_test_generator(config)

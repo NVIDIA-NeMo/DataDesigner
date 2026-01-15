@@ -7,7 +7,6 @@ import json
 import logging
 
 from data_designer.config.processors import SchemaTransformProcessorConfig
-from data_designer.engine.configurable_task import ConfigurableTaskMetadata
 from data_designer.engine.dataset_builders.artifact_storage import BatchStage
 from data_designer.engine.processing.ginja.environment import WithJinja2UserTemplateRendering
 from data_designer.engine.processing.processors.base import Processor
@@ -18,13 +17,6 @@ logger = logging.getLogger(__name__)
 
 
 class SchemaTransformProcessor(WithJinja2UserTemplateRendering, Processor[SchemaTransformProcessorConfig]):
-    @staticmethod
-    def metadata() -> ConfigurableTaskMetadata:
-        return ConfigurableTaskMetadata(
-            name="schema_transform_processor",
-            description="Generate dataset with transformed schema using a Jinja2 template.",
-        )
-
     @property
     def template_as_str(self) -> str:
         return json.dumps(self.config.template)

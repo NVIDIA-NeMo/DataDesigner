@@ -7,11 +7,7 @@ import functools
 import logging
 
 from data_designer.config.seed import IndexRange, PartitionBlock, SamplingStrategy
-from data_designer.engine.column_generators.generators.base import (
-    FromScratchColumnGenerator,
-    GenerationStrategy,
-    GeneratorMetadata,
-)
+from data_designer.engine.column_generators.generators.base import FromScratchColumnGenerator, GenerationStrategy
 from data_designer.engine.column_generators.utils.errors import SeedDatasetError
 from data_designer.engine.dataset_builders.multi_column_configs import SeedDatasetMultiColumnConfig
 from data_designer.engine.processing.utils import concat_datasets
@@ -24,12 +20,8 @@ logger = logging.getLogger(__name__)
 
 class SeedDatasetColumnGenerator(FromScratchColumnGenerator[SeedDatasetMultiColumnConfig]):
     @staticmethod
-    def metadata() -> GeneratorMetadata:
-        return GeneratorMetadata(
-            name="seed_dataset_column_generator",
-            description="Sample columns from a seed dataset.",
-            generation_strategy=GenerationStrategy.FULL_COLUMN,
-        )
+    def get_generation_strategy() -> GenerationStrategy:
+        return GenerationStrategy.FULL_COLUMN
 
     @property
     def num_records_sampled(self) -> int:

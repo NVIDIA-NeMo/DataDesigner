@@ -27,17 +27,12 @@ from data_designer.engine.column_generators.generators.base import (
 from data_designer.engine.column_generators.utils.generator_classification import column_type_is_model_generated
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError, DatasetProcessingError
-from data_designer.engine.dataset_builders.multi_column_configs import (
-    DatasetBuilderColumnConfigT,
-    MultiColumnConfig,
-)
+from data_designer.engine.dataset_builders.multi_column_configs import DatasetBuilderColumnConfigT, MultiColumnConfig
 from data_designer.engine.dataset_builders.utils.concurrency import (
     MAX_CONCURRENCY_PER_NON_LLM_GENERATOR,
     ConcurrentThreadExecutor,
 )
-from data_designer.engine.dataset_builders.utils.dataset_batch_manager import (
-    DatasetBatchManager,
-)
+from data_designer.engine.dataset_builders.utils.dataset_batch_manager import DatasetBatchManager
 from data_designer.engine.models.telemetry import InferenceEvent, NemoSourceEnum, TaskStatusEnum, TelemetryHandler
 from data_designer.engine.processing.processors.base import Processor
 from data_designer.engine.processing.processors.drop_columns import DropColumnsProcessor
@@ -162,15 +157,16 @@ class ColumnWiseDatasetBuilder:
         for generator in generators:
             generator.log_pre_generation()
             try:
+                generation_strategy = generator.get_generation_strategy()
                 if generator.can_generate_from_scratch and self.batch_manager.buffer_is_empty:
                     self._run_from_scratch_column_generator(generator)
-                elif generator.generation_strategy == GenerationStrategy.CELL_BY_CELL:
+                elif generation_strategy == GenerationStrategy.CELL_BY_CELL:
                     self._run_cell_by_cell_generator(generator)
-                elif generator.generation_strategy == GenerationStrategy.FULL_COLUMN:
+                elif generation_strategy == GenerationStrategy.FULL_COLUMN:
                     self._run_full_column_generator(generator)
                 else:
-                    logger.error(f"❌ Unknown generation strategy: {generator.generation_strategy}")
-                    raise DatasetGenerationError(f"🛑 Unknown generation strategy: {generator.generation_strategy}")
+                    logger.error(f"❌ Unknown generation strategy: {generation_strategy}")
+                    raise DatasetGenerationError(f"🛑 Unknown generation strategy: {generation_strategy}")
                 if save_partial_results:
                     self.batch_manager.write()
             except Exception as e:
@@ -208,9 +204,9 @@ class ColumnWiseDatasetBuilder:
             )
 
     def _fan_out_with_threads(self, generator: ColumnGeneratorWithModelRegistry, max_workers: int) -> None:
-        if generator.generation_strategy != GenerationStrategy.CELL_BY_CELL:
+        if generator.get_generation_strategy() != GenerationStrategy.CELL_BY_CELL:
             raise DatasetGenerationError(
-                f"Generator {generator.metadata().name} is not a {GenerationStrategy.CELL_BY_CELL} "
+                f"Generator {generator.name} is not a {GenerationStrategy.CELL_BY_CELL} "
                 "generator so concurrency through threads is not supported."
             )
 
@@ -290,7 +286,7 @@ class ColumnWiseDatasetBuilder:
                 dataframe = processor.process(dataframe, current_batch_number=current_batch_number)
             except Exception as e:
                 raise DatasetProcessingError(
-                    f"🛑 Failed to process dataset with processor {processor.metadata().name} in stage {stage}: {e}"
+                    f"🛑 Failed to process dataset with processor {processor.name} in stage {stage}: {e}"
                 ) from e
         return dataframe
 
