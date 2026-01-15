@@ -13,7 +13,7 @@ from data_designer.engine.dataset_builders.artifact_storage import ArtifactStora
 from data_designer.engine.model_provider import ModelProviderRegistry
 from data_designer.engine.models.factory import create_model_registry
 from data_designer.engine.models.registry import ModelRegistry
-from data_designer.engine.resources.managed_storage import ManagedBlobStorage
+from data_designer.engine.resources.managed_storage import ManagedBlobStorage, init_managed_blob_storage
 from data_designer.engine.resources.seed_reader import SeedReader, SeedReaderRegistry
 from data_designer.engine.secret_resolver import SecretResolver
 
@@ -71,7 +71,7 @@ def create_resource_provider(
             secret_resolver=secret_resolver,
             model_provider_registry=model_provider_registry,
         ),
-        blob_storage=blob_storage,
+        blob_storage=blob_storage or init_managed_blob_storage(),
         seed_reader=seed_reader,
         run_config=run_config or RunConfig(),
     )
