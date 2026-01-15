@@ -7,13 +7,14 @@ from pathlib import Path
 
 # Maximum allowed average import time in seconds
 # Average of 1 cold start + 4 warm cache runs
-# Should be < 3s realistically, but leaving room for CI variability
-MAX_IMPORT_TIME_SECONDS = 5.0
+# Cold starts vary 4-13s due to OS caching, system load, CPU scaling
+# Warm cache consistently <3s. Average should be well under 6s.
+MAX_IMPORT_TIME_SECONDS = 6.0
 PERF_TEST_TIMEOUT_SECONDS = 10.0
 
 
 def test_import_performance():
-    """Test that average import time never exceeds MAX_IMPORT_TIME_SECONDS (cold start + warm cache)."""
+    """Test that average import time never exceeds 6 seconds (1 cold start + 4 warm cache runs)."""
     # Get the project root (where Makefile is located)
     project_root = Path(__file__).parent.parent
 
