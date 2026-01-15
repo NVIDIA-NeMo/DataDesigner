@@ -10,7 +10,7 @@ from pathlib import Path
 # Cold starts vary 4-13s due to OS caching, system load, CPU scaling
 # Warm cache consistently <3s. Average should be well under 6s.
 MAX_IMPORT_TIME_SECONDS = 6.0
-PERF_TEST_TIMEOUT_SECONDS = 10.0
+PERF_TEST_TIMEOUT_SECONDS = 15.0
 
 
 def test_import_performance():
