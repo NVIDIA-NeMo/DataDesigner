@@ -4,8 +4,12 @@
 from __future__ import annotations
 
 import numbers
+from typing import TYPE_CHECKING
 
 from data_designer.lazy_heavy_imports import np
+
+if TYPE_CHECKING:
+    import numpy as np
 
 
 def check_random_state(seed):

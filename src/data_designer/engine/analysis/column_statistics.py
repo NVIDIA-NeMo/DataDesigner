@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, TypeAlias
+from typing import TYPE_CHECKING, Any, TypeAlias
 
 from pydantic import BaseModel
 from typing_extensions import Self
@@ -26,6 +26,8 @@ from data_designer.engine.analysis.utils.column_statistics_calculations import (
 )
 from data_designer.lazy_heavy_imports import pd
 
+if TYPE_CHECKING:
+    import pandas as pd
 logger = logging.getLogger(__name__)
 
 

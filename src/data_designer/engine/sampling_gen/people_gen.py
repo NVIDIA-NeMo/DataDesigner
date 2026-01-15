@@ -22,6 +22,9 @@ from data_designer.engine.sampling_gen.person_constants import faker_constants
 from data_designer.lazy_heavy_imports import faker, pd
 
 if TYPE_CHECKING:
+    import faker
+    import pandas as pd
+
     from data_designer.engine.sampling_gen.schema import DataSchema
 
 EngineT: TypeAlias = faker.Faker | ManagedDatasetGenerator

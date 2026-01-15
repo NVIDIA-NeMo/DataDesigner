@@ -6,13 +6,15 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from functools import wraps
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
 from data_designer.engine.errors import DataDesignerError
 from data_designer.lazy_heavy_imports import litellm
 
+if TYPE_CHECKING:
+    import litellm
 logger = logging.getLogger(__name__)
 
 

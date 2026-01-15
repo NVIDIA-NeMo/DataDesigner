@@ -3,7 +3,12 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from data_designer.lazy_heavy_imports import jsonschema
+
+if TYPE_CHECKING:
+    import jsonschema
 
 
 class JSONSchemaValidationError(jsonschema.ValidationError):

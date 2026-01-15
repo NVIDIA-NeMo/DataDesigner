@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, create_model, field_validator, model_validator
 from typing_extensions import Self, TypeAlias
@@ -16,6 +16,9 @@ from data_designer.config.utils.constants import EPSILON
 from data_designer.config.utils.numerical_helpers import is_float, is_int, prepare_number_for_reporting
 from data_designer.lazy_heavy_imports import pd
 from data_designer.plugin_manager import PluginManager
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 class MissingValue(str, Enum):

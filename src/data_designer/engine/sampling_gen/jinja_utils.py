@@ -4,13 +4,16 @@
 from __future__ import annotations
 
 import ast
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from data_designer.engine.processing.ginja.environment import (
     UserTemplateSandboxEnvironment,
     WithJinja2UserTemplateRendering,
 )
 from data_designer.lazy_heavy_imports import pd
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 class JinjaDataFrame(WithJinja2UserTemplateRendering):

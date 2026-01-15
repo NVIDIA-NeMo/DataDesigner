@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import logging
 from numbers import Number
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import tiktoken
 
@@ -25,6 +25,10 @@ from data_designer.engine.column_generators.utils.prompt_renderer import (
 )
 from data_designer.lazy_heavy_imports import np, pa, pd
 
+if TYPE_CHECKING:
+    import numpy as np
+    import pandas as pd
+    import pyarrow as pa
 RANDOM_SEED = 42
 MAX_PROMPT_SAMPLE_SIZE = 1000
 TOKENIZER = tiktoken.get_encoding("cl100k_base")

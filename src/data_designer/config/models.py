@@ -7,7 +7,7 @@ import logging
 from abc import ABC, abstractmethod
 from enum import Enum
 from pathlib import Path
-from typing import Annotated, Any, Generic, Literal, TypeVar
+from typing import TYPE_CHECKING, Annotated, Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing_extensions import Self, TypeAlias
@@ -23,6 +23,8 @@ from data_designer.config.utils.constants import (
 from data_designer.config.utils.io_helpers import smart_load_yaml
 from data_designer.lazy_heavy_imports import np
 
+if TYPE_CHECKING:
+    import numpy as np
 logger = logging.getLogger(__name__)
 
 

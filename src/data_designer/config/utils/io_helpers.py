@@ -10,13 +10,16 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from numbers import Number
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
 from data_designer.config.errors import InvalidFileFormatError, InvalidFilePathError
 from data_designer.lazy_heavy_imports import np, pd
 
+if TYPE_CHECKING:
+    import numpy as np
+    import pandas as pd
 logger = logging.getLogger(__name__)
 
 VALID_DATASET_FILE_EXTENSIONS = {".parquet", ".csv", ".json", ".jsonl"}

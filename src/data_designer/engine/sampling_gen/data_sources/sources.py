@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import TYPE_CHECKING
 
 from data_designer.config.sampler_params import (
     BernoulliMixtureSamplerParams,
@@ -40,6 +41,10 @@ from data_designer.engine.sampling_gen.entities.dataset_based_person_fields impo
 from data_designer.engine.sampling_gen.people_gen import PeopleGen
 from data_designer.lazy_heavy_imports import np, pd, scipy
 
+if TYPE_CHECKING:
+    import numpy as np
+    import pandas as pd
+    import scipy
 ONE_BILLION = 10**9
 
 

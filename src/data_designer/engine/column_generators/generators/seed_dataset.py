@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import functools
 import logging
+from typing import TYPE_CHECKING
 
 from data_designer.config.seed import IndexRange, PartitionBlock, SamplingStrategy
 from data_designer.engine.column_generators.generators.base import FromScratchColumnGenerator, GenerationStrategy
@@ -13,6 +14,9 @@ from data_designer.engine.dataset_builders.multi_column_configs import SeedDatas
 from data_designer.engine.processing.utils import concat_datasets
 from data_designer.lazy_heavy_imports import duckdb, pd
 
+if TYPE_CHECKING:
+    import duckdb
+    import pandas as pd
 MAX_ZERO_RECORD_RESPONSE_FACTOR = 2
 
 logger = logging.getLogger(__name__)

@@ -13,6 +13,8 @@ from data_designer.engine.configurable_task import ConfigurableTask, DataT, Task
 from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
+    import pandas as pd
+
     from data_designer.config.models import BaseInferenceParams, ModelConfig
     from data_designer.engine.models.facade import ModelFacade
     from data_designer.engine.models.registry import ModelRegistry

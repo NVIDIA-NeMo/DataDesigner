@@ -9,6 +9,7 @@ import shutil
 from datetime import datetime
 from functools import cached_property
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, field_validator, model_validator
 
@@ -17,6 +18,8 @@ from data_designer.config.utils.type_helpers import StrEnum, resolve_string_enum
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
 from data_designer.lazy_heavy_imports import pd
 
+if TYPE_CHECKING:
+    import pandas as pd
 logger = logging.getLogger(__name__)
 
 BATCH_FILE_NAME_FORMAT = "batch_{batch_number:05d}.parquet"

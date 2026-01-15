@@ -3,10 +3,13 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from data_designer.engine.resources.managed_dataset_repository import ManagedDatasetRepository
 from data_designer.lazy_heavy_imports import pd
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 class ManagedDatasetGenerator:

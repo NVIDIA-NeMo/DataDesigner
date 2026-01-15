@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from functools import cached_property
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing_extensions import Self
@@ -14,6 +15,9 @@ from data_designer.config.sampler_params import SamplerType
 from data_designer.engine.sampling_gen.column import ConditionalDataColumn
 from data_designer.engine.sampling_gen.constraints import ConstraintChecker, get_constraint_checker
 from data_designer.lazy_heavy_imports import nx
+
+if TYPE_CHECKING:
+    import networkx as nx
 
 
 class Dag(BaseModel):

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from typing import Generic, TypeVar, get_args, get_origin
+from typing import TYPE_CHECKING, Generic, TypeVar, get_args, get_origin
 
 from huggingface_hub import HfFileSystem
 from typing_extensions import Self
@@ -19,6 +19,9 @@ from data_designer.config.seed_source import (
 from data_designer.engine.secret_resolver import SecretResolver
 from data_designer.errors import DataDesignerError
 from data_designer.lazy_heavy_imports import duckdb
+
+if TYPE_CHECKING:
+    import duckdb
 
 
 class SeedReaderError(DataDesignerError): ...

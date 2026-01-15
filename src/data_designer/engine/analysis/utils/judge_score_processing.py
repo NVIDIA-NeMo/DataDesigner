@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from data_designer.config.analysis.column_profilers import JudgeScoreDistributions, JudgeScoreSample
 from data_designer.config.analysis.column_statistics import (
@@ -17,6 +17,8 @@ from data_designer.config.analysis.column_statistics import (
 from data_designer.config.column_configs import LLMJudgeColumnConfig
 from data_designer.lazy_heavy_imports import pd
 
+if TYPE_CHECKING:
+    import pandas as pd
 logger = logging.getLogger(__name__)
 
 

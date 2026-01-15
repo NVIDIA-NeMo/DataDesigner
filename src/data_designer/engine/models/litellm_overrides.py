@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import random
 import threading
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 from typing_extensions import override
@@ -12,6 +13,9 @@ from typing_extensions import override
 from data_designer.lazy_heavy_imports import httpx, litellm
 from data_designer.logging import quiet_noisy_logger
 
+if TYPE_CHECKING:
+    import httpx
+    import litellm
 DEFAULT_MAX_CALLBACKS = 1000
 
 

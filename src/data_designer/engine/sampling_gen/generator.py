@@ -15,6 +15,10 @@ from data_designer.engine.sampling_gen.utils import check_random_state
 from data_designer.lazy_heavy_imports import np, nx, pd
 
 if TYPE_CHECKING:
+    import networkx as nx
+    import numpy as np
+    import pandas as pd
+
     from data_designer.engine.dataset_builders.multi_column_configs import SamplerMultiColumnConfig
     from data_designer.engine.resources.managed_dataset_generator import ManagedDatasetGenerator
     from data_designer.engine.sampling_gen.column import ConditionalDataColumn

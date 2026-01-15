@@ -7,10 +7,12 @@ import ast
 import json
 import logging
 import re
-from typing import Any, TypeVar, overload
+from typing import TYPE_CHECKING, Any, TypeVar, overload
 
 from data_designer.lazy_heavy_imports import pd
 
+if TYPE_CHECKING:
+    import pandas as pd
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")

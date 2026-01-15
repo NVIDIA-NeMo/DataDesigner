@@ -29,6 +29,9 @@ from data_designer.config.utils.errors import DatasetSampleDisplayError
 from data_designer.lazy_heavy_imports import np, pd
 
 if TYPE_CHECKING:
+    import numpy as np
+    import pandas as pd
+
     from data_designer.config.config_builder import DataDesignerConfigBuilder
     from data_designer.config.dataset_metadata import DatasetMetadata
 

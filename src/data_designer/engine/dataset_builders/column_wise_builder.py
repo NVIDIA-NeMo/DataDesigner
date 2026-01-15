@@ -41,6 +41,8 @@ from data_designer.engine.resources.resource_provider import ResourceProvider
 from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
+    import pandas as pd
+
     from data_designer.engine.column_generators.generators.base import ColumnGeneratorWithModelRegistry
     from data_designer.engine.models.usage import ModelUsageStats
 

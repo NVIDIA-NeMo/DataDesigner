@@ -6,6 +6,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from functools import cached_property
+from typing import TYPE_CHECKING
 
 from pydantic import Field, field_validator
 
@@ -23,6 +24,9 @@ from data_designer.engine.registry.data_designer_registry import DataDesignerReg
 from data_designer.engine.resources.resource_provider import ResourceProvider
 from data_designer.lazy_heavy_imports import pa, pd
 
+if TYPE_CHECKING:
+    import pandas as pd
+    import pyarrow as pa
 logger = logging.getLogger(__name__)
 
 

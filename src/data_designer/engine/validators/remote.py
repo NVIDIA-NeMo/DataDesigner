@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from httpx_retries import Retry, RetryTransport
 
@@ -14,6 +15,8 @@ from data_designer.engine.processing.gsonschema.validators import validate
 from data_designer.engine.validators.base import BaseValidator, ValidationResult
 from data_designer.lazy_heavy_imports import httpx
 
+if TYPE_CHECKING:
+    import httpx
 logger = logging.getLogger(__name__)
 
 

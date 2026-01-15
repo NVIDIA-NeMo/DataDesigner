@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Generic, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 from numpy.typing import NDArray
 
@@ -12,6 +12,10 @@ from data_designer.config.sampler_params import SamplerParamsT
 from data_designer.engine.sampling_gen.utils import check_random_state
 from data_designer.lazy_heavy_imports import np, pd, scipy
 
+if TYPE_CHECKING:
+    import numpy as np
+    import pandas as pd
+    import scipy
 NumpyArray1dT = NDArray[Any]
 RadomStateT = int | np.random.RandomState
 

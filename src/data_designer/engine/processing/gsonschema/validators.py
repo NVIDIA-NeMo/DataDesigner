@@ -7,13 +7,15 @@ import logging
 import re
 from copy import deepcopy
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Any, overload
+from typing import TYPE_CHECKING, Any, overload
 
 from data_designer.engine.processing.gsonschema.exceptions import JSONSchemaValidationError
 from data_designer.engine.processing.gsonschema.schema_transformers import forbid_additional_properties
 from data_designer.engine.processing.gsonschema.types import DataObjectT, JSONSchemaT, T_primitive
 from data_designer.lazy_heavy_imports import jsonschema
 
+if TYPE_CHECKING:
+    import jsonschema
 DEFAULT_JSONSCHEMA_VALIDATOR = jsonschema.Draft202012Validator
 
 logger = logging.getLogger(__name__)

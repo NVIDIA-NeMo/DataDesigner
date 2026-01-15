@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 from collections import defaultdict
 from pathlib import Path
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from pydantic import BaseModel
@@ -19,6 +20,8 @@ from data_designer.config.validator_params import CodeValidatorParams
 from data_designer.engine.validators.base import BaseValidator, ValidationOutput, ValidationResult
 from data_designer.lazy_heavy_imports import pd
 
+if TYPE_CHECKING:
+    import pandas as pd
 logger = logging.getLogger(__name__)
 
 PYLINT_ERROR_CATEGORIES_ORDERED = [

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from data_designer.config.validator_params import LocalCallableValidatorParams
 from data_designer.engine.errors import LocalCallableValidationError
@@ -11,6 +12,8 @@ from data_designer.engine.processing.gsonschema.validators import validate
 from data_designer.engine.validators.base import BaseValidator, ValidationOutput, ValidationResult
 from data_designer.lazy_heavy_imports import pd
 
+if TYPE_CHECKING:
+    import pandas as pd
 logger = logging.getLogger(__name__)
 
 

@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from abc import ABC
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic.json_schema import SkipJsonSchema
@@ -16,6 +16,9 @@ from data_designer.config.utils.io_helpers import (
     validate_path_contains_files_of_type,
 )
 from data_designer.lazy_heavy_imports import pd
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 class SeedSource(BaseModel, ABC):

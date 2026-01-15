@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from data_designer.config.column_configs import ValidationColumnConfig
 from data_designer.config.errors import InvalidConfigError
@@ -22,6 +23,8 @@ from data_designer.engine.validators import (
 )
 from data_designer.lazy_heavy_imports import pd
 
+if TYPE_CHECKING:
+    import pandas as pd
 logger = logging.getLogger(__name__)
 
 

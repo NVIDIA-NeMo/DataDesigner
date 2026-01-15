@@ -6,7 +6,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from copy import deepcopy
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from data_designer.config.models import GenerationType, ModelConfig, ModelProvider
 from data_designer.engine.model_provider import ModelProviderRegistry
@@ -22,6 +22,8 @@ from data_designer.engine.models.utils import prompt_to_messages, str_to_message
 from data_designer.engine.secret_resolver import SecretResolver
 from data_designer.lazy_heavy_imports import litellm
 
+if TYPE_CHECKING:
+    import litellm
 logger = logging.getLogger(__name__)
 
 
