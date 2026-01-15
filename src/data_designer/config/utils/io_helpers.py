@@ -20,6 +20,7 @@ from data_designer.lazy_heavy_imports import np, pd
 if TYPE_CHECKING:
     import numpy as np
     import pandas as pd
+
 logger = logging.getLogger(__name__)
 
 VALID_DATASET_FILE_EXTENSIONS = {".parquet", ".csv", ".json", ".jsonl"}

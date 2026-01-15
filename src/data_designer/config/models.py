@@ -25,6 +25,7 @@ from data_designer.lazy_heavy_imports import np
 
 if TYPE_CHECKING:
     import numpy as np
+
 logger = logging.getLogger(__name__)
 
 

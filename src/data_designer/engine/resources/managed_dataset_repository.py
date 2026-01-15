@@ -20,6 +20,7 @@ from data_designer.lazy_heavy_imports import duckdb, pd
 if TYPE_CHECKING:
     import duckdb
     import pandas as pd
+
 logger = logging.getLogger(__name__)
 
 DATASETS_ROOT = "datasets"

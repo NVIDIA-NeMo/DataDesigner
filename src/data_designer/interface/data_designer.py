@@ -63,6 +63,7 @@ from data_designer.plugins.registry import PluginRegistry
 
 if TYPE_CHECKING:
     import pandas as pd
+
 logger = logging.getLogger(__name__)
 
 

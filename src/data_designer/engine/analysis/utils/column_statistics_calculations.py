@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     import numpy as np
     import pandas as pd
     import pyarrow as pa
+
 RANDOM_SEED = 42
 MAX_PROMPT_SAMPLE_SIZE = 1000
 TOKENIZER = tiktoken.get_encoding("cl100k_base")

@@ -45,6 +45,7 @@ if TYPE_CHECKING:
     import numpy as np
     import pandas as pd
     import scipy
+
 ONE_BILLION = 10**9
 
 

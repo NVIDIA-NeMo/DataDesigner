@@ -16,6 +16,7 @@ from data_designer.lazy_heavy_imports import jsonschema
 
 if TYPE_CHECKING:
     import jsonschema
+
 DEFAULT_JSONSCHEMA_VALIDATOR = jsonschema.Draft202012Validator
 
 logger = logging.getLogger(__name__)

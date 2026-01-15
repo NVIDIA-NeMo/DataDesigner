@@ -17,6 +17,7 @@ from data_designer.lazy_heavy_imports import httpx
 
 if TYPE_CHECKING:
     import httpx
+
 logger = logging.getLogger(__name__)
 
 

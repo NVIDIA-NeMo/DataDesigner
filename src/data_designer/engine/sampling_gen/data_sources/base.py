@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     import numpy as np
     import pandas as pd
     import scipy
+
 NumpyArray1dT = NDArray[Any]
 RadomStateT = int | np.random.RandomState
 

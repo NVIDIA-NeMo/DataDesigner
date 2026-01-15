@@ -15,6 +15,7 @@ from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
     import pandas as pd
+
 logger = logging.getLogger(__name__)
 
 

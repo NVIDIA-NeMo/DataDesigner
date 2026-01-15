@@ -15,6 +15,7 @@ from data_designer.lazy_heavy_imports import pd, pq
 if TYPE_CHECKING:
     import pandas as pd
     import pyarrow.parquet as pq
+
 logger = logging.getLogger(__name__)
 
 

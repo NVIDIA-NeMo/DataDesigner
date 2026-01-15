@@ -15,6 +15,7 @@ from data_designer.lazy_heavy_imports import pd, sqlfluff
 if TYPE_CHECKING:
     import pandas as pd
     import sqlfluff
+
 sqlfluff_logger = logging.getLogger("sqlfluff")
 sqlfluff_logger.setLevel(logging.WARNING)
 

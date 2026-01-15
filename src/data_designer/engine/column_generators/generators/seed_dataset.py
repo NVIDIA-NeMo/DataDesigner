@@ -17,6 +17,7 @@ from data_designer.lazy_heavy_imports import duckdb, pd
 if TYPE_CHECKING:
     import duckdb
     import pandas as pd
+
 MAX_ZERO_RECORD_RESPONSE_FACTOR = 2
 
 logger = logging.getLogger(__name__)

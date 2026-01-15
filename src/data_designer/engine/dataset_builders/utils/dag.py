@@ -13,6 +13,7 @@ from data_designer.lazy_heavy_imports import nx
 
 if TYPE_CHECKING:
     import networkx as nx
+
 logger = logging.getLogger(__name__)
 
 

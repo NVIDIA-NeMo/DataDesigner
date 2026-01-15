@@ -14,6 +14,7 @@ from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
     import pandas as pd
+
 DataT = TypeVar("DataT", dict, pd.DataFrame)
 TaskConfigT = TypeVar("ConfigT", bound=ConfigBase)
 
