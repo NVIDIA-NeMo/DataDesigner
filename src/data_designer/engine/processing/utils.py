@@ -1,13 +1,18 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
 
 import ast
 import json
 import logging
 import re
-from typing import Any, TypeVar, overload
+from typing import TYPE_CHECKING, Any, TypeVar, overload
 
-import pandas as pd
+from data_designer.lazy_heavy_imports import pd
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +56,6 @@ def deserialize_json_values(data):
             - List of strings (list of JSON strings to deserialize)
             - Dictionary (potentially with nested JSON strings to deserialize)
             - Some other object that can't be deserialized.
-
 
     Returns:
         Deserialized data in the corresponding format:

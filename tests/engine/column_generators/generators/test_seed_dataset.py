@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 import os
@@ -11,6 +11,7 @@ import pytest
 
 from data_designer.config.column_configs import SeedDatasetColumnConfig
 from data_designer.config.seed import IndexRange, PartitionBlock, SamplingStrategy
+from data_designer.config.seed_source import HuggingFaceSeedSource, LocalFileSeedSource
 from data_designer.engine.column_generators.generators.base import GenerationStrategy
 from data_designer.engine.column_generators.generators.seed_dataset import (
     MAX_ZERO_RECORD_RESPONSE_FACTOR,
@@ -18,7 +19,7 @@ from data_designer.engine.column_generators.generators.seed_dataset import (
 )
 from data_designer.engine.column_generators.utils.errors import SeedDatasetError
 from data_designer.engine.dataset_builders.multi_column_configs import SeedDatasetMultiColumnConfig
-from data_designer.engine.resources.resource_provider import ResourceProvider, ResourceType
+from data_designer.engine.resources.resource_provider import ResourceProvider
 
 
 @pytest.fixture
@@ -30,15 +31,18 @@ def stub_duckdb_conn():
 
 @pytest.fixture
 def stub_seed_dataset_config():
-    return SeedDatasetMultiColumnConfig(columns=[SeedDatasetColumnConfig(name="col1")], dataset="test/dataset")
+    return SeedDatasetMultiColumnConfig(
+        columns=[SeedDatasetColumnConfig(name="col1")],
+        source=HuggingFaceSeedSource(path="hf://datasets/test/dataset"),
+    )
 
 
 @pytest.fixture
 def stub_seed_dataset_generator(stub_resource_provider, stub_duckdb_conn, stub_seed_dataset_config):
     mock_provider = stub_resource_provider
-    mock_datastore = mock_provider.datastore
-    mock_datastore.create_duckdb_connection.return_value = stub_duckdb_conn
-    mock_datastore.get_dataset_uri.return_value = "test_uri"
+    mock_seed_reader = mock_provider.seed_reader
+    mock_seed_reader.create_duckdb_connection.return_value = stub_duckdb_conn
+    mock_seed_reader.get_dataset_uri.return_value = "test_uri"
 
     return SeedDatasetColumnGenerator(config=stub_seed_dataset_config, resource_provider=mock_provider)
 
@@ -104,20 +108,18 @@ def seed_dataset_jsonl(sample_dataframe):
     os.unlink(f.name)
 
 
-def test_seed_dataset_column_generator_metadata():
-    metadata = SeedDatasetColumnGenerator.metadata()
-    assert metadata.generation_strategy == GenerationStrategy.FULL_COLUMN
-    assert ResourceType.DATASTORE in metadata.required_resources
+def test_seed_dataset_column_generator_generation_strategy() -> None:
+    assert SeedDatasetColumnGenerator.get_generation_strategy() == GenerationStrategy.FULL_COLUMN
 
 
 def test_seed_dataset_column_generator_config_structure():
     config = SeedDatasetMultiColumnConfig(
         columns=[SeedDatasetColumnConfig(name="col1"), SeedDatasetColumnConfig(name="col2")],
-        dataset="test/dataset",
+        source=HuggingFaceSeedSource(path="hf://datasets/test/dataset"),
         sampling_strategy=SamplingStrategy.SHUFFLE,
     )
 
-    assert config.dataset == "test/dataset"
+    assert config.source.path == "hf://datasets/test/dataset"
     assert config.sampling_strategy == SamplingStrategy.SHUFFLE
     assert len(config.columns) == 2
     assert config.columns[0].name == "col1"
@@ -129,7 +131,7 @@ def test_seed_dataset_column_generator_config_structure():
     # Test PartitionBlock selection strategy
     config = SeedDatasetMultiColumnConfig(
         columns=[SeedDatasetColumnConfig(name="col1"), SeedDatasetColumnConfig(name="col2")],
-        dataset="test/dataset",
+        source=HuggingFaceSeedSource(path="hf://datasets/test/dataset"),
         sampling_strategy=SamplingStrategy.SHUFFLE,
         selection_strategy=PartitionBlock(index=1, num_partitions=3),
     )
@@ -140,7 +142,7 @@ def test_seed_dataset_column_generator_config_structure():
     # Test IndexRange selection strategy
     config = SeedDatasetMultiColumnConfig(
         columns=[SeedDatasetColumnConfig(name="col1"), SeedDatasetColumnConfig(name="col2")],
-        dataset="test/dataset",
+        source=HuggingFaceSeedSource(path="hf://datasets/test/dataset"),
         sampling_strategy=SamplingStrategy.SHUFFLE,
         selection_strategy=IndexRange(start=0, end=1),
     )
@@ -373,7 +375,7 @@ def create_generator_with_real_file(
             SeedDatasetColumnConfig(name="city"),
             SeedDatasetColumnConfig(name="score"),
         ],
-        dataset=f"test/{os.path.basename(file_path)}",
+        source=LocalFileSeedSource(path=file_path),
         sampling_strategy=sampling_strategy,
         selection_strategy=selection_strategy,
     )
@@ -382,9 +384,9 @@ def create_generator_with_real_file(
     real_conn = duckdb.connect()
 
     mock_provider = stub_resource_provider
-    mock_datastore = mock_provider.datastore
-    mock_datastore.create_duckdb_connection.return_value = real_conn
-    mock_datastore.get_dataset_uri.return_value = file_path
+    mock_seed_reader = mock_provider.seed_reader
+    mock_seed_reader.create_duckdb_connection.return_value = real_conn
+    mock_seed_reader.get_dataset_uri.return_value = file_path
 
     generator = SeedDatasetColumnGenerator(config=config, resource_provider=mock_provider)
     return generator
@@ -435,14 +437,14 @@ def test_seed_dataset_generator_ordered_sampling(fixture_name, stub_resource_pro
 
     config = SeedDatasetMultiColumnConfig(
         columns=[SeedDatasetColumnConfig(name="id"), SeedDatasetColumnConfig(name="name")],
-        dataset=f"test/{os.path.basename(file_path)}",
+        source=LocalFileSeedSource(path=file_path),
         sampling_strategy=SamplingStrategy.ORDERED,
     )
 
     real_conn = duckdb.connect()
     mock_provider = stub_resource_provider
-    mock_provider.datastore.create_duckdb_connection.return_value = real_conn
-    mock_provider.datastore.get_dataset_uri.return_value = file_path
+    mock_provider.seed_reader.create_duckdb_connection.return_value = real_conn
+    mock_provider.seed_reader.get_dataset_uri.return_value = file_path
 
     generator = SeedDatasetColumnGenerator(config=config, resource_provider=mock_provider)
 
@@ -471,14 +473,14 @@ def test_seed_dataset_generator_shuffle_sampling(fixture_name, stub_resource_pro
 
     config = SeedDatasetMultiColumnConfig(
         columns=[SeedDatasetColumnConfig(name="id"), SeedDatasetColumnConfig(name="name")],
-        dataset=f"test/{os.path.basename(file_path)}",
+        source=LocalFileSeedSource(path=file_path),
         sampling_strategy=SamplingStrategy.SHUFFLE,
     )
 
     real_conn = duckdb.connect()
     mock_provider = stub_resource_provider
-    mock_provider.datastore.create_duckdb_connection.return_value = real_conn
-    mock_provider.datastore.get_dataset_uri.return_value = file_path
+    mock_provider.seed_reader.create_duckdb_connection.return_value = real_conn
+    mock_provider.seed_reader.get_dataset_uri.return_value = file_path
 
     generator = SeedDatasetColumnGenerator(config=config, resource_provider=mock_provider)
 

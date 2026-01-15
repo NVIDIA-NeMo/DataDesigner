@@ -1,7 +1,10 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from data_designer.cli.forms.model_builder import ModelFormBuilder
 from data_designer.cli.repositories.model_repository import ModelRepository
@@ -20,7 +23,9 @@ from data_designer.cli.ui import (
     print_warning,
     select_with_arrows,
 )
-from data_designer.config.models import ModelConfig
+
+if TYPE_CHECKING:
+    from data_designer.config.models import ModelConfig
 
 
 class ModelController:

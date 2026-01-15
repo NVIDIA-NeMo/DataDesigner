@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 import pytest
@@ -7,6 +7,7 @@ from data_designer.config.column_configs import LLMTextColumnConfig, SamplerColu
 from data_designer.config.column_types import DataDesignerColumnType
 from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.seed import SamplingStrategy, SeedConfig
+from data_designer.config.seed_source import HuggingFaceSeedSource
 from data_designer.engine.dataset_builders.utils.config_compiler import (
     compile_dataset_builder_column_configs,
 )
@@ -16,7 +17,10 @@ from data_designer.engine.dataset_builders.utils.errors import ConfigCompilation
 def test_compile_dataset_builder_column_configs_with_seed_columns():
     config = DataDesignerConfig(
         columns=[SeedDatasetColumnConfig(name="seed_col")],
-        seed_config=SeedConfig(dataset="test/dataset", sampling_strategy=SamplingStrategy.SHUFFLE),
+        seed_config=SeedConfig(
+            source=HuggingFaceSeedSource(path="hf://datasets/test/dataset"),
+            sampling_strategy=SamplingStrategy.SHUFFLE,
+        ),
     )
 
     compiled_configs = compile_dataset_builder_column_configs(config)
@@ -54,7 +58,10 @@ def test_compile_dataset_builder_column_configs_mixed_column_types():
             LLMTextColumnConfig(name="text_col", prompt="Generate text", model_alias="test_model"),
             SamplerColumnConfig(name="sampler_col", sampler_type="category", params={"values": ["col3", "col4"]}),
         ],
-        seed_config=SeedConfig(dataset="test/dataset", sampling_strategy=SamplingStrategy.SHUFFLE),
+        seed_config=SeedConfig(
+            source=HuggingFaceSeedSource(path="hf://datasets/test/dataset"),
+            sampling_strategy=SamplingStrategy.SHUFFLE,
+        ),
     )
 
     compiled_configs = compile_dataset_builder_column_configs(config)

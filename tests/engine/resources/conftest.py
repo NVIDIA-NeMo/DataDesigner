@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 import tempfile
@@ -38,7 +38,6 @@ def stub_sample_dataframe():
 def stub_artifact_storage():
     mock_storage = Mock()
     mock_storage.write_parquet_file = Mock()
-    mock_storage.write_configs = Mock()
     return mock_storage
 
 

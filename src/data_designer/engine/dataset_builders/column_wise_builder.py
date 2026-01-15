@@ -1,5 +1,6 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+
 from __future__ import annotations
 
 import functools
@@ -11,9 +12,7 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
-import pandas as pd
-
-from data_designer.config.column_types import ColumnConfigT, column_type_is_model_generated
+from data_designer.config.column_types import ColumnConfigT
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.processors import (
@@ -23,33 +22,33 @@ from data_designer.config.processors import (
 )
 from data_designer.engine.column_generators.generators.base import (
     ColumnGenerator,
+    ColumnGeneratorWithModel,
     GenerationStrategy,
-    WithModelGeneration,
 )
+from data_designer.engine.column_generators.utils.generator_classification import column_type_is_model_generated
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError, DatasetProcessingError
-from data_designer.engine.dataset_builders.multi_column_configs import (
-    MultiColumnConfig,
-)
+from data_designer.engine.dataset_builders.multi_column_configs import MultiColumnConfig
 from data_designer.engine.dataset_builders.utils.concurrency import (
     MAX_CONCURRENCY_PER_NON_LLM_GENERATOR,
     ConcurrentThreadExecutor,
 )
 from data_designer.engine.dataset_builders.utils.config_compiler import compile_dataset_builder_column_configs
-from data_designer.engine.dataset_builders.utils.dataset_batch_manager import (
-    DatasetBatchManager,
-)
+from data_designer.engine.dataset_builders.utils.dataset_batch_manager import DatasetBatchManager
 from data_designer.engine.models.telemetry import InferenceEvent, NemoSourceEnum, TaskStatusEnum, TelemetryHandler
 from data_designer.engine.processing.processors.base import Processor
 from data_designer.engine.processing.processors.drop_columns import DropColumnsProcessor
 from data_designer.engine.registry.data_designer_registry import DataDesignerRegistry
 from data_designer.engine.resources.resource_provider import ResourceProvider
+from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
+    import pandas as pd
+
+    from data_designer.engine.column_generators.generators.base import ColumnGeneratorWithModelRegistry
     from data_designer.engine.models.usage import ModelUsageStats
 
 logger = logging.getLogger(__name__)
-
 
 _CLIENT_VERSION: str = importlib.metadata.version("data_designer")
 
@@ -67,7 +66,7 @@ class ColumnWiseDatasetBuilder:
         self._registry = registry or DataDesignerRegistry()
 
         # Extract configurations from the config builder
-        data_designer_config = config_builder.build(raise_exceptions=True)
+        data_designer_config = config_builder.build()
         self._column_configs = compile_dataset_builder_column_configs(data_designer_config)
         self._processors: dict[BuildStage, list[Processor]] = self._initialize_processors(
             config_builder.get_processor_configs()
@@ -98,9 +97,9 @@ class ColumnWiseDatasetBuilder:
         self,
         *,
         num_records: int,
-        buffer_size: int,
         on_batch_complete: Callable[[Path], None] | None = None,
     ) -> Path:
+        self.artifact_storage.mkdir_if_needed(self.artifact_storage.base_dataset_path)
         self._builder_config.to_json(self.artifact_storage.base_dataset_path / "sdg.json")
         self._run_model_health_check_if_needed()
 
@@ -108,6 +107,7 @@ class ColumnWiseDatasetBuilder:
         start_time = time.perf_counter()
         group_id = uuid.uuid4().hex
 
+        buffer_size = self._resource_provider.run_config.buffer_size
         self.batch_manager.start(num_records=num_records, buffer_size=buffer_size)
         for batch_idx in range(self.batch_manager.num_batches):
             logger.info(f"⏳ Processing batch {batch_idx + 1} of {self.batch_manager.num_batches}")
@@ -168,15 +168,16 @@ class ColumnWiseDatasetBuilder:
         for generator in generators:
             generator.log_pre_generation()
             try:
+                generation_strategy = generator.get_generation_strategy()
                 if generator.can_generate_from_scratch and self.batch_manager.buffer_is_empty:
                     self._run_from_scratch_column_generator(generator)
-                elif generator.generation_strategy == GenerationStrategy.CELL_BY_CELL:
+                elif generation_strategy == GenerationStrategy.CELL_BY_CELL:
                     self._run_cell_by_cell_generator(generator)
-                elif generator.generation_strategy == GenerationStrategy.FULL_COLUMN:
+                elif generation_strategy == GenerationStrategy.FULL_COLUMN:
                     self._run_full_column_generator(generator)
                 else:
-                    logger.error(f"❌ Unknown generation strategy: {generator.generation_strategy}")
-                    raise DatasetGenerationError(f"🛑 Unknown generation strategy: {generator.generation_strategy}")
+                    logger.error(f"❌ Unknown generation strategy: {generation_strategy}")
+                    raise DatasetGenerationError(f"🛑 Unknown generation strategy: {generation_strategy}")
                 if save_partial_results:
                     self.batch_manager.write()
             except Exception as e:
@@ -199,7 +200,7 @@ class ColumnWiseDatasetBuilder:
 
     def _run_cell_by_cell_generator(self, generator: ColumnGenerator) -> None:
         max_workers = MAX_CONCURRENCY_PER_NON_LLM_GENERATOR
-        if isinstance(generator, WithModelGeneration):
+        if isinstance(generator, ColumnGeneratorWithModel):
             max_workers = generator.inference_parameters.max_parallel_requests
         self._fan_out_with_threads(generator, max_workers=max_workers)
 
@@ -213,10 +214,10 @@ class ColumnWiseDatasetBuilder:
                 list(set(config.model_alias for config in self.llm_generated_column_configs))
             )
 
-    def _fan_out_with_threads(self, generator: WithModelGeneration, max_workers: int) -> None:
-        if generator.generation_strategy != GenerationStrategy.CELL_BY_CELL:
+    def _fan_out_with_threads(self, generator: ColumnGeneratorWithModelRegistry, max_workers: int) -> None:
+        if generator.get_generation_strategy() != GenerationStrategy.CELL_BY_CELL:
             raise DatasetGenerationError(
-                f"Generator {generator.metadata().name} is not a {GenerationStrategy.CELL_BY_CELL} "
+                f"Generator {generator.name} is not a {GenerationStrategy.CELL_BY_CELL} "
                 "generator so concurrency through threads is not supported."
             )
 
@@ -224,11 +225,15 @@ class ColumnWiseDatasetBuilder:
             f"🐙 Processing {generator.config.column_type} column '{generator.config.name}' "
             f"with {max_workers} concurrent workers"
         )
+        settings = self._resource_provider.run_config
         with ConcurrentThreadExecutor(
             max_workers=max_workers,
             column_name=generator.config.name,
             result_callback=self._worker_result_callback,
             error_callback=self._worker_error_callback,
+            shutdown_error_rate=settings.shutdown_error_rate,
+            shutdown_error_window=settings.shutdown_error_window,
+            disable_early_shutdown=settings.disable_early_shutdown,
         ) as executor:
             for i, record in self.batch_manager.iter_current_batch():
                 executor.submit(lambda record: generator.generate(record), record, context={"index": i})
@@ -292,7 +297,7 @@ class ColumnWiseDatasetBuilder:
                 dataframe = processor.process(dataframe, current_batch_number=current_batch_number)
             except Exception as e:
                 raise DatasetProcessingError(
-                    f"🛑 Failed to process dataset with processor {processor.metadata().name} in stage {stage}: {e}"
+                    f"🛑 Failed to process dataset with processor {processor.name} in stage {stage}: {e}"
                 ) from e
         return dataframe
 

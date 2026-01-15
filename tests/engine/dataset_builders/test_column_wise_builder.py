@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from unittest.mock import Mock, patch
@@ -10,6 +10,8 @@ from data_designer.config.column_configs import LLMTextColumnConfig, SamplerColu
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.processors import DropColumnsProcessorConfig
+from data_designer.config.run_config import RunConfig
+from data_designer.engine.column_generators.generators.base import GenerationStrategy
 from data_designer.engine.dataset_builders.column_wise_builder import (
     MAX_CONCURRENCY_PER_NON_LLM_GENERATOR,
     ColumnWiseDatasetBuilder,
@@ -155,6 +157,7 @@ def test_column_wise_dataset_builder_build_method_basic_flow(
     stub_batch_manager,
     stub_resource_provider,
 ):
+    stub_resource_provider.run_config = RunConfig(buffer_size=50)
     stub_resource_provider.model_registry.run_health_check = Mock()
     stub_resource_provider.model_registry.get_model_usage_stats = Mock(return_value={"test": "stats"})
     stub_resource_provider.model_registry.models = {}
@@ -169,9 +172,10 @@ def test_column_wise_dataset_builder_build_method_basic_flow(
 
     stub_column_wise_builder.batch_manager = stub_batch_manager
 
-    result_path = stub_column_wise_builder.build(num_records=100, buffer_size=50)
+    result_path = stub_column_wise_builder.build(num_records=100)
 
     stub_resource_provider.model_registry.run_health_check.assert_called_once()
+    stub_batch_manager.start.assert_called_once_with(num_records=100, buffer_size=50)
     stub_batch_manager.finish.assert_called_once()
     assert result_path == stub_resource_provider.artifact_storage.final_dataset_path
 
@@ -312,3 +316,61 @@ def test_emit_batch_inference_events_handles_multiple_models(
     events = [call[0][0] for call in mock_handler_instance.enqueue.call_args_list]
     model_names = {e.model for e in events}
     assert model_names == {"model-a", "model-b"}
+
+
+@pytest.mark.parametrize(
+    "disable_early_shutdown,configured_rate,expected_rate,shutdown_error_window",
+    [
+        (False, 0.7, 0.7, 20),  # enabled: use configured rate
+        (True, 0.7, 1.0, 20),  # disabled: use 1.0 to effectively disable
+        (False, 0.5, 0.5, 10),  # defaults
+    ],
+)
+@patch("data_designer.engine.dataset_builders.column_wise_builder.ConcurrentThreadExecutor")
+def test_fan_out_with_threads_uses_early_shutdown_settings_from_resource_provider(
+    mock_executor_class: Mock,
+    stub_resource_provider: Mock,
+    stub_test_column_configs: list,
+    stub_test_processor_configs: list,
+    disable_early_shutdown: bool,
+    configured_rate: float,
+    expected_rate: float,
+    shutdown_error_window: int,
+) -> None:
+    """Test that _fan_out_with_threads uses run settings from resource_provider."""
+    from data_designer.config.run_config import RunConfig
+
+    stub_resource_provider.run_config = RunConfig(
+        disable_early_shutdown=disable_early_shutdown,
+        shutdown_error_rate=configured_rate,
+        shutdown_error_window=shutdown_error_window,
+    )
+
+    config_builder = DataDesignerConfigBuilder(model_configs=[])
+    for column_config in stub_test_column_configs:
+        config_builder.add_column(column_config)
+    for processor_config in stub_test_processor_configs:
+        config_builder.add_processor(processor_config)
+
+    builder = ColumnWiseDatasetBuilder(
+        config_builder=config_builder,
+        resource_provider=stub_resource_provider,
+    )
+
+    mock_executor_class.return_value.__enter__ = Mock(return_value=Mock())
+    mock_executor_class.return_value.__exit__ = Mock(return_value=False)
+
+    mock_generator = Mock()
+    mock_generator.get_generation_strategy.return_value = GenerationStrategy.CELL_BY_CELL
+    mock_generator.config.name = "test"
+    mock_generator.config.column_type = "llm_text"
+
+    builder.batch_manager = Mock()
+    builder.batch_manager.iter_current_batch.return_value = []
+
+    builder._fan_out_with_threads(mock_generator, max_workers=4)
+
+    call_kwargs = mock_executor_class.call_args[1]
+    assert call_kwargs["shutdown_error_rate"] == expected_rate
+    assert call_kwargs["shutdown_error_window"] == shutdown_error_window
+    assert call_kwargs["disable_early_shutdown"] == disable_early_shutdown

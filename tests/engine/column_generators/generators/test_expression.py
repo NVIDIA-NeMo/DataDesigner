@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from unittest.mock import Mock, patch
@@ -24,14 +24,6 @@ def _create_test_generator(config=None, resource_provider=None):
     if resource_provider is None:
         resource_provider = Mock(spec=ResourceProvider)
     return ExpressionColumnGenerator(config=config, resource_provider=resource_provider)
-
-
-def test_metadata():
-    metadata = ExpressionColumnGenerator.metadata()
-
-    assert metadata.name == "expression_generator"
-    assert metadata.description == "Generate a column from a jinja2 expression."
-    assert metadata.generation_strategy == "full_column"
 
 
 def test_generator_creation():

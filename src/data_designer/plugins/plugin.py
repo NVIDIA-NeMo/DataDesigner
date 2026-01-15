@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
@@ -8,25 +8,25 @@ import importlib
 import importlib.util
 from enum import Enum
 from functools import cached_property
-from typing import TYPE_CHECKING, Literal, get_origin
+from typing import Literal, get_origin
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing_extensions import Self
 
+from data_designer.config.base import ConfigBase
 from data_designer.plugins.errors import PluginLoadError
-
-if TYPE_CHECKING:
-    from data_designer.config.base import ConfigBase
-    from data_designer.engine.configurable_task import ConfigurableTask
 
 
 class PluginType(str, Enum):
     COLUMN_GENERATOR = "column-generator"
+    SEED_READER = "seed-reader"
 
     @property
     def discriminator_field(self) -> str:
         if self == PluginType.COLUMN_GENERATOR:
             return "column_type"
+        elif self == PluginType.SEED_READER:
+            return "seed_type"
         else:
             raise ValueError(f"Invalid plugin type: {self.value}")
 
@@ -62,15 +62,14 @@ def _check_class_exists_in_file(filepath: str, class_name: str) -> None:
 
 
 class Plugin(BaseModel):
-    task_qualified_name: str = Field(
+    impl_qualified_name: str = Field(
         ...,
-        description="The fully-qualified name of the task class object, e.g. 'my_plugin.generator.MyColumnGenerator'",
+        description="The fully-qualified name of the implementation class object, e.g. 'my_plugin.generator.MyColumnGenerator'",
     )
     config_qualified_name: str = Field(
         ..., description="The fully-qualified name o the config class object, e.g. 'my_plugin.config.MyConfig'"
     )
     plugin_type: PluginType = Field(..., description="The type of plugin")
-    emoji: str = Field(default="🔌", description="The emoji to use in logs related to the plugin")
 
     @property
     def config_type_as_class_name(self) -> str:
@@ -88,7 +87,7 @@ class Plugin(BaseModel):
     def discriminator_field(self) -> str:
         return self.plugin_type.discriminator_field
 
-    @field_validator("task_qualified_name", "config_qualified_name", mode="after")
+    @field_validator("impl_qualified_name", "config_qualified_name", mode="after")
     @classmethod
     def validate_class_name(cls, value: str) -> str:
         module_name, object_name = _get_module_and_object_names(value)
@@ -129,8 +128,8 @@ class Plugin(BaseModel):
         return self._load(self.config_qualified_name)
 
     @cached_property
-    def task_cls(self) -> type[ConfigurableTask]:
-        return self._load(self.task_qualified_name)
+    def impl_cls(self) -> type:
+        return self._load(self.impl_qualified_name)
 
     @staticmethod
     def _load(fully_qualified_object: str) -> type:

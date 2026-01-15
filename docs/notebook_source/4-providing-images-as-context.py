@@ -50,6 +50,7 @@ from data_designer.essentials import (
     ChatCompletionInferenceParams,
     DataDesigner,
     DataDesignerConfigBuilder,
+    DataFrameSeedSource,
     ImageContext,
     ImageFormat,
     LLMTextColumnConfig,
@@ -189,9 +190,7 @@ img_dataset.head()
 # %%
 # Add the seed dataset containing our processed images
 df_seed = pd.DataFrame(img_dataset)[["uuid", "image_filename", "base64_image", "page", "options", "source"]]
-config_builder.with_seed_dataset(
-    DataDesigner.make_seed_reference_from_dataframe(df_seed, file_path="colpali_train_set.csv")
-)
+config_builder.with_seed_dataset(DataFrameSeedSource(df=df_seed))
 
 # %%
 # Add a column to generate detailed document summaries

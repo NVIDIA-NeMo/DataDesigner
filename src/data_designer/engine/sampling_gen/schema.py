@@ -1,11 +1,11 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
 
 from functools import cached_property
+from typing import TYPE_CHECKING
 
-import networkx as nx
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing_extensions import Self
 
@@ -14,6 +14,10 @@ from data_designer.config.sampler_constraints import ColumnConstraintT
 from data_designer.config.sampler_params import SamplerType
 from data_designer.engine.sampling_gen.column import ConditionalDataColumn
 from data_designer.engine.sampling_gen.constraints import ConstraintChecker, get_constraint_checker
+from data_designer.lazy_heavy_imports import nx
+
+if TYPE_CHECKING:
+    import networkx as nx
 
 
 class Dag(BaseModel):

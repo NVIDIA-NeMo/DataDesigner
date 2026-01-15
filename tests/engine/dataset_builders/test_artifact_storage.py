@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 import json
@@ -110,28 +110,6 @@ def test_artifact_storage_write_metadata(stub_artifact_storage):
     with open(file_path, "r") as f:
         loaded_metadata = json.load(f)
     assert loaded_metadata == metadata
-
-
-def test_artifact_storage_write_configs(stub_artifact_storage):
-    class MockConfig:
-        def __init__(self, name, value):
-            self.name = name
-            self.value = value
-
-        def model_dump(self, mode="json"):
-            return {"name": self.name, "value": self.value}
-
-    configs = [MockConfig("config1", 1), MockConfig("config2", 2)]
-    file_path = stub_artifact_storage.write_configs("configs.json", configs)
-
-    assert file_path.exists()
-    assert file_path.name == "configs.json"
-    assert file_path.parent == stub_artifact_storage.base_dataset_path
-
-    with open(file_path, "r") as f:
-        loaded_configs = json.load(f)
-    expected = [{"name": "config1", "value": 1}, {"name": "config2", "value": 2}]
-    assert loaded_configs == expected
 
 
 def test_artifact_storage_metadata_file_path_property(stub_artifact_storage):

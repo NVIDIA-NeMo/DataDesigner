@@ -1,50 +1,45 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
 
 import logging
 import random
+from typing import TYPE_CHECKING
 
 from data_designer.config.analysis.column_profilers import (
     JudgeScoreProfilerConfig,
     JudgeScoreProfilerResults,
-    JudgeScoreSample,
     JudgeScoreSummary,
 )
 from data_designer.config.analysis.column_statistics import (
-    CategoricalDistribution,
-    CategoricalHistogramData,
     ColumnDistributionType,
     MissingValue,
-    NumericalDistribution,
 )
-from data_designer.config.column_types import COLUMN_TYPE_EMOJI_MAP, DataDesignerColumnType
-from data_designer.engine.analysis.column_profilers.base import (
-    ColumnConfigWithDataFrame,
-    ColumnProfiler,
-    ColumnProfilerMetadata,
-)
+from data_designer.config.column_types import DataDesignerColumnType
+from data_designer.engine.analysis.column_profilers.base import ColumnConfigWithDataFrame, ColumnProfiler
 from data_designer.engine.analysis.utils.judge_score_processing import (
     extract_judge_score_distributions,
     sample_scores_and_reasoning,
 )
-from data_designer.engine.models.facade import ModelFacade
 from data_designer.engine.models.recipes.response_recipes import TextResponseRecipe
-from data_designer.engine.resources.resource_provider import ResourceType
+
+if TYPE_CHECKING:
+    from data_designer.config.analysis.column_profilers import JudgeScoreSample
+    from data_designer.config.analysis.column_statistics import (
+        CategoricalDistribution,
+        CategoricalHistogramData,
+        NumericalDistribution,
+    )
+    from data_designer.engine.models.facade import ModelFacade
 
 logger = logging.getLogger(__name__)
 
 
 class JudgeScoreProfiler(ColumnProfiler[JudgeScoreProfilerConfig]):
     @staticmethod
-    def metadata() -> ColumnProfilerMetadata:
-        return ColumnProfilerMetadata(
-            name="judge_score_profiler",
-            description="Analyzes LLM-as-judge score distributions in a Data Designer dataset.",
-            required_resources=[ResourceType.MODEL_REGISTRY],
-            applicable_column_types=[DataDesignerColumnType.LLM_JUDGE],
-        )
+    def get_applicable_column_types() -> list[DataDesignerColumnType]:
+        return [DataDesignerColumnType.LLM_JUDGE]
 
     def get_model(self, model_alias: str) -> ModelFacade:
         return self.resource_provider.model_registry.get_model(model_alias=model_alias)
@@ -53,8 +48,7 @@ class JudgeScoreProfiler(ColumnProfiler[JudgeScoreProfilerConfig]):
         column_config, df = column_config_with_df.as_tuple()
 
         logger.info(
-            f"{COLUMN_TYPE_EMOJI_MAP[column_config.column_type]} Analyzing LLM-as-judge "
-            f"scores for column: '{column_config.name}'"
+            f"{column_config.get_column_emoji()} Analyzing LLM-as-judge scores for column: '{column_config.name}'"
         )
 
         score_summaries = {}

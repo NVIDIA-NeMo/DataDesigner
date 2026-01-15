@@ -1,5 +1,7 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
 
 import json
 import logging
@@ -8,13 +10,16 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from numbers import Number
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import numpy as np
-import pandas as pd
 import yaml
 
 from data_designer.config.errors import InvalidFileFormatError, InvalidFilePathError
+from data_designer.lazy_heavy_imports import np, pd
+
+if TYPE_CHECKING:
+    import numpy as np
+    import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -106,26 +111,6 @@ def read_parquet_dataset(path: Path) -> pd.DataFrame:
             )
         else:
             raise e
-
-
-def write_seed_dataset(dataframe: pd.DataFrame, file_path: Path) -> None:
-    """Write a seed dataset to a file in the specified format.
-
-    Supported file extensions: .parquet, .csv, .json, .jsonl
-
-    Args:
-        dataframe: The pandas DataFrame to write.
-        file_path: The path where the dataset should be saved.
-            Format is inferred from the file extension.
-    """
-    file_path = validate_dataset_file_path(file_path, should_exist=False)
-    logger.info(f"💾 Saving seed dataset to {file_path}")
-    if file_path.suffix.lower() == ".parquet":
-        dataframe.to_parquet(file_path, index=False)
-    elif file_path.suffix.lower() == ".csv":
-        dataframe.to_csv(file_path, index=False)
-    elif file_path.suffix.lower() in {".json", ".jsonl"}:
-        dataframe.to_json(file_path, orient="records", lines=True)
 
 
 def validate_dataset_file_path(file_path: str | Path, should_exist: bool = True) -> Path:

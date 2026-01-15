@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ class ConfigBase(BaseModel):
         use_enum_values=True,
         arbitrary_types_allowed=True,
         extra="forbid",
+        json_schema_mode_override="validation",
     )
 
 

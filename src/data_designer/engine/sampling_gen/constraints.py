@@ -1,10 +1,11 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from abc import ABC, abstractmethod
+from __future__ import annotations
 
-import numpy as np
-import pandas as pd
+from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
+
 from numpy.typing import NDArray
 
 from data_designer.config.base import ConfigBase
@@ -15,6 +16,11 @@ from data_designer.config.sampler_constraints import (
     InequalityOperator,
     ScalarInequalityConstraint,
 )
+from data_designer.lazy_heavy_imports import np, pd
+
+if TYPE_CHECKING:
+    import numpy as np
+    import pandas as pd
 
 
 class ConstraintChecker(ConfigBase, ABC):

@@ -1,39 +1,33 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
 
 import logging
 import random
 from functools import partial
-from typing import Callable
-
-import pandas as pd
+from typing import TYPE_CHECKING, Callable
 
 from data_designer.config.utils.constants import LOCALES_WITH_MANAGED_DATASETS
-from data_designer.engine.column_generators.generators.base import (
-    FromScratchColumnGenerator,
-    GenerationStrategy,
-    GeneratorMetadata,
-)
+from data_designer.engine.column_generators.generators.base import FromScratchColumnGenerator, GenerationStrategy
 from data_designer.engine.dataset_builders.multi_column_configs import SamplerMultiColumnConfig
 from data_designer.engine.processing.utils import concat_datasets
 from data_designer.engine.resources.managed_dataset_generator import ManagedDatasetGenerator
-from data_designer.engine.resources.resource_provider import ResourceType
 from data_designer.engine.sampling_gen.data_sources.sources import SamplerType
 from data_designer.engine.sampling_gen.entities.person import load_person_data_sampler
 from data_designer.engine.sampling_gen.generator import DatasetGenerator as SamplingDatasetGenerator
+from data_designer.lazy_heavy_imports import pd
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 logger = logging.getLogger(__name__)
 
 
 class SamplerColumnGenerator(FromScratchColumnGenerator[SamplerMultiColumnConfig]):
     @staticmethod
-    def metadata() -> GeneratorMetadata:
-        return GeneratorMetadata(
-            name="sampler_column_generator",
-            description="Generate columns using sampling-based method.",
-            generation_strategy=GenerationStrategy.FULL_COLUMN,
-            required_resources=[ResourceType.BLOB_STORAGE],
-        )
+    def get_generation_strategy() -> GenerationStrategy:
+        return GenerationStrategy.FULL_COLUMN
 
     def generate(self, data: pd.DataFrame) -> pd.DataFrame:
         df_samplers = self.generate_from_scratch(len(data))

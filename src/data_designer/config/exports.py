@@ -1,5 +1,7 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
 
 from data_designer.config.analysis.column_profilers import JudgeScoreProfilerConfig
 from data_designer.config.column_configs import (
@@ -18,7 +20,6 @@ from data_designer.config.column_types import DataDesignerColumnType
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.dataset_builders import BuildStage
-from data_designer.config.datastore import DatastoreSettings
 from data_designer.config.models import (
     ChatCompletionInferenceParams,
     EmbeddingInferenceParams,
@@ -59,11 +60,15 @@ from data_designer.config.sampler_params import (
     UUIDSamplerParams,
 )
 from data_designer.config.seed import (
-    DatastoreSeedDatasetReference,
     IndexRange,
     PartitionBlock,
     SamplingStrategy,
     SeedConfig,
+)
+from data_designer.config.seed_source import (
+    DataFrameSeedSource,
+    HuggingFaceSeedSource,
+    LocalFileSeedSource,
 )
 from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.utils.info import InfoType
@@ -88,9 +93,8 @@ def get_config_exports() -> list[str]:
         DataDesignerColumnType.__name__,
         DataDesignerConfig.__name__,
         DataDesignerConfigBuilder.__name__,
+        DataFrameSeedSource.__name__,
         BuildStage.__name__,
-        DatastoreSeedDatasetReference.__name__,
-        DatastoreSettings.__name__,
         DatetimeSamplerParams.__name__,
         DropColumnsProcessorConfig.__name__,
         EmbeddingColumnConfig.__name__,
@@ -98,6 +102,7 @@ def get_config_exports() -> list[str]:
         ExpressionColumnConfig.__name__,
         GaussianSamplerParams.__name__,
         GenerationType.__name__,
+        HuggingFaceSeedSource.__name__,
         IndexRange.__name__,
         InfoType.__name__,
         ImageContext.__name__,
@@ -107,6 +112,7 @@ def get_config_exports() -> list[str]:
         LLMJudgeColumnConfig.__name__,
         LLMStructuredColumnConfig.__name__,
         LLMTextColumnConfig.__name__,
+        LocalFileSeedSource.__name__,
         ManualDistribution.__name__,
         ManualDistributionParams.__name__,
         Modality.__name__,

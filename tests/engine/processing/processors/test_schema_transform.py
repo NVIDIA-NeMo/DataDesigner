@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 import json
@@ -45,14 +45,6 @@ def stub_simple_dataframe() -> pd.DataFrame:
             "col2": [1, 2, 3, 4],
         }
     )
-
-
-def test_metadata() -> None:
-    metadata = SchemaTransformProcessor.metadata()
-
-    assert metadata.name == "schema_transform_processor"
-    assert metadata.description == "Generate dataset with transformed schema using a Jinja2 template."
-    assert metadata.required_resources is None
 
 
 def test_process_returns_original_dataframe(

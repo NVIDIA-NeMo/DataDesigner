@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from unittest.mock import Mock
@@ -10,19 +10,8 @@ from data_designer.engine.column_generators.generators.base import (
     ColumnGenerator,
     FromScratchColumnGenerator,
     GenerationStrategy,
-    GeneratorMetadata,
 )
 from data_designer.engine.resources.resource_provider import ResourceProvider
-
-
-def _create_test_metadata(name="test", description="test", strategy=GenerationStrategy.CELL_BY_CELL):
-    """Helper function to create test metadata."""
-    return GeneratorMetadata(
-        name=name,
-        description=description,
-        generation_strategy=strategy,
-        required_resources=None,
-    )
 
 
 def _create_test_generator_class(strategy=GenerationStrategy.CELL_BY_CELL):
@@ -30,8 +19,8 @@ def _create_test_generator_class(strategy=GenerationStrategy.CELL_BY_CELL):
 
     class TestGenerator(ColumnGenerator[ExpressionColumnConfig]):
         @staticmethod
-        def metadata():
-            return _create_test_metadata(strategy=strategy)
+        def get_generation_strategy() -> GenerationStrategy:
+            return strategy
 
         def generate(self, data):
             return data
@@ -44,8 +33,8 @@ def _create_test_from_scratch_generator_class():
 
     class TestFromScratchGenerator(FromScratchColumnGenerator[ExpressionColumnConfig]):
         @staticmethod
-        def metadata():
-            return _create_test_metadata()
+        def get_generation_strategy() -> GenerationStrategy:
+            return GenerationStrategy.CELL_BY_CELL
 
         def generate(self, data):
             return data
@@ -63,14 +52,6 @@ def _create_test_config_and_provider():
     return config, resource_provider
 
 
-def test_generator_metadata_creation():
-    metadata = _create_test_metadata("test_generator", "Test generator")
-
-    assert metadata.name == "test_generator"
-    assert metadata.description == "Test generator"
-    assert metadata.generation_strategy == GenerationStrategy.CELL_BY_CELL
-
-
 def test_column_generator_can_generate_from_scratch_default():
     TestGenerator = _create_test_generator_class()
     config, resource_provider = _create_test_config_and_provider()
@@ -82,7 +63,7 @@ def test_column_generator_generation_strategy_property():
     TestGenerator = _create_test_generator_class(GenerationStrategy.FULL_COLUMN)
     config, resource_provider = _create_test_config_and_provider()
     generator = TestGenerator(config=config, resource_provider=resource_provider)
-    assert generator.generation_strategy == GenerationStrategy.FULL_COLUMN
+    assert generator.get_generation_strategy() == GenerationStrategy.FULL_COLUMN
 
 
 def test_column_generator_log_pre_generation():

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
@@ -10,9 +10,6 @@ from collections.abc import Callable
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any, TypeAlias
 
-import pandas as pd
-from faker import Faker
-
 from data_designer.config.utils.constants import DEFAULT_AGE_RANGE
 from data_designer.engine.resources.managed_dataset_generator import ManagedDatasetGenerator
 from data_designer.engine.sampling_gen.entities.dataset_based_person_fields import PERSONA_FIELDS, PII_FIELDS
@@ -22,12 +19,15 @@ from data_designer.engine.sampling_gen.entities.person import (
 )
 from data_designer.engine.sampling_gen.errors import ManagedDatasetGeneratorError
 from data_designer.engine.sampling_gen.person_constants import faker_constants
+from data_designer.lazy_heavy_imports import faker, pd
 
 if TYPE_CHECKING:
+    import faker
+    import pandas as pd
+
     from data_designer.engine.sampling_gen.schema import DataSchema
 
-
-EngineT: TypeAlias = Faker | ManagedDatasetGenerator
+EngineT: TypeAlias = faker.Faker | ManagedDatasetGenerator
 
 
 class PeopleGen(ABC):
@@ -46,7 +46,7 @@ class PeopleGen(ABC):
 
 class PeopleGenFaker(PeopleGen):
     @property
-    def _fake(self) -> Faker:
+    def _fake(self) -> faker.Faker:
         return self._engine
 
     def try_fake_else_none(self, attr_name: str, none_fill: Any | None = None) -> type:
@@ -193,7 +193,7 @@ def create_people_gen_resource(
         for params in [column.params, *list(column.conditional_params.values())]:
             if params.people_gen_key not in people_gen_resource:
                 people_gen_resource[params.people_gen_key] = PeopleGenFaker(
-                    engine=Faker(params.locale), locale=params.locale
+                    engine=faker.Faker(params.locale), locale=params.locale
                 )
 
     return people_gen_resource

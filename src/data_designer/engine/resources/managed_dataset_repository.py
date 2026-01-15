@@ -1,5 +1,7 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
 
 import logging
 import tempfile
@@ -9,13 +11,15 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
-from typing import Any
-
-import duckdb
-import pandas as pd
+from typing import TYPE_CHECKING, Any
 
 from data_designer.config.utils.constants import LOCALES_WITH_MANAGED_DATASETS
 from data_designer.engine.resources.managed_storage import LocalBlobStorageProvider, ManagedBlobStorage
+from data_designer.lazy_heavy_imports import duckdb, pd
+
+if TYPE_CHECKING:
+    import duckdb
+    import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +55,6 @@ class Table:
 
 
 DataCatalog = list[Table]
-
 
 # For now we hardcode the remote data catalog in code. This make it easier
 # initialize the data catalog. Eventually we can make this work more

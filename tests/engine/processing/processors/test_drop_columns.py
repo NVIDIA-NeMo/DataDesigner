@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from unittest.mock import Mock, patch
@@ -35,14 +35,6 @@ def stub_processor(stub_processor_config):
 @pytest.fixture
 def stub_empty_dataframe():
     return pd.DataFrame()
-
-
-def test_metadata():
-    metadata = DropColumnsProcessor.metadata()
-
-    assert metadata.name == "drop_columns_processor"
-    assert metadata.description == "Drop columns from the input dataset."
-    assert metadata.required_resources is None
 
 
 @pytest.mark.parametrize(

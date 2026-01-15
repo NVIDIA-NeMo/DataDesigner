@@ -1,15 +1,19 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-import ast
-from typing import Any
+from __future__ import annotations
 
-import pandas as pd
+import ast
+from typing import TYPE_CHECKING, Any
 
 from data_designer.engine.processing.ginja.environment import (
     UserTemplateSandboxEnvironment,
     WithJinja2UserTemplateRendering,
 )
+from data_designer.lazy_heavy_imports import pd
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 class JinjaDataFrame(WithJinja2UserTemplateRendering):

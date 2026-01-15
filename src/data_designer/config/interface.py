@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
@@ -6,13 +6,14 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Generic, Protocol, TypeVar
 
-import pandas as pd
-
 from data_designer.config.models import ModelConfig, ModelProvider
 from data_designer.config.utils.constants import DEFAULT_NUM_RECORDS
 from data_designer.config.utils.info import InterfaceInfo
+from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
+    import pandas as pd
+
     from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
     from data_designer.config.config_builder import DataDesignerConfigBuilder
     from data_designer.config.preview_results import PreviewResults

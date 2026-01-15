@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 import pandas as pd
@@ -6,12 +6,8 @@ import pytest
 from pydantic import ValidationError
 
 from data_designer.config.column_configs import SamplerColumnConfig
-from data_designer.config.column_types import DataDesignerColumnType
 from data_designer.config.sampler_params import SamplerType
-from data_designer.engine.analysis.column_profilers.base import (
-    ColumnConfigWithDataFrame,
-    ColumnProfilerMetadata,
-)
+from data_designer.engine.analysis.column_profilers.base import ColumnConfigWithDataFrame
 
 
 def test_column_config_with_dataframe_valid_column_config_with_dataframe():
@@ -49,16 +45,3 @@ def test_column_config_with_dataframe_as_tuple_method():
     assert column_config_result == column_config
 
     assert df_result["test_column"].tolist() == df["test_column"].tolist()
-
-
-def test_column_profiler_metadata_creation():
-    metadata = ColumnProfilerMetadata(
-        name="test_profiler",
-        description="Test profiler",
-        applicable_column_types=[DataDesignerColumnType.SAMPLER, DataDesignerColumnType.LLM_TEXT],
-        required_resources=None,
-    )
-
-    assert metadata.name == "test_profiler"
-    assert metadata.description == "Test profiler"
-    assert metadata.applicable_column_types == [DataDesignerColumnType.SAMPLER, DataDesignerColumnType.LLM_TEXT]

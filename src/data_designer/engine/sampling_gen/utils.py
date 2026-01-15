@@ -1,9 +1,15 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-import numbers
+from __future__ import annotations
 
-import numpy as np
+import numbers
+from typing import TYPE_CHECKING
+
+from data_designer.lazy_heavy_imports import np
+
+if TYPE_CHECKING:
+    import numpy as np
 
 
 def check_random_state(seed):

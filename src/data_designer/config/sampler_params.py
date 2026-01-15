@@ -1,10 +1,11 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from enum import Enum
-from typing import Literal
+from __future__ import annotations
 
-import pandas as pd
+from enum import Enum
+from typing import TYPE_CHECKING, Literal
+
 from pydantic import Field, field_validator, model_validator
 from typing_extensions import Self, TypeAlias
 
@@ -16,6 +17,10 @@ from data_designer.config.utils.constants import (
     MAX_AGE,
     MIN_AGE,
 )
+from data_designer.lazy_heavy_imports import pd
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 class SamplerType(str, Enum):

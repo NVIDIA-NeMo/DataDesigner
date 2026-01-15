@@ -1,33 +1,25 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-import logging
+from __future__ import annotations
 
-import pandas as pd
+import logging
+from typing import TYPE_CHECKING
 
 from data_designer.config.column_configs import ExpressionColumnConfig
-from data_designer.engine.column_generators.generators.base import (
-    ColumnGenerator,
-    GenerationStrategy,
-    GeneratorMetadata,
-)
+from data_designer.engine.column_generators.generators.base import ColumnGeneratorFullColumn
 from data_designer.engine.column_generators.utils.errors import ExpressionTemplateRenderError
 from data_designer.engine.processing.ginja.environment import WithJinja2UserTemplateRendering
 from data_designer.engine.processing.utils import deserialize_json_values
+from data_designer.lazy_heavy_imports import pd
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 logger = logging.getLogger(__name__)
 
 
-class ExpressionColumnGenerator(WithJinja2UserTemplateRendering, ColumnGenerator[ExpressionColumnConfig]):
-    @staticmethod
-    def metadata() -> GeneratorMetadata:
-        return GeneratorMetadata(
-            name="expression_generator",
-            description="Generate a column from a jinja2 expression.",
-            generation_strategy=GenerationStrategy.FULL_COLUMN,
-            required_resources=None,
-        )
-
+class ExpressionColumnGenerator(WithJinja2UserTemplateRendering, ColumnGeneratorFullColumn[ExpressionColumnConfig]):
     def generate(self, data: pd.DataFrame) -> pd.DataFrame:
         logger.info(f"🧩 Generating column `{self.config.name}` from expression")
 
