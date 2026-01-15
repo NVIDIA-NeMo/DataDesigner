@@ -10,3 +10,15 @@ class DemoColumnGeneratorConfig(SingleColumnConfig):
     column_type: Literal["demo-column-generator"] = "demo-column-generator"
 
     text: str
+
+    @staticmethod
+    def get_column_emoji() -> str:
+        return "🔌"
+
+    @property
+    def required_columns(self) -> list[str]:
+        return []
+
+    @property
+    def side_effect_columns(self) -> list[str]:
+        return []

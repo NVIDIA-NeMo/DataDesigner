@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from abc import ABC
+from abc import ABC, abstractmethod
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, Discriminator, Field, model_validator
@@ -15,7 +15,7 @@ from data_designer.config.models import ImageContext
 from data_designer.config.sampler_params import SamplerParamsT, SamplerType
 from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.utils.constants import REASONING_TRACE_COLUMN_POSTFIX
-from data_designer.config.utils.misc import assert_valid_jinja2_template, get_prompt_template_keywords
+from data_designer.config.utils.misc import assert_valid_jinja2_template, extract_keywords_from_jinja2_template
 from data_designer.config.validator_params import ValidatorParamsT, ValidatorType
 
 
@@ -37,7 +37,12 @@ class SingleColumnConfig(ConfigBase, ABC):
     drop: bool = False
     column_type: str
 
+    @staticmethod
+    def get_column_emoji() -> str:
+        return "🎨"
+
     @property
+    @abstractmethod
     def required_columns(self) -> list[str]:
         """Returns a list of column names that must exist before this column can be generated.
 
@@ -45,9 +50,9 @@ class SingleColumnConfig(ConfigBase, ABC):
             List of column names that this column depends on. Empty list indicates
             no dependencies. Override in subclasses to specify dependencies.
         """
-        return []
 
     @property
+    @abstractmethod
     def side_effect_columns(self) -> list[str]:
         """Returns a list of additional columns that this column will create as a side effect.
 
@@ -58,7 +63,6 @@ class SingleColumnConfig(ConfigBase, ABC):
             List of column names that this column will create as a side effect. Empty list
             indicates no side effect columns. Override in subclasses to specify side effects.
         """
-        return []
 
 
 class SamplerColumnConfig(SingleColumnConfig):
@@ -95,6 +99,18 @@ class SamplerColumnConfig(SingleColumnConfig):
     conditional_params: dict[str, Annotated[SamplerParamsT, Discriminator("sampler_type")]] = {}
     convert_to: str | None = None
     column_type: Literal["sampler"] = "sampler"
+
+    @staticmethod
+    def get_column_emoji() -> str:
+        return "🎲"
+
+    @property
+    def required_columns(self) -> list[str]:
+        return []
+
+    @property
+    def side_effect_columns(self) -> list[str]:
+        return []
 
     @model_validator(mode="before")
     @classmethod
@@ -152,6 +168,10 @@ class LLMTextColumnConfig(SingleColumnConfig):
     multi_modal_context: list[ImageContext] | None = None
     column_type: Literal["llm-text"] = "llm-text"
 
+    @staticmethod
+    def get_column_emoji() -> str:
+        return "📝"
+
     @property
     def required_columns(self) -> list[str]:
         """Get columns referenced in the prompt and system_prompt templates.
@@ -159,9 +179,9 @@ class LLMTextColumnConfig(SingleColumnConfig):
         Returns:
             List of unique column names referenced in Jinja2 templates.
         """
-        required_cols = list(get_prompt_template_keywords(self.prompt))
+        required_cols = list(extract_keywords_from_jinja2_template(self.prompt))
         if self.system_prompt:
-            required_cols.extend(list(get_prompt_template_keywords(self.system_prompt)))
+            required_cols.extend(list(extract_keywords_from_jinja2_template(self.system_prompt)))
         return list(set(required_cols))
 
     @property
@@ -209,6 +229,10 @@ class LLMCodeColumnConfig(LLMTextColumnConfig):
     code_lang: CodeLang
     column_type: Literal["llm-code"] = "llm-code"
 
+    @staticmethod
+    def get_column_emoji() -> str:
+        return "💻"
+
 
 class LLMStructuredColumnConfig(LLMTextColumnConfig):
     """Configuration for structured JSON generation columns using Large Language Models.
@@ -226,6 +250,10 @@ class LLMStructuredColumnConfig(LLMTextColumnConfig):
 
     output_format: dict | type[BaseModel]
     column_type: Literal["llm-structured"] = "llm-structured"
+
+    @staticmethod
+    def get_column_emoji() -> str:
+        return "🗂️"
 
     @model_validator(mode="after")
     def validate_output_format(self) -> Self:
@@ -277,6 +305,10 @@ class LLMJudgeColumnConfig(LLMTextColumnConfig):
     scores: list[Score] = Field(..., min_length=1)
     column_type: Literal["llm-judge"] = "llm-judge"
 
+    @staticmethod
+    def get_column_emoji() -> str:
+        return "⚖️"
+
 
 class ExpressionColumnConfig(SingleColumnConfig):
     """Configuration for derived columns using Jinja2 expressions.
@@ -299,10 +331,18 @@ class ExpressionColumnConfig(SingleColumnConfig):
     dtype: Literal["int", "float", "str", "bool"] = "str"
     column_type: Literal["expression"] = "expression"
 
+    @staticmethod
+    def get_column_emoji() -> str:
+        return "🧩"
+
     @property
     def required_columns(self) -> list[str]:
         """Returns the columns referenced in the expression template."""
-        return list(get_prompt_template_keywords(self.expr))
+        return list(extract_keywords_from_jinja2_template(self.expr))
+
+    @property
+    def side_effect_columns(self) -> list[str]:
+        return []
 
     @model_validator(mode="after")
     def assert_expression_valid_jinja(self) -> Self:
@@ -361,10 +401,18 @@ class ValidationColumnConfig(SingleColumnConfig):
     batch_size: int = Field(default=10, ge=1, description="Number of records to process in each batch")
     column_type: Literal["validation"] = "validation"
 
+    @staticmethod
+    def get_column_emoji() -> str:
+        return "🔍"
+
     @property
     def required_columns(self) -> list[str]:
         """Returns the columns that need to be validated."""
         return self.target_columns
+
+    @property
+    def side_effect_columns(self) -> list[str]:
+        return []
 
 
 class SeedDatasetColumnConfig(SingleColumnConfig):
@@ -379,6 +427,18 @@ class SeedDatasetColumnConfig(SingleColumnConfig):
     """
 
     column_type: Literal["seed-dataset"] = "seed-dataset"
+
+    @staticmethod
+    def get_column_emoji() -> str:
+        return "🌱"
+
+    @property
+    def required_columns(self) -> list[str]:
+        return []
+
+    @property
+    def side_effect_columns(self) -> list[str]:
+        return []
 
 
 class EmbeddingColumnConfig(SingleColumnConfig):
@@ -397,6 +457,14 @@ class EmbeddingColumnConfig(SingleColumnConfig):
     model_alias: str
     column_type: Literal["embedding"] = "embedding"
 
+    @staticmethod
+    def get_column_emoji() -> str:
+        return "🧬"
+
     @property
     def required_columns(self) -> list[str]:
         return [self.target_column]
+
+    @property
+    def side_effect_columns(self) -> list[str]:
+        return []

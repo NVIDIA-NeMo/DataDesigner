@@ -9,7 +9,7 @@ from jinja2 import TemplateSyntaxError
 from data_designer.config.utils.errors import UserJinjaTemplateSyntaxError
 from data_designer.config.utils.misc import (
     assert_valid_jinja2_template,
-    get_prompt_template_keywords,
+    extract_keywords_from_jinja2_template,
     json_indent_list_of_strings,
     kebab_to_snake,
     template_error_handler,
@@ -55,14 +55,14 @@ def test_assert_valid_jinja2_template():
 
 
 def test_get_prompt_template_keywords():
-    assert get_prompt_template_keywords("{{ first_name }} {{last_name}}") == {"first_name", "last_name"}
-    assert get_prompt_template_keywords("{% if first_name %}Hello, {{ last_name }}!{% endif %}") == {
+    assert extract_keywords_from_jinja2_template("{{ first_name }} {{last_name}}") == {"first_name", "last_name"}
+    assert extract_keywords_from_jinja2_template("{% if first_name %}Hello, {{ last_name }}!{% endif %}") == {
         "first_name",
         "last_name",
     }
 
     with pytest.raises(UserJinjaTemplateSyntaxError):
-        get_prompt_template_keywords("{{ name }")
+        extract_keywords_from_jinja2_template("{{ name }")
 
 
 def test_json_indent_list_of_strings():

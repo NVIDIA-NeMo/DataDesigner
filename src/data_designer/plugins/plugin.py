@@ -70,7 +70,6 @@ class Plugin(BaseModel):
         ..., description="The fully-qualified name o the config class object, e.g. 'my_plugin.config.MyConfig'"
     )
     plugin_type: PluginType = Field(..., description="The type of plugin")
-    emoji: str = Field(default="🔌", description="The emoji to use in logs related to the plugin")
 
     @property
     def config_type_as_class_name(self) -> str:
