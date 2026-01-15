@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
-from data_designer.engine.resources.resource_provider import ResourceProvider
+from data_designer.engine.resources.resource_provider import ResourceProvider, create_resource_provider
 
 
 def test_resource_provider_artifact_storage_required():
@@ -31,7 +31,7 @@ def test_create_resource_provider_error_cases(test_case, expected_error, tmp_pat
         mock_create_model_registry.side_effect = Exception(expected_error)
 
         with pytest.raises(Exception, match=expected_error):
-            ResourceProvider.create(
+            create_resource_provider(
                 artifact_storage=artifact_storage,
                 model_configs=mock_model_configs,
                 secret_resolver=mock_secret_resolver,

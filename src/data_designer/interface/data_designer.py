@@ -36,7 +36,7 @@ from data_designer.engine.dataset_builders.column_wise_builder import ColumnWise
 from data_designer.engine.dataset_builders.utils.config_compiler import compile_dataset_builder_column_configs
 from data_designer.engine.model_provider import resolve_model_provider_registry
 from data_designer.engine.resources.managed_storage import init_managed_blob_storage
-from data_designer.engine.resources.resource_provider import ResourceProvider
+from data_designer.engine.resources.resource_provider import ResourceProvider, create_resource_provider
 from data_designer.engine.resources.seed_reader import (
     DataFrameSeedReader,
     HuggingFaceSeedReader,
@@ -369,7 +369,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         if (seed_config := config_builder.get_seed_config()) is not None:
             seed_dataset_source = seed_config.source
 
-        return ResourceProvider.create(
+        return create_resource_provider(
             artifact_storage=ArtifactStorage(artifact_path=self._artifact_path, dataset_name=dataset_name),
             model_configs=config_builder.model_configs,
             secret_resolver=self._secret_resolver,

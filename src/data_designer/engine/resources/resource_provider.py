@@ -31,41 +31,6 @@ class ResourceProvider(ConfigBase):
     run_config: RunConfig = RunConfig()
     seed_reader: SeedReader | None = None
 
-    @classmethod
-    def create(
-        cls,
-        *,
-        artifact_storage: ArtifactStorage,
-        model_configs: list[ModelConfig],
-        secret_resolver: SecretResolver,
-        model_provider_registry: ModelProviderRegistry,
-        seed_reader_registry: SeedReaderRegistry,
-        blob_storage: ManagedBlobStorage | None = None,
-        seed_dataset_source: SeedSource | None = None,
-        run_config: RunConfig | None = None,
-    ) -> ResourceProvider:
-        """Factory method for creating a ResourceProvider instance.
-        This method triggers lazy loading of heavy dependencies like litellm.
-        """
-        seed_reader = None
-        if seed_dataset_source:
-            seed_reader = seed_reader_registry.get_reader(
-                seed_dataset_source,
-                secret_resolver,
-            )
-
-        return cls(
-            artifact_storage=artifact_storage,
-            model_registry=create_model_registry(
-                model_configs=model_configs,
-                secret_resolver=secret_resolver,
-                model_provider_registry=model_provider_registry,
-            ),
-            blob_storage=blob_storage,
-            seed_reader=seed_reader,
-            run_config=run_config or RunConfig(),
-        )
-
     def get_dataset_metadata(self) -> DatasetMetadata:
         """Get metadata about the dataset being generated.
 
@@ -76,3 +41,37 @@ class ResourceProvider(ConfigBase):
         if self.seed_reader is not None:
             seed_column_names = self.seed_reader.get_column_names()
         return DatasetMetadata(seed_column_names=seed_column_names)
+
+
+def create_resource_provider(
+    *,
+    artifact_storage: ArtifactStorage,
+    model_configs: list[ModelConfig],
+    secret_resolver: SecretResolver,
+    model_provider_registry: ModelProviderRegistry,
+    seed_reader_registry: SeedReaderRegistry,
+    blob_storage: ManagedBlobStorage | None = None,
+    seed_dataset_source: SeedSource | None = None,
+    run_config: RunConfig | None = None,
+) -> ResourceProvider:
+    """Factory function for creating a ResourceProvider instance.
+    This function triggers lazy loading of heavy dependencies like litellm.
+    """
+    seed_reader = None
+    if seed_dataset_source:
+        seed_reader = seed_reader_registry.get_reader(
+            seed_dataset_source,
+            secret_resolver,
+        )
+
+    return ResourceProvider(
+        artifact_storage=artifact_storage,
+        model_registry=create_model_registry(
+            model_configs=model_configs,
+            secret_resolver=secret_resolver,
+            model_provider_registry=model_provider_registry,
+        ),
+        blob_storage=blob_storage,
+        seed_reader=seed_reader,
+        run_config=run_config or RunConfig(),
+    )
