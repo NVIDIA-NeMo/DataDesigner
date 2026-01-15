@@ -10,9 +10,7 @@ from typing import TYPE_CHECKING, Annotated
 from pydantic import BaseModel, Field, field_validator
 
 from data_designer.config.analysis.column_profilers import ColumnProfilerResultsT
-from data_designer.config.analysis.column_statistics import (
-    ColumnStatisticsT,
-)
+from data_designer.config.analysis.column_statistics import ColumnStatisticsT
 from data_designer.config.analysis.utils.reporting import generate_analysis_report
 from data_designer.config.column_types import get_column_display_order
 from data_designer.config.utils.constants import EPSILON
