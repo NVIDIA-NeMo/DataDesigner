@@ -37,6 +37,7 @@ def stub_resource_provider(tmp_path, stub_model_facade):
     mock_provider.artifact_storage = ArtifactStorage(artifact_path=tmp_path)
     mock_provider.blob_storage = Mock(spec=ManagedBlobStorage)
     mock_provider.seed_reader = Mock()
+    mock_provider.seed_reader.get_column_names.return_value = []
     mock_provider.run_config = RunConfig()
     return mock_provider
 
