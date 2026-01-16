@@ -26,6 +26,7 @@ from data_designer.engine.column_generators.generators.base import (
     GenerationStrategy,
 )
 from data_designer.engine.column_generators.utils.generator_classification import column_type_is_model_generated
+from data_designer.engine.compiler import compile_data_designer_config
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError, DatasetProcessingError
 from data_designer.engine.dataset_builders.multi_column_configs import MultiColumnConfig
@@ -66,7 +67,7 @@ class ColumnWiseDatasetBuilder:
         self._registry = registry or DataDesignerRegistry()
 
         # Extract configurations from the config builder
-        data_designer_config = config_builder.build()
+        data_designer_config = compile_data_designer_config(config_builder, resource_provider)
         self._column_configs = compile_dataset_builder_column_configs(data_designer_config)
         self._processors: dict[BuildStage, list[Processor]] = self._initialize_processors(
             data_designer_config.processors or []
