@@ -40,12 +40,19 @@ make install
 
 ### 2. Set your API key
 
-Get your API key from [build.nvidia.com](https://build.nvidia.com) or [OpenAI](https://platform.openai.com/api-keys):
+Start with one of our default model providers:
 
+- [NVIDIA Build API](https://build.nvidia.com)
+- [OpenAI](https://platform.openai.com/api-keys)
+- [OpenRouter](https://openrouter.ai)
+
+Grab your API key(s) using the above links and set one or more of the following environment variables:
 ```bash
 export NVIDIA_API_KEY="your-api-key-here"
-# Or use OpenAI
+
 export OPENAI_API_KEY="your-openai-api-key-here"
+
+export OPENROUTER_API_KEY="your-openrouter-api-key-here"
 ```
 
 ### 3. Start generating data!
@@ -80,7 +87,7 @@ config_builder.add_column(
     LLMTextColumnConfig(
         name="review",
         model_alias="nvidia-text",
-        prompt="""Write a brief product review for a {{ product_category }} item you recently purchased.""",
+        prompt="Write a brief product review for a {{ product_category }} item you recently purchased.",
     )
 )
 
@@ -148,7 +155,7 @@ To disable telemetry capture, set `NEMO_TELEMETRY_ENABLED=false`.
 
 ### Top Models
 
-This chart represents the breakdown of models used for Data Designer across all synthetic data generation jobs from 12/18/2025 to 1/14/2026. 
+This chart represents the breakdown of models used for Data Designer across all synthetic data generation jobs from 12/18/2025 to 1/14/2026.
 
 ![Top models used for synthetic data generation](docs/images/top-models.png)
 
