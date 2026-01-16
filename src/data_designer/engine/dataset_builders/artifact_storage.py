@@ -258,7 +258,7 @@ class ArtifactStorage(BaseModel):
         """
         self.mkdir_if_needed(self.base_dataset_path)
         with open(self.metadata_file_path, "w") as file:
-            json.dump(metadata, file, indent=4)
+            json.dump(metadata, file, indent=4, sort_keys=True)
         return self.metadata_file_path
 
     def update_metadata(self, updates: dict) -> Path:
