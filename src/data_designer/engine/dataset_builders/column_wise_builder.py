@@ -28,7 +28,7 @@ from data_designer.engine.column_generators.generators.base import (
 )
 from data_designer.engine.column_generators.utils.generator_classification import column_type_is_model_generated
 from data_designer.engine.compiler import compile_data_designer_config
-from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
+from data_designer.engine.dataset_builders.artifact_storage import SDG_CONFIG_FILENAME, ArtifactStorage
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError, DatasetProcessingError
 from data_designer.engine.dataset_builders.multi_column_configs import MultiColumnConfig
 from data_designer.engine.dataset_builders.utils.concurrency import (
@@ -161,7 +161,7 @@ class ColumnWiseDatasetBuilder:
     def _write_builder_config(self) -> None:
         self.artifact_storage.mkdir_if_needed(self.artifact_storage.base_dataset_path)
         BuilderConfig(data_designer=self._data_designer_config).to_json(
-            self.artifact_storage.base_dataset_path / "sdg.json"
+            self.artifact_storage.base_dataset_path / SDG_CONFIG_FILENAME
         )
 
     def _run_batch(

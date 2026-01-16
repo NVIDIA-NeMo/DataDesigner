@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 BATCH_FILE_NAME_FORMAT = "batch_{batch_number:05d}.parquet"
+SDG_CONFIG_FILENAME = "sdg.json"
 
 
 class BatchStage(StrEnum):
