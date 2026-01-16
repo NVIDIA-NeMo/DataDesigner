@@ -271,7 +271,14 @@ def test_finish_batch_metadata_content(stub_batch_manager_with_data):
     assert metadata["dataset_name"] == stub_batch_manager_with_data.artifact_storage.dataset_name
     assert "schema" in metadata
     assert "file_paths" in metadata
-    assert "num_records" in metadata
+    assert isinstance(metadata["file_paths"], dict)
+    assert "parquet-files" in metadata["file_paths"]
+    assert isinstance(metadata["file_paths"]["parquet-files"], list)
+    assert len(metadata["file_paths"]["parquet-files"]) == 1
+    assert metadata["file_paths"]["parquet-files"][0] == "parquet-files/batch_00000.parquet"
+
+    # processor-files key should not exist if no processor files
+    assert "processor-files" not in metadata["file_paths"]
 
 
 # Test finish method

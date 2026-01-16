@@ -212,3 +212,145 @@ def test_artifact_storage_resolved_dataset_name(mock_datetime, tmp_path):
     (af_storage.artifact_path / af_storage.dataset_name / "stub_file.txt").touch()
     print(af_storage.resolved_dataset_name)
     assert af_storage.resolved_dataset_name == "dataset_01-01-2025_120304"
+
+
+def test_get_parquet_file_paths_empty(stub_artifact_storage):
+    """Test get_parquet_file_paths when no parquet files exist."""
+    paths = stub_artifact_storage.get_parquet_file_paths()
+    assert paths == []
+
+
+def test_get_parquet_file_paths_with_files(stub_artifact_storage):
+    """Test get_parquet_file_paths returns relative paths to parquet files."""
+    # Create some parquet files
+    stub_artifact_storage.mkdir_if_needed(stub_artifact_storage.final_dataset_path)
+    (stub_artifact_storage.final_dataset_path / "batch_00000.parquet").touch()
+    (stub_artifact_storage.final_dataset_path / "batch_00001.parquet").touch()
+    (stub_artifact_storage.final_dataset_path / "batch_00002.parquet").touch()
+
+    paths = stub_artifact_storage.get_parquet_file_paths()
+
+    assert len(paths) == 3
+    assert "parquet-files/batch_00000.parquet" in paths
+    assert "parquet-files/batch_00001.parquet" in paths
+    assert "parquet-files/batch_00002.parquet" in paths
+    # Ensure paths are relative
+    assert all(not path.startswith("/") for path in paths)
+
+
+def test_get_processor_file_paths_empty(stub_artifact_storage):
+    """Test get_processor_file_paths when no processor files exist."""
+    paths = stub_artifact_storage.get_processor_file_paths()
+    assert paths == {}
+
+
+def test_get_processor_file_paths_with_files(stub_artifact_storage):
+    """Test get_processor_file_paths returns files organized by processor name."""
+    # Create processor output directories and files
+    processor1_dir = stub_artifact_storage.processors_outputs_path / "processor1"
+    processor2_dir = stub_artifact_storage.processors_outputs_path / "processor2"
+    stub_artifact_storage.mkdir_if_needed(processor1_dir)
+    stub_artifact_storage.mkdir_if_needed(processor2_dir)
+
+    (processor1_dir / "batch_00000.parquet").touch()
+    (processor1_dir / "batch_00001.parquet").touch()
+    (processor2_dir / "batch_00000.parquet").touch()
+    (processor2_dir / "batch_00001.parquet").touch()
+    (processor2_dir / "batch_00002.parquet").touch()
+
+    paths = stub_artifact_storage.get_processor_file_paths()
+
+    assert "processor1" in paths
+    assert "processor2" in paths
+    assert len(paths["processor1"]) == 2
+    assert len(paths["processor2"]) == 3
+
+
+def test_read_metadata_success(stub_artifact_storage):
+    """Test read_metadata successfully reads metadata file."""
+    metadata = {"key1": "value1", "key2": 123}
+    stub_artifact_storage.write_metadata(metadata)
+
+    read_data = stub_artifact_storage.read_metadata()
+
+    assert read_data == metadata
+
+
+def test_read_metadata_file_not_found(stub_artifact_storage):
+    """Test read_metadata raises FileNotFoundError when file doesn't exist."""
+    with pytest.raises(FileNotFoundError):
+        stub_artifact_storage.read_metadata()
+
+
+def test_write_metadata_creates_directory(stub_artifact_storage):
+    """Test write_metadata creates base_dataset_path if it doesn't exist."""
+    assert not stub_artifact_storage.base_dataset_path.exists()
+
+    metadata = {"test": "data"}
+    file_path = stub_artifact_storage.write_metadata(metadata)
+
+    assert stub_artifact_storage.base_dataset_path.exists()
+    assert file_path.exists()
+    assert file_path == stub_artifact_storage.metadata_file_path
+
+
+def test_write_metadata_content_and_formatting(stub_artifact_storage):
+    """Test write_metadata writes properly formatted JSON."""
+    metadata = {"key1": "value1", "key2": [1, 2, 3]}
+    stub_artifact_storage.write_metadata(metadata)
+
+    with open(stub_artifact_storage.metadata_file_path, "r") as f:
+        content = f.read()
+        loaded_data = json.loads(content)
+
+    assert loaded_data == metadata
+    # Check indentation (4 spaces)
+    assert "    " in content
+
+
+def test_update_metadata_creates_new_file(stub_artifact_storage):
+    """Test update_metadata creates new file if metadata doesn't exist."""
+    updates = {"new_key": "new_value"}
+    file_path = stub_artifact_storage.update_metadata(updates)
+
+    assert file_path.exists()
+    metadata = stub_artifact_storage.read_metadata()
+    assert metadata == updates
+
+
+def test_update_metadata_merges_with_existing(stub_artifact_storage):
+    """Test update_metadata merges new fields with existing metadata."""
+    initial_metadata = {"key1": "value1", "key2": "value2"}
+    stub_artifact_storage.write_metadata(initial_metadata)
+
+    updates = {"key2": "updated_value2", "key3": "value3"}
+    stub_artifact_storage.update_metadata(updates)
+
+    final_metadata = stub_artifact_storage.read_metadata()
+
+    assert final_metadata["key1"] == "value1"
+    assert final_metadata["key2"] == "updated_value2"  # Updated
+    assert final_metadata["key3"] == "value3"  # New key
+
+
+def test_update_metadata_with_nested_structures(stub_artifact_storage):
+    """Test update_metadata with complex nested data structures."""
+    initial_metadata = {
+        "simple": "value",
+        "nested": {"a": 1, "b": 2},
+        "list": [1, 2, 3],
+    }
+    stub_artifact_storage.write_metadata(initial_metadata)
+
+    updates = {
+        "nested": {"c": 3},  # This will replace the entire nested dict
+        "new_list": [4, 5, 6],
+    }
+    stub_artifact_storage.update_metadata(updates)
+
+    final_metadata = stub_artifact_storage.read_metadata()
+
+    assert final_metadata["simple"] == "value"
+    assert final_metadata["nested"] == {"c": 3}  # Replaced, not merged
+    assert final_metadata["list"] == [1, 2, 3]  # Unchanged
+    assert final_metadata["new_list"] == [4, 5, 6]

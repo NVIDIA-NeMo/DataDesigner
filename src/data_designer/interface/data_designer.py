@@ -182,6 +182,12 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
 
         dataset_metadata = resource_provider.get_dataset_metadata()
 
+        # Update metadata with column statistics from analysis
+        if analysis:
+            builder.artifact_storage.update_metadata(
+                {"column_statistics": [stat.model_dump(mode="json") for stat in analysis.column_statistics]}
+            )
+
         return DatasetCreationResults(
             artifact_storage=builder.artifact_storage,
             analysis=analysis,

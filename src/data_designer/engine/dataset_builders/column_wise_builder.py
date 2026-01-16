@@ -69,7 +69,7 @@ class ColumnWiseDatasetBuilder:
         data_designer_config = config_builder.build()
         self._column_configs = compile_dataset_builder_column_configs(data_designer_config)
         self._processors: dict[BuildStage, list[Processor]] = self._initialize_processors(
-            config_builder.get_processor_configs()
+            data_designer_config.processors or []
         )
         self._builder_config = config_builder.get_builder_config()
 
