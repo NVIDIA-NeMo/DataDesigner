@@ -1,18 +1,24 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 import tempfile
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
-import numpy as np
-import pandas as pd
 import pytest
 import yaml
 
 from data_designer.config.utils.io_helpers import serialize_data, smart_load_dataframe, smart_load_yaml
+from data_designer.lazy_heavy_imports import np, pd
+
+if TYPE_CHECKING:
+    import numpy as np
+    import pandas as pd
 
 
 @patch("data_designer.config.utils.io_helpers.Path", autospec=True)

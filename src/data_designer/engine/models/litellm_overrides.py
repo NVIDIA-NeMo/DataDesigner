@@ -7,9 +7,15 @@ import random
 import threading
 from typing import TYPE_CHECKING
 
+# Import specific litellm submodules needed for class inheritance
+# Note: Class inheritance requires base classes at definition time, so we import these directly.
+# Runtime litellm usage below still benefits from lazy loading via the litellm alias.
+import litellm.caching.in_memory_cache as _litellm_cache
+import litellm.router as _litellm_router
 from pydantic import BaseModel, Field
 from typing_extensions import override
 
+# Use lazy loading for runtime litellm usage (RetryPolicy, utils, etc.)
 from data_designer.lazy_heavy_imports import httpx, litellm
 from data_designer.logging import quiet_noisy_logger
 
@@ -48,7 +54,7 @@ class LiteLLMRouterDefaultKwargs(BaseModel):
     )
 
 
-class ThreadSafeCache(litellm.caching.in_memory_cache.InMemoryCache):
+class ThreadSafeCache(_litellm_cache.InMemoryCache):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -83,7 +89,7 @@ class ThreadSafeCache(litellm.caching.in_memory_cache.InMemoryCache):
             super().flush_cache()
 
 
-class CustomRouter(litellm.router.Router):
+class CustomRouter(_litellm_router.Router):
     def __init__(
         self,
         *args,

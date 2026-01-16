@@ -1,7 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-import pandas as pd
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import pytest
 
 from data_designer.config.seed_source import DataFrameSeedSource
@@ -12,6 +15,10 @@ from data_designer.engine.resources.seed_reader import (
     SeedReaderRegistry,
 )
 from data_designer.engine.secret_resolver import PlaintextResolver
+from data_designer.lazy_heavy_imports import pd
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 def test_one_reader_per_seed_type():

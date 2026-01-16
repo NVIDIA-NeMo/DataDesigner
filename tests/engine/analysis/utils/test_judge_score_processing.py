@@ -1,7 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-import pandas as pd
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import pytest
 
 from data_designer.config.analysis.column_statistics import (
@@ -18,6 +21,10 @@ from data_designer.engine.analysis.utils.judge_score_processing import (
     extract_judge_score_distributions,
     sample_scores_and_reasoning,
 )
+from data_designer.lazy_heavy_imports import pd
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 def test_extract_judge_score_distributions_numerical_scores(stub_judge_column_config):

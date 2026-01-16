@@ -1,12 +1,14 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 import json
 import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import patch
 
-import pandas as pd
 import pytest
 import yaml
 from pydantic import BaseModel, ValidationError
@@ -39,6 +41,10 @@ from data_designer.config.seed_source import DataFrameSeedSource, HuggingFaceSee
 from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.utils.info import ConfigBuilderInfo
 from data_designer.config.validator_params import CodeValidatorParams
+from data_designer.lazy_heavy_imports import pd
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 class DummyStructuredModel(BaseModel):

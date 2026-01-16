@@ -1,9 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 from unittest.mock import Mock
 
-import pandas as pd
 import pytest
 
 from data_designer.config.base import ConfigBase
@@ -11,6 +13,10 @@ from data_designer.engine.configurable_task import ConfigurableTask, DataT, Task
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.engine.models.registry import ModelRegistry
 from data_designer.engine.resources.resource_provider import ResourceProvider
+from data_designer.lazy_heavy_imports import pd
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 def test_configurable_task_generic_type_variables() -> None:

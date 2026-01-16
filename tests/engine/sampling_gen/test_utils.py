@@ -1,10 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-import numpy as np
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import pytest
 
 from data_designer.engine.sampling_gen.utils import check_random_state
+from data_designer.lazy_heavy_imports import np
+
+if TYPE_CHECKING:
+    import numpy as np
 
 
 @pytest.mark.parametrize(

@@ -1,10 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
-import pandas as pd
 import pytest
 from pydantic import ValidationError
 
@@ -23,6 +25,10 @@ from data_designer.interface.errors import (
     DataDesignerGenerationError,
     DataDesignerProfilingError,
 )
+from data_designer.lazy_heavy_imports import pd
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 @pytest.fixture

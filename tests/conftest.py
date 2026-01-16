@@ -1,12 +1,14 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 import os
 import tarfile
 import tempfile
 import textwrap
+from typing import TYPE_CHECKING
 
-import pandas as pd
 import pytest
 import yaml
 
@@ -18,6 +20,10 @@ from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig, ModelProvider
 from data_designer.config.seed_source import HuggingFaceSeedSource
 from data_designer.engine.resources.seed_reader import SeedReader
+from data_designer.lazy_heavy_imports import pd
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 @pytest.fixture

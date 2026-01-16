@@ -1,7 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-import pandas as pd
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import pytest
 
 from data_designer.config.config_builder import DataDesignerConfigBuilder
@@ -12,6 +15,10 @@ from data_designer.config.utils.visualization import (
     mask_api_key,
 )
 from data_designer.config.validator_params import CodeValidatorParams
+from data_designer.lazy_heavy_imports import pd
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 @pytest.fixture

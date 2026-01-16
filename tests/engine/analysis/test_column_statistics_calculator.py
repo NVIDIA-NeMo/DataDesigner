@@ -1,7 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-import pandas as pd
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 from data_designer.config.analysis.column_statistics import ColumnDistributionType
 from data_designer.config.column_types import DataDesignerColumnType
@@ -9,6 +11,10 @@ from data_designer.config.sampler_params import SamplerType
 from data_designer.engine.analysis.column_profilers.base import ColumnConfigWithDataFrame
 from data_designer.engine.analysis.column_statistics import get_column_statistics_calculator
 from data_designer.engine.analysis.utils.column_statistics_calculations import ensure_hashable
+from data_designer.lazy_heavy_imports import pd
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 def test_general_column_statistics(stub_df, column_configs):

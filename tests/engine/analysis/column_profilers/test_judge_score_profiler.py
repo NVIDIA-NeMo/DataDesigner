@@ -1,10 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 from unittest.mock import Mock, patch
 
-import pandas as pd
-import pyarrow as pa
 import pytest
 
 from data_designer.config.analysis.column_statistics import (
@@ -23,6 +24,11 @@ from data_designer.engine.analysis.column_profilers.judge_score_profiler import 
     JudgeScoreSummary,
 )
 from data_designer.engine.analysis.utils.judge_score_processing import JudgeScoreDistributions, JudgeScoreSample
+from data_designer.lazy_heavy_imports import pa, pd
+
+if TYPE_CHECKING:
+    import pandas as pd
+    import pyarrow as pa
 
 
 @pytest.fixture

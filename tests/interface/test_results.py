@@ -1,9 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
-import pandas as pd
 import pytest
 
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
@@ -14,6 +16,10 @@ from data_designer.config.utils.errors import DatasetSampleDisplayError
 from data_designer.config.utils.visualization import display_sample_record as display_fn
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.interface.results import DatasetCreationResults
+from data_designer.lazy_heavy_imports import pd
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 @pytest.fixture

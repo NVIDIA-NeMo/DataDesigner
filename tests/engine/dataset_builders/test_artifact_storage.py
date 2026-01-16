@@ -1,16 +1,22 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 import json
 from datetime import datetime
+from typing import TYPE_CHECKING
 from unittest.mock import patch
 
-import pandas as pd
 import pytest
 from pyarrow import ArrowNotImplementedError
 
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage, BatchStage
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
+from data_designer.lazy_heavy_imports import pd
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 @pytest.fixture

@@ -1,13 +1,20 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-import pandas as pd
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import pytest
 from pydantic import ValidationError
 
 from data_designer.config.column_configs import SamplerColumnConfig
 from data_designer.config.sampler_params import SamplerType
 from data_designer.engine.analysis.column_profilers.base import ColumnConfigWithDataFrame
+from data_designer.lazy_heavy_imports import pd
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 def test_column_config_with_dataframe_valid_column_config_with_dataframe():

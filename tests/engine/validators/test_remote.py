@@ -1,9 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-import json
+from __future__ import annotations
 
-import httpx
+import json
+from typing import TYPE_CHECKING
+
 import pytest
 from pytest_httpx import HTTPXMock
 
@@ -12,6 +14,10 @@ from data_designer.engine.validators.remote import (
     RemoteEndpointClient,
     RemoteValidator,
 )
+from data_designer.lazy_heavy_imports import httpx
+
+if TYPE_CHECKING:
+    import httpx
 
 
 @pytest.fixture()

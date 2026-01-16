@@ -1,13 +1,19 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from pathlib import Path
+from __future__ import annotations
 
-import pandas as pd
+from pathlib import Path
+from typing import TYPE_CHECKING
+
 import pytest
 
 from data_designer.config.errors import InvalidFilePathError
 from data_designer.config.seed_source import DataFrameSeedSource, LocalFileSeedSource
+from data_designer.lazy_heavy_imports import pd
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 def create_partitions_in_path(temp_dir: Path, extension: str, num_files: int = 2) -> Path:
