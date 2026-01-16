@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
 from data_designer.config.config_builder import DataDesignerConfigBuilder
+from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.default_model_settings import (
     get_default_model_configs,
     get_default_model_providers_missing_api_keys,
@@ -164,7 +165,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
 
         resource_provider = self._create_resource_provider(dataset_name, config_builder)
 
-        builder = self._create_dataset_builder(config_builder, resource_provider)
+        builder = self._create_dataset_builder(config_builder.build(), resource_provider)
 
         try:
             builder.build(num_records=num_records)
@@ -218,7 +219,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         logger.info(f"{RandomEmoji.previewing()} Preview generation in progress")
 
         resource_provider = self._create_resource_provider("preview-dataset", config_builder)
-        builder = self._create_dataset_builder(config_builder, resource_provider)
+        builder = self._create_dataset_builder(config_builder.build(), resource_provider)
 
         try:
             raw_dataset = builder.build_preview(num_records=num_records)
@@ -282,7 +283,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             InvalidConfigError: If the configuration is invalid.
         """
         resource_provider = self._create_resource_provider("validate-configuration", config_builder)
-        compile_data_designer_config(config_builder, resource_provider)
+        compile_data_designer_config(config_builder.build(), resource_provider)
 
     def get_default_model_configs(self) -> list[ModelConfig]:
         """Get the default model configurations.
@@ -347,11 +348,11 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
 
     def _create_dataset_builder(
         self,
-        config_builder: DataDesignerConfigBuilder,
+        data_designer_config: DataDesignerConfig,
         resource_provider: ResourceProvider,
     ) -> ColumnWiseDatasetBuilder:
         return ColumnWiseDatasetBuilder(
-            config_builder=config_builder,
+            data_designer_config=data_designer_config,
             resource_provider=resource_provider,
         )
 

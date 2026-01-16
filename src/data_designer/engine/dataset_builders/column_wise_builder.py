@@ -13,7 +13,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
 from data_designer.config.column_types import ColumnConfigT
-from data_designer.config.config_builder import DataDesignerConfigBuilder
+from data_designer.config.config_builder import BuilderConfig
+from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.processors import (
     DropColumnsProcessorConfig,
@@ -57,7 +58,7 @@ _CLIENT_VERSION: str = importlib.metadata.version("data_designer")
 class ColumnWiseDatasetBuilder:
     def __init__(
         self,
-        config_builder: DataDesignerConfigBuilder,
+        data_designer_config: DataDesignerConfig,
         resource_provider: ResourceProvider,
         registry: DataDesignerRegistry | None = None,
     ):
@@ -66,14 +67,11 @@ class ColumnWiseDatasetBuilder:
         self._records_to_drop: set[int] = set()
         self._registry = registry or DataDesignerRegistry()
 
-        # Extract configurations from the config builder
-        data_designer_config = compile_data_designer_config(config_builder, resource_provider)
-        self._column_configs = compile_dataset_builder_column_configs(data_designer_config)
+        self._data_designer_config = compile_data_designer_config(data_designer_config, resource_provider)
+        self._column_configs = compile_dataset_builder_column_configs(self._data_designer_config)
         self._processors: dict[BuildStage, list[Processor]] = self._initialize_processors(
-            data_designer_config.processors or []
+            self._data_designer_config.processors or []
         )
-        self._builder_config = config_builder.get_builder_config()
-
         self._validate_column_configs()
 
     @property
@@ -100,10 +98,8 @@ class ColumnWiseDatasetBuilder:
         num_records: int,
         on_batch_complete: Callable[[Path], None] | None = None,
     ) -> Path:
-        self.artifact_storage.mkdir_if_needed(self.artifact_storage.base_dataset_path)
-        self._builder_config.to_json(self.artifact_storage.base_dataset_path / "sdg.json")
         self._run_model_health_check_if_needed()
-
+        self._write_builder_config()
         generators = self._initialize_generators()
         start_time = time.perf_counter()
         group_id = uuid.uuid4().hex
@@ -161,6 +157,12 @@ class ColumnWiseDatasetBuilder:
             )
             for config in self._column_configs
         ]
+
+    def _write_builder_config(self) -> None:
+        self.artifact_storage.mkdir_if_needed(self.artifact_storage.base_dataset_path)
+        BuilderConfig(data_designer=self._data_designer_config).to_json(
+            self.artifact_storage.base_dataset_path / "sdg.json"
+        )
 
     def _run_batch(
         self, generators: list[ColumnGenerator], *, batch_mode: str, save_partial_results: bool = True, group_id: str

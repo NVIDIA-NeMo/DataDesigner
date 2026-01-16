@@ -76,14 +76,14 @@ def stub_batch_manager():
 @pytest.fixture
 def stub_column_wise_builder(stub_resource_provider, stub_test_config_builder):
     return ColumnWiseDatasetBuilder(
-        config_builder=stub_test_config_builder,
+        data_designer_config=stub_test_config_builder.build(),
         resource_provider=stub_resource_provider,
     )
 
 
 def test_column_wise_dataset_builder_creation(stub_resource_provider, stub_test_config_builder):
     builder = ColumnWiseDatasetBuilder(
-        config_builder=stub_test_config_builder,
+        data_designer_config=stub_test_config_builder.build(),
         resource_provider=stub_resource_provider,
     )
 
@@ -96,7 +96,7 @@ def test_column_wise_dataset_builder_creation_with_custom_registry(stub_resource
     custom_registry = Mock(spec=DataDesignerRegistry)
 
     builder = ColumnWiseDatasetBuilder(
-        config_builder=stub_test_config_builder,
+        data_designer_config=stub_test_config_builder.build(),
         resource_provider=stub_resource_provider,
         registry=custom_registry,
     )
@@ -135,7 +135,7 @@ def test_column_wise_dataset_builder_single_column_configs_property(
         config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
         config_builder.add_column(single_config)
         builder = ColumnWiseDatasetBuilder(
-            config_builder=config_builder,
+            data_designer_config=config_builder.build(),
             resource_provider=stub_resource_provider,
         )
         assert builder.single_column_configs == [single_config]
@@ -146,7 +146,7 @@ def test_column_wise_dataset_builder_single_column_configs_property(
         config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
         config_builder.add_column(sampler_config)
         builder = ColumnWiseDatasetBuilder(
-            config_builder=config_builder,
+            data_designer_config=config_builder.build(),
             resource_provider=stub_resource_provider,
         )
         assert builder.single_column_configs == [sampler_config]
@@ -206,7 +206,7 @@ def test_column_wise_dataset_builder_validate_column_configs(
 
         with pytest.raises(DatasetGenerationError, match=expected_error):
             ColumnWiseDatasetBuilder(
-                config_builder=config_builder,
+                data_designer_config=config_builder.build(),
                 resource_provider=stub_resource_provider,
                 registry=mock_registry,
             )
@@ -242,7 +242,7 @@ def test_emit_batch_inference_events_emits_from_deltas(
     usage_deltas = {"test-model": ModelUsageStats(token_usage=TokenUsageStats(input_tokens=50, output_tokens=150))}
 
     builder = ColumnWiseDatasetBuilder(
-        config_builder=stub_test_config_builder,
+        data_designer_config=stub_test_config_builder.build(),
         resource_provider=stub_resource_provider,
     )
 
@@ -279,7 +279,7 @@ def test_emit_batch_inference_events_skips_when_no_deltas(
     usage_deltas: dict[str, ModelUsageStats] = {}
 
     builder = ColumnWiseDatasetBuilder(
-        config_builder=stub_test_config_builder,
+        data_designer_config=stub_test_config_builder.build(),
         resource_provider=stub_resource_provider,
     )
 
@@ -301,7 +301,7 @@ def test_emit_batch_inference_events_handles_multiple_models(
     }
 
     builder = ColumnWiseDatasetBuilder(
-        config_builder=stub_test_config_builder,
+        data_designer_config=stub_test_config_builder.build(),
         resource_provider=stub_resource_provider,
     )
 
@@ -353,7 +353,7 @@ def test_fan_out_with_threads_uses_early_shutdown_settings_from_resource_provide
         config_builder.add_processor(processor_config)
 
     builder = ColumnWiseDatasetBuilder(
-        config_builder=config_builder,
+        data_designer_config=config_builder.build(),
         resource_provider=stub_resource_provider,
     )
 

@@ -33,7 +33,7 @@ def test_adds_seed_columns(resource_provider: ResourceProvider):
     )
     builder.with_seed_dataset(HuggingFaceSeedSource(path="hf://datasets/test/data.csv"))
 
-    config = compile_data_designer_config(builder, resource_provider)
+    config = compile_data_designer_config(builder.build(), resource_provider)
 
     assert len(config.columns) == 3
 
@@ -50,7 +50,7 @@ def test_errors_on_seed_column_collisions(resource_provider: ResourceProvider):
     builder.with_seed_dataset(HuggingFaceSeedSource(path="hf://datasets/test/data.csv"))
 
     with pytest.raises(InvalidConfigError) as excinfo:
-        compile_data_designer_config(builder, resource_provider)
+        compile_data_designer_config(builder.build(), resource_provider)
 
     assert "city" in str(excinfo)
 
@@ -75,6 +75,6 @@ def test_validation_errors(resource_provider: ResourceProvider):
         ]
 
         with pytest.raises(InvalidConfigError) as excinfo:
-            compile_data_designer_config(builder, resource_provider)
+            compile_data_designer_config(builder.build(), resource_provider)
 
     assert "validation errors" in str(excinfo)

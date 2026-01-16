@@ -6,7 +6,6 @@ from __future__ import annotations
 import logging
 
 from data_designer.config.column_configs import SeedDatasetColumnConfig
-from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.errors import InvalidConfigError
 from data_designer.engine.resources.resource_provider import ResourceProvider
@@ -16,13 +15,9 @@ from data_designer.engine.validation import ViolationLevel, rich_print_violation
 logger = logging.getLogger(__name__)
 
 
-def compile_data_designer_config(
-    config_builder: DataDesignerConfigBuilder, resource_provider: ResourceProvider
-) -> DataDesignerConfig:
-    config = config_builder.build()
+def compile_data_designer_config(config: DataDesignerConfig, resource_provider: ResourceProvider) -> DataDesignerConfig:
     _resolve_and_add_seed_columns(config, resource_provider.seed_reader)
     _validate(config)
-
     return config
 
 
