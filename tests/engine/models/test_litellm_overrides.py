@@ -3,9 +3,9 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
 from unittest.mock import patch
 
+import litellm
 import pytest
 
 from data_designer.engine.models.litellm_overrides import (
@@ -14,10 +14,6 @@ from data_designer.engine.models.litellm_overrides import (
     ThreadSafeCache,
     apply_litellm_patches,
 )
-from data_designer.lazy_heavy_imports import litellm
-
-if TYPE_CHECKING:
-    import litellm
 
 
 @pytest.fixture
