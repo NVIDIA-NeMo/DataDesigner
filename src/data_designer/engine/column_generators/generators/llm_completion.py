@@ -82,18 +82,16 @@ class ColumnGeneratorWithModelChatCompletion(ColumnGeneratorWithModel[TaskConfig
         )
 
         serialized_output = self.response_recipe.serialize_output(response)
-
-        # Only deserialize for structured/judge columns that return JSON
-        # Text and code columns return plain strings that shouldn't be parsed as JSON
-        if self.config.column_type in ("llm-structured", "llm-judge"):
-            data[self.config.name] = deserialize_json_values(serialized_output)
-        else:
-            data[self.config.name] = serialized_output
+        data[self.config.name] = self._process_serialized_output(serialized_output)
 
         if reasoning_trace:
             data[self.config.name + REASONING_TRACE_COLUMN_POSTFIX] = reasoning_trace
 
         return data
+
+    def _process_serialized_output(self, serialized_output: str) -> str | dict | list:
+        """Process the serialized output from the model. Subclasses can override to customize deserialization."""
+        return serialized_output
 
 
 class LLMTextCellGenerator(ColumnGeneratorWithModelChatCompletion[LLMTextColumnConfig]): ...
@@ -102,7 +100,11 @@ class LLMTextCellGenerator(ColumnGeneratorWithModelChatCompletion[LLMTextColumnC
 class LLMCodeCellGenerator(ColumnGeneratorWithModelChatCompletion[LLMCodeColumnConfig]): ...
 
 
-class LLMStructuredCellGenerator(ColumnGeneratorWithModelChatCompletion[LLMStructuredColumnConfig]): ...
+class LLMStructuredCellGenerator(ColumnGeneratorWithModelChatCompletion[LLMStructuredColumnConfig]):
+    def _process_serialized_output(self, serialized_output: str) -> dict | list:
+        return deserialize_json_values(serialized_output)
 
 
-class LLMJudgeCellGenerator(ColumnGeneratorWithModelChatCompletion[LLMJudgeColumnConfig]): ...
+class LLMJudgeCellGenerator(ColumnGeneratorWithModelChatCompletion[LLMJudgeColumnConfig]):
+    def _process_serialized_output(self, serialized_output: str) -> dict | list:
+        return deserialize_json_values(serialized_output)

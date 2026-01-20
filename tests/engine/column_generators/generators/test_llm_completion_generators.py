@@ -269,3 +269,82 @@ def test_generate_with_json_deserialization():
     result = generator.generate(data)
 
     assert result["test_column"] == {"result": "json_output"}
+
+
+@pytest.mark.parametrize(
+    "generator_class,config_class,config_kwargs,serialized_output,expected_output",
+    [
+        (
+            LLMTextCellGenerator,
+            LLMTextColumnConfig,
+            {"name": "text_col", "prompt": "Generate text", "model_alias": "test_model"},
+            '["plain", "text", "output"]',
+            '["plain", "text", "output"]',
+        ),
+        (
+            LLMCodeCellGenerator,
+            LLMCodeColumnConfig,
+            {"name": "code_col", "prompt": "Generate code", "model_alias": "test_model", "code_lang": "python"},
+            "def hello(): pass",
+            "def hello(): pass",
+        ),
+        (
+            LLMStructuredCellGenerator,
+            LLMStructuredColumnConfig,
+            {
+                "name": "struct_col",
+                "prompt": "Generate struct",
+                "model_alias": "test_model",
+                "output_format": {"type": "object", "properties": {"field": {"type": "string"}}},
+            },
+            '{"field": "value", "nested": {"key": "val"}}',
+            {"field": "value", "nested": {"key": "val"}},
+        ),
+        (
+            LLMJudgeCellGenerator,
+            LLMJudgeColumnConfig,
+            {
+                "name": "judge_col",
+                "prompt": "Judge this",
+                "model_alias": "test_model",
+                "scores": [{"name": "quality", "description": "Quality", "options": {1: "good", 0: "bad"}}],
+            },
+            '{"quality": 1, "reasoning": "Good quality"}',
+            {"quality": 1, "reasoning": "Good quality"},
+        ),
+    ],
+)
+def test_generator_output_type_handling(
+    stub_resource_provider: Mock,
+    generator_class: type,
+    config_class: type,
+    config_kwargs: dict,
+    serialized_output: str,
+    expected_output: str | dict,
+) -> None:
+    """Test that each generator type correctly handles its output format via polymorphism.
+
+    - Text/Code generators return plain strings
+    - Structured/Judge generators deserialize JSON to Python objects
+    """
+    config = config_class(**config_kwargs)
+    generator = generator_class(config=config, resource_provider=stub_resource_provider)
+
+    # Mock the prompt renderer and response recipe
+    mock_prompt_renderer = Mock()
+    mock_response_recipe = Mock()
+    generator.prompt_renderer = mock_prompt_renderer
+    generator.response_recipe = mock_response_recipe
+
+    # Setup mocks
+    mock_prompt_renderer.render.side_effect = ["rendered_user_prompt", "rendered_system_prompt"]
+    mock_response_recipe.serialize_output.return_value = serialized_output
+    stub_resource_provider.model_registry.get_model.return_value.generate.return_value = (
+        {"result": "raw_output"},
+        None,
+    )
+
+    data = {"input": "test_input"}
+    result = generator.generate(data)
+
+    assert result[config.name] == expected_output
