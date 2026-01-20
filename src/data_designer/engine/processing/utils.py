@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import ast
+import copy
 import json
 import logging
 import re
@@ -50,6 +51,8 @@ def deserialize_json_values(data: T) -> T: ...
 def deserialize_json_values(data):
     """De-serialize JSON strings in various input formats.
 
+    This function creates a deep copy of the input data and does not mutate the original.
+
     Args:
         data: Input data in one of four formats:
             - Single string (JSON string to deserialize)
@@ -63,18 +66,22 @@ def deserialize_json_values(data):
             - List of dictionaries (when input is a list of strings)
             - Dictionary (when input is a dictionary, with nested JSON strings deserialized)
             - The original object (if there is no deserialization to perform)
+
     """
+    # Create a deep copy to avoid mutating the original data
+    data_copy = copy.deepcopy(data)
+
     # Case 1: Single string input
-    if isinstance(data, str):
+    if isinstance(data_copy, str):
         try:
-            return json.loads(data)
+            return json.loads(data_copy)
         except json.JSONDecodeError:
-            return data
+            return data_copy
 
     # Case 2: List of strings input
-    elif isinstance(data, list):
+    elif isinstance(data_copy, list):
         result = []
-        for item in data:
+        for item in data_copy:
             if isinstance(item, str):
                 try:
                     result.append(json.loads(item))
@@ -86,9 +93,9 @@ def deserialize_json_values(data):
         return result
 
     # Case 3: Dictionary input with potential nested JSON strings
-    elif isinstance(data, dict):
+    elif isinstance(data_copy, dict):
         result = {}
-        for key, value in data.items():
+        for key, value in data_copy.items():
             if isinstance(value, str):
                 try:
                     result[key] = json.loads(value)
@@ -103,7 +110,7 @@ def deserialize_json_values(data):
 
     # Fallback for other data types
     else:
-        return data
+        return data_copy
 
 
 def parse_list_string(text: str) -> list[str]:
