@@ -13,6 +13,7 @@ from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.processors import DropColumnsProcessorConfig
 from data_designer.config.run_config import RunConfig
+from data_designer.config.sampler_params import SamplerType, UUIDSamplerParams
 from data_designer.engine.column_generators.generators.base import GenerationStrategy
 from data_designer.engine.dataset_builders.column_wise_builder import (
     MAX_CONCURRENCY_PER_NON_LLM_GENERATOR,
@@ -31,6 +32,7 @@ if TYPE_CHECKING:
 @pytest.fixture
 def stub_test_column_configs():
     return [
+        SamplerColumnConfig(name="some_id", sampler_type=SamplerType.UUID, params=UUIDSamplerParams()),
         LLMTextColumnConfig(name="test_column", prompt="Test prompt", model_alias="test_model"),
         LLMTextColumnConfig(name="column_to_drop", prompt="Test prompt", model_alias="test_model"),
     ]
@@ -92,8 +94,7 @@ def test_column_wise_dataset_builder_creation(stub_resource_provider, stub_test_
         data_designer_config=stub_test_config_builder.build(),
         resource_provider=stub_resource_provider,
     )
-
-    assert len(builder._column_configs) == 2
+    assert len(builder._column_configs) == 3
     assert builder._resource_provider == stub_resource_provider
     assert isinstance(builder._registry, DataDesignerRegistry)
 
@@ -136,26 +137,33 @@ def test_column_wise_dataset_builder_batch_manager_initialization(stub_column_wi
 def test_column_wise_dataset_builder_single_column_configs_property(
     stub_resource_provider, stub_model_configs, config_type, expected_single_configs
 ):
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+
     if config_type == "single":
-        single_config = LLMTextColumnConfig(name="test_column", prompt="Test prompt", model_alias="test_model")
-        config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+        # Add an LLM text column - these don't get grouped into MultiColumnConfigs
+        single_config = expected_single_configs[0]
         config_builder.add_column(single_config)
+
         builder = ColumnWiseDatasetBuilder(
             data_designer_config=config_builder.build(),
             resource_provider=stub_resource_provider,
         )
-        assert builder.single_column_configs == [single_config]
+
+        # Since there's no sampler, _internal_row_id is auto-added, plus the LLM column
+        configs = builder.single_column_configs
+        assert len(configs) == 2
+        assert configs[0].name == "_internal_row_id"
+        assert configs[1] == single_config
+
     else:
-        sampler_config = SamplerColumnConfig(
-            name="sampler_col", sampler_type="category", params={"values": ["A", "B", "C"]}
-        )
-        config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+        sampler_config = expected_single_configs[0]
         config_builder.add_column(sampler_config)
+
         builder = ColumnWiseDatasetBuilder(
             data_designer_config=config_builder.build(),
             resource_provider=stub_resource_provider,
         )
-        assert builder.single_column_configs == [sampler_config]
+        assert builder.single_column_configs == expected_single_configs
 
 
 def test_column_wise_dataset_builder_build_method_basic_flow(
