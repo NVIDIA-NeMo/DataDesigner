@@ -60,8 +60,8 @@ def _add_internal_row_id_column_if_needed(config: DataDesignerConfig) -> None:
     has_seed_dataset_column = any(isinstance(col, SeedDatasetColumnConfig) for col in config.columns)
 
     if not has_sampler_column and not has_seed_dataset_column:
-        logger.debug(
-            "ℹ️  No sampler column or seed dataset detected. Adding UUID column '_internal_row_id' (marked for drop) to enable generation."
+        logger.warning(
+            "🔔 No sampler column or seed dataset detected. Adding UUID column '_internal_row_id' (marked for drop) to enable generation."
         )
         id_column = SamplerColumnConfig(
             name="_internal_row_id",
