@@ -81,7 +81,14 @@ class ColumnGeneratorWithModelChatCompletion(ColumnGeneratorWithModel[TaskConfig
             purpose=f"running generation for column '{self.config.name}'",
         )
 
-        data[self.config.name] = deserialize_json_values(self.response_recipe.serialize_output(response))
+        serialized_output = self.response_recipe.serialize_output(response)
+
+        # Only deserialize for structured/judge columns that return JSON
+        # Text and code columns return plain strings that shouldn't be parsed as JSON
+        if self.config.column_type in ("llm-structured", "llm-judge"):
+            data[self.config.name] = deserialize_json_values(serialized_output)
+        else:
+            data[self.config.name] = serialized_output
 
         if reasoning_trace:
             data[self.config.name + REASONING_TRACE_COLUMN_POSTFIX] = reasoning_trace
