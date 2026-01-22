@@ -94,3 +94,4 @@ tests_e2e/uv.lock
 
 # Performance profiling
 perf_*.txt
+NOTEPAD.md
