@@ -1,83 +1,8 @@
 [project]
-name = "data-designer"
+name = "data-designer-workspace"
 dynamic = ["version"]
-description = "General framework for synthetic data generation"
-readme = "README.md"
+description = "DataDesigner monorepo workspace"
 requires-python = ">=3.10"
-license = "Apache-2.0"
-
-classifiers = [
-  "Development Status :: 4 - Beta",
-  "Intended Audience :: Developers",
-  "Intended Audience :: Science/Research",
-  "Topic :: Scientific/Engineering :: Artificial Intelligence",
-  "Topic :: Software Development",
-  "License :: OSI Approved :: Apache Software License",
-  "Programming Language :: Python :: 3.10",
-  "Programming Language :: Python :: 3.11",
-  "Programming Language :: Python :: 3.12",
-  "Programming Language :: Python :: 3.13",
-]
-
-dependencies = [
-  "anyascii>=0.3.3,<1",
-  "duckdb>=1.1.3,<2",
-  "faker>=20.1.0,<21",
-  "httpx-retries>=0.4.2,<1",
-  "httpx>=0.27.2,<1",
-  "huggingface-hub>=1.0.1,<2",
-  "jinja2>=3.1.6,<4",
-  "json-repair>=0.48.0,<1",
-  "jsonpath-rust-bindings>=1.0,<2",
-  "litellm>=1.73.6,<1.80.12", # Excessive warnings started in 1.80.12
-  "lxml>=6.0.2,<7",
-  "marko>=2.1.2,<3",
-  "networkx>=3.0,<4",
-  "numpy>=1.23.5,<3",
-  "pandas>=2.3.3,<3",
-  "prompt-toolkit>=3.0.0,<4",
-  "pyarrow>=19.0.1,<20",
-  "pydantic[email]>=2.9.2,<3",
-  "pygments>=2.19.2,<3",
-  "python-json-logger>=3,<4",
-  "pyyaml>=6.0.1,<7",
-  "requests<3,>=2.32.2",
-  "rich>=13.7.1,<15",
-  "ruff>=0.14.10,<1",
-  "scipy>=1.11.0,<2",
-  "sqlfluff>=3.2.0,<4",
-  "tiktoken>=0.8.0,<1",
-  "typer>=0.12.0,<1",
-]
-
-[project.scripts]
-data-designer = "data_designer.cli:main"
-
-[dependency-groups]
-dev = [
-  "jsonpath-ng>=1.5.3,<2",
-  "pre-commit>=4.0.0,<5",
-  "pytest-asyncio>=0.24.0,<1",
-  "pytest-cov>=7.0.0,<8",
-  "pytest-env>=1.2.0,<2",
-  "pytest-httpx>=0.35.0,<1",
-  "pytest>=8.3.3,<9",
-]
-docs = [
-  "mike>=2.1.3,<3",
-  "mkdocs-jupyter>=0.25.1,<1",
-  "mkdocs-material>=9.6.22,<10",
-  "mkdocs-redirects>=1.2.2,<2",
-  "mkdocs>=1.6.1,<2",
-  "mkdocstrings-python>=1.18.2,<2",
-  "mkdocstrings>=0.30.1,<1",
-]
-notebooks = [
-  "datasets>=4.0.0,<5",
-  "ipykernel>=6.29.0,<7",
-  "jupyter>=1.0.0,<2",
-  "pillow>=12.0.0,<13",
-]
 
 [build-system]
 requires = ["hatchling", "hatch-vcs"]
@@ -87,24 +12,49 @@ build-backend = "hatchling.build"
 source = "vcs"
 fallback-version = "0.1.0.dev0"
 
-[tool.hatch.build.hooks.vcs]
-version-file = "src/data_designer/_version.py"
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-asyncio_default_fixture_loop_scope = "session"
-env = [
-    "DISABLE_DATA_DESIGNER_PLUGINS=true",
-]
-
-[tool.coverage.run]
-omit = [
-    "src/data_designer/engine/models/telemetry.py",
+[tool.uv.workspace]
+members = [
+    "packages/data-designer-config",
+    "packages/data-designer-engine",
+    "packages/data-designer",
 ]
 
 [tool.uv]
-package = true
+package = false
 required-version = ">=0.7.10"
+dev-dependencies = [
+    "pre-commit>=4.0.0,<5",
+    "ruff>=0.14.10,<1",
+]
+
+[dependency-groups]
+docs = [
+    "mike>=2.1.3,<3",
+    "mkdocs-jupyter>=0.25.1,<1",
+    "mkdocs-material>=9.6.22,<10",
+    "mkdocs-redirects>=1.2.2,<2",
+    "mkdocs>=1.6.1,<2",
+    "mkdocstrings-python>=1.18.2,<2",
+    "mkdocstrings>=0.30.1,<1",
+]
+notebooks = [
+    "datasets>=4.0.0,<5",
+    "ipykernel>=6.29.0,<7",
+    "jupyter>=1.0.0,<2",
+    "pillow>=12.0.0,<13",
+]
+
+[tool.pytest.ini_options]
+testpaths = [
+    "packages/data-designer-config/tests",
+    "packages/data-designer-engine/tests",
+    "packages/data-designer/tests",
+]
+asyncio_default_fixture_loop_scope = "session"
+env = ["DISABLE_DATA_DESIGNER_PLUGINS=true"]
+
+[tool.coverage.run]
+omit = ["**/engine/models/telemetry.py"]
 
 [tool.ruff]
 line-length = 120

@@ -50,6 +50,23 @@ help:
 	@echo "  perf-import CLEAN=1       - Clean cache, then profile import time"
 	@echo "  perf-import NOFILE=1      - Profile without writing to file (for CI)"
 	@echo ""
+	@echo "📦 Multi-Package Commands:"
+	@echo "  test-config               - Run tests for data-designer-config"
+	@echo "  test-engine               - Run tests for data-designer-engine"
+	@echo "  test-interface            - Run tests for data-designer (interface)"
+	@echo "  test-all-packages         - Run tests for all packages"
+	@echo "  lint-config               - Lint data-designer-config"
+	@echo "  lint-engine               - Lint data-designer-engine"
+	@echo "  lint-interface            - Lint data-designer (interface)"
+	@echo "  lint-all-packages         - Lint all packages"
+	@echo "  build-config              - Build data-designer-config wheel"
+	@echo "  build-engine              - Build data-designer-engine wheel"
+	@echo "  build-interface           - Build data-designer (interface) wheel"
+	@echo "  build-all-packages        - Build all package wheels"
+	@echo "  coverage-config           - Run config tests with coverage"
+	@echo "  coverage-engine           - Run engine tests with coverage"
+	@echo "  coverage-interface        - Run interface tests with coverage"
+	@echo ""
 	@echo "═════════════════════════════════════════════════════════════"
 	@echo "💡 Tip: Run 'make <command>' to execute any command above"
 	@echo ""
@@ -78,22 +95,22 @@ check-all-fix: format lint-fix
 
 format:
 	@echo "📐 Formatting code with ruff..."
-	uv run ruff format src/ tests/ scripts/ tests_e2e/ --exclude '**/src/data_designer/_version.py'
+	uv run ruff format packages/ scripts/ tests_e2e/ --exclude '**/_version.py'
 	@echo "✅ Formatting complete!"
 
 format-check:
 	@echo "📐 Checking code formatting with ruff..."
-	uv run ruff format --check src/ tests/ scripts/ tests_e2e/ --exclude '**/src/data_designer/_version.py'
+	uv run ruff format --check packages/ scripts/ tests_e2e/ --exclude '**/_version.py'
 	@echo "✅ Formatting check complete! Run 'make format' to auto-fix issues."
 
 lint:
 	@echo "🔍 Linting code with ruff..."
-	uv run ruff check --output-format=full src/ tests/ scripts/ tests_e2e/ --exclude '**/src/data_designer/_version.py'
+	uv run ruff check --output-format=full packages/ scripts/ tests_e2e/ --exclude '**/_version.py'
 	@echo "✅ Linting complete! Run 'make lint-fix' to auto-fix issues."
 
 lint-fix:
 	@echo "🔍 Fixing linting issues with ruff..."
-	uv run ruff check --fix src/ tests/ scripts/ tests_e2e/ --exclude '**/src/data_designer/_version.py'
+	uv run ruff check --fix packages/ scripts/ tests_e2e/ --exclude '**/_version.py'
 	@echo "✅ Linting with autofix complete!"
 
 test:
@@ -168,10 +185,23 @@ install:
 	@echo "✅ Installation complete!"
 
 install-dev:
-	@echo "📦 Installing project with dev dependencies..."
-	uv sync --group dev
+	@echo "📦 Installing DataDesigner packages in development mode"
+	@echo ""
+	@echo "📦 1/3: Installing config package..."
+	cd packages/data-designer-config && uv sync --group dev
+	@echo "📦 2/3: Installing engine package..."
+	cd packages/data-designer-engine && uv sync --group dev
+	@echo "📦 3/3: Installing interface package..."
+	cd packages/data-designer && uv sync --group dev
+	@echo ""
 	$(call install-pre-commit-hooks)
-	@echo "✅ Dev installation complete!"
+	@echo "✅ All packages installed in development mode!"
+	@echo ""
+	@echo "💡 Next steps:"
+	@echo "  - Run 'make test-all-packages' to run all tests"
+	@echo "  - Run 'make lint-all-packages' to lint all packages"
+	@echo "  - Run 'make build-all-packages' to build all packages"
+	@echo "  - Edit code in packages/*/src/ directories"
 
 install-dev-notebooks:
 	@echo "📦 Installing project with notebook dependencies..."
@@ -209,4 +239,65 @@ else
 	grep "import time:" "$$PERF_FILE" | sort -rn -k5 | head -10 | awk '{printf "%-12.3f %-12.3f %s", $$3/1000000, $$5/1000000, $$7; for(i=8;i<=NF;i++) printf " %s", $$i; printf "\n"}'
 endif
 
-.PHONY: clean clean-pycache coverage format format-check lint lint-fix test test-e2e test-run-tutorials test-run-recipes test-run-all-examples check-license-headers update-license-headers check-all check-all-fix install install-dev install-dev-notebooks generate-colab-notebooks perf-import
+# Multi-package test commands
+test-config:
+	@echo "🧪 Testing data-designer-config..."
+	cd packages/data-designer-config && uv run --group dev pytest
+
+test-engine:
+	@echo "🧪 Testing data-designer-engine..."
+	cd packages/data-designer-engine && uv run --group dev pytest
+
+test-interface:
+	@echo "🧪 Testing data-designer (interface)..."
+	cd packages/data-designer && uv run --group dev pytest
+
+test-all-packages: test-config test-engine test-interface
+	@echo "✅ All package tests completed!"
+
+# Multi-package lint commands
+lint-config:
+	@echo "🔍 Linting data-designer-config..."
+	uv run ruff check packages/data-designer-config/src packages/data-designer-config/tests
+
+lint-engine:
+	@echo "🔍 Linting data-designer-engine..."
+	uv run ruff check packages/data-designer-engine/src packages/data-designer-engine/tests
+
+lint-interface:
+	@echo "🔍 Linting data-designer (interface)..."
+	uv run ruff check packages/data-designer/src packages/data-designer/tests
+
+lint-all-packages: lint-config lint-engine lint-interface
+	@echo "✅ All packages linted!"
+
+# Multi-package build commands
+build-config:
+	@echo "🏗️  Building data-designer-config..."
+	cd packages/data-designer-config && uv build
+
+build-engine:
+	@echo "🏗️  Building data-designer-engine..."
+	cd packages/data-designer-engine && uv build
+
+build-interface:
+	@echo "🏗️  Building data-designer (interface)..."
+	cd packages/data-designer && uv build
+
+build-all-packages: build-config build-engine build-interface
+	@echo "✅ All packages built!"
+
+# Multi-package coverage commands
+coverage-config:
+	@echo "📊 Running config tests with coverage..."
+	cd packages/data-designer-config && uv run --group dev pytest --cov=data_designer.config --cov-report=term-missing --cov-report=html
+
+coverage-engine:
+	@echo "📊 Running engine tests with coverage..."
+	cd packages/data-designer-engine && uv run --group dev pytest --cov=data_designer.engine --cov-report=term-missing --cov-report=html
+
+coverage-interface:
+	@echo "📊 Running interface tests with coverage..."
+	cd packages/data-designer && uv run --group dev pytest --cov=data_designer --cov-report=term-missing --cov-report=html
+
+.PHONY: clean clean-pycache coverage format format-check lint lint-fix test test-e2e test-run-tutorials test-run-recipes test-run-all-examples check-license-headers update-license-headers check-all check-all-fix install install-dev install-dev-notebooks generate-colab-notebooks perf-import test-config test-engine test-interface test-all-packages lint-config lint-engine lint-interface lint-all-packages build-config build-engine build-interface build-all-packages coverage-config coverage-engine coverage-interface
