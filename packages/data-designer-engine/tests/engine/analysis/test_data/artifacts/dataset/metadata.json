@@ -1,0 +1,27 @@
+{
+  "target_num_records": 25,
+  "total_num_batches": 1,
+  "buffer_size": 25,
+  "schema": {
+    "diagnosis": "string",
+    "patient_summary": "string",
+    "row_id": "int64",
+    "gaussian": "double",
+    "uniform": "double",
+    "poisson": "int64",
+    "student": "struct<age: int64, agreeableness: struct<description: string, label: string, t_score: int64>, arts_persona: string, bachelors_field: string, birth_date: string, career_goals_and_ambitions: string, city: string, conscientiousness: struct<description: string, label: string, t_score: int64>, country: string, county: string, culinary_persona: string, cultural_background: string, detailed_persona: string, education_level: string, email_address: string, ethnic_background: string, extraversion: struct<description: string, label: string, t_score: int64>, finance_persona: string, first_name: string, healthcare_persona: string, hobbies_and_interests: string, hobbies_and_interests_list: string, last_name: string, locale: string, marital_status: string, middle_name: string, neuroticism: struct<description: string, label: string, t_score: int64>, occupation: string, openness: struct<description: string, label: string, t_score: int64>, persona: string, phone_number: string, professional_persona: string, sex: string, skills_and_expertise: string, skills_and_expertise_list: string, sports_persona: string, ssn: string, state: string, street_name: string, street_number: int64, travel_persona: string, unit: string, uuid: string, zipcode: string>",
+    "school_subject": "string",
+    "school_subject_description": "string",
+    "school_supplies": "struct<number_of_classes: int64, school_name: string, supplies: list<element: struct<name: string, quantity: int64>>>",
+    "code_student_work_summary": "string",
+    "code_student_work_summary_validation": "bool",
+    "code_student_work_summary_python_linter_score": "double",
+    "code_student_work_summary_python_linter_severity": "string",
+    "code_student_work_summary_python_linter_messages": "string",
+    "llm_judge_code_student_work_summary": "struct<clarity: struct<reasoning: string, score: string>>"
+  },
+  "file_paths": ["artifacts/dataset-25/batch_00000.parquet"],
+  "num_records": [25],
+  "dataset_name": "dataset-25",
+  "num_completed_batches": 1
+}

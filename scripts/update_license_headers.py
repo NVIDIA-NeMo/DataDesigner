@@ -25,6 +25,7 @@ SKIP_PATTERNS = frozenset(
     ]
 )
 
+# Skip auto-generated version files (hatch-vcs generates these at build time)
 SKIP_FILES = frozenset(["_version.py"])
 
 # Maximum number of lines to search for SPDX license header
@@ -328,7 +329,8 @@ if __name__ == "__main__":
     all_files_needing_update: list[Path] = []
     total_processed = total_updated = total_skipped = 0
 
-    for folder in ["src", "tests", "scripts", "tests_e2e"]:
+    # Process root-level directories
+    for folder in ["scripts", "tests_e2e"]:
         folder_path = repo_path / folder
         if not folder_path.exists():
             continue
@@ -349,6 +351,37 @@ if __name__ == "__main__":
         else:
             print(f"   ✏️  Updated: {updated}")
             print(f"   ⏭️  Skipped: {skipped}")
+
+    # Process packages directory structure
+    packages_path = repo_path / "packages"
+    if packages_path.exists():
+        for package_dir in sorted(packages_path.iterdir()):
+            if not package_dir.is_dir():
+                continue
+
+            # Process src/ and tests/ within each package
+            for subfolder in ["src", "tests"]:
+                folder_path = package_dir / subfolder
+                if not folder_path.exists():
+                    continue
+
+                action = "Checking" if args.check else "Processing"
+                relative_path = folder_path.relative_to(repo_path)
+                print(f"\n📂 {action} {relative_path}/")
+
+                processed, updated, skipped, files_needing_update = main(folder_path, check_only=args.check)
+
+                total_processed += processed
+                total_updated += updated
+                total_skipped += skipped
+                all_files_needing_update.extend(files_needing_update)
+
+                if args.check:
+                    print(f"   ❌ Need update: {updated}")
+                    print(f"   ✅ Up to date: {skipped}")
+                else:
+                    print(f"   ✏️  Updated: {updated}")
+                    print(f"   ⏭️  Skipped: {skipped}")
 
     print("\n" + "=" * 80)
     print(f"📊 Summary: {total_processed} files processed")

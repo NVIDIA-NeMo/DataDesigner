@@ -1,0 +1,85 @@
+[project]
+name = "data-designer-config"
+dynamic = ["version"]
+description = "Configuration layer for DataDesigner synthetic data generation"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+dependencies = [
+    "anyascii>=0.3.3,<1",
+    "jinja2>=3.1.6,<4",
+    "jsonschema>=4.0.0,<5",
+    "lxml>=6.0.2,<7",
+    "marko>=2.1.2,<3",
+    "networkx>=3.0,<4",
+    "pydantic[email]>=2.9.2,<3",
+    "pygments>=2.19.2,<3",
+    "pyyaml>=6.0.1,<7",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.3,<9",
+    "pytest-asyncio>=0.24.0,<1",
+    "pytest-cov>=7.0.0,<8",
+    "pytest-env>=1.2.0,<2",
+    "pre-commit>=4.0.0,<5",
+]
+
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+root = "../.."
+fallback-version = "0.1.0.dev0"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/data_designer/config/_version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/data_designer"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_default_fixture_loop_scope = "session"
+env = ["DISABLE_DATA_DESIGNER_PLUGINS=true"]
+
+[tool.coverage.run]
+source = ["src"]
+
+[tool.uv]
+package = true
+
+[tool.ruff]
+line-length = 120
+indent-width = 4
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["W", "F", "I", "ICN", "PIE", "TID", "UP006", "UP007", "UP045"]
+ignore = ["ANN401"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["data_designer"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
