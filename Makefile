@@ -341,15 +341,15 @@ check-interface:
 # Subpackage build commands
 build-config:
 	@echo "🏗️  Building data-designer-config..."
-	cd packages/data-designer-config && uv build
+	cd packages/data-designer-config && uv build -o dist
 
 build-engine:
 	@echo "🏗️  Building data-designer-engine..."
-	cd packages/data-designer-engine && uv build
+	cd packages/data-designer-engine && uv build -o dist
 
 build-interface:
 	@echo "🏗️  Building data-designer (interface)..."
-	cd packages/data-designer && uv build
+	cd packages/data-designer && uv build -o dist
 
 build: build-config build-engine build-interface
 	@echo "✅ All packages built!"
