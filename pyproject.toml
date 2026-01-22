@@ -1,17 +1,25 @@
+# =============================================================================
+# WORKSPACE CONFIGURATION (not a publishable package)
+# =============================================================================
+# This pyproject.toml defines the uv workspace for the DataDesigner monorepo.
+# It is NOT a package itself—see `package = false` below. The [project] section
+# exists only to satisfy pyproject.toml structural requirements.
+#
+# Subpackages are located in packages/ and each has its own pyproject.toml.
+# See WORKSPACE.md for full documentation on the namespace package structure.
+# =============================================================================
+
 [project]
 name = "data-designer-workspace"
-dynamic = ["version"]
+version = "0.0.0"  # Placeholder, never used since package = false
 description = "DataDesigner monorepo workspace"
 requires-python = ">=3.10"
 
 [build-system]
-requires = ["hatchling", "hatch-vcs"]
+requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-[tool.hatch.version]
-source = "vcs"
-fallback-version = "0.1.0.dev0"
-
+# Workspace members - each package contributes to the `data_designer` namespace
 [tool.uv.workspace]
 members = [
     "packages/data-designer-config",
@@ -20,6 +28,7 @@ members = [
 ]
 
 [tool.uv]
+# IMPORTANT: This root is NOT a package. It only defines workspace configuration.
 package = false
 required-version = ">=0.7.10"
 dev-dependencies = [
@@ -28,6 +37,15 @@ dev-dependencies = [
 ]
 
 [dependency-groups]
+dev = [
+    "jsonpath-ng>=1.5.3,<2",
+    "pytest>=8.3.3,<9",
+    "pytest-asyncio>=0.24.0,<1",
+    "pytest-cov>=7.0.0,<8",
+    "pytest-env>=1.2.0,<2",
+    "pytest-httpx>=0.35.0,<1",
+    "pre-commit>=4.0.0,<5",
+]
 docs = [
     "mike>=2.1.3,<3",
     "mkdocs-jupyter>=0.25.1,<1",
