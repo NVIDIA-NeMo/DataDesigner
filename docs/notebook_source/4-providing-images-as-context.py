@@ -27,9 +27,11 @@
 #
 
 # %% [markdown]
-# ### 📦 Import the essentials
+# ### 📦 Import Data Designer
 #
-# - The `essentials` module provides quick access to the most commonly used objects.
+# - `data_designer.config` provides access to the configuration API.
+#
+# - `DataDesigner` is the main interface for data generation.
 #
 
 # %%
@@ -46,17 +48,8 @@ from IPython.display import display
 from rich.panel import Panel
 
 # Data Designer imports
-from data_designer.essentials import (
-    ChatCompletionInferenceParams,
-    DataDesigner,
-    DataDesignerConfigBuilder,
-    DataFrameSeedSource,
-    ImageContext,
-    ImageFormat,
-    LLMTextColumnConfig,
-    ModalityDataType,
-    ModelConfig,
-)
+import data_designer.config as dd
+from data_designer.interface import DataDesigner
 
 # %% [markdown]
 # ### ⚙️ Initialize the Data Designer interface
@@ -86,11 +79,11 @@ data_designer = DataDesigner()
 MODEL_PROVIDER = "nvidia"
 
 model_configs = [
-    ModelConfig(
+    dd.ModelConfig(
         alias="vision",
         model="meta/llama-4-scout-17b-16e-instruct",
         provider=MODEL_PROVIDER,
-        inference_parameters=ChatCompletionInferenceParams(
+        inference_parameters=dd.ChatCompletionInferenceParams(
             temperature=0.60,
             top_p=0.95,
             max_tokens=2048,
@@ -109,7 +102,7 @@ model_configs = [
 #
 
 # %%
-config_builder = DataDesignerConfigBuilder(model_configs=model_configs)
+config_builder = dd.DataDesignerConfigBuilder(model_configs=model_configs)
 
 # %% [markdown]
 # ### 🌱 Seed Dataset Creation
@@ -190,12 +183,12 @@ img_dataset.head()
 # %%
 # Add the seed dataset containing our processed images
 df_seed = pd.DataFrame(img_dataset)[["uuid", "image_filename", "base64_image", "page", "options", "source"]]
-config_builder.with_seed_dataset(DataFrameSeedSource(df=df_seed))
+config_builder.with_seed_dataset(dd.DataFrameSeedSource(df=df_seed))
 
 # %%
 # Add a column to generate detailed document summaries
 config_builder.add_column(
-    LLMTextColumnConfig(
+    dd.LLMTextColumnConfig(
         name="summary",
         model_alias="vision",
         prompt=(
@@ -204,10 +197,10 @@ config_builder.add_column(
             "Place a summary at the bottom."
         ),
         multi_modal_context=[
-            ImageContext(
+            dd.ImageContext(
                 column_name="base64_image",
-                data_type=ModalityDataType.BASE64,
-                image_format=ImageFormat.PNG,
+                data_type=dd.ModalityDataType.BASE64,
+                image_format=dd.ImageFormat.PNG,
             )
         ],
     )

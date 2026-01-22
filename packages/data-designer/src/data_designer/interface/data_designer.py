@@ -318,12 +318,13 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         Args:
             run_config: A RunConfig instance containing runtime settings such as
                 early shutdown behavior and batch sizing via `buffer_size`. Import RunConfig from
-                data_designer.essentials.
+                data_designer.config.
 
         Example:
-            >>> from data_designer.essentials import DataDesigner, RunConfig
-            >>> dd = DataDesigner()
-            >>> dd.set_run_config(RunConfig(disable_early_shutdown=True))
+            >>> import data_designer.config as dd
+            >>> from data_designer.interface import DataDesigner
+            >>> designer = DataDesigner()
+            >>> designer.set_run_config(dd.RunConfig(disable_early_shutdown=True))
 
         Notes:
             When `disable_early_shutdown=True`, DataDesigner will never terminate generation early

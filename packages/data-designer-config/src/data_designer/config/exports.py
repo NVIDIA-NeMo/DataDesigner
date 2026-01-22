@@ -41,6 +41,7 @@ from data_designer.config.processors import (
     ProcessorType,
     SchemaTransformProcessorConfig,
 )
+from data_designer.config.run_config import RunConfig
 from data_designer.config.sampler_constraints import ColumnInequalityConstraint, ScalarInequalityConstraint
 from data_designer.config.sampler_params import (
     BernoulliMixtureSamplerParams,
@@ -74,6 +75,7 @@ from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.utils.info import InfoType
 from data_designer.config.validator_params import (
     CodeValidatorParams,
+    LocalCallableValidatorParams,
     RemoteValidatorParams,
     ValidatorType,
 )
@@ -112,6 +114,7 @@ def get_config_exports() -> list[str]:
         LLMJudgeColumnConfig.__name__,
         LLMStructuredColumnConfig.__name__,
         LLMTextColumnConfig.__name__,
+        LocalCallableValidatorParams.__name__,
         LocalFileSeedSource.__name__,
         ManualDistribution.__name__,
         ManualDistributionParams.__name__,
@@ -126,6 +129,7 @@ def get_config_exports() -> list[str]:
         PoissonSamplerParams.__name__,
         ProcessorType.__name__,
         RemoteValidatorParams.__name__,
+        RunConfig.__name__,
         SamplerColumnConfig.__name__,
         SamplerType.__name__,
         SamplingStrategy.__name__,

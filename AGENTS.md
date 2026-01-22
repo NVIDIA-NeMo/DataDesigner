@@ -16,25 +16,41 @@ This file provides guidance to agents when working with code in this repository.
 
 The project follows a layered architecture:
 
-1. **Config Layer** ([src/data_designer/config/](src/data_designer/config/)): User-facing configuration API
+1. **Config Layer** ([packages/data-designer-config/src/data_designer/config/](packages/data-designer-config/src/data_designer/config/)): User-facing configuration API
    - `config_builder.py`: Main builder API for constructing configurations
-   - `columns.py`: Column configuration types (Sampler, LLMText, LLMCode, LLMStructured, LLMJudge, Expression, Validation, SeedDataset)
+   - `column_configs.py`: Column configuration types (Sampler, LLMText, LLMCode, LLMStructured, LLMJudge, Expression, Validation, SeedDataset)
    - `models.py`: Model configurations and inference parameters
    - `sampler_params.py`: Parametrized samplers (Uniform, Category, Person, DateTime, etc.)
 
-2. **Engine Layer** ([src/data_designer/engine/](src/data_designer/engine/)): Internal generation and processing
+2. **Engine Layer** ([packages/data-designer-engine/src/data_designer/engine/](packages/data-designer-engine/src/data_designer/engine/)): Internal generation and processing
    - `column_generators/`: Generates individual columns from configs
    - `dataset_builders/`: Orchestrates full dataset generation with DAG-based dependency management
    - `models/`: LLM integration via LiteLLM with response parsing
    - `validators/`: Column validation (Python, SQL, Code, Remote)
    - `sampling_gen/`: Sophisticated person/entity sampling
 
-3. **Interface Layer** ([src/data_designer/interface/](src/data_designer/interface/)): Public API
+3. **Interface Layer** ([packages/data-designer/src/data_designer/interface/](packages/data-designer/src/data_designer/interface/)): Public API
    - `data_designer.py`: Main `DataDesigner` class (primary entry point)
    - `results.py`: Result containers
    - `errors.py`: Public error types
 
-4. **Essentials** ([src/data_designer/essentials/](src/data_designer/essentials/)): Convenience module re-exporting key classes for users
+### Recommended Import Pattern
+
+```python
+import data_designer.config as dd
+from data_designer.interface import DataDesigner
+
+# Usage:
+data_designer = DataDesigner()
+config_builder = dd.DataDesignerConfigBuilder()
+config_builder.add_column(
+    dd.SamplerColumnConfig(
+        name="category",
+        sampler_type=dd.SamplerType.CATEGORY,
+        params=dd.CategorySamplerParams(values=["A", "B"]),
+    )
+)
+```
 
 ### Key Design Patterns
 
@@ -98,10 +114,10 @@ make coverage       # Run tests with coverage report
 
 ## Key Files
 
-- [src/data_designer/interface/data_designer.py](src/data_designer/interface/data_designer.py) - Main entry point (`DataDesigner` class)
-- [src/data_designer/config/config_builder.py](src/data_designer/config/config_builder.py) - Configuration API (`DataDesignerConfigBuilder`)
-- [src/data_designer/engine/dataset_builders/column_wise_builder.py](src/data_designer/engine/dataset_builders/column_wise_builder.py) - Generation orchestrator
-- [src/data_designer/essentials/\_\_init\_\_.py](src/data_designer/essentials/__init__.py) - User-facing API exports
+- [packages/data-designer/src/data_designer/interface/data_designer.py](packages/data-designer/src/data_designer/interface/data_designer.py) - Main entry point (`DataDesigner` class)
+- [packages/data-designer-config/src/data_designer/config/config_builder.py](packages/data-designer-config/src/data_designer/config/config_builder.py) - Configuration API (`DataDesignerConfigBuilder`)
+- [packages/data-designer-config/src/data_designer/config/__init__.py](packages/data-designer-config/src/data_designer/config/__init__.py) - User-facing config API exports
+- [packages/data-designer-engine/src/data_designer/engine/dataset_builders/column_wise_builder.py](packages/data-designer-engine/src/data_designer/engine/dataset_builders/column_wise_builder.py) - Generation orchestrator
 - [pyproject.toml](pyproject.toml) - Project dependencies and tool configurations
 - [Makefile](Makefile) - Common development commands
 
@@ -212,7 +228,7 @@ This pattern provides:
 - Full IDE support (autocomplete, type hints)
 - Type checker validation
 
-**See [lazy_heavy_imports.py](src/data_designer/lazy_heavy_imports.py) for the current list of lazy-loaded libraries.**
+**See [lazy_heavy_imports.py](packages/data-designer-config/src/data_designer/lazy_heavy_imports.py) for the current list of lazy-loaded libraries.**
 
 #### Adding New Heavy Dependencies
 
@@ -492,7 +508,7 @@ When working with column configurations, understand these key types:
 - **`ValidationColumnConfig`**: Validation results (Python, SQL, Code, Remote validators)
 - **`SeedDatasetColumnConfig`**: Data from seed datasets
 
-See [src/data_designer/config/columns.py](src/data_designer/config/columns.py) for detailed schemas.
+See [packages/data-designer-config/src/data_designer/config/column_configs.py](packages/data-designer-config/src/data_designer/config/column_configs.py) for detailed schemas.
 
 ## Model Configuration
 
@@ -504,16 +520,16 @@ Models are configured via `ModelConfig` with:
 - `system_prompt`: Optional system prompt
 - `image_modality`: Support for image inputs
 
-See [src/data_designer/config/models.py](src/data_designer/config/models.py) for details.
+See [packages/data-designer-config/src/data_designer/config/models.py](packages/data-designer-config/src/data_designer/config/models.py) for details.
 
 ## Registry System
 
 The project uses a registry pattern for extensibility. Key registries:
 
-- **Column generators**: [src/data_designer/engine/column_generators/registry.py](src/data_designer/engine/column_generators/registry.py)
-- **Validators**: [src/data_designer/engine/validators/](src/data_designer/engine/validators/)
-- **Column profilers**: [src/data_designer/engine/analysis/column_profilers/registry.py](src/data_designer/engine/analysis/column_profilers/registry.py)
-- **Models**: [src/data_designer/engine/models/registry.py](src/data_designer/engine/models/registry.py)
+- **Column generators**: [packages/data-designer-engine/src/data_designer/engine/column_generators/registry.py](packages/data-designer-engine/src/data_designer/engine/column_generators/registry.py)
+- **Validators**: [packages/data-designer-engine/src/data_designer/engine/validators/](packages/data-designer-engine/src/data_designer/engine/validators/)
+- **Column profilers**: [packages/data-designer-engine/src/data_designer/engine/analysis/column_profilers/registry.py](packages/data-designer-engine/src/data_designer/engine/analysis/column_profilers/registry.py)
+- **Models**: [packages/data-designer-engine/src/data_designer/engine/models/registry.py](packages/data-designer-engine/src/data_designer/engine/models/registry.py)
 
 When adding new generators or validators, register them appropriately.
 
@@ -554,5 +570,5 @@ make coverage
 ## Additional Resources
 
 - **README.md**: Installation and basic usage examples
-- **src/data_designer/config/**: Configuration API documentation
+- **packages/data-designer-config/src/data_designer/config/**: Configuration API documentation
 - **tests/**: Comprehensive test suite with usage examples

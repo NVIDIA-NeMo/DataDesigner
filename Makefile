@@ -244,9 +244,9 @@ perf-import:
 ifdef CLEAN
 	@$(MAKE) clean-pycache
 endif
-	@echo "⚡ Profiling import time for data_designer.essentials..."
+	@echo "⚡ Profiling import time for data_designer.config..."
 ifdef NOFILE
-	@PERF_OUTPUT=$$(uv run python -X importtime -c "import data_designer.essentials" 2>&1); \
+	@PERF_OUTPUT=$$(uv run python -X importtime -c "import data_designer.config" 2>&1); \
 	echo "$$PERF_OUTPUT"; \
 	echo ""; \
 	echo "Summary:"; \
@@ -258,7 +258,7 @@ ifdef NOFILE
 	echo "$$PERF_OUTPUT" | grep "import time:" | sort -rn -k5 | head -10 | awk '{printf "%-12.3f %-12.3f %s", $$3/1000000, $$5/1000000, $$7; for(i=8;i<=NF;i++) printf " %s", $$i; printf "\n"}'
 else
 	@PERF_FILE="perf_import_$$(date +%Y%m%d_%H%M%S).txt"; \
-	uv run python -X importtime -c "import data_designer.essentials" > "$$PERF_FILE" 2>&1; \
+	uv run python -X importtime -c "import data_designer.config" > "$$PERF_FILE" 2>&1; \
 	echo "📊 Import profile saved to $$PERF_FILE"; \
 	echo ""; \
 	echo "Summary:"; \

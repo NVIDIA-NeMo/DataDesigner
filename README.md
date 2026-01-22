@@ -57,26 +57,19 @@ export OPENROUTER_API_KEY="your-openrouter-api-key-here"
 
 ### 3. Start generating data!
 ```python
-from data_designer.essentials import (
-    CategorySamplerParams,
-    DataDesigner,
-    DataDesignerConfigBuilder,
-    LLMTextColumnConfig,
-    PersonSamplerParams,
-    SamplerColumnConfig,
-    SamplerType,
-)
+import data_designer.config as dd
+from data_designer.interface import DataDesigner
 
 # Initialize with default settings
 data_designer = DataDesigner()
-config_builder = DataDesignerConfigBuilder()
+config_builder = dd.DataDesignerConfigBuilder()
 
 # Add a product category
 config_builder.add_column(
-    SamplerColumnConfig(
+    dd.SamplerColumnConfig(
         name="product_category",
-        sampler_type=SamplerType.CATEGORY,
-        params=CategorySamplerParams(
+        sampler_type=dd.SamplerType.CATEGORY,
+        params=dd.CategorySamplerParams(
             values=["Electronics", "Clothing", "Home & Kitchen", "Books"],
         ),
     )
@@ -84,7 +77,7 @@ config_builder.add_column(
 
 # Generate personalized customer reviews
 config_builder.add_column(
-    LLMTextColumnConfig(
+    dd.LLMTextColumnConfig(
         name="review",
         model_alias="nvidia-text",
         prompt="Write a brief product review for a {{ product_category }} item you recently purchased.",
