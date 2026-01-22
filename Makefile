@@ -14,10 +14,10 @@ help:
 	@echo "🚀 DataDesigner Makefile Commands"
 	@echo "═════════════════════════════════════════════════════════════"
 	@echo ""
-	@echo "📦 Installation:"
-	@echo "  install                   - Install project dependencies with uv"
-	@echo "  install-dev               - Install project with dev dependencies"
-	@echo "  install-dev-notebooks     - Install dev + notebook dependencies (Jupyter, etc.)"
+	@echo "📦 Installation (uv workspace - all packages in editable mode):"
+	@echo "  install                   - Install all packages (config → engine → interface)"
+	@echo "  install-dev               - Install all packages + dev tools (pytest, etc.)"
+	@echo "  install-dev-notebooks     - Install all packages + dev + notebook tools"
 	@echo ""
 	@echo "🧪 Testing (all packages):"
 	@echo "  test                      - Run all unit tests"
@@ -87,8 +87,14 @@ clean: clean-pycache clean-dist
 	@echo "✅ Cleaned!"
 
 coverage:
-	@echo "📊 Running tests with coverage analysis..."
-	uv run --group dev pytest --cov=data_designer --cov-report=term-missing --cov-report=html
+	@echo "📊 Running tests with coverage analysis (all packages)..."
+	uv run --group dev pytest \
+		packages/data-designer-config/tests \
+		packages/data-designer-engine/tests \
+		packages/data-designer/tests \
+		--cov=data_designer \
+		--cov-report=term-missing \
+		--cov-report=html
 	@echo "✅ Coverage report generated in htmlcov/index.html"
 
 check-all: format-check lint
@@ -117,9 +123,8 @@ lint-fix:
 	uv run ruff check --fix packages/ scripts/ tests_e2e/ --exclude '**/_version.py'
 	@echo "✅ Linting with autofix complete!"
 
-test:
-	@echo "🧪 Running unit tests..."
-	uv run --group dev pytest
+test: test-config test-engine test-interface
+	@echo "✅ All package tests complete!"
 
 test-e2e:
 	@echo "🧹 Cleaning e2e test environment..."
@@ -197,27 +202,43 @@ show-versions:
 	@uv run python -c "from data_designer.interface._version import __version__; print(f'  data-designer:        {__version__}')" 2>/dev/null || echo "  data-designer: (not installed)"
 
 install:
-	@echo "📦 Installing project dependencies..."
-	uv sync
+	@echo "📦 Installing DataDesigner workspace (all packages in editable mode)..."
+	@echo "   Packages: data-designer-config → data-designer-engine → data-designer"
+	uv sync --all-packages
 	@echo "✅ Installation complete!"
+	@echo ""
+	@echo "💡 Run 'make verify-imports' to verify all packages are working"
 
 install-dev:
 	@echo "📦 Installing DataDesigner workspace in development mode..."
-	uv sync --group dev
+	@echo "   Packages: data-designer-config → data-designer-engine → data-designer"
+	@echo "   Groups: dev (pytest, coverage, etc.)"
+	uv sync --all-packages --group dev
 	$(call install-pre-commit-hooks)
+	@echo ""
 	@echo "✅ All packages installed in development mode!"
 	@echo ""
+	@echo "📁 Workspace structure:"
+	@echo "   packages/data-designer-config/   - Configuration layer (lightweight)"
+	@echo "   packages/data-designer-engine/   - Generation engine (heavy deps)"
+	@echo "   packages/data-designer/          - Full package with CLI"
+	@echo ""
 	@echo "💡 Next steps:"
-	@echo "  - Run 'make test' to run all tests"
-	@echo "  - Run 'make lint' to lint all code"
-	@echo "  - Run 'make build' to build all packages"
-	@echo "  - Edit code in packages/*/src/ directories"
+	@echo "   make verify-imports     - Verify all packages are working"
+	@echo "   make test               - Run all tests across packages"
+	@echo "   make test-<pkg>         - Run tests for specific package (config, engine, interface)"
+	@echo "   make lint               - Lint all code"
+	@echo "   make build              - Build all package wheels"
 
 install-dev-notebooks:
-	@echo "📦 Installing project with notebook dependencies..."
-	uv sync --group dev --group notebooks
+	@echo "📦 Installing DataDesigner workspace with notebook dependencies..."
+	@echo "   Packages: data-designer-config → data-designer-engine → data-designer"
+	@echo "   Groups: dev + notebooks (Jupyter, jupytext, etc.)"
+	uv sync --all-packages --group dev --group notebooks
 	$(call install-pre-commit-hooks)
 	@echo "✅ Dev + notebooks installation complete!"
+	@echo ""
+	@echo "💡 Run 'make test-run-tutorials' to test notebook tutorials"
 
 perf-import:
 ifdef CLEAN
@@ -249,7 +270,7 @@ else
 	grep "import time:" "$$PERF_FILE" | sort -rn -k5 | head -10 | awk '{printf "%-12.3f %-12.3f %s", $$3/1000000, $$5/1000000, $$7; for(i=8;i<=NF;i++) printf " %s", $$i; printf "\n"}'
 endif
 
-# Multi-package test commands
+# Subpackage test commands
 test-config:
 	@echo "🧪 Testing data-designer-config..."
 	uv run --group dev pytest packages/data-designer-config/tests
@@ -262,7 +283,7 @@ test-interface:
 	@echo "🧪 Testing data-designer (interface)..."
 	uv run --group dev pytest packages/data-designer/tests
 
-# Multi-package lint commands
+# Subpackage lint commands
 lint-config:
 	@echo "🔍 Linting data-designer-config..."
 	uv run ruff check packages/data-designer-config/src packages/data-designer-config/tests
@@ -275,7 +296,7 @@ lint-interface:
 	@echo "🔍 Linting data-designer (interface)..."
 	uv run ruff check packages/data-designer/src packages/data-designer/tests
 
-# Multi-package format commands
+# Subpackage format commands
 format-config:
 	@echo "📐 Formatting data-designer-config..."
 	uv run ruff format packages/data-designer-config/src packages/data-designer-config/tests
@@ -288,7 +309,7 @@ format-interface:
 	@echo "📐 Formatting data-designer (interface)..."
 	uv run ruff format packages/data-designer/src packages/data-designer/tests
 
-# Multi-package lint-fix commands
+# Subpackage lint-fix commands
 lint-fix-config:
 	@echo "🔍 Fixing lint issues in data-designer-config..."
 	uv run ruff check --fix packages/data-designer-config/src packages/data-designer-config/tests
@@ -301,7 +322,7 @@ lint-fix-interface:
 	@echo "🔍 Fixing lint issues in data-designer (interface)..."
 	uv run ruff check --fix packages/data-designer/src packages/data-designer/tests
 
-# Multi-package check commands (format-check + lint)
+# Subpackage check commands (format-check + lint)
 check-config:
 	@echo "🔍 Checking data-designer-config..."
 	uv run ruff format --check packages/data-designer-config/src packages/data-designer-config/tests
@@ -317,7 +338,7 @@ check-interface:
 	uv run ruff format --check packages/data-designer/src packages/data-designer/tests
 	uv run ruff check packages/data-designer/src packages/data-designer/tests
 
-# Multi-package build commands
+# Subpackage build commands
 build-config:
 	@echo "🏗️  Building data-designer-config..."
 	cd packages/data-designer-config && uv build
@@ -333,7 +354,7 @@ build-interface:
 build: build-config build-engine build-interface
 	@echo "✅ All packages built!"
 
-# Multi-package coverage commands
+# Subpackage coverage commands
 coverage-config:
 	@echo "📊 Running config tests with coverage..."
 	uv run --group dev pytest packages/data-designer-config/tests --cov=data_designer.config --cov-report=term-missing --cov-report=html
