@@ -8,7 +8,7 @@ dependencies = [
 ]
 
 [tool.uv.sources]
-data-designer = { path = "../" }
+data-designer = { path = "../packages/data-designer" }
 
 [dependency-groups]
 dev = [
