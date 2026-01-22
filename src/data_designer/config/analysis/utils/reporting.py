@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
@@ -14,9 +14,12 @@ from rich.rule import Rule
 from rich.table import Column, Table
 from rich.text import Text
 
-from data_designer.config.analysis.column_statistics import CategoricalHistogramData
 from data_designer.config.analysis.utils.errors import AnalysisReportError
-from data_designer.config.column_types import COLUMN_TYPE_EMOJI_MAP, DataDesignerColumnType, get_column_display_order
+from data_designer.config.column_types import (
+    DataDesignerColumnType,
+    get_column_display_order,
+    get_column_emoji_from_type,
+)
 from data_designer.config.utils.visualization import (
     ColorPalette,
     convert_to_row_element,
@@ -25,6 +28,7 @@ from data_designer.config.utils.visualization import (
 )
 
 if TYPE_CHECKING:
+    from data_designer.config.analysis.column_statistics import CategoricalHistogramData
     from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
 
 HEADER_STYLE = "dim"
@@ -101,7 +105,7 @@ def generate_analysis_report(
         displayed_column_types.add(column_type)
         column_label = column_type.replace("_", " ").title().replace("Llm", "LLM")
         table = Table(
-            title=f"{COLUMN_TYPE_EMOJI_MAP[column_type]} {column_label} Columns",
+            title=f"{get_column_emoji_from_type(column_type)} {column_label} Columns",
             **table_kws,
         )
 

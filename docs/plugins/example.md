@@ -55,34 +55,21 @@ class IndexMultiplierColumnConfig(SingleColumnConfig):
 - Add any custom parameters your plugin needs (here: `multiplier`)
 - `SingleColumnConfig` is a Pydantic model, so you can leverage all of Pydantic's validation features
 
-## Step 3: Create the task class
+## Step 3: Create the implementation class
 
-The task class implements the actual business logic of the plugin. For column generator plugins, it inherits from [ColumnGenerator](../code_reference/column_generators.md#data_designer.engine.column_generators.generators.base.ColumnGenerator) and must implement a `metadata` static method and `generate` method:
+The implementation class defines the actual business logic of the plugin. For column generator plugins, it inherits from [ColumnGenerator](../code_reference/column_generators.md#data_designer.engine.column_generators.generators.base.ColumnGenerator) and must implement a `metadata` static method and `generate` method:
 
 
 ```python
 import logging
 import pandas as pd
 
-from data_designer.engine.column_generators.generators.base import (
-    ColumnGenerator,
-    GenerationStrategy,
-    GeneratorMetadata,
-)
+from data_designer.engine.column_generators.generators.base import ColumnGeneratorFullColumn, GenerationStrategy
 
 # Data Designer uses the standard Python logging module for logging
 logger = logging.getLogger(__name__)
 
-class IndexMultiplierColumnGenerator(ColumnGenerator[IndexMultiplierColumnConfig]):
-    @staticmethod
-    def metadata() -> GeneratorMetadata:
-        """Define metadata about this generator."""
-        return GeneratorMetadata(
-            name="index-multiplier",
-            description="Generates values by multiplying the row index by a user-specified multiplier",
-            generation_strategy=GenerationStrategy.FULL_COLUMN,
-            required_resources=None,
-        )
+class IndexMultiplierColumnGenerator(ColumnGeneratorFullColumn[IndexMultiplierColumnConfig]):
 
     def generate(self, data: pd.DataFrame) -> pd.DataFrame:
         """Generate the column data.
@@ -106,21 +93,20 @@ class IndexMultiplierColumnGenerator(ColumnGenerator[IndexMultiplierColumnConfig
 
 **Key points:**
 
-- Generic type `ColumnGenerator[IndexMultiplierColumnConfig]` connects the task to its config
-- `metadata()` describes your generator and its requirements
-- `generation_strategy` can be `FULL_COLUMN`, `CELL_BY_CELL`
+- Generic type `ColumnGeneratorFullColumn[IndexMultiplierColumnConfig]` connects the task to its config
 - You have access to the configuration parameters via `self.config`
-- `required_resources` lists any required resources (models, artifact storages, etc.). This parameter will evolve in the near future, so keeping it as `None` is safe for now. That said, if your task will use the model registry, adding `data_designer.engine.resources.ResourceType.MODEL_REGISTRY` will enable automatic model health checking for your column generation task.
 
 !!! info "Understanding generation_strategy"
     The `generation_strategy` specifies how the column generator will generate data.
 
     - **`FULL_COLUMN`**: Generates the full column (at the batch level) in a single call to `generate`
-        - `generate` must take as input a `pd.DataFrame` with all previous columns and return a `pd.DataFrame` with the generated column appended
+        - `generate` must take as input a `pd.DataFrame` with all previous columns and return a `pd.DataFrame` with the generated column appended.
+        - Inherit from `ColumnGeneratorFullColumn` for this strategy, as we do in the example above.
 
     - **`CELL_BY_CELL`**: Generates one cell at a time
         - `generate` must take as input a `dict` with key/value pairs for all previous columns and return a `dict` with an additional key/value for the generated cell
         - Supports concurrent workers via a `max_parallel_requests` parameter on the configuration
+        - Inherit from `ColumnGeneratorCellByCell` for this strategy.
 
 ## Step 4: Create the plugin object
 
@@ -131,8 +117,8 @@ from data_designer.plugins import Plugin, PluginType
 
 # Plugin instance - this is what gets loaded via entry point
 plugin = Plugin(
-    task_cls=IndexMultiplierColumnGenerator,
-    config_cls=IndexMultiplierColumnConfig,
+    impl_qualified_name="data_designer_index_multiplier.plugin.IndexMultiplierColumnGenerator",
+    config_qualified_name="data_designer_index_multiplier.plugin.IndexMultiplierColumnConfig",
     plugin_type=PluginType.COLUMN_GENERATOR,
     emoji="🔌",
 )
@@ -149,11 +135,8 @@ from typing import Literal
 import pandas as pd
 
 from data_designer.config.column_configs import SingleColumnConfig
-from data_designer.engine.column_generators.generators.base import (
-    ColumnGenerator,
-    GenerationStrategy,
-    GeneratorMetadata,
-)
+from data_designer.engine.column_generators.generators.base import ColumnGeneratorFullColumn
+
 from data_designer.plugins import Plugin, PluginType
 
 # Data Designer uses the standard Python logging module for logging
@@ -171,16 +154,7 @@ class IndexMultiplierColumnConfig(SingleColumnConfig):
     column_type: Literal["index-multiplier"] = "index-multiplier"
 
 
-class IndexMultiplierColumnGenerator(ColumnGenerator[IndexMultiplierColumnConfig]):
-    @staticmethod
-    def metadata() -> GeneratorMetadata:
-        """Define metadata about this generator."""
-        return GeneratorMetadata(
-            name="index-multiplier",
-            description="Generates values by multiplying the row index by a user-specified multiplier",
-            generation_strategy=GenerationStrategy.FULL_COLUMN,
-            required_resources=None,
-        )
+class IndexMultiplierColumnGenerator(ColumnGeneratorFullColumn[IndexMultiplierColumnConfig]):
 
     def generate(self, data: pd.DataFrame) -> pd.DataFrame:
         """Generate the column data.
@@ -204,8 +178,8 @@ class IndexMultiplierColumnGenerator(ColumnGenerator[IndexMultiplierColumnConfig
 
 # Plugin instance - this is what gets loaded via entry point
 plugin = Plugin(
-    task_cls=IndexMultiplierColumnGenerator,
-    config_cls=IndexMultiplierColumnConfig,
+    impl_qualified_name="data_designer_index_multiplier.plugin.IndexMultiplierColumnGenerator",
+    config_qualified_name="data_designer_index_multiplier.plugin.IndexMultiplierColumnConfig",
     plugin_type=PluginType.COLUMN_GENERATOR,
     emoji="🔌",
 )

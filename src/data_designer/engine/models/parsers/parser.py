@@ -1,5 +1,7 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
 
 from functools import reduce
 
@@ -80,12 +82,10 @@ class LLMResponseParser:
             code: str
             syntax: Optional[str] = None
 
-
         class CodeBlockParser:
             def __call__(self, element: _Element) -> CodeBlock:
                 # Implementation details...
                 return CodeBlock(code=element.text, syntax=element.get("class"))
-
 
         parser = LLMResponseParser(
             tag_parsers={

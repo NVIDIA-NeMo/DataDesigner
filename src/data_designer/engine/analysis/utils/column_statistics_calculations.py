@@ -1,15 +1,12 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
 
 import logging
 from numbers import Number
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import numpy as np
-import pandas as pd
-import pyarrow as pa
 import tiktoken
 
 from data_designer.config.analysis.column_statistics import (
@@ -26,6 +23,12 @@ from data_designer.engine.column_generators.utils.prompt_renderer import (
     RecordBasedPromptRenderer,
     create_response_recipe,
 )
+from data_designer.lazy_heavy_imports import np, pa, pd
+
+if TYPE_CHECKING:
+    import numpy as np
+    import pandas as pd
+    import pyarrow as pa
 
 RANDOM_SEED = 42
 MAX_PROMPT_SAMPLE_SIZE = 1000

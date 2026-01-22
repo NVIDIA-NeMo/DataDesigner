@@ -1,5 +1,7 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+
+from typing import Literal
 
 import pytest
 from pydantic import ValidationError
@@ -14,12 +16,11 @@ from data_designer.config.column_configs import (
     SamplerColumnConfig,
     Score,
     SeedDatasetColumnConfig,
+    SingleColumnConfig,
     ValidationColumnConfig,
 )
 from data_designer.config.column_types import (
     DataDesignerColumnType,
-    column_type_is_model_generated,
-    column_type_used_in_execution_dag,
     get_column_config_from_kwargs,
     get_column_display_order,
 )
@@ -54,30 +55,6 @@ def test_data_designer_column_type_get_display_order():
         DataDesignerColumnType.VALIDATION,
         DataDesignerColumnType.EXPRESSION,
     ]
-
-
-def test_data_designer_column_type_is_llm_generated():
-    assert column_type_is_model_generated(DataDesignerColumnType.LLM_TEXT)
-    assert column_type_is_model_generated(DataDesignerColumnType.LLM_CODE)
-    assert column_type_is_model_generated(DataDesignerColumnType.LLM_STRUCTURED)
-    assert column_type_is_model_generated(DataDesignerColumnType.LLM_JUDGE)
-    assert column_type_is_model_generated(DataDesignerColumnType.EMBEDDING)
-    assert not column_type_is_model_generated(DataDesignerColumnType.SAMPLER)
-    assert not column_type_is_model_generated(DataDesignerColumnType.VALIDATION)
-    assert not column_type_is_model_generated(DataDesignerColumnType.EXPRESSION)
-    assert not column_type_is_model_generated(DataDesignerColumnType.SEED_DATASET)
-
-
-def test_data_designer_column_type_is_in_dag():
-    assert column_type_used_in_execution_dag(DataDesignerColumnType.EXPRESSION)
-    assert column_type_used_in_execution_dag(DataDesignerColumnType.LLM_CODE)
-    assert column_type_used_in_execution_dag(DataDesignerColumnType.LLM_JUDGE)
-    assert column_type_used_in_execution_dag(DataDesignerColumnType.LLM_STRUCTURED)
-    assert column_type_used_in_execution_dag(DataDesignerColumnType.LLM_TEXT)
-    assert column_type_used_in_execution_dag(DataDesignerColumnType.VALIDATION)
-    assert column_type_used_in_execution_dag(DataDesignerColumnType.EMBEDDING)
-    assert not column_type_used_in_execution_dag(DataDesignerColumnType.SAMPLER)
-    assert not column_type_used_in_execution_dag(DataDesignerColumnType.SEED_DATASET)
 
 
 def test_sampler_column_config():
@@ -471,3 +448,21 @@ def test_sampler_column_config_discriminated_union_wrong_params_type():
             sampler_type=SamplerType.UNIFORM,
             params={"values": ["A", "B"]},  # Category params for uniform sampler
         )
+
+
+def test_default_column_emoji_for_custom_column_type() -> None:
+    """Ensure the base get_column_emoji implementation is used when not overridden."""
+
+    class StubColumnConfigWithoutEmoji(SingleColumnConfig):
+        column_type: Literal["stub-without-emoji"] = "stub-without-emoji"
+        value: str
+
+        @property
+        def required_columns(self) -> list[str]:
+            return []
+
+        @property
+        def side_effect_columns(self) -> list[str]:
+            return []
+
+    assert StubColumnConfigWithoutEmoji.get_column_emoji() == "🎨"

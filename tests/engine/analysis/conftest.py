@@ -1,12 +1,13 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import Mock, patch
 
-import pandas as pd
-import pyarrow as pa
 from pytest import fixture
 
 from data_designer.config.analysis.column_statistics import (
@@ -26,6 +27,11 @@ from data_designer.engine.dataset_builders.artifact_storage import ArtifactStora
 from data_designer.engine.models.registry import ModelRegistry
 from data_designer.engine.registry.data_designer_registry import DataDesignerRegistry
 from data_designer.engine.resources.resource_provider import ResourceProvider
+from data_designer.lazy_heavy_imports import pa, pd
+
+if TYPE_CHECKING:
+    import pandas as pd
+    import pyarrow as pa
 
 
 @fixture

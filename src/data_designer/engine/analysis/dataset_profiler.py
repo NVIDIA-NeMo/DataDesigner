@@ -1,22 +1,20 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
 from functools import cached_property
+from typing import TYPE_CHECKING
 
-import pandas as pd
-import pyarrow as pa
 from pydantic import Field, field_validator
 
 from data_designer.config.analysis.column_profilers import ColumnProfilerConfigT
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
 from data_designer.config.base import ConfigBase
 from data_designer.config.column_configs import SingleColumnConfig
-from data_designer.config.column_types import (
-    COLUMN_TYPE_EMOJI_MAP,
-    ColumnConfigT,
-)
+from data_designer.config.column_types import ColumnConfigT
 from data_designer.engine.analysis.column_profilers.base import ColumnConfigWithDataFrame, ColumnProfiler
 from data_designer.engine.analysis.column_statistics import get_column_statistics_calculator
 from data_designer.engine.analysis.errors import DatasetProfilerConfigurationError
@@ -24,6 +22,11 @@ from data_designer.engine.analysis.utils.column_statistics_calculations import h
 from data_designer.engine.dataset_builders.multi_column_configs import DatasetBuilderColumnConfigT, MultiColumnConfig
 from data_designer.engine.registry.data_designer_registry import DataDesignerRegistry
 from data_designer.engine.resources.resource_provider import ResourceProvider
+from data_designer.lazy_heavy_imports import pa, pd
+
+if TYPE_CHECKING:
+    import pandas as pd
+    import pyarrow as pa
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +74,7 @@ class DataDesignerDatasetProfiler:
 
         column_statistics = []
         for c in self.config.column_configs:
-            logger.info(f"  |-- {COLUMN_TYPE_EMOJI_MAP[c.column_type]} column: '{c.name}'")
+            logger.info(f"  |-- {c.get_column_emoji()} column: '{c.name}'")
             column_statistics.append(
                 get_column_statistics_calculator(c.column_type)(
                     column_config_with_df=ColumnConfigWithDataFrame(column_config=c, df=dataset)
@@ -81,14 +84,14 @@ class DataDesignerDatasetProfiler:
         column_profiles = []
         for profiler_config in self.config.column_profiler_configs or []:
             profiler = self._create_column_profiler(profiler_config)
-            applicable_column_types = profiler.metadata().applicable_column_types
+            applicable_column_types = profiler.get_applicable_column_types()
             for c in self.config.column_configs:
                 if c.column_type in applicable_column_types:
                     params = ColumnConfigWithDataFrame(column_config=c, df=dataset)
                     column_profiles.append(profiler.profile(params))
             if len(column_profiles) == 0:
                 logger.warning(
-                    f"⚠️ No applicable column types found for the '{profiler.metadata().name}' profiler. "
+                    f"⚠️ No applicable column types found for the '{profiler.name}' profiler. "
                     f"This profiler is applicable to the following column types: {applicable_column_types}"
                 )
 

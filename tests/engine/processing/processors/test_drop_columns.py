@@ -1,15 +1,21 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 from unittest.mock import Mock, patch
 
-import pandas as pd
 import pytest
 
 from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.processors import DropColumnsProcessorConfig
 from data_designer.engine.dataset_builders.artifact_storage import BatchStage
 from data_designer.engine.processing.processors.drop_columns import DropColumnsProcessor
+from data_designer.lazy_heavy_imports import pd
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 @pytest.fixture
@@ -35,14 +41,6 @@ def stub_processor(stub_processor_config):
 @pytest.fixture
 def stub_empty_dataframe():
     return pd.DataFrame()
-
-
-def test_metadata():
-    metadata = DropColumnsProcessor.metadata()
-
-    assert metadata.name == "drop_columns_processor"
-    assert metadata.description == "Drop columns from the input dataset."
-    assert metadata.required_resources is None
 
 
 @pytest.mark.parametrize(

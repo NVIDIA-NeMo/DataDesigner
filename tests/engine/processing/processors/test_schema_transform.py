@@ -1,10 +1,12 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 import json
+from typing import TYPE_CHECKING
 from unittest.mock import Mock
 
-import pandas as pd
 import pytest
 
 from data_designer.config.dataset_builders import BuildStage
@@ -12,6 +14,10 @@ from data_designer.config.processors import SchemaTransformProcessorConfig
 from data_designer.engine.dataset_builders.artifact_storage import BatchStage
 from data_designer.engine.processing.processors.schema_transform import SchemaTransformProcessor
 from data_designer.engine.resources.resource_provider import ResourceProvider
+from data_designer.lazy_heavy_imports import pd
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 @pytest.fixture
@@ -45,14 +51,6 @@ def stub_simple_dataframe() -> pd.DataFrame:
             "col2": [1, 2, 3, 4],
         }
     )
-
-
-def test_metadata() -> None:
-    metadata = SchemaTransformProcessor.metadata()
-
-    assert metadata.name == "schema_transform_processor"
-    assert metadata.description == "Generate dataset with transformed schema using a Jinja2 template."
-    assert metadata.required_resources is None
 
 
 def test_process_returns_original_dataframe(

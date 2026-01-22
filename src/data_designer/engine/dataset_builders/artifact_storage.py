@@ -1,5 +1,7 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
 
 import json
 import logging
@@ -7,17 +9,22 @@ import shutil
 from datetime import datetime
 from functools import cached_property
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-import pandas as pd
 from pydantic import BaseModel, field_validator, model_validator
 
 from data_designer.config.utils.io_helpers import read_parquet_dataset
 from data_designer.config.utils.type_helpers import StrEnum, resolve_string_enum
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
+from data_designer.lazy_heavy_imports import pd
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 logger = logging.getLogger(__name__)
 
 BATCH_FILE_NAME_FORMAT = "batch_{batch_number:05d}.parquet"
+SDG_CONFIG_FILENAME = "sdg.json"
 
 
 class BatchStage(StrEnum):
@@ -164,12 +171,6 @@ class ArtifactStorage(BaseModel):
         shutil.move(partial_result_path, final_file_path)
         return final_file_path
 
-    def write_configs(self, json_file_name: str, configs: list[dict]) -> Path:
-        self.mkdir_if_needed(self.base_dataset_path)
-        with open(self.base_dataset_path / json_file_name, "w") as file:
-            json.dump([c.model_dump(mode="json") for c in configs], file, indent=4)
-        return self.base_dataset_path / json_file_name
-
     def write_batch_to_parquet_file(
         self,
         batch_number: int,
@@ -194,11 +195,89 @@ class ArtifactStorage(BaseModel):
         dataframe.to_parquet(file_path, index=False)
         return file_path
 
+    def get_parquet_file_paths(self) -> list[str]:
+        """Get list of parquet file paths relative to base_dataset_path.
+
+        Returns:
+            List of relative paths to parquet files in the final dataset folder.
+        """
+        return [str(f.relative_to(self.base_dataset_path)) for f in sorted(self.final_dataset_path.glob("*.parquet"))]
+
+    def get_processor_file_paths(self) -> dict[str, list[str]]:
+        """Get processor output files organized by processor name.
+
+        Returns:
+            Dictionary mapping processor names to lists of relative file paths.
+        """
+        processor_files: dict[str, list[str]] = {}
+        if self.processors_outputs_path.exists():
+            for processor_dir in sorted(self.processors_outputs_path.iterdir()):
+                if processor_dir.is_dir():
+                    processor_name = processor_dir.name
+                    processor_files[processor_name] = [
+                        str(f.relative_to(self.base_dataset_path))
+                        for f in sorted(processor_dir.rglob("*"))
+                        if f.is_file()
+                    ]
+        return processor_files
+
+    def get_file_paths(self) -> dict[str, list[str] | dict[str, list[str]]]:
+        """Get all file paths organized by type.
+
+        Returns:
+            Dictionary with 'parquet-files' and 'processor-files' keys.
+        """
+        file_paths = {
+            "parquet-files": self.get_parquet_file_paths(),
+        }
+        processor_file_paths = self.get_processor_file_paths()
+        if processor_file_paths:
+            file_paths["processor-files"] = processor_file_paths
+
+        return file_paths
+
+    def read_metadata(self) -> dict:
+        """Read metadata from the metadata.json file.
+
+        Returns:
+            Dictionary containing the metadata.
+
+        Raises:
+            FileNotFoundError: If metadata file doesn't exist.
+        """
+        with open(self.metadata_file_path, "r") as file:
+            return json.load(file)
+
     def write_metadata(self, metadata: dict) -> Path:
+        """Write metadata to the metadata.json file.
+
+        Args:
+            metadata: Dictionary containing metadata to write.
+
+        Returns:
+            Path to the written metadata file.
+        """
         self.mkdir_if_needed(self.base_dataset_path)
         with open(self.metadata_file_path, "w") as file:
-            json.dump(metadata, file)
+            json.dump(metadata, file, indent=4, sort_keys=True)
         return self.metadata_file_path
+
+    def update_metadata(self, updates: dict) -> Path:
+        """Update existing metadata with new fields.
+
+        Args:
+            updates: Dictionary of fields to add/update in metadata.
+
+        Returns:
+            Path to the updated metadata file.
+        """
+        try:
+            existing_metadata = self.read_metadata()
+        except FileNotFoundError:
+            existing_metadata = {}
+
+        existing_metadata.update(updates)
+        return self.write_metadata(existing_metadata)
 
     def _get_stage_path(self, stage: BatchStage) -> Path:
         return getattr(self, resolve_string_enum(stage, BatchStage).value)

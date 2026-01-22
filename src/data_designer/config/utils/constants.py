@@ -1,5 +1,7 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
 
 import os
 from enum import Enum
@@ -282,6 +284,10 @@ OPENAI_PROVIDER_NAME = "openai"
 
 OPENAI_API_KEY_ENV_VAR_NAME = "OPENAI_API_KEY"
 
+OPENROUTER_PROVIDER_NAME = "openrouter"
+
+OPENROUTER_API_KEY_ENV_VAR_NAME = "OPENROUTER_API_KEY"
+
 PREDEFINED_PROVIDERS = [
     {
         "name": NVIDIA_PROVIDER_NAME,
@@ -295,6 +301,12 @@ PREDEFINED_PROVIDERS = [
         "provider_type": "openai",
         "api_key": OPENAI_API_KEY_ENV_VAR_NAME,
     },
+    {
+        "name": OPENROUTER_PROVIDER_NAME,
+        "endpoint": "https://openrouter.ai/api/v1",
+        "provider_type": "openai",
+        "api_key": OPENROUTER_API_KEY_ENV_VAR_NAME,
+    },
 ]
 
 
@@ -302,11 +314,14 @@ DEFAULT_TEXT_INFERENCE_PARAMS = {"temperature": 0.85, "top_p": 0.95}
 DEFAULT_REASONING_INFERENCE_PARAMS = {"temperature": 0.35, "top_p": 0.95}
 DEFAULT_VISION_INFERENCE_PARAMS = {"temperature": 0.85, "top_p": 0.95}
 DEFAULT_EMBEDDING_INFERENCE_PARAMS = {"encoding_format": "float"}
-
+NEMOTRON_3_NANO_30B_A3B_INFERENCE_PARAMS = {"temperature": 1.0, "top_p": 1.0}
 
 PREDEFINED_PROVIDERS_MODEL_MAP = {
     NVIDIA_PROVIDER_NAME: {
-        "text": {"model": "nvidia/nemotron-3-nano-30b-a3b", "inference_parameters": {"temperature": 1.0, "top_p": 1.0}},
+        "text": {
+            "model": "nvidia/nemotron-3-nano-30b-a3b",
+            "inference_parameters": NEMOTRON_3_NANO_30B_A3B_INFERENCE_PARAMS,
+        },
         "reasoning": {"model": "openai/gpt-oss-20b", "inference_parameters": DEFAULT_REASONING_INFERENCE_PARAMS},
         "vision": {"model": "nvidia/nemotron-nano-12b-v2-vl", "inference_parameters": DEFAULT_VISION_INFERENCE_PARAMS},
         "embedding": {
@@ -319,6 +334,18 @@ PREDEFINED_PROVIDERS_MODEL_MAP = {
         "reasoning": {"model": "gpt-5", "inference_parameters": DEFAULT_REASONING_INFERENCE_PARAMS},
         "vision": {"model": "gpt-5", "inference_parameters": DEFAULT_VISION_INFERENCE_PARAMS},
         "embedding": {"model": "text-embedding-3-large", "inference_parameters": DEFAULT_EMBEDDING_INFERENCE_PARAMS},
+    },
+    OPENROUTER_PROVIDER_NAME: {
+        "text": {
+            "model": "nvidia/nemotron-3-nano-30b-a3b",
+            "inference_parameters": NEMOTRON_3_NANO_30B_A3B_INFERENCE_PARAMS,
+        },
+        "reasoning": {"model": "openai/gpt-oss-20b", "inference_parameters": DEFAULT_REASONING_INFERENCE_PARAMS},
+        "vision": {"model": "nvidia/nemotron-nano-12b-v2-vl", "inference_parameters": DEFAULT_VISION_INFERENCE_PARAMS},
+        "embedding": {
+            "model": "openai/text-embedding-3-large",
+            "inference_parameters": DEFAULT_EMBEDDING_INFERENCE_PARAMS,
+        },
     },
 }
 

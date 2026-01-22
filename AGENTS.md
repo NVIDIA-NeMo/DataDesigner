@@ -158,12 +158,13 @@ Type annotations are REQUIRED for all code in this project. This is strictly enf
 ### Import Style
 
 - **ALWAYS** use absolute imports, never relative imports
-- Place imports at module level, not inside functions
+- Place imports at module level, not inside functions (exception: it is unavoidable for performance reasons)
 - Import sorting is handled by `ruff`'s `isort` - imports should be grouped and sorted:
   1. Standard library imports
-  2. Third-party imports
+  2. Third-party imports (use `lazy_heavy_imports` for heavy libraries)
   3. First-party imports (`data_designer`)
 - Use standard import conventions (enforced by `ICN`)
+- See [Lazy Loading and TYPE_CHECKING](#lazy-loading-and-type_checking) section for optimization guidelines
 
   ```python
   # Good
@@ -183,6 +184,146 @@ Type annotations are REQUIRED for all code in this project. This is strictly enf
       from pathlib import Path
       path = Path(filename)
   ```
+
+### Lazy Loading and TYPE_CHECKING
+
+This project uses lazy loading for heavy third-party dependencies to optimize import performance.
+
+#### When to Use Lazy Loading
+
+**Heavy third-party libraries** (>100ms import cost) should be lazy-loaded via `lazy_heavy_imports.py`:
+
+```python
+# ❌ Don't import directly
+import pandas as pd
+import numpy as np
+
+# ✅ Use lazy loading with IDE support
+from typing import TYPE_CHECKING
+from data_designer.lazy_heavy_imports import pd, np
+
+if TYPE_CHECKING:
+    import pandas as pd  # For IDE autocomplete and type hints
+    import numpy as np
+```
+
+This pattern provides:
+- Runtime lazy loading (fast startup)
+- Full IDE support (autocomplete, type hints)
+- Type checker validation
+
+**See [lazy_heavy_imports.py](src/data_designer/lazy_heavy_imports.py) for the current list of lazy-loaded libraries.**
+
+#### Adding New Heavy Dependencies
+
+If you add a new dependency with significant import cost (>100ms):
+
+1. **Add to `lazy_heavy_imports.py`:**
+   ```python
+   _LAZY_IMPORTS = {
+       # ... existing entries ...
+       "your_lib": "your_library_name",
+   }
+   ```
+
+2. **Update imports across codebase:**
+   ```python
+   from typing import TYPE_CHECKING
+   from data_designer.lazy_heavy_imports import your_lib
+
+   if TYPE_CHECKING:
+       import your_library_name as your_lib  # For IDE support
+   ```
+
+3. **Verify with performance test:**
+   ```bash
+   make perf-import CLEAN=1
+   ```
+
+#### Using TYPE_CHECKING Blocks
+
+`TYPE_CHECKING` blocks defer imports that are only needed for type hints, preventing circular dependencies and reducing import time.
+
+**For internal data_designer imports:**
+
+```python
+from __future__ import annotations  # Always include at top
+
+from typing import TYPE_CHECKING
+
+# Runtime imports
+from pathlib import Path
+from data_designer.config.base import ConfigBase
+
+if TYPE_CHECKING:
+    # Type-only imports - only visible to type checkers
+    from data_designer.engine.models.facade import ModelFacade
+
+def get_model(model: ModelFacade) -> str:
+    return model.name
+```
+
+**For lazy-loaded libraries (see pattern in "When to Use Lazy Loading" above):**
+- Import from `lazy_heavy_imports` for runtime
+- Add full import in `TYPE_CHECKING` block for IDE support
+
+**Rules for TYPE_CHECKING:**
+
+✅ **DO put in TYPE_CHECKING:**
+- Internal `data_designer` imports used **only** in type hints
+- Imports that would cause circular dependencies
+- **Full imports of lazy-loaded libraries for IDE support** (e.g., `import pandas as pd` in addition to runtime `from data_designer.lazy_heavy_imports import pd`)
+
+❌ **DON'T put in TYPE_CHECKING:**
+- **Standard library imports** (`Path`, `Any`, `Callable`, `Literal`, `TypeAlias`, etc.)
+- **Pydantic model types** used in field definitions (needed at runtime for validation)
+- **Types used in discriminated unions** (Pydantic needs them at runtime)
+- **Any import used at runtime** (instantiation, method calls, base classes, etc.)
+
+**Examples:**
+
+```python
+# ✅ CORRECT - Lazy-loaded library with IDE support
+from typing import TYPE_CHECKING
+from data_designer.lazy_heavy_imports import pd
+
+if TYPE_CHECKING:
+    import pandas as pd  # IDE gets full type hints
+
+def load_data(path: str) -> pd.DataFrame:  # IDE understands pd.DataFrame
+    return pd.read_csv(path)
+
+# ✅ CORRECT - Standard library NOT in TYPE_CHECKING
+from pathlib import Path
+from typing import Any
+
+def process_file(path: Path) -> Any:
+    return path.read_text()
+
+# ✅ CORRECT - Internal type-only import
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from data_designer.engine.models.facade import ModelFacade
+
+def get_model(model: ModelFacade) -> str:  # Only used in type hint
+    return model.name
+
+# ❌ INCORRECT - Pydantic field type in TYPE_CHECKING
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from data_designer.config.models import ModelConfig  # Wrong!
+
+class MyConfig(BaseModel):
+    model: ModelConfig  # Pydantic needs this at runtime!
+
+# ✅ CORRECT - Pydantic field type at runtime
+from data_designer.config.models import ModelConfig
+
+class MyConfig(BaseModel):
+    model: ModelConfig
+```
 
 ### Naming Conventions (PEP 8)
 

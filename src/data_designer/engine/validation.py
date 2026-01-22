@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
@@ -14,14 +14,15 @@ from rich.console import Console, Group
 from rich.padding import Padding
 from rich.panel import Panel
 
-from data_designer.config.column_types import ColumnConfigT, DataDesignerColumnType, column_type_is_model_generated
+from data_designer.config.column_types import ColumnConfigT, DataDesignerColumnType
 from data_designer.config.processors import ProcessorConfigT, ProcessorType
 from data_designer.config.utils.constants import RICH_CONSOLE_THEME
 from data_designer.config.utils.misc import (
     can_run_data_designer_locally,
-    get_prompt_template_keywords,
+    extract_keywords_from_jinja2_template,
 )
 from data_designer.config.validator_params import ValidatorType
+from data_designer.engine.column_generators.utils.generator_classification import column_type_is_model_generated
 
 
 class ViolationType(str, Enum):
@@ -301,7 +302,7 @@ def validate_schema_transform_processor(
     for processor_config in processor_configs:
         if processor_config.processor_type == ProcessorType.SCHEMA_TRANSFORM:
             for col, template in processor_config.template.items():
-                template_keywords = get_prompt_template_keywords(template)
+                template_keywords = extract_keywords_from_jinja2_template(template)
                 invalid_keywords = set(template_keywords) - all_column_names
                 if len(invalid_keywords) > 0:
                     invalid_keywords = ", ".join([f"'{k}'" for k in invalid_keywords])

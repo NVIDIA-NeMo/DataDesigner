@@ -1,15 +1,21 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 from unittest.mock import Mock, patch
 
-import pandas as pd
 import pytest
 
 from data_designer.config.column_configs import ExpressionColumnConfig
 from data_designer.engine.column_generators.generators.expression import ExpressionColumnGenerator
 from data_designer.engine.column_generators.utils.errors import ExpressionTemplateRenderError
 from data_designer.engine.resources.resource_provider import ResourceProvider
+from data_designer.lazy_heavy_imports import pd
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 def _create_test_config(name="test_column", expr="{{ col1 }}", dtype="str"):
@@ -24,14 +30,6 @@ def _create_test_generator(config=None, resource_provider=None):
     if resource_provider is None:
         resource_provider = Mock(spec=ResourceProvider)
     return ExpressionColumnGenerator(config=config, resource_provider=resource_provider)
-
-
-def test_metadata():
-    metadata = ExpressionColumnGenerator.metadata()
-
-    assert metadata.name == "expression_generator"
-    assert metadata.description == "Generate a column from a jinja2 expression."
-    assert metadata.generation_strategy == "full_column"
 
 
 def test_generator_creation():

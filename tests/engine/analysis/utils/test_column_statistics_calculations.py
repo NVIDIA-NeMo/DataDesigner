@@ -1,11 +1,11 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from itertools import cycle
+from __future__ import annotations
 
-import numpy as np
-import pandas as pd
-import pyarrow as pa
+from itertools import cycle
+from typing import TYPE_CHECKING
+
 import pytest
 
 from data_designer.config.analysis.column_statistics import (
@@ -27,6 +27,12 @@ from data_designer.engine.analysis.utils.column_statistics_calculations import (
     ensure_boolean,
     ensure_hashable,
 )
+from data_designer.lazy_heavy_imports import np, pa, pd
+
+if TYPE_CHECKING:
+    import numpy as np
+    import pandas as pd
+    import pyarrow as pa
 
 
 @pytest.fixture

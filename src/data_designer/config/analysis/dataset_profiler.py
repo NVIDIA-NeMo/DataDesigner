@@ -1,18 +1,24 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
 
 from functools import cached_property
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 from pydantic import BaseModel, Field, field_validator
 
 from data_designer.config.analysis.column_profilers import ColumnProfilerResultsT
 from data_designer.config.analysis.column_statistics import ColumnStatisticsT
-from data_designer.config.analysis.utils.reporting import ReportSection, generate_analysis_report
-from data_designer.config.column_types import DataDesignerColumnType, get_column_display_order
+from data_designer.config.analysis.utils.reporting import generate_analysis_report
+from data_designer.config.column_types import get_column_display_order
 from data_designer.config.utils.constants import EPSILON
 from data_designer.config.utils.numerical_helpers import prepare_number_for_reporting
+
+if TYPE_CHECKING:
+    from data_designer.config.analysis.utils.reporting import ReportSection
+    from data_designer.config.column_types import DataDesignerColumnType
 
 
 class DatasetProfilerResults(BaseModel):

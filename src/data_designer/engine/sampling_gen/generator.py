@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
@@ -6,18 +6,19 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-import networkx as nx
-import numpy as np
-import pandas as pd
-
 from data_designer.engine.sampling_gen.data_sources.base import RadomStateT
 from data_designer.engine.sampling_gen.errors import RejectionSamplingError
 from data_designer.engine.sampling_gen.jinja_utils import JinjaDataFrame
 from data_designer.engine.sampling_gen.people_gen import create_people_gen_resource
 from data_designer.engine.sampling_gen.schema import DataSchema
 from data_designer.engine.sampling_gen.utils import check_random_state
+from data_designer.lazy_heavy_imports import np, nx, pd
 
 if TYPE_CHECKING:
+    import networkx as nx
+    import numpy as np
+    import pandas as pd
+
     from data_designer.engine.dataset_builders.multi_column_configs import SamplerMultiColumnConfig
     from data_designer.engine.resources.managed_dataset_generator import ManagedDatasetGenerator
     from data_designer.engine.sampling_gen.column import ConditionalDataColumn

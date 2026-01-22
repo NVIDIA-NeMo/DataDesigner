@@ -1,10 +1,12 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
 
 import random
 from collections import defaultdict
+from typing import TYPE_CHECKING
 
-import pandas as pd
 import pytest
 from faker import Faker
 
@@ -13,6 +15,10 @@ from data_designer.engine.sampling_gen.data_sources.base import DataSource
 from data_designer.engine.sampling_gen.data_sources.sources import SamplerRegistry
 from data_designer.engine.sampling_gen.people_gen import PeopleGenFaker, PeopleGenFromDataset
 from data_designer.engine.sampling_gen.schema_builder import SchemaBuilder
+from data_designer.lazy_heavy_imports import pd
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 def create_person_args():

@@ -1,31 +1,28 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from abc import ABC, abstractmethod
-from pathlib import Path
-from typing import Generic, TypeVar, get_origin
+from __future__ import annotations
 
-import pandas as pd
+from abc import ABC
+from pathlib import Path
+from typing import TYPE_CHECKING, Generic, TypeVar, get_origin
 
 from data_designer.config.base import ConfigBase
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
-from data_designer.engine.resources.resource_provider import ResourceProvider, ResourceType
+from data_designer.engine.resources.resource_provider import ResourceProvider
+from data_designer.lazy_heavy_imports import pd
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 DataT = TypeVar("DataT", dict, pd.DataFrame)
 TaskConfigT = TypeVar("ConfigT", bound=ConfigBase)
 
 
-class ConfigurableTaskMetadata(ConfigBase):
-    name: str
-    description: str
-    required_resources: list[ResourceType] | None
-
-
 class ConfigurableTask(ABC, Generic[TaskConfigT]):
-    def __init__(self, config: TaskConfigT, *, resource_provider: ResourceProvider | None):
+    def __init__(self, config: TaskConfigT, resource_provider: ResourceProvider):
         self._config = self.get_config_type().model_validate(config)
         self._resource_provider = resource_provider
-        self._validate_resources()
         self._validate()
         self._initialize()
 
@@ -60,23 +57,15 @@ class ConfigurableTask(ABC, Generic[TaskConfigT]):
         return self._config
 
     @property
-    def resource_provider(self) -> ResourceProvider:
-        if self._resource_provider is None:
-            raise ValueError(f"No resource provider provided for the `{self.metadata().name}` task.")
-        return self._resource_provider
+    def name(self) -> str:
+        return self.__class__.__name__
 
-    @staticmethod
-    @abstractmethod
-    def metadata() -> ConfigurableTaskMetadata: ...
+    @property
+    def resource_provider(self) -> ResourceProvider:
+        return self._resource_provider
 
     def _initialize(self) -> None:
         """An internal method for custom initialization logic, which will be called in the constructor."""
 
     def _validate(self) -> None:
         """An internal method for custom validation logic, which will be called in the constructor."""
-
-    def _validate_resources(self) -> None:
-        for resource in self.metadata().required_resources or []:
-            if resource is not None:
-                if getattr(self.resource_provider, ResourceType(resource).value) is None:
-                    raise ValueError(f"Resource {resource} is required for the `{self.metadata().name}`")

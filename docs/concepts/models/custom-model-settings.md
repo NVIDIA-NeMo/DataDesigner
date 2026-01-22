@@ -96,7 +96,7 @@ preview_result.display_sample_record()
 ```
 
 !!! note "Default Providers Always Available"
-    When you only specify `model_configs`, the default model providers (NVIDIA and OpenAI) are still available. You only need to create custom providers if you want to connect to different endpoints or modify provider settings.
+    When you only specify `model_configs`, the default model providers (NVIDIA, OpenAI, and OpenRouter) are still available. You only need to create custom providers if you want to connect to different endpoints or modify provider settings.
 
 !!! tip "Mixing Custom and Default Models"
     When you provide custom `model_configs` to `DataDesignerConfigBuilder`, they **replace** the defaults entirely. To use custom model configs in addition to the default configs, use the add_model_config method:

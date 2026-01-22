@@ -1,9 +1,11 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 from unittest.mock import Mock, patch
 
-import pandas as pd
 import pytest
 
 from data_designer.engine.resources.managed_dataset_repository import (
@@ -14,6 +16,10 @@ from data_designer.engine.resources.managed_dataset_repository import (
     load_managed_dataset_repository,
 )
 from data_designer.engine.resources.managed_storage import ManagedBlobStorage
+from data_designer.lazy_heavy_imports import pd
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 def test_table_creation_default_schema():

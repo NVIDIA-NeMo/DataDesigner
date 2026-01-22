@@ -1,5 +1,7 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
 
 import functools
 import logging
@@ -11,40 +13,35 @@ from data_designer.config.column_configs import (
     LLMTextColumnConfig,
 )
 from data_designer.config.utils.constants import REASONING_TRACE_COLUMN_POSTFIX
-from data_designer.engine.column_generators.generators.base import (
-    ColumnGenerator,
-    GenerationStrategy,
-    GeneratorMetadata,
-    WithModelGeneration,
-)
+from data_designer.engine.column_generators.generators.base import ColumnGeneratorWithModel, GenerationStrategy
 from data_designer.engine.column_generators.utils.prompt_renderer import (
     PromptType,
     RecordBasedPromptRenderer,
     create_response_recipe,
 )
+from data_designer.engine.configurable_task import TaskConfigT
 from data_designer.engine.models.recipes.base import ResponseRecipe
 from data_designer.engine.processing.utils import deserialize_json_values
-from data_designer.engine.resources.resource_provider import ResourceType
 
 logger = logging.getLogger(__name__)
 
 
-DEFAULT_MAX_CONVERSATION_RESTARTS = 5
-DEFAULT_MAX_CONVERSATION_CORRECTION_STEPS = 0
+class ColumnGeneratorWithModelChatCompletion(ColumnGeneratorWithModel[TaskConfigT]):
+    @staticmethod
+    def get_generation_strategy() -> GenerationStrategy:
+        return GenerationStrategy.CELL_BY_CELL
 
-
-class WithChatCompletionGeneration(WithModelGeneration):
     @functools.cached_property
     def response_recipe(self) -> ResponseRecipe:
         return create_response_recipe(self.config, self.model_config)
 
     @property
     def max_conversation_correction_steps(self) -> int:
-        return DEFAULT_MAX_CONVERSATION_CORRECTION_STEPS
+        return self.resource_provider.run_config.max_conversation_correction_steps
 
     @property
     def max_conversation_restarts(self) -> int:
-        return DEFAULT_MAX_CONVERSATION_RESTARTS
+        return self.resource_provider.run_config.max_conversation_restarts
 
     @functools.cached_property
     def prompt_renderer(self) -> RecordBasedPromptRenderer:
@@ -58,6 +55,9 @@ class WithChatCompletionGeneration(WithModelGeneration):
         )
 
     def generate(self, data: dict) -> dict:
+        # Deserialize input data from previous columns so Jinja2 templates can access nested fields
+        # Example: If prev column stored '{"key": "value"}', templates can use {{ prev_column.key }}
+        # Note: This creates a new dict and doesn't mutate the original `data` argument
         deserialized_record = deserialize_json_values(data)
 
         multi_modal_context = None
@@ -84,57 +84,30 @@ class WithChatCompletionGeneration(WithModelGeneration):
             purpose=f"running generation for column '{self.config.name}'",
         )
 
-        data[self.config.name] = deserialize_json_values(self.response_recipe.serialize_output(response))
+        serialized_output = self.response_recipe.serialize_output(response)
+        data[self.config.name] = self._process_serialized_output(serialized_output)
 
         if reasoning_trace:
             data[self.config.name + REASONING_TRACE_COLUMN_POSTFIX] = reasoning_trace
 
         return data
 
-
-class LLMTextCellGenerator(WithChatCompletionGeneration, ColumnGenerator[LLMTextColumnConfig]):
-    @staticmethod
-    def metadata() -> GeneratorMetadata:
-        return GeneratorMetadata(
-            name="llm_text_generator",
-            description="Generate a new dataset cell from a prompt template",
-            generation_strategy=GenerationStrategy.CELL_BY_CELL,
-            required_resources=[ResourceType.MODEL_REGISTRY],
-        )
+    def _process_serialized_output(self, serialized_output: str) -> str | dict | list:
+        """Process the serialized output from the model. Subclasses can override to customize deserialization."""
+        return serialized_output
 
 
-class LLMCodeCellGenerator(WithChatCompletionGeneration, ColumnGenerator[LLMCodeColumnConfig]):
-    @staticmethod
-    def metadata() -> GeneratorMetadata:
-        return GeneratorMetadata(
-            name="llm_code_generator",
-            description="Generate a new dataset cell from a prompt template",
-            generation_strategy=GenerationStrategy.CELL_BY_CELL,
-            required_resources=[ResourceType.MODEL_REGISTRY],
-        )
+class LLMTextCellGenerator(ColumnGeneratorWithModelChatCompletion[LLMTextColumnConfig]): ...
 
 
-class LLMStructuredCellGenerator(WithChatCompletionGeneration, ColumnGenerator[LLMStructuredColumnConfig]):
-    @staticmethod
-    def metadata() -> GeneratorMetadata:
-        return GeneratorMetadata(
-            name="llm_structured_generator",
-            description="Generate a new dataset cell from a prompt template",
-            generation_strategy=GenerationStrategy.CELL_BY_CELL,
-            required_resources=[ResourceType.MODEL_REGISTRY],
-        )
+class LLMCodeCellGenerator(ColumnGeneratorWithModelChatCompletion[LLMCodeColumnConfig]): ...
 
 
-class LLMJudgeCellGenerator(WithChatCompletionGeneration, ColumnGenerator[LLMJudgeColumnConfig]):
-    @staticmethod
-    def metadata() -> GeneratorMetadata:
-        return GeneratorMetadata(
-            name="llm_judge_generator",
-            description="Judge a new dataset cell based on a set of rubrics",
-            generation_strategy=GenerationStrategy.CELL_BY_CELL,
-            required_resources=[ResourceType.MODEL_REGISTRY],
-        )
+class LLMStructuredCellGenerator(ColumnGeneratorWithModelChatCompletion[LLMStructuredColumnConfig]):
+    def _process_serialized_output(self, serialized_output: str) -> dict | list:
+        return deserialize_json_values(serialized_output)
 
-    @property
-    def max_conversation_restarts(self) -> int:
-        return 2 * DEFAULT_MAX_CONVERSATION_RESTARTS
+
+class LLMJudgeCellGenerator(ColumnGeneratorWithModelChatCompletion[LLMJudgeColumnConfig]):
+    def _process_serialized_output(self, serialized_output: str) -> dict | list:
+        return deserialize_json_values(serialized_output)

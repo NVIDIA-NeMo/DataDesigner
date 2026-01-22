@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
@@ -37,22 +37,17 @@ class PluginManager:
         if self._plugin_registry.plugin_exists(plugin_name):
             return self._plugin_registry.get_plugin(plugin_name)
 
-    def get_plugin_column_types(self, enum_type: type[Enum], required_resources: list[str] | None = None) -> list[Enum]:
+    def get_plugin_column_types(self, enum_type: type[Enum]) -> list[Enum]:
         """Get a list of plugin column types.
 
         Args:
             enum_type: The enum type to use for plugin entries.
-            required_resources: If provided, only return plugins with the required resources.
 
         Returns:
             A list of plugin column types.
         """
         type_list = []
         for plugin in self._plugin_registry.get_plugins(PluginType.COLUMN_GENERATOR):
-            if required_resources:
-                task_required_resources = plugin.task_cls.metadata().required_resources or []
-                if not all(resource in task_required_resources for resource in required_resources):
-                    continue
             type_list.append(enum_type(plugin.name))
         return type_list
 
@@ -69,3 +64,15 @@ class PluginManager:
             column_config_type, PluginType.COLUMN_GENERATOR
         )
         return column_config_type
+
+    def inject_into_seed_source_type_union(self, seed_source_type: type[TypeAlias]) -> type[TypeAlias]:
+        """Inject plugins into the seed source type.
+
+        Args:
+            seed_source_type: The seed source type to inject plugins into.
+
+        Returns:
+            The seed source type with plugins injected.
+        """
+        seed_source_type = self._plugin_registry.add_plugin_types_to_union(seed_source_type, PluginType.SEED_READER)
+        return seed_source_type

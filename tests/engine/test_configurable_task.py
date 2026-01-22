@@ -1,48 +1,31 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 from unittest.mock import Mock
 
-import pandas as pd
 import pytest
 
 from data_designer.config.base import ConfigBase
-from data_designer.engine.configurable_task import (
-    ConfigurableTask,
-    ConfigurableTaskMetadata,
-    DataT,
-    TaskConfigT,
-)
+from data_designer.engine.configurable_task import ConfigurableTask, DataT, TaskConfigT
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.engine.models.registry import ModelRegistry
-from data_designer.engine.resources.resource_provider import ResourceProvider, ResourceType
+from data_designer.engine.resources.resource_provider import ResourceProvider
+from data_designer.lazy_heavy_imports import pd
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
-def test_configurable_task_metadata_creation():
-    metadata = ConfigurableTaskMetadata(
-        name="test_task", description="Test task description", required_resources=[ResourceType.MODEL_REGISTRY]
-    )
-
-    assert metadata.name == "test_task"
-    assert metadata.description == "Test task description"
-    assert metadata.required_resources == [ResourceType.MODEL_REGISTRY]
-
-
-def test_configurable_task_metadata_with_no_resources():
-    metadata = ConfigurableTaskMetadata(name="test_task", description="Test task description", required_resources=None)
-
-    assert metadata.name == "test_task"
-    assert metadata.description == "Test task description"
-    assert metadata.required_resources is None
-
-
-def test_configurable_task_generic_type_variables():
+def test_configurable_task_generic_type_variables() -> None:
     assert DataT.__constraints__ == (dict, pd.DataFrame)
 
     assert TaskConfigT.__bound__ == ConfigBase
 
 
-def test_configurable_task_concrete_implementation():
+def test_configurable_task_concrete_implementation() -> None:
     class TestConfig(ConfigBase):
         value: str
 
@@ -50,10 +33,6 @@ def test_configurable_task_concrete_implementation():
         @classmethod
         def get_config_type(cls) -> type[TestConfig]:
             return TestConfig
-
-        @classmethod
-        def metadata(cls) -> ConfigurableTaskMetadata:
-            return ConfigurableTaskMetadata(name="test_task", description="Test task", required_resources=None)
 
         def _validate(self) -> None:
             pass
@@ -76,7 +55,7 @@ def test_configurable_task_concrete_implementation():
     assert task._resource_provider == resource_provider
 
 
-def test_configurable_task_config_validation():
+def test_configurable_task_config_validation() -> None:
     class TestConfig(ConfigBase):
         value: str
 
@@ -84,10 +63,6 @@ def test_configurable_task_config_validation():
         @classmethod
         def get_config_type(cls) -> type[TestConfig]:
             return TestConfig
-
-        @classmethod
-        def metadata(cls) -> ConfigurableTaskMetadata:
-            return ConfigurableTaskMetadata(name="test_task", description="Test task", required_resources=None)
 
         def _validate(self) -> None:
             if self._config.value == "invalid":
@@ -110,7 +85,7 @@ def test_configurable_task_config_validation():
         TestTask(config=invalid_config, resource_provider=resource_provider)
 
 
-def test_configurable_task_resource_validation():
+def test_configurable_task_resource_validation() -> None:
     class TestConfig(ConfigBase):
         value: str
 
@@ -118,12 +93,6 @@ def test_configurable_task_resource_validation():
         @classmethod
         def get_config_type(cls) -> type[TestConfig]:
             return TestConfig
-
-        @classmethod
-        def metadata(cls) -> ConfigurableTaskMetadata:
-            return ConfigurableTaskMetadata(
-                name="test_task", description="Test task", required_resources=[ResourceType.MODEL_REGISTRY]
-            )
 
         def _validate(self) -> None:
             pass
@@ -145,15 +114,11 @@ def test_configurable_task_resource_validation():
     assert task._resource_provider == resource_provider
 
 
-def test_configurable_task_resource_provider_is_none():
+def test_configurable_task_resource_provider_is_none() -> None:
     class TestConfig(ConfigBase):
         value: str
 
     class TestTask(ConfigurableTask[TestConfig]):
-        @classmethod
-        def metadata(cls) -> ConfigurableTaskMetadata:
-            return ConfigurableTaskMetadata(name="test_task", description="Test task", required_resources=None)
-
         def _validate(self) -> None:
             pass
 

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from unittest.mock import Mock, patch
@@ -19,7 +19,8 @@ from data_designer.config.processors import (
     SchemaTransformProcessorConfig,
 )
 from data_designer.config.utils.code_lang import CodeLang
-from data_designer.config.utils.validation import (
+from data_designer.config.validator_params import CodeValidatorParams
+from data_designer.engine.validation import (
     Violation,
     ViolationLevel,
     ViolationType,
@@ -31,7 +32,6 @@ from data_designer.config.utils.validation import (
     validate_prompt_templates,
     validate_schema_transform_processor,
 )
-from data_designer.config.validator_params import CodeValidatorParams
 
 STUB_MODEL_ALIAS = "stub-alias"
 
@@ -115,12 +115,12 @@ PROCESSOR_CONFIGS = [
 ALLOWED_REFERENCE = [c.name for c in COLUMNS]
 
 
-@patch("data_designer.config.utils.validation.validate_prompt_templates")
-@patch("data_designer.config.utils.validation.validate_code_validation")
-@patch("data_designer.config.utils.validation.validate_expression_references")
-@patch("data_designer.config.utils.validation.validate_columns_not_all_dropped")
-@patch("data_designer.config.utils.validation.validate_drop_columns_processor")
-@patch("data_designer.config.utils.validation.validate_schema_transform_processor")
+@patch("data_designer.engine.validation.validate_prompt_templates")
+@patch("data_designer.engine.validation.validate_code_validation")
+@patch("data_designer.engine.validation.validate_expression_references")
+@patch("data_designer.engine.validation.validate_columns_not_all_dropped")
+@patch("data_designer.engine.validation.validate_drop_columns_processor")
+@patch("data_designer.engine.validation.validate_schema_transform_processor")
 def test_validate_data_designer_config(
     mock_validate_columns_not_all_dropped,
     mock_validate_expression_references,
@@ -282,7 +282,7 @@ def test_validate_schema_transform_processor():
     assert violations[0].level == ViolationLevel.ERROR
 
 
-@patch("data_designer.config.utils.validation.Console.print")
+@patch("data_designer.engine.validation.Console.print")
 def test_rich_print_violations(mock_console_print):
     rich_print_violations([])
     mock_console_print.assert_not_called()

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
@@ -48,8 +48,8 @@ def can_run_data_designer_locally() -> bool:
     return True
 
 
-def get_prompt_template_keywords(template: str) -> set[str]:
-    """Extract all keywords from a valid string template."""
+def extract_keywords_from_jinja2_template(template: str) -> set[str]:
+    """Extract all keywords from a valid Jinja2 template."""
     with template_error_handler():
         ast = ImmutableSandboxedEnvironment().parse(template)
         keywords = set(meta.find_undeclared_variables(ast))

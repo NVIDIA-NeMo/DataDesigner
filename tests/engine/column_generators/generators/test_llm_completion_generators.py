@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from unittest.mock import Mock, patch
@@ -11,9 +11,9 @@ from data_designer.config.column_configs import (
     LLMStructuredColumnConfig,
     LLMTextColumnConfig,
 )
+from data_designer.config.run_config import RunConfig
+from data_designer.engine.column_generators.generators.base import GenerationStrategy
 from data_designer.engine.column_generators.generators.llm_completion import (
-    DEFAULT_MAX_CONVERSATION_CORRECTION_STEPS,
-    DEFAULT_MAX_CONVERSATION_RESTARTS,
     REASONING_TRACE_COLUMN_POSTFIX,
     LLMCodeCellGenerator,
     LLMJudgeCellGenerator,
@@ -31,12 +31,19 @@ def _create_generator_with_mocks(config_class=LLMTextColumnConfig, **config_kwar
     mock_inference_params = Mock()
     mock_prompt_renderer = Mock()
     mock_response_recipe = Mock()
+    mock_provider = Mock()
 
     mock_resource_provider.model_registry = mock_model_registry
+    mock_resource_provider.run_config = RunConfig(
+        max_conversation_restarts=7,
+        max_conversation_correction_steps=2,
+    )
     mock_model_registry.get_model.return_value = mock_model
     mock_model_registry.get_model_config.return_value = mock_model_config
+    mock_model_registry.get_model_provider.return_value = mock_provider
     mock_model_config.inference_parameters = mock_inference_params
     mock_model_config.alias = "test_model"
+    mock_provider.name = "test_provider"
 
     mock_inference_params.generate_kwargs = {"temperature": 0.7, "max_tokens": 100}
 
@@ -77,6 +84,8 @@ def test_generate_method():
 
     assert mock_prompt_renderer.render.call_count == 2
     mock_model.generate.assert_called_once()
+    assert mock_model.generate.call_args[1]["max_correction_steps"] == 2
+    assert mock_model.generate.call_args[1]["max_conversation_restarts"] == 7
     assert result["test_column"] == {"result": "test_output"}
     assert "test_column" + REASONING_TRACE_COLUMN_POSTFIX not in result
 
@@ -95,47 +104,44 @@ def test_generate_method():
 
 
 @patch("data_designer.engine.column_generators.generators.base.logger", autospec=True)
-def test_log_pre_generation(mock_logger):
-    generator, mock_resource_provider, _, mock_model_config, _, _, _ = _create_generator_with_mocks()
-    mock_model_config.model_dump_json.return_value = '{"test": "config"}'
+def test_log_pre_generation(mock_logger: Mock) -> None:
+    generator, mock_resource_provider, _, mock_model_config, mock_inference_params, _, _ = (
+        _create_generator_with_mocks()
+    )
+    mock_model_config.model = "meta/llama-3.1-8b-instruct"
+    mock_model_config.generation_type.value = "chat-completion"
+    mock_inference_params.format_for_display.return_value = "temperature=0.70, max_tokens=100"
 
     generator.log_pre_generation()
 
-    assert mock_logger.info.call_count == 3
-    mock_logger.info.assert_any_call("📝 Preparing llm-text column generation")
-    mock_logger.info.assert_any_call("  |-- column name: 'test_column'")
-    mock_logger.info.assert_any_call('  |-- model config:\n{"test": "config"}')
+    assert mock_logger.info.call_count == 5
+    mock_logger.info.assert_any_call("📝 llm-text model config for column 'test_column'")
+    mock_logger.info.assert_any_call("  |-- model: 'meta/llama-3.1-8b-instruct'")
+    mock_logger.info.assert_any_call("  |-- model alias: 'test_model'")
+    mock_logger.info.assert_any_call("  |-- model provider: 'test_provider'")
+    mock_logger.info.assert_any_call("  |-- inference parameters: temperature=0.70, max_tokens=100")
 
-    # Test with provider
-    mock_model_config.provider = None
+    # Test with different provider
+    mock_logger.reset_mock()
     mock_provider = Mock()
-    mock_provider.name = "test_provider"
+    mock_provider.name = "test_provider_2"
     mock_resource_provider.model_registry.get_model_provider.return_value = mock_provider
 
     generator.log_pre_generation()
-    mock_logger.info.assert_any_call("  |-- default model provider: 'test_provider'")
+    mock_logger.info.assert_any_call("  |-- model provider: 'test_provider_2'")
 
 
 @pytest.mark.parametrize(
-    "generator_class,config_class,expected_name,expected_description",
+    "generator_class",
     [
-        (LLMTextCellGenerator, LLMTextColumnConfig, "llm_text_generator", "generate a new dataset cell"),
-        (LLMCodeCellGenerator, LLMCodeColumnConfig, "llm_code_generator", "generate a new dataset cell"),
-        (LLMJudgeCellGenerator, LLMJudgeColumnConfig, "llm_judge_generator", "judge a new dataset cell"),
-        (
-            LLMStructuredCellGenerator,
-            LLMStructuredColumnConfig,
-            "llm_structured_generator",
-            "generate a new dataset cell",
-        ),
+        LLMTextCellGenerator,
+        LLMCodeCellGenerator,
+        LLMJudgeCellGenerator,
+        LLMStructuredCellGenerator,
     ],
 )
-def test_llm_generator_metadata(generator_class, config_class, expected_name, expected_description):
-    metadata = generator_class.metadata()
-
-    assert metadata.name == expected_name
-    assert expected_description.lower() in metadata.description.lower()
-    assert metadata.generation_strategy == "cell_by_cell"
+def test_llm_generator_generation_strategy(generator_class: type) -> None:
+    assert generator_class.get_generation_strategy() == GenerationStrategy.CELL_BY_CELL
 
 
 @pytest.mark.parametrize(
@@ -193,6 +199,10 @@ def test_judge_generator_max_conversation_restarts_override():
     mock_inference_params = Mock()
 
     mock_resource_provider.model_registry = mock_model_registry
+    mock_resource_provider.run_config = RunConfig(
+        max_conversation_restarts=7,
+        max_conversation_correction_steps=2,
+    )
     mock_model_registry.get_model.return_value = mock_model
     mock_model_registry.get_model_config.return_value = mock_model_config
     mock_model_config.inference_parameters = mock_inference_params
@@ -206,8 +216,8 @@ def test_judge_generator_max_conversation_restarts_override():
 
     generator = LLMJudgeCellGenerator(config=config, resource_provider=mock_resource_provider)
 
-    assert generator.max_conversation_restarts == 2 * DEFAULT_MAX_CONVERSATION_RESTARTS
-    assert generator.max_conversation_correction_steps == DEFAULT_MAX_CONVERSATION_CORRECTION_STEPS
+    assert generator.max_conversation_restarts == 7
+    assert generator.max_conversation_correction_steps == 2
 
 
 @pytest.mark.parametrize(
@@ -259,3 +269,82 @@ def test_generate_with_json_deserialization():
     result = generator.generate(data)
 
     assert result["test_column"] == {"result": "json_output"}
+
+
+@pytest.mark.parametrize(
+    "generator_class,config_class,config_kwargs,serialized_output,expected_output",
+    [
+        (
+            LLMTextCellGenerator,
+            LLMTextColumnConfig,
+            {"name": "text_col", "prompt": "Generate text", "model_alias": "test_model"},
+            '["plain", "text", "output"]',
+            '["plain", "text", "output"]',
+        ),
+        (
+            LLMCodeCellGenerator,
+            LLMCodeColumnConfig,
+            {"name": "code_col", "prompt": "Generate code", "model_alias": "test_model", "code_lang": "python"},
+            "def hello(): pass",
+            "def hello(): pass",
+        ),
+        (
+            LLMStructuredCellGenerator,
+            LLMStructuredColumnConfig,
+            {
+                "name": "struct_col",
+                "prompt": "Generate struct",
+                "model_alias": "test_model",
+                "output_format": {"type": "object", "properties": {"field": {"type": "string"}}},
+            },
+            '{"field": "value", "nested": {"key": "val"}}',
+            {"field": "value", "nested": {"key": "val"}},
+        ),
+        (
+            LLMJudgeCellGenerator,
+            LLMJudgeColumnConfig,
+            {
+                "name": "judge_col",
+                "prompt": "Judge this",
+                "model_alias": "test_model",
+                "scores": [{"name": "quality", "description": "Quality", "options": {1: "good", 0: "bad"}}],
+            },
+            '{"quality": 1, "reasoning": "Good quality"}',
+            {"quality": 1, "reasoning": "Good quality"},
+        ),
+    ],
+)
+def test_generator_output_type_handling(
+    stub_resource_provider: Mock,
+    generator_class: type,
+    config_class: type,
+    config_kwargs: dict,
+    serialized_output: str,
+    expected_output: str | dict,
+) -> None:
+    """Test that each generator type correctly handles its output format via polymorphism.
+
+    - Text/Code generators return plain strings
+    - Structured/Judge generators deserialize JSON to Python objects
+    """
+    config = config_class(**config_kwargs)
+    generator = generator_class(config=config, resource_provider=stub_resource_provider)
+
+    # Mock the prompt renderer and response recipe
+    mock_prompt_renderer = Mock()
+    mock_response_recipe = Mock()
+    generator.prompt_renderer = mock_prompt_renderer
+    generator.response_recipe = mock_response_recipe
+
+    # Setup mocks
+    mock_prompt_renderer.render.side_effect = ["rendered_user_prompt", "rendered_system_prompt"]
+    mock_response_recipe.serialize_output.return_value = serialized_output
+    stub_resource_provider.model_registry.get_model.return_value.generate.return_value = (
+        {"result": "raw_output"},
+        None,
+    )
+
+    data = {"input": "test_input"}
+    result = generator.generate(data)
+
+    assert result[config.name] == expected_output

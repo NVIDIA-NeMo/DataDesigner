@@ -36,6 +36,30 @@ jobs:
         run: |
           uv run pytest -v --cov=data_designer --cov-report=term-missing --cov-report=xml --cov-fail-under=90
 
+  test-e2e:
+    name: End to end test (Python ${{ matrix.python-version }} on ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          python-version: ${{ matrix.python-version }}
+          enable-cache: false
+
+      - name: Run e2e tests
+        run: |
+          make test-e2e
+
   lint:
     name: Lint and Format Check
     runs-on: ubuntu-latest
@@ -70,6 +94,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history needed for file creation dates
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5

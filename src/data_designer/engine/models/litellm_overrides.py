@@ -1,5 +1,22 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+
+
+"""
+LiteLLM overrides and customizations.
+
+Note on imports: This module uses direct (eager) imports for litellm rather than lazy loading.
+This is intentional because:
+
+1. Class inheritance requires base classes to be resolved at class definition time,
+   making lazy imports incompatible with our ThreadSafeCache and CustomRouter classes.
+
+2. This module is already lazily loaded at the application level - it's only imported
+   by facade.py, which itself is imported inside the create_model_registry() factory
+   function. So litellm is only loaded when models are actually needed.
+
+3. Attempting to use lazy imports here causes intermittent ImportErrors.
+"""
 
 from __future__ import annotations
 
@@ -10,6 +27,7 @@ import httpx
 import litellm
 from litellm import RetryPolicy
 from litellm.caching.in_memory_cache import InMemoryCache
+from litellm.litellm_core_utils.logging_callback_manager import LoggingCallbackManager
 from litellm.router import Router
 from pydantic import BaseModel, Field
 from typing_extensions import override
@@ -154,7 +172,7 @@ def apply_litellm_patches():
     litellm.in_memory_llm_clients_cache = ThreadSafeCache()
 
     # Workaround for the litellm issue described in https://github.com/BerriAI/litellm/issues/9792
-    litellm.litellm_core_utils.logging_callback_manager.LoggingCallbackManager.MAX_CALLBACKS = DEFAULT_MAX_CALLBACKS
+    LoggingCallbackManager.MAX_CALLBACKS = DEFAULT_MAX_CALLBACKS
 
     quiet_noisy_logger("httpx")
     quiet_noisy_logger("LiteLLM")

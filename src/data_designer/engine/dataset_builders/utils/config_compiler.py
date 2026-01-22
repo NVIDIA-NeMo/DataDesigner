@@ -1,5 +1,7 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
 
 from data_designer.config.column_types import DataDesignerColumnType
 from data_designer.config.data_designer_config import DataDesignerConfig
@@ -34,7 +36,7 @@ def compile_dataset_builder_column_configs(config: DataDesignerConfig) -> list[D
         compiled_column_configs.append(
             SeedDatasetMultiColumnConfig(
                 columns=seed_column_configs,
-                dataset=config.seed_config.dataset,
+                source=config.seed_config.source,
                 sampling_strategy=config.seed_config.sampling_strategy,
                 selection_strategy=config.seed_config.selection_strategy,
             )

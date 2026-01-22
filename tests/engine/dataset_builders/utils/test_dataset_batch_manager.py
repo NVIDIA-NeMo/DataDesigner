@@ -1,15 +1,21 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-import json
-from unittest.mock import patch
+from __future__ import annotations
 
-import pandas as pd
+import json
+from typing import TYPE_CHECKING
+from unittest.mock import Mock, patch
+
 import pytest
 
 from data_designer.engine.dataset_builders.artifact_storage import BatchStage
 from data_designer.engine.dataset_builders.utils.dataset_batch_manager import DatasetBatchManager
 from data_designer.engine.dataset_builders.utils.errors import DatasetBatchManagementError
+from data_designer.lazy_heavy_imports import pd
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 @pytest.fixture
@@ -234,6 +240,27 @@ def test_finish_batch_all_batches_processed(stub_batch_manager_with_data):
         stub_batch_manager_with_data.finish_batch()
 
 
+def test_finish_batch_empty_buffer_logs_warning_and_returns_none(
+    stub_batch_manager_with_data, caplog: pytest.LogCaptureFixture
+) -> None:
+    result = stub_batch_manager_with_data.finish_batch()
+
+    assert result is None
+    assert "finished without any results to write" in caplog.text
+    assert stub_batch_manager_with_data.buffer_is_empty
+    assert stub_batch_manager_with_data.get_current_batch_number() == 1
+    assert not stub_batch_manager_with_data.artifact_storage.metadata_file_path.exists()
+
+
+def test_finish_batch_empty_buffer_does_not_call_on_complete(stub_batch_manager_with_data) -> None:
+    on_complete = Mock()
+
+    result = stub_batch_manager_with_data.finish_batch(on_complete=on_complete)
+
+    assert result is None
+    on_complete.assert_not_called()
+
+
 def test_finish_batch_metadata_content(stub_batch_manager_with_data):
     records = [{"id": i, "name": f"test{i}"} for i in range(3)]
     stub_batch_manager_with_data.add_records(records)
@@ -250,7 +277,14 @@ def test_finish_batch_metadata_content(stub_batch_manager_with_data):
     assert metadata["dataset_name"] == stub_batch_manager_with_data.artifact_storage.dataset_name
     assert "schema" in metadata
     assert "file_paths" in metadata
-    assert "num_records" in metadata
+    assert isinstance(metadata["file_paths"], dict)
+    assert "parquet-files" in metadata["file_paths"]
+    assert isinstance(metadata["file_paths"]["parquet-files"], list)
+    assert len(metadata["file_paths"]["parquet-files"]) == 1
+    assert metadata["file_paths"]["parquet-files"][0] == "parquet-files/batch_00000.parquet"
+
+    # processor-files key should not exist if no processor files
+    assert "processor-files" not in metadata["file_paths"]
 
 
 # Test finish method

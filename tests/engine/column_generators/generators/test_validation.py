@@ -1,9 +1,11 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 from unittest.mock import Mock, patch
 
-import pandas as pd
 import pytest
 
 from data_designer.config.column_configs import ValidationColumnConfig
@@ -27,6 +29,10 @@ from data_designer.engine.validators import (
     ValidationResult,
 )
 from data_designer.engine.validators.base import ValidationOutput
+from data_designer.lazy_heavy_imports import pd
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 @pytest.mark.parametrize(
@@ -237,3 +243,6 @@ def test_validation_column_generator_validate_in_parallel_failure(mock_get_valid
             match="Validation task failed due to an unexpected error in parallel execution",
         ):
             generator.generate(df)
+
+        call_kwargs = mock_executor_class.call_args[1]
+        assert call_kwargs["disable_early_shutdown"] == stub_resource_provider.run_config.disable_early_shutdown

@@ -1,5 +1,7 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
 
 from unittest.mock import patch
 
@@ -45,6 +47,13 @@ def test_custom_router_calculate_exponential_backoff(retry_count: int, jitter: f
             )
             == expected_sleep_s
         )
+
+
+def test_apply_litellm_patches_no_exceptions():
+    try:
+        apply_litellm_patches()
+    except Exception as e:
+        pytest.fail(f"apply_litellm_patches() raised an unexpected exception: {e}")
 
 
 @patch("data_designer.engine.models.litellm_overrides.quiet_noisy_logger", autospec=True)

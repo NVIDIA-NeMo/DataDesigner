@@ -1,14 +1,20 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
 
 import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import Mock
 
-import pandas as pd
 import pytest
 
 from data_designer.engine.resources.managed_storage import LocalBlobStorageProvider
+from data_designer.lazy_heavy_imports import pd
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 @pytest.fixture
@@ -38,7 +44,6 @@ def stub_sample_dataframe():
 def stub_artifact_storage():
     mock_storage = Mock()
     mock_storage.write_parquet_file = Mock()
-    mock_storage.write_configs = Mock()
     return mock_storage
 
 

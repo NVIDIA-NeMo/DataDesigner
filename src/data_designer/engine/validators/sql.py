@@ -1,15 +1,20 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
 
 import logging
 import re
-
-import pandas as pd
-import sqlfluff
+from typing import TYPE_CHECKING
 
 from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.validator_params import CodeValidatorParams
 from data_designer.engine.validators.base import BaseValidator, ValidationOutput, ValidationResult
+from data_designer.lazy_heavy_imports import pd, sqlfluff
+
+if TYPE_CHECKING:
+    import pandas as pd
+    import sqlfluff
 
 sqlfluff_logger = logging.getLogger("sqlfluff")
 sqlfluff_logger.setLevel(logging.WARNING)

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
@@ -96,6 +96,7 @@ class ConcurrentThreadExecutor:
         error_callback: ErrorCallbackWithContext | None = None,
         shutdown_error_rate: float = 0.50,
         shutdown_error_window: int = 10,
+        disable_early_shutdown: bool = False,
     ):
         self._executor = None
         self._column_name = column_name
@@ -106,7 +107,28 @@ class ConcurrentThreadExecutor:
         self._error_callback = error_callback
         self._shutdown_error_rate = shutdown_error_rate
         self._shutdown_window_size = shutdown_error_window
+        self._disable_early_shutdown = disable_early_shutdown
         self._results = ExecutorResults(failure_threshold=shutdown_error_rate)
+
+    @property
+    def results(self) -> ExecutorResults:
+        return self._results
+
+    @property
+    def max_workers(self) -> int:
+        return self._max_workers
+
+    @property
+    def shutdown_error_rate(self) -> float:
+        return self._shutdown_error_rate
+
+    @property
+    def shutdown_window_size(self) -> int:
+        return self._shutdown_window_size
+
+    @property
+    def semaphore(self) -> Semaphore:
+        return self._semaphore
 
     def __enter__(self) -> ConcurrentThreadExecutor:
         self._executor = ThreadPoolExecutor(
@@ -119,7 +141,7 @@ class ConcurrentThreadExecutor:
 
     def __exit__(self, exc_type, exc_value, traceback):
         self._shutdown_executor()
-        if self._results.early_shutdown is True:
+        if not self._disable_early_shutdown and self._results.early_shutdown is True:
             self._raise_task_error()
 
     def _shutdown_executor(self) -> None:
@@ -140,21 +162,25 @@ class ConcurrentThreadExecutor:
         if self._executor is None:
             raise RuntimeError("Executor is not initialized, this class should be used as a context manager.")
 
-        if self._results.early_shutdown:
+        if not self._disable_early_shutdown and self._results.early_shutdown:
             self._shutdown_executor()
             self._raise_task_error()
 
         def _handle_future(future: Future) -> None:
-            self._results.completed_count += 1
             try:
                 result = future.result()
                 if self._result_callback is not None:
                     self._result_callback(result, context=context)
-                self._results.success_count += 1
+                with self._lock:
+                    self._results.completed_count += 1
+                    self._results.success_count += 1
             except Exception as err:
                 with self._lock:
+                    self._results.completed_count += 1
                     self._results.error_trap.handle_error(err)
-                    if self._results.is_error_rate_exceeded(self._shutdown_window_size):
+                    if not self._disable_early_shutdown and self._results.is_error_rate_exceeded(
+                        self._shutdown_window_size
+                    ):
                         # Signal to shutdown early on the next submission (if received).
                         # We cannot trigger shutdown from within this thread as it can
                         # cause a deadlock.
@@ -174,7 +200,12 @@ class ConcurrentThreadExecutor:
             # We'll re-raise a custom error that can be handled at the call-site and the summary
             # can also be inspected.
             self._semaphore.release()
-            if not isinstance(err, RuntimeError) and "after shutdown" not in str(err):
+            is_shutdown_error = isinstance(err, RuntimeError) and (
+                "after shutdown" in str(err) or "Pool shutdown" in str(err)
+            )
+            if not is_shutdown_error:
+                raise err
+            if self._disable_early_shutdown:
                 raise err
             self._raise_task_error()
 

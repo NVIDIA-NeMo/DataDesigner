@@ -1,17 +1,23 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-import logging
-from copy import deepcopy
-from typing import Any, overload
+from __future__ import annotations
 
-from jsonschema import Draft202012Validator, ValidationError, validators
+import logging
+import re
+from copy import deepcopy
+from decimal import ROUND_HALF_UP, Decimal
+from typing import TYPE_CHECKING, Any, overload
 
 from data_designer.engine.processing.gsonschema.exceptions import JSONSchemaValidationError
 from data_designer.engine.processing.gsonschema.schema_transformers import forbid_additional_properties
 from data_designer.engine.processing.gsonschema.types import DataObjectT, JSONSchemaT, T_primitive
+from data_designer.lazy_heavy_imports import jsonschema
 
-DEFAULT_JSONSCHEMA_VALIDATOR = Draft202012Validator
+if TYPE_CHECKING:
+    import jsonschema
+
+DEFAULT_JSONSCHEMA_VALIDATOR = jsonschema.Draft202012Validator
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +73,58 @@ def extend_jsonschema_validator_with_pruning(validator):
         Type[jsonschema.Validator]: A validator class that will
             prune extra fields.
     """
-    return validators.extend(validator, {"additionalProperties": prune_additional_properties})
+    return jsonschema.validators.extend(validator, {"additionalProperties": prune_additional_properties})
+
+
+def _get_decimal_info_from_anyof(schema: dict) -> tuple[bool, int | None]:
+    """Check if schema is a Decimal anyOf and extract decimal places.
+
+    Returns (is_decimal, decimal_places) where decimal_places is None if no constraint.
+    """
+    any_of = schema.get("anyOf")
+    if not isinstance(any_of, list):
+        return False, None
+
+    has_number = any(item.get("type") == "number" for item in any_of)
+    if not has_number:
+        return False, None
+
+    for item in any_of:
+        if item.get("type") == "string" and "pattern" in item:
+            match = re.search(r"\\d\{0,(\d+)\}", item["pattern"])
+            if match:
+                return True, int(match.group(1))
+            return True, None  # Decimal without precision constraint
+    return False, None
+
+
+def normalize_decimal_fields(obj: DataObjectT, schema: JSONSchemaT) -> DataObjectT:
+    """Normalize Decimal-like anyOf fields to floats with proper precision."""
+    if not isinstance(obj, dict):
+        return obj
+
+    defs = schema.get("$defs", {})
+    obj_schema = defs.get(schema.get("$ref", "")[len("#/$defs/") :], schema)
+    props = obj_schema.get("properties", {})
+
+    for key, value in obj.items():
+        field_schema = props.get(key, {})
+        if "$ref" in field_schema:
+            field_schema = defs.get(field_schema["$ref"][len("#/$defs/") :], {})
+
+        if isinstance(value, dict):
+            obj[key] = normalize_decimal_fields(value, schema)
+        elif isinstance(value, list):
+            obj[key] = [normalize_decimal_fields(v, schema) if isinstance(v, dict) else v for v in value]
+        elif isinstance(value, (int, float, str)) and not isinstance(value, bool):
+            is_decimal, decimal_places = _get_decimal_info_from_anyof(field_schema)
+            if is_decimal:
+                d = Decimal(str(value))
+                if decimal_places is not None:
+                    d = d.quantize(Decimal(f"0.{'0' * decimal_places}"), rounding=ROUND_HALF_UP)
+                obj[key] = float(d)
+
+    return obj
 
 
 ## We don't expect the outer data type (e.g. dict, list, or const) to be
@@ -137,7 +194,9 @@ def validate(
 
     try:
         validator(schema).validate(final_object)
-    except ValidationError as exc:
+    except jsonschema.ValidationError as exc:
         raise JSONSchemaValidationError(str(exc)) from exc
+
+    final_object = normalize_decimal_fields(final_object, schema)
 
     return final_object

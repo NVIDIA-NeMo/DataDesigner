@@ -8,7 +8,10 @@
       { "name": "uniform", "drop": false },
       { "name": "poisson", "drop": false }
     ],
-    "dataset": "local_df.csv",
+    "source": {
+      "path": "datasets/test-repo/testing/data.csv",
+      "seed_type": "hf"
+    },
     "sampling_strategy": "shuffle"
   },
   {
