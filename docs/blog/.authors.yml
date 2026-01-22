@@ -1,0 +1,22 @@
+authors:
+  nvidia:
+    name: NVIDIA NeMo Data Designer Team
+    description: NeMo Data Designer Core Team
+    avatar: https://avatars.githubusercontent.com/u/1728152?s=200&v=4
+  kirit:
+    name: Kirit Thadaka
+    description: Data Designer Contributor
+    avatar: https://api.dicebear.com/7.x/initials/svg?seed=KT
+  dhruv:
+    name: Dhruv Nathawani
+    description: NVIDIA AI Research
+    avatar: https://api.dicebear.com/7.x/initials/svg?seed=DN
+  maarten:
+    name: Maarten Van Segbroeck
+    description: NVIDIA AI Research
+    avatar: https://api.dicebear.com/7.x/initials/svg?seed=MVS
+  yev:
+    name: Yev Meyer
+    description: NVIDIA AI Research
+    avatar: https://api.dicebear.com/7.x/initials/svg?seed=YM
+
