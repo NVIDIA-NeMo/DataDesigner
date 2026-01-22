@@ -21,25 +21,16 @@
 #
 
 # %% [markdown]
-# ### 📦 Import the essentials
+# ### 📦 Import Data Designer
 #
-# - The `essentials` module provides quick access to the most commonly used objects.
+# - `data_designer.config` provides access to the configuration API.
+#
+# - `DataDesigner` is the main interface for data generation.
 #
 
 # %%
-from data_designer.essentials import (
-    CategorySamplerParams,
-    ChatCompletionInferenceParams,
-    DataDesigner,
-    DataDesignerConfigBuilder,
-    LLMTextColumnConfig,
-    ModelConfig,
-    PersonFromFakerSamplerParams,
-    SamplerColumnConfig,
-    SamplerType,
-    SubcategorySamplerParams,
-    UniformSamplerParams,
-)
+import data_designer.config as dd
+from data_designer.interface import DataDesigner
 
 # %% [markdown]
 # ### ⚙️ Initialize the Data Designer interface
@@ -75,11 +66,11 @@ MODEL_ID = "nvidia/nemotron-3-nano-30b-a3b"
 MODEL_ALIAS = "nemotron-nano-v3"
 
 model_configs = [
-    ModelConfig(
+    dd.ModelConfig(
         alias=MODEL_ALIAS,
         model=MODEL_ID,
         provider=MODEL_PROVIDER,
-        inference_parameters=ChatCompletionInferenceParams(
+        inference_parameters=dd.ChatCompletionInferenceParams(
             temperature=1.0,
             top_p=1.0,
             max_tokens=2048,
@@ -99,7 +90,7 @@ model_configs = [
 #
 
 # %%
-config_builder = DataDesignerConfigBuilder(model_configs=model_configs)
+config_builder = dd.DataDesignerConfigBuilder(model_configs=model_configs)
 
 # %% [markdown]
 # ## 🎲 Getting started with sampler columns
@@ -122,10 +113,10 @@ config_builder.info.display("samplers")
 
 # %%
 config_builder.add_column(
-    SamplerColumnConfig(
+    dd.SamplerColumnConfig(
         name="product_category",
-        sampler_type=SamplerType.CATEGORY,
-        params=CategorySamplerParams(
+        sampler_type=dd.SamplerType.CATEGORY,
+        params=dd.CategorySamplerParams(
             values=[
                 "Electronics",
                 "Clothing",
@@ -138,10 +129,10 @@ config_builder.add_column(
 )
 
 config_builder.add_column(
-    SamplerColumnConfig(
+    dd.SamplerColumnConfig(
         name="product_subcategory",
-        sampler_type=SamplerType.SUBCATEGORY,
-        params=SubcategorySamplerParams(
+        sampler_type=dd.SamplerType.SUBCATEGORY,
+        params=dd.SubcategorySamplerParams(
             category="product_category",
             values={
                 "Electronics": [
@@ -185,10 +176,10 @@ config_builder.add_column(
 )
 
 config_builder.add_column(
-    SamplerColumnConfig(
+    dd.SamplerColumnConfig(
         name="target_age_range",
-        sampler_type=SamplerType.CATEGORY,
-        params=CategorySamplerParams(values=["18-25", "25-35", "35-50", "50-65", "65+"]),
+        sampler_type=dd.SamplerType.CATEGORY,
+        params=dd.CategorySamplerParams(values=["18-25", "25-35", "35-50", "50-65", "65+"]),
     )
 )
 
@@ -201,27 +192,27 @@ data_designer.validate(config_builder)
 
 # %%
 config_builder.add_column(
-    SamplerColumnConfig(
+    dd.SamplerColumnConfig(
         name="customer",
-        sampler_type=SamplerType.PERSON_FROM_FAKER,
-        params=PersonFromFakerSamplerParams(age_range=[18, 70], locale="en_US"),
+        sampler_type=dd.SamplerType.PERSON_FROM_FAKER,
+        params=dd.PersonFromFakerSamplerParams(age_range=[18, 70], locale="en_US"),
     )
 )
 
 config_builder.add_column(
-    SamplerColumnConfig(
+    dd.SamplerColumnConfig(
         name="number_of_stars",
-        sampler_type=SamplerType.UNIFORM,
-        params=UniformSamplerParams(low=1, high=5),
+        sampler_type=dd.SamplerType.UNIFORM,
+        params=dd.UniformSamplerParams(low=1, high=5),
         convert_to="int",  # Convert the sampled float to an integer.
     )
 )
 
 config_builder.add_column(
-    SamplerColumnConfig(
+    dd.SamplerColumnConfig(
         name="review_style",
-        sampler_type=SamplerType.CATEGORY,
-        params=CategorySamplerParams(
+        sampler_type=dd.SamplerType.CATEGORY,
+        params=dd.CategorySamplerParams(
             values=["rambling", "brief", "detailed", "structured with bullet points"],
             weights=[1, 2, 2, 1],
         ),
@@ -242,7 +233,7 @@ data_designer.validate(config_builder)
 
 # %%
 config_builder.add_column(
-    LLMTextColumnConfig(
+    dd.LLMTextColumnConfig(
         name="product_name",
         prompt=(
             "You are a helpful assistant that generates product names. DO NOT add quotes around the product name.\n\n"
@@ -255,7 +246,7 @@ config_builder.add_column(
 )
 
 config_builder.add_column(
-    LLMTextColumnConfig(
+    dd.LLMTextColumnConfig(
         name="customer_review",
         prompt=(
             "You are a customer named {{ customer.first_name }} from {{ customer.city }}, {{ customer.state }}. "

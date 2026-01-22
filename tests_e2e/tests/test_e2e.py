@@ -3,28 +3,22 @@
 
 from pathlib import Path
 
-from data_designer.essentials import (
-    CategorySamplerParams,
-    DataDesigner,
-    DataDesignerConfigBuilder,
-    ExpressionColumnConfig,
-    SamplerColumnConfig,
-    SamplerType,
-)
+import data_designer.config as dd
+from data_designer.interface import DataDesigner
 from data_designer_e2e_tests.plugins.column_generator.config import DemoColumnGeneratorConfig
 from data_designer_e2e_tests.plugins.seed_reader.config import DemoSeedSource
 
 
-def test_column_generator_plugin():
+def test_column_generator_plugin() -> None:
     data_designer = DataDesigner()
 
-    config_builder = DataDesignerConfigBuilder()
+    config_builder = dd.DataDesignerConfigBuilder()
     # This sampler column is necessary as a temporary workaround to https://github.com/NVIDIA-NeMo/DataDesigner/issues/4
     config_builder.add_column(
-        SamplerColumnConfig(
+        dd.SamplerColumnConfig(
             name="irrelevant",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(values=["irrelevant"]),
+            sampler_type=dd.SamplerType.CATEGORY,
+            params=dd.CategorySamplerParams(values=["irrelevant"]),
         )
     )
     config_builder.add_column(
@@ -40,12 +34,12 @@ def test_column_generator_plugin():
     assert capitalized == {"HELLO WORLD"}
 
 
-def test_seed_reader_plugin():
+def test_seed_reader_plugin() -> None:
     current_dir = Path(__file__).parent
 
     data_designer = DataDesigner()
 
-    config_builder = DataDesignerConfigBuilder()
+    config_builder = dd.DataDesignerConfigBuilder()
     config_builder.with_seed_dataset(
         DemoSeedSource(
             directory=str(current_dir),
@@ -54,14 +48,14 @@ def test_seed_reader_plugin():
     )
     # This sampler column is necessary as a temporary workaround to https://github.com/NVIDIA-NeMo/DataDesigner/issues/4
     config_builder.add_column(
-        SamplerColumnConfig(
+        dd.SamplerColumnConfig(
             name="irrelevant",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(values=["irrelevant"]),
+            sampler_type=dd.SamplerType.CATEGORY,
+            params=dd.CategorySamplerParams(values=["irrelevant"]),
         )
     )
     config_builder.add_column(
-        ExpressionColumnConfig(
+        dd.ExpressionColumnConfig(
             name="full_name",
             expr="{{ first_name }} + {{ last_name }}",
         )

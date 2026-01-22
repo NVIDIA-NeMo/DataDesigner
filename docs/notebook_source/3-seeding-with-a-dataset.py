@@ -23,19 +23,16 @@
 #
 
 # %% [markdown]
-# ### 📦 Import the essentials
+# ### 📦 Import Data Designer
 #
-# - The `essentials` module provides quick access to the most commonly used objects.
+# - `data_designer.config` provides access to the configuration API.
+#
+# - `DataDesigner` is the main interface for data generation.
 #
 
 # %%
-from data_designer.essentials import (
-    ChatCompletionInferenceParams,
-    DataDesigner,
-    DataDesignerConfigBuilder,
-    LocalFileSeedSource,
-    ModelConfig,
-)
+import data_designer.config as dd
+from data_designer.interface import DataDesigner
 
 # %% [markdown]
 # ### ⚙️ Initialize the Data Designer interface
@@ -71,11 +68,11 @@ MODEL_ID = "nvidia/nemotron-3-nano-30b-a3b"
 MODEL_ALIAS = "nemotron-nano-v3"
 
 model_configs = [
-    ModelConfig(
+    dd.ModelConfig(
         alias=MODEL_ALIAS,
         model=MODEL_ID,
         provider=MODEL_PROVIDER,
-        inference_parameters=ChatCompletionInferenceParams(
+        inference_parameters=dd.ChatCompletionInferenceParams(
             temperature=1.0,
             top_p=1.0,
             max_tokens=2048,
@@ -95,7 +92,7 @@ model_configs = [
 #
 
 # %%
-config_builder = DataDesignerConfigBuilder(model_configs=model_configs)
+config_builder = dd.DataDesignerConfigBuilder(model_configs=model_configs)
 
 # %% [markdown]
 # ## 🏥 Prepare a seed dataset
@@ -125,7 +122,7 @@ url = "https://raw.githubusercontent.com/NVIDIA/GenerativeAIExamples/refs/heads/
 local_filename, _ = urllib.request.urlretrieve(url, "gretelai_symptom_to_diagnosis.csv")
 
 # Seed datasets are passed as reference objects to the config builder.
-seed_source = LocalFileSeedSource(path=local_filename)
+seed_source = dd.LocalFileSeedSource(path=local_filename)
 
 config_builder.with_seed_dataset(seed_source)
 
