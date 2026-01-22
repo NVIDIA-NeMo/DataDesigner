@@ -7,6 +7,10 @@ from data_designer.interface.errors import (
     DataDesignerProfilingError,
 )
 from data_designer.interface.results import DatasetCreationResults
+from data_designer.logging import init_logging
+
+init_logging()
+
 
 __all__ = [
     "DataDesigner",
