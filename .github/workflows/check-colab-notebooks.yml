@@ -28,8 +28,7 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: |
-          uv sync --group notebooks --group docs
+        run: uv sync --all-packages --group notebooks --group docs
 
       - name: Generate Colab notebooks
         run: |

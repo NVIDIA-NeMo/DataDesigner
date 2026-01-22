@@ -29,12 +29,18 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: |
-          uv sync --group dev
+        run: make install-dev
 
       - name: Run tests with coverage
         run: |
-          uv run pytest -v --cov=data_designer --cov-report=term-missing --cov-report=xml --cov-fail-under=90
+          uv run --group dev pytest -v \
+            packages/data-designer-config/tests \
+            packages/data-designer-engine/tests \
+            packages/data-designer/tests \
+            --cov=data_designer \
+            --cov-report=term-missing \
+            --cov-report=xml \
+            --cov-fail-under=90
 
   test-e2e:
     name: End to end test (Python ${{ matrix.python-version }} on ${{ matrix.os }})
@@ -57,8 +63,7 @@ jobs:
           enable-cache: false
 
       - name: Run e2e tests
-        run: |
-          make test-e2e
+        run: make test-e2e
 
   lint:
     name: Lint and Format Check
@@ -76,16 +81,13 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: |
-          uv sync --group dev
+        run: make install-dev
 
       - name: Check formatting
-        run: |
-          uv run ruff format --check
+        run: make format-check
 
       - name: Run linter
-        run: |
-          uv run ruff check
+        run: make lint
 
   license-headers:
     name: Check License Headers
@@ -105,9 +107,7 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: |
-          uv sync --group dev
+        run: make install-dev
 
       - name: Check license headers
-        run: |
-          uv run python scripts/update_license_headers.py --check
+        run: make check-license-headers

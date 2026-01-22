@@ -24,7 +24,7 @@ jobs:
       - name: Set up Python
         run: uv python install 3.11
       - name: Install dependencies for docs
-        run: uv sync --group docs
+        run: uv sync --all-packages --group docs
       - name: Download artifact from previous step
         uses: actions/download-artifact@v5
         with:
