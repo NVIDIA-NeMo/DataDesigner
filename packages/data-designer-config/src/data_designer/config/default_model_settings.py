@@ -71,12 +71,20 @@ def get_default_model_configs() -> list[ModelConfig]:
     return []
 
 
-def get_default_model_providers_missing_api_keys() -> list[str]:
-    missing_api_keys = []
-    for predefined_provider in PREDEFINED_PROVIDERS:
-        if os.environ.get(predefined_provider["api_key"]) is None:
-            missing_api_keys.append(predefined_provider["api_key"])
-    return missing_api_keys
+def get_providers_with_missing_api_keys(providers: list[ModelProvider]) -> list[ModelProvider]:
+    providers_with_missing_keys = []
+
+    for provider in providers:
+        if provider.api_key is None:
+            # No API key specified at all
+            providers_with_missing_keys.append(provider)
+        elif provider.api_key.isupper() and "_" in provider.api_key:
+            # Looks like an environment variable name, check if it's set
+            if os.environ.get(provider.api_key) is None:
+                providers_with_missing_keys.append(provider)
+        # else: It's an actual API key value (not an env var), so it's valid
+
+    return providers_with_missing_keys
 
 
 def get_default_providers() -> list[ModelProvider]:
