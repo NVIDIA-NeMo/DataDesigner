@@ -8,9 +8,9 @@ from data_designer.interface.errors import (
     DataDesignerProfilingError,
 )
 from data_designer.interface.results import DatasetCreationResults
-from data_designer.logging import init_logging
+from data_designer.logging import configure_logging
 
-init_logging()
+configure_logging()
 resolve_seed_default_model_settings()
 
 
