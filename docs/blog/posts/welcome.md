@@ -4,9 +4,9 @@ authors:
   - nvidia
 ---
 
-# Welcome to Data Designer Technical Guides
+# Welcome to Data Designer Dev Notes
 
-We're excited to launch the Data Designer Technical Guides section!
+We're excited to launch the Data Designer Dev Notes section!
 
 <!-- more -->
 

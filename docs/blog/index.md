@@ -1,6 +1,6 @@
-# Technical Guides
+# Dev Notes
 
-Welcome to NeMo Data Designer Technical Guides! Here you'll find in-depth guides, tutorials, and insights about synthetic data generation.
+Welcome to NeMo Data Designer Dev Notes! Here you'll find in-depth guides, tutorials, and insights about synthetic data generation.
 
-<!-- Technical guides will automatically appear below -->
+<!-- Dev notes will automatically appear below -->
 

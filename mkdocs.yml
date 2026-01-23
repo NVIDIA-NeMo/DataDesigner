@@ -47,7 +47,7 @@ nav:
       - validator_params: code_reference/validator_params.md
       - processors: code_reference/processors.md
       - analysis: code_reference/analysis.md
-  - Technical Guides: blog/index.md
+  - Dev Notes: blog/index.md
 
 theme:
   name: material
