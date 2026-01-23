@@ -7,12 +7,14 @@ Lazy imports facade for heavy third-party dependencies.
 This module provides a centralized facade that lazily imports heavy dependencies
 only when accessed, significantly improving import performance.
 
+The below mapping for lazy imports represents all third-party packages that, if used with
+Data Designer, we strongly recommend using this lazy imports pattern to improve import performance.
+
 Usage:
-    from data_designer.lazy_heavy_imports import pd, np, faker, litellm
+    from data_designer.lazy_heavy_imports import pd, np
 
     df = pd.DataFrame(...)
     arr = np.array([1, 2, 3])
-    fake = faker.Faker()
 """
 
 from __future__ import annotations
