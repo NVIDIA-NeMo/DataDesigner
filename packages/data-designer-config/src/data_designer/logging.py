@@ -106,12 +106,9 @@ class RandomEmoji:
         return random.choice(["⚙️", "🔧", "🔨", "⚒️", "🛠️", "💼", "👷", "🏗️", "🪛", "👨‍💻"])
 
 
-def init_logging() -> None:
-    """Initialize logging with default configuration"""
-    configure_logging(LoggingConfig.default())
+def configure_logging(config: LoggingConfig | None = None) -> None:
+    config = config or LoggingConfig.default()
 
-
-def configure_logging(config: LoggingConfig) -> None:
     root_logger = logging.getLogger()
 
     # Remove all handlers
