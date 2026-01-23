@@ -20,8 +20,8 @@ config_builder = dd.DataDesignerConfigBuilder(
     model_configs=[
         dd.ModelConfig(
             alias="my-model",
-            model="meta/llama-3-70b-instruct",
-            inference_parameters={"temperature": 0.7},
+            model="nvidia/nemotron-3-nano-30b-a3b",
+            inference_parameters=dd.ChatCompletionInferenceParams(temperature=0.7),
         ),
     ]
 )
@@ -31,6 +31,7 @@ config_builder.add_column(
     dd.SamplerColumnConfig(
         name="user_id",
         sampler_type=dd.SamplerType.UUID,
+        params=dd.UUIDSamplerParams(prefix="user-"),
     )
 )
 config_builder.add_column(
@@ -45,4 +46,4 @@ config_builder.add_column(
 config = config_builder.build()
 ```
 
-See main [README.md](../../README.md) for more information.
+See main [README.md](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/README.md) for more information.
