@@ -691,8 +691,6 @@ dependencies = [
     { name = "data-designer-config" },
     { name = "data-designer-engine" },
     { name = "prompt-toolkit" },
-    { name = "rich" },
-    { name = "ruff" },
     { name = "typer" },
 ]
 
@@ -701,8 +699,6 @@ requires-dist = [
     { name = "data-designer-config", editable = "packages/data-designer-config" },
     { name = "data-designer-engine", editable = "packages/data-designer-engine" },
     { name = "prompt-toolkit", specifier = ">=3.0.0,<4" },
-    { name = "rich", specifier = ">=13.7.1,<15" },
-    { name = "ruff", specifier = ">=0.14.10,<1" },
     { name = "typer", specifier = ">=0.12.0,<1" },
 ]
 
@@ -710,35 +706,34 @@ requires-dist = [
 name = "data-designer-config"
 source = { editable = "packages/data-designer-config" }
 dependencies = [
-    { name = "anyascii" },
     { name = "jinja2" },
-    { name = "jsonschema" },
-    { name = "lxml" },
-    { name = "marko" },
-    { name = "networkx", version = "3.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "networkx", version = "3.6.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "pandas" },
     { name = "pydantic", extra = ["email"] },
     { name = "pygments" },
+    { name = "python-json-logger" },
     { name = "pyyaml" },
+    { name = "rich" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "anyascii", specifier = ">=0.3.3,<1" },
     { name = "jinja2", specifier = ">=3.1.6,<4" },
-    { name = "jsonschema", specifier = ">=4.0.0,<5" },
-    { name = "lxml", specifier = ">=6.0.2,<7" },
-    { name = "marko", specifier = ">=2.1.2,<3" },
-    { name = "networkx", specifier = ">=3.0,<4" },
+    { name = "numpy", specifier = ">=1.23.5,<3" },
+    { name = "pandas", specifier = ">=2.3.3,<3" },
     { name = "pydantic", extras = ["email"], specifier = ">=2.9.2,<3" },
     { name = "pygments", specifier = ">=2.19.2,<3" },
+    { name = "python-json-logger", specifier = ">=3,<4" },
     { name = "pyyaml", specifier = ">=6.0.1,<7" },
+    { name = "rich", specifier = ">=13.7.1,<15" },
 ]
 
 [[package]]
 name = "data-designer-engine"
 source = { editable = "packages/data-designer-engine" }
 dependencies = [
+    { name = "anyascii" },
     { name = "data-designer-config" },
     { name = "duckdb" },
     { name = "faker" },
@@ -747,13 +742,17 @@ dependencies = [
     { name = "huggingface-hub" },
     { name = "json-repair" },
     { name = "jsonpath-rust-bindings" },
+    { name = "jsonschema" },
     { name = "litellm" },
+    { name = "lxml" },
+    { name = "marko" },
+    { name = "networkx", version = "3.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "networkx", version = "3.6.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "pandas" },
     { name = "pyarrow" },
-    { name = "python-json-logger" },
-    { name = "requests" },
+    { name = "ruff" },
     { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "scipy", version = "1.17.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "sqlfluff" },
@@ -762,6 +761,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "anyascii", specifier = ">=0.3.3,<1" },
     { name = "data-designer-config", editable = "packages/data-designer-config" },
     { name = "duckdb", specifier = ">=1.1.3,<2" },
     { name = "faker", specifier = ">=20.1.0,<21" },
@@ -770,12 +770,15 @@ requires-dist = [
     { name = "huggingface-hub", specifier = ">=1.0.1,<2" },
     { name = "json-repair", specifier = ">=0.48.0,<1" },
     { name = "jsonpath-rust-bindings", specifier = ">=1.0,<2" },
+    { name = "jsonschema", specifier = ">=4.0.0,<5" },
     { name = "litellm", specifier = ">=1.73.6,<1.80.12" },
+    { name = "lxml", specifier = ">=6.0.2,<7" },
+    { name = "marko", specifier = ">=2.1.2,<3" },
+    { name = "networkx", specifier = ">=3.0,<4" },
     { name = "numpy", specifier = ">=1.23.5,<3" },
     { name = "pandas", specifier = ">=2.3.3,<3" },
     { name = "pyarrow", specifier = ">=19.0.1,<20" },
-    { name = "python-json-logger", specifier = ">=3,<4" },
-    { name = "requests", specifier = ">=2.32.2,<3" },
+    { name = "ruff", specifier = ">=0.14.10,<1" },
     { name = "scipy", specifier = ">=1.11.0,<2" },
     { name = "sqlfluff", specifier = ">=3.2.0,<4" },
     { name = "tiktoken", specifier = ">=0.8.0,<1" },
@@ -798,6 +801,7 @@ dev = [
     { name = "ruff" },
 ]
 docs = [
+    { name = "jupytext" },
     { name = "mike" },
     { name = "mkdocs" },
     { name = "mkdocs-jupyter" },
@@ -827,6 +831,7 @@ dev = [
     { name = "ruff", specifier = ">=0.14.10,<1" },
 ]
 docs = [
+    { name = "jupytext", specifier = ">=1.16.0,<2" },
     { name = "mike", specifier = ">=2.1.3,<3" },
     { name = "mkdocs", specifier = ">=1.6.1,<2" },
     { name = "mkdocs-jupyter", specifier = ">=0.25.1,<1" },
@@ -1803,11 +1808,11 @@ wheels = [
 
 [[package]]
 name = "json-repair"
-version = "0.55.0"
+version = "0.55.1"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/96/74/0f39677fa7c0127129c3f1a37c94d05c30a968ba3047200e54dea375b09a/json_repair-0.55.0.tar.gz", hash = "sha256:9fafb47d92582ef4bdd3520656bdb0fcb37b46cf6aa99c1926b7895abc0a3a4b", size = 38828, upload-time = "2026-01-01T20:29:02.684Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c0/de/71d6bb078d167c0d0959776cee6b6bb8d2ad843f512a5222d7151dde4955/json_repair-0.55.1.tar.gz", hash = "sha256:b27aa0f6bf2e5bf58554037468690446ef26f32ca79c8753282adb3df25fb888", size = 39231, upload-time = "2026-01-23T09:37:20.93Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/bc/00/d7d6b6b3257f9b1f997a558b6f7087b8af7c0a2f525f4fbd864c267a88ab/json_repair-0.55.0-py3-none-any.whl", hash = "sha256:bcf4880f5e6ad21a0f70ab034e3d1d398c2ae9698dc5717d7015afbac77b8ed7", size = 29570, upload-time = "2026-01-01T20:29:01.042Z" },
+    { url = "https://files.pythonhosted.org/packages/56/da/289ba9eb550ae420cfc457926f6c49b87cacf8083ee9927e96921888a665/json_repair-0.55.1-py3-none-any.whl", hash = "sha256:a1bcc151982a12bc3ef9e9528198229587b1074999cfe08921ab6333b0c8e206", size = 29743, upload-time = "2026-01-23T09:37:19.404Z" },
 ]
 
 [[package]]
@@ -2130,7 +2135,7 @@ wheels = [
 
 [[package]]
 name = "jupyterlab"
-version = "4.5.2"
+version = "4.5.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "async-lru" },
@@ -2148,9 +2153,9 @@ dependencies = [
     { name = "tornado" },
     { name = "traitlets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/93/dc/2c8c4ff1aee27ac999ba04c373c5d0d7c6c181b391640d7b916b884d5985/jupyterlab-4.5.2.tar.gz", hash = "sha256:c80a6b9f6dace96a566d590c65ee2785f61e7cd4aac5b4d453dcc7d0d5e069b7", size = 23990371, upload-time = "2026-01-12T12:27:08.493Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/3e/76/393eae3349f9a39bf21f8f5406e5244d36e2bfc932049b6070c271f92764/jupyterlab-4.5.3.tar.gz", hash = "sha256:4a159f71067cb38e4a82e86a42de8e7e926f384d7f2291964f282282096d27e8", size = 23939231, upload-time = "2026-01-23T15:04:25.768Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a4/78/7e455920f104ef2aa94a4c0d2b40e5b44334ee7057eae1aa1fb97b9631ad/jupyterlab-4.5.2-py3-none-any.whl", hash = "sha256:76466ebcfdb7a9bb7e2fbd6459c0e2c032ccf75be673634a84bee4b3e6b13ab6", size = 12385807, upload-time = "2026-01-12T12:27:03.923Z" },
+    { url = "https://files.pythonhosted.org/packages/9e/9a/0bf9a7a45f0006d7ff4fdc4fc313de4255acab02bf4db1887c65f0472c01/jupyterlab-4.5.3-py3-none-any.whl", hash = "sha256:63c9f3a48de72ba00df766ad6eed416394f5bb883829f11eeff0872302520ba7", size = 12391761, upload-time = "2026-01-23T15:04:21.214Z" },
 ]
 
 [[package]]
