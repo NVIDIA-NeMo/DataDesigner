@@ -3,37 +3,26 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from data_designer.essentials import (
-    CategorySamplerParams,
-    DataDesigner,
-    DataDesignerConfigBuilder,
-    LLMJudgeColumnConfig,
-    LLMStructuredColumnConfig,
-    LLMTextColumnConfig,
-    SamplerColumnConfig,
-    SamplerType,
-    Score,
-    SubcategorySamplerParams,
-)
-from data_designer.interface.results import DatasetCreationResults
+import data_designer.config as dd
+from data_designer.interface import DataDesigner, DatasetCreationResults
 
 
-def build_config(model_alias: str) -> DataDesignerConfigBuilder:
-    config_builder = DataDesignerConfigBuilder()
+def build_config(model_alias: str) -> dd.DataDesignerConfigBuilder:
+    config_builder = dd.DataDesignerConfigBuilder()
 
     config_builder.add_column(
-        SamplerColumnConfig(
+        dd.SamplerColumnConfig(
             name="domain",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(values=["Tech Support", "Personal Finances", "Educational Guidance"]),
+            sampler_type=dd.SamplerType.CATEGORY,
+            params=dd.CategorySamplerParams(values=["Tech Support", "Personal Finances", "Educational Guidance"]),
         )
     )
 
     config_builder.add_column(
-        SamplerColumnConfig(
+        dd.SamplerColumnConfig(
             name="topic",
-            sampler_type=SamplerType.SUBCATEGORY,
-            params=SubcategorySamplerParams(
+            sampler_type=dd.SamplerType.SUBCATEGORY,
+            params=dd.SubcategorySamplerParams(
                 category="domain",
                 values={
                     "Tech Support": [
@@ -57,31 +46,33 @@ def build_config(model_alias: str) -> DataDesignerConfigBuilder:
     )
 
     config_builder.add_column(
-        SamplerColumnConfig(
+        dd.SamplerColumnConfig(
             name="complexity",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(values=["Basic", "Intermediate", "Advanced"]),
+            sampler_type=dd.SamplerType.CATEGORY,
+            params=dd.CategorySamplerParams(values=["Basic", "Intermediate", "Advanced"]),
         )
     )
 
     config_builder.add_column(
-        SamplerColumnConfig(
+        dd.SamplerColumnConfig(
             name="conversation_length",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(values=[2, 4, 6, 8]),
+            sampler_type=dd.SamplerType.CATEGORY,
+            params=dd.CategorySamplerParams(values=[2, 4, 6, 8]),
         )
     )
 
     config_builder.add_column(
-        SamplerColumnConfig(
+        dd.SamplerColumnConfig(
             name="user_mood",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(values=["happy", "silly", "sarcastic", "combative", "disappointed", "toxic"]),
+            sampler_type=dd.SamplerType.CATEGORY,
+            params=dd.CategorySamplerParams(
+                values=["happy", "silly", "sarcastic", "combative", "disappointed", "toxic"]
+            ),
         )
     )
 
     config_builder.add_column(
-        LLMTextColumnConfig(
+        dd.LLMTextColumnConfig(
             name="assistant_system_prompt",
             prompt=(
                 "Write a reasonable system prompt for a helpful AI assistant with expertise in "
@@ -92,7 +83,7 @@ def build_config(model_alias: str) -> DataDesignerConfigBuilder:
     )
 
     config_builder.add_column(
-        LLMTextColumnConfig(
+        dd.LLMTextColumnConfig(
             name="user_task",
             prompt="Define a simple task related to {{topic}} of {{complexity}} complexity for the user.",
             model_alias=model_alias,
@@ -100,7 +91,7 @@ def build_config(model_alias: str) -> DataDesignerConfigBuilder:
     )
 
     config_builder.add_column(
-        LLMStructuredColumnConfig(
+        dd.LLMStructuredColumnConfig(
             name="conversation",
             prompt=(
                 "<task>\n{{user_task}}\n</task>\n\n"
@@ -119,7 +110,7 @@ def build_config(model_alias: str) -> DataDesignerConfigBuilder:
     )
 
     config_builder.add_column(
-        LLMJudgeColumnConfig(
+        dd.LLMJudgeColumnConfig(
             name="toxicity_evaluation",
             prompt=TOXICITY_PROMPT_TEMPLATE,
             scores=[toxicity_score],
@@ -131,7 +122,7 @@ def build_config(model_alias: str) -> DataDesignerConfigBuilder:
 
 
 def create_dataset(
-    config_builder: DataDesignerConfigBuilder,
+    config_builder: dd.DataDesignerConfigBuilder,
     num_records: int,
     artifact_path: Path | str | None = None,
 ) -> DatasetCreationResults:
@@ -140,15 +131,15 @@ def create_dataset(
     return results
 
 
-toxicity_score = Score(
+toxicity_score = dd.Score(
     name="Toxicity",
     description="Evaluation of harmful, harassing, or hateful language in conversations",
     options={
-        "4": "No toxicity detected; conversation is respectful and appropriate.",
-        "3": "Mild toxicity; slightly rude or sarcastic but not hateful or harmful.",
-        "2": "Moderate toxicity; contains disrespectful or harassing language.",
-        "1": "Severe toxicity; contains overt hate, harassment, or harmful content.",
-        "0": "Extreme toxicity; contains dangerous, threatening, or abusive content.",
+        4: "No toxicity detected; conversation is respectful and appropriate.",
+        3: "Mild toxicity; slightly rude or sarcastic but not hateful or harmful.",
+        2: "Moderate toxicity; contains disrespectful or harassing language.",
+        1: "Severe toxicity; contains overt hate, harassment, or harmful content.",
+        0: "Extreme toxicity; contains dangerous, threatening, or abusive content.",
     },
 )
 
