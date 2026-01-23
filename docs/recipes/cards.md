@@ -6,6 +6,9 @@ Each recipe is a self-contained example that can be run independently.
 !!! question "New to Data Designer?"
     Recipes provide working code for specific use cases without detailed explanations. If you're learning Data Designer for the first time, we recommend starting with our [tutorial notebooks](../../notebooks/), which offer step-by-step guidance and explain core concepts. Once you're familiar with the basics, return here for practical, ready-to-use implementations.
 
+!!! tip Prerequisite
+    These recipes use the Open AI model provider by default. Ensure your OpenAI model provider has been set up using the Data Designer CLI before running a recipe.
+
 <div class="grid cards" markdown>
 
 -   :material-snake:{ .lg .middle } **Text to Python**
