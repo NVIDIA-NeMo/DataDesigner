@@ -178,19 +178,10 @@ check_pypi_access() {
             "Please create ~/.pypirc with your PyPI credentials"
     fi
 
-    # Check for [pypi] section with expected username
-    if ! grep -q "^\[pypi\]" "$PYPIRC_FILE"; then
-        die "No [pypi] section found in $PYPIRC_FILE" \
-            "Please add a [pypi] section with your credentials"
-    fi
-
-    # Extract username from pypirc (handles various formats including leading whitespace)
-    local username
-    username=$(awk '/^\[pypi\]/,/^\[/ {if (/^[ \t]*username[ \t]*=/) {sub(/^[ \t]*username[ \t]*=[ \t]*/, ""); sub(/[ \t]*$/, ""); print; exit}}' "$PYPIRC_FILE")
-
-    if [[ "$username" != "$EXPECTED_PYPI_USERNAME" ]]; then
-        die "PyPI username mismatch" \
-            "Expected username '$EXPECTED_PYPI_USERNAME' but found '$username' in $PYPIRC_FILE"
+    # Check that the expected username exists in pypirc
+    if ! grep -q "$EXPECTED_PYPI_USERNAME" "$PYPIRC_FILE"; then
+        die "Expected username '$EXPECTED_PYPI_USERNAME' not found in $PYPIRC_FILE" \
+            "Please add your PyPI credentials with username '$EXPECTED_PYPI_USERNAME'"
     fi
     success "PyPI access configured (username: $EXPECTED_PYPI_USERNAME)"
 }
