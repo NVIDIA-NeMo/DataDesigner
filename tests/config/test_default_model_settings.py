@@ -13,12 +13,12 @@ from data_designer.config.default_model_settings import (
     get_builtin_model_providers,
     get_default_inference_parameters,
     get_default_model_configs,
-    get_default_model_providers_missing_api_keys,
     get_default_provider_name,
     get_default_providers,
+    get_providers_with_missing_api_keys,
     resolve_seed_default_model_settings,
 )
-from data_designer.config.models import ChatCompletionInferenceParams, EmbeddingInferenceParams
+from data_designer.config.models import ChatCompletionInferenceParams, EmbeddingInferenceParams, ModelProvider
 from data_designer.config.utils.visualization import get_nvidia_api_key, get_openai_api_key
 
 
@@ -190,7 +190,77 @@ def test_resolve_seed_default_model_settings(tmp_path: Path):
             assert providers_data == {"providers": [p.model_dump() for p in get_builtin_model_providers()]}
 
 
-@patch("data_designer.config.default_model_settings.os.environ.get")
-def test_get_default_model_providers_missing_api_keys(mock_environ_get):
-    mock_environ_get.return_value = None
-    assert get_default_model_providers_missing_api_keys() == ["NVIDIA_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY"]
+def test_get_providers_with_missing_api_keys():
+    """Test detection of providers with missing API keys."""
+    # Test providers with various API key configurations
+    providers = [
+        ModelProvider(name="provider1", endpoint="http://test1.com", api_key="NVIDIA_API_KEY"),  # env var
+        ModelProvider(name="provider2", endpoint="http://test2.com", api_key="sk-actual-key-12345"),  # actual key
+        ModelProvider(name="provider3", endpoint="http://test3.com", api_key=None),  # no key
+    ]
+
+    with patch("data_designer.config.default_model_settings.os.environ.get") as mock_env:
+        # Mock env to have NVIDIA_API_KEY set but not MISSING_VAR
+        def mock_get(key: str) -> str | None:
+            return "test-key" if key == "NVIDIA_API_KEY" else None
+
+        mock_env.side_effect = mock_get
+
+        missing = get_providers_with_missing_api_keys(providers)
+
+        # provider1 has env var set -> OK
+        # provider2 has actual API key -> OK
+        # provider3 has no API key -> MISSING
+        assert len(missing) == 1
+        assert missing[0].name == "provider3"
+
+
+def test_get_providers_with_missing_api_keys_env_var_not_set():
+    """Test detection when environment variable is not set."""
+    providers = [
+        ModelProvider(name="provider1", endpoint="http://test1.com", api_key="MISSING_ENV_VAR"),
+    ]
+
+    with patch("data_designer.config.default_model_settings.os.environ.get", return_value=None):
+        missing = get_providers_with_missing_api_keys(providers)
+        assert len(missing) == 1
+        assert missing[0].name == "provider1"
+
+
+def test_get_providers_with_missing_api_keys_all_valid():
+    """Test when all providers have valid API keys."""
+    providers = [
+        ModelProvider(name="provider1", endpoint="http://test1.com", api_key="sk-actual-key-1"),
+        ModelProvider(name="provider2", endpoint="http://test2.com", api_key="sk-actual-key-2"),
+    ]
+
+    missing = get_providers_with_missing_api_keys(providers)
+    assert len(missing) == 0
+
+
+def test_get_providers_with_missing_api_keys_all_missing():
+    """Test when all providers have missing API keys."""
+    providers = [
+        ModelProvider(name="provider1", endpoint="http://test1.com", api_key="MISSING_VAR_1"),
+        ModelProvider(name="provider2", endpoint="http://test2.com", api_key=None),
+    ]
+
+    with patch("data_designer.config.default_model_settings.os.environ.get", return_value=None):
+        missing = get_providers_with_missing_api_keys(providers)
+        assert len(missing) == 2
+        assert {p.name for p in missing} == {"provider1", "provider2"}
+
+
+def test_get_providers_with_missing_api_keys_mixed_case():
+    """Test that lowercase API keys are treated as actual keys, not env vars."""
+    providers = [
+        ModelProvider(name="provider1", endpoint="http://test1.com", api_key="lowercase_key"),
+        ModelProvider(name="provider2", endpoint="http://test2.com", api_key="UPPERCASE_KEY"),
+    ]
+
+    with patch("data_designer.config.default_model_settings.os.environ.get", return_value=None):
+        missing = get_providers_with_missing_api_keys(providers)
+        # provider1 has lowercase key (treated as actual key) -> OK
+        # provider2 has uppercase key but env var not set -> MISSING
+        assert len(missing) == 1
+        assert missing[0].name == "provider2"

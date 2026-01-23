@@ -12,9 +12,9 @@ from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.default_model_settings import (
     get_default_model_configs,
-    get_default_model_providers_missing_api_keys,
     get_default_provider_name,
     get_default_providers,
+    get_providers_with_missing_api_keys,
 )
 from data_designer.config.interface import DataDesignerInterface
 from data_designer.config.models import (
@@ -28,7 +28,6 @@ from data_designer.config.utils.constants import (
     MANAGED_ASSETS_PATH,
     MODEL_CONFIGS_FILE_PATH,
     MODEL_PROVIDERS_FILE_PATH,
-    PREDEFINED_PROVIDERS,
 )
 from data_designer.config.utils.info import InfoType, InterfaceInfo
 from data_designer.engine.analysis.dataset_profiler import DataDesignerDatasetProfiler, DatasetProfilerConfig
@@ -334,8 +333,11 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
     def _resolve_model_providers(self, model_providers: list[ModelProvider] | None) -> list[ModelProvider]:
         if model_providers is None:
             model_providers = get_default_providers()
-            missing_api_keys = get_default_model_providers_missing_api_keys()
-            if len(missing_api_keys) == len(PREDEFINED_PROVIDERS):
+            # Check which providers have missing API keys (from YAML file or env vars)
+            providers_with_missing_keys = get_providers_with_missing_api_keys(model_providers)
+
+            if len(providers_with_missing_keys) == len(model_providers):
+                # All providers have missing API keys
                 logger.warning(
                     "🚨 You are trying to use a default model provider but your API keys are missing."
                     "\n\t\t\tSet the API key for the default providers you intend to use and re-initialize the Data Designer object."

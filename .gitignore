@@ -85,8 +85,6 @@ src/data_designer/_version.py
 # Local scratch space
 .scratch/
 
-.claude/
-
 docs/notebooks/
 docs/notebook_source/*.ipynb
 docs/notebook_source/*.csv
