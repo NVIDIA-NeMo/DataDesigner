@@ -12,4 +12,4 @@ pip install data-designer-engine
 
 This automatically installs `data-designer-config` as a dependency.
 
-See main [README.md](../../README.md) for more information.
+See main [README.md](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/README.md) for more information.

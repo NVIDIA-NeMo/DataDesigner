@@ -15,4 +15,4 @@ This installs all three packages:
 - `data-designer-engine` - Generation engine
 - `data-designer` - CLI and interface
 
-See main [README.md](../../README.md) for more information.
+See main [README.md](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/README.md) for more information.
