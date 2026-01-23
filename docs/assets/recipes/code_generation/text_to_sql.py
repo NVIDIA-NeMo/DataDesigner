@@ -1,42 +1,27 @@
 from pathlib import Path
 
-from data_designer.essentials import (
-    CategorySamplerParams,
-    CodeLang,
-    CodeValidatorParams,
-    DataDesigner,
-    DataDesignerConfigBuilder,
-    LLMCodeColumnConfig,
-    LLMJudgeColumnConfig,
-    LLMTextColumnConfig,
-    SamplerColumnConfig,
-    SamplerType,
-    Score,
-    SubcategorySamplerParams,
-    ValidationColumnConfig,
-    ValidatorType,
-)
-from data_designer.interface.results import DatasetCreationResults
+import data_designer.config as dd
+from data_designer.interface import DataDesigner, DatasetCreationResults
 
 
-def build_config(model_alias: str) -> DataDesignerConfigBuilder:
-    config_builder = DataDesignerConfigBuilder()
+def build_config(model_alias: str) -> dd.DataDesignerConfigBuilder:
+    config_builder = dd.DataDesignerConfigBuilder()
 
     config_builder.add_column(
-        SamplerColumnConfig(
+        dd.SamplerColumnConfig(
             name="industry_sector",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(
+            sampler_type=dd.SamplerType.CATEGORY,
+            params=dd.CategorySamplerParams(
                 values=["Healthcare", "Finance", "Technology"],
             ),
         )
     )
 
     config_builder.add_column(
-        SamplerColumnConfig(
+        dd.SamplerColumnConfig(
             name="topic",
-            sampler_type=SamplerType.SUBCATEGORY,
-            params=SubcategorySamplerParams(
+            sampler_type=dd.SamplerType.SUBCATEGORY,
+            params=dd.SubcategorySamplerParams(
                 category="industry_sector",
                 values={
                     "Healthcare": [
@@ -60,20 +45,20 @@ def build_config(model_alias: str) -> DataDesignerConfigBuilder:
     )
 
     config_builder.add_column(
-        SamplerColumnConfig(
+        dd.SamplerColumnConfig(
             name="sql_complexity",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(
+            sampler_type=dd.SamplerType.CATEGORY,
+            params=dd.CategorySamplerParams(
                 values=["Beginner", "Intermediate", "Advanced"],
             ),
         )
     )
 
     config_builder.add_column(
-        SamplerColumnConfig(
+        dd.SamplerColumnConfig(
             name="sql_concept",
-            sampler_type=SamplerType.SUBCATEGORY,
-            params=SubcategorySamplerParams(
+            sampler_type=dd.SamplerType.SUBCATEGORY,
+            params=dd.SubcategorySamplerParams(
                 category="sql_complexity",
                 values={
                     "Beginner": [
@@ -100,10 +85,10 @@ def build_config(model_alias: str) -> DataDesignerConfigBuilder:
     )
 
     config_builder.add_column(
-        SamplerColumnConfig(
+        dd.SamplerColumnConfig(
             name="sql_task_type",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(
+            sampler_type=dd.SamplerType.CATEGORY,
+            params=dd.CategorySamplerParams(
                 values=[
                     "Data Retrieval",
                     "Data Manipulation",
@@ -115,10 +100,10 @@ def build_config(model_alias: str) -> DataDesignerConfigBuilder:
     )
 
     config_builder.add_column(
-        SamplerColumnConfig(
+        dd.SamplerColumnConfig(
             name="instruction_phrase",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(
+            sampler_type=dd.SamplerType.CATEGORY,
+            params=dd.CategorySamplerParams(
                 values=[
                     "Write an SQL query that",
                     "Create an SQL statement to",
@@ -131,7 +116,7 @@ def build_config(model_alias: str) -> DataDesignerConfigBuilder:
     )
 
     config_builder.add_column(
-        LLMTextColumnConfig(
+        dd.LLMTextColumnConfig(
             name="sql_prompt",
             model_alias=model_alias,
             system_prompt="You are an expert at generating clear and specific SQL tasks.",
@@ -140,10 +125,10 @@ def build_config(model_alias: str) -> DataDesignerConfigBuilder:
     )
 
     config_builder.add_column(
-        LLMCodeColumnConfig(
+        dd.LLMCodeColumnConfig(
             name="sql_context",
             model_alias=model_alias,
-            code_lang=CodeLang.SQL_ANSI,
+            code_lang=dd.CodeLang.SQL_ANSI,
             system_prompt=(
                 "You are an expert SQL database designer who creates clean, efficient, and "
                 "well-structured database schemas."
@@ -153,29 +138,29 @@ def build_config(model_alias: str) -> DataDesignerConfigBuilder:
     )
 
     config_builder.add_column(
-        LLMCodeColumnConfig(
+        dd.LLMCodeColumnConfig(
             name="sql",
             model_alias=model_alias,
-            code_lang=CodeLang.SQL_ANSI,
+            code_lang=dd.CodeLang.SQL_ANSI,
             system_prompt="You are an expert SQL programmer who writes clean, efficient, and well-structured queries.",
             prompt=SQL_CODE_TEXT,
         )
     )
 
     config_builder.add_column(
-        ValidationColumnConfig(
+        dd.ValidationColumnConfig(
             name="code_validity_result",
-            validator_type=ValidatorType.CODE,
+            validator_type=dd.ValidatorType.CODE,
             target_columns=["sql"],
-            validator_params=CodeValidatorParams(
-                code_lang=CodeLang.SQL_ANSI,
+            validator_params=dd.CodeValidatorParams(
+                code_lang=dd.CodeLang.SQL_ANSI,
             ),
             batch_size=100,
         )
     )
 
     config_builder.add_column(
-        LLMJudgeColumnConfig(
+        dd.LLMJudgeColumnConfig(
             name="code_judge_result",
             model_alias=model_alias,
             prompt=TEXT_TO_SQL_JUDGE_TEMPLATE,
@@ -187,7 +172,7 @@ def build_config(model_alias: str) -> DataDesignerConfigBuilder:
 
 
 def create_dataset(
-    config_builder: DataDesignerConfigBuilder,
+    config_builder: dd.DataDesignerConfigBuilder,
     num_records: int,
     artifact_path: Path | str | None = None,
 ) -> DatasetCreationResults:
@@ -260,7 +245,7 @@ Generated SQL Query
 
 
 sql_scoring = [
-    Score(
+    dd.Score(
         name="Relevance",
         description="Adherence to INSTRUCTIONS and CONTEXT",
         options={
@@ -271,7 +256,7 @@ sql_scoring = [
             0: "Does not adhere to the instructions.",
         },
     ),
-    Score(
+    dd.Score(
         name="SQL Correctness",
         description="Syntax and semantic correctness; returns the intended result",
         options={
@@ -282,7 +267,7 @@ sql_scoring = [
             0: "Invalid SQL or unrelated to the task; will not run or cannot produce a meaningful result.",
         },
     ),
-    Score(
+    dd.Score(
         name="Readability",
         description="Formatting, clarity, and maintainability",
         options={
@@ -293,7 +278,7 @@ sql_scoring = [
             0: "Unreadable or chaotic; no meaningful structure or styling.",
         },
     ),
-    Score(
+    dd.Score(
         name="Efficiency",
         description="Query performance best practices",
         options={

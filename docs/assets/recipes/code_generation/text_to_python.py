@@ -1,32 +1,17 @@
 from pathlib import Path
 
-from data_designer.essentials import (
-    CategorySamplerParams,
-    CodeLang,
-    CodeValidatorParams,
-    DataDesigner,
-    DataDesignerConfigBuilder,
-    LLMCodeColumnConfig,
-    LLMJudgeColumnConfig,
-    LLMTextColumnConfig,
-    SamplerColumnConfig,
-    SamplerType,
-    Score,
-    SubcategorySamplerParams,
-    ValidationColumnConfig,
-    ValidatorType,
-)
-from data_designer.interface.results import DatasetCreationResults
+import data_designer.config as dd
+from data_designer.interface import DataDesigner, DatasetCreationResults
 
 
-def build_config(model_alias: str) -> DataDesignerConfigBuilder:
-    config_builder = DataDesignerConfigBuilder()
+def build_config(model_alias: str) -> dd.DataDesignerConfigBuilder:
+    config_builder = dd.DataDesignerConfigBuilder()
 
     config_builder.add_column(
-        SamplerColumnConfig(
+        dd.SamplerColumnConfig(
             name="industry_sector",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(
+            sampler_type=dd.SamplerType.CATEGORY,
+            params=dd.CategorySamplerParams(
                 values=[
                     "Healthcare",
                     "Finance",
@@ -37,10 +22,10 @@ def build_config(model_alias: str) -> DataDesignerConfigBuilder:
     )
 
     config_builder.add_column(
-        SamplerColumnConfig(
+        dd.SamplerColumnConfig(
             name="topic",
-            sampler_type=SamplerType.SUBCATEGORY,
-            params=SubcategorySamplerParams(
+            sampler_type=dd.SamplerType.SUBCATEGORY,
+            params=dd.SubcategorySamplerParams(
                 category="industry_sector",
                 values={
                     "Healthcare": [
@@ -64,10 +49,10 @@ def build_config(model_alias: str) -> DataDesignerConfigBuilder:
     )
 
     config_builder.add_column(
-        SamplerColumnConfig(
+        dd.SamplerColumnConfig(
             name="code_complexity",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(
+            sampler_type=dd.SamplerType.CATEGORY,
+            params=dd.CategorySamplerParams(
                 values=[
                     "Beginner",
                     "Intermediate",
@@ -78,10 +63,10 @@ def build_config(model_alias: str) -> DataDesignerConfigBuilder:
     )
 
     config_builder.add_column(
-        SamplerColumnConfig(
+        dd.SamplerColumnConfig(
             name="code_concept",
-            sampler_type=SamplerType.SUBCATEGORY,
-            params=SubcategorySamplerParams(
+            sampler_type=dd.SamplerType.SUBCATEGORY,
+            params=dd.SubcategorySamplerParams(
                 category="code_complexity",
                 values={
                     "Beginner": [
@@ -109,10 +94,10 @@ def build_config(model_alias: str) -> DataDesignerConfigBuilder:
     )
 
     config_builder.add_column(
-        SamplerColumnConfig(
+        dd.SamplerColumnConfig(
             name="instruction_phrase",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(
+            sampler_type=dd.SamplerType.CATEGORY,
+            params=dd.CategorySamplerParams(
                 values=[
                     "Write a function that",
                     "Create a class that",
@@ -125,13 +110,13 @@ def build_config(model_alias: str) -> DataDesignerConfigBuilder:
     )
 
     config_builder.add_column(
-        LLMTextColumnConfig(
+        dd.LLMTextColumnConfig(
             name="instruction",
             model_alias=model_alias,
-            system_prompt=("You are an expert at generating clear and specific programming tasks."),
+            system_prompt="You are an expert at generating clear and specific programming tasks.",
             prompt=(
                 "Generate an instruction to create Python code that solves a specific problem.\n"
-                "Each instruction should begin with one of the following phrases: {{ instruction_phrase }}.\n\n"
+                'The instruction should begin with the following phrase: "{{ instruction_phrase }}".\n\n'
                 "Important Guidelines:\n"
                 "* Industry Relevance: Ensure the instruction pertains to the {{ industry_sector }} sector and {{ topic }} topic.\n"
                 "* Code Complexity: Tailor the instruction to the {{ code_complexity }} level. Utilize relevant {{ code_concept }} where appropriate to match the complexity level.\n"
@@ -142,50 +127,11 @@ def build_config(model_alias: str) -> DataDesignerConfigBuilder:
     )
 
     config_builder.add_column(
-        LLMCodeColumnConfig(
+        dd.LLMCodeColumnConfig(
             name="code_implementation",
             model_alias=model_alias,
-            code_lang=CodeLang.PYTHON,
-            system_prompt=(
-                "You are an expert Python programmer who writes clean, efficient, and well-documented code."
-            ),
-            prompt=(
-                "Write Python code for the following instruction:\n"
-                "Instruction: {{ instruction }}\n\n"
-                "Important Guidelines:\n"
-                "* Code Quality: Your code should be clean, complete, self-contained, and accurate.\n"
-                "* Code Validity: Please ensure that your Python code is executable and does not contain any errors.\n"
-                "* Packages: Remember to import any necessary libraries, and to use all libraries you import.\n"
-                "* Complexity & Concepts: The code should be written at a {{ code_complexity }} level, making use of concepts such as {{code_concept}}.\n"
-            ),
-        )
-    )
-
-    config_builder.add_column(
-        LLMTextColumnConfig(
-            name="instruction",
-            model_alias=model_alias,
-            system_prompt=("You are an expert at generating clear and specific programming tasks."),
-            prompt=(
-                "Generate an instruction to create Python code that solves a specific problem.\n"
-                "Each instruction should begin with one of the following phrases: {{ instruction_phrase }}.\n\n"
-                "Important Guidelines:\n"
-                "* Industry Relevance: Ensure the instruction pertains to the {{ industry_sector }} sector and {{ topic }} topic.\n"
-                "* Code Complexity: Tailor the instruction to the {{ code_complexity }} level. Utilize relevant {{ code_concept }} where appropriate to match the complexity level.\n"
-                "* Clarity and Specificity: Make the problem statement clear and unambiguous. Provide sufficient context to understand the requirements without being overly verbose.\n"
-                "* Response Formatting: Do not include any markers such as ### Response ### in the instruction.\n"
-            ),
-        )
-    )
-
-    config_builder.add_column(
-        LLMCodeColumnConfig(
-            name="code_implementation",
-            model_alias=model_alias,
-            code_lang=CodeLang.PYTHON,
-            system_prompt=(
-                "You are an expert Python programmer who writes clean, efficient, and well-documented code."
-            ),
+            code_lang=dd.CodeLang.PYTHON,
+            system_prompt="You are an expert Python programmer who writes clean, efficient, and well-documented code.",
             prompt=(
                 "Write Python code for the following instruction:\n"
                 "Instruction: {{ instruction }}\n\n"
@@ -199,7 +145,7 @@ def build_config(model_alias: str) -> DataDesignerConfigBuilder:
     )
 
     config_builder.add_column(
-        LLMJudgeColumnConfig(
+        dd.LLMJudgeColumnConfig(
             name="code_judge_result",
             model_alias=model_alias,
             prompt=TEXT_TO_PYTHON_JUDGE_TEMPLATE,
@@ -208,13 +154,11 @@ def build_config(model_alias: str) -> DataDesignerConfigBuilder:
     )
 
     config_builder.add_column(
-        ValidationColumnConfig(
+        dd.ValidationColumnConfig(
             name="code_validity_result",
-            validator_type=ValidatorType.CODE,
+            validator_type=dd.ValidatorType.CODE,
             target_columns=["code_implementation"],
-            validator_params=CodeValidatorParams(
-                code_lang=CodeLang.PYTHON,
-            ),
+            validator_params=dd.CodeValidatorParams(code_lang=dd.CodeLang.PYTHON),
             batch_size=100,
         )
     )
@@ -223,7 +167,7 @@ def build_config(model_alias: str) -> DataDesignerConfigBuilder:
 
 
 def create_dataset(
-    config_builder: DataDesignerConfigBuilder,
+    config_builder: dd.DataDesignerConfigBuilder,
     num_records: int,
     artifact_path: Path | str | None = None,
 ) -> DatasetCreationResults:
@@ -251,7 +195,7 @@ Generated Python Code
 
 
 python_scoring = [
-    Score(
+    dd.Score(
         name="Relevance",
         description="Adherence to INSTRUCTIONS and CONTEXT",
         options={
@@ -262,7 +206,7 @@ python_scoring = [
             0: "Does not adhere to the instructions.",
         },
     ),
-    Score(
+    dd.Score(
         name="Pythonic",
         description="Pythonic Code and Best Practices (Does the code follow Python conventions and best practices?)",
         options={
@@ -273,7 +217,7 @@ python_scoring = [
             0: "The code does not follow Python conventions or best practices, using non-Pythonic approaches.",
         },
     ),
-    Score(
+    dd.Score(
         name="Readability",
         description="Readability and Maintainability (Is the Python code easy to understand and maintain?)",
         options={
@@ -287,7 +231,7 @@ python_scoring = [
             0: "The code is unreadable, with no attempt at formatting or description.",
         },
     ),
-    Score(
+    dd.Score(
         name="Efficiency",
         description="Efficiency and Performance (Is the code optimized for performance?)",
         options={

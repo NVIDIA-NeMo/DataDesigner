@@ -3,30 +3,17 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from data_designer.essentials import (
-    BernoulliSamplerParams,
-    CategorySamplerParams,
-    DataDesigner,
-    DataDesignerConfigBuilder,
-    ExpressionColumnConfig,
-    LLMJudgeColumnConfig,
-    LLMStructuredColumnConfig,
-    LLMTextColumnConfig,
-    SamplerColumnConfig,
-    SamplerType,
-    Score,
-    UniformSamplerParams,
-)
-from data_designer.interface.results import DatasetCreationResults
+import data_designer.config as dd
+from data_designer.interface import DataDesigner, DatasetCreationResults
 
 
-def build_config(model_alias: str) -> DataDesignerConfigBuilder:
-    config_builder = DataDesignerConfigBuilder()
+def build_config(model_alias: str) -> dd.DataDesignerConfigBuilder:
+    config_builder = dd.DataDesignerConfigBuilder()
     config_builder.add_column(
-        SamplerColumnConfig(
+        dd.SamplerColumnConfig(
             name="category",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(
+            sampler_type=dd.SamplerType.CATEGORY,
+            params=dd.CategorySamplerParams(
                 values=[
                     "Electronics",
                     "Clothing",
@@ -59,15 +46,15 @@ def build_config(model_alias: str) -> DataDesignerConfigBuilder:
     )
 
     config_builder.add_column(
-        SamplerColumnConfig(
+        dd.SamplerColumnConfig(
             name="price_tens_of_dollars",
-            sampler_type=SamplerType.UNIFORM,
-            params=UniformSamplerParams(low=1, high=200),
+            sampler_type=dd.SamplerType.UNIFORM,
+            params=dd.UniformSamplerParams(low=1, high=200),
         )
     )
 
     config_builder.add_column(
-        ExpressionColumnConfig(
+        dd.ExpressionColumnConfig(
             name="product_price",
             expr="{{ (price_tens_of_dollars * 10) - 0.01 | round(2) }}",
             dtype="float",
@@ -75,23 +62,23 @@ def build_config(model_alias: str) -> DataDesignerConfigBuilder:
     )
 
     config_builder.add_column(
-        SamplerColumnConfig(
+        dd.SamplerColumnConfig(
             name="first_letter",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(values=list(string.ascii_uppercase)),
+            sampler_type=dd.SamplerType.CATEGORY,
+            params=dd.CategorySamplerParams(values=list(string.ascii_uppercase)),
         )
     )
 
     config_builder.add_column(
-        SamplerColumnConfig(
+        dd.SamplerColumnConfig(
             name="is_hallucination",
-            sampler_type=SamplerType.BERNOULLI,
-            params=BernoulliSamplerParams(p=0.5),
+            sampler_type=dd.SamplerType.BERNOULLI,
+            params=dd.BernoulliSamplerParams(p=0.5),
         )
     )
 
     config_builder.add_column(
-        LLMStructuredColumnConfig(
+        dd.LLMStructuredColumnConfig(
             name="product_info",
             model_alias=model_alias,
             prompt=(
@@ -104,7 +91,7 @@ def build_config(model_alias: str) -> DataDesignerConfigBuilder:
     )
 
     config_builder.add_column(
-        LLMTextColumnConfig(
+        dd.LLMTextColumnConfig(
             name="question",
             model_alias=model_alias,
             prompt=("Ask a question about the following product:\n\n {{ product_info }}"),
@@ -112,7 +99,7 @@ def build_config(model_alias: str) -> DataDesignerConfigBuilder:
     )
 
     config_builder.add_column(
-        LLMTextColumnConfig(
+        dd.LLMTextColumnConfig(
             name="answer",
             model_alias=model_alias,
             prompt=(
@@ -132,7 +119,7 @@ def build_config(model_alias: str) -> DataDesignerConfigBuilder:
 
     # Evaluate answer quality
     config_builder.add_column(
-        LLMJudgeColumnConfig(
+        dd.LLMJudgeColumnConfig(
             name="llm_answer_metrics",
             model_alias=model_alias,
             prompt=(
@@ -148,14 +135,14 @@ def build_config(model_alias: str) -> DataDesignerConfigBuilder:
     )
 
     config_builder.add_column(
-        ExpressionColumnConfig(
+        dd.ExpressionColumnConfig(
             name="completeness_result",
             expr="{{ llm_answer_metrics.Completeness.score }}",
         )
     )
 
     config_builder.add_column(
-        ExpressionColumnConfig(
+        dd.ExpressionColumnConfig(
             name="accuracy_result",
             expr="{{ llm_answer_metrics.Accuracy.score }}",
         )
@@ -165,7 +152,7 @@ def build_config(model_alias: str) -> DataDesignerConfigBuilder:
 
 
 def create_dataset(
-    config_builder: DataDesignerConfigBuilder,
+    config_builder: dd.DataDesignerConfigBuilder,
     num_records: int,
     artifact_path: Path | str | None = None,
 ) -> DatasetCreationResults:
@@ -184,7 +171,7 @@ class ProductInfo(BaseModel):
     price_usd: float = Field(..., description="The price of the product", ge=10, le=1000, decimal_places=2)
 
 
-completeness_score = Score(
+completeness_score = dd.Score(
     name="Completeness",
     description="Evaluation of AI assistant's thoroughness in addressing all aspects of the user's query.",
     options={
@@ -194,7 +181,7 @@ completeness_score = Score(
     },
 )
 
-accuracy_score = Score(
+accuracy_score = dd.Score(
     name="Accuracy",
     description="Evaluation of how factually correct the AI assistant's response is relative to the product information.",
     options={
