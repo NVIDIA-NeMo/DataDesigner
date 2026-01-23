@@ -184,9 +184,9 @@ check_pypi_access() {
             "Please add a [pypi] section with your credentials"
     fi
 
-    # Extract username from pypirc (handles various formats)
+    # Extract username from pypirc (handles various formats including leading whitespace)
     local username
-    username=$(awk '/^\[pypi\]/,/^\[/ {if (/^username/) {gsub(/.*=[ \t]*/, ""); print; exit}}' "$PYPIRC_FILE")
+    username=$(awk '/^\[pypi\]/,/^\[/ {if (/^[ \t]*username[ \t]*=/) {sub(/^[ \t]*username[ \t]*=[ \t]*/, ""); sub(/[ \t]*$/, ""); print; exit}}' "$PYPIRC_FILE")
 
     if [[ "$username" != "$EXPECTED_PYPI_USERNAME" ]]; then
         die "PyPI username mismatch" \
