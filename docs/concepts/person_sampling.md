@@ -25,17 +25,13 @@ Uses the Faker library to generate random personal information. The data is basi
 
 ### Usage Example
 ```python
-from data_designer.essentials import (
-    SamplerColumnConfig,
-    SamplerType,
-    PersonFromFakerSamplerParams,
-)
+import data_designer.config as dd
 
 config_builder.add_column(
-    SamplerColumnConfig(
+    dd.SamplerColumnConfig(
         name="customer",
-        sampler_type=SamplerType.PERSON_FROM_FAKER,
-        params=PersonFromFakerSamplerParams(
+        sampler_type=dd.SamplerType.PERSON_FROM_FAKER,
+        params=dd.PersonFromFakerSamplerParams(
             locale="en_US",
             age_range=[25, 65],
             sex="Female",
@@ -133,17 +129,13 @@ mv nemotron-personas-dataset-*/*.parquet ~/.data-designer/managed-assets/dataset
 
 #### Step 3: Use PersonSampler in Your Code
 ```python
-from data_designer.essentials import (
-    SamplerColumnConfig,
-    SamplerType,
-    PersonSamplerParams,
-)
+import data_designer.config as dd
 
 config_builder.add_column(
-    SamplerColumnConfig(
+    dd.SamplerColumnConfig(
         name="customer",
-        sampler_type=SamplerType.PERSON,
-        params=PersonSamplerParams(
+        sampler_type=dd.SamplerType.PERSON,
+        params=dd.PersonSamplerParams(
             locale="en_US",
             sex="Female",
             age_range=[25, 45],

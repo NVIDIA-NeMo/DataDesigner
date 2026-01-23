@@ -19,36 +19,28 @@ Use custom model settings when you need to:
 Create custom model configurations that use the default providers (no need to define providers yourself):
 
 ```python
-from data_designer.essentials import (
-    CategorySamplerParams,
-    ChatCompletionInferenceParams,
-    DataDesigner,
-    DataDesignerConfigBuilder,
-    LLMTextColumnConfig,
-    ModelConfig,
-    SamplerColumnConfig,
-    SamplerType,
-)
+import data_designer.config as dd
+from data_designer.interface import DataDesigner
 
 # Create custom models using default providers
 custom_models = [
     # High-temperature for more variability
-    ModelConfig(
+    dd.ModelConfig(
         alias="creative-writer",
         model="nvidia/nemotron-3-nano-30b-a3b",
         provider="nvidia",  # Uses default NVIDIA provider
-        inference_parameters=ChatCompletionInferenceParams(
+        inference_parameters=dd.ChatCompletionInferenceParams(
             temperature=1.2,
             top_p=0.98,
             max_tokens=4096,
         ),
     ),
     # Low-temperature for less variability
-    ModelConfig(
+    dd.ModelConfig(
         alias="fact-checker",
         model="nvidia/nemotron-3-nano-30b-a3b",
         provider="nvidia",  # Uses default NVIDIA provider
-        inference_parameters=ChatCompletionInferenceParams(
+        inference_parameters=dd.ChatCompletionInferenceParams(
             temperature=0.1,
             top_p=0.9,
             max_tokens=2048,
@@ -60,14 +52,14 @@ custom_models = [
 data_designer = DataDesigner()
 
 # Pass custom models to config builder
-config_builder = DataDesignerConfigBuilder(model_configs=custom_models)
+config_builder = dd.DataDesignerConfigBuilder(model_configs=custom_models)
 
 # Add a topic column using a categorical sampler
 config_builder.add_column(
-    SamplerColumnConfig(
+    dd.SamplerColumnConfig(
         name="topic",
-        sampler_type=SamplerType.CATEGORY,
-        params=CategorySamplerParams(
+        sampler_type=dd.SamplerType.CATEGORY,
+        params=dd.CategorySamplerParams(
             values=["Artificial Intelligence", "Space Exploration", "Ancient History", "Climate Science"],
         ),
     )
@@ -75,7 +67,7 @@ config_builder.add_column(
 
 # Use your custom models
 config_builder.add_column(
-    LLMTextColumnConfig(
+    dd.LLMTextColumnConfig(
         name="creative_story",
         model_alias="creative-writer",
         prompt="Write a creative short story about {{topic}}.",
@@ -83,7 +75,7 @@ config_builder.add_column(
 )
 
 config_builder.add_column(
-    LLMTextColumnConfig(
+    dd.LLMTextColumnConfig(
         name="facts",
         model_alias="fact-checker",
         prompt="List 3 facts about {{topic}}.",
@@ -102,16 +94,18 @@ preview_result.display_sample_record()
     When you provide custom `model_configs` to `DataDesignerConfigBuilder`, they **replace** the defaults entirely. To use custom model configs in addition to the default configs, use the add_model_config method:
 
     ```python
+    import data_designer.config as dd
+
     # Load defaults first
-    config_builder = DataDesignerConfigBuilder()
+    config_builder = dd.DataDesignerConfigBuilder()
 
     # Add custom model to defaults
     config_builder.add_model_config(
-        ModelConfig(
+        dd.ModelConfig(
             alias="my-custom-model",
             model="nvidia/llama-3.3-nemotron-super-49b-v1.5",
             provider="nvidia",  # Uses default provider
-            inference_parameters=ChatCompletionInferenceParams(
+            inference_parameters=dd.ChatCompletionInferenceParams(
                 temperature=0.6,
                 max_tokens=8192,
             ),
@@ -131,27 +125,18 @@ Define both custom providers and custom model configurations when you need to co
     The custom provider endpoints must be reachable from where Data Designer runs. Ensure network connectivity, firewall rules, and any VPN requirements are properly configured.
 
 ```python
-from data_designer.essentials import (
-    CategorySamplerParams,
-    ChatCompletionInferenceParams,
-    DataDesigner,
-    DataDesignerConfigBuilder,
-    LLMTextColumnConfig,
-    ModelConfig,
-    ModelProvider,
-    SamplerColumnConfig,
-    SamplerType,
-)
+import data_designer.config as dd
+from data_designer.interface import DataDesigner
 
 # Step 1: Define custom providers
 custom_providers = [
-    ModelProvider(
+    dd.ModelProvider(
         name="my-custom-provider",
         endpoint="https://api.my-llm-service.com/v1",
         provider_type="openai",  # OpenAI-compatible API
         api_key="MY_SERVICE_API_KEY",  # Environment variable name
     ),
-    ModelProvider(
+    dd.ModelProvider(
         name="my-self-hosted-provider",
         endpoint="https://my-org.internal.com/llm/v1",
         provider_type="openai",
@@ -161,21 +146,21 @@ custom_providers = [
 
 # Step 2: Define custom models
 custom_models = [
-    ModelConfig(
+    dd.ModelConfig(
         alias="my-text-model",
         model="openai/some-model-id",
         provider="my-custom-provider",  # References provider by name
-        inference_parameters=ChatCompletionInferenceParams(
+        inference_parameters=dd.ChatCompletionInferenceParams(
             temperature=0.85,
             top_p=0.95,
             max_tokens=2048,
         ),
     ),
-    ModelConfig(
+    dd.ModelConfig(
         alias="my-self-hosted-text-model",
         model="openai/some-hosted-model-id",
         provider="my-self-hosted-provider",
-        inference_parameters=ChatCompletionInferenceParams(
+        inference_parameters=dd.ChatCompletionInferenceParams(
             temperature=0.7,
             top_p=0.9,
             max_tokens=1024,
@@ -187,14 +172,14 @@ custom_models = [
 data_designer = DataDesigner(model_providers=custom_providers)
 
 # Step 4: Create config builder with custom models
-config_builder = DataDesignerConfigBuilder(model_configs=custom_models)
+config_builder = dd.DataDesignerConfigBuilder(model_configs=custom_models)
 
 # Step 5: Add a topic column using a categorical sampler
 config_builder.add_column(
-    SamplerColumnConfig(
+    dd.SamplerColumnConfig(
         name="topic",
-        sampler_type=SamplerType.CATEGORY,
-        params=CategorySamplerParams(
+        sampler_type=dd.SamplerType.CATEGORY,
+        params=dd.CategorySamplerParams(
             values=["Technology", "Healthcare", "Finance", "Education"],
         ),
     )
@@ -202,7 +187,7 @@ config_builder.add_column(
 
 # Step 6: Use your custom model by referencing its alias
 config_builder.add_column(
-    LLMTextColumnConfig(
+    dd.LLMTextColumnConfig(
         name="short_news_article",
         model_alias="my-text-model",  # Reference custom alias
         prompt="Write a short news article about the '{{topic}}' topic in 10 sentences.",
@@ -210,7 +195,7 @@ config_builder.add_column(
 )
 
 config_builder.add_column(
-    LLMTextColumnConfig(
+    dd.LLMTextColumnConfig(
         name="long_news_article",
         model_alias="my-self-hosted-text-model",  # Reference custom alias
         prompt="Write a detailed news article about the '{{topic}}' topic.",

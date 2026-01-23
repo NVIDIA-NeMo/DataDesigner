@@ -27,18 +27,11 @@ Below we'll construct a simple Data Designer workflow that generates multilingua
 ```python
 import os
 
-from data_designer.essentials import (
-    CategorySamplerParams,
-    DataDesigner,
-    DataDesignerConfigBuilder,
-    InfoType,
-    LLMTextColumnConfig,
-    SamplerColumnConfig,
-    SamplerType,
-)
+import data_designer.config as dd
+from data_designer.interface import DataDesigner
 
 # Set your API key from build.nvidia.com
-# Skip this step if you've already exported your key to the environemnt variable
+# Skip this step if you've already exported your key to the environment variable
 os.environ["NVIDIA_API_KEY"] = "your-api-key-here"
 
 # Create a DataDesigner instance
@@ -46,21 +39,21 @@ os.environ["NVIDIA_API_KEY"] = "your-api-key-here"
 data_designer = DataDesigner()
 
 # Print out all the model providers available
-data_designer.info.display(InfoType.MODEL_PROVIDERS)
+data_designer.info.display(dd.InfoType.MODEL_PROVIDERS)
 
 # Create a config builder
 # This automatically loads the default model configurations
-config_builder = DataDesignerConfigBuilder()
+config_builder = dd.DataDesignerConfigBuilder()
 
 # Print out all the model configurations available
-config_builder.info.display(InfoType.MODEL_CONFIGS)
+config_builder.info.display(dd.InfoType.MODEL_CONFIGS)
 
 # Add a sampler column to randomly select a language
 config_builder.add_column(
-    SamplerColumnConfig(
+    dd.SamplerColumnConfig(
         name="language",
-        sampler_type=SamplerType.CATEGORY,
-        params=CategorySamplerParams(
+        sampler_type=dd.SamplerType.CATEGORY,
+        params=dd.CategorySamplerParams(
             values=["English", "Spanish", "French", "German", "Italian"],
         ),
     )
@@ -69,7 +62,7 @@ config_builder.add_column(
 # Add an LLM text generation column
 # We'll use the built-in 'nvidia-text' model alias
 config_builder.add_column(
-    LLMTextColumnConfig(
+    dd.LLMTextColumnConfig(
         name="greetings",
         model_alias="nvidia-text",
         prompt="""Write a casual and formal greeting in '{{language}}' language.""",

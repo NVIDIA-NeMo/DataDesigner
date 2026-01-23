@@ -88,7 +88,9 @@ extra:
     default: latest
 
 watch:
-  - src/data_designer
+  - packages/data-designer-config/src/data_designer
+  - packages/data-designer-engine/src/data_designer
+  - packages/data-designer/src/data_designer
   - docs/
 
 plugins:
