@@ -38,7 +38,7 @@ from data_designer.essentials import (
 )
 
 # Set your API key from build.nvidia.com
-# Skip this step if you've already exported your key to the environemnt variable
+# Skip this step if you've already exported your key to the environment variable
 os.environ["NVIDIA_API_KEY"] = "your-api-key-here"
 
 # Create a DataDesigner instance
