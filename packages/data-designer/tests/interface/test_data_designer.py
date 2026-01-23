@@ -20,11 +20,9 @@ from data_designer.config.run_config import RunConfig
 from data_designer.config.sampler_params import CategorySamplerParams, SamplerType
 from data_designer.config.seed_source import HuggingFaceSeedSource
 from data_designer.engine.secret_resolver import CompositeResolver, EnvironmentResolver, PlaintextResolver
+from data_designer.engine.testing.stubs import StubHuggingFaceSeedReader
 from data_designer.interface.data_designer import DataDesigner
-from data_designer.interface.errors import (
-    DataDesignerGenerationError,
-    DataDesignerProfilingError,
-)
+from data_designer.interface.errors import DataDesignerGenerationError, DataDesignerProfilingError
 from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
@@ -54,6 +52,11 @@ def stub_model_providers():
             api_key="stub-model-provider-api-key",
         )
     ]
+
+
+@pytest.fixture
+def stub_seed_reader():
+    return StubHuggingFaceSeedReader()
 
 
 def test_init_with_custom_secret_resolver(stub_artifact_path, stub_model_providers):
