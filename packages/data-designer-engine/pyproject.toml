@@ -53,6 +53,9 @@ version-file = "src/data_designer/engine/_version.py"
 [tool.hatch.build.targets.wheel]
 packages = ["src/data_designer"]
 
+[tool.ruff]
+extend = "../../pyproject.toml"
+
 [tool.uv]
 package = true
 
