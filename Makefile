@@ -1,4 +1,24 @@
+# ==============================================================================
+# VARIABLES AND FUNCTIONS
+# ==============================================================================
+
 REPO_PATH := $(shell pwd)
+
+# Package directories
+CONFIG_PKG := packages/data-designer-config
+ENGINE_PKG := packages/data-designer-engine
+INTERFACE_PKG := packages/data-designer
+
+# Package source and test paths
+CONFIG_PATHS := $(CONFIG_PKG)/src $(CONFIG_PKG)/tests
+ENGINE_PATHS := $(ENGINE_PKG)/src $(ENGINE_PKG)/tests
+INTERFACE_PATHS := $(INTERFACE_PKG)/src $(INTERFACE_PKG)/tests
+ALL_PKG_PATHS := packages/ scripts/ tests_e2e/
+
+# Test directories
+CONFIG_TESTS := $(CONFIG_PKG)/tests
+ENGINE_TESTS := $(ENGINE_PKG)/tests
+INTERFACE_TESTS := $(INTERFACE_PKG)/tests
 
 define install-pre-commit-hooks
 	@if [ ! -f $(REPO_PATH)/.git/hooks/pre-commit ]; then \
@@ -8,6 +28,10 @@ define install-pre-commit-hooks
 		echo "👍 Pre-commit hooks already installed"; \
 	fi
 endef
+
+# ==============================================================================
+# HELP
+# ==============================================================================
 
 help:
 	@echo ""
@@ -59,6 +83,7 @@ help:
 	@echo "  lint-<pkg>                - Lint a specific package"
 	@echo "  lint-fix-<pkg>            - Fix lint issues in a specific package"
 	@echo "  format-<pkg>              - Format a specific package"
+	@echo "  format-check-<pkg>        - Check formatting for a specific package"
 	@echo "  check-<pkg>               - Check format + lint for a specific package"
 	@echo "  build-<pkg>               - Build wheel for a specific package"
 	@echo "  coverage-<pkg>            - Run tests with coverage for a specific package"
@@ -67,139 +92,9 @@ help:
 	@echo "💡 Tip: Run 'make <command>' to execute any command above"
 	@echo ""
 
-clean-pycache:
-	@echo "🧹 Cleaning up Python cache files..."
-	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
-	find . -type f -name "*.pyc" -delete 2>/dev/null || true
-	@echo "✅ Cache cleaned!"
-
-clean-dist:
-	@echo "🧹 Cleaning dist directories..."
-	rm -rf packages/data-designer-config/dist
-	rm -rf packages/data-designer-engine/dist
-	rm -rf packages/data-designer/dist
-	@echo "✅ Dist directories cleaned!"
-
-clean: clean-pycache clean-dist
-	@echo "🧹 Cleaning up coverage reports and test cache..."
-	rm -rf htmlcov .coverage .pytest_cache
-	rm -f packages/*/src/data_designer/*/_version.py
-	@echo "✅ Cleaned!"
-
-coverage:
-	@echo "📊 Running tests with coverage analysis (all packages)..."
-	uv run --group dev pytest \
-		packages/data-designer-config/tests \
-		packages/data-designer-engine/tests \
-		packages/data-designer/tests \
-		--cov=data_designer \
-		--cov-report=term-missing \
-		--cov-report=html
-	@echo "✅ Coverage report generated in htmlcov/index.html"
-
-check-all: format-check lint
-	@echo "✅ All checks complete!"
-
-check-all-fix: format lint-fix
-	@echo "✅ All checks with autofix complete!"
-
-format:
-	@echo "📐 Formatting code with ruff..."
-	uv run ruff format packages/ scripts/ tests_e2e/ --exclude '**/_version.py'
-	@echo "✅ Formatting complete!"
-
-format-check:
-	@echo "📐 Checking code formatting with ruff..."
-	uv run ruff format --check packages/ scripts/ tests_e2e/ --exclude '**/_version.py'
-	@echo "✅ Formatting check complete! Run 'make format' to auto-fix issues."
-
-lint:
-	@echo "🔍 Linting code with ruff..."
-	uv run ruff check --output-format=full packages/ scripts/ tests_e2e/ --exclude '**/_version.py'
-	@echo "✅ Linting complete! Run 'make lint-fix' to auto-fix issues."
-
-lint-fix:
-	@echo "🔍 Fixing linting issues with ruff..."
-	uv run ruff check --fix packages/ scripts/ tests_e2e/ --exclude '**/_version.py'
-	@echo "✅ Linting with autofix complete!"
-
-test: test-config test-engine test-interface
-	@echo "✅ All package tests complete!"
-
-test-e2e:
-	@echo "🧹 Cleaning e2e test environment..."
-	rm -rf tests_e2e/uv.lock tests_e2e/.pycache tests_e2e/.venv
-	@echo "🧪 Running e2e tests..."
-	uv run --no-cache --refresh --directory tests_e2e pytest -s
-
-test-run-tutorials:
-	@echo "🧪 Running tutorials as e2e tests..."
-	@TUTORIAL_WORKDIR=$$(mktemp -d); \
-	trap "rm -rf $$TUTORIAL_WORKDIR" EXIT; \
-	for f in docs/notebook_source/*.py; do \
-		echo "  📓 Running $$f..."; \
-		(cd "$$TUTORIAL_WORKDIR" && uv run --project "$(REPO_PATH)" --group notebooks python "$(REPO_PATH)/$$f") || exit 1; \
-	done; \
-	echo "🧹 Cleaning up tutorial artifacts..."; \
-	rm -rf "$$TUTORIAL_WORKDIR"; \
-	echo "✅ All tutorials completed successfully!"
-
-test-run-recipes:
-	@echo "🧪 Running recipes as e2e tests..."
-	@RECIPE_WORKDIR=$$(mktemp -d); \
-	trap "rm -rf $$RECIPE_WORKDIR" EXIT; \
-	for f in docs/assets/recipes/**/*.py; do \
-		echo "  📜 Running $$f..."; \
-		(cd "$$RECIPE_WORKDIR" && uv run --project "$(REPO_PATH)" --group notebooks python "$(REPO_PATH)/$$f" --model-alias nvidia-text --artifact-path "$$RECIPE_WORKDIR" --num-records 5) || exit 1; \
-	done; \
-	echo "🧹 Cleaning up recipe artifacts..."; \
-	rm -rf "$$RECIPE_WORKDIR"; \
-	echo "✅ All recipes completed successfully!"
-
-test-run-all-examples: test-run-tutorials test-run-recipes
-	@echo "✅ All examples (tutorials + recipes) completed successfully!"
-
-convert-execute-notebooks:
-	@echo "📓 Converting Python tutorials to notebooks and executing..."
-	@mkdir -p docs/notebooks
-	cp docs/notebook_source/_README.md docs/notebooks/README.md
-	cp docs/notebook_source/_pyproject.toml docs/notebooks/pyproject.toml
-	uv run --all-packages --group notebooks --group docs jupytext --to ipynb --execute docs/notebook_source/*.py
-	mv docs/notebook_source/*.ipynb docs/notebooks/
-	rm -r docs/notebook_source/artifacts
-	rm docs/notebook_source/*.csv
-	@echo "✅ Notebooks created in docs/notebooks/"
-
-generate-colab-notebooks:
-	@echo "📓 Generating Colab-compatible notebooks..."
-	uv run --group docs python docs/scripts/generate_colab_notebooks.py
-	@echo "✅ Colab notebooks created in docs/colab_notebooks/"
-
-serve-docs-locally:
-	@echo "📝 Building and serving docs..."
-	uv sync --group docs
-	uv run mkdocs serve --livereload
-
-check-license-headers:
-	@echo "🔍 Checking license headers in all files..."
-	uv run python $(REPO_PATH)/scripts/update_license_headers.py --check
-
-update-license-headers:
-	@echo "🔍 Updating license headers in all files..."
-	uv run python $(REPO_PATH)/scripts/update_license_headers.py
-
-verify-imports:
-	@echo "🔍 Verifying package imports..."
-	uv run python -c "from data_designer.config.config_builder import DataDesignerConfigBuilder; print('  ✓ config')"
-	uv run python -c "from data_designer.engine.compiler import compile_data_designer_config; print('  ✓ engine')"
-	uv run python -c "from data_designer.interface.data_designer import DataDesigner; print('  ✓ interface')"
-	@echo "✅ All imports verified!"
-
-show-versions:
-	@echo "📦 Package versions:"
-	@uv run python -c "from data_designer.config._version import __version__; print(f'  data-designer-config: {__version__}')" 2>/dev/null || echo "  data-designer-config: (not installed)"
-	@uv run python -c "from data_designer.engine._version import __version__; print(f'  data-designer-engine: {__version__}')" 2>/dev/null || echo "  data-designer-engine: (not installed)"
-	@uv run python -c "from data_designer.interface._version import __version__; print(f'  data-designer:        {__version__}')" 2>/dev/null || echo "  data-designer: (not installed)"
+# ==============================================================================
+# INSTALLATION
+# ==============================================================================
 
 install:
 	@echo "📦 Installing DataDesigner workspace (all packages in editable mode)..."
@@ -240,6 +135,255 @@ install-dev-notebooks:
 	@echo ""
 	@echo "💡 Run 'make test-run-tutorials' to test notebook tutorials"
 
+# ==============================================================================
+# TESTING
+# ==============================================================================
+
+test: test-config test-engine test-interface
+	@echo "✅ All package tests complete!"
+
+test-config:
+	@echo "🧪 Testing data-designer-config..."
+	uv run --group dev pytest $(CONFIG_TESTS)
+
+test-engine:
+	@echo "🧪 Testing data-designer-engine..."
+	uv run --group dev pytest $(ENGINE_TESTS)
+
+test-interface:
+	@echo "🧪 Testing data-designer (interface)..."
+	uv run --group dev pytest $(INTERFACE_TESTS)
+
+# Note: coverage runs all tests in a single pytest invocation for combined coverage reporting.
+# This is intentionally different from calling coverage-config/engine/interface individually.
+coverage:
+	@echo "📊 Running tests with coverage analysis (all packages)..."
+	uv run --group dev pytest \
+		$(CONFIG_TESTS) \
+		$(ENGINE_TESTS) \
+		$(INTERFACE_TESTS) \
+		--cov=data_designer \
+		--cov-report=term-missing \
+		--cov-report=html
+	@echo "✅ Coverage report generated in htmlcov/index.html"
+
+coverage-config:
+	@echo "📊 Running config tests with coverage..."
+	uv run --group dev pytest $(CONFIG_TESTS) --cov=data_designer --cov-report=term-missing --cov-report=html
+
+coverage-engine:
+	@echo "📊 Running engine tests with coverage..."
+	uv run --group dev pytest $(ENGINE_TESTS) --cov=data_designer --cov-report=term-missing --cov-report=html
+
+coverage-interface:
+	@echo "📊 Running interface tests with coverage..."
+	uv run --group dev pytest $(INTERFACE_TESTS) --cov=data_designer --cov-report=term-missing --cov-report=html
+
+test-e2e:
+	@echo "🧹 Cleaning e2e test environment..."
+	rm -rf tests_e2e/uv.lock tests_e2e/__pycache__ tests_e2e/.venv
+	@echo "🧪 Running e2e tests..."
+	uv run --no-cache --refresh --directory tests_e2e pytest -s
+
+test-run-tutorials:
+	@echo "🧪 Running tutorials as e2e tests..."
+	@TUTORIAL_WORKDIR=$$(mktemp -d); \
+	trap "rm -rf $$TUTORIAL_WORKDIR" EXIT; \
+	for f in docs/notebook_source/*.py; do \
+		echo "  📓 Running $$f..."; \
+		(cd "$$TUTORIAL_WORKDIR" && uv run --project "$(REPO_PATH)" --group notebooks python "$(REPO_PATH)/$$f") || exit 1; \
+	done; \
+	echo "🧹 Cleaning up tutorial artifacts..."; \
+	rm -rf "$$TUTORIAL_WORKDIR"; \
+	echo "✅ All tutorials completed successfully!"
+
+test-run-recipes:
+	@echo "🧪 Running recipes as e2e tests..."
+	@RECIPE_WORKDIR=$$(mktemp -d); \
+	trap "rm -rf $$RECIPE_WORKDIR" EXIT; \
+	for f in docs/assets/recipes/**/*.py; do \
+		echo "  📜 Running $$f..."; \
+		(cd "$$RECIPE_WORKDIR" && uv run --project "$(REPO_PATH)" --group notebooks python "$(REPO_PATH)/$$f" --model-alias nvidia-text --artifact-path "$$RECIPE_WORKDIR" --num-records 5) || exit 1; \
+	done; \
+	echo "🧹 Cleaning up recipe artifacts..."; \
+	rm -rf "$$RECIPE_WORKDIR"; \
+	echo "✅ All recipes completed successfully!"
+
+test-run-all-examples: test-run-tutorials test-run-recipes
+	@echo "✅ All examples (tutorials + recipes) completed successfully!"
+
+# ==============================================================================
+# CODE QUALITY - FORMATTING
+# ==============================================================================
+
+format: format-config format-engine format-interface
+	@echo "📐 Formatting scripts and tests_e2e..."
+	uv run ruff format scripts/ tests_e2e/
+	@echo "✅ Formatting complete!"
+
+format-check: format-check-config format-check-engine format-check-interface
+	@echo "📐 Checking scripts and tests_e2e formatting..."
+	uv run ruff format --check scripts/ tests_e2e/
+	@echo "✅ Formatting check complete! Run 'make format' to auto-fix issues."
+
+format-config:
+	@echo "📐 Formatting data-designer-config..."
+	uv run ruff format $(CONFIG_PATHS) --exclude '**/_version.py'
+
+format-engine:
+	@echo "📐 Formatting data-designer-engine..."
+	uv run ruff format $(ENGINE_PATHS) --exclude '**/_version.py'
+
+format-interface:
+	@echo "📐 Formatting data-designer (interface)..."
+	uv run ruff format $(INTERFACE_PATHS) --exclude '**/_version.py'
+
+format-check-config:
+	@echo "📐 Checking data-designer-config formatting..."
+	uv run ruff format --check $(CONFIG_PATHS) --exclude '**/_version.py'
+
+format-check-engine:
+	@echo "📐 Checking data-designer-engine formatting..."
+	uv run ruff format --check $(ENGINE_PATHS) --exclude '**/_version.py'
+
+format-check-interface:
+	@echo "📐 Checking data-designer (interface) formatting..."
+	uv run ruff format --check $(INTERFACE_PATHS) --exclude '**/_version.py'
+
+# ==============================================================================
+# CODE QUALITY - LINTING
+# ==============================================================================
+
+lint: lint-config lint-engine lint-interface
+	@echo "🔍 Linting scripts and tests_e2e..."
+	uv run ruff check --output-format=full scripts/ tests_e2e/
+	@echo "✅ Linting complete! Run 'make lint-fix' to auto-fix issues."
+
+lint-fix: lint-fix-config lint-fix-engine lint-fix-interface
+	@echo "🔍 Fixing lint issues in scripts and tests_e2e..."
+	uv run ruff check --fix scripts/ tests_e2e/
+	@echo "✅ Linting with autofix complete!"
+
+lint-config:
+	@echo "🔍 Linting data-designer-config..."
+	uv run ruff check --output-format=full $(CONFIG_PATHS) --exclude '**/_version.py'
+
+lint-engine:
+	@echo "🔍 Linting data-designer-engine..."
+	uv run ruff check --output-format=full $(ENGINE_PATHS) --exclude '**/_version.py'
+
+lint-interface:
+	@echo "🔍 Linting data-designer (interface)..."
+	uv run ruff check --output-format=full $(INTERFACE_PATHS) --exclude '**/_version.py'
+
+lint-fix-config:
+	@echo "🔍 Fixing lint issues in data-designer-config..."
+	uv run ruff check --fix $(CONFIG_PATHS) --exclude '**/_version.py'
+
+lint-fix-engine:
+	@echo "🔍 Fixing lint issues in data-designer-engine..."
+	uv run ruff check --fix $(ENGINE_PATHS) --exclude '**/_version.py'
+
+lint-fix-interface:
+	@echo "🔍 Fixing lint issues in data-designer (interface)..."
+	uv run ruff check --fix $(INTERFACE_PATHS) --exclude '**/_version.py'
+
+# ==============================================================================
+# CODE QUALITY - COMBINED CHECKS
+# ==============================================================================
+
+check-all: format-check lint
+	@echo "✅ All checks complete!"
+
+check-all-fix: format lint-fix
+	@echo "✅ All checks with autofix complete!"
+
+check-config: format-check-config lint-config
+	@echo "✅ Checks complete for data-designer-config!"
+
+check-engine: format-check-engine lint-engine
+	@echo "✅ Checks complete for data-designer-engine!"
+
+check-interface: format-check-interface lint-interface
+	@echo "✅ Checks complete for data-designer (interface)!"
+
+# ==============================================================================
+# BUILD
+# ==============================================================================
+
+build: build-config build-engine build-interface
+	@echo "✅ All packages built!"
+
+build-config:
+	@echo "🏗️  Building data-designer-config..."
+	cd $(CONFIG_PKG) && uv build -o dist
+
+build-engine:
+	@echo "🏗️  Building data-designer-engine..."
+	cd $(ENGINE_PKG) && uv build -o dist
+
+build-interface:
+	@echo "🏗️  Building data-designer (interface)..."
+	cd $(INTERFACE_PKG) && uv build -o dist
+
+# ==============================================================================
+# UTILITIES
+# ==============================================================================
+
+verify-imports:
+	@echo "🔍 Verifying package imports..."
+	uv run python -c "from data_designer.config.config_builder import DataDesignerConfigBuilder; print('  ✓ config')"
+	uv run python -c "from data_designer.engine.compiler import compile_data_designer_config; print('  ✓ engine')"
+	uv run python -c "from data_designer.interface.data_designer import DataDesigner; print('  ✓ interface')"
+	@echo "✅ All imports verified!"
+
+show-versions:
+	@echo "📦 Package versions:"
+	@uv run python -c "from data_designer.config._version import __version__; print(f'  data-designer-config: {__version__}')" 2>/dev/null || echo "  data-designer-config: (not installed)"
+	@uv run python -c "from data_designer.engine._version import __version__; print(f'  data-designer-engine: {__version__}')" 2>/dev/null || echo "  data-designer-engine: (not installed)"
+	@uv run python -c "from data_designer.interface._version import __version__; print(f'  data-designer:        {__version__}')" 2>/dev/null || echo "  data-designer: (not installed)"
+
+# ==============================================================================
+# LICENSE HEADERS
+# ==============================================================================
+
+check-license-headers:
+	@echo "🔍 Checking license headers in all files..."
+	uv run python $(REPO_PATH)/scripts/update_license_headers.py --check
+
+update-license-headers:
+	@echo "🔍 Updating license headers in all files..."
+	uv run python $(REPO_PATH)/scripts/update_license_headers.py
+
+# ==============================================================================
+# DOCUMENTATION
+# ==============================================================================
+
+serve-docs-locally:
+	@echo "📝 Building and serving docs..."
+	uv sync --group docs
+	uv run mkdocs serve --livereload
+
+convert-execute-notebooks:
+	@echo "📓 Converting Python tutorials to notebooks and executing..."
+	@mkdir -p docs/notebooks
+	cp docs/notebook_source/_README.md docs/notebooks/README.md
+	cp docs/notebook_source/_pyproject.toml docs/notebooks/pyproject.toml
+	uv run --all-packages --group notebooks --group docs jupytext --to ipynb --execute docs/notebook_source/*.py
+	mv docs/notebook_source/*.ipynb docs/notebooks/
+	rm -r docs/notebook_source/artifacts
+	rm docs/notebook_source/*.csv
+	@echo "✅ Notebooks created in docs/notebooks/"
+
+generate-colab-notebooks:
+	@echo "📓 Generating Colab-compatible notebooks..."
+	uv run --group docs python docs/scripts/generate_colab_notebooks.py
+	@echo "✅ Colab notebooks created in docs/colab_notebooks/"
+
+# ==============================================================================
+# PERFORMANCE
+# ==============================================================================
+
 perf-import:
 ifdef CLEAN
 	@$(MAKE) clean-pycache
@@ -270,101 +414,51 @@ else
 	grep "import time:" "$$PERF_FILE" | sort -rn -k5 | head -10 | awk '{printf "%-12.3f %-12.3f %s", $$3/1000000, $$5/1000000, $$7; for(i=8;i<=NF;i++) printf " %s", $$i; printf "\n"}'
 endif
 
-# Subpackage test commands
-test-config:
-	@echo "🧪 Testing data-designer-config..."
-	uv run --group dev pytest packages/data-designer-config/tests
+# ==============================================================================
+# CLEANUP
+# ==============================================================================
 
-test-engine:
-	@echo "🧪 Testing data-designer-engine..."
-	uv run --group dev pytest packages/data-designer-engine/tests
+clean: clean-pycache clean-dist clean-notebooks clean-test-coverage
+	@echo "✅ Cleaned!"
 
-test-interface:
-	@echo "🧪 Testing data-designer (interface)..."
-	uv run --group dev pytest packages/data-designer/tests
+clean-pycache:
+	@echo "🧹 Cleaning up Python cache files..."
+	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+	find . -type f -name "*.pyc" -delete 2>/dev/null || true
+	@echo "✅ Cache cleaned!"
 
-# Subpackage lint commands
-lint-config:
-	@echo "🔍 Linting data-designer-config..."
-	uv run ruff check packages/data-designer-config/src packages/data-designer-config/tests
+clean-dist:
+	@echo "🧹 Cleaning dist directories..."
+	rm -rf $(CONFIG_PKG)/dist
+	rm -rf $(ENGINE_PKG)/dist
+	rm -rf $(INTERFACE_PKG)/dist
+	rm -f packages/*/src/data_designer/*/_version.py
+	@echo "✅ Dist directories cleaned!"
 
-lint-engine:
-	@echo "🔍 Linting data-designer-engine..."
-	uv run ruff check packages/data-designer-engine/src packages/data-designer-engine/tests
+clean-notebooks:
+	@echo "🧹 Cleaning up notebooks..."
+	rm -rf docs/notebooks
+	@echo "✅ Notebooks cleaned!"
 
-lint-interface:
-	@echo "🔍 Linting data-designer (interface)..."
-	uv run ruff check packages/data-designer/src packages/data-designer/tests
+clean-test-coverage:
+	@echo "🧹 Cleaning up test coverage..."
+	rm -rf htmlcov .coverage .pytest_cache
+	@echo "✅ Test coverage cleaned!"
 
-# Subpackage format commands
-format-config:
-	@echo "📐 Formatting data-designer-config..."
-	uv run ruff format packages/data-designer-config/src packages/data-designer-config/tests
+# ==============================================================================
+# PHONY TARGETS
+# ==============================================================================
 
-format-engine:
-	@echo "📐 Formatting data-designer-engine..."
-	uv run ruff format packages/data-designer-engine/src packages/data-designer-engine/tests
-
-format-interface:
-	@echo "📐 Formatting data-designer (interface)..."
-	uv run ruff format packages/data-designer/src packages/data-designer/tests
-
-# Subpackage lint-fix commands
-lint-fix-config:
-	@echo "🔍 Fixing lint issues in data-designer-config..."
-	uv run ruff check --fix packages/data-designer-config/src packages/data-designer-config/tests
-
-lint-fix-engine:
-	@echo "🔍 Fixing lint issues in data-designer-engine..."
-	uv run ruff check --fix packages/data-designer-engine/src packages/data-designer-engine/tests
-
-lint-fix-interface:
-	@echo "🔍 Fixing lint issues in data-designer (interface)..."
-	uv run ruff check --fix packages/data-designer/src packages/data-designer/tests
-
-# Subpackage check commands (format-check + lint)
-check-config:
-	@echo "🔍 Checking data-designer-config..."
-	uv run ruff format --check packages/data-designer-config/src packages/data-designer-config/tests
-	uv run ruff check packages/data-designer-config/src packages/data-designer-config/tests
-
-check-engine:
-	@echo "🔍 Checking data-designer-engine..."
-	uv run ruff format --check packages/data-designer-engine/src packages/data-designer-engine/tests
-	uv run ruff check packages/data-designer-engine/src packages/data-designer-engine/tests
-
-check-interface:
-	@echo "🔍 Checking data-designer (interface)..."
-	uv run ruff format --check packages/data-designer/src packages/data-designer/tests
-	uv run ruff check packages/data-designer/src packages/data-designer/tests
-
-# Subpackage build commands
-build-config:
-	@echo "🏗️  Building data-designer-config..."
-	cd packages/data-designer-config && uv build -o dist
-
-build-engine:
-	@echo "🏗️  Building data-designer-engine..."
-	cd packages/data-designer-engine && uv build -o dist
-
-build-interface:
-	@echo "🏗️  Building data-designer (interface)..."
-	cd packages/data-designer && uv build -o dist
-
-build: build-config build-engine build-interface
-	@echo "✅ All packages built!"
-
-# Subpackage coverage commands
-coverage-config:
-	@echo "📊 Running config tests with coverage..."
-	uv run --group dev pytest packages/data-designer-config/tests --cov=data_designer.config --cov-report=term-missing --cov-report=html
-
-coverage-engine:
-	@echo "📊 Running engine tests with coverage..."
-	uv run --group dev pytest packages/data-designer-engine/tests --cov=data_designer.engine --cov-report=term-missing --cov-report=html
-
-coverage-interface:
-	@echo "📊 Running interface tests with coverage..."
-	uv run --group dev pytest packages/data-designer/tests --cov=data_designer --cov-report=term-missing --cov-report=html
-
-.PHONY: clean clean-pycache clean-dist coverage format format-check lint lint-fix test test-e2e test-run-tutorials test-run-recipes test-run-all-examples check-license-headers update-license-headers check-all check-all-fix install install-dev install-dev-notebooks generate-colab-notebooks perf-import verify-imports show-versions test-config test-engine test-interface lint-config lint-engine lint-interface format-config format-engine format-interface lint-fix-config lint-fix-engine lint-fix-interface check-config check-engine check-interface build build-config build-engine build-interface coverage-config coverage-engine coverage-interface
+.PHONY: build build-config build-engine build-interface \
+        check-all check-all-fix check-config check-engine check-interface \
+        check-license-headers \
+        clean clean-dist clean-notebooks clean-pycache clean-test-coverage \
+        convert-execute-notebooks coverage coverage-config coverage-engine coverage-interface \
+        format format-check format-check-config format-check-engine format-check-interface \
+        format-config format-engine format-interface \
+        generate-colab-notebooks help \
+        install install-dev install-dev-notebooks \
+        lint lint-config lint-engine lint-fix lint-fix-config lint-fix-engine lint-fix-interface lint-interface \
+        perf-import serve-docs-locally show-versions \
+        test test-config test-e2e test-engine test-interface test-run-all-examples test-run-recipes test-run-tutorials \
+        update-license-headers verify-imports
