@@ -23,14 +23,14 @@ The `ModelConfig` class has the following fields:
 ### Basic Model Configuration
 
 ```python
-from data_designer.essentials import ChatCompletionInferenceParams, ModelConfig
+import data_designer.config as dd
 
 # Simple model configuration with fixed parameters
-model_config = ModelConfig(
+model_config = dd.ModelConfig(
     alias="my-text-model",
     model="nvidia/nemotron-3-nano-30b-a3b",
     provider="nvidia",
-    inference_parameters=ChatCompletionInferenceParams(
+    inference_parameters=dd.ChatCompletionInferenceParams(
         temperature=0.85,
         top_p=0.95,
         max_tokens=2048,
@@ -41,65 +41,60 @@ model_config = ModelConfig(
 ### Multiple Model Configurations for Different Tasks
 
 ```python
-from data_designer.essentials import (
-    ChatCompletionInferenceParams,
-    EmbeddingInferenceParams,
-    GenerationType,
-    ModelConfig
-)
+import data_designer.config as dd
 
 model_configs = [
     # Creative tasks
-    ModelConfig(
+    dd.ModelConfig(
         alias="creative-model",
         model="nvidia/nemotron-3-nano-30b-a3b",
         provider="nvidia",
-        inference_parameters=ChatCompletionInferenceParams(
+        inference_parameters=dd.ChatCompletionInferenceParams(
             temperature=0.9,
             top_p=0.95,
             max_tokens=2048,
         ),
     ),
     # Critic tasks
-    ModelConfig(
+    dd.ModelConfig(
         alias="critic-model",
         model="nvidia/nemotron-3-nano-30b-a3b",
         provider="nvidia",
-        inference_parameters=ChatCompletionInferenceParams(
+        inference_parameters=dd.ChatCompletionInferenceParams(
             temperature=0.25,
             top_p=0.95,
             max_tokens=2048,
         ),
     ),
     # Reasoning and structured tasks
-    ModelConfig(
+    dd.ModelConfig(
         alias="reasoning-model",
         model="openai/gpt-oss-20b",
         provider="nvidia",
-        inference_parameters=ChatCompletionInferenceParams(
+        inference_parameters=dd.ChatCompletionInferenceParams(
             temperature=0.3,
             top_p=0.9,
             max_tokens=4096,
         ),
     ),
     # Vision tasks
-    ModelConfig(
+    dd.ModelConfig(
         alias="vision-model",
         model="nvidia/nemotron-nano-12b-v2-vl",
         provider="nvidia",
-        inference_parameters=ChatCompletionInferenceParams(
+        inference_parameters=dd.ChatCompletionInferenceParams(
             temperature=0.7,
             top_p=0.95,
             max_tokens=2048,
         ),
     ),
     # Embedding tasks
-    ModelConfig(
+    dd.ModelConfig(
         alias="embedding_model",
-        model=-"nvidia/llama-3.2-nv-embedqa-1b-v2",
+        model="nvidia/llama-3.2-nv-embedqa-1b-v2",
         provider="nvidia",
-        inference_parameters=EmbeddingInferenceParams(
-            encoding_format="float"
+        inference_parameters=dd.EmbeddingInferenceParams(
+            encoding_format="float",
             extra_body={
                 "input_type": "query"
             }

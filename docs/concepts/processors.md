@@ -27,9 +27,9 @@ Removes specified columns from the output dataset. Dropped columns are saved sep
 **Configuration:**
 
 ```python
-from data_designer.essentials import DropColumnsProcessorConfig
+import data_designer.config as dd
 
-processor = DropColumnsProcessorConfig(
+processor = dd.DropColumnsProcessorConfig(
     name="remove_intermediate",
     column_names=["temp_calculation", "raw_input", "debug_info"],
 )
@@ -55,9 +55,9 @@ Creates an additional dataset with a transformed schema using Jinja2 templates. 
 **Configuration:**
 
 ```python
-from data_designer.essentials import SchemaTransformProcessorConfig
+import data_designer.config as dd
 
-processor = SchemaTransformProcessorConfig(
+processor = dd.SchemaTransformProcessorConfig(
     name="chat_format",
     template={
         "messages": [
@@ -95,19 +95,15 @@ processor = SchemaTransformProcessorConfig(
 Add processors to your configuration using the builder's `add_processor` method:
 
 ```python
-from data_designer.essentials import (
-    DataDesignerConfigBuilder,
-    DropColumnsProcessorConfig,
-    SchemaTransformProcessorConfig,
-)
+import data_designer.config as dd
 
-builder = DataDesignerConfigBuilder()
+builder = dd.DataDesignerConfigBuilder()
 
 # ... add columns ...
 
 # Drop intermediate columns
 builder.add_processor(
-    DropColumnsProcessorConfig(
+    dd.DropColumnsProcessorConfig(
         name="cleanup",
         column_names=["scratch_work", "raw_context"],
     )
@@ -115,7 +111,7 @@ builder.add_processor(
 
 # Transform to chat format
 builder.add_processor(
-    SchemaTransformProcessorConfig(
+    dd.SchemaTransformProcessorConfig(
         name="chat_format",
         template={
             "messages": [

@@ -27,9 +27,9 @@ The Python code validator runs generated Python code through [Ruff](https://gith
 **Configuration:**
 
 ```python
-from data_designer.essentials import CodeLang, CodeValidatorParams
+import data_designer.config as dd
 
-validator_params = CodeValidatorParams(code_lang=CodeLang.PYTHON)
+validator_params = dd.CodeValidatorParams(code_lang=dd.CodeLang.PYTHON)
 ```
 
 **Validation Output:**
@@ -77,9 +77,9 @@ The SQL code validator uses [SQLFluff](https://github.com/sqlfluff/sqlfluff), a 
 **Configuration:**
 
 ```python
-from data_designer.essentials import CodeLang, CodeValidatorParams
+import data_designer.config as dd
 
-validator_params = CodeValidatorParams(code_lang=CodeLang.SQL_POSTGRES)
+validator_params = dd.CodeValidatorParams(code_lang=dd.CodeLang.SQL_POSTGRES)
 ```
 
 !!! tip "Multiple Dialects"
@@ -119,7 +119,7 @@ The local callable validator executes custom Python functions for flexible valid
 ```python
 import pandas as pd
 
-from data_designer.essentials import LocalCallableValidatorParams
+import data_designer.config as dd
 
 def my_validation_function(df: pd.DataFrame) -> pd.DataFrame:
     """Validate that values are positive.
@@ -137,7 +137,7 @@ def my_validation_function(df: pd.DataFrame) -> pd.DataFrame:
     )
     return result
 
-validator_params = LocalCallableValidatorParams(
+validator_params = dd.LocalCallableValidatorParams(
     validation_function=my_validation_function,
     output_schema={  # Optional: enforce output schema
         "type": "object",
@@ -181,9 +181,9 @@ The remote validator sends data to HTTP endpoints for validation-as-a-service. T
 **Configuration:**
 
 ```python
-from data_designer.essentials import RemoteValidatorParams
+import data_designer.config as dd
 
-validator_params = RemoteValidatorParams(
+validator_params = dd.RemoteValidatorParams(
     endpoint_url="https://api.example.com/validate",
     timeout=30.0,  # Request timeout in seconds
     max_retries=3,  # Retry attempts on failure
@@ -257,19 +257,13 @@ Set `max_parallel_requests` to control concurrency. Higher values improve throug
 Add validation columns to your configuration using the builder's `add_column` method:
 
 ```python
-from data_designer.essentials import (
-    CodeValidatorParams,
-    CodeLang,
-    DataDesignerConfigBuilder,
-    LLMCodeColumnConfig,
-    ValidationColumnConfig,
-)
+import data_designer.config as dd
 
-builder = DataDesignerConfigBuilder()
+builder = dd.DataDesignerConfigBuilder()
 
 # Generate Python code
 builder.add_column(
-    LLMCodeColumnConfig(
+    dd.LLMCodeColumnConfig(
         name="sorting_algorithm",
         prompt="Write a Python function to sort a list using bubble sort.",
         code_lang="python",
@@ -279,11 +273,11 @@ builder.add_column(
 
 # Validate the generated code
 builder.add_column(
-    ValidationColumnConfig(
+    dd.ValidationColumnConfig(
         name="code_validation",
         target_columns=["sorting_algorithm"],
         validator_type="code",
-        validator_params=CodeValidatorParams(code_lang=CodeLang.PYTHON),
+        validator_params=dd.CodeValidatorParams(code_lang=dd.CodeLang.PYTHON),
         batch_size=10,
         drop=False,
     )
@@ -318,14 +312,14 @@ If the validation logic uses information from other samples, only samples in the
 Validate multiple columns simultaneously:
 
 ```python
-from data_designer.essentials import RemoteValidatorParams, ValidationColumnConfig
+import data_designer.config as dd
 
 builder.add_column(
-    ValidationColumnConfig(
+    dd.ValidationColumnConfig(
         name="multi_column_validation",
         target_columns=["column_a", "column_b", "column_c"],
         validator_type="remote",
-        validator_params=RemoteValidatorParams(
+        validator_params=dd.RemoteValidatorParams(
             endpoint_url="https://api.example.com/validate"
         )
     )
@@ -337,4 +331,3 @@ builder.add_column(
 ## See Also
 
 - [Validator Parameters Reference](../code_reference/validator_params.md): Configuration object schemas
-

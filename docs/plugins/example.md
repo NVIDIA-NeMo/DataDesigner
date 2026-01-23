@@ -234,22 +234,18 @@ Once installed, your plugin works just like built-in column types:
 ```python
 from data_designer_index_multiplier.plugin import IndexMultiplierColumnConfig
 
-from data_designer.essentials import (
-    CategorySamplerParams,
-    DataDesigner,
-    DataDesignerConfigBuilder,
-    SamplerColumnConfig,
-)
+import data_designer.config as dd
+from data_designer.interface import DataDesigner
 
 data_designer = DataDesigner()
-builder = DataDesignerConfigBuilder()
+builder = dd.DataDesignerConfigBuilder()
 
 # Add a regular column
 builder.add_column(
-    SamplerColumnConfig(
+    dd.SamplerColumnConfig(
         name="category",
         sampler_type="category",
-        params=CategorySamplerParams(values=["A", "B", "C"]),
+        params=dd.CategorySamplerParams(values=["A", "B", "C"]),
     )
 )
 
