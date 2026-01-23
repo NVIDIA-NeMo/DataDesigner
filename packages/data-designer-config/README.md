@@ -1,6 +1,6 @@
 # data-designer-config
 
-Configuration layer for NVIDIA DataDesigner synthetic data generation framework.
+Configuration layer for NeMo Data Designer synthetic data generation framework.
 
 This package provides the configuration API for defining synthetic data generation pipelines. It's a lightweight dependency that can be used standalone for configuration management.
 
@@ -10,55 +10,39 @@ This package provides the configuration API for defining synthetic data generati
 pip install data-designer-config
 ```
 
-## Features
-
-- Configuration builder API (`DataDesignerConfigBuilder`)
-- Column configuration types (Sampler, LLM, Expression, Validation, etc.)
-- Model configurations with inference parameters
-- Seed dataset configuration
-- Constraint system for data generation
-- Plugin system for extensibility
-
 ## Usage
 
 ```python
-from data_designer.config import DataDesignerConfigBuilder, ModelConfig
+import data_designer.config as dd
 
-# Create configuration builder
-builder = DataDesignerConfigBuilder(
+# Initialize config builder with model config(s)
+config_builder = dd.DataDesignerConfigBuilder(
     model_configs=[
-        ModelConfig(
+        dd.ModelConfig(
             alias="my-model",
             model="meta/llama-3-70b-instruct",
-            inference_parameters={"temperature": 0.7}
-        )
+            inference_parameters={"temperature": 0.7},
+        ),
     ]
 )
 
 # Add columns
-builder.add_column(
-    name="user_id",
-    sampler_type="uuid",
-    column_type="sampler"
+config_builder.add_column(
+    dd.SamplerColumnConfig(
+        name="user_id",
+        sampler_type=dd.SamplerType.UUID,
+    )
 )
-
-builder.add_column(
-    name="description",
-    column_type="llm-text",
-    prompt="Write a product description",
-    model_alias="my-model"
+config_builder.add_column(
+    dd.LLMTextColumnConfig(
+        name="description",
+        prompt="Write a product description",
+        model_alias="my-model",
+    )
 )
 
 # Build configuration
-config = builder.build()
+config = config_builder.build()
 ```
 
-## Documentation
-
-- [Full Documentation](https://nvidia.github.io/DataDesigner/)
-- [Configuration Guide](https://nvidia.github.io/DataDesigner/configuration/)
-- [API Reference](https://nvidia.github.io/DataDesigner/api/config/)
-
-## License
-
-Apache-2.0 - Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES
+See main [README.md](../../README.md) for more information.
