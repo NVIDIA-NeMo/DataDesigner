@@ -74,7 +74,7 @@ def create_sample_image_dataset(num_images: int = 10) -> Path:
         draw = ImageDraw.Draw(img)
 
         # Add text to image
-        text = f"Sample Image #{i+1}\nColor: {colors[i % len(colors)]}"
+        text = f"Sample Image #{i + 1}\nColor: {colors[i % len(colors)]}"
         try:
             font = ImageFont.truetype("Arial", 40)
         except OSError:

@@ -50,9 +50,7 @@ def chunk_pdf_to_dataset(pdf_path: Path | str, chunk_size: int = 1000, overlap: 
     try:
         from pypdf import PdfReader
     except ImportError:
-        raise ImportError(
-            "pypdf is required for PDF processing. Install it with: pip install pypdf"
-        ) from None
+        raise ImportError("pypdf is required for PDF processing. Install it with: pip install pypdf") from None
 
     pdf_path = Path(pdf_path)
     reader = PdfReader(pdf_path)
@@ -263,8 +261,7 @@ if __name__ == "__main__":
         default_pdf = script_dir / "databricks-state-of-data-ai-report.pdf"
         if not default_pdf.exists():
             raise FileNotFoundError(
-                f"Default PDF not found at {default_pdf}. "
-                "Please specify a PDF path using --pdf-path"
+                f"Default PDF not found at {default_pdf}. Please specify a PDF path using --pdf-path"
             )
         pdf_path = default_pdf
     else:
@@ -284,4 +281,3 @@ if __name__ == "__main__":
     print(f"Dataset saved to: {results.artifact_storage.final_dataset_path}")
 
     results.load_analysis().to_report()
-
