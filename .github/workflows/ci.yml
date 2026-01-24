@@ -8,8 +8,13 @@ on:
   workflow_dispatch:
 
 jobs:
-  test:
-    name: Test (Python ${{ matrix.python-version }} on ${{ matrix.os }})
+  # ===========================================================================
+  # Independent Package Tests
+  # Each package is tested in isolation to ensure proper dependency boundaries
+  # ===========================================================================
+
+  test-config:
+    name: Test Config (Python ${{ matrix.python-version }} on ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -28,7 +33,104 @@ jobs:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
 
-      - name: Install dependencies
+      - name: Install data-designer-config only
+        run: uv sync --package data-designer-config
+
+      - name: Run config tests
+        run: |
+          uv run --with pytest --with pytest-cov --with pytest-asyncio --with pytest-env \
+            pytest -v \
+            packages/data-designer-config/tests \
+            --cov=data_designer \
+            --cov-report=term-missing
+
+  test-engine:
+    name: Test Engine (Python ${{ matrix.python-version }} on ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+
+      - name: Install data-designer-engine only
+        run: uv sync --package data-designer-engine
+
+      - name: Run engine tests
+        run: |
+          uv run --with pytest --with pytest-cov --with pytest-asyncio --with pytest-httpx --with pytest-env \
+            pytest -v \
+            packages/data-designer-engine/tests \
+            --cov=data_designer \
+            --cov-report=term-missing
+
+  test-interface:
+    name: Test Interface (Python ${{ matrix.python-version }} on ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+
+      - name: Install data-designer (full package)
+        run: uv sync --package data-designer
+
+      - name: Run interface tests
+        run: |
+          uv run --with pytest --with pytest-cov --with pytest-asyncio --with pytest-httpx --with pytest-env \
+            pytest -v \
+            packages/data-designer/tests \
+            --cov=data_designer \
+            --cov-report=term-missing
+
+  # ===========================================================================
+  # Combined Coverage Check
+  # Runs all tests together to verify overall coverage threshold
+  # ===========================================================================
+
+  coverage:
+    name: Coverage Check (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+
+      - name: Install all packages
         run: make install-dev
 
       - name: Run tests with coverage
@@ -41,6 +143,10 @@ jobs:
             --cov-report=term-missing \
             --cov-report=xml \
             --cov-fail-under=90
+
+  # ===========================================================================
+  # End-to-End Tests
+  # ===========================================================================
 
   test-e2e:
     name: End to end test (Python ${{ matrix.python-version }} on ${{ matrix.os }})
@@ -64,6 +170,10 @@ jobs:
 
       - name: Run e2e tests
         run: make test-e2e
+
+  # ===========================================================================
+  # Code Quality
+  # ===========================================================================
 
   lint:
     name: Lint and Format Check
