@@ -22,6 +22,7 @@ dependencies = [
     "jinja2>=3.1.6,<4",
     "numpy>=1.23.5,<3",
     "pandas>=2.3.3,<3",
+    "pyarrow>=19.0.1,<20", # Required for parquet I/O operations
     "pydantic[email]>=2.9.2,<3",
     "pygments>=2.19.2,<3",
     "python-json-logger>=3,<4",
