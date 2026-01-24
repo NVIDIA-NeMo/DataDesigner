@@ -221,3 +221,33 @@ jobs:
 
       - name: Check license headers
         run: make check-license-headers
+
+  # ===========================================================================
+  # Summary Job for Branch Protection
+  # This job creates status checks matching the old job naming convention
+  # so that branch protection rules continue to work.
+  # ===========================================================================
+
+  test-summary:
+    name: Test (Python ${{ matrix.python-version }} on ${{ matrix.os }})
+    runs-on: ubuntu-latest
+    needs: [test-config, test-engine, test-interface]
+    if: always()
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+      - name: Check all tests passed
+        run: |
+          if [[ "${{ needs.test-config.result }}" != "success" ]] || \
+             [[ "${{ needs.test-engine.result }}" != "success" ]] || \
+             [[ "${{ needs.test-interface.result }}" != "success" ]]; then
+            echo "One or more test jobs failed"
+            echo "test-config: ${{ needs.test-config.result }}"
+            echo "test-engine: ${{ needs.test-engine.result }}"
+            echo "test-interface: ${{ needs.test-interface.result }}"
+            exit 1
+          fi
+          echo "All test jobs passed successfully"
