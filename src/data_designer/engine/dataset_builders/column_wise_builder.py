@@ -31,10 +31,7 @@ from data_designer.engine.compiler import compile_data_designer_config
 from data_designer.engine.dataset_builders.artifact_storage import SDG_CONFIG_FILENAME, ArtifactStorage
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError, DatasetProcessingError
 from data_designer.engine.dataset_builders.multi_column_configs import MultiColumnConfig
-from data_designer.engine.dataset_builders.utils.concurrency import (
-    MAX_CONCURRENCY_PER_NON_LLM_GENERATOR,
-    ConcurrentThreadExecutor,
-)
+from data_designer.engine.dataset_builders.utils.concurrency import ConcurrentThreadExecutor
 from data_designer.engine.dataset_builders.utils.config_compiler import compile_dataset_builder_column_configs
 from data_designer.engine.dataset_builders.utils.dataset_batch_manager import DatasetBatchManager
 from data_designer.engine.models.telemetry import InferenceEvent, NemoSourceEnum, TaskStatusEnum, TelemetryHandler
@@ -202,7 +199,7 @@ class ColumnWiseDatasetBuilder:
         self.batch_manager.add_records(df.to_dict(orient="records"))
 
     def _run_cell_by_cell_generator(self, generator: ColumnGenerator) -> None:
-        max_workers = MAX_CONCURRENCY_PER_NON_LLM_GENERATOR
+        max_workers = self._resource_provider.run_config.non_llm_max_parallel_workers
         if isinstance(generator, ColumnGeneratorWithModel):
             max_workers = generator.inference_parameters.max_parallel_requests
         self._fan_out_with_threads(generator, max_workers=max_workers)

@@ -15,10 +15,7 @@ from data_designer.config.processors import DropColumnsProcessorConfig
 from data_designer.config.run_config import RunConfig
 from data_designer.config.sampler_params import SamplerType, UUIDSamplerParams
 from data_designer.engine.column_generators.generators.base import GenerationStrategy
-from data_designer.engine.dataset_builders.column_wise_builder import (
-    MAX_CONCURRENCY_PER_NON_LLM_GENERATOR,
-    ColumnWiseDatasetBuilder,
-)
+from data_designer.engine.dataset_builders.column_wise_builder import ColumnWiseDatasetBuilder
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 from data_designer.engine.models.telemetry import InferenceEvent, NemoSourceEnum, TaskStatusEnum
 from data_designer.engine.models.usage import ModelUsageStats, TokenUsageStats
@@ -243,8 +240,9 @@ def test_column_wise_dataset_builder_initialize_processors(stub_column_wise_buil
     assert processors[BuildStage.POST_BATCH][0].config.column_names == ["column_to_drop"]
 
 
-def test_constants_max_concurrency_constant():
-    assert MAX_CONCURRENCY_PER_NON_LLM_GENERATOR == 4
+def test_run_config_default_non_llm_max_parallel_workers() -> None:
+    run_config = RunConfig()
+    assert run_config.non_llm_max_parallel_workers == 4
 
 
 @patch("data_designer.engine.dataset_builders.column_wise_builder.TelemetryHandler")

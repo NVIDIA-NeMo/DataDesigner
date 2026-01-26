@@ -43,6 +43,7 @@ nav:
       - column_configs: code_reference/column_configs.md
       - config_builder: code_reference/config_builder.md
       - data_designer_config: code_reference/data_designer_config.md
+      - run_config: code_reference/run_config.md
       - sampler_params: code_reference/sampler_params.md
       - validator_params: code_reference/validator_params.md
       - processors: code_reference/processors.md
