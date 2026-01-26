@@ -40,6 +40,8 @@ PII_FIELDS = [
     "state",
     "email_address",
     "phone_number",
+    # Brazil-specific fields
+    "municipality",
     # Japan-specific fields
     "area",
     "prefecture",
