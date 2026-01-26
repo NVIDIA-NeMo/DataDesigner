@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
@@ -316,7 +316,8 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
 
         Args:
             run_config: A RunConfig instance containing runtime settings such as
-                early shutdown behavior and batch sizing via `buffer_size`.
+                early shutdown behavior, batch sizing via `buffer_size`, and non-inference worker
+                concurrency via `non_inference_max_parallel_workers`.
 
         Notes:
             When `disable_early_shutdown=True`, DataDesigner will never terminate generation early
