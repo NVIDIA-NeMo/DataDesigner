@@ -81,6 +81,20 @@ class ImageContext(ModalityContext):
     modality: Modality = Modality.IMAGE
     image_format: ImageFormat | None = None
 
+    @staticmethod
+    def build_context(
+        context_value: str, data_type: ModalityDataType, image_format: ImageFormat | None = None
+    ) -> dict[str, Any]:
+        context = dict(type="image_url")
+        if data_type == ModalityDataType.URL:
+            context["image_url"] = context_value
+        else:
+            context["image_url"] = {
+                "url": f"data:image/{image_format.value};base64,{context_value}",
+                "format": image_format.value,
+            }
+        return context
+
     def get_context(self, record: dict) -> dict[str, Any]:
         """Get the context for the image modality.
 
@@ -90,16 +104,7 @@ class ImageContext(ModalityContext):
         Returns:
             The context for the image modality.
         """
-        context = dict(type="image_url")
-        context_value = record[self.column_name]
-        if self.data_type == ModalityDataType.URL:
-            context["image_url"] = context_value
-        else:
-            context["image_url"] = {
-                "url": f"data:image/{self.image_format.value};base64,{context_value}",
-                "format": self.image_format.value,
-            }
-        return context
+        return ImageContext.build_context(record[self.column_name], self.data_type, self.image_format)
 
     @model_validator(mode="after")
     def _validate_image_format(self) -> Self:

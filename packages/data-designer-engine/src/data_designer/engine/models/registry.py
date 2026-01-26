@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from data_designer.config.models import GenerationType, ModelConfig
 from data_designer.engine.model_provider import ModelProvider, ModelProviderRegistry
@@ -104,7 +104,9 @@ class ModelRegistry:
         model_config = self.get_model_config(model_alias=model_alias)
         return self._model_provider_registry.get_provider(model_config.provider)
 
-    def run_health_check(self, model_aliases: list[str]) -> None:
+    def run_health_check(
+        self, model_aliases: list[str], multi_modal_contexts: dict[str, dict[str, Any]] | None = None
+    ) -> None:
         logger.info("🩺 Running health checks for models...")
         for model_alias in model_aliases:
             model_config = self.get_model_config(model_alias=model_alias)
@@ -124,6 +126,12 @@ class ModelRegistry:
                         purpose="running health checks",
                     )
                 elif model.model_generation_type == GenerationType.CHAT_COMPLETION:
+                    multi_modal_context = multi_modal_contexts.get(model_alias) if multi_modal_contexts else None
+                    if multi_modal_context is not None:
+                        logger.info(
+                            f"  |-- 🖼️ Passing multi-modal context to {model.model_alias!r}: {multi_modal_context!r}"
+                        )
+
                     model.generate(
                         prompt="Hello!",
                         parser=lambda x: x,
@@ -132,6 +140,7 @@ class ModelRegistry:
                         max_conversation_restarts=0,
                         skip_usage_tracking=True,
                         purpose="running health checks",
+                        multi_modal_contexts=multi_modal_context,
                     )
                 else:
                     raise ValueError(f"Unsupported generation type: {model.model_generation_type}")

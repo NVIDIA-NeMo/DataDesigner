@@ -16,11 +16,13 @@ from data_designer.config.column_types import ColumnConfigT
 from data_designer.config.config_builder import BuilderConfig
 from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.dataset_builders import BuildStage
+from data_designer.config.models import ImageContext, ImageFormat, ModalityDataType
 from data_designer.config.processors import (
     DropColumnsProcessorConfig,
     ProcessorConfig,
     ProcessorType,
 )
+from data_designer.config.utils.constants import TEST_IMAGE_1PX_1PX_PNG_BASE64_STRING
 from data_designer.engine.column_generators.generators.base import (
     ColumnGenerator,
     ColumnGeneratorWithModel,
@@ -89,7 +91,7 @@ class ColumnWiseDatasetBuilder:
         return configs
 
     @functools.cached_property
-    def llm_generated_column_configs(self) -> list[ColumnConfigT]:
+    def model_generated_column_configs(self) -> list[ColumnConfigT]:
         return [config for config in self.single_column_configs if column_type_is_model_generated(config.column_type)]
 
     def build(
@@ -212,9 +214,25 @@ class ColumnWiseDatasetBuilder:
         self.batch_manager.update_records(df.to_dict(orient="records"))
 
     def _run_model_health_check_if_needed(self) -> bool:
-        if any(column_type_is_model_generated(config.column_type) for config in self.single_column_configs):
+        model_generated_column_configs = self.model_generated_column_configs
+        if len(model_generated_column_configs) > 0:
+            multi_modal_contexts = {}
+            for config in model_generated_column_configs:
+                if (
+                    hasattr(config, "multi_modal_context")
+                    and hasattr(config, "model_alias")
+                    and config.multi_modal_context is not None
+                    and config.model_alias is not None
+                    and any(isinstance(context, ImageContext) for context in config.multi_modal_context)
+                ):
+                    multi_modal_contexts[config.model_alias] = ImageContext.build_context(
+                        context_value=TEST_IMAGE_1PX_1PX_PNG_BASE64_STRING,
+                        data_type=ModalityDataType.BASE64,
+                        image_format=ImageFormat.PNG,
+                    )
             self._resource_provider.model_registry.run_health_check(
-                list(set(config.model_alias for config in self.llm_generated_column_configs))
+                list(set(config.model_alias for config in model_generated_column_configs)),
+                multi_modal_contexts=multi_modal_contexts if len(multi_modal_contexts) > 0 else None,
             )
 
     def _fan_out_with_threads(self, generator: ColumnGeneratorWithModelRegistry, max_workers: int) -> None:
