@@ -56,7 +56,7 @@ error() {
     echo -e "${RED}ERROR:${NC} $1" >&2
 }
 
-die() {
+abort() {
     error "$1"
     if [[ -n "$2" ]]; then
         echo -e "  ${YELLOW}$2${NC}" >&2
@@ -78,19 +78,22 @@ header() {
 VERSION=""
 DRY_RUN=false
 ALLOW_BRANCH=false
+FORCE_TAG=false
 
 usage() {
-    echo "Usage: $0 <version> [--dry-run] [--allow-branch]"
+    echo "Usage: $0 <version> [--dry-run] [--allow-branch] [--force-tag]"
     echo ""
     echo "Arguments:"
     echo "  version         Version to publish (e.g., 0.3.9 or 0.3.9rc1)"
     echo "  --dry-run       Run all checks but don't create tags or upload to PyPI"
     echo "  --allow-branch  Allow publishing from non-main branches"
+    echo "  --force-tag     Overwrite existing git tag if it exists"
     echo ""
     echo "Examples:"
     echo "  $0 0.3.9rc1                        # Full publish from main"
     echo "  $0 0.3.9rc1 --dry-run              # Dry run"
     echo "  $0 0.3.9rc1 --allow-branch         # Publish from current branch"
+    echo "  $0 0.3.9rc1 --force-tag            # Overwrite existing tag"
     exit 1
 }
 
@@ -112,6 +115,10 @@ parse_args() {
                 ALLOW_BRANCH=true
                 shift
                 ;;
+            --force-tag)
+                FORCE_TAG=true
+                shift
+                ;;
             *)
                 error "Unknown argument: $1"
                 usage
@@ -127,7 +134,7 @@ parse_args() {
 validate_version_format() {
     # Validate version matches X.Y.Z or X.Y.ZrcN pattern
     if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(rc[0-9]+)?$ ]]; then
-        die "Invalid version format: $VERSION" \
+        abort "Invalid version format: $VERSION" \
             "Version must match pattern X.Y.Z or X.Y.ZrcN (e.g., 0.3.9 or 0.3.9rc1)"
     fi
     success "Version format is valid: $VERSION"
@@ -141,7 +148,7 @@ check_main_branch() {
         if [[ "$ALLOW_BRANCH" == true ]]; then
             warn "Not on main branch (allowed via --allow-branch): $current_branch"
         else
-            die "Not on main branch" \
+            abort "Not on main branch" \
                 "Current branch: $current_branch. Please checkout main or use --allow-branch"
         fi
     else
@@ -154,7 +161,7 @@ check_clean_working_directory() {
     status=$(git status --porcelain)
 
     if [[ -n "$status" ]]; then
-        die "Working directory has uncommitted changes" \
+        abort "Working directory has uncommitted changes" \
             "Please commit or stash your changes before publishing"
     fi
     success "Working directory is clean"
@@ -166,21 +173,26 @@ check_tag_does_not_exist() {
     existing_tag=$(git tag -l "$tag")
 
     if [[ -n "$existing_tag" ]]; then
-        die "Git tag already exists: $tag" \
-            "Please choose a different version or delete the existing tag: git tag -d $tag"
+        if [[ "$FORCE_TAG" == true ]]; then
+            warn "Git tag already exists: $tag (will be overwritten via --force-tag)"
+        else
+            abort "Git tag already exists: $tag" \
+                "Please choose a different version or delete the existing tag: git tag -d $tag"
+        fi
+    else
+        success "Git tag v$VERSION does not exist"
     fi
-    success "Git tag v$VERSION does not exist"
 }
 
 check_pypi_access() {
     if [[ ! -f "$PYPIRC_FILE" ]]; then
-        die "PyPI config file not found: $PYPIRC_FILE" \
+        abort "PyPI config file not found: $PYPIRC_FILE" \
             "Please create ~/.pypirc with your PyPI credentials"
     fi
 
     # Check that the expected username exists in pypirc
     if ! grep -q "$EXPECTED_PYPI_USERNAME" "$PYPIRC_FILE"; then
-        die "Expected username '$EXPECTED_PYPI_USERNAME' not found in $PYPIRC_FILE" \
+        abort "Expected username '$EXPECTED_PYPI_USERNAME' not found in $PYPIRC_FILE" \
             "Please add your PyPI credentials with username '$EXPECTED_PYPI_USERNAME'"
     fi
     success "PyPI access configured (username: $EXPECTED_PYPI_USERNAME)"
@@ -188,7 +200,7 @@ check_pypi_access() {
 
 check_twine_works() {
     if ! uv run --with twine python -m twine --version > /dev/null 2>&1; then
-        die "Twine is not working" \
+        abort "Twine is not working" \
             "Please ensure uv is installed and working"
     fi
     local twine_version
@@ -205,7 +217,7 @@ run_tests() {
     info "Executing make test..."
 
     if ! make test; then
-        die "Tests failed" \
+        abort "Tests failed" \
             "Please fix the failing tests before publishing"
     fi
     success "All tests passed"
@@ -219,7 +231,7 @@ build_packages() {
 
     info "Building all packages..."
     if ! make build; then
-        die "Package build failed" \
+        abort "Package build failed" \
             "Please check the build output for errors"
     fi
     success "All packages built successfully"
@@ -231,12 +243,21 @@ create_git_tag() {
     local tag="v$VERSION"
 
     if [[ "$DRY_RUN" == true ]]; then
-        warn "[DRY RUN] Would create git tag: $tag"
+        if [[ "$FORCE_TAG" == true ]]; then
+            warn "[DRY RUN] Would force create git tag: $tag"
+        else
+            warn "[DRY RUN] Would create git tag: $tag"
+        fi
         return
     fi
 
-    info "Creating tag: $tag"
-    git tag "$tag"
+    if [[ "$FORCE_TAG" == true ]]; then
+        info "Force creating tag: $tag"
+        git tag -f "$tag"
+    else
+        info "Creating tag: $tag"
+        git tag "$tag"
+    fi
     success "Created git tag: $tag"
 }
 
@@ -253,7 +274,7 @@ rebuild_with_tag() {
 
     info "Rebuilding all packages with tag..."
     if ! make build; then
-        die "Package rebuild failed" \
+        abort "Package rebuild failed" \
             "Please check the build output for errors"
     fi
     success "All packages rebuilt with correct version"
@@ -264,7 +285,7 @@ rebuild_with_tag() {
         local wheel_count
         wheel_count=$(ls "$pkg_dir/dist/"*.whl 2>/dev/null | wc -l)
         if [[ "$wheel_count" -eq 0 ]]; then
-            die "No wheel found in $pkg_dir/dist/" \
+            abort "No wheel found in $pkg_dir/dist/" \
                 "Build may have failed silently"
         fi
         info "  Found wheel(s) in $pkg_dir/dist/"
@@ -288,7 +309,7 @@ upload_to_pypi() {
         (
             cd "$pkg_dir"
             if ! uv run --with twine python -m twine upload dist/*; then
-                die "Failed to upload $pkg_dir" \
+                abort "Failed to upload $pkg_dir" \
                     "Please check the twine output for errors"
             fi
         )
@@ -304,14 +325,26 @@ push_git_tag() {
     local tag="v$VERSION"
 
     if [[ "$DRY_RUN" == true ]]; then
-        warn "[DRY RUN] Would push git tag to origin: $tag"
+        if [[ "$FORCE_TAG" == true ]]; then
+            warn "[DRY RUN] Would force push git tag to origin: $tag"
+        else
+            warn "[DRY RUN] Would push git tag to origin: $tag"
+        fi
         return
     fi
 
-    info "Pushing tag to origin: $tag"
-    if ! git push origin "$tag"; then
-        die "Failed to push tag to origin" \
-            "Please push the tag manually: git push origin $tag"
+    if [[ "$FORCE_TAG" == true ]]; then
+        info "Force pushing tag to origin: $tag"
+        if ! git push -f origin "$tag"; then
+            abort "Failed to force push tag to origin" \
+                "Please push the tag manually: git push -f origin $tag"
+        fi
+    else
+        info "Pushing tag to origin: $tag"
+        if ! git push origin "$tag"; then
+            abort "Failed to push tag to origin" \
+                "Please push the tag manually: git push origin $tag"
+        fi
     fi
     success "Pushed git tag: $tag"
 }
@@ -327,6 +360,9 @@ main() {
 
     if [[ "$DRY_RUN" == true ]]; then
         warn "DRY RUN MODE - No tags will be created or packages uploaded"
+    fi
+    if [[ "$FORCE_TAG" == true ]]; then
+        warn "FORCE TAG MODE - Existing tag will be overwritten"
     fi
 
     # Pre-flight checks

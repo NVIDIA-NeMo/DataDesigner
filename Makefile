@@ -88,6 +88,7 @@ help:
 	@echo "  publish VERSION=X.Y.Z                        - Publish all packages to PyPI"
 	@echo "  publish VERSION=X.Y.Z DRY_RUN=1              - Dry run (no tags or uploads)"
 	@echo "  publish VERSION=X.Y.Z ALLOW_BRANCH=1         - Publish from non-main branch"
+	@echo "  publish VERSION=X.Y.Z FORCE_TAG=1            - Overwrite existing git tag"
 	@echo ""
 	@echo "📦 Per-Package Commands (use suffix: -config, -engine, -interface):"
 	@echo "  test-<pkg>                - Run tests for a specific package"
@@ -501,10 +502,13 @@ endif
 ifdef ALLOW_BRANCH
 PUBLISH_FLAGS += --allow-branch
 endif
+ifdef FORCE_TAG
+PUBLISH_FLAGS += --force-tag
+endif
 
 publish:
 ifndef VERSION
-	$(error VERSION is required. Usage: make publish VERSION=0.3.9rc1 [DRY_RUN=1] [ALLOW_BRANCH=1])
+	$(error VERSION is required. Usage: make publish VERSION=0.3.9rc1 [DRY_RUN=1] [ALLOW_BRANCH=1] [FORCE_TAG=1])
 endif
 ifdef DRY_RUN
 	@echo "🚀 Running publish dry-run for version $(VERSION)..."
