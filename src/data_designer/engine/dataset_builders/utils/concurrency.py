@@ -16,6 +16,7 @@ from data_designer.engine.errors import DataDesignerRuntimeError, ErrorTrap
 
 logger = logging.getLogger(__name__)
 
+
 class ExecutorResults(BaseModel):
     failure_threshold: float = 0.0  # Error rate threshold
     completed_count: int = 0  # How many tasks/jobs completed
