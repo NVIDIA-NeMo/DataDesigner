@@ -79,10 +79,10 @@ If commits have mixed types, use the primary/most significant type.
 ## 🔄 Changes
 
 ### ✨ Added
-- [New features/files]
+- [New features/files - link to key files when helpful]
 
 ### 🔧 Changed
-- [Modified functionality]
+- [Modified functionality - reference commits for specific changes]
 
 ### 🗑️ Removed
 - [Deleted items]
@@ -115,6 +115,11 @@ If commits have mixed types, use the primary/most significant type.
 - **Summary**: Always include - be concise and focus on the "why"
 - **Changes**: Group by type, omit empty sections
 - **Attention Areas**: Only include if there are genuinely important items; omit for simple PRs
+- **Links**: Include links to code and commits where helpful for reviewers:
+  - Link to specific files: `[filename](path/to/file.py)` - GitHub auto-links files in the repo
+  - Link to specific lines: `[description](path/to/file.py#L42-L50)` for key code sections
+  - Reference commits: `abc1234` - GitHub auto-links commit SHAs
+  - For multi-commit PRs, reference individual commits when describing specific changes
 
 ## Edge Cases
 
