@@ -51,7 +51,7 @@ help:
 	@echo "  test-run-recipes          - Run recipe scripts as e2e tests"
 	@echo "  test-run-all-examples     - Run all tutorials and recipes as e2e tests"
 	@echo ""
-	@echo "🔬 Isolated Testing (mirrors CI - resets venv!):"
+	@echo "🔬 Isolated Testing (mirrors CI - uses temp venv):"
 	@echo "  test-isolated             - Run all isolated tests (config → engine → interface)"
 	@echo "  test-config-isolated      - Test config with ONLY config installed"
 	@echo "  test-engine-isolated      - Test engine with ONLY engine+config installed"
@@ -163,7 +163,7 @@ test-interface:
 # ------------------------------------------------------------------------------
 # Isolated Testing (mirrors CI behavior)
 # Each package is installed independently to verify dependency boundaries
-# WARNING: These commands reset the virtual environment to an isolated state
+# Uses temporary virtual environments to avoid affecting the main dev environment
 # ------------------------------------------------------------------------------
 
 # Test dependencies added via --with since workspace groups aren't available with --package
@@ -171,28 +171,36 @@ TEST_DEPS := --with pytest --with pytest-asyncio --with pytest-httpx --with pyte
 
 test-isolated: test-config-isolated test-engine-isolated test-interface-isolated
 	@echo "✅ All isolated package tests complete!"
-	@echo "💡 Run 'make install-dev' to restore full development environment"
 
 test-config-isolated:
 	@echo "🧪 Testing data-designer-config in isolation..."
-	@echo "   Installing config package only (no engine/interface)..."
-	uv sync --package data-designer-config
-	uv run $(TEST_DEPS) pytest -v $(CONFIG_TESTS)
-	@echo "✅ Config tests passed in isolation!"
+	@ISOLATED_VENV=$$(mktemp -d); \
+	trap "rm -rf $$ISOLATED_VENV" EXIT; \
+	echo "   Creating isolated environment in $$ISOLATED_VENV..."; \
+	echo "   Installing config package only (no engine/interface)..."; \
+	UV_PROJECT_ENVIRONMENT="$$ISOLATED_VENV" uv sync --package data-designer-config; \
+	UV_PROJECT_ENVIRONMENT="$$ISOLATED_VENV" uv run $(TEST_DEPS) pytest -v $(CONFIG_TESTS); \
+	echo "✅ Config tests passed in isolation!"
 
 test-engine-isolated:
 	@echo "🧪 Testing data-designer-engine in isolation..."
-	@echo "   Installing engine package only (auto-includes config)..."
-	uv sync --package data-designer-engine
-	uv run $(TEST_DEPS) pytest -v $(ENGINE_TESTS)
-	@echo "✅ Engine tests passed in isolation!"
+	@ISOLATED_VENV=$$(mktemp -d); \
+	trap "rm -rf $$ISOLATED_VENV" EXIT; \
+	echo "   Creating isolated environment in $$ISOLATED_VENV..."; \
+	echo "   Installing engine package only (auto-includes config)..."; \
+	UV_PROJECT_ENVIRONMENT="$$ISOLATED_VENV" uv sync --package data-designer-engine; \
+	UV_PROJECT_ENVIRONMENT="$$ISOLATED_VENV" uv run $(TEST_DEPS) pytest -v $(ENGINE_TESTS); \
+	echo "✅ Engine tests passed in isolation!"
 
 test-interface-isolated:
 	@echo "🧪 Testing data-designer (interface) in isolation..."
-	@echo "   Installing interface package (auto-includes config + engine)..."
-	uv sync --package data-designer
-	uv run $(TEST_DEPS) pytest -v $(INTERFACE_TESTS)
-	@echo "✅ Interface tests passed in isolation!"
+	@ISOLATED_VENV=$$(mktemp -d); \
+	trap "rm -rf $$ISOLATED_VENV" EXIT; \
+	echo "   Creating isolated environment in $$ISOLATED_VENV..."; \
+	echo "   Installing interface package (auto-includes config + engine)..."; \
+	UV_PROJECT_ENVIRONMENT="$$ISOLATED_VENV" uv sync --package data-designer; \
+	UV_PROJECT_ENVIRONMENT="$$ISOLATED_VENV" uv run $(TEST_DEPS) pytest -v $(INTERFACE_TESTS); \
+	echo "✅ Interface tests passed in isolation!"
 
 # Note: coverage runs all tests in a single pytest invocation for combined coverage reporting.
 # This is intentionally different from calling coverage-config/engine/interface individually.
