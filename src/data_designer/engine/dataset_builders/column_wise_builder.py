@@ -199,7 +199,7 @@ class ColumnWiseDatasetBuilder:
         self.batch_manager.add_records(df.to_dict(orient="records"))
 
     def _run_cell_by_cell_generator(self, generator: ColumnGenerator) -> None:
-        max_workers = self._resource_provider.run_config.non_llm_max_parallel_workers
+        max_workers = self._resource_provider.run_config.non_inference_max_parallel_workers
         if isinstance(generator, ColumnGeneratorWithModel):
             max_workers = generator.inference_parameters.max_parallel_requests
         self._fan_out_with_threads(generator, max_workers=max_workers)

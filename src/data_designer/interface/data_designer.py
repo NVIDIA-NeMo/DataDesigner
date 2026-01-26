@@ -316,8 +316,8 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
 
         Args:
             run_config: A RunConfig instance containing runtime settings such as
-                early shutdown behavior, batch sizing via `buffer_size`, and non-LLM worker
-                concurrency via `non_llm_max_parallel_workers`. Import RunConfig from
+                early shutdown behavior, batch sizing via `buffer_size`, and non-inference worker
+                concurrency via `non_inference_max_parallel_workers`. Import RunConfig from
                 data_designer.essentials.
 
         Example:

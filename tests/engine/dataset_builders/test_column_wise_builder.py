@@ -240,9 +240,9 @@ def test_column_wise_dataset_builder_initialize_processors(stub_column_wise_buil
     assert processors[BuildStage.POST_BATCH][0].config.column_names == ["column_to_drop"]
 
 
-def test_run_config_default_non_llm_max_parallel_workers() -> None:
+def test_run_config_default_non_inference_max_parallel_workers() -> None:
     run_config = RunConfig()
-    assert run_config.non_llm_max_parallel_workers == 4
+    assert run_config.non_inference_max_parallel_workers == 4
 
 
 @patch("data_designer.engine.dataset_builders.column_wise_builder.TelemetryHandler")
