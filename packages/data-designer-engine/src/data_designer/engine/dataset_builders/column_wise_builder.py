@@ -49,7 +49,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_CLIENT_VERSION: str = importlib.metadata.version("data_designer")
+try:
+    _CLIENT_VERSION: str = importlib.metadata.version("data_designer")
+except importlib.metadata.PackageNotFoundError:
+    _CLIENT_VERSION = "unknown"
 
 
 class ColumnWiseDatasetBuilder:
