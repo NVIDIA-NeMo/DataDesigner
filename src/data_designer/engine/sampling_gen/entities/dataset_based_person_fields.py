@@ -41,14 +41,16 @@ PII_FIELDS = [
     "email_address",
     "phone_number",
     # Brazil-specific fields
+    "race",
     "municipality",
     # Japan-specific fields
     "area",
     "prefecture",
     "zone",
+    # Brazil and India shared fields
+    "religion",
     # India-specific fields
     "district",
-    "religion",
     "education_degree",
     "first_language",
     "second_language",
@@ -80,9 +82,10 @@ PERSONA_FIELDS = [
     # Japan-specific persona fields
     "aspects",
     "digital_skills",
+    # Brazil and India shared persona fields
+    "religious_persona",
+    "religious_background",
     # India-specific persona fields
     "linguistic_persona",
-    "religious_persona",
     "linguistic_background",
-    "religious_background",
 ]
