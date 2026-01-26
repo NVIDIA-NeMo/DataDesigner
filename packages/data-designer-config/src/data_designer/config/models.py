@@ -399,12 +399,14 @@ class ModelConfig(ConfigBase):
         inference_parameters: Inference parameters for the model (temperature, top_p, max_tokens, etc.).
             The generation_type is determined by the type of inference_parameters.
         provider: Optional model provider name if using custom providers.
+        skip_health_check: Whether to skip the health check for this model. Defaults to False.
     """
 
     alias: str
     model: str
     inference_parameters: InferenceParamsT = Field(default_factory=ChatCompletionInferenceParams)
     provider: str | None = None
+    skip_health_check: bool = False
 
     @property
     def generation_type(self) -> GenerationType:

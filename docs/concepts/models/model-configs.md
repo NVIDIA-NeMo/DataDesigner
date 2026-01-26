@@ -16,6 +16,7 @@ The `ModelConfig` class has the following fields:
 | `model` | `str` | Yes | Model identifier as recognized by the provider (e.g., `"nvidia/nemotron-3-nano-30b-a3b"`, `"gpt-4"`) |
 | `inference_parameters` | `InferenceParamsT` | No | Controls model behavior during generation. Use `ChatCompletionInferenceParams` for text/code/structured generation or `EmbeddingInferenceParams` for embeddings. Defaults to `ChatCompletionInferenceParams()` if not provided. The generation type is automatically determined by the inference parameters type. See [Inference Parameters](inference-parameters.md) for details. |
 | `provider` | `str` | No | Reference to the name of the Provider to use (e.g., `"nvidia"`, `"openai"`, `"openrouter"`). If not specified, one set as the default provider, which may resolve to the first provider if there are more than one |
+| `skip_health_check` | `bool` | No | Whether to skip the health check for this model. Defaults to `False`. Set to `True` to skip health checks when you know the model is accessible or want to defer validation. |
 
 
 ## Examples
@@ -105,6 +106,35 @@ model_configs = [
 
 !!! tip "Experiment with max_tokens for Task-Specific Model Configurations"
     The number of tokens required to generate a single data entry can vary significantly with use case. For example, reasoning models often need more tokens to "think through" problems before generating a response. Note that `max_tokens` specifies the **maximum number of output tokens** to generate in the response, so set this value based on the expected length of the generated content.
+
+### Skipping Health Checks
+
+By default, Data Designer runs a health check for each model before starting data generation to ensure the model is accessible and configured correctly. You can skip this health check for specific models by setting `skip_health_check=True`:
+
+```python
+import data_designer.config as dd
+
+model_config = dd.ModelConfig(
+    alias="my-model",
+    model="nvidia/nemotron-3-nano-30b-a3b",
+    provider="nvidia",
+    inference_parameters=dd.ChatCompletionInferenceParams(
+        temperature=0.85,
+        top_p=0.95,
+        max_tokens=2048,
+    ),
+    skip_health_check=True,  # Skip health check for this model
+)
+```
+
+!!! info "When to Skip Health Checks"
+    Skipping health checks can be useful when:
+
+    - You've already verified the model is accessible and want to speed up initialization
+    - You're using a model that doesn't support the standard health check format
+    - You want to defer model validation until the model is actually used
+
+    Note that skipping health checks means errors will only be discovered during actual data generation.
 
 ## See Also
 

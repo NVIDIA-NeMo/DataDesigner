@@ -313,6 +313,54 @@ def test_run_health_check_embedding_authentication_error(
     mock_generate_text_embeddings.assert_called_once()
 
 
+@patch("data_designer.engine.models.facade.ModelFacade.completion", autospec=True)
+def test_run_health_check_skip_health_check_flag(
+    mock_completion,
+    stub_secrets_resolver,
+    stub_model_provider_registry,
+):
+    # Create model configs: one with skip_health_check=True, others with default (False)
+    model_configs = [
+        ModelConfig(
+            alias="skip-model",
+            model="skip-model-id",
+            provider="stub-model-provider",
+            inference_parameters=ChatCompletionInferenceParams(),
+            skip_health_check=True,
+        ),
+        ModelConfig(
+            alias="check-model",
+            model="check-model-id",
+            provider="stub-model-provider",
+            inference_parameters=ChatCompletionInferenceParams(),
+            skip_health_check=False,
+        ),
+        ModelConfig(
+            alias="default-model",
+            model="default-model-id",
+            provider="stub-model-provider",
+            inference_parameters=ChatCompletionInferenceParams(),
+        ),
+    ]
+
+    # Create a fresh model registry with the test configs
+    model_registry = create_model_registry(
+        model_configs=model_configs,
+        secret_resolver=stub_secrets_resolver,
+        model_provider_registry=stub_model_provider_registry,
+    )
+
+    model_aliases = ["skip-model", "check-model", "default-model"]
+    model_registry.run_health_check(model_aliases)
+
+    # Only check-model and default-model should be checked (skip-model is skipped)
+    assert mock_completion.call_count == 2  # check-model and default-model
+
+    # Verify the correct models were called
+    called_model_aliases = {call[0][0].model_alias for call in mock_completion.call_args_list}
+    assert called_model_aliases == {"check-model", "default-model"}
+
+
 @pytest.mark.parametrize(
     "alias,expected_result,expected_error",
     [
