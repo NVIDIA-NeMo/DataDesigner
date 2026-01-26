@@ -1,7 +1,7 @@
 ---
 name: create-pr
 description: Create a GitHub PR with a well-formatted description including summary, categorized changes, and attention areas
-argument-hint: [base-branch or title hint]
+argument-hint: [special instructions]
 ---
 
 # Create Pull Request
@@ -10,11 +10,13 @@ Create a well-formatted GitHub pull request for the current branch.
 
 ## Arguments
 
-If `$ARGUMENTS` is provided:
-- If it looks like a branch name (e.g., `dev/feat/add-new-processor`), use it as the base branch
-- Otherwise, use it as a hint for the PR title
+`$ARGUMENTS` can be used for special instructions, such as:
+- Specifying a base branch: "use base branch: develop"
+- Guiding the summary: "emphasize the performance improvements in the summary"
+- Adding context: "this is part of the auth refactor epic"
+- Any other guidance for PR creation
 
-Default base branch: `main`
+Default base branch: `main` (unless specified in arguments)
 
 ## Step 1: Gather Information
 
