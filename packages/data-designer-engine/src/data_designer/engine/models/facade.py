@@ -3,12 +3,16 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import uuid
 from collections.abc import Callable
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
+from data_designer.config.mcp import MCPToolConfig
 from data_designer.config.models import GenerationType, ModelConfig, ModelProvider
+from data_designer.engine.mcp.errors import MCPConfigurationError, MCPToolError
 from data_designer.engine.model_provider import ModelProviderRegistry
 from data_designer.engine.models.errors import (
     GenerationValidationFailureError,
@@ -24,6 +28,7 @@ from data_designer.lazy_heavy_imports import litellm
 
 if TYPE_CHECKING:
     import litellm
+    from data_designer.engine.mcp.manager import MCPClientManager
 
 logger = logging.getLogger(__name__)
 
@@ -34,10 +39,13 @@ class ModelFacade:
         model_config: ModelConfig,
         secret_resolver: SecretResolver,
         model_provider_registry: ModelProviderRegistry,
+        *,
+        mcp_client_manager: MCPClientManager | None = None,
     ):
         self._model_config = model_config
         self._secret_resolver = secret_resolver
         self._model_provider_registry = model_provider_registry
+        self._mcp_client_manager = mcp_client_manager
         self._litellm_deployment = self._get_litellm_deployment(model_config)
         self._router = CustomRouter([self._litellm_deployment], **LiteLLMRouterDefaultKwargs().model_dump())
         self._usage_stats = ModelUsageStats()
@@ -144,6 +152,7 @@ class ModelFacade:
         parser: Callable[[str], Any],
         system_prompt: str | None = None,
         multi_modal_context: list[dict[str, Any]] | None = None,
+        tool_config: MCPToolConfig | None = None,
         max_correction_steps: int = 0,
         max_conversation_restarts: int = 0,
         skip_usage_tracking: bool = False,
@@ -170,6 +179,8 @@ class ModelFacade:
                 prompt.
             parser (func(str) -> Any): A function applied to the LLM response which processes
                 an LLM response into some output object.
+            tool_config (MCPToolConfig | None): Optional MCP tool configuration. When provided,
+                the model may call permitted tools from the configured MCP server.
             max_correction_steps (int): Maximum number of correction rounds permitted
                 within a single conversation. Note, many rounds can lead to increasing
                 context size without necessarily improving performance -- small language
@@ -188,6 +199,8 @@ class ModelFacade:
                 generation validation.
         """
         output_obj = None
+        tool_schemas = None
+        tool_calls_used = 0
         curr_num_correction_steps = 0
         curr_num_restarts = 0
         curr_generation_attempt = 0
@@ -198,13 +211,23 @@ class ModelFacade:
         )
         messages = deepcopy(starting_messages)
 
+        if tool_config is not None:
+            tool_schemas = self._get_tool_schemas(tool_config)
+
         while True:
             curr_generation_attempt += 1
             logger.debug(
                 f"Starting generation attempt {curr_generation_attempt} of {max_generation_attempts} attempts."
             )
 
-            completion_response = self.completion(messages, skip_usage_tracking=skip_usage_tracking, **kwargs)
+            completion_kwargs = dict(kwargs)
+            if tool_schemas is not None:
+                completion_kwargs["tools"] = tool_schemas
+            completion_response = self.completion(
+                messages,
+                skip_usage_tracking=skip_usage_tracking,
+                **completion_kwargs,
+            )
             response = completion_response.choices[0].message.content or ""
             reasoning_trace = getattr(completion_response.choices[0].message, "reasoning_content", None)
 
@@ -212,6 +235,18 @@ class ModelFacade:
                 ## There are generally some extra newlines with how these get parsed.
                 response = response.strip()
                 reasoning_trace = reasoning_trace.strip()
+
+            tool_calls = self._extract_tool_calls(completion_response.choices[0].message)
+            if tool_config is not None and len(tool_calls) > 0:
+                tool_calls_used += len(tool_calls)
+                if tool_calls_used > tool_config.max_tool_calls:
+                    raise MCPToolError(
+                        f"Exceeded maximum MCP tool calls ({tool_config.max_tool_calls}) for server "
+                        f"{tool_config.server_name!r}."
+                    )
+                messages.append(self._build_assistant_tool_message(response, tool_calls))
+                messages.extend(self._execute_tool_calls(tool_config, tool_calls))
+                continue
 
             curr_num_correction_steps += 1
 
@@ -238,6 +273,99 @@ class ModelFacade:
                         f"Unsuccessful generation attempt despite {max_generation_attempts} attempts."
                     ) from exc
         return output_obj, reasoning_trace
+
+    def _get_tool_schemas(self, tool_config: MCPToolConfig) -> list[dict[str, Any]]:
+        if self._mcp_client_manager is None:
+            raise MCPConfigurationError("MCP tool configuration was provided but no MCP servers were configured.")
+        return self._mcp_client_manager.get_tool_schemas(tool_config)
+
+    def _extract_tool_calls(self, message: Any) -> list[dict[str, Any]]:
+        raw_tool_calls = getattr(message, "tool_calls", None)
+        if raw_tool_calls is None and isinstance(message, dict):
+            raw_tool_calls = message.get("tool_calls")
+        if not raw_tool_calls:
+            return []
+        tool_calls: list[dict[str, Any]] = []
+        for raw_tool_call in raw_tool_calls:
+            tool_calls.append(self._normalize_tool_call(raw_tool_call))
+        return tool_calls
+
+    def _normalize_tool_call(self, raw_tool_call: Any) -> dict[str, Any]:
+        if isinstance(raw_tool_call, dict):
+            tool_call_id = raw_tool_call.get("id")
+            function = raw_tool_call.get("function") or {}
+            name = function.get("name") or raw_tool_call.get("name")
+            arguments = function.get("arguments") or raw_tool_call.get("arguments")
+        else:
+            tool_call_id = getattr(raw_tool_call, "id", None)
+            function = getattr(raw_tool_call, "function", None)
+            name = getattr(function, "name", None) if function is not None else getattr(raw_tool_call, "name", None)
+            arguments = (
+                getattr(function, "arguments", None)
+                if function is not None
+                else getattr(raw_tool_call, "arguments", None)
+            )
+
+        if not name:
+            raise MCPToolError("MCP tool call is missing a tool name.")
+
+        arguments_payload: dict[str, Any]
+        arguments_json: str
+        if arguments is None or arguments == "":
+            arguments_payload = {}
+            arguments_json = "{}"
+        elif isinstance(arguments, str):
+            try:
+                arguments_payload = json.loads(arguments)
+            except json.JSONDecodeError as exc:
+                raise MCPToolError(f"Invalid tool arguments for '{name}': {arguments}") from exc
+            arguments_json = arguments
+        elif isinstance(arguments, dict):
+            arguments_payload = arguments
+            arguments_json = json.dumps(arguments_payload)
+        else:
+            raise MCPToolError(f"Unsupported tool arguments type for '{name}': {type(arguments)!r}")
+
+        return {
+            "id": tool_call_id or uuid.uuid4().hex,
+            "name": name,
+            "arguments": arguments_payload,
+            "arguments_json": arguments_json,
+        }
+
+    def _build_assistant_tool_message(self, response: str, tool_calls: list[dict[str, Any]]) -> dict[str, Any]:
+        return {
+            "role": "assistant",
+            "content": response or "",
+            "tool_calls": [
+                {
+                    "id": tool_call["id"],
+                    "type": "function",
+                    "function": {"name": tool_call["name"], "arguments": tool_call["arguments_json"]},
+                }
+                for tool_call in tool_calls
+            ],
+        }
+
+    def _execute_tool_calls(self, tool_config: MCPToolConfig, tool_calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if self._mcp_client_manager is None:
+            raise MCPConfigurationError("MCP tool configuration was provided but no MCP servers were configured.")
+
+        allowed_tools = set(tool_config.tool_names) if tool_config.tool_names else None
+        tool_messages: list[dict[str, Any]] = []
+        for tool_call in tool_calls:
+            tool_name = tool_call["name"]
+            if allowed_tools is not None and tool_name not in allowed_tools:
+                raise MCPToolError(f"Tool {tool_name!r} is not permitted for server {tool_config.server_name!r}.")
+            result = self._mcp_client_manager.call_tool(tool_config.server_name, tool_name, tool_call["arguments"])
+            tool_messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tool_call["id"],
+                    "content": result.content,
+                }
+            )
+        return tool_messages
 
     def _get_litellm_deployment(self, model_config: ModelConfig) -> litellm.DeploymentTypedDict:
         provider = self._model_provider_registry.get_provider(model_config.provider)

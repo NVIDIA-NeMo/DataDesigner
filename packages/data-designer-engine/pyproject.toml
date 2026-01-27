@@ -32,6 +32,7 @@ dependencies = [
     "litellm>=1.73.6,<1.80.12",
     "lxml>=6.0.2,<7",
     "marko>=2.1.2,<3",
+    "mcp",
     "networkx>=3.0,<4",
     "ruff>=0.14.10,<1",
     "scipy>=1.11.0,<2",

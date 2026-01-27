@@ -2,11 +2,15 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections import namedtuple
+from types import SimpleNamespace
+from typing import Any
 from unittest.mock import patch
 
 import pytest
 from litellm.types.utils import Choices, EmbeddingResponse, Message, ModelResponse
 
+from data_designer.config.mcp import MCPToolConfig
+from data_designer.engine.mcp.errors import MCPConfigurationError
 from data_designer.engine.models.errors import ModelGenerationValidationFailureError
 from data_designer.engine.models.facade import ModelFacade
 from data_designer.engine.models.parsers.errors import ParserException
@@ -14,6 +18,23 @@ from data_designer.engine.models.parsers.errors import ParserException
 MockMessage = namedtuple("MockMessage", ["content"])
 MockChoice = namedtuple("MockChoice", ["message"])
 MockCompletion = namedtuple("MockCompletion", ["choices"])
+
+
+class FakeMessage:
+    def __init__(self, content: str | None, tool_calls: list[dict] | None = None) -> None:
+        self.content = content
+        self.tool_calls = tool_calls
+        self.reasoning_content = None
+
+
+class FakeChoice:
+    def __init__(self, message: FakeMessage) -> None:
+        self.message = message
+
+
+class FakeResponse:
+    def __init__(self, message: FakeMessage) -> None:
+        self.choices = [FakeChoice(message)]
 
 
 def mock_oai_response_object(response_text: str) -> MockCompletion:
@@ -231,3 +252,69 @@ def test_generate_text_embeddings_with_kwargs(
     kwargs = {"temperature": 0.7, "max_tokens": 100, "input_type": "query"}
     _ = stub_model_facade.generate_text_embeddings(["test1", "test2"], **kwargs)
     assert captured_kwargs == {**stub_model_configs[0].inference_parameters.generate_kwargs, **kwargs}
+
+
+def test_generate_with_mcp_tools(stub_model_configs, stub_secrets_resolver, stub_model_provider_registry) -> None:
+    tool_config = MCPToolConfig(server_name="tools", tool_names=["lookup"], max_tool_calls=3)
+    tool_call = {
+        "id": "call-1",
+        "type": "function",
+        "function": {"name": "lookup", "arguments": '{"query": "foo"}'},
+    }
+    responses = [
+        FakeResponse(FakeMessage(content=None, tool_calls=[tool_call])),
+        FakeResponse(FakeMessage(content="final result")),
+    ]
+    captured_calls: list[tuple[list[dict[str, Any]], dict[str, Any]]] = []
+
+    class FakeMCPManager:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str, dict]] = []
+
+        def get_tool_schemas(self, config: MCPToolConfig) -> list[dict]:
+            return [
+                {
+                    "type": "function",
+                    "function": {"name": "lookup", "description": "Lookup", "parameters": {"type": "object"}},
+                }
+            ]
+
+        def call_tool(self, server_name: str, tool_name: str, arguments: dict) -> SimpleNamespace:
+            self.calls.append((server_name, tool_name, arguments))
+            return SimpleNamespace(content="tool-output")
+
+    def _completion(self, messages: list[dict[str, Any]], **kwargs: Any) -> FakeResponse:
+        captured_calls.append((messages, kwargs))
+        return responses.pop(0)
+
+    model = ModelFacade(
+        model_config=stub_model_configs[0],
+        secret_resolver=stub_secrets_resolver,
+        model_provider_registry=stub_model_provider_registry,
+        mcp_client_manager=FakeMCPManager(),
+    )
+
+    with patch.object(ModelFacade, "completion", new=_completion):
+        result, _ = model.generate(prompt="question", parser=lambda x: x, tool_config=tool_config)
+
+    assert result == "final result"
+    assert len(captured_calls) == 2
+    assert "tools" in captured_calls[0][1]
+    assert captured_calls[0][1]["tools"][0]["function"]["name"] == "lookup"
+    assert any(message.get("role") == "tool" for message in captured_calls[1][0])
+    assert model._mcp_client_manager.calls == [("tools", "lookup", {"query": "foo"})]
+
+
+def test_generate_with_tools_missing_manager(
+    stub_model_configs, stub_secrets_resolver, stub_model_provider_registry
+) -> None:
+    tool_config = MCPToolConfig(server_name="tools", tool_names=["lookup"])
+    model = ModelFacade(
+        model_config=stub_model_configs[0],
+        secret_resolver=stub_secrets_resolver,
+        model_provider_registry=stub_model_provider_registry,
+        mcp_client_manager=None,
+    )
+
+    with pytest.raises(MCPConfigurationError):
+        model.generate(prompt="question", parser=lambda x: x, tool_config=tool_config)

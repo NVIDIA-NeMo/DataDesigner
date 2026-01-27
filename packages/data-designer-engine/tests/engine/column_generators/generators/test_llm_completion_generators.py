@@ -11,6 +11,7 @@ from data_designer.config.column_configs import (
     LLMStructuredColumnConfig,
     LLMTextColumnConfig,
 )
+from data_designer.config.mcp import MCPToolConfig
 from data_designer.config.run_config import RunConfig
 from data_designer.engine.column_generators.generators.base import GenerationStrategy
 from data_designer.engine.column_generators.generators.llm_completion import (
@@ -269,6 +270,19 @@ def test_generate_with_json_deserialization():
     result = generator.generate(data)
 
     assert result["test_column"] == {"result": "json_output"}
+
+
+def test_generate_passes_tool_config() -> None:
+    tool_config = MCPToolConfig(server_name="tools", tool_names=["lookup"])
+    generator, _, mock_model, _, _, mock_prompt_renderer, mock_response_recipe = _create_generator_with_mocks(
+        tool_config=tool_config
+    )
+    _setup_generate_mocks(mock_prompt_renderer, mock_response_recipe, mock_model)
+
+    data = {"input": "test_input"}
+    _ = generator.generate(data)
+
+    assert mock_model.generate.call_args[1]["tool_config"] == tool_config
 
 
 @pytest.mark.parametrize(

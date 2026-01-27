@@ -79,6 +79,7 @@ class ColumnGeneratorWithModelChatCompletion(ColumnGeneratorWithModel[TaskConfig
             ),
             parser=self.response_recipe.parse,
             multi_modal_context=multi_modal_context,
+            tool_config=self.config.tool_config,
             max_correction_steps=self.max_conversation_correction_steps,
             max_conversation_restarts=self.max_conversation_restarts,
             purpose=f"running generation for column '{self.config.name}'",

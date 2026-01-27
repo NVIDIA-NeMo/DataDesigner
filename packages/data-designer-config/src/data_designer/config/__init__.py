@@ -20,6 +20,7 @@ from data_designer.config.column_types import DataDesignerColumnType
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.dataset_builders import BuildStage
+from data_designer.config.mcp import MCPServerConfig, MCPToolConfig
 from data_designer.config.models import (
     ChatCompletionInferenceParams,
     EmbeddingInferenceParams,
@@ -118,6 +119,8 @@ def get_config_exports() -> list[str]:
         LocalFileSeedSource.__name__,
         ManualDistribution.__name__,
         ManualDistributionParams.__name__,
+        MCPServerConfig.__name__,
+        MCPToolConfig.__name__,
         Modality.__name__,
         ModalityContext.__name__,
         ModalityDataType.__name__,

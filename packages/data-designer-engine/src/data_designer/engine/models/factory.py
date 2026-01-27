@@ -10,6 +10,7 @@ from data_designer.engine.model_provider import ModelProviderRegistry
 from data_designer.engine.secret_resolver import SecretResolver
 
 if TYPE_CHECKING:
+    from data_designer.engine.mcp.manager import MCPClientManager
     from data_designer.engine.models.registry import ModelRegistry
 
 
@@ -18,6 +19,7 @@ def create_model_registry(
     model_configs: list[ModelConfig] | None = None,
     secret_resolver: SecretResolver,
     model_provider_registry: ModelProviderRegistry,
+    mcp_client_manager: MCPClientManager | None = None,
 ) -> ModelRegistry:
     """Factory function for creating a ModelRegistry instance.
 
@@ -32,7 +34,12 @@ def create_model_registry(
     apply_litellm_patches()
 
     def model_facade_factory(model_config, secret_resolver, model_provider_registry):
-        return ModelFacade(model_config, secret_resolver, model_provider_registry)
+        return ModelFacade(
+            model_config,
+            secret_resolver,
+            model_provider_registry,
+            mcp_client_manager=mcp_client_manager,
+        )
 
     return ModelRegistry(
         model_configs=model_configs,
