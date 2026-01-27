@@ -13,6 +13,7 @@ from data_designer.config.column_configs import (
 )
 from data_designer.config.mcp import MCPToolConfig
 from data_designer.config.run_config import RunConfig
+from data_designer.config.utils.constants import TRACE_COLUMN_POSTFIX
 from data_designer.engine.column_generators.generators.base import GenerationStrategy
 from data_designer.engine.column_generators.generators.llm_completion import (
     LLMCodeCellGenerator,
@@ -20,7 +21,6 @@ from data_designer.engine.column_generators.generators.llm_completion import (
     LLMStructuredCellGenerator,
     LLMTextCellGenerator,
 )
-from data_designer.config.utils.constants import TRACE_COLUMN_POSTFIX
 
 
 def _create_generator_with_mocks(config_class=LLMTextColumnConfig, **config_kwargs):
