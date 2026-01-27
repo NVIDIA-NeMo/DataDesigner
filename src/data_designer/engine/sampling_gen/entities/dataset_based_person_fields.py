@@ -42,7 +42,6 @@ PII_FIELDS = [
     "phone_number",
     # Brazil-specific fields
     "race",
-    "municipality",
     # Japan-specific fields
     "area",
     "prefecture",
