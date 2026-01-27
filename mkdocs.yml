@@ -20,6 +20,7 @@ nav:
       - Validators: concepts/validators.md
       - Processors: concepts/processors.md
       - Person Sampling: concepts/person_sampling.md
+      - Tool Use & MCP: concepts/tool_use_and_mcp.md
   - Tutorials:
       - Overview: notebooks/README.md
       - The Basics: notebooks/1-the-basics.ipynb
