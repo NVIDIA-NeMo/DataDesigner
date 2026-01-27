@@ -89,7 +89,9 @@ def test_mcp_server_tool_usage_with_nvidia_text(tmp_path: Path) -> None:
         assert isinstance(trace, list)
         assert trace
 
-        tool_call_messages = [msg for msg in trace if isinstance(msg, dict) and msg.get("role") == "assistant" and msg.get("tool_calls")]
+        tool_call_messages = [
+            msg for msg in trace if isinstance(msg, dict) and msg.get("role") == "assistant" and msg.get("tool_calls")
+        ]
         assert tool_call_messages
 
         tool_calls: list[dict[str, object]] = []
