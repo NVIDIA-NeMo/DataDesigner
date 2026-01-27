@@ -87,6 +87,7 @@ help:
 	@echo "🚀 Publish:"
 	@echo "  publish VERSION=X.Y.Z                        - Publish all packages to PyPI"
 	@echo "  publish VERSION=X.Y.Z DRY_RUN=1              - Dry run (no tags or uploads)"
+	@echo "  publish VERSION=X.Y.Z TEST_PYPI=1            - Publish to TestPyPI"
 	@echo "  publish VERSION=X.Y.Z ALLOW_BRANCH=1         - Publish from non-main branch"
 	@echo "  publish VERSION=X.Y.Z FORCE_TAG=1            - Overwrite existing git tag"
 	@echo ""
@@ -499,6 +500,9 @@ PUBLISH_FLAGS :=
 ifdef DRY_RUN
 PUBLISH_FLAGS += --dry-run
 endif
+ifdef TEST_PYPI
+PUBLISH_FLAGS += --test-pypi
+endif
 ifdef ALLOW_BRANCH
 PUBLISH_FLAGS += --allow-branch
 endif
@@ -508,12 +512,16 @@ endif
 
 publish:
 ifndef VERSION
-	$(error VERSION is required. Usage: make publish VERSION=0.3.9rc1 [DRY_RUN=1] [ALLOW_BRANCH=1] [FORCE_TAG=1])
+	$(error VERSION is required. Usage: make publish VERSION=0.3.9rc1 [DRY_RUN=1] [TEST_PYPI=1] [ALLOW_BRANCH=1] [FORCE_TAG=1])
 endif
+ifdef TEST_PYPI
+	@echo "🚀 Publishing version $(VERSION) to TestPyPI..."
+else
 ifdef DRY_RUN
 	@echo "🚀 Running publish dry-run for version $(VERSION)..."
 else
 	@echo "🚀 Publishing version $(VERSION) to PyPI..."
+endif
 endif
 	$(REPO_PATH)/scripts/publish.sh $(VERSION) $(PUBLISH_FLAGS)
 
