@@ -295,7 +295,7 @@ def test_generate_with_mcp_tools(stub_model_configs, stub_secrets_resolver, stub
     )
 
     with patch.object(ModelFacade, "completion", new=_completion):
-        result, _ = model.generate(prompt="question", parser=lambda x: x, tool_config=tool_config)
+        result, _, _ = model.generate(prompt="question", parser=lambda x: x, tool_config=tool_config)
 
     assert result == "final result"
     assert len(captured_calls) == 2

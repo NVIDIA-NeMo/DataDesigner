@@ -12,7 +12,7 @@ from data_designer.config.column_configs import (
     LLMStructuredColumnConfig,
     LLMTextColumnConfig,
 )
-from data_designer.config.utils.constants import REASONING_TRACE_COLUMN_POSTFIX
+from data_designer.config.utils.constants import TRACE_COLUMN_POSTFIX
 from data_designer.engine.column_generators.generators.base import ColumnGeneratorWithModel, GenerationStrategy
 from data_designer.engine.column_generators.utils.prompt_renderer import (
     PromptType,
@@ -66,7 +66,8 @@ class ColumnGeneratorWithModelChatCompletion(ColumnGeneratorWithModel[TaskConfig
             for context in self.config.multi_modal_context:
                 multi_modal_context.extend(context.get_contexts(deserialized_record))
 
-        response, reasoning_trace = self.model.generate(
+        include_full_traces = self.resource_provider.run_config.include_full_traces
+        response, _, trace = self.model.generate(
             prompt=self.prompt_renderer.render(
                 record=deserialized_record,
                 prompt_template=self.config.prompt,
@@ -80,6 +81,7 @@ class ColumnGeneratorWithModelChatCompletion(ColumnGeneratorWithModel[TaskConfig
             parser=self.response_recipe.parse,
             multi_modal_context=multi_modal_context,
             tool_config=self.config.tool_config,
+            include_full_traces=include_full_traces,
             max_correction_steps=self.max_conversation_correction_steps,
             max_conversation_restarts=self.max_conversation_restarts,
             purpose=f"running generation for column '{self.config.name}'",
@@ -88,8 +90,8 @@ class ColumnGeneratorWithModelChatCompletion(ColumnGeneratorWithModel[TaskConfig
         serialized_output = self.response_recipe.serialize_output(response)
         data[self.config.name] = self._process_serialized_output(serialized_output)
 
-        if reasoning_trace:
-            data[self.config.name + REASONING_TRACE_COLUMN_POSTFIX] = reasoning_trace
+        if include_full_traces and trace is not None:
+            data[self.config.name + TRACE_COLUMN_POSTFIX] = trace
 
         return data
 

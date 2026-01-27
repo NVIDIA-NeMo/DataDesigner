@@ -153,12 +153,13 @@ class ModelFacade:
         system_prompt: str | None = None,
         multi_modal_context: list[dict[str, Any]] | None = None,
         tool_config: MCPToolConfig | None = None,
+        include_full_traces: bool = False,
         max_correction_steps: int = 0,
         max_conversation_restarts: int = 0,
         skip_usage_tracking: bool = False,
         purpose: str | None = None,
         **kwargs,
-    ) -> tuple[Any, str | None]:
+    ) -> tuple[Any, str | None, list[dict[str, Any]] | None]:
         """Generate a parsed output with correction steps.
 
         This generation call will attempt to generate an output which is
@@ -210,6 +211,7 @@ class ModelFacade:
             user_prompt=prompt, system_prompt=system_prompt, multi_modal_context=multi_modal_context
         )
         messages = deepcopy(starting_messages)
+        trace_messages: list[dict[str, Any]] | None = deepcopy(starting_messages) if include_full_traces else None
 
         if tool_config is not None:
             tool_schemas = self._get_tool_schemas(tool_config)
@@ -244,14 +246,29 @@ class ModelFacade:
                         f"Exceeded maximum MCP tool calls ({tool_config.max_tool_calls}) for server "
                         f"{tool_config.server_name!r}."
                     )
-                messages.append(self._build_assistant_tool_message(response, tool_calls))
-                messages.extend(self._execute_tool_calls(tool_config, tool_calls))
+                assistant_tool_message = self._build_assistant_tool_message(response, tool_calls)
+                tool_messages = self._execute_tool_calls(tool_config, tool_calls)
+
+                messages.append(assistant_tool_message)
+                messages.extend(tool_messages)
+
+                if trace_messages is not None:
+                    assistant_trace_message = dict(assistant_tool_message)
+                    if reasoning_trace:
+                        assistant_trace_message["reasoning_content"] = reasoning_trace
+                    trace_messages.append(assistant_trace_message)
+                    trace_messages.extend(tool_messages)
                 continue
 
             curr_num_correction_steps += 1
 
             try:
                 output_obj = parser(response)  # type: ignore - if not a string will cause a ParserException below
+                if trace_messages is not None:
+                    assistant_trace_message: dict[str, Any] = {"role": "assistant", "content": response}
+                    if reasoning_trace:
+                        assistant_trace_message["reasoning_content"] = reasoning_trace
+                    trace_messages.append(assistant_trace_message)
                 break
             except ParserException as exc:
                 if max_correction_steps == 0 and max_conversation_restarts == 0:
@@ -260,19 +277,25 @@ class ModelFacade:
                     ) from exc
                 if curr_num_correction_steps <= max_correction_steps:
                     ## Add turns to loop-back errors for correction
-                    messages += [
-                        str_to_message(content=response, role="assistant"),
-                        str_to_message(content=str(get_exception_primary_cause(exc)), role="user"),
-                    ]
+                    assistant_message = str_to_message(content=response, role="assistant")
+                    user_message = str_to_message(content=str(get_exception_primary_cause(exc)), role="user")
+                    messages += [assistant_message, user_message]
+                    if trace_messages is not None:
+                        assistant_trace_message = dict(assistant_message)
+                        if reasoning_trace:
+                            assistant_trace_message["reasoning_content"] = reasoning_trace
+                        trace_messages += [assistant_trace_message, user_message]
                 elif curr_num_restarts < max_conversation_restarts:
                     curr_num_correction_steps = 0
                     curr_num_restarts += 1
                     messages = deepcopy(starting_messages)
+                    if trace_messages is not None:
+                        trace_messages = deepcopy(starting_messages)
                 else:
                     raise GenerationValidationFailureError(
                         f"Unsuccessful generation attempt despite {max_generation_attempts} attempts."
                     ) from exc
-        return output_obj, reasoning_trace
+        return output_obj, reasoning_trace, trace_messages
 
     def _get_tool_schemas(self, tool_config: MCPToolConfig) -> list[dict[str, Any]]:
         if self._mcp_client_manager is None:

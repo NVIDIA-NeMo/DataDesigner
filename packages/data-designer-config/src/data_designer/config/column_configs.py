@@ -15,7 +15,7 @@ from data_designer.config.mcp import MCPToolConfig
 from data_designer.config.models import ImageContext
 from data_designer.config.sampler_params import SamplerParamsT, SamplerType
 from data_designer.config.utils.code_lang import CodeLang
-from data_designer.config.utils.constants import REASONING_TRACE_COLUMN_POSTFIX
+from data_designer.config.utils.constants import TRACE_COLUMN_POSTFIX
 from data_designer.config.utils.misc import assert_valid_jinja2_template, extract_keywords_from_jinja2_template
 from data_designer.config.validator_params import ValidatorParamsT, ValidatorType
 
@@ -190,14 +190,14 @@ class LLMTextColumnConfig(SingleColumnConfig):
 
     @property
     def side_effect_columns(self) -> list[str]:
-        """Returns the reasoning trace column, which may be generated alongside the main column.
+        """Returns the trace column, which may be generated alongside the main column.
 
-        Reasoning traces are only returned if the served model parses and returns reasoning content.
+        Full traces are only returned when enabled via `RunConfig.include_full_traces`.
 
         Returns:
-            List containing the reasoning trace column name.
+            List containing the trace column name.
         """
-        return [f"{self.name}{REASONING_TRACE_COLUMN_POSTFIX}"]
+        return [f"{self.name}{TRACE_COLUMN_POSTFIX}"]
 
     @model_validator(mode="after")
     def assert_prompt_valid_jinja(self) -> Self:

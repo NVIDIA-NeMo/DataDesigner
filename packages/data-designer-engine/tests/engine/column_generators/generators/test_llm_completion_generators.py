@@ -15,12 +15,12 @@ from data_designer.config.mcp import MCPToolConfig
 from data_designer.config.run_config import RunConfig
 from data_designer.engine.column_generators.generators.base import GenerationStrategy
 from data_designer.engine.column_generators.generators.llm_completion import (
-    REASONING_TRACE_COLUMN_POSTFIX,
     LLMCodeCellGenerator,
     LLMJudgeCellGenerator,
     LLMStructuredCellGenerator,
     LLMTextCellGenerator,
 )
+from data_designer.config.utils.constants import TRACE_COLUMN_POSTFIX
 
 
 def _create_generator_with_mocks(config_class=LLMTextColumnConfig, **config_kwargs):
@@ -72,7 +72,7 @@ def _setup_generate_mocks(mock_prompt_renderer, mock_response_recipe, mock_model
     """Helper function to setup common generate method mocks."""
     mock_prompt_renderer.render.side_effect = ["rendered_user_prompt", "rendered_system_prompt"]
     mock_response_recipe.serialize_output.return_value = {"result": output}
-    mock_model.generate.return_value = ({"result": output}, reasoning)
+    mock_model.generate.return_value = ({"result": output}, reasoning, None)
 
 
 def test_generate_method():
@@ -88,16 +88,19 @@ def test_generate_method():
     assert mock_model.generate.call_args[1]["max_correction_steps"] == 2
     assert mock_model.generate.call_args[1]["max_conversation_restarts"] == 7
     assert result["test_column"] == {"result": "test_output"}
-    assert "test_column" + REASONING_TRACE_COLUMN_POSTFIX not in result
+    assert "test_column" + TRACE_COLUMN_POSTFIX not in result
 
-    # Test with reasoning trace
+    # Test with full trace enabled
     mock_model.reset_mock()
     mock_prompt_renderer.reset_mock()
-    _setup_generate_mocks(mock_prompt_renderer, mock_response_recipe, mock_model, reasoning="reasoning_trace")
+    generator.resource_provider.run_config.include_full_traces = True
+    mock_prompt_renderer.render.side_effect = ["rendered_user_prompt", "rendered_system_prompt"]
+    mock_response_recipe.serialize_output.return_value = {"result": "test_output"}
+    mock_model.generate.return_value = ({"result": "test_output"}, None, [{"role": "user", "content": "x"}])
     result = generator.generate(data)
 
     assert result["test_column"] == {"result": "test_output"}
-    assert result["test_column" + REASONING_TRACE_COLUMN_POSTFIX] == "reasoning_trace"
+    assert result["test_column" + TRACE_COLUMN_POSTFIX] == [{"role": "user", "content": "x"}]
 
     # Test multi-modal context is None
     call_args = mock_model.generate.call_args
@@ -236,7 +239,7 @@ def test_generate_with_errors(error_type, error_message):
 
     if error_type == "serialization":
         mock_response_recipe.serialize_output.side_effect = Exception(error_message)
-        mock_model.generate.return_value = ({"result": "test_output"}, None)
+        mock_model.generate.return_value = ({"result": "test_output"}, None, None)
     elif error_type == "model":
         mock_model.generate.side_effect = Exception(error_message)
     elif error_type == "prompt_render":
@@ -250,13 +253,12 @@ def test_generate_with_errors(error_type, error_message):
 
 def test_generate_with_complex_data():
     generator, _, mock_model, _, _, mock_prompt_renderer, mock_response_recipe = _create_generator_with_mocks()
-    _setup_generate_mocks(mock_prompt_renderer, mock_response_recipe, mock_model, "complex_output", "complex_reasoning")
+    _setup_generate_mocks(mock_prompt_renderer, mock_response_recipe, mock_model, "complex_output", None)
 
     data = {"input": "test_input", "nested": {"key": "value"}, "list": [1, 2, 3], "json_string": '{"key": "value"}'}
     result = generator.generate(data)
 
     assert result["test_column"] == {"result": "complex_output"}
-    assert result["test_column" + REASONING_TRACE_COLUMN_POSTFIX] == "complex_reasoning"
     assert result["input"] == "test_input"
     assert result["nested"] == {"key": "value"}
     assert result["list"] == [1, 2, 3]
@@ -355,6 +357,7 @@ def test_generator_output_type_handling(
     mock_response_recipe.serialize_output.return_value = serialized_output
     stub_resource_provider.model_registry.get_model.return_value.generate.return_value = (
         {"result": "raw_output"},
+        None,
         None,
     )
 
