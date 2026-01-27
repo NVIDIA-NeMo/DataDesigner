@@ -6,16 +6,18 @@
 from __future__ import annotations
 
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
     from data_designer.config.column_configs import CustomColumnConfig
-    from data_designer.engine.models.facade import ModelFacade
-    from data_designer.engine.models.registry import ModelRegistry
-    from data_designer.engine.resources.resource_provider import ResourceProvider
 
 logger = logging.getLogger(__name__)
+
+# Type alias for the batch generation function injected by the engine
+BatchGeneratorFn = Callable[
+    [str, list[str], str | None, int | None],  # model_alias, prompts, system_prompt, max_workers
+    list[str],  # results
+]
 
 
 class CustomColumnContext:
@@ -51,11 +53,20 @@ class CustomColumnContext:
 
     def __init__(
         self,
-        resource_provider: ResourceProvider,
+        resource_provider: Any,
         config: CustomColumnConfig,
+        batch_generator_fn: BatchGeneratorFn | None = None,
     ):
+        """Initialize the context.
+
+        Args:
+            resource_provider: The resource provider for accessing models and other resources.
+            config: The CustomColumnConfig for this column.
+            batch_generator_fn: Optional function for parallel batch generation (injected by generator).
+        """
         self._resource_provider = resource_provider
         self._config = config
+        self._batch_generator_fn = batch_generator_fn
 
     @property
     def kwargs(self) -> dict[str, Any]:
@@ -68,11 +79,15 @@ class CustomColumnContext:
         return self._config.name
 
     @property
-    def model_registry(self) -> ModelRegistry:
-        """Access to the model registry for advanced use cases."""
+    def model_registry(self) -> Any:
+        """Access to the model registry for advanced use cases.
+
+        Returns:
+            The ModelRegistry instance for accessing model configurations.
+        """
         return self._resource_provider.model_registry
 
-    def get_model(self, model_alias: str) -> ModelFacade:
+    def get_model(self, model_alias: str) -> Any:
         """Get a model facade for direct access.
 
         Args:
@@ -167,82 +182,10 @@ class CustomColumnContext:
         if not prompts:
             return []
 
-        # Determine max workers from model config if not specified
-        if max_workers is None:
-            model_config = self._resource_provider.model_registry.get_model_config(model_alias=model_alias)
-            max_workers = getattr(model_config.inference_parameters, "max_parallel_requests", 4)
-
-        # IMPORTANT: Get the model on the main thread BEFORE starting the thread pool.
-        # This ensures lazy initialization happens on the main thread, avoiding potential
-        # thread-safety issues with model/router initialization.
-        model = self.get_model(model_alias)
-
-        # Warm up the model by making a test call if needed (triggers any lazy init)
-        # This is a no-op if the model is already warmed up from a health check
-        logger.debug(f"Model ready: {model.model_name}")
-
-        results: list[str | None] = [None] * len(prompts)
-        errors: list[Exception] = []
-
-        # For a single prompt, run sequentially to avoid thread overhead
-        if len(prompts) == 1:
-            logger.info("🚀 Generating 1 text (sequential)")
-            logger.info(f"  Model: {model.model_name}")
-            logger.info(f"  Prompt: {prompts[0][:50]}...")
-            try:
-                logger.info("  Calling model.generate()...")
-                response, _ = model.generate(
-                    prompt=prompts[0],
-                    parser=lambda x: x,
-                    system_prompt=system_prompt,
-                    max_correction_steps=0,
-                    max_conversation_restarts=0,
-                )
-                logger.info(f"  Got response: {response[:50] if response else 'None'}...")
-                return [response]
-            except Exception as e:
-                logger.error(f"Failed to generate text: {e}")
-                import traceback
-                traceback.print_exc()
-                return [f"[ERROR: {e}]"]
-
-        logger.info(
-            f"🚀 Generating {len(prompts)} texts in parallel with {max_workers} workers"
-        )
-
-        def generate_single(index: int, prompt: str) -> tuple[int, str]:
-            # Use the model reference from the outer scope (already initialized)
-            logger.debug(f"  Thread starting for prompt {index}")
-            response, _ = model.generate(
-                prompt=prompt,
-                parser=lambda x: x,
-                system_prompt=system_prompt,
-                max_correction_steps=0,
-                max_conversation_restarts=0,
+        if self._batch_generator_fn is None:
+            raise RuntimeError(
+                "Batch generation requires a batch_generator_fn. "
+                "This is typically injected by the CustomColumnGenerator."
             )
-            logger.debug(f"  Thread completed for prompt {index}")
-            return index, response
 
-        results: list[str | None] = [None] * len(prompts)
-        errors: list[Exception] = []
-
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {
-                executor.submit(generate_single, i, prompt): i
-                for i, prompt in enumerate(prompts)
-            }
-
-            for future in as_completed(futures):
-                try:
-                    index, response = future.result()
-                    results[index] = response
-                except Exception as e:
-                    idx = futures[future]
-                    logger.error(f"Failed to generate text for prompt {idx}: {e}")
-                    errors.append(e)
-                    results[idx] = f"[ERROR: {e}]"
-
-        if errors:
-            logger.warning(f"Completed with {len(errors)} errors out of {len(prompts)} prompts")
-
-        return results
+        return self._batch_generator_fn(model_alias, prompts, system_prompt, max_workers)

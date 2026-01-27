@@ -11,6 +11,7 @@ from data_designer.config.column_configs import CustomColumnConfig
 from data_designer.config.custom_column import CustomColumnContext
 from data_designer.engine.column_generators.generators.base import ColumnGeneratorFullColumn
 from data_designer.engine.column_generators.utils.errors import CustomColumnGenerationError
+from data_designer.engine.dataset_builders.utils.concurrency import ConcurrentThreadExecutor
 from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
@@ -35,6 +36,7 @@ class CustomColumnGenerator(ColumnGeneratorFullColumn[CustomColumnConfig]):
         - `ctx.kwargs`: Custom parameters from the config
         - `ctx.column_name`: The name of the column being generated
         - `ctx.generate_text(model_alias, prompt)`: Easy text generation with LLMs
+        - `ctx.generate_text_batch(model_alias, prompts)`: Parallel batch text generation
         - `ctx.get_model(model_alias)`: Direct model access for advanced use
 
     Example - Simple usage:
@@ -53,14 +55,11 @@ class CustomColumnGenerator(ColumnGeneratorFullColumn[CustomColumnConfig]):
     Example - With LLM access:
         ```python
         def generate_with_llm(df: pd.DataFrame, ctx: CustomColumnContext) -> pd.DataFrame:
-            results = []
-            for _, row in df.iterrows():
-                response = ctx.generate_text(
-                    model_alias="nvidia-text",
-                    prompt=f"Summarize: {row['text']}",
-                )
-                results.append(response)
-
+            prompts = [f"Summarize: {row['text']}" for _, row in df.iterrows()]
+            results = ctx.generate_text_batch(
+                model_alias="nvidia-text",
+                prompts=prompts,
+            )
             df["summary"] = results
             return df
 
@@ -122,9 +121,86 @@ class CustomColumnGenerator(ColumnGeneratorFullColumn[CustomColumnConfig]):
             ctx = CustomColumnContext(
                 resource_provider=self.resource_provider,
                 config=self.config,
+                batch_generator_fn=self._generate_text_batch,
             )
             return self.config.generate_fn(data, ctx)
         return self.config.generate_fn(data)
+
+    def _generate_text_batch(
+        self,
+        model_alias: str,
+        prompts: list[str],
+        system_prompt: str | None,
+        max_workers: int | None,
+    ) -> list[str]:
+        """Generate text for multiple prompts in parallel using ConcurrentThreadExecutor."""
+        if not prompts:
+            return []
+
+        # Determine max workers from model config if not specified
+        if max_workers is None:
+            model_config = self.resource_provider.model_registry.get_model_config(model_alias=model_alias)
+            max_workers = getattr(model_config.inference_parameters, "max_parallel_requests", 4)
+
+        # Get the model on the main thread before starting the thread pool
+        model = self.resource_provider.model_registry.get_model(model_alias=model_alias)
+        logger.debug(f"Model ready: {model.model_name}")
+
+        # For a single prompt, run sequentially to avoid thread overhead
+        if len(prompts) == 1:
+            logger.info("🚀 Generating 1 text")
+            try:
+                response, _ = model.generate(
+                    prompt=prompts[0],
+                    parser=lambda x: x,
+                    system_prompt=system_prompt,
+                    max_correction_steps=0,
+                    max_conversation_restarts=0,
+                )
+                return [response]
+            except Exception as e:
+                logger.error(f"Failed to generate text: {e}")
+                return [f"[ERROR: {e}]"]
+
+        logger.info(f"🚀 Generating {len(prompts)} texts in parallel with {max_workers} workers")
+
+        results: list[str | None] = [None] * len(prompts)
+
+        def result_callback(result: tuple[int, str], *, context: dict | None = None) -> None:
+            index, response = result
+            results[index] = response
+
+        def error_callback(exc: Exception, *, context: dict | None = None) -> None:
+            if context is not None:
+                idx = context.get("index", 0)
+                logger.error(f"Failed to generate text for prompt {idx}: {exc}")
+                results[idx] = f"[ERROR: {exc}]"
+
+        def generate_single(prompt: str, index: int) -> tuple[int, str]:
+            response, _ = model.generate(
+                prompt=prompt,
+                parser=lambda x: x,
+                system_prompt=system_prompt,
+                max_correction_steps=0,
+                max_conversation_restarts=0,
+            )
+            return index, response
+
+        run_config = self.resource_provider.run_config
+        with ConcurrentThreadExecutor(
+            max_workers=max_workers,
+            column_name=self.config.name,
+            result_callback=result_callback,
+            error_callback=error_callback,
+            shutdown_error_rate=run_config.shutdown_error_rate,
+            shutdown_error_window=run_config.shutdown_error_window,
+            disable_early_shutdown=run_config.disable_early_shutdown,
+        ) as executor:
+            for i, prompt in enumerate(prompts):
+                executor.submit(generate_single, prompt, i, context={"index": i})
+
+        # Replace any None values (shouldn't happen unless executor failed silently)
+        return [r if r is not None else "[ERROR: Unknown]" for r in results]
 
     def log_pre_generation(self) -> None:
         logger.info(

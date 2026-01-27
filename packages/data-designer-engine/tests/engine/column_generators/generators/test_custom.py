@@ -396,6 +396,13 @@ def test_context_generate_text_batch() -> None:
     mock_model_config.inference_parameters.max_parallel_requests = 4
     mock_model = Mock()
 
+    # Mock run_config for ConcurrentThreadExecutor
+    mock_run_config = Mock()
+    mock_run_config.shutdown_error_rate = 0.5
+    mock_run_config.shutdown_error_window = 10
+    mock_run_config.disable_early_shutdown = False
+    mock_resource_provider.run_config = mock_run_config
+
     # Return different responses for each call
     call_count = [0]
 
