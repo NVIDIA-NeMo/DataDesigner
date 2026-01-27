@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from data_designer.config.analysis.column_profilers import JudgeScoreProfilerConfig
 from data_designer.config.column_configs import (
+    CustomColumnConfig,
     EmbeddingColumnConfig,
     ExpressionColumnConfig,
     LLMCodeColumnConfig,
@@ -16,6 +17,7 @@ from data_designer.config.column_configs import (
     SeedDatasetColumnConfig,
     ValidationColumnConfig,
 )
+from data_designer.config.custom_column import CustomColumnContext
 from data_designer.config.column_types import DataDesignerColumnType
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.data_designer_config import DataDesignerConfig
@@ -83,6 +85,8 @@ from data_designer.config.validator_params import (
 
 def get_config_exports() -> list[str]:
     return [
+        CustomColumnConfig.__name__,
+        CustomColumnContext.__name__,
         SchemaTransformProcessorConfig.__name__,
         BernoulliMixtureSamplerParams.__name__,
         BernoulliSamplerParams.__name__,
