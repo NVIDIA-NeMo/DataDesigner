@@ -85,16 +85,18 @@ def test_run_personas_with_all_flag(
     # Verify NGC check was called
     mock_check_ngc.assert_called_once()
 
-    # Verify all 5 locales were downloaded
-    assert mock_download.call_count == 5
+    # Verify all 7 locales were downloaded
+    assert mock_download.call_count == 7
 
     # Verify each locale was downloaded
     downloaded_locales = [call[0][0] for call in mock_download.call_args_list]
     assert "en_US" in downloaded_locales
     assert "en_IN" in downloaded_locales
+    assert "en_SG" in downloaded_locales
     assert "hi_Deva_IN" in downloaded_locales
     assert "hi_Latn_IN" in downloaded_locales
     assert "ja_JP" in downloaded_locales
+    assert "pt_BR" in downloaded_locales
 
 
 @patch.object(DownloadController, "_download_locale", return_value=True)
@@ -217,12 +219,14 @@ def test_determine_locales_with_all_flag(controller: DownloadController) -> None
     """Test _determine_locales returns all locales when all_locales=True."""
     result = controller._determine_locales(locales=None, all_locales=True)
 
-    assert len(result) == 5
+    assert len(result) == 7
     assert "en_US" in result
     assert "en_IN" in result
+    assert "en_SG" in result
     assert "hi_Deva_IN" in result
     assert "hi_Latn_IN" in result
     assert "ja_JP" in result
+    assert "pt_BR" in result
 
 
 def test_determine_locales_with_valid_locale_flags(controller: DownloadController) -> None:

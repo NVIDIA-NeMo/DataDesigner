@@ -169,8 +169,27 @@ test-interface:
 # Test dependencies added via --with since workspace groups aren't available with --package
 TEST_DEPS := --with pytest --with pytest-asyncio --with pytest-httpx --with pytest-env
 
-test-isolated: test-config-isolated test-engine-isolated test-interface-isolated
-	@echo "✅ All isolated package tests complete!"
+test-isolated:
+	@echo "🧪 Running all isolated package tests..."
+	@echo ""
+	@CONFIG_RESULT=0; ENGINE_RESULT=0; INTERFACE_RESULT=0; \
+	$(MAKE) test-config-isolated || CONFIG_RESULT=1; \
+	echo ""; \
+	$(MAKE) test-engine-isolated || ENGINE_RESULT=1; \
+	echo ""; \
+	$(MAKE) test-interface-isolated || INTERFACE_RESULT=1; \
+	echo ""; \
+	echo "═══════════════════════════════════════════════════════════"; \
+	echo "📊 Isolated Test Summary:"; \
+	if [ $$CONFIG_RESULT -eq 0 ]; then echo "  ✅ Config tests passed"; else echo "  ❌ Config tests FAILED"; fi; \
+	if [ $$ENGINE_RESULT -eq 0 ]; then echo "  ✅ Engine tests passed"; else echo "  ❌ Engine tests FAILED"; fi; \
+	if [ $$INTERFACE_RESULT -eq 0 ]; then echo "  ✅ Interface tests passed"; else echo "  ❌ Interface tests FAILED"; fi; \
+	echo "═══════════════════════════════════════════════════════════"; \
+	if [ $$CONFIG_RESULT -ne 0 ] || [ $$ENGINE_RESULT -ne 0 ] || [ $$INTERFACE_RESULT -ne 0 ]; then \
+		echo "❌ Some isolated tests FAILED!"; \
+		exit 1; \
+	fi; \
+	echo "✅ All isolated package tests passed!"
 
 test-config-isolated:
 	@echo "🧪 Testing data-designer-config in isolation..."
@@ -178,9 +197,10 @@ test-config-isolated:
 	trap "rm -rf $$ISOLATED_VENV" EXIT; \
 	echo "   Creating isolated environment in $$ISOLATED_VENV..."; \
 	echo "   Installing config package only (no engine/interface)..."; \
-	UV_PROJECT_ENVIRONMENT="$$ISOLATED_VENV" uv sync --package data-designer-config; \
-	UV_PROJECT_ENVIRONMENT="$$ISOLATED_VENV" uv run $(TEST_DEPS) pytest -v $(CONFIG_TESTS); \
-	echo "✅ Config tests passed in isolation!"
+	UV_PROJECT_ENVIRONMENT="$$ISOLATED_VENV" uv sync --package data-designer-config && \
+	UV_PROJECT_ENVIRONMENT="$$ISOLATED_VENV" uv run $(TEST_DEPS) pytest -v $(CONFIG_TESTS) && \
+	echo "✅ Config tests passed in isolation!" || \
+	{ echo "❌ Config tests FAILED in isolation!"; exit 1; }
 
 test-engine-isolated:
 	@echo "🧪 Testing data-designer-engine in isolation..."
@@ -188,9 +208,10 @@ test-engine-isolated:
 	trap "rm -rf $$ISOLATED_VENV" EXIT; \
 	echo "   Creating isolated environment in $$ISOLATED_VENV..."; \
 	echo "   Installing engine package only (auto-includes config)..."; \
-	UV_PROJECT_ENVIRONMENT="$$ISOLATED_VENV" uv sync --package data-designer-engine; \
-	UV_PROJECT_ENVIRONMENT="$$ISOLATED_VENV" uv run $(TEST_DEPS) pytest -v $(ENGINE_TESTS); \
-	echo "✅ Engine tests passed in isolation!"
+	UV_PROJECT_ENVIRONMENT="$$ISOLATED_VENV" uv sync --package data-designer-engine && \
+	UV_PROJECT_ENVIRONMENT="$$ISOLATED_VENV" uv run $(TEST_DEPS) pytest -v $(ENGINE_TESTS) && \
+	echo "✅ Engine tests passed in isolation!" || \
+	{ echo "❌ Engine tests FAILED in isolation!"; exit 1; }
 
 test-interface-isolated:
 	@echo "🧪 Testing data-designer (interface) in isolation..."
@@ -198,9 +219,10 @@ test-interface-isolated:
 	trap "rm -rf $$ISOLATED_VENV" EXIT; \
 	echo "   Creating isolated environment in $$ISOLATED_VENV..."; \
 	echo "   Installing interface package (auto-includes config + engine)..."; \
-	UV_PROJECT_ENVIRONMENT="$$ISOLATED_VENV" uv sync --package data-designer; \
-	UV_PROJECT_ENVIRONMENT="$$ISOLATED_VENV" uv run $(TEST_DEPS) pytest -v $(INTERFACE_TESTS); \
-	echo "✅ Interface tests passed in isolation!"
+	UV_PROJECT_ENVIRONMENT="$$ISOLATED_VENV" uv sync --package data-designer && \
+	UV_PROJECT_ENVIRONMENT="$$ISOLATED_VENV" uv run $(TEST_DEPS) pytest -v $(INTERFACE_TESTS) && \
+	echo "✅ Interface tests passed in isolation!" || \
+	{ echo "❌ Interface tests FAILED in isolation!"; exit 1; }
 
 # Note: coverage runs all tests in a single pytest invocation for combined coverage reporting.
 # This is intentionally different from calling coverage-config/engine/interface individually.

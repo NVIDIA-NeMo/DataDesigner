@@ -1,7 +1,8 @@
 ---
-name: new-sdg 
+name: new-sdg
 description: Implement a new synthetic data generator using NeMo Data Designer by defining its configuration and executing a preview job.
 argument-hint: <dataset-description>
+disable-model-invocation: true
 ---
 
 # Your Goal
