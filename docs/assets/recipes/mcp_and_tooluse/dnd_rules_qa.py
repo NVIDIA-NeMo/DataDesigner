@@ -235,15 +235,6 @@ def build_config(
     ]
     if version:
         topic_prompt_lines.append(f'- version: "{version}"')
-    # topic_prompt_lines.extend(
-    #     [
-    #         '- query: "Dungeons & Dragons basic rules table of contents"',
-    #         "- limit: 5",
-    #         "",
-    #         "From the tool results, list up to 10 high-level topics.",
-    #         "Return JSON with key: topics (a list of strings).",
-    #     ]
-    # )
 
     config_builder.add_column(
         dd.LLMStructuredColumnConfig(
