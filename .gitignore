@@ -82,6 +82,11 @@ venv.bak/
 # Auto-generated version files
 **/_version.py
 
+# Auto-generated README for data-designer package
+# The top-level README is copied here during build so that PyPI displays the full
+# project documentation when users install the main "data-designer" package.
+packages/data-designer/README.md
+
 # Local scratch space
 .scratch/
 

@@ -28,6 +28,9 @@ SKIP_PATTERNS = frozenset(
 # Skip auto-generated version files (hatch-vcs generates these at build time)
 SKIP_FILES = frozenset(["_version.py"])
 
+# File extensions to process for license headers
+SUPPORTED_EXTENSIONS = frozenset([".py", ".sh"])
+
 # Maximum number of lines to search for SPDX license header
 MAX_HEADER_SEARCH_LINES = 10
 
@@ -222,7 +225,7 @@ def check_license_header_matches(file_path: Path, license_header: str) -> tuple[
 
 def should_process_file(file_path: Path) -> bool:
     """Determine if a file should be processed for license headers."""
-    if file_path.suffix != ".py":
+    if file_path.suffix not in SUPPORTED_EXTENSIONS:
         return False
 
     if file_path.name in SKIP_FILES:
@@ -282,42 +285,43 @@ def generate_license_header(copyright_year: str) -> str:
 
 
 def main(path: Path, check_only: bool = False) -> tuple[int, int, int, list[Path]]:
-    """Process all Python files in a directory."""
+    """Process all supported files in a directory."""
     current_year = datetime.now().year
 
     processed = updated = skipped = 0
     files_needing_update: list[Path] = []
 
-    for file_path in path.glob("**/*.py"):
-        if not file_path.is_file() or not should_process_file(file_path):
-            continue
+    for ext in SUPPORTED_EXTENSIONS:
+        for file_path in path.glob(f"**/*{ext}"):
+            if not file_path.is_file() or not should_process_file(file_path):
+                continue
 
-        processed += 1
+            processed += 1
 
-        copyright_year = get_copyright_year_string(file_path, current_year)
-        license_header = generate_license_header(copyright_year)
+            copyright_year = get_copyright_year_string(file_path, current_year)
+            license_header = generate_license_header(copyright_year)
 
-        if check_only:
-            matches, _ = check_license_header_matches(file_path, license_header)
-            if matches:
-                skipped += 1
+            if check_only:
+                matches, _ = check_license_header_matches(file_path, license_header)
+                if matches:
+                    skipped += 1
+                else:
+                    files_needing_update.append(file_path)
+                    updated += 1
             else:
-                files_needing_update.append(file_path)
-                updated += 1
-        else:
-            was_modified, reason = update_license_header_in_file(file_path, license_header)
-            if was_modified:
-                action = "Added header to" if reason == "added" else "Updated header in"
-                print(f"  {'✏️' if reason == 'added' else '🔄'} {action} {file_path}")
-                updated += 1
-            else:
-                skipped += 1
+                was_modified, reason = update_license_header_in_file(file_path, license_header)
+                if was_modified:
+                    action = "Added header to" if reason == "added" else "Updated header in"
+                    print(f"  {'✏️' if reason == 'added' else '🔄'} {action} {file_path}")
+                    updated += 1
+                else:
+                    skipped += 1
 
     return processed, updated, skipped, files_needing_update
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Add or check license headers in Python files")
+    parser = argparse.ArgumentParser(description="Add or check license headers in Python and shell files")
     parser.add_argument(
         "--check",
         action="store_true",
