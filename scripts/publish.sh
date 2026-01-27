@@ -343,6 +343,36 @@ create_git_tag() {
     fi
 }
 
+verify_package_versions() {
+    # Verify the built packages have the correct version
+    header "Verifying Package Versions"
+    info "Checking that built packages match expected version: $VERSION"
+
+    for pkg_dir in "${PACKAGE_DIRS[@]}"; do
+        local pkg_name
+        pkg_name=$(basename "$pkg_dir")
+
+        # Check wheel exists
+        local wheel_file
+        wheel_file=$(ls "$pkg_dir/dist/"*.whl 2>/dev/null | head -1)
+        if [[ -z "$wheel_file" ]]; then
+            abort "No wheel found in $pkg_dir/dist/" \
+                "Build may have failed silently"
+        fi
+
+        # Verify version in wheel filename
+        # Use -E for extended regex (works on both macOS/BSD and Linux/GNU sed)
+        local wheel_version
+        wheel_version=$(basename "$wheel_file" | sed -E -n 's/.*-([0-9]+\.[0-9]+\.[0-9]+(rc[0-9]+)?)-.*/\1/p')
+        if [[ "$wheel_version" != "$VERSION" ]]; then
+            abort "Version mismatch in $pkg_name wheel" \
+                "Expected: $VERSION, Found: $wheel_version in $(basename "$wheel_file")"
+        fi
+        info "  $pkg_name: $wheel_version ✓"
+    done
+    success "All package versions verified"
+}
+
 rebuild_with_tag() {
     header "Rebuilding with Tag"
 
@@ -361,29 +391,8 @@ rebuild_with_tag() {
     fi
     success "All packages rebuilt with correct version"
 
-    # Verify the built packages have the correct version
-    info "Verifying built package versions..."
-    for pkg_dir in "${PACKAGE_DIRS[@]}"; do
-        local pkg_name
-        pkg_name=$(basename "$pkg_dir")
-
-        # Check wheel exists
-        local wheel_file
-        wheel_file=$(ls "$pkg_dir/dist/"*.whl 2>/dev/null | head -1)
-        if [[ -z "$wheel_file" ]]; then
-            abort "No wheel found in $pkg_dir/dist/" \
-                "Build may have failed silently"
-        fi
-
-        # Verify version in wheel filename
-        local wheel_version
-        wheel_version=$(basename "$wheel_file" | sed -n 's/.*-\([0-9][0-9.]*\(rc[0-9]*\)\?\)-.*/\1/p')
-        if [[ "$wheel_version" != "$VERSION" ]]; then
-            abort "Version mismatch in $pkg_name wheel" \
-                "Expected: $VERSION, Found: $wheel_version in $(basename "$wheel_file")"
-        fi
-        info "  $pkg_name: $wheel_version ✓"
-    done
+    # Verify versions
+    verify_package_versions
 }
 
 upload_to_pypi() {
@@ -494,28 +503,34 @@ main() {
     # Run tests
     run_tests
 
-    # Build packages (initial build to verify everything works)
-    build_packages
-
-    # Validate packages with twine check (always run, even in dry-run)
-    check_packages_with_twine
-
-    # Create git tag (skipped for dry-run and TestPyPI)
-    create_git_tag
-
-    # Rebuild with tag for correct version embedding (skipped for dry-run and TestPyPI)
-    rebuild_with_tag
-
-    # Validate rebuilt packages (only if we actually rebuilt)
-    if [[ "$DRY_RUN" != true ]]; then
+    # Different flows for dry-run, TestPyPI, and production
+    if [[ "$DRY_RUN" == true ]]; then
+        # Dry run: build without tag (dev versions), validate, done
+        build_packages
         check_packages_with_twine
+
+    elif [[ "$TEST_PYPI" == true ]]; then
+        # TestPyPI: create temporary tag first, build once with correct version
+        # This is more efficient since the tag will be deleted anyway
+        create_git_tag
+        build_packages
+        # Verify versions match expected
+        verify_package_versions
+        check_packages_with_twine
+        upload_to_pypi
+        push_git_tag  # This will delete the local tag for TestPyPI
+
+    else
+        # Production: build first to validate, then tag and rebuild for safety
+        # This ensures we don't create a tag if the build process itself is broken
+        build_packages
+        check_packages_with_twine
+        create_git_tag
+        rebuild_with_tag
+        check_packages_with_twine
+        upload_to_pypi
+        push_git_tag
     fi
-
-    # Upload to PyPI (or TestPyPI)
-    upload_to_pypi
-
-    # Push git tag to remote
-    push_git_tag
 
     # Final summary
     header "Publish Complete"
