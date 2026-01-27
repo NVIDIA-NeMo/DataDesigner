@@ -7,8 +7,9 @@
 # Publishes all three subpackages to PyPI with the same version.
 #
 # Usage:
-#   ./scripts/publish.sh 0.3.9rc1           # Full publish
-#   ./scripts/publish.sh 0.3.9rc1 --dry-run # Dry run (no actual upload or tagging)
+#   ./scripts/publish.sh 0.3.9rc1             # Full publish
+#   ./scripts/publish.sh 0.3.9rc1 --dry-run   # Dry run (build, check, no upload)
+#   ./scripts/publish.sh 0.3.9rc1 --test-pypi # Upload to TestPyPI instead of PyPI
 
 set -e
 
@@ -35,6 +36,11 @@ PACKAGE_DIRS=(
 
 PYPIRC_FILE="$HOME/.pypirc"
 EXPECTED_PYPI_USERNAME="data-designer-team"
+
+# PyPI repository URLs
+PYPI_REPOSITORY="pypi"
+TEST_PYPI_REPOSITORY="testpypi"
+TEST_PYPI_URL="https://test.pypi.org/simple/"
 
 # ==============================================================================
 # HELPER FUNCTIONS
@@ -79,25 +85,47 @@ VERSION=""
 DRY_RUN=false
 ALLOW_BRANCH=false
 FORCE_TAG=false
+TEST_PYPI=false
 
 usage() {
-    echo "Usage: $0 <version> [--dry-run] [--allow-branch] [--force-tag]"
+    local exit_code="${1:-1}"
+    echo "Usage: $0 <version> [options]"
+    echo ""
+    echo "Publish all DataDesigner packages to PyPI with synchronized versions."
     echo ""
     echo "Arguments:"
-    echo "  version         Version to publish (e.g., 0.3.9 or 0.3.9rc1)"
-    echo "  --dry-run       Run all checks but don't create tags or upload to PyPI"
-    echo "  --allow-branch  Allow publishing from non-main branches"
-    echo "  --force-tag     Overwrite existing git tag if it exists"
+    echo "  version           Version to publish (e.g., 0.3.9 or 0.3.9rc1)"
+    echo ""
+    echo "Options:"
+    echo "  -h, --help        Show this help message and exit"
+    echo "  --dry-run         Build packages and run validation (twine check) but don't"
+    echo "                    create tags or upload. Good for CI validation."
+    echo "  --test-pypi       Upload to TestPyPI (test.pypi.org) instead of production PyPI."
+    echo "                    Useful for testing the full upload flow safely."
+    echo "  --allow-branch    Allow publishing from non-main branches"
+    echo "  --force-tag       Overwrite existing git tag if it exists"
     echo ""
     echo "Examples:"
-    echo "  $0 0.3.9rc1                        # Full publish from main"
-    echo "  $0 0.3.9rc1 --dry-run              # Dry run"
-    echo "  $0 0.3.9rc1 --allow-branch         # Publish from current branch"
+    echo "  $0 0.3.9rc1                        # Full publish to PyPI"
+    echo "  $0 0.3.9rc1 --dry-run              # Validate only (build + twine check)"
+    echo "  $0 0.3.9rc1 --test-pypi            # Upload to TestPyPI"
+    echo "  $0 0.3.9rc1 --test-pypi --allow-branch  # Test from feature branch"
     echo "  $0 0.3.9rc1 --force-tag            # Overwrite existing tag"
-    exit 1
+    echo ""
+    echo "Version format:"
+    echo "  Valid:   0.3.9, 0.3.9rc1, 1.0.0rc2"
+    echo "  Invalid: v0.3.9, 0.3.9-rc1, 0.3.9a1"
+    exit "$exit_code"
 }
 
 parse_args() {
+    # Check for help flag first
+    for arg in "$@"; do
+        if [[ "$arg" == "-h" ]] || [[ "$arg" == "--help" ]]; then
+            usage 0
+        fi
+    done
+
     if [[ $# -lt 1 ]]; then
         usage
     fi
@@ -109,6 +137,10 @@ parse_args() {
         case "$1" in
             --dry-run)
                 DRY_RUN=true
+                shift
+                ;;
+            --test-pypi)
+                TEST_PYPI=true
                 shift
                 ;;
             --allow-branch)
@@ -168,6 +200,11 @@ check_clean_working_directory() {
 }
 
 check_tag_does_not_exist() {
+    if [[ "$DRY_RUN" == true ]] || [[ "$TEST_PYPI" == true ]]; then
+        info "Skipping git tag check (not creating tags in this mode)"
+        return
+    fi
+
     local tag="v$VERSION"
     local existing_tag
     existing_tag=$(git tag -l "$tag")
@@ -185,17 +222,31 @@ check_tag_does_not_exist() {
 }
 
 check_pypi_access() {
+    if [[ "$DRY_RUN" == true ]]; then
+        info "Skipping PyPI access check (dry-run mode)"
+        return
+    fi
+
     if [[ ! -f "$PYPIRC_FILE" ]]; then
         abort "PyPI config file not found: $PYPIRC_FILE" \
             "Please create ~/.pypirc with your PyPI credentials"
     fi
 
-    # Check that the expected username exists in pypirc
-    if ! grep -q "$EXPECTED_PYPI_USERNAME" "$PYPIRC_FILE"; then
-        abort "Expected username '$EXPECTED_PYPI_USERNAME' not found in $PYPIRC_FILE" \
-            "Please add your PyPI credentials with username '$EXPECTED_PYPI_USERNAME'"
+    if [[ "$TEST_PYPI" == true ]]; then
+        # Check for testpypi section in pypirc
+        if ! grep -q "\[testpypi\]" "$PYPIRC_FILE"; then
+            abort "TestPyPI section not found in $PYPIRC_FILE" \
+                "Please add a [testpypi] section to ~/.pypirc"
+        fi
+        success "TestPyPI access configured"
+    else
+        # Check that the expected username exists in pypirc
+        if ! grep -q "$EXPECTED_PYPI_USERNAME" "$PYPIRC_FILE"; then
+            abort "Expected username '$EXPECTED_PYPI_USERNAME' not found in $PYPIRC_FILE" \
+                "Please add your PyPI credentials with username '$EXPECTED_PYPI_USERNAME'"
+        fi
+        success "PyPI access configured (username: $EXPECTED_PYPI_USERNAME)"
     fi
-    success "PyPI access configured (username: $EXPECTED_PYPI_USERNAME)"
 }
 
 check_twine_works() {
@@ -237,6 +288,32 @@ build_packages() {
     success "All packages built successfully"
 }
 
+check_packages_with_twine() {
+    header "Validating Packages with Twine"
+
+    info "Running twine check on all distribution files..."
+
+    local check_failed=false
+    for pkg_dir in "${PACKAGE_DIRS[@]}"; do
+        local pkg_name
+        pkg_name=$(basename "$pkg_dir")
+        info "Checking $pkg_name..."
+
+        if ! uv run --with twine python -m twine check "$pkg_dir/dist/"*; then
+            error "twine check failed for $pkg_name"
+            check_failed=true
+        else
+            success "  $pkg_name passed twine check"
+        fi
+    done
+
+    if [[ "$check_failed" == true ]]; then
+        abort "Package validation failed" \
+            "Please fix the issues reported by twine check"
+    fi
+    success "All packages passed twine check"
+}
+
 create_git_tag() {
     header "Creating Git Tag"
 
@@ -248,6 +325,11 @@ create_git_tag() {
         else
             warn "[DRY RUN] Would create git tag: $tag"
         fi
+        return
+    fi
+
+    if [[ "$TEST_PYPI" == true ]]; then
+        info "Skipping git tag creation (TestPyPI mode)"
         return
     fi
 
@@ -269,6 +351,12 @@ rebuild_with_tag() {
         return
     fi
 
+    if [[ "$TEST_PYPI" == true ]]; then
+        info "Skipping rebuild (TestPyPI mode - using initial build)"
+        info "Note: Packages may have development version numbers without a git tag"
+        return
+    fi
+
     info "Cleaning dist directories..."
     make clean-dist
 
@@ -282,21 +370,43 @@ rebuild_with_tag() {
     # Verify the built packages have the correct version
     info "Verifying built package versions..."
     for pkg_dir in "${PACKAGE_DIRS[@]}"; do
-        local wheel_count
-        wheel_count=$(ls "$pkg_dir/dist/"*.whl 2>/dev/null | wc -l)
-        if [[ "$wheel_count" -eq 0 ]]; then
+        local pkg_name
+        pkg_name=$(basename "$pkg_dir")
+
+        # Check wheel exists
+        local wheel_file
+        wheel_file=$(ls "$pkg_dir/dist/"*.whl 2>/dev/null | head -1)
+        if [[ -z "$wheel_file" ]]; then
             abort "No wheel found in $pkg_dir/dist/" \
                 "Build may have failed silently"
         fi
-        info "  Found wheel(s) in $pkg_dir/dist/"
+
+        # Verify version in wheel filename
+        local wheel_version
+        wheel_version=$(basename "$wheel_file" | sed -n 's/.*-\([0-9][0-9.]*\(rc[0-9]*\)\?\)-.*/\1/p')
+        if [[ "$wheel_version" != "$VERSION" ]]; then
+            abort "Version mismatch in $pkg_name wheel" \
+                "Expected: $VERSION, Found: $wheel_version in $(basename "$wheel_file")"
+        fi
+        info "  $pkg_name: $wheel_version ✓"
     done
 }
 
 upload_to_pypi() {
-    header "Uploading to PyPI"
+    local target_repo="$PYPI_REPOSITORY"
+    local target_name="PyPI"
+    local repo_args=()
+
+    if [[ "$TEST_PYPI" == true ]]; then
+        target_repo="$TEST_PYPI_REPOSITORY"
+        target_name="TestPyPI"
+        repo_args=("--repository" "$target_repo")
+    fi
+
+    header "Uploading to $target_name"
 
     if [[ "$DRY_RUN" == true ]]; then
-        warn "[DRY RUN] Would upload the following packages to PyPI:"
+        warn "[DRY RUN] Would upload the following packages to $target_name:"
         for pkg_dir in "${PACKAGE_DIRS[@]}"; do
             echo "  From $pkg_dir/dist/:"
             ls -1 "$pkg_dir/dist/" 2>/dev/null | sed 's/^/    /'
@@ -305,18 +415,20 @@ upload_to_pypi() {
     fi
 
     for pkg_dir in "${PACKAGE_DIRS[@]}"; do
-        info "Uploading $pkg_dir..."
+        local pkg_name
+        pkg_name=$(basename "$pkg_dir")
+        info "Uploading $pkg_name to $target_name..."
         (
             cd "$pkg_dir"
-            if ! uv run --with twine python -m twine upload dist/*; then
-                abort "Failed to upload $pkg_dir" \
-                    "Please check the twine output for errors"
+            if ! uv run --with twine python -m twine upload "${repo_args[@]}" dist/*; then
+                abort "Failed to upload $pkg_name to $target_name" \
+                    "If some packages uploaded successfully, you may need to:\n  1. Wait for the failed package issue to be resolved\n  2. Re-run with --force-tag: ./scripts/publish.sh $VERSION --force-tag"
             fi
         )
-        success "Uploaded $pkg_dir"
+        success "Uploaded $pkg_name to $target_name"
     done
 
-    success "All packages uploaded to PyPI"
+    success "All packages uploaded to $target_name"
 }
 
 push_git_tag() {
@@ -330,6 +442,11 @@ push_git_tag() {
         else
             warn "[DRY RUN] Would push git tag to origin: $tag"
         fi
+        return
+    fi
+
+    if [[ "$TEST_PYPI" == true ]]; then
+        info "Skipping git tag push (TestPyPI mode)"
         return
     fi
 
@@ -360,6 +477,10 @@ main() {
 
     if [[ "$DRY_RUN" == true ]]; then
         warn "DRY RUN MODE - No tags will be created or packages uploaded"
+        info "Will build packages and run twine check for validation"
+    fi
+    if [[ "$TEST_PYPI" == true ]]; then
+        warn "TEST PYPI MODE - Uploading to test.pypi.org instead of pypi.org"
     fi
     if [[ "$FORCE_TAG" == true ]]; then
         warn "FORCE TAG MODE - Existing tag will be overwritten"
@@ -380,13 +501,21 @@ main() {
     # Build packages (initial build to verify everything works)
     build_packages
 
-    # Create git tag
+    # Validate packages with twine check (always run, even in dry-run)
+    check_packages_with_twine
+
+    # Create git tag (skipped for dry-run and TestPyPI)
     create_git_tag
 
-    # Rebuild with tag for correct version embedding
+    # Rebuild with tag for correct version embedding (skipped for dry-run and TestPyPI)
     rebuild_with_tag
 
-    # Upload to PyPI
+    # Validate rebuilt packages (only if we actually rebuilt)
+    if [[ "$DRY_RUN" != true ]] && [[ "$TEST_PYPI" != true ]]; then
+        check_packages_with_twine
+    fi
+
+    # Upload to PyPI (or TestPyPI)
     upload_to_pypi
 
     # Push git tag to remote
@@ -395,8 +524,37 @@ main() {
     # Final summary
     header "Publish Complete"
     if [[ "$DRY_RUN" == true ]]; then
-        warn "DRY RUN completed successfully"
-        info "To perform the actual publish, run without --dry-run:"
+        success "DRY RUN completed successfully"
+        echo ""
+        echo "All validation checks passed:"
+        echo "  - Version format validated"
+        echo "  - Packages built successfully"
+        echo "  - Packages passed twine check"
+        echo ""
+        info "Next steps:"
+        echo "  - To publish to TestPyPI (recommended first):"
+        echo "      $0 $VERSION --test-pypi"
+        echo "  - To publish to production PyPI:"
+        echo "      $0 $VERSION"
+    elif [[ "$TEST_PYPI" == true ]]; then
+        success "Successfully published DataDesigner v$VERSION to TestPyPI"
+        echo ""
+        echo "Packages published to TestPyPI:"
+        for pkg_dir in "${PACKAGE_DIRS[@]}"; do
+            local pkg_name
+            pkg_name=$(basename "$pkg_dir")
+            echo "  - $pkg_name"
+        done
+        echo ""
+        echo "View on TestPyPI:"
+        echo "  https://test.pypi.org/project/data-designer-config/$VERSION/"
+        echo "  https://test.pypi.org/project/data-designer-engine/$VERSION/"
+        echo "  https://test.pypi.org/project/data-designer/$VERSION/"
+        echo ""
+        echo "Test installation with:"
+        echo "  pip install --index-url $TEST_PYPI_URL data-designer==$VERSION"
+        echo ""
+        info "If everything looks good, publish to production PyPI:"
         echo "  $0 $VERSION"
     else
         success "Successfully published DataDesigner v$VERSION"
