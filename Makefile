@@ -401,6 +401,8 @@ build-engine:
 
 build-interface:
 	@echo "🏗️  Building data-designer (interface)..."
+	@echo "📄 Copying top-level README to data-designer package..."
+	cp README.md $(INTERFACE_PKG)/README.md
 	cd $(INTERFACE_PKG) && uv build -o dist
 
 # ==============================================================================
