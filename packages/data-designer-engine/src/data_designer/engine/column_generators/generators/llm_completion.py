@@ -66,8 +66,7 @@ class ColumnGeneratorWithModelChatCompletion(ColumnGeneratorWithModel[TaskConfig
             for context in self.config.multi_modal_context:
                 multi_modal_context.extend(context.get_contexts(deserialized_record))
 
-        include_full_traces = self.resource_provider.run_config.include_full_traces
-        response, _, trace = self.model.generate(
+        response, trace = self.model.generate(
             prompt=self.prompt_renderer.render(
                 record=deserialized_record,
                 prompt_template=self.config.prompt,
@@ -81,7 +80,6 @@ class ColumnGeneratorWithModelChatCompletion(ColumnGeneratorWithModel[TaskConfig
             parser=self.response_recipe.parse,
             multi_modal_context=multi_modal_context,
             tool_config=self.config.tool_config,
-            include_full_traces=include_full_traces,
             max_correction_steps=self.max_conversation_correction_steps,
             max_conversation_restarts=self.max_conversation_restarts,
             purpose=f"running generation for column '{self.config.name}'",
@@ -90,8 +88,8 @@ class ColumnGeneratorWithModelChatCompletion(ColumnGeneratorWithModel[TaskConfig
         serialized_output = self.response_recipe.serialize_output(response)
         data[self.config.name] = self._process_serialized_output(serialized_output)
 
-        if include_full_traces and trace is not None:
-            data[self.config.name + TRACE_COLUMN_POSTFIX] = trace
+        if self.resource_provider.run_config.include_full_traces:
+            data[self.config.name + TRACE_COLUMN_POSTFIX] = [message.to_dict() for message in trace]
 
         return data
 

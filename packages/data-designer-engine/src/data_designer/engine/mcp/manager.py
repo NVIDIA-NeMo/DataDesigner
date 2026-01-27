@@ -13,8 +13,12 @@ from dataclasses import dataclass
 from threading import Lock
 from typing import Any
 
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.sse import sse_client
+from mcp.client.stdio import stdio_client
+
 from data_designer.config.mcp import MCPServerConfig, MCPToolConfig
-from data_designer.engine.mcp.errors import MCPClientUnavailableError, MCPConfigurationError, MCPToolError
+from data_designer.engine.mcp.errors import MCPConfigurationError, MCPToolError
 
 logger = logging.getLogger(__name__)
 
@@ -142,7 +146,6 @@ class MCPClientManager:
             raise MCPToolError(f"Timed out after {timeout_label}s while {operation}.") from exc
 
     async def _list_tools_async(self, server: MCPServerConfig) -> list[MCPToolDefinition]:
-        ClientSession, StdioServerParameters, stdio_client, sse_client = _resolve_mcp_imports()
         if server.command:
             params = StdioServerParameters(command=server.command, args=server.args, env=server.env)
             async with stdio_client(params) as (read, write):
@@ -163,7 +166,6 @@ class MCPClientManager:
     async def _call_tool_async(
         self, server: MCPServerConfig, tool_name: str, arguments: dict[str, Any]
     ) -> MCPToolResult:
-        ClientSession, StdioServerParameters, stdio_client, sse_client = _resolve_mcp_imports()
         if server.command:
             params = StdioServerParameters(command=server.command, args=server.args, env=server.env)
             async with stdio_client(params) as (read, write):
@@ -235,23 +237,3 @@ def _serialize_tool_result_content(result: Any) -> str:
                 parts.append(str(item))
         return "\n".join(parts)
     return str(content)
-
-
-def _resolve_mcp_imports() -> tuple[Any, Any, Any, Any]:
-    try:
-        from mcp import ClientSession, StdioServerParameters
-        from mcp.client.sse import sse_client
-        from mcp.client.stdio import stdio_client
-
-        return ClientSession, StdioServerParameters, stdio_client, sse_client
-    except ImportError:
-        try:
-            from mcp.client.session import ClientSession
-            from mcp.client.sse import sse_client
-            from mcp.client.stdio import StdioServerParameters, stdio_client
-
-            return ClientSession, StdioServerParameters, stdio_client, sse_client
-        except ImportError as exc:
-            raise MCPClientUnavailableError(
-                "MCP client dependencies are not installed. Install the 'mcp' package to enable tool calling."
-            ) from exc
