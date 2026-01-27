@@ -3,16 +3,15 @@
 
 from __future__ import annotations
 
-import json
 import logging
-import uuid
 from collections.abc import Callable
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
 from data_designer.config.mcp import MCPToolConfig
 from data_designer.config.models import GenerationType, ModelConfig, ModelProvider
-from data_designer.engine.mcp.errors import MCPConfigurationError, MCPToolError
+from data_designer.engine.mcp.errors import MCPToolError
+from data_designer.engine.mcp.tool_executor import MCPToolExecutor
 from data_designer.engine.model_provider import ModelProviderRegistry
 from data_designer.engine.models.errors import (
     GenerationValidationFailureError,
@@ -22,7 +21,7 @@ from data_designer.engine.models.errors import (
 from data_designer.engine.models.litellm_overrides import CustomRouter, LiteLLMRouterDefaultKwargs
 from data_designer.engine.models.parsers.errors import ParserException
 from data_designer.engine.models.usage import ModelUsageStats, RequestUsageStats, TokenUsageStats
-from data_designer.engine.models.utils import prompt_to_messages, str_to_message
+from data_designer.engine.models.utils import ChatMessage, prompt_to_messages
 from data_designer.engine.secret_resolver import SecretResolver
 from data_designer.lazy_heavy_imports import litellm
 
@@ -47,6 +46,7 @@ class ModelFacade:
         self._secret_resolver = secret_resolver
         self._model_provider_registry = model_provider_registry
         self._mcp_client_manager = mcp_client_manager
+        self._tool_executor = MCPToolExecutor(mcp_client_manager)
         self._litellm_deployment = self._get_litellm_deployment(model_config)
         self._router = CustomRouter([self._litellm_deployment], **LiteLLMRouterDefaultKwargs().model_dump())
         self._usage_stats = ModelUsageStats()
@@ -76,16 +76,17 @@ class ModelFacade:
         return self._usage_stats
 
     def completion(
-        self, messages: list[dict[str, str]], skip_usage_tracking: bool = False, **kwargs
+        self, messages: list[ChatMessage], skip_usage_tracking: bool = False, **kwargs
     ) -> litellm.ModelResponse:
+        message_payloads = [message.to_dict() for message in messages]
         logger.debug(
             f"Prompting model {self.model_name!r}...",
-            extra={"model": self.model_name, "messages": messages},
+            extra={"model": self.model_name, "messages": message_payloads},
         )
         response = None
         kwargs = self.consolidate_kwargs(**kwargs)
         try:
-            response = self._router.completion(model=self.model_name, messages=messages, **kwargs)
+            response = self._router.completion(model=self.model_name, messages=message_payloads, **kwargs)
             logger.debug(
                 f"Received completion from model {self.model_name!r}",
                 extra={
@@ -154,13 +155,12 @@ class ModelFacade:
         system_prompt: str | None = None,
         multi_modal_context: list[dict[str, Any]] | None = None,
         tool_config: MCPToolConfig | None = None,
-        include_full_traces: bool = False,
         max_correction_steps: int = 0,
         max_conversation_restarts: int = 0,
         skip_usage_tracking: bool = False,
         purpose: str | None = None,
         **kwargs,
-    ) -> tuple[Any, str | None, list[dict[str, Any]] | None]:
+    ) -> tuple[Any, list[ChatMessage]]:
         """Generate a parsed output with correction steps.
 
         This generation call will attempt to generate an output which is
@@ -195,6 +195,12 @@ class ModelFacade:
                 It is expected to be used by the @catch_llm_exceptions decorator.
             **kwargs: Additional arguments to pass to the model.
 
+        Returns:
+            A tuple containing:
+                - The parsed output object from the parser.
+                - The full trace of ChatMessage entries in the conversation, including any tool calls,
+                  corrections, and reasoning traces. Callers can decide whether to store this.
+
         Raises:
             GenerationValidationFailureError: If the maximum number of retries or
                 correction steps are met and the last response failures on
@@ -211,190 +217,75 @@ class ModelFacade:
         starting_messages = prompt_to_messages(
             user_prompt=prompt, system_prompt=system_prompt, multi_modal_context=multi_modal_context
         )
-        messages = deepcopy(starting_messages)
-        trace_messages: list[dict[str, Any]] | None = deepcopy(starting_messages) if include_full_traces else None
+        messages: list[ChatMessage] = deepcopy(starting_messages)
 
         if tool_config is not None:
-            tool_schemas = self._get_tool_schemas(tool_config)
+            tool_schemas = self._tool_executor.get_tool_schemas(tool_config)
 
         while True:
-            curr_generation_attempt += 1
-            logger.debug(
-                f"Starting generation attempt {curr_generation_attempt} of {max_generation_attempts} attempts."
-            )
-
             completion_kwargs = dict(kwargs)
             if tool_schemas is not None:
                 completion_kwargs["tools"] = tool_schemas
+
             completion_response = self.completion(
                 messages,
                 skip_usage_tracking=skip_usage_tracking,
                 **completion_kwargs,
             )
+
+            # Process any tool calls in the response (handles parallel tool calling)
+            if tool_config is not None:
+                execution_result = self._tool_executor.process_completion_response(completion_response, tool_config)
+                if execution_result is not None:
+                    tool_calls_used += execution_result.tool_calls_count
+                    if tool_calls_used > tool_config.max_tool_calls:
+                        raise MCPToolError(
+                            f"Exceeded maximum MCP tool calls ({tool_config.max_tool_calls}) for server "
+                            f"{tool_config.server_name!r}."
+                        )
+
+                    messages.append(execution_result.assistant_message)
+                    messages.extend(execution_result.tool_messages)
+                    continue
+
+            curr_generation_attempt += 1
+            logger.debug(
+                f"Starting generation attempt {curr_generation_attempt} of {max_generation_attempts} attempts."
+            )
+
+            # No tool calls remaining to process
             response = completion_response.choices[0].message.content or ""
             reasoning_trace = getattr(completion_response.choices[0].message, "reasoning_content", None)
-
-            if reasoning_trace:
-                ## There are generally some extra newlines with how these get parsed.
-                response = response.strip()
-                reasoning_trace = reasoning_trace.strip()
-
-            tool_calls = self._extract_tool_calls(completion_response.choices[0].message)
-            if tool_config is not None and len(tool_calls) > 0:
-                tool_calls_used += len(tool_calls)
-                if tool_calls_used > tool_config.max_tool_calls:
-                    raise MCPToolError(
-                        f"Exceeded maximum MCP tool calls ({tool_config.max_tool_calls}) for server "
-                        f"{tool_config.server_name!r}."
-                    )
-                assistant_tool_message = self._build_assistant_tool_message(response, tool_calls)
-                tool_messages = self._execute_tool_calls(tool_config, tool_calls)
-
-                messages.append(assistant_tool_message)
-                messages.extend(tool_messages)
-
-                if trace_messages is not None:
-                    assistant_trace_message = dict(assistant_tool_message)
-                    if reasoning_trace:
-                        assistant_trace_message["reasoning_content"] = reasoning_trace
-                    trace_messages.append(assistant_trace_message)
-                    trace_messages.extend(tool_messages)
-                continue
-
             curr_num_correction_steps += 1
 
             try:
                 output_obj = parser(response)  # type: ignore - if not a string will cause a ParserException below
-                if trace_messages is not None:
-                    assistant_trace_message: dict[str, Any] = {"role": "assistant", "content": response}
-                    if reasoning_trace:
-                        assistant_trace_message["reasoning_content"] = reasoning_trace
-                    trace_messages.append(assistant_trace_message)
+                messages.append(ChatMessage.assistant(content=response, reasoning_content=reasoning_trace or None))
                 break
             except ParserException as exc:
                 if max_correction_steps == 0 and max_conversation_restarts == 0:
                     raise GenerationValidationFailureError(
                         "Unsuccessful generation attempt. No retries were attempted."
                     ) from exc
+
                 if curr_num_correction_steps <= max_correction_steps:
                     ## Add turns to loop-back errors for correction
-                    assistant_message = str_to_message(content=response, role="assistant")
-                    user_message = str_to_message(content=str(get_exception_primary_cause(exc)), role="user")
-                    messages += [assistant_message, user_message]
-                    if trace_messages is not None:
-                        assistant_trace_message = dict(assistant_message)
-                        if reasoning_trace:
-                            assistant_trace_message["reasoning_content"] = reasoning_trace
-                        trace_messages += [assistant_trace_message, user_message]
+                    messages += [
+                        ChatMessage.assistant(content=response, reasoning_content=reasoning_trace or None),
+                        ChatMessage.user(content=str(get_exception_primary_cause(exc))),
+                    ]
+
                 elif curr_num_restarts < max_conversation_restarts:
                     curr_num_correction_steps = 0
                     curr_num_restarts += 1
                     messages = deepcopy(starting_messages)
-                    if trace_messages is not None:
-                        trace_messages = deepcopy(starting_messages)
+
                 else:
                     raise GenerationValidationFailureError(
                         f"Unsuccessful generation attempt despite {max_generation_attempts} attempts."
                     ) from exc
-        return output_obj, reasoning_trace, trace_messages
 
-    def _get_tool_schemas(self, tool_config: MCPToolConfig) -> list[dict[str, Any]]:
-        if self._mcp_client_manager is None:
-            raise MCPConfigurationError("MCP tool configuration was provided but no MCP servers were configured.")
-        return self._mcp_client_manager.get_tool_schemas(tool_config)
-
-    def _extract_tool_calls(self, message: Any) -> list[dict[str, Any]]:
-        raw_tool_calls = getattr(message, "tool_calls", None)
-        if raw_tool_calls is None and isinstance(message, dict):
-            raw_tool_calls = message.get("tool_calls")
-        if not raw_tool_calls:
-            return []
-        tool_calls: list[dict[str, Any]] = []
-        for raw_tool_call in raw_tool_calls:
-            tool_calls.append(self._normalize_tool_call(raw_tool_call))
-        return tool_calls
-
-    def _normalize_tool_call(self, raw_tool_call: Any) -> dict[str, Any]:
-        if isinstance(raw_tool_call, dict):
-            tool_call_id = raw_tool_call.get("id")
-            function = raw_tool_call.get("function") or {}
-            name = function.get("name") or raw_tool_call.get("name")
-            arguments = function.get("arguments") or raw_tool_call.get("arguments")
-        else:
-            tool_call_id = getattr(raw_tool_call, "id", None)
-            function = getattr(raw_tool_call, "function", None)
-            name = getattr(function, "name", None) if function is not None else getattr(raw_tool_call, "name", None)
-            arguments = (
-                getattr(function, "arguments", None)
-                if function is not None
-                else getattr(raw_tool_call, "arguments", None)
-            )
-
-        if not name:
-            raise MCPToolError("MCP tool call is missing a tool name.")
-
-        arguments_payload: dict[str, Any]
-        arguments_json: str
-        if arguments is None or arguments == "":
-            arguments_payload = {}
-            arguments_json = "{}"
-        elif isinstance(arguments, str):
-            try:
-                arguments_payload = json.loads(arguments)
-            except json.JSONDecodeError as exc:
-                raise MCPToolError(f"Invalid tool arguments for '{name}': {arguments}") from exc
-            arguments_json = arguments
-        elif isinstance(arguments, dict):
-            arguments_payload = arguments
-            arguments_json = json.dumps(arguments_payload)
-        else:
-            raise MCPToolError(f"Unsupported tool arguments type for '{name}': {type(arguments)!r}")
-
-        return {
-            "id": tool_call_id or uuid.uuid4().hex,
-            "name": name,
-            "arguments": arguments_payload,
-            "arguments_json": arguments_json,
-        }
-
-    def _build_assistant_tool_message(self, response: str, tool_calls: list[dict[str, Any]]) -> dict[str, Any]:
-        return {
-            "role": "assistant",
-            "content": response or "",
-            "tool_calls": [
-                {
-                    "id": tool_call["id"],
-                    "type": "function",
-                    "function": {"name": tool_call["name"], "arguments": tool_call["arguments_json"]},
-                }
-                for tool_call in tool_calls
-            ],
-        }
-
-    def _execute_tool_calls(self, tool_config: MCPToolConfig, tool_calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        if self._mcp_client_manager is None:
-            raise MCPConfigurationError("MCP tool configuration was provided but no MCP servers were configured.")
-
-        allowed_tools = set(tool_config.tool_names) if tool_config.tool_names else None
-        tool_messages: list[dict[str, Any]] = []
-        for tool_call in tool_calls:
-            tool_name = tool_call["name"]
-            if allowed_tools is not None and tool_name not in allowed_tools:
-                raise MCPToolError(f"Tool {tool_name!r} is not permitted for server {tool_config.server_name!r}.")
-            result = self._mcp_client_manager.call_tool(
-                tool_config.server_name,
-                tool_name,
-                tool_call["arguments"],
-                timeout_sec=tool_config.timeout_sec,
-            )
-            tool_messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": tool_call["id"],
-                    "content": result.content,
-                }
-            )
-        return tool_messages
+        return output_obj, messages
 
     def _get_litellm_deployment(self, model_config: ModelConfig) -> litellm.DeploymentTypedDict:
         provider = self._model_provider_registry.get_provider(model_config.provider)

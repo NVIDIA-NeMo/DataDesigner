@@ -21,6 +21,7 @@ from data_designer.engine.column_generators.generators.llm_completion import (
     LLMStructuredCellGenerator,
     LLMTextCellGenerator,
 )
+from data_designer.engine.models.utils import ChatMessage
 
 
 def _create_generator_with_mocks(config_class=LLMTextColumnConfig, **config_kwargs):
@@ -68,14 +69,14 @@ def _create_generator_with_mocks(config_class=LLMTextColumnConfig, **config_kwar
     )
 
 
-def _setup_generate_mocks(mock_prompt_renderer, mock_response_recipe, mock_model, output="test_output", reasoning=None):
+def _setup_generate_mocks(mock_prompt_renderer, mock_response_recipe, mock_model, output="test_output"):
     """Helper function to setup common generate method mocks."""
     mock_prompt_renderer.render.side_effect = ["rendered_user_prompt", "rendered_system_prompt"]
     mock_response_recipe.serialize_output.return_value = {"result": output}
-    mock_model.generate.return_value = ({"result": output}, reasoning, None)
+    mock_model.generate.return_value = ({"result": output}, [])
 
 
-def test_generate_method():
+def test_generate_method() -> None:
     generator, _, mock_model, _, _, mock_prompt_renderer, mock_response_recipe = _create_generator_with_mocks()
 
     # Test basic generation
@@ -96,7 +97,7 @@ def test_generate_method():
     generator.resource_provider.run_config.include_full_traces = True
     mock_prompt_renderer.render.side_effect = ["rendered_user_prompt", "rendered_system_prompt"]
     mock_response_recipe.serialize_output.return_value = {"result": "test_output"}
-    mock_model.generate.return_value = ({"result": "test_output"}, None, [{"role": "user", "content": "x"}])
+    mock_model.generate.return_value = ({"result": "test_output"}, [ChatMessage.user("x")])
     result = generator.generate(data)
 
     assert result["test_column"] == {"result": "test_output"}
@@ -239,7 +240,7 @@ def test_generate_with_errors(error_type, error_message):
 
     if error_type == "serialization":
         mock_response_recipe.serialize_output.side_effect = Exception(error_message)
-        mock_model.generate.return_value = ({"result": "test_output"}, None, None)
+        mock_model.generate.return_value = ({"result": "test_output"}, [])
     elif error_type == "model":
         mock_model.generate.side_effect = Exception(error_message)
     elif error_type == "prompt_render":
@@ -253,7 +254,7 @@ def test_generate_with_errors(error_type, error_message):
 
 def test_generate_with_complex_data():
     generator, _, mock_model, _, _, mock_prompt_renderer, mock_response_recipe = _create_generator_with_mocks()
-    _setup_generate_mocks(mock_prompt_renderer, mock_response_recipe, mock_model, "complex_output", None)
+    _setup_generate_mocks(mock_prompt_renderer, mock_response_recipe, mock_model, "complex_output")
 
     data = {"input": "test_input", "nested": {"key": "value"}, "list": [1, 2, 3], "json_string": '{"key": "value"}'}
     result = generator.generate(data)
@@ -357,8 +358,7 @@ def test_generator_output_type_handling(
     mock_response_recipe.serialize_output.return_value = serialized_output
     stub_resource_provider.model_registry.get_model.return_value.generate.return_value = (
         {"result": "raw_output"},
-        None,
-        None,
+        [],
     )
 
     data = {"input": "test_input"}
