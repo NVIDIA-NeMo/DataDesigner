@@ -15,7 +15,7 @@ def repository() -> PersonaRepository:
 def test_init(repository: PersonaRepository) -> None:
     """Test repository initialization creates registry."""
     assert repository._registry is not None
-    assert len(repository._registry.locales) == 5
+    assert len(repository._registry.locales) == 7
     assert repository._registry.dataset_prefix == "nemotron-personas-dataset-"
 
 
@@ -24,11 +24,11 @@ def test_list_all(repository: PersonaRepository) -> None:
     locales = repository.list_all()
 
     assert isinstance(locales, list)
-    assert len(locales) == 5
+    assert len(locales) == 7
 
     # Verify all expected locales are present
     locale_codes = {locale.code for locale in locales}
-    assert locale_codes == {"en_US", "en_IN", "hi_Deva_IN", "hi_Latn_IN", "ja_JP"}
+    assert locale_codes == {"en_US", "en_IN", "en_SG", "hi_Deva_IN", "hi_Latn_IN", "ja_JP", "pt_BR"}
 
     # Verify each locale has required fields
     for locale in locales:
