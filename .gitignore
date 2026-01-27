@@ -95,3 +95,6 @@ tests_e2e/uv.lock
 # Performance profiling
 perf_*.txt
 NOTEPAD.md
+
+# Build-time copy of README for data-designer package (copied from top-level during build)
+packages/data-designer/README.md
