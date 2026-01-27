@@ -4,12 +4,14 @@
 from __future__ import annotations
 
 from data_designer.config.base import ConfigBase
+from data_designer.config.mcp import MCPServerConfig
 from data_designer.config.dataset_metadata import DatasetMetadata
 from data_designer.config.models import ModelConfig
 from data_designer.config.run_config import RunConfig
 from data_designer.config.seed_source import SeedSource
 from data_designer.config.utils.type_helpers import StrEnum
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
+from data_designer.engine.mcp.manager import MCPClientManager
 from data_designer.engine.model_provider import ModelProviderRegistry
 from data_designer.engine.models.factory import create_model_registry
 from data_designer.engine.models.registry import ModelRegistry
@@ -28,6 +30,7 @@ class ResourceProvider(ConfigBase):
     artifact_storage: ArtifactStorage
     blob_storage: ManagedBlobStorage | None = None
     model_registry: ModelRegistry | None = None
+    mcp_manager: MCPClientManager | None = None
     run_config: RunConfig = RunConfig()
     seed_reader: SeedReader | None = None
 
@@ -53,6 +56,7 @@ def create_resource_provider(
     blob_storage: ManagedBlobStorage | None = None,
     seed_dataset_source: SeedSource | None = None,
     run_config: RunConfig | None = None,
+    mcp_servers: list[MCPServerConfig] | None = None,
 ) -> ResourceProvider:
     """Factory function for creating a ResourceProvider instance.
     This function triggers lazy loading of heavy dependencies like litellm.
@@ -64,14 +68,17 @@ def create_resource_provider(
             secret_resolver,
         )
 
+    mcp_manager = MCPClientManager(server_configs=mcp_servers or []) if mcp_servers else None
     return ResourceProvider(
         artifact_storage=artifact_storage,
         model_registry=create_model_registry(
             model_configs=model_configs,
             secret_resolver=secret_resolver,
             model_provider_registry=model_provider_registry,
+            mcp_client_manager=mcp_manager,
         ),
         blob_storage=blob_storage or init_managed_blob_storage(),
+        mcp_manager=mcp_manager,
         seed_reader=seed_reader,
         run_config=run_config or RunConfig(),
     )

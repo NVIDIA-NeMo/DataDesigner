@@ -11,6 +11,7 @@ from typing_extensions import Self
 
 from data_designer.config.base import ConfigBase
 from data_designer.config.errors import InvalidConfigError
+from data_designer.config.mcp import MCPToolConfig
 from data_designer.config.models import ImageContext
 from data_designer.config.sampler_params import SamplerParamsT, SamplerType
 from data_designer.config.utils.code_lang import CodeLang
@@ -159,6 +160,8 @@ class LLMTextColumnConfig(SingleColumnConfig):
             `LLMStructuredColumnConfig` for structured output, `LLMCodeColumnConfig` for code.
         multi_modal_context: Optional list of image contexts for multi-modal generation.
             Enables vision-capable models to generate text based on image inputs.
+        tool_config: Optional MCP tool configuration. When provided, the model may call
+            permitted tools from the configured MCP server during generation.
         column_type: Discriminator field, always "llm-text" for this configuration type.
     """
 
@@ -166,6 +169,7 @@ class LLMTextColumnConfig(SingleColumnConfig):
     model_alias: str
     system_prompt: str | None = None
     multi_modal_context: list[ImageContext] | None = None
+    tool_config: MCPToolConfig | None = None
     column_type: Literal["llm-text"] = "llm-text"
 
     @staticmethod
