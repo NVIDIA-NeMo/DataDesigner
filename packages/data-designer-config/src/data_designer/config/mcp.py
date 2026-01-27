@@ -72,8 +72,10 @@ class MCPToolConfig(ConfigBase):
         server_name (str): Name of the MCP server to use for tool calls.
         tool_names (list[str] | None): Optional allowlist of tool names. If None, all tools are allowed. Defaults to None.
         max_tool_calls (int): Maximum number of tool calls permitted in a single generation. Defaults to 5.
+        timeout_sec (float | None): Timeout in seconds for MCP tool calls. Defaults to None (no timeout).
     """
 
     server_name: str
     tool_names: list[str] | None = None
     max_tool_calls: int = Field(default=5, ge=1)
+    timeout_sec: float | None = Field(default=None, gt=0)

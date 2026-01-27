@@ -61,6 +61,7 @@ tool_config = dd.MCPToolConfig(
     server_name="demo-mcp",
     tool_names=["get_fact", "add_numbers"],  # None = allow all tools on that server
     max_tool_calls=5,
+    timeout_sec=45.0,
 )
 ```
 
@@ -122,6 +123,7 @@ If the provider exposes it, assistant messages may also include a `reasoning_con
 
 - **Tool allowlists**: Restrict which tools can be used via `MCPToolConfig(tool_names=[...])`.
 - **Tool call budgets**: Use `MCPToolConfig(max_tool_calls=...)` to prevent runaway loops.
+- **Tool timeouts**: Use `MCPToolConfig(timeout_sec=...)` to cap MCP call latency.
 - **Provider support**: Tool calling behavior depends on model/provider capability and prompt design.
 
 ## See Also

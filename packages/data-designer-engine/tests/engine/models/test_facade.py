@@ -279,8 +279,15 @@ def test_generate_with_mcp_tools(stub_model_configs, stub_secrets_resolver, stub
                 }
             ]
 
-        def call_tool(self, server_name: str, tool_name: str, arguments: dict) -> SimpleNamespace:
-            self.calls.append((server_name, tool_name, arguments))
+        def call_tool(
+            self,
+            server_name: str,
+            tool_name: str,
+            arguments: dict,
+            *,
+            timeout_sec: float | None = None,
+        ) -> SimpleNamespace:
+            self.calls.append((server_name, tool_name, arguments, timeout_sec))
             return SimpleNamespace(content="tool-output")
 
     def _completion(self, messages: list[dict[str, Any]], **kwargs: Any) -> FakeResponse:
@@ -302,7 +309,7 @@ def test_generate_with_mcp_tools(stub_model_configs, stub_secrets_resolver, stub
     assert "tools" in captured_calls[0][1]
     assert captured_calls[0][1]["tools"][0]["function"]["name"] == "lookup"
     assert any(message.get("role") == "tool" for message in captured_calls[1][0])
-    assert model._mcp_client_manager.calls == [("tools", "lookup", {"query": "foo"})]
+    assert model._mcp_client_manager.calls == [("tools", "lookup", {"query": "foo"}, None)]
 
 
 def test_generate_with_tools_missing_manager(
