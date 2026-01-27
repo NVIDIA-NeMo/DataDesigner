@@ -129,7 +129,65 @@ def test_process_with_json_serialized_values(stub_processor: SchemaTransformProc
     assert written_dataframe is not None
     assert len(written_dataframe) == 2
 
-    # Verify that nested JSON values are properly deserialized in template rendering
+    # Verify that nested JSON values are properly serialized as JSON strings in template rendering
     first_output = written_dataframe.iloc[0].to_dict()
     assert first_output["text"] == "hello"
-    assert first_output["value"] == "{'nested': 'value1'}"
+    # Nested JSON should be properly serialized as JSON string (not Python repr)
+    assert first_output["value"] == '{"nested": "value1"}'
+
+
+def test_process_with_special_characters_in_llm_output(stub_processor: SchemaTransformProcessor) -> None:
+    """Test that LLM outputs with special characters are properly escaped for JSON.
+
+    This addresses GitHub issue #227 where SchemaTransformProcessor fails with JSONDecodeError
+    when LLM-generated content contains quotes, backslashes, or newlines.
+    """
+    df_with_special_chars = pd.DataFrame(
+        {
+            "col1": [
+                'He said "Hello"',
+                "Line1\nLine2",
+                "Path: C:\\Users\\test",
+                "Tab\there",
+            ],
+            "col2": [1, 2, 3, 4],
+        }
+    )
+
+    # Process should not raise JSONDecodeError
+    stub_processor.process(df_with_special_chars, current_batch_number=0)
+    written_dataframe: pd.DataFrame = stub_processor.artifact_storage.write_batch_to_parquet_file.call_args.kwargs[
+        "dataframe"
+    ]
+
+    # Verify all rows were processed successfully
+    assert written_dataframe is not None
+    assert len(written_dataframe) == 4
+
+    # Verify the special characters are preserved in the output
+    outputs = written_dataframe.to_dict(orient="records")
+    assert outputs[0]["text"] == 'He said "Hello"'
+    assert outputs[1]["text"] == "Line1\nLine2"
+    assert outputs[2]["text"] == "Path: C:\\Users\\test"
+    assert outputs[3]["text"] == "Tab\there"
+
+
+def test_process_with_mixed_special_characters(stub_processor: SchemaTransformProcessor) -> None:
+    """Test complex LLM output with multiple types of special characters."""
+    df_complex = pd.DataFrame(
+        {
+            "col1": [
+                'She replied: "I\'m not sure about that\\nLet me think..."',
+            ],
+            "col2": [42],
+        }
+    )
+
+    stub_processor.process(df_complex, current_batch_number=0)
+    written_dataframe: pd.DataFrame = stub_processor.artifact_storage.write_batch_to_parquet_file.call_args.kwargs[
+        "dataframe"
+    ]
+
+    assert len(written_dataframe) == 1
+    output = written_dataframe.iloc[0].to_dict()
+    assert output["text"] == 'She replied: "I\'m not sure about that\\nLet me think..."'
