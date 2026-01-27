@@ -171,7 +171,7 @@ def main() -> None:
 
     # Preview the dataset (generates a small sample)
     print("Generating preview...")
-    preview = data_designer.preview(config_builder=config_builder, num_records=1)
+    preview = data_designer.preview(config_builder=config_builder, num_records=10)
 
     # Display the results
     print("\n" + "=" * 80)
