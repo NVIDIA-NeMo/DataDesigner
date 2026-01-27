@@ -5,12 +5,18 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import os
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from threading import Lock
 from typing import Any
 
 from data_designer.config.mcp import MCPServerConfig, MCPToolConfig
 from data_designer.engine.mcp.errors import MCPClientUnavailableError, MCPConfigurationError, MCPToolError
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -27,14 +33,36 @@ class MCPToolResult:
 
 
 class MCPClientManager:
-    def __init__(self, *, server_configs: list[MCPServerConfig]):
+    def __init__(
+        self,
+        *,
+        server_configs: list[MCPServerConfig],
+        max_async_workers: int | None = None,
+    ):
         self._server_configs = self._build_server_map(server_configs)
         self._tool_cache: dict[str, list[MCPToolDefinition]] = {}
-        self._async_executor = ThreadPoolExecutor(max_workers=1)
+        self._tool_cache_lock = Lock()
+        self._async_executor = ThreadPoolExecutor(
+            max_workers=self._resolve_async_workers(max_async_workers),
+            thread_name_prefix="MCPClientManager",
+        )
+
+    @staticmethod
+    def _resolve_async_workers(max_async_workers: int | None) -> int:
+        if max_async_workers is not None:
+            return max(1, max_async_workers)
+        env_value = os.environ.get("DATA_DESIGNER_MCP_ASYNC_WORKERS")
+        if env_value:
+            try:
+                return max(1, int(env_value))
+            except ValueError:
+                pass
+        cpu_count = os.cpu_count() or 4
+        return max(4, min(32, cpu_count))
 
     def get_tool_schemas(self, tool_config: MCPToolConfig) -> list[dict[str, Any]]:
         server = self._get_server(tool_config.server_name)
-        tools = self._list_tools(server.name)
+        tools = self._list_tools(server.name, timeout_sec=tool_config.timeout_sec)
         allowed_names = set(tool_config.tool_names) if tool_config.tool_names else None
         if allowed_names is not None:
             available = {tool.name for tool in tools}
@@ -44,9 +72,23 @@ class MCPClientManager:
             tools = [tool for tool in tools if tool.name in allowed_names]
         return [self._to_openai_tool_schema(tool) for tool in tools]
 
-    def call_tool(self, server_name: str, tool_name: str, arguments: dict[str, Any]) -> MCPToolResult:
+    def call_tool(
+        self,
+        server_name: str,
+        tool_name: str,
+        arguments: dict[str, Any],
+        *,
+        timeout_sec: float | None = None,
+    ) -> MCPToolResult:
         server = self._get_server(server_name)
-        result = self._run_async(self._call_tool_async(server, tool_name, arguments))
+        start_time = time.monotonic()
+        result = self._run_async(
+            self._call_tool_async(server, tool_name, arguments),
+            operation=f"calling tool {tool_name!r} on {server.name!r}",
+            timeout_sec=timeout_sec,
+        )
+        elapsed = time.monotonic() - start_time
+        logger.debug("MCP tool %s on %s completed in %.2fs.", tool_name, server.name, elapsed)
         return result
 
     def _build_server_map(self, server_configs: list[MCPServerConfig]) -> dict[str, MCPServerConfig]:
@@ -63,21 +105,41 @@ class MCPClientManager:
         except KeyError as exc:
             raise MCPConfigurationError(f"No MCP server named {name!r} is configured.") from exc
 
-    def _list_tools(self, server_name: str) -> list[MCPToolDefinition]:
+    def _list_tools(self, server_name: str, *, timeout_sec: float | None = None) -> list[MCPToolDefinition]:
         if server_name in self._tool_cache:
             return self._tool_cache[server_name]
-        server = self._get_server(server_name)
-        tools = self._run_async(self._list_tools_async(server))
-        self._tool_cache[server_name] = tools
-        return tools
+        with self._tool_cache_lock:
+            if server_name in self._tool_cache:
+                return self._tool_cache[server_name]
+            server = self._get_server(server_name)
+            start_time = time.monotonic()
+            tools = self._run_async(
+                self._list_tools_async(server),
+                operation=f"listing tools on {server.name!r}",
+                timeout_sec=timeout_sec,
+            )
+            elapsed = time.monotonic() - start_time
+            logger.debug("MCP tool list for %s completed in %.2fs.", server.name, elapsed)
+            self._tool_cache[server_name] = tools
+            return tools
 
-    def _run_async(self, coro: Any) -> Any:
+    def _run_async(self, coro: Any, *, operation: str, timeout_sec: float | None = None) -> Any:
+        if timeout_sec is not None:
+            coro = asyncio.wait_for(coro, timeout=timeout_sec)
         try:
             asyncio.get_running_loop()
         except RuntimeError:
-            return asyncio.run(coro)
+            try:
+                return asyncio.run(coro)
+            except TimeoutError as exc:
+                timeout_label = f"{timeout_sec:.1f}" if timeout_sec is not None else "unknown"
+                raise MCPToolError(f"Timed out after {timeout_label}s while {operation}.") from exc
         future = self._async_executor.submit(asyncio.run, coro)
-        return future.result()
+        try:
+            return future.result()
+        except TimeoutError as exc:
+            timeout_label = f"{timeout_sec:.1f}" if timeout_sec is not None else "unknown"
+            raise MCPToolError(f"Timed out after {timeout_label}s while {operation}.") from exc
 
     async def _list_tools_async(self, server: MCPServerConfig) -> list[MCPToolDefinition]:
         ClientSession, StdioServerParameters, stdio_client, sse_client = _resolve_mcp_imports()

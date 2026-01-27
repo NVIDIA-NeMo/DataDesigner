@@ -380,7 +380,12 @@ class ModelFacade:
             tool_name = tool_call["name"]
             if allowed_tools is not None and tool_name not in allowed_tools:
                 raise MCPToolError(f"Tool {tool_name!r} is not permitted for server {tool_config.server_name!r}.")
-            result = self._mcp_client_manager.call_tool(tool_config.server_name, tool_name, tool_call["arguments"])
+            result = self._mcp_client_manager.call_tool(
+                tool_config.server_name,
+                tool_name,
+                tool_call["arguments"],
+                timeout_sec=tool_config.timeout_sec,
+            )
             tool_messages.append(
                 {
                     "role": "tool",

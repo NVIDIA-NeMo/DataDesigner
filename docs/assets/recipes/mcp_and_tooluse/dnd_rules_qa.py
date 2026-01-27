@@ -42,6 +42,7 @@ Notes:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import socket
@@ -53,7 +54,8 @@ from urllib.request import urlretrieve
 from pydantic import BaseModel, Field
 
 import data_designer.config as dd
-from data_designer.interface import DataDesigner, DatasetCreationResults
+from data_designer.config.preview_results import PreviewResults
+from data_designer.interface import DataDesigner
 
 PDF_URL = "https://idiscepolidellamanticora.wordpress.com/wp-content/uploads/2012/09/tsr2010-players-handbook.pdf"
 PDF_FILENAME = "tsr2010-players-handbook.pdf"
@@ -74,6 +76,13 @@ class DndQAPair(BaseModel):
     answer: str = Field(..., description="A concise answer grounded in the supporting passage.")
     supporting_passage: str = Field(..., description="A short excerpt (2-4 sentences) copied from the search result.")
     source_url: str = Field(..., description="The URL for the supporting passage.")
+
+
+class DndTopicList(BaseModel):
+    topics: list[str] = Field(
+        ...,
+        description="High-level topics from the D&D rules table of contents (up to 10).",
+    )
 
 
 def resolve_embedding_provider(embedding_model: str) -> str:
@@ -204,24 +213,58 @@ def build_config(
     config_builder = dd.DataDesignerConfigBuilder()
     config_builder.add_column(
         dd.SamplerColumnConfig(
-            name="topic",
-            sampler_type=dd.SamplerType.CATEGORY,
-            params=dd.CategorySamplerParams(
-                values=[
-                    "ability scores",
-                    "saving throws",
-                    "combat rounds",
-                    "spell casting",
-                    "equipment and encumbrance",
-                    "hit points and healing",
-                    "alignment",
-                    "exploration turns",
-                ]
-            ),
+            name="seed_id",
+            sampler_type=dd.SamplerType.UUID,
+            params=dd.UUIDSamplerParams(),
+            drop=True,
         )
     )
 
-    tool_config = dd.MCPToolConfig(server_name=server_name, tool_names=["search_docs"], max_tool_calls=5)
+    tool_config = dd.MCPToolConfig(
+        server_name=server_name,
+        tool_names=["search_docs"],
+        max_tool_calls=5,
+        timeout_sec=15.0,
+    )
+
+    topic_prompt_lines = [
+        "You are extracting high-level topics from the Dungeons & Dragons Basic Rules (v1).",
+        "First, call the MCP tool `search_docs` to find the table of contents or overview sections.",
+        "Use the tool with:",
+        f'- library: "{library}"',
+    ]
+    if version:
+        topic_prompt_lines.append(f'- version: "{version}"')
+    # topic_prompt_lines.extend(
+    #     [
+    #         '- query: "Dungeons & Dragons basic rules table of contents"',
+    #         "- limit: 5",
+    #         "",
+    #         "From the tool results, list up to 10 high-level topics.",
+    #         "Return JSON with key: topics (a list of strings).",
+    #     ]
+    # )
+
+    config_builder.add_column(
+        dd.LLMStructuredColumnConfig(
+            name="topic_candidates",
+            model_alias=model_alias,
+            prompt="\n".join(topic_prompt_lines),
+            system_prompt=(
+                "You must call the search_docs tool before answering. "
+                "Do not use outside knowledge; only use tool results."
+            ),
+            output_format=DndTopicList,
+            tool_config=tool_config,
+        )
+    )
+
+    config_builder.add_column(
+        dd.ExpressionColumnConfig(
+            name="topic",
+            expr="{{ topic_candidates.topics | random }}",
+        )
+    )
 
     prompt_lines = [
         "You are generating Q&A pairs grounded in the Dungeons & Dragons Basic Rules (v1).",
@@ -285,24 +328,32 @@ def build_config(
     return config_builder
 
 
-def create_dataset(
+def generate_preview(
     config_builder: dd.DataDesignerConfigBuilder,
     num_records: int,
     artifact_path: Path | str | None,
     mcp_server: dd.MCPServerConfig,
-    dataset_name: str,
-) -> DatasetCreationResults:
+) -> PreviewResults:
     data_designer = DataDesigner(artifact_path=artifact_path, mcp_servers=[mcp_server])
     data_designer.set_run_config(dd.RunConfig(include_full_traces=True))
-    return data_designer.create(config_builder, num_records=num_records, dataset_name=dataset_name)
+    return data_designer.preview(config_builder, num_records=num_records)
+
+
+def display_preview_record(preview_results: PreviewResults) -> None:
+    dataset = preview_results.dataset
+    if dataset is None or dataset.empty:
+        print("No preview records generated.")
+        return
+    record = dataset.iloc[0].to_dict()
+    print("Sample record:")
+    print(json.dumps(record, indent=2, default=str))
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate D&D Q&A pairs using MCP tool calls.")
     parser.add_argument("--model-alias", type=str, default="nvidia-text")
-    parser.add_argument("--num-records", type=int, default=5)
+    parser.add_argument("--num-records", type=int, default=4)
     parser.add_argument("--artifact-path", type=str, default=None)
-    parser.add_argument("--dataset-name", type=str, default="dnd_rules_qa")
     parser.add_argument("--library", type=str, default=DEFAULT_LIBRARY)
     parser.add_argument("--version", type=str, default=DEFAULT_LIBRARY_VERSION)
     parser.add_argument("--skip-scrape", action="store_true")
@@ -391,15 +442,13 @@ def main() -> None:
             library=args.library,
             version=args.version,
         )
-        results = create_dataset(
+        preview_results = generate_preview(
             config_builder=config_builder,
             num_records=args.num_records,
             artifact_path=args.artifact_path or base_dir / "artifacts",
             mcp_server=mcp_server,
-            dataset_name=args.dataset_name,
         )
-
-        print(f"Dataset saved to: {results.artifact_storage.final_dataset_path}")
+        display_preview_record(preview_results)
     finally:
         stop_process(server_process)
 
