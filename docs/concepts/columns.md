@@ -38,8 +38,8 @@ LLM-Text columns generate natural language text: product descriptions, customer 
 
 Use **Jinja2 templating** in prompts to reference other columns. Data Designer automatically manages dependencies and injects the referenced column values into the prompt.
 
-!!! note "Reasoning Traces"
-    Models that support extended thinking (chain-of-thought reasoning) can capture their reasoning process in a separate `{column_name}__reasoning_trace` column–useful for understanding *why* the model generated specific content. This column is automatically added to the dataset if the model and service provider parse and return reasoning content.
+!!! note "Generation Traces"
+    LLM columns can optionally capture a full message trace in a separate `{column_name}__trace` column. When enabled via `RunConfig(include_full_traces=True)`, this trace includes the ordered message history for the final generation attempt (system/user/assistant/tool calls/tool results), and may include model reasoning fields when the provider exposes them.
 
 ### 💻 LLM-Code Columns
 
@@ -147,6 +147,6 @@ You read this property for introspection but never set it—always computed from
 
 ### `side_effect_columns`
 
-Computed property listing columns created implicitly alongside the primary column. Currently, only LLM columns produce side effects (reasoning trace columns like `{name}__reasoning_trace` when models use extended thinking).
+Computed property listing columns created implicitly alongside the primary column. Currently, only LLM columns produce side effects (trace columns like `{name}__trace` when `include_full_traces` is enabled).
 
 For detailed information on each column type, refer to the [column configuration code reference](../code_reference/column_configs.md).
