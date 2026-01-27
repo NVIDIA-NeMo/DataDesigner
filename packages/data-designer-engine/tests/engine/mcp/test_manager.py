@@ -19,7 +19,7 @@ def test_get_tool_schemas_filters_tools(monkeypatch: pytest.MonkeyPatch) -> None
         MCPToolDefinition(name="other", description="Other", input_schema={"type": "object"}),
     ]
 
-    def _list_tools(_: str) -> list[MCPToolDefinition]:
+    def _list_tools(_: str, *, timeout_sec: float | None = None) -> list[MCPToolDefinition]:
         return tools
 
     monkeypatch.setattr(manager, "_list_tools", _list_tools)
@@ -35,7 +35,7 @@ def test_get_tool_schemas_missing_tool(monkeypatch: pytest.MonkeyPatch) -> None:
     server = MCPServerConfig(name="tools", command="python")
     manager = MCPClientManager(server_configs=[server])
 
-    def _list_tools(_: str) -> list[MCPToolDefinition]:
+    def _list_tools(_: str, *, timeout_sec: float | None = None) -> list[MCPToolDefinition]:
         return [MCPToolDefinition(name="lookup", description="Lookup", input_schema={"type": "object"})]
 
     monkeypatch.setattr(manager, "_list_tools", _list_tools)

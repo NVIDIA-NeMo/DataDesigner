@@ -35,6 +35,8 @@ nav:
       - QA and Chat:
           - Product Info QA: recipes/qa_and_chat/product_info_qa.md
           - Multi-Turn Chat: recipes/qa_and_chat/multi_turn_chat.md
+      - MCP and Tool Use:
+          - "D&D Rules QA": recipes/mcp_and_tooluse/dnd_rules_qa.md
   - Plugins:
       - Overview: plugins/overview.md
       - Example Plugin: plugins/example.md
