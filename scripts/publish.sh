@@ -200,8 +200,8 @@ check_clean_working_directory() {
 }
 
 check_tag_does_not_exist() {
-    if [[ "$DRY_RUN" == true ]] || [[ "$TEST_PYPI" == true ]]; then
-        info "Skipping git tag check (not creating tags in this mode)"
+    if [[ "$DRY_RUN" == true ]]; then
+        info "Skipping git tag check (dry-run mode)"
         return
     fi
 
@@ -328,11 +328,6 @@ create_git_tag() {
         return
     fi
 
-    if [[ "$TEST_PYPI" == true ]]; then
-        info "Skipping git tag creation (TestPyPI mode)"
-        return
-    fi
-
     if [[ "$FORCE_TAG" == true ]]; then
         info "Force creating tag: $tag"
         git tag -f "$tag"
@@ -340,7 +335,12 @@ create_git_tag() {
         info "Creating tag: $tag"
         git tag "$tag"
     fi
-    success "Created git tag: $tag"
+
+    if [[ "$TEST_PYPI" == true ]]; then
+        success "Created git tag: $tag (local only, will not be pushed)"
+    else
+        success "Created git tag: $tag"
+    fi
 }
 
 rebuild_with_tag() {
@@ -348,12 +348,6 @@ rebuild_with_tag() {
 
     if [[ "$DRY_RUN" == true ]]; then
         warn "[DRY RUN] Would rebuild packages with tag for correct version embedding"
-        return
-    fi
-
-    if [[ "$TEST_PYPI" == true ]]; then
-        info "Skipping rebuild (TestPyPI mode - using initial build)"
-        info "Note: Packages may have development version numbers without a git tag"
         return
     fi
 
@@ -446,7 +440,9 @@ push_git_tag() {
     fi
 
     if [[ "$TEST_PYPI" == true ]]; then
-        info "Skipping git tag push (TestPyPI mode)"
+        info "Cleaning up local tag (TestPyPI mode - tag not pushed)"
+        git tag -d "$tag" > /dev/null 2>&1 || true
+        success "Deleted local git tag: $tag"
         return
     fi
 
@@ -511,7 +507,7 @@ main() {
     rebuild_with_tag
 
     # Validate rebuilt packages (only if we actually rebuilt)
-    if [[ "$DRY_RUN" != true ]] && [[ "$TEST_PYPI" != true ]]; then
+    if [[ "$DRY_RUN" != true ]]; then
         check_packages_with_twine
     fi
 
