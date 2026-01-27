@@ -13,8 +13,10 @@ if TYPE_CHECKING:
         JudgeScoreProfilerConfig,
     )
     from data_designer.config.column_configs import (  # noqa: F401
+        CustomColumnConfig,
         EmbeddingColumnConfig,
         ExpressionColumnConfig,
+        GenerationStrategy,
         LLMCodeColumnConfig,
         LLMJudgeColumnConfig,
         LLMStructuredColumnConfig,
@@ -26,6 +28,7 @@ if TYPE_CHECKING:
     )
     from data_designer.config.column_types import DataDesignerColumnType  # noqa: F401
     from data_designer.config.config_builder import DataDesignerConfigBuilder  # noqa: F401
+    from data_designer.config.custom_column import custom_column_generator  # noqa: F401
     from data_designer.config.data_designer_config import DataDesignerConfig  # noqa: F401
     from data_designer.config.dataset_builders import BuildStage  # noqa: F401
     from data_designer.config.mcp import (  # noqa: F401
@@ -115,8 +118,10 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     # analysis.column_profilers
     "JudgeScoreProfilerConfig": (f"{_MOD_BASE}.analysis.column_profilers", "JudgeScoreProfilerConfig"),
     # column_configs
+    "CustomColumnConfig": (_MOD_COLUMN_CONFIGS, "CustomColumnConfig"),
     "EmbeddingColumnConfig": (_MOD_COLUMN_CONFIGS, "EmbeddingColumnConfig"),
     "ExpressionColumnConfig": (_MOD_COLUMN_CONFIGS, "ExpressionColumnConfig"),
+    "GenerationStrategy": (_MOD_COLUMN_CONFIGS, "GenerationStrategy"),
     "LLMCodeColumnConfig": (_MOD_COLUMN_CONFIGS, "LLMCodeColumnConfig"),
     "LLMJudgeColumnConfig": (_MOD_COLUMN_CONFIGS, "LLMJudgeColumnConfig"),
     "LLMStructuredColumnConfig": (_MOD_COLUMN_CONFIGS, "LLMStructuredColumnConfig"),
@@ -129,6 +134,8 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "DataDesignerColumnType": (f"{_MOD_BASE}.column_types", "DataDesignerColumnType"),
     # config_builder
     "DataDesignerConfigBuilder": (f"{_MOD_BASE}.config_builder", "DataDesignerConfigBuilder"),
+    # custom_column
+    "custom_column_generator": (f"{_MOD_BASE}.custom_column", "custom_column_generator"),
     # data_designer_config
     "DataDesignerConfig": (f"{_MOD_BASE}.data_designer_config", "DataDesignerConfig"),
     # dataset_builders

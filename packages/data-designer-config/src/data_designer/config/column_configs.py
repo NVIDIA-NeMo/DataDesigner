@@ -3,9 +3,9 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Discriminator, Field, model_validator
+from pydantic import BaseModel, Discriminator, Field, field_serializer, model_validator
 from typing_extensions import Self
 
 from data_designer.config.base import ConfigBase, SingleColumnConfig
@@ -475,3 +475,84 @@ class EmbeddingColumnConfig(SingleColumnConfig):
     @property
     def side_effect_columns(self) -> list[str]:
         return []
+
+
+class CustomColumnConfig(SingleColumnConfig):
+    """Configuration for custom user-defined column generators.
+
+    Custom columns allow users to provide their own generation logic via a callable function.
+    This provides a flexible way to implement custom column generation without creating a full plugin.
+
+    The generate function receives a pandas DataFrame and must return a DataFrame with the
+    new column(s) added. The function has access to the generator instance via the `self` parameter
+    when called, providing access to the resource_provider (model registry, artifact storage, etc.).
+
+    Example:
+        ```python
+        def my_generator(df: pd.DataFrame) -> pd.DataFrame:
+            df["new_column"] = df["existing_column"].apply(lambda x: x.upper())
+            return df
+
+        config = CustomColumnConfig(
+            name="new_column",
+            generate_fn=my_generator,
+            required_columns=["existing_column"],
+        )
+        ```
+
+    Attributes:
+        generate_fn: A callable that takes a pandas DataFrame and returns a DataFrame with
+            the new column(s) added. The signature is `Callable[[pd.DataFrame], pd.DataFrame]`.
+        input_columns: List of column names that must exist before this column can be generated.
+            These columns will be available in the input DataFrame passed to generate_fn.
+        output_columns: List of additional column names that generate_fn will create (besides
+            the primary column specified by `name`). Useful when the function generates multiple
+            columns at once.
+        kwargs: Optional dictionary of additional parameters to pass to the generate function.
+            These will be available to the generator for customization.
+        column_type: Discriminator field, always "custom" for this configuration type.
+    """
+
+    generate_fn: Any = Field(
+        description="Function (Callable[[pd.DataFrame], pd.DataFrame]) to generate the column"
+    )
+    input_columns: list[str] = Field(
+        default_factory=list,
+        description="List of column names required as input for generation",
+    )
+    output_columns: list[str] = Field(
+        default_factory=list,
+        description="List of additional column names that generate_fn will create",
+    )
+    kwargs: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional parameters to pass to the generate function",
+    )
+    column_type: Literal["custom"] = "custom"
+
+    @staticmethod
+    def get_column_emoji() -> str:
+        return "🔧"
+
+    @property
+    def required_columns(self) -> list[str]:
+        """Returns the columns required for custom generation."""
+        return self.input_columns
+
+    @property
+    def side_effect_columns(self) -> list[str]:
+        """Returns additional columns created by this generator."""
+        return self.output_columns
+
+    @field_serializer("generate_fn")
+    def serialize_generate_fn(self, v: Any) -> Any:
+        return v.__name__
+
+    @model_validator(mode="after")
+    def validate_generate_fn(self) -> Self:
+        if not callable(self.generate_fn):
+            raise InvalidConfigError(
+                f"🛑 `generate_fn` must be a callable for custom column '{self.name}'. "
+                f"Expected a function with signature Callable[[pd.DataFrame], pd.DataFrame]."
+            )
+        return self
