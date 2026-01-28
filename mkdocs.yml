@@ -15,6 +15,7 @@ nav:
           - Model Providers: concepts/models/model-providers.md
           - Model Configs: concepts/models/model-configs.md
           - Inference Parameters: concepts/models/inference-parameters.md
+      - Custom Columns: concepts/custom_columns.md
       - Validators: concepts/validators.md
       - Processors: concepts/processors.md
       - Person Sampling: concepts/person_sampling.md
