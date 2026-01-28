@@ -19,15 +19,8 @@ from __future__ import annotations
 
 import pandas as pd
 
-from data_designer.essentials import (
-    CategorySamplerParams,
-    CustomColumnConfig,
-    CustomColumnContext,
-    DataDesigner,
-    DataDesignerConfigBuilder,
-    SamplerColumnConfig,
-    SamplerType,
-)
+import data_designer.config as dd
+from data_designer.interface import DataDesigner
 
 # =============================================================================
 # Example 1: Simple custom generator (no LLM)
@@ -48,7 +41,7 @@ def simple_text_transform(df: pd.DataFrame) -> pd.DataFrame:
 # =============================================================================
 
 
-def generate_personalized_message(df: pd.DataFrame, ctx: CustomColumnContext) -> pd.DataFrame:
+def generate_personalized_message(df: pd.DataFrame, ctx: dd.CustomColumnContext) -> pd.DataFrame:
     """A generator that uses an LLM to create personalized messages.
 
     This demonstrates the clean API provided by CustomColumnContext:
@@ -88,7 +81,7 @@ def generate_personalized_message(df: pd.DataFrame, ctx: CustomColumnContext) ->
 # =============================================================================
 
 
-def generate_with_direct_model_access(df: pd.DataFrame, ctx: CustomColumnContext) -> pd.DataFrame:
+def generate_with_direct_model_access(df: pd.DataFrame, ctx: dd.CustomColumnContext) -> pd.DataFrame:
     """Example showing direct model access for advanced use cases.
 
     Use ctx.get_model() when you need more control over the generation parameters.
@@ -121,14 +114,14 @@ def generate_with_direct_model_access(df: pd.DataFrame, ctx: CustomColumnContext
 
 def main() -> None:
     data_designer = DataDesigner()
-    config_builder = DataDesignerConfigBuilder()
+    config_builder = dd.DataDesignerConfigBuilder()
 
     # Add a name column using the Category sampler
     config_builder.add_column(
-        SamplerColumnConfig(
+        dd.SamplerColumnConfig(
             name="name",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(
+            sampler_type=dd.SamplerType.CATEGORY,
+            params=dd.CategorySamplerParams(
                 values=["Alice", "Bob", "Charlie", "Diana", "Eve"],
             ),
         )
@@ -136,10 +129,10 @@ def main() -> None:
 
     # Add a product interest column
     config_builder.add_column(
-        SamplerColumnConfig(
+        dd.SamplerColumnConfig(
             name="product_interest",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(
+            sampler_type=dd.SamplerType.CATEGORY,
+            params=dd.CategorySamplerParams(
                 values=["Electronics", "Books", "Home & Garden", "Sports", "Fashion"],
             ),
         )
@@ -147,7 +140,7 @@ def main() -> None:
 
     # Example 1: Add a simple custom column (no LLM)
     config_builder.add_column(
-        CustomColumnConfig(
+        dd.CustomColumnConfig(
             name="greeting",
             generate_fn=simple_text_transform,
             input_columns=["name"],
@@ -156,7 +149,7 @@ def main() -> None:
 
     # Example 2: Add a custom column that uses an LLM via CustomColumnContext
     config_builder.add_column(
-        CustomColumnConfig(
+        dd.CustomColumnConfig(
             name="personalized_message",
             generate_fn=generate_personalized_message,
             input_columns=["name", "product_interest"],
