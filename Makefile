@@ -112,6 +112,8 @@ help:
 install:
 	@echo "📦 Installing DataDesigner workspace (all packages in editable mode)..."
 	@echo "   Packages: data-designer-config → data-designer-engine → data-designer"
+	@echo "📄 Copying top-level README to data-designer package..."
+	@cp README.md packages/data-designer/README.md
 	uv sync --all-packages
 	@echo "✅ Installation complete!"
 	@echo ""
@@ -144,6 +146,8 @@ install-dev-notebooks:
 	@echo "📦 Installing DataDesigner workspace with notebook dependencies..."
 	@echo "   Packages: data-designer-config → data-designer-engine → data-designer"
 	@echo "   Groups: dev + notebooks (Jupyter, jupytext, etc.)"
+	@echo "📄 Copying top-level README to data-designer package..."
+	@cp README.md packages/data-designer/README.md
 	uv sync --all-packages --group dev --group notebooks
 	$(call install-pre-commit-hooks)
 	@echo "✅ Dev + notebooks installation complete!"
