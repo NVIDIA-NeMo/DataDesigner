@@ -1,22 +1,21 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+"""Tests for CustomColumnGenerator with CELL_BY_CELL strategy."""
+
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
 from unittest.mock import Mock
 
 import pytest
 
 from data_designer.config.column_configs import CustomColumnConfig
+from data_designer.config.custom_column import CustomColumnContext
 from data_designer.config.errors import InvalidConfigError
+from data_designer.engine.column_generators.generators.base import GenerationStrategy
 from data_designer.engine.column_generators.generators.custom import CustomColumnGenerator
 from data_designer.engine.column_generators.utils.errors import CustomColumnGenerationError
 from data_designer.engine.resources.resource_provider import ResourceProvider
-from data_designer.lazy_heavy_imports import pd
-
-if TYPE_CHECKING:
-    import pandas as pd
 
 
 def _create_test_generator(
@@ -29,9 +28,10 @@ def _create_test_generator(
 ) -> CustomColumnGenerator:
     """Helper function to create test generator."""
     if generate_fn is None:
-        def generate_fn(df: pd.DataFrame) -> pd.DataFrame:
-            df[name] = "test_value"
-            return df
+
+        def generate_fn(row: dict) -> dict:
+            row[name] = "test_value"
+            return row
 
     config = CustomColumnConfig(
         name=name,
@@ -52,11 +52,18 @@ def test_generator_creation() -> None:
     assert generator.config.column_type == "custom"
 
 
+def test_generation_strategy_is_cell_by_cell() -> None:
+    """Test that CustomColumnGenerator uses CELL_BY_CELL strategy."""
+    generator = _create_test_generator()
+    assert generator.get_generation_strategy() == GenerationStrategy.CELL_BY_CELL
+
+
 def test_generate_simple_column() -> None:
-    """Test generating a simple column."""
-    def my_generator(df: pd.DataFrame) -> pd.DataFrame:
-        df["result"] = df["input"].apply(lambda x: x.upper())
-        return df
+    """Test generating a simple column from a row."""
+
+    def my_generator(row: dict) -> dict:
+        row["result"] = row["input"].upper()
+        return row
 
     generator = _create_test_generator(
         name="result",
@@ -64,20 +71,19 @@ def test_generate_simple_column() -> None:
         input_columns=["input"],
     )
 
-    df = pd.DataFrame({"input": ["hello", "world"]})
-    result = generator.generate(df)
+    row = {"input": "hello"}
+    result = generator.generate(row)
 
-    assert "result" in result.columns
-    assert result["result"].tolist() == ["HELLO", "WORLD"]
+    assert "result" in result
+    assert result["result"] == "HELLO"
 
 
 def test_generate_with_kwargs() -> None:
     """Test that kwargs are accessible via config."""
-    def my_generator(df: pd.DataFrame) -> pd.DataFrame:
-        # In a real scenario, the generator would access kwargs differently
-        # For this test, we just verify the config has the kwargs
-        df["result"] = "processed"
-        return df
+
+    def my_generator(row: dict) -> dict:
+        row["result"] = "processed"
+        return row
 
     generator = _create_test_generator(
         name="result",
@@ -90,9 +96,10 @@ def test_generate_with_kwargs() -> None:
 
 def test_generate_missing_required_columns() -> None:
     """Test that missing required columns raise an error."""
-    def my_generator(df: pd.DataFrame) -> pd.DataFrame:
-        df["result"] = df["missing_column"]
-        return df
+
+    def my_generator(row: dict) -> dict:
+        row["result"] = row["missing_column"]
+        return row
 
     generator = _create_test_generator(
         name="result",
@@ -100,15 +107,16 @@ def test_generate_missing_required_columns() -> None:
         input_columns=["missing_column"],
     )
 
-    df = pd.DataFrame({"other_column": [1, 2, 3]})
+    row = {"other_column": 1}
 
     with pytest.raises(CustomColumnGenerationError, match="Missing required columns"):
-        generator.generate(df)
+        generator.generate(row)
 
 
 def test_generate_function_raises_error() -> None:
     """Test that errors in the generate function are wrapped."""
-    def my_generator(df: pd.DataFrame) -> pd.DataFrame:
+
+    def my_generator(row: dict) -> dict:
         raise ValueError("Something went wrong")
 
     generator = _create_test_generator(
@@ -116,15 +124,16 @@ def test_generate_function_raises_error() -> None:
         generate_fn=my_generator,
     )
 
-    df = pd.DataFrame({"input": [1, 2, 3]})
+    row = {"input": 1}
 
     with pytest.raises(CustomColumnGenerationError, match="Custom generator function failed"):
-        generator.generate(df)
+        generator.generate(row)
 
 
-def test_generate_returns_non_dataframe() -> None:
-    """Test that returning non-DataFrame raises an error."""
-    def my_generator(df: pd.DataFrame) -> list:
+def test_generate_returns_non_dict() -> None:
+    """Test that returning non-dict raises an error."""
+
+    def my_generator(row: dict) -> list:
         return [1, 2, 3]
 
     generator = _create_test_generator(
@@ -132,27 +141,28 @@ def test_generate_returns_non_dataframe() -> None:
         generate_fn=my_generator,
     )
 
-    df = pd.DataFrame({"input": [1, 2, 3]})
+    row = {"input": 1}
 
-    with pytest.raises(CustomColumnGenerationError, match="must return a pandas DataFrame"):
-        generator.generate(df)
+    with pytest.raises(CustomColumnGenerationError, match="must return a dict"):
+        generator.generate(row)
 
 
 def test_generate_missing_output_column() -> None:
     """Test that not creating the expected column raises an error."""
-    def my_generator(df: pd.DataFrame) -> pd.DataFrame:
-        df["wrong_column"] = "value"
-        return df
+
+    def my_generator(row: dict) -> dict:
+        row["wrong_column"] = "value"
+        return row
 
     generator = _create_test_generator(
         name="expected_column",
         generate_fn=my_generator,
     )
 
-    df = pd.DataFrame({"input": [1, 2, 3]})
+    row = {"input": 1}
 
     with pytest.raises(CustomColumnGenerationError, match="did not create the expected column"):
-        generator.generate(df)
+        generator.generate(row)
 
 
 def test_config_validation_non_callable() -> None:
@@ -166,8 +176,9 @@ def test_config_validation_non_callable() -> None:
 
 def test_config_required_columns_property() -> None:
     """Test that required_columns returns input_columns."""
-    def my_generator(df: pd.DataFrame) -> pd.DataFrame:
-        return df
+
+    def my_generator(row: dict) -> dict:
+        return row
 
     config = CustomColumnConfig(
         name="test",
@@ -180,8 +191,9 @@ def test_config_required_columns_property() -> None:
 
 def test_config_side_effect_columns_property() -> None:
     """Test that side_effect_columns returns output_columns."""
-    def my_generator(df: pd.DataFrame) -> pd.DataFrame:
-        return df
+
+    def my_generator(row: dict) -> dict:
+        return row
 
     config = CustomColumnConfig(
         name="test",
@@ -194,10 +206,11 @@ def test_config_side_effect_columns_property() -> None:
 
 def test_generate_multiple_output_columns() -> None:
     """Test generating multiple output columns."""
-    def my_generator(df: pd.DataFrame) -> pd.DataFrame:
-        df["primary"] = df["input"] * 2
-        df["secondary"] = df["input"] * 3
-        return df
+
+    def my_generator(row: dict) -> dict:
+        row["primary"] = row["input"] * 2
+        row["secondary"] = row["input"] * 3
+        return row
 
     generator = _create_test_generator(
         name="primary",
@@ -206,22 +219,22 @@ def test_generate_multiple_output_columns() -> None:
         output_columns=["secondary"],
     )
 
-    df = pd.DataFrame({"input": [1, 2, 3]})
-    result = generator.generate(df)
+    row = {"input": 5}
+    result = generator.generate(row)
 
-    assert "primary" in result.columns
-    assert "secondary" in result.columns
-    assert result["primary"].tolist() == [2, 4, 6]
-    assert result["secondary"].tolist() == [3, 6, 9]
+    assert "primary" in result
+    assert "secondary" in result
+    assert result["primary"] == 10
+    assert result["secondary"] == 15
 
 
 def test_log_pre_generation(caplog: pytest.LogCaptureFixture) -> None:
     """Test that log_pre_generation logs correctly."""
     import logging
 
-    def my_generator(df: pd.DataFrame) -> pd.DataFrame:
-        df["result"] = "value"
-        return df
+    def my_generator(row: dict) -> dict:
+        row["result"] = "value"
+        return row
 
     generator = _create_test_generator(
         name="result",
@@ -241,8 +254,9 @@ def test_log_pre_generation(caplog: pytest.LogCaptureFixture) -> None:
 
 def test_config_serialization() -> None:
     """Test that the generate_fn serializes to its name."""
-    def my_custom_function(df: pd.DataFrame) -> pd.DataFrame:
-        return df
+
+    def my_custom_function(row: dict) -> dict:
+        return row
 
     config = CustomColumnConfig(
         name="test",
@@ -255,19 +269,15 @@ def test_config_serialization() -> None:
 
 def test_generate_with_context_access() -> None:
     """Test that a two-argument function receives a CustomColumnContext."""
-    from data_designer.config.custom_column import CustomColumnContext
-
     received_context = None
 
-    def my_generator_with_access(
-        df: pd.DataFrame, ctx: CustomColumnContext
-    ) -> pd.DataFrame:
+    def my_generator_with_access(row: dict, ctx: CustomColumnContext) -> dict:
         nonlocal received_context
         received_context = ctx
         # Access kwargs through the context
         suffix = ctx.kwargs.get("suffix", "_processed")
-        df["result"] = df["input"].apply(lambda x: f"{x}{suffix}")
-        return df
+        row["result"] = f"{row['input']}{suffix}"
+        return row
 
     generator = _create_test_generator(
         name="result",
@@ -276,8 +286,8 @@ def test_generate_with_context_access() -> None:
         kwargs={"suffix": "_custom"},
     )
 
-    df = pd.DataFrame({"input": ["a", "b", "c"]})
-    result = generator.generate(df)
+    row = {"input": "a"}
+    result = generator.generate(row)
 
     # Verify the context was passed and has correct properties
     assert received_context is not None
@@ -286,22 +296,18 @@ def test_generate_with_context_access() -> None:
     assert received_context.column_name == "result"
 
     # Verify the result
-    assert result["result"].tolist() == ["a_custom", "b_custom", "c_custom"]
+    assert result["result"] == "a_custom"
 
 
 def test_context_provides_model_registry_access() -> None:
     """Test that CustomColumnContext provides access to model_registry."""
-    from data_designer.config.custom_column import CustomColumnContext
-
     accessed_model_registry = None
 
-    def my_generator_with_resources(
-        df: pd.DataFrame, ctx: CustomColumnContext
-    ) -> pd.DataFrame:
+    def my_generator_with_resources(row: dict, ctx: CustomColumnContext) -> dict:
         nonlocal accessed_model_registry
         accessed_model_registry = ctx.model_registry
-        df["result"] = "processed"
-        return df
+        row["result"] = "processed"
+        return row
 
     mock_resource_provider = Mock(spec=ResourceProvider)
     mock_model_registry = Mock()
@@ -313,8 +319,8 @@ def test_context_provides_model_registry_access() -> None:
         resource_provider=mock_resource_provider,
     )
 
-    df = pd.DataFrame({"input": [1, 2, 3]})
-    generator.generate(df)
+    row = {"input": 1}
+    generator.generate(row)
 
     # Verify the model_registry was accessible via context
     assert accessed_model_registry is mock_model_registry
@@ -322,22 +328,15 @@ def test_context_provides_model_registry_access() -> None:
 
 def test_context_generate_text() -> None:
     """Test that CustomColumnContext.generate_text calls the model correctly."""
-    from data_designer.config.custom_column import CustomColumnContext
 
-    generated_texts = []
-
-    def my_generator_with_llm(
-        df: pd.DataFrame, ctx: CustomColumnContext
-    ) -> pd.DataFrame:
-        for _, row in df.iterrows():
-            text = ctx.generate_text(
-                model_alias="test-model",
-                prompt=f"Process: {row['input']}",
-                system_prompt="You are helpful.",
-            )
-            generated_texts.append(text)
-        df["result"] = generated_texts
-        return df
+    def my_generator_with_llm(row: dict, ctx: CustomColumnContext) -> dict:
+        text = ctx.generate_text(
+            model_alias="test-model",
+            prompt=f"Process: {row['input']}",
+            system_prompt="You are helpful.",
+        )
+        row["result"] = text
+        return row
 
     # Set up mocks
     mock_resource_provider = Mock(spec=ResourceProvider)
@@ -354,115 +353,29 @@ def test_context_generate_text() -> None:
         resource_provider=mock_resource_provider,
     )
 
-    df = pd.DataFrame({"input": ["a", "b"]})
-    result = generator.generate(df)
+    row = {"input": "a"}
+    result = generator.generate(row)
 
     # Verify the model was called correctly
-    assert mock_model_registry.get_model.call_count == 2
     mock_model_registry.get_model.assert_called_with(model_alias="test-model")
 
     # Verify generate was called with correct parameters
-    assert mock_model.generate.call_count == 2
-    call_kwargs = mock_model.generate.call_args_list[0][1]
+    mock_model.generate.assert_called_once()
+    call_kwargs = mock_model.generate.call_args[1]
     assert "Process: a" in call_kwargs["prompt"]
     assert call_kwargs["system_prompt"] == "You are helpful."
 
     # Verify results
-    assert result["result"].tolist() == ["Generated text", "Generated text"]
-
-
-def test_context_generate_text_batch() -> None:
-    """Test that CustomColumnContext.generate_text_batch parallelizes calls."""
-    from data_designer.config.custom_column import CustomColumnContext
-
-    def my_batch_generator(
-        df: pd.DataFrame, ctx: CustomColumnContext
-    ) -> pd.DataFrame:
-        prompts = [f"Process: {row['input']}" for _, row in df.iterrows()]
-        results = ctx.generate_text_batch(
-            model_alias="test-model",
-            prompts=prompts,
-            system_prompt="You are helpful.",
-            max_workers=2,
-        )
-        df["result"] = results
-        return df
-
-    # Set up mocks
-    mock_resource_provider = Mock(spec=ResourceProvider)
-    mock_model_registry = Mock()
-    mock_model_config = Mock()
-    mock_model_config.inference_parameters = Mock()
-    mock_model_config.inference_parameters.max_parallel_requests = 4
-    mock_model = Mock()
-
-    # Mock run_config for ConcurrentThreadExecutor
-    mock_run_config = Mock()
-    mock_run_config.shutdown_error_rate = 0.5
-    mock_run_config.shutdown_error_window = 10
-    mock_run_config.disable_early_shutdown = False
-    mock_resource_provider.run_config = mock_run_config
-
-    # Return different responses for each call
-    call_count = [0]
-
-    def mock_generate(**kwargs):
-        call_count[0] += 1
-        return (f"Response {call_count[0]}", None)
-
-    mock_model.generate.side_effect = mock_generate
-    mock_model_registry.get_model.return_value = mock_model
-    mock_model_registry.get_model_config.return_value = mock_model_config
-    mock_resource_provider.model_registry = mock_model_registry
-
-    generator = _create_test_generator(
-        name="result",
-        generate_fn=my_batch_generator,
-        input_columns=["input"],
-        resource_provider=mock_resource_provider,
-    )
-
-    df = pd.DataFrame({"input": ["a", "b", "c"]})
-    result = generator.generate(df)
-
-    # Verify the model was called 3 times (once per prompt)
-    assert mock_model.generate.call_count == 3
-
-    # Verify results are in correct order (indices preserved)
-    assert len(result["result"]) == 3
-    # Note: order may vary due to parallelism, but all should be present
-    assert all("Response" in str(r) for r in result["result"])
-
-
-def test_context_generate_text_batch_empty() -> None:
-    """Test that generate_text_batch handles empty prompts."""
-    from data_designer.config.custom_column import CustomColumnContext
-
-    mock_resource_provider = Mock(spec=ResourceProvider)
-    mock_config = Mock()
-    mock_config.kwargs = {}
-    mock_config.name = "test"
-
-    ctx = CustomColumnContext(
-        resource_provider=mock_resource_provider,
-        config=mock_config,
-    )
-
-    # Empty list should return empty list
-    results = ctx.generate_text_batch(
-        model_alias="test-model",
-        prompts=[],
-    )
-    assert results == []
+    assert result["result"] == "Generated text"
 
 
 def test_missing_declared_output_columns_raises_error() -> None:
     """Test that missing declared output_columns raises an error."""
 
-    def my_generator(df: pd.DataFrame) -> pd.DataFrame:
-        df["primary"] = df["input"] * 2
+    def my_generator(row: dict) -> dict:
+        row["primary"] = row["input"] * 2
         # Missing "secondary" column that was declared
-        return df
+        return row
 
     generator = _create_test_generator(
         name="primary",
@@ -471,20 +384,20 @@ def test_missing_declared_output_columns_raises_error() -> None:
         output_columns=["secondary"],
     )
 
-    df = pd.DataFrame({"input": [1, 2, 3]})
+    row = {"input": 1}
 
     with pytest.raises(CustomColumnGenerationError, match="did not create declared output columns"):
-        generator.generate(df)
+        generator.generate(row)
 
 
 def test_undeclared_columns_removed_with_warning(caplog: pytest.LogCaptureFixture) -> None:
     """Test that undeclared columns are removed with a warning."""
     import logging
 
-    def my_generator(df: pd.DataFrame) -> pd.DataFrame:
-        df["primary"] = df["input"] * 2
-        df["undeclared_column"] = "should be removed"
-        return df
+    def my_generator(row: dict) -> dict:
+        row["primary"] = row["input"] * 2
+        row["undeclared_column"] = "should be removed"
+        return row
 
     generator = _create_test_generator(
         name="primary",
@@ -492,17 +405,17 @@ def test_undeclared_columns_removed_with_warning(caplog: pytest.LogCaptureFixtur
         input_columns=["input"],
     )
 
-    df = pd.DataFrame({"input": [1, 2, 3]})
+    row = {"input": 3}
 
     with caplog.at_level(logging.WARNING):
-        result = generator.generate(df)
+        result = generator.generate(row)
 
     # Primary column should exist
-    assert "primary" in result.columns
-    assert result["primary"].tolist() == [2, 4, 6]
+    assert "primary" in result
+    assert result["primary"] == 6
 
     # Undeclared column should be removed
-    assert "undeclared_column" not in result.columns
+    assert "undeclared_column" not in result
 
     # Warning should be logged
     assert "undeclared columns" in caplog.text
@@ -512,11 +425,11 @@ def test_undeclared_columns_removed_with_warning(caplog: pytest.LogCaptureFixtur
 def test_declared_output_columns_kept() -> None:
     """Test that declared output_columns are kept in the result."""
 
-    def my_generator(df: pd.DataFrame) -> pd.DataFrame:
-        df["primary"] = df["input"] * 2
-        df["secondary"] = df["input"] * 3
-        df["tertiary"] = df["input"] * 4
-        return df
+    def my_generator(row: dict) -> dict:
+        row["primary"] = row["input"] * 2
+        row["secondary"] = row["input"] * 3
+        row["tertiary"] = row["input"] * 4
+        return row
 
     generator = _create_test_generator(
         name="primary",
@@ -525,13 +438,13 @@ def test_declared_output_columns_kept() -> None:
         output_columns=["secondary", "tertiary"],
     )
 
-    df = pd.DataFrame({"input": [1, 2, 3]})
-    result = generator.generate(df)
+    row = {"input": 2}
+    result = generator.generate(row)
 
     # All declared columns should exist
-    assert "primary" in result.columns
-    assert "secondary" in result.columns
-    assert "tertiary" in result.columns
-    assert result["primary"].tolist() == [2, 4, 6]
-    assert result["secondary"].tolist() == [3, 6, 9]
-    assert result["tertiary"].tolist() == [4, 8, 12]
+    assert "primary" in result
+    assert "secondary" in result
+    assert "tertiary" in result
+    assert result["primary"] == 4
+    assert result["secondary"] == 6
+    assert result["tertiary"] == 8
