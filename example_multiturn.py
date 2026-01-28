@@ -14,18 +14,11 @@ from __future__ import annotations
 
 import pandas as pd
 
-from data_designer.essentials import (
-    CategorySamplerParams,
-    CustomColumnConfig,
-    CustomColumnContext,
-    DataDesigner,
-    DataDesignerConfigBuilder,
-    SamplerColumnConfig,
-    SamplerType,
-)
+import data_designer.config as dd
+from data_designer.interface import DataDesigner
 
 
-def multi_turn_writer_editor(df: pd.DataFrame, ctx: CustomColumnContext) -> pd.DataFrame:
+def multi_turn_writer_editor(df: pd.DataFrame, ctx: dd.CustomColumnContext) -> pd.DataFrame:
     """Multi-turn: Writer drafts → Editor critiques → Writer revises."""
 
     writer = ctx.get_model("openai-text")
@@ -40,7 +33,7 @@ def multi_turn_writer_editor(df: pd.DataFrame, ctx: CustomColumnContext) -> pd.D
         conversation = []
 
         # Turn 1: Writer drafts
-        print(f"    Turn 1: Writer drafting...")
+        print("    Turn 1: Writer drafting...")
         draft, _ = writer.generate(
             prompt=f"Write a 2-sentence blog hook about '{topic}'.",
             parser=lambda x: x,
@@ -49,10 +42,10 @@ def multi_turn_writer_editor(df: pd.DataFrame, ctx: CustomColumnContext) -> pd.D
             max_conversation_restarts=0,
         )
         conversation.append({"role": "writer", "content": draft})
-        print(f"    Turn 1 complete.")
+        print("    Turn 1 complete.")
 
         # Turn 2: Editor critiques
-        print(f"    Turn 2: Editor critiquing...")
+        print("    Turn 2: Editor critiquing...")
         critique, _ = editor.generate(
             prompt=f"Give one specific improvement for this blog hook:\n\n{draft}",
             parser=lambda x: x,
@@ -61,10 +54,10 @@ def multi_turn_writer_editor(df: pd.DataFrame, ctx: CustomColumnContext) -> pd.D
             max_conversation_restarts=0,
         )
         conversation.append({"role": "editor", "content": critique})
-        print(f"    Turn 2 complete.")
+        print("    Turn 2 complete.")
 
         # Turn 3: Writer revises
-        print(f"    Turn 3: Writer revising...")
+        print("    Turn 3: Writer revising...")
         revised, _ = writer.generate(
             prompt=f"Revise this hook based on feedback:\n\nOriginal: {draft}\n\nFeedback: {critique}",
             parser=lambda x: x,
@@ -85,21 +78,19 @@ def multi_turn_writer_editor(df: pd.DataFrame, ctx: CustomColumnContext) -> pd.D
 
 
 if __name__ == "__main__":
-    dd = DataDesigner()
-    cb = DataDesignerConfigBuilder()
+    data_designer = DataDesigner()
+    config_builder = dd.DataDesignerConfigBuilder()
 
-    cb.add_column(
-        SamplerColumnConfig(
+    config_builder.add_column(
+        dd.SamplerColumnConfig(
             name="topic",
-            sampler_type=SamplerType.CATEGORY,
-            params=CategorySamplerParams(
-                values=["sustainable living", "remote work", "learning languages"]
-            ),
+            sampler_type=dd.SamplerType.CATEGORY,
+            params=dd.CategorySamplerParams(values=["sustainable living", "remote work", "learning languages"]),
         )
     )
 
-    cb.add_column(
-        CustomColumnConfig(
+    config_builder.add_column(
+        dd.CustomColumnConfig(
             name="refined_intro",
             generate_fn=multi_turn_writer_editor,
             input_columns=["topic"],
@@ -112,7 +103,7 @@ if __name__ == "__main__":
     print("3 LLM calls per row × 2 rows = 6 total LLM calls")
     print("=" * 70)
 
-    preview = dd.preview(config_builder=cb, num_records=2)
+    preview = data_designer.preview(config_builder=config_builder, num_records=2)
 
     print("\n" + "=" * 70)
     print("RESULTS")
