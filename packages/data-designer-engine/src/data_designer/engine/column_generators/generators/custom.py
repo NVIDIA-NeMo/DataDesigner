@@ -23,52 +23,12 @@ logger = logging.getLogger(__name__)
 class CustomColumnGenerator(ColumnGeneratorFullColumn[CustomColumnConfig]):
     """Column generator that uses a user-provided callable function.
 
-    This generator provides a flexible way for users to implement custom column
-    generation logic without creating a full plugin. The user's generate function
-    receives a pandas DataFrame and must return a DataFrame with the new column(s) added.
-
     The function signature can be either:
-        - `fn(df: pd.DataFrame) -> pd.DataFrame` - Simple case, just receives the DataFrame
-        - `fn(df: pd.DataFrame, ctx: CustomColumnContext) -> pd.DataFrame` - Advanced case,
-          receives a context object for accessing resources like LLM models
+        - fn(df: pd.DataFrame) -> pd.DataFrame
+        - fn(df: pd.DataFrame, ctx: CustomColumnContext) -> pd.DataFrame
 
-    When the context is passed, you have access to:
-        - `ctx.kwargs`: Custom parameters from the config
-        - `ctx.column_name`: The name of the column being generated
-        - `ctx.generate_text(model_alias, prompt)`: Easy text generation with LLMs
-        - `ctx.generate_text_batch(model_alias, prompts)`: Parallel batch text generation
-        - `ctx.get_model(model_alias)`: Direct model access for advanced use
-
-    Example - Simple usage:
-        ```python
-        def my_custom_generator(df: pd.DataFrame) -> pd.DataFrame:
-            df["result"] = df["input_value"] * 2
-            return df
-
-        config = CustomColumnConfig(
-            name="result",
-            generate_fn=my_custom_generator,
-            input_columns=["input_value"],
-        )
-        ```
-
-    Example - With LLM access:
-        ```python
-        def generate_with_llm(df: pd.DataFrame, ctx: CustomColumnContext) -> pd.DataFrame:
-            prompts = [f"Summarize: {row['text']}" for _, row in df.iterrows()]
-            results = ctx.generate_text_batch(
-                model_alias="nvidia-text",
-                prompts=prompts,
-            )
-            df["summary"] = results
-            return df
-
-        config = CustomColumnConfig(
-            name="summary",
-            generate_fn=generate_with_llm,
-            input_columns=["text"],
-        )
-        ```
+    The context provides access to kwargs, column_name, generate_text(), generate_text_batch(),
+    and get_model() for LLM integration.
     """
 
     def generate(self, data: pd.DataFrame) -> pd.DataFrame:
@@ -79,6 +39,8 @@ class CustomColumnGenerator(ColumnGeneratorFullColumn[CustomColumnConfig]):
             raise CustomColumnGenerationError(
                 f"Missing required columns for custom generator '{self.config.name}': {missing_columns}"
             )
+
+        columns_before = set(data.columns)
 
         try:
             result = self._invoke_generate_fn(data)
@@ -94,24 +56,45 @@ class CustomColumnGenerator(ColumnGeneratorFullColumn[CustomColumnConfig]):
                 f"got {type(result).__name__}"
             )
 
+        result = self._validate_output_columns(result, columns_before)
+
+        return result
+
+    def _validate_output_columns(self, result: pd.DataFrame, columns_before: set[str]) -> pd.DataFrame:
+        """Validate expected columns were created and remove undeclared columns."""
+        expected_new_columns = {self.config.name} | set(self.config.output_columns)
+
         if self.config.name not in result.columns:
             raise CustomColumnGenerationError(
                 f"Custom generator for column '{self.config.name}' did not create the expected column. "
                 f"The generate_fn must add a column named '{self.config.name}' to the DataFrame."
             )
 
+        missing_output_columns = set(self.config.output_columns) - set(result.columns)
+        if missing_output_columns:
+            raise CustomColumnGenerationError(
+                f"Custom generator for column '{self.config.name}' did not create declared output columns: "
+                f"{sorted(missing_output_columns)}. Declared output_columns must be added to the DataFrame."
+            )
+
+        actual_new_columns = set(result.columns) - columns_before
+        undeclared_columns = actual_new_columns - expected_new_columns
+
+        if undeclared_columns:
+            logger.warning(
+                f"⚠️ Custom generator for column '{self.config.name}' created undeclared columns: "
+                f"{sorted(undeclared_columns)}. These columns will be removed. "
+                f"To keep additional columns, declare them in 'output_columns'."
+            )
+            result = result.drop(columns=list(undeclared_columns))
+
         return result
 
     def _invoke_generate_fn(self, data: pd.DataFrame) -> pd.DataFrame:
-        """Invoke the generate function, passing a context if the function accepts it.
-
-        If the function signature accepts two parameters (df, ctx), pass a CustomColumnContext.
-        Otherwise, only pass the DataFrame.
-        """
+        """Invoke generate function, passing context if function accepts two parameters."""
         sig = inspect.signature(self.config.generate_fn)
         params = list(sig.parameters.values())
 
-        # Filter out *args and **kwargs
         positional_params = [p for p in params if p.kind in (
             inspect.Parameter.POSITIONAL_ONLY,
             inspect.Parameter.POSITIONAL_OR_KEYWORD,
@@ -133,20 +116,17 @@ class CustomColumnGenerator(ColumnGeneratorFullColumn[CustomColumnConfig]):
         system_prompt: str | None,
         max_workers: int | None,
     ) -> list[str]:
-        """Generate text for multiple prompts in parallel using ConcurrentThreadExecutor."""
+        """Generate text for multiple prompts in parallel."""
         if not prompts:
             return []
 
-        # Determine max workers from model config if not specified
         if max_workers is None:
             model_config = self.resource_provider.model_registry.get_model_config(model_alias=model_alias)
             max_workers = getattr(model_config.inference_parameters, "max_parallel_requests", 4)
 
-        # Get the model on the main thread before starting the thread pool
         model = self.resource_provider.model_registry.get_model(model_alias=model_alias)
         logger.debug(f"Model ready: {model.model_name}")
 
-        # For a single prompt, run sequentially to avoid thread overhead
         if len(prompts) == 1:
             logger.info("🚀 Generating 1 text")
             try:
@@ -199,7 +179,6 @@ class CustomColumnGenerator(ColumnGeneratorFullColumn[CustomColumnConfig]):
             for i, prompt in enumerate(prompts):
                 executor.submit(generate_single, prompt, i, context={"index": i})
 
-        # Replace any None values (shouldn't happen unless executor failed silently)
         return [r if r is not None else "[ERROR: Unknown]" for r in results]
 
     def log_pre_generation(self) -> None:

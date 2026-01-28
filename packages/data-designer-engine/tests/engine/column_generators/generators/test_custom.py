@@ -454,3 +454,84 @@ def test_context_generate_text_batch_empty() -> None:
         prompts=[],
     )
     assert results == []
+
+
+def test_missing_declared_output_columns_raises_error() -> None:
+    """Test that missing declared output_columns raises an error."""
+
+    def my_generator(df: pd.DataFrame) -> pd.DataFrame:
+        df["primary"] = df["input"] * 2
+        # Missing "secondary" column that was declared
+        return df
+
+    generator = _create_test_generator(
+        name="primary",
+        generate_fn=my_generator,
+        input_columns=["input"],
+        output_columns=["secondary"],
+    )
+
+    df = pd.DataFrame({"input": [1, 2, 3]})
+
+    with pytest.raises(CustomColumnGenerationError, match="did not create declared output columns"):
+        generator.generate(df)
+
+
+def test_undeclared_columns_removed_with_warning(caplog: pytest.LogCaptureFixture) -> None:
+    """Test that undeclared columns are removed with a warning."""
+    import logging
+
+    def my_generator(df: pd.DataFrame) -> pd.DataFrame:
+        df["primary"] = df["input"] * 2
+        df["undeclared_column"] = "should be removed"
+        return df
+
+    generator = _create_test_generator(
+        name="primary",
+        generate_fn=my_generator,
+        input_columns=["input"],
+    )
+
+    df = pd.DataFrame({"input": [1, 2, 3]})
+
+    with caplog.at_level(logging.WARNING):
+        result = generator.generate(df)
+
+    # Primary column should exist
+    assert "primary" in result.columns
+    assert result["primary"].tolist() == [2, 4, 6]
+
+    # Undeclared column should be removed
+    assert "undeclared_column" not in result.columns
+
+    # Warning should be logged
+    assert "undeclared columns" in caplog.text
+    assert "undeclared_column" in caplog.text
+
+
+def test_declared_output_columns_kept() -> None:
+    """Test that declared output_columns are kept in the result."""
+
+    def my_generator(df: pd.DataFrame) -> pd.DataFrame:
+        df["primary"] = df["input"] * 2
+        df["secondary"] = df["input"] * 3
+        df["tertiary"] = df["input"] * 4
+        return df
+
+    generator = _create_test_generator(
+        name="primary",
+        generate_fn=my_generator,
+        input_columns=["input"],
+        output_columns=["secondary", "tertiary"],
+    )
+
+    df = pd.DataFrame({"input": [1, 2, 3]})
+    result = generator.generate(df)
+
+    # All declared columns should exist
+    assert "primary" in result.columns
+    assert "secondary" in result.columns
+    assert "tertiary" in result.columns
+    assert result["primary"].tolist() == [2, 4, 6]
+    assert result["secondary"].tolist() == [3, 6, 9]
+    assert result["tertiary"].tolist() == [4, 8, 12]
