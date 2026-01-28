@@ -21,34 +21,11 @@ BatchGeneratorFn = Callable[
 
 
 class CustomColumnContext:
-    """A facade providing easy access to resources for custom column generation.
-
-    This class provides a clean API for custom column generators to access
-    resources like LLM models without needing to understand the internal
-    structure of the generator.
+    """Facade providing access to resources for custom column generation.
 
     Attributes:
         kwargs: Custom parameters passed via the CustomColumnConfig.
         column_name: The name of the column being generated.
-
-    Example:
-        ```python
-        from data_designer.essentials import CustomColumnConfig, CustomColumnContext
-
-        def my_generator(df: pd.DataFrame, ctx: CustomColumnContext) -> pd.DataFrame:
-            # Access custom parameters
-            temperature = ctx.kwargs.get("temperature", 0.7)
-
-            # Generate text using an LLM
-            for idx, row in df.iterrows():
-                result = ctx.generate_text(
-                    model_alias="nvidia-text",
-                    prompt=f"Summarize: {row['text']}",
-                )
-                df.at[idx, "summary"] = result
-
-            return df
-        ```
     """
 
     def __init__(
@@ -57,13 +34,6 @@ class CustomColumnContext:
         config: CustomColumnConfig,
         batch_generator_fn: BatchGeneratorFn | None = None,
     ):
-        """Initialize the context.
-
-        Args:
-            resource_provider: The resource provider for accessing models and other resources.
-            config: The CustomColumnConfig for this column.
-            batch_generator_fn: Optional function for parallel batch generation (injected by generator).
-        """
         self._resource_provider = resource_provider
         self._config = config
         self._batch_generator_fn = batch_generator_fn
@@ -80,22 +50,11 @@ class CustomColumnContext:
 
     @property
     def model_registry(self) -> Any:
-        """Access to the model registry for advanced use cases.
-
-        Returns:
-            The ModelRegistry instance for accessing model configurations.
-        """
+        """Access to the model registry for advanced use cases."""
         return self._resource_provider.model_registry
 
     def get_model(self, model_alias: str) -> Any:
-        """Get a model facade for direct access.
-
-        Args:
-            model_alias: The alias of the model to retrieve.
-
-        Returns:
-            The ModelFacade for the specified model.
-        """
+        """Get a model facade for direct access."""
         return self._resource_provider.model_registry.get_model(model_alias=model_alias)
 
     def generate_text(
@@ -106,30 +65,18 @@ class CustomColumnContext:
     ) -> str:
         """Generate text using an LLM model.
 
-        This is a convenience method that handles the common case of generating
-        simple text output from an LLM.
-
         Args:
-            model_alias: The alias of the model to use (e.g., "nvidia-text").
+            model_alias: The alias of the model to use.
             prompt: The prompt to send to the model.
             system_prompt: Optional system prompt to set model behavior.
 
         Returns:
             The generated text as a string.
-
-        Example:
-            ```python
-            result = ctx.generate_text(
-                model_alias="nvidia-text",
-                prompt="Write a haiku about coding",
-                system_prompt="You are a creative poet.",
-            )
-            ```
         """
         model = self.get_model(model_alias)
         response, _ = model.generate(
             prompt=prompt,
-            parser=lambda x: x,  # Return raw text
+            parser=lambda x: x,
             system_prompt=system_prompt,
             max_correction_steps=0,
             max_conversation_restarts=0,
@@ -145,39 +92,14 @@ class CustomColumnContext:
     ) -> list[str]:
         """Generate text for multiple prompts in parallel.
 
-        This method parallelizes LLM calls across multiple prompts, significantly
-        improving performance when generating text for many rows.
-
         Args:
-            model_alias: The alias of the model to use (e.g., "nvidia-text").
+            model_alias: The alias of the model to use.
             prompts: List of prompts to send to the model.
-            system_prompt: Optional system prompt to set model behavior (shared across all prompts).
-            max_workers: Maximum number of parallel workers. Defaults to the model's
-                max_parallel_requests setting (typically 4-10).
+            system_prompt: Optional system prompt (shared across all prompts).
+            max_workers: Maximum parallel workers. Defaults to model's max_parallel_requests.
 
         Returns:
             List of generated texts, in the same order as the input prompts.
-
-        Example:
-            ```python
-            def my_generator(df: pd.DataFrame, ctx: CustomColumnContext) -> pd.DataFrame:
-                # Build prompts for each row
-                prompts = [
-                    f"Write a greeting for {row['name']}"
-                    for _, row in df.iterrows()
-                ]
-
-                # Generate all at once in parallel
-                results = ctx.generate_text_batch(
-                    model_alias="nvidia-text",
-                    prompts=prompts,
-                    system_prompt="You are friendly.",
-                    max_workers=4,
-                )
-
-                df["greeting"] = results
-                return df
-            ```
         """
         if not prompts:
             return []

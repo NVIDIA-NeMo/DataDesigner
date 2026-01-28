@@ -120,8 +120,6 @@ def generate_with_direct_model_access(df: pd.DataFrame, ctx: CustomColumnContext
 
 
 def main() -> None:
-    # Initialize DataDesigner with default settings
-    # This uses the default model configurations from your environment
     data_designer = DataDesigner()
     config_builder = DataDesignerConfigBuilder()
 
