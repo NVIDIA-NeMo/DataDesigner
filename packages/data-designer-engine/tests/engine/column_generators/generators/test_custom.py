@@ -448,3 +448,61 @@ def test_declared_output_columns_kept() -> None:
     assert result["primary"] == 4
     assert result["secondary"] == 6
     assert result["tertiary"] == 8
+
+
+def test_multi_step_workflow_intermediate_failure() -> None:
+    """Test that an intermediate LLM failure in a multi-step workflow is handled correctly.
+
+    When a multi-turn workflow fails at an intermediate step (e.g., second LLM call),
+    the error should propagate up and be wrapped in CustomColumnGenerationError.
+    """
+    call_count = 0
+
+    def multi_turn_generator(row: dict, ctx: CustomColumnContext) -> dict:
+        nonlocal call_count
+
+        # Step 1: First LLM call succeeds
+        draft = ctx.generate_text(model_alias="writer", prompt="Write draft")
+        call_count += 1
+
+        # Step 2: Second LLM call fails
+        critique = ctx.generate_text(model_alias="editor", prompt=f"Critique: {draft}")
+        call_count += 1
+
+        # Step 3: Would use critique but never reached
+        row["result"] = critique
+        return row
+
+    # Set up mock where second call fails
+    mock_resource_provider = Mock(spec=ResourceProvider)
+    mock_model_registry = Mock()
+
+    mock_model = Mock()
+    call_counter = {"count": 0}
+
+    def mock_generate(**kwargs: dict) -> tuple[str, None]:
+        call_counter["count"] += 1
+        if call_counter["count"] == 1:
+            return ("First draft text", None)
+        else:
+            raise RuntimeError("LLM API error: rate limited")
+
+    mock_model.generate.side_effect = mock_generate
+    mock_model_registry.get_model.return_value = mock_model
+    mock_resource_provider.model_registry = mock_model_registry
+
+    generator = _create_test_generator(
+        name="result",
+        generate_fn=multi_turn_generator,
+        input_columns=["topic"],
+        resource_provider=mock_resource_provider,
+    )
+
+    row = {"topic": "testing"}
+
+    # The error from the second LLM call should propagate
+    with pytest.raises(CustomColumnGenerationError, match="Custom generator function failed"):
+        generator.generate(row)
+
+    # Verify first call succeeded before failure
+    assert call_counter["count"] == 2
