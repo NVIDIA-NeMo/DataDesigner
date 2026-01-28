@@ -102,7 +102,7 @@ if __name__ == "__main__":
     config_builder.add_column(
         dd.CustomColumnConfig(
             name="greeting",
-            generate_fn=simple_text_transform,
+            generation_function=simple_text_transform,
             input_columns=["name"],
         )
     )
@@ -110,7 +110,7 @@ if __name__ == "__main__":
     config_builder.add_column(
         dd.CustomColumnConfig(
             name="personalized_message",
-            generate_fn=generate_personalized_message,
+            generation_function=generate_personalized_message,
             input_columns=["name", "product_interest"],
             output_columns=["prompt"],
             kwargs={

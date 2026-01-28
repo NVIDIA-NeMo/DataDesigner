@@ -20,22 +20,22 @@ from data_designer.engine.resources.resource_provider import ResourceProvider
 
 def _create_test_generator(
     name: str = "test_column",
-    generate_fn: callable = None,
+    generation_function: callable = None,
     input_columns: list[str] | None = None,
     output_columns: list[str] | None = None,
     kwargs: dict | None = None,
     resource_provider: ResourceProvider | None = None,
 ) -> CustomColumnGenerator:
     """Helper function to create test generator."""
-    if generate_fn is None:
+    if generation_function is None:
 
-        def generate_fn(row: dict) -> dict:
+        def generation_function(row: dict) -> dict:
             row[name] = "test_value"
             return row
 
     config = CustomColumnConfig(
         name=name,
-        generate_fn=generate_fn,
+        generation_function=generation_function,
         input_columns=input_columns or [],
         output_columns=output_columns or [],
         kwargs=kwargs or {},
@@ -67,7 +67,7 @@ def test_generate_simple_column() -> None:
 
     generator = _create_test_generator(
         name="result",
-        generate_fn=my_generator,
+        generation_function=my_generator,
         input_columns=["input"],
     )
 
@@ -87,7 +87,7 @@ def test_generate_with_kwargs() -> None:
 
     generator = _create_test_generator(
         name="result",
-        generate_fn=my_generator,
+        generation_function=my_generator,
         kwargs={"multiplier": 2, "prefix": "test_"},
     )
 
@@ -103,7 +103,7 @@ def test_generate_missing_required_columns() -> None:
 
     generator = _create_test_generator(
         name="result",
-        generate_fn=my_generator,
+        generation_function=my_generator,
         input_columns=["missing_column"],
     )
 
@@ -121,7 +121,7 @@ def test_generate_function_raises_error() -> None:
 
     generator = _create_test_generator(
         name="result",
-        generate_fn=my_generator,
+        generation_function=my_generator,
     )
 
     row = {"input": 1}
@@ -138,7 +138,7 @@ def test_generate_returns_non_dict() -> None:
 
     generator = _create_test_generator(
         name="result",
-        generate_fn=my_generator,
+        generation_function=my_generator,
     )
 
     row = {"input": 1}
@@ -156,7 +156,7 @@ def test_generate_missing_output_column() -> None:
 
     generator = _create_test_generator(
         name="expected_column",
-        generate_fn=my_generator,
+        generation_function=my_generator,
     )
 
     row = {"input": 1}
@@ -166,11 +166,11 @@ def test_generate_missing_output_column() -> None:
 
 
 def test_config_validation_non_callable() -> None:
-    """Test that non-callable generate_fn raises an error."""
+    """Test that non-callable generation_function raises an error."""
     with pytest.raises(InvalidConfigError, match="must be a callable"):
         CustomColumnConfig(
             name="test",
-            generate_fn="not_a_function",
+            generation_function="not_a_function",
         )
 
 
@@ -182,7 +182,7 @@ def test_config_required_columns_property() -> None:
 
     config = CustomColumnConfig(
         name="test",
-        generate_fn=my_generator,
+        generation_function=my_generator,
         input_columns=["col1", "col2"],
     )
 
@@ -197,7 +197,7 @@ def test_config_side_effect_columns_property() -> None:
 
     config = CustomColumnConfig(
         name="test",
-        generate_fn=my_generator,
+        generation_function=my_generator,
         output_columns=["extra_col1", "extra_col2"],
     )
 
@@ -214,7 +214,7 @@ def test_generate_multiple_output_columns() -> None:
 
     generator = _create_test_generator(
         name="primary",
-        generate_fn=my_generator,
+        generation_function=my_generator,
         input_columns=["input"],
         output_columns=["secondary"],
     )
@@ -238,7 +238,7 @@ def test_log_pre_generation(caplog: pytest.LogCaptureFixture) -> None:
 
     generator = _create_test_generator(
         name="result",
-        generate_fn=my_generator,
+        generation_function=my_generator,
         input_columns=["input"],
         output_columns=["extra"],
         kwargs={"key": "value"},
@@ -253,18 +253,18 @@ def test_log_pre_generation(caplog: pytest.LogCaptureFixture) -> None:
 
 
 def test_config_serialization() -> None:
-    """Test that the generate_fn serializes to its name."""
+    """Test that the generation_function serializes to its name."""
 
     def my_custom_function(row: dict) -> dict:
         return row
 
     config = CustomColumnConfig(
         name="test",
-        generate_fn=my_custom_function,
+        generation_function=my_custom_function,
     )
 
     serialized = config.model_dump()
-    assert serialized["generate_fn"] == "my_custom_function"
+    assert serialized["generation_function"] == "my_custom_function"
 
 
 def test_generate_with_context_access() -> None:
@@ -281,7 +281,7 @@ def test_generate_with_context_access() -> None:
 
     generator = _create_test_generator(
         name="result",
-        generate_fn=my_generator_with_access,
+        generation_function=my_generator_with_access,
         input_columns=["input"],
         kwargs={"suffix": "_custom"},
     )
@@ -315,7 +315,7 @@ def test_context_provides_model_registry_access() -> None:
 
     generator = _create_test_generator(
         name="result",
-        generate_fn=my_generator_with_resources,
+        generation_function=my_generator_with_resources,
         resource_provider=mock_resource_provider,
     )
 
@@ -348,7 +348,7 @@ def test_context_generate_text() -> None:
 
     generator = _create_test_generator(
         name="result",
-        generate_fn=my_generator_with_llm,
+        generation_function=my_generator_with_llm,
         input_columns=["input"],
         resource_provider=mock_resource_provider,
     )
@@ -379,7 +379,7 @@ def test_missing_declared_output_columns_raises_error() -> None:
 
     generator = _create_test_generator(
         name="primary",
-        generate_fn=my_generator,
+        generation_function=my_generator,
         input_columns=["input"],
         output_columns=["secondary"],
     )
@@ -401,7 +401,7 @@ def test_undeclared_columns_removed_with_warning(caplog: pytest.LogCaptureFixtur
 
     generator = _create_test_generator(
         name="primary",
-        generate_fn=my_generator,
+        generation_function=my_generator,
         input_columns=["input"],
     )
 
@@ -433,7 +433,7 @@ def test_declared_output_columns_kept() -> None:
 
     generator = _create_test_generator(
         name="primary",
-        generate_fn=my_generator,
+        generation_function=my_generator,
         input_columns=["input"],
         output_columns=["secondary", "tertiary"],
     )
@@ -460,7 +460,7 @@ def test_full_column_strategy() -> None:
 
     config = CustomColumnConfig(
         name="result",
-        generate_fn=batch_processor,
+        generation_function=batch_processor,
         input_columns=["input"],
         generation_strategy="full_column",
     )
@@ -491,7 +491,7 @@ def test_full_column_with_context() -> None:
 
     config = CustomColumnConfig(
         name="result",
-        generate_fn=batch_with_context,
+        generation_function=batch_with_context,
         input_columns=["input"],
         generation_strategy="full_column",
         kwargs={"multiplier": 10},
@@ -514,7 +514,7 @@ def test_full_column_validates_output() -> None:
 
     config = CustomColumnConfig(
         name="expected_name",
-        generate_fn=batch_wrong_column,
+        generation_function=batch_wrong_column,
         input_columns=["input"],
         generation_strategy="full_column",
     )
@@ -539,7 +539,7 @@ def test_full_column_removes_undeclared_columns(caplog: pytest.LogCaptureFixture
 
     config = CustomColumnConfig(
         name="result",
-        generate_fn=batch_extra_columns,
+        generation_function=batch_extra_columns,
         input_columns=["input"],
         generation_strategy="full_column",
     )
@@ -580,7 +580,7 @@ def test_generate_text_batch() -> None:
 
     config = CustomColumnConfig(
         name="result",
-        generate_fn=batch_with_parallel_llm,
+        generation_function=batch_with_parallel_llm,
         input_columns=["input"],
         generation_strategy="full_column",
     )
@@ -643,7 +643,7 @@ def test_multi_step_workflow_intermediate_failure() -> None:
 
     generator = _create_test_generator(
         name="result",
-        generate_fn=multi_turn_generator,
+        generation_function=multi_turn_generator,
         input_columns=["topic"],
         resource_provider=mock_resource_provider,
     )

@@ -61,7 +61,7 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
         keys_before = set(data.keys())
 
         try:
-            result = self._invoke_generate_fn(data)
+            result = self._invoke_generation_function(data)
         except Exception as e:
             logger.error(f"Custom column generator failed for '{self.config.name}': {e}")
             raise CustomColumnGenerationError(
@@ -89,7 +89,7 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
         columns_before = set(data.columns)
 
         try:
-            result = self._invoke_generate_fn(data)
+            result = self._invoke_generation_function(data)
         except Exception as e:
             logger.error(f"Custom column generator failed for '{self.config.name}': {e}")
             raise CustomColumnGenerationError(
@@ -111,7 +111,7 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
         if self.config.name not in result:
             raise CustomColumnGenerationError(
                 f"Custom generator for column '{self.config.name}' did not create the expected column. "
-                f"The generate_fn must add a key named '{self.config.name}' to the row dict."
+                f"The generation_function must add a key named '{self.config.name}' to the row dict."
             )
 
         missing_output_columns = set(self.config.output_columns) - set(result.keys())
@@ -142,7 +142,7 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
         if self.config.name not in result.columns:
             raise CustomColumnGenerationError(
                 f"Custom generator for column '{self.config.name}' did not create the expected column. "
-                f"The generate_fn must add a column named '{self.config.name}' to the DataFrame."
+                f"The generation_function must add a column named '{self.config.name}' to the DataFrame."
             )
 
         missing_output_columns = set(self.config.output_columns) - set(result.columns)
@@ -165,19 +165,19 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
 
         return result
 
-    def _invoke_generate_fn(self, data: dict | pd.DataFrame) -> dict | pd.DataFrame:
+    def _invoke_generation_function(self, data: dict | pd.DataFrame) -> dict | pd.DataFrame:
         """Invoke the user's generate function with appropriate arguments."""
         if self._function_accepts_context():
             ctx = CustomColumnContext(
                 resource_provider=self.resource_provider,
                 config=self.config,
             )
-            return self.config.generate_fn(data, ctx)
-        return self.config.generate_fn(data)
+            return self.config.generation_function(data, ctx)
+        return self.config.generation_function(data)
 
     def _function_accepts_context(self) -> bool:
-        """Check if the user's generate_fn accepts a context parameter (2+ args)."""
-        sig = inspect.signature(self.config.generate_fn)
+        """Check if the user's generation_function accepts a context parameter (2+ args)."""
+        sig = inspect.signature(self.config.generation_function)
         positional_params = [
             p
             for p in sig.parameters.values()
@@ -187,7 +187,7 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
 
     def log_pre_generation(self) -> None:
         logger.info(f"{self.config.get_column_emoji()} Custom column config for column '{self.config.name}'")
-        logger.info(f"  |-- generate_fn: {self.config.generate_fn.__name__!r}")
+        logger.info(f"  |-- generation_function: {self.config.generation_function.__name__!r}")
         logger.info(f"  |-- generation_strategy: {self.config.generation_strategy!r}")
         logger.info(f"  |-- input_columns: {self.config.input_columns}")
         if self.config.output_columns:

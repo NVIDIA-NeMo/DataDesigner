@@ -36,7 +36,7 @@ def my_generator(row: dict, ctx: dd.CustomColumnContext) -> dict:
 
 dd.CustomColumnConfig(
     name="result",
-    generate_fn=my_generator,
+    generation_function=my_generator,
     input_columns=["input"],
     # generation_strategy="cell_by_cell" is the default
 )
@@ -57,7 +57,7 @@ def batch_generator(df: pd.DataFrame, ctx: dd.CustomColumnContext) -> pd.DataFra
 
 dd.CustomColumnConfig(
     name="result",
-    generate_fn=batch_generator,
+    generation_function=batch_generator,
     input_columns=["input"],
     generation_strategy="full_column",
 )
@@ -75,7 +75,7 @@ def create_greeting(row: dict) -> dict:
 config_builder.add_column(
     dd.CustomColumnConfig(
         name="greeting",
-        generate_fn=create_greeting,
+        generation_function=create_greeting,
         input_columns=["name"],
     )
 )
@@ -98,7 +98,7 @@ def generate_message(row: dict, ctx: dd.CustomColumnContext) -> dict:
 config_builder.add_column(
     dd.CustomColumnConfig(
         name="message",
-        generate_fn=generate_message,
+        generation_function=generate_message,
         input_columns=["name"],
     )
 )
@@ -138,7 +138,7 @@ response, metadata = model.generate(
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `name` | str | Yes | Primary column name |
-| `generate_fn` | Callable | Yes | Generator function |
+| `generation_function` | Callable | Yes | Generator function |
 | `generation_strategy` | str | No | `"cell_by_cell"` (default) or `"full_column"` |
 | `input_columns` | list[str] | No | Required input columns |
 | `output_columns` | list[str] | No | Additional columns created |
@@ -160,7 +160,7 @@ def generate_with_trace(row: dict, ctx: dd.CustomColumnContext) -> dict:
 config_builder.add_column(
     dd.CustomColumnConfig(
         name="content",
-        generate_fn=generate_with_trace,
+        generation_function=generate_with_trace,
         input_columns=["topic"],
         output_columns=["prompt_used"],
     )
@@ -184,7 +184,7 @@ def configurable_generator(row: dict, ctx: dd.CustomColumnContext) -> dict:
 config_builder.add_column(
     dd.CustomColumnConfig(
         name="styled_content",
-        generate_fn=configurable_generator,
+        generation_function=configurable_generator,
         input_columns=["topic"],
         kwargs={"tone": "professional"},
     )
@@ -222,7 +222,7 @@ def writer_editor_workflow(row: dict, ctx: dd.CustomColumnContext) -> dict:
 config_builder.add_column(
     dd.CustomColumnConfig(
         name="refined_content",
-        generate_fn=writer_editor_workflow,
+        generation_function=writer_editor_workflow,
         input_columns=["topic"],
         output_columns=["draft", "critique"],
     )
