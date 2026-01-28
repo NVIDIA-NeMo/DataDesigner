@@ -7,36 +7,51 @@ from __future__ import annotations
 
 import inspect
 import logging
+from typing import TYPE_CHECKING
 
 from data_designer.config.column_configs import CustomColumnConfig
 from data_designer.config.custom_column import CustomColumnContext
-from data_designer.engine.column_generators.generators.base import ColumnGeneratorCellByCell
+from data_designer.engine.column_generators.generators.base import ColumnGenerator, GenerationStrategy
 from data_designer.engine.column_generators.utils.errors import CustomColumnGenerationError
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 logger = logging.getLogger(__name__)
 
 
-class CustomColumnGenerator(ColumnGeneratorCellByCell[CustomColumnConfig]):
+class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
     """Column generator that uses a user-provided callable function.
 
-    This generator processes rows one at a time, allowing the framework to
-    parallelize across rows automatically. The function signature can be either:
-        - fn(row: dict) -> dict
-        - fn(row: dict, ctx: CustomColumnContext) -> dict
+    Supports two strategies based on config.strategy:
+        - cell_by_cell: Processes rows one at a time (dict -> dict), parallelized by framework.
+        - full_column: Processes entire batch (DataFrame -> DataFrame) for vectorized ops.
 
     The context provides access to kwargs, column_name, generate_text(),
     and get_model() for LLM integration.
     """
 
-    def generate(self, data: dict) -> dict:
-        """Generate column value for a single row.
+    def get_generation_strategy(self) -> GenerationStrategy:
+        """Return strategy based on config."""
+        if self.config.strategy == "full_column":
+            return GenerationStrategy.FULL_COLUMN
+        return GenerationStrategy.CELL_BY_CELL
+
+    def generate(self, data: dict | pd.DataFrame) -> dict | pd.DataFrame:
+        """Generate column value(s).
 
         Args:
-            data: A dictionary representing a single row.
+            data: A dict (cell_by_cell) or DataFrame (full_column).
 
         Returns:
-            The row dictionary with the new column(s) added.
+            The data with new column(s) added.
         """
+        if self.config.strategy == "full_column":
+            return self._generate_full_column(data)
+        return self._generate_cell_by_cell(data)
+
+    def _generate_cell_by_cell(self, data: dict) -> dict:
+        """Generate column for a single row."""
         missing_columns = set(self.config.required_columns) - set(data.keys())
         if missing_columns:
             raise CustomColumnGenerationError(
@@ -59,7 +74,35 @@ class CustomColumnGenerator(ColumnGeneratorCellByCell[CustomColumnConfig]):
             )
 
         result = self._validate_output_columns(result, keys_before)
+        return result
 
+    def _generate_full_column(self, data: pd.DataFrame) -> pd.DataFrame:
+        """Generate column for entire batch."""
+        from data_designer.lazy_heavy_imports import pd
+
+        missing_columns = set(self.config.required_columns) - set(data.columns)
+        if missing_columns:
+            raise CustomColumnGenerationError(
+                f"Missing required columns for custom generator '{self.config.name}': {sorted(missing_columns)}"
+            )
+
+        columns_before = set(data.columns)
+
+        try:
+            result = self._invoke_generate_fn(data)
+        except Exception as e:
+            logger.error(f"Custom column generator failed for '{self.config.name}': {e}")
+            raise CustomColumnGenerationError(
+                f"Custom generator function failed for column '{self.config.name}': {e}"
+            ) from e
+
+        if not isinstance(result, pd.DataFrame):
+            raise CustomColumnGenerationError(
+                f"Custom generator for column '{self.config.name}' must return a DataFrame, "
+                f"got {type(result).__name__}"
+            )
+
+        result = self._validate_output_columns_df(result, columns_before)
         return result
 
     def _validate_output_columns(self, result: dict, keys_before: set[str]) -> dict:
@@ -93,13 +136,38 @@ class CustomColumnGenerator(ColumnGeneratorCellByCell[CustomColumnConfig]):
 
         return result
 
-    def _invoke_generate_fn(self, data: dict) -> dict:
-        """Invoke the user's generate function with appropriate arguments.
+    def _validate_output_columns_df(self, result: pd.DataFrame, columns_before: set[str]) -> pd.DataFrame:
+        """Validate expected columns were created and remove undeclared columns (DataFrame version)."""
+        expected_new_cols = {self.config.name} | set(self.config.output_columns)
 
-        Supports two function signatures:
-        - fn(row: dict) -> dict  # Simple, no context needed
-        - fn(row: dict, ctx: CustomColumnContext) -> dict  # With LLM/resource access
-        """
+        if self.config.name not in result.columns:
+            raise CustomColumnGenerationError(
+                f"Custom generator for column '{self.config.name}' did not create the expected column. "
+                f"The generate_fn must add a column named '{self.config.name}' to the DataFrame."
+            )
+
+        missing_output_columns = set(self.config.output_columns) - set(result.columns)
+        if missing_output_columns:
+            raise CustomColumnGenerationError(
+                f"Custom generator for column '{self.config.name}' did not create declared output columns: "
+                f"{sorted(missing_output_columns)}. Declared output_columns must be added to the DataFrame."
+            )
+
+        actual_new_cols = set(result.columns) - columns_before
+        undeclared_cols = actual_new_cols - expected_new_cols
+
+        if undeclared_cols:
+            logger.warning(
+                f"⚠️ Custom generator for column '{self.config.name}' created undeclared columns: "
+                f"{sorted(undeclared_cols)}. These columns will be removed. "
+                f"To keep additional columns, declare them in 'output_columns'."
+            )
+            result = result.drop(columns=list(undeclared_cols))
+
+        return result
+
+    def _invoke_generate_fn(self, data: dict | pd.DataFrame) -> dict | pd.DataFrame:
+        """Invoke the user's generate function with appropriate arguments."""
         if self._function_accepts_context():
             ctx = CustomColumnContext(
                 resource_provider=self.resource_provider,
@@ -121,6 +189,7 @@ class CustomColumnGenerator(ColumnGeneratorCellByCell[CustomColumnConfig]):
     def log_pre_generation(self) -> None:
         logger.info(f"{self.config.get_column_emoji()} Custom column config for column '{self.config.name}'")
         logger.info(f"  |-- generate_fn: {self.config.generate_fn.__name__!r}")
+        logger.info(f"  |-- strategy: {self.config.strategy!r}")
         logger.info(f"  |-- input_columns: {self.config.input_columns}")
         if self.config.output_columns:
             logger.info(f"  |-- output_columns: {self.config.output_columns}")

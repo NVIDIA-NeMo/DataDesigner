@@ -88,3 +88,42 @@ class CustomColumnContext:
             max_conversation_restarts=0,
         )
         return response
+
+    def generate_text_batch(
+        self,
+        model_alias: str,
+        prompts: list[str],
+        system_prompt: str | None = None,
+        max_workers: int = 8,
+    ) -> list[str]:
+        """Generate text for multiple prompts in parallel.
+
+        Use this method in full_column strategy to parallelize LLM calls across rows.
+
+        Args:
+            model_alias: The alias of the model to use.
+            prompts: List of prompts to send to the model.
+            system_prompt: Optional system prompt to set model behavior.
+            max_workers: Maximum number of parallel requests (default: 8).
+
+        Returns:
+            List of generated texts in the same order as the input prompts.
+        """
+        from concurrent.futures import ThreadPoolExecutor
+
+        model = self.get_model(model_alias)
+
+        def generate_single(prompt: str) -> str:
+            response, _ = model.generate(
+                prompt=prompt,
+                parser=lambda x: x,
+                system_prompt=system_prompt,
+                max_correction_steps=0,
+                max_conversation_restarts=0,
+            )
+            return response
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            results = list(executor.map(generate_single, prompts))
+
+        return results

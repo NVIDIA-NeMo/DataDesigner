@@ -450,6 +450,156 @@ def test_declared_output_columns_kept() -> None:
     assert result["tertiary"] == 8
 
 
+def test_full_column_strategy() -> None:
+    """Test that full_column strategy processes DataFrame instead of dict."""
+    import pandas as pd
+
+    def batch_processor(df: pd.DataFrame) -> pd.DataFrame:
+        df["result"] = df["input"] * 2
+        return df
+
+    config = CustomColumnConfig(
+        name="result",
+        generate_fn=batch_processor,
+        input_columns=["input"],
+        strategy="full_column",
+    )
+    generator = CustomColumnGenerator(config=config, resource_provider=Mock(spec=ResourceProvider))
+
+    # Verify strategy is FULL_COLUMN
+    assert generator.get_generation_strategy() == GenerationStrategy.FULL_COLUMN
+
+    # Test with DataFrame
+    df = pd.DataFrame({"input": [1, 2, 3]})
+    result = generator.generate(df)
+
+    assert isinstance(result, pd.DataFrame)
+    assert "result" in result.columns
+    assert list(result["result"]) == [2, 4, 6]
+
+
+def test_full_column_with_context() -> None:
+    """Test full_column strategy with context access."""
+    import pandas as pd
+
+    def batch_with_context(df: pd.DataFrame, ctx: CustomColumnContext) -> pd.DataFrame:
+        multiplier = ctx.kwargs.get("multiplier", 1)
+        df["result"] = df["input"] * multiplier
+        return df
+
+    mock_resource_provider = Mock(spec=ResourceProvider)
+
+    config = CustomColumnConfig(
+        name="result",
+        generate_fn=batch_with_context,
+        input_columns=["input"],
+        strategy="full_column",
+        kwargs={"multiplier": 10},
+    )
+    generator = CustomColumnGenerator(config=config, resource_provider=mock_resource_provider)
+
+    df = pd.DataFrame({"input": [1, 2, 3]})
+    result = generator.generate(df)
+
+    assert list(result["result"]) == [10, 20, 30]
+
+
+def test_full_column_validates_output() -> None:
+    """Test that full_column validates output columns like cell_by_cell."""
+    import pandas as pd
+
+    def batch_wrong_column(df: pd.DataFrame) -> pd.DataFrame:
+        df["wrong_name"] = df["input"]
+        return df
+
+    config = CustomColumnConfig(
+        name="expected_name",
+        generate_fn=batch_wrong_column,
+        input_columns=["input"],
+        strategy="full_column",
+    )
+    generator = CustomColumnGenerator(config=config, resource_provider=Mock(spec=ResourceProvider))
+
+    df = pd.DataFrame({"input": [1, 2, 3]})
+
+    with pytest.raises(CustomColumnGenerationError, match="did not create the expected column"):
+        generator.generate(df)
+
+
+def test_full_column_removes_undeclared_columns(caplog: pytest.LogCaptureFixture) -> None:
+    """Test that full_column removes undeclared columns with warning."""
+    import logging
+
+    import pandas as pd
+
+    def batch_extra_columns(df: pd.DataFrame) -> pd.DataFrame:
+        df["result"] = df["input"] * 2
+        df["undeclared"] = "should be removed"
+        return df
+
+    config = CustomColumnConfig(
+        name="result",
+        generate_fn=batch_extra_columns,
+        input_columns=["input"],
+        strategy="full_column",
+    )
+    generator = CustomColumnGenerator(config=config, resource_provider=Mock(spec=ResourceProvider))
+
+    df = pd.DataFrame({"input": [1, 2, 3]})
+
+    with caplog.at_level(logging.WARNING):
+        result = generator.generate(df)
+
+    assert "result" in result.columns
+    assert "undeclared" not in result.columns
+    assert "undeclared columns" in caplog.text
+
+
+def test_generate_text_batch() -> None:
+    """Test that generate_text_batch parallelizes LLM calls."""
+    import pandas as pd
+
+    def batch_with_parallel_llm(df: pd.DataFrame, ctx: CustomColumnContext) -> pd.DataFrame:
+        prompts = [f"Process: {val}" for val in df["input"]]
+        results = ctx.generate_text_batch(
+            model_alias="test-model",
+            prompts=prompts,
+            system_prompt="Be helpful.",
+            max_workers=4,
+        )
+        df["result"] = results
+        return df
+
+    # Set up mocks
+    mock_resource_provider = Mock(spec=ResourceProvider)
+    mock_model_registry = Mock()
+    mock_model = Mock()
+    mock_model.generate.side_effect = lambda prompt, **kwargs: (f"Response for: {prompt}", None)
+    mock_model_registry.get_model.return_value = mock_model
+    mock_resource_provider.model_registry = mock_model_registry
+
+    config = CustomColumnConfig(
+        name="result",
+        generate_fn=batch_with_parallel_llm,
+        input_columns=["input"],
+        strategy="full_column",
+    )
+    generator = CustomColumnGenerator(config=config, resource_provider=mock_resource_provider)
+
+    df = pd.DataFrame({"input": ["a", "b", "c"]})
+    result = generator.generate(df)
+
+    # Verify results
+    assert list(result["result"]) == [
+        "Response for: Process: a",
+        "Response for: Process: b",
+        "Response for: Process: c",
+    ]
+
+    # Verify model.generate was called 3 times (once per prompt)
+    assert mock_model.generate.call_count == 3
+
+
 def test_multi_step_workflow_intermediate_failure() -> None:
     """Test that an intermediate LLM failure in a multi-step workflow is handled correctly.
 
