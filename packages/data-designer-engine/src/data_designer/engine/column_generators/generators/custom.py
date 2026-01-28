@@ -98,8 +98,7 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
 
         if not isinstance(result, pd.DataFrame):
             raise CustomColumnGenerationError(
-                f"Custom generator for column '{self.config.name}' must return a DataFrame, "
-                f"got {type(result).__name__}"
+                f"Custom generator for column '{self.config.name}' must return a DataFrame, got {type(result).__name__}"
             )
 
         result = self._validate_output_columns_df(result, columns_before)
