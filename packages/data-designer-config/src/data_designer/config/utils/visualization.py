@@ -203,6 +203,7 @@ def display_sample_record(
         + config_builder.get_columns_of_type(DataDesignerColumnType.LLM_TEXT)
         + config_builder.get_columns_of_type(DataDesignerColumnType.LLM_STRUCTURED)
         + config_builder.get_columns_of_type(DataDesignerColumnType.EMBEDDING)
+        + config_builder.get_columns_of_type(DataDesignerColumnType.CUSTOM)
     )
     if len(non_code_columns) > 0:
         table = Table(title="Generated Columns", **table_kws)
@@ -215,6 +216,11 @@ def display_sample_record(
                         get_truncated_list_as_string(embd) for embd in record[col.name].get("embeddings")
                     ]
                 table.add_row(col.name, convert_to_row_element(record[col.name]))
+                # Also display output_columns (side effect columns) for custom generators
+                if col.column_type == DataDesignerColumnType.CUSTOM:
+                    for output_col in col.side_effect_columns:
+                        if output_col in record.index:
+                            table.add_row(output_col, convert_to_row_element(record[output_col]))
         render_list.append(pad_console_element(table))
 
     for col in config_builder.get_columns_of_type(DataDesignerColumnType.LLM_CODE):

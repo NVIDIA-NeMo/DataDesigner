@@ -483,39 +483,26 @@ class CustomColumnConfig(SingleColumnConfig):
     Custom columns allow users to provide their own generation logic via a callable function.
     This provides a flexible way to implement custom column generation without creating a full plugin.
 
-    The generate function receives a pandas DataFrame and must return a DataFrame with the
-    new column(s) added. The function has access to the generator instance via the `self` parameter
-    when called, providing access to the resource_provider (model registry, artifact storage, etc.).
+    The generate function receives a single row (as a dict) and must return the row with the
+    new column(s) added. The framework automatically parallelizes execution across rows.
 
-    Example:
-        ```python
-        def my_generator(df: pd.DataFrame) -> pd.DataFrame:
-            df["new_column"] = df["existing_column"].apply(lambda x: x.upper())
-            return df
+    Two function signatures are supported:
+        - fn(row: dict) -> dict                            # Simple, no context needed
+        - fn(row: dict, ctx: CustomColumnContext) -> dict  # With LLM/resource access
 
-        config = CustomColumnConfig(
-            name="new_column",
-            generate_fn=my_generator,
-            required_columns=["existing_column"],
-        )
-        ```
-
-    Attributes:
-        generate_fn: A callable that takes a pandas DataFrame and returns a DataFrame with
-            the new column(s) added. The signature is `Callable[[pd.DataFrame], pd.DataFrame]`.
+     Attributes:
+        generate_fn: A callable that processes a single row. Takes a dict and returns a dict
+            with the new column(s) added. Optionally accepts a CustomColumnContext for LLM access.
         input_columns: List of column names that must exist before this column can be generated.
-            These columns will be available in the input DataFrame passed to generate_fn.
+            These columns will be available in the input row dict passed to generate_fn.
         output_columns: List of additional column names that generate_fn will create (besides
             the primary column specified by `name`). Useful when the function generates multiple
             columns at once.
-        kwargs: Optional dictionary of additional parameters to pass to the generate function.
-            These will be available to the generator for customization.
+        kwargs: Optional dictionary of additional parameters accessible via ctx.kwargs.
         column_type: Discriminator field, always "custom" for this configuration type.
     """
 
-    generate_fn: Any = Field(
-        description="Function (Callable[[pd.DataFrame], pd.DataFrame]) to generate the column"
-    )
+    generate_fn: Any = Field(description="Function to generate the column (row: dict) -> dict")
     input_columns: list[str] = Field(
         default_factory=list,
         description="List of column names required as input for generation",
@@ -553,6 +540,6 @@ class CustomColumnConfig(SingleColumnConfig):
         if not callable(self.generate_fn):
             raise InvalidConfigError(
                 f"🛑 `generate_fn` must be a callable for custom column '{self.name}'. "
-                f"Expected a function with signature Callable[[pd.DataFrame], pd.DataFrame]."
+                f"Expected a function with signature (row: dict) -> dict or (row: dict, ctx) -> dict."
             )
         return self
