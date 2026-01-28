@@ -4,9 +4,6 @@ instances:
 title: NeMo Data Designer
 
 versions:
-  - display-name: v0.4.0 (Preview)
-    path: versions/v0.4.0.yml
-    slug: v0.4.0
   - display-name: v0.3.3
     path: versions/v0.3.3.yml
     slug: v0.3.3
