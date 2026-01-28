@@ -16,23 +16,52 @@ Both custom columns and [plugins](../plugins/overview.md) allow custom generatio
 !!! tip "When to use which"
     Start with custom columns for quick iteration. Convert to a plugin when you need to share the logic across projects or with other users.
 
-## Function Signatures
+## Generation Strategies
 
-Two signatures are supported:
+Custom columns support two strategies:
+
+| Strategy | Function Signature | Parallelization | Use Case |
+|----------|-------------------|-----------------|----------|
+| `cell_by_cell` (default) | `(row: dict) -> dict` | Framework handles it | LLM calls, I/O-bound work |
+| `full_column` | `(df: DataFrame) -> DataFrame` | User handles via `generate_text_batch()` | Vectorized ops, cross-row access |
+
+### cell_by_cell (default)
+
+The framework calls your function once per row and parallelizes execution automatically:
 
 ```python
-# Simple: no LLM access
-def my_generator(row: dict) -> dict:
-    row["new_column"] = transform(row["input"])
+def my_generator(row: dict, ctx: dd.CustomColumnContext) -> dict:
+    row["result"] = ctx.generate_text(model_alias="my-model", prompt="...")
     return row
 
-# With context: LLM and resource access
-def my_generator(row: dict, ctx: dd.CustomColumnContext) -> dict:
-    row["new_column"] = ctx.generate_text(model_alias="my-model", prompt="...")
-    return row
+dd.CustomColumnConfig(
+    name="result",
+    generate_fn=my_generator,
+    input_columns=["input"],
+    # strategy="cell_by_cell" is the default
+)
 ```
 
-The `ctx` argument is a `CustomColumnContext` object that provides access to configured LLM models and custom parameters—add it when your function needs to call LLMs or access `kwargs`. The framework parallelizes execution across rows automatically.
+### full_column
+
+The framework calls your function once with the entire DataFrame. Use `generate_text_batch()` to parallelize LLM calls:
+
+```python
+import pandas as pd
+
+def batch_generator(df: pd.DataFrame, ctx: dd.CustomColumnContext) -> pd.DataFrame:
+    prompts = [f"Process: {val}" for val in df["input"]]
+    results = ctx.generate_text_batch(model_alias="my-model", prompts=prompts)
+    df["result"] = results
+    return df
+
+dd.CustomColumnConfig(
+    name="result",
+    generate_fn=batch_generator,
+    input_columns=["input"],
+    strategy="full_column",
+)
+```
 
 ## Basic Example
 
@@ -77,6 +106,8 @@ config_builder.add_column(
 
 ## CustomColumnContext API
 
+The `ctx` argument provides access to LLM models and custom parameters.
+
 ### Properties
 
 | Property | Type | Description |
@@ -87,7 +118,9 @@ config_builder.add_column(
 
 ### Methods
 
-**`generate_text(model_alias, prompt, system_prompt=None)`** — Returns generated text as a string.
+**`generate_text(model_alias, prompt, system_prompt=None)`** — Generate text for a single prompt. Returns a string.
+
+**`generate_text_batch(model_alias, prompts, system_prompt=None, max_workers=8)`** — Generate text for multiple prompts in parallel. Returns a list of strings. Use this in `full_column` strategy.
 
 **`get_model(model_alias)`** — Returns a `ModelFacade` for advanced control:
 
@@ -106,6 +139,7 @@ response, metadata = model.generate(
 |-----------|------|----------|-------------|
 | `name` | str | Yes | Primary column name |
 | `generate_fn` | Callable | Yes | Generator function |
+| `strategy` | str | No | `"cell_by_cell"` (default) or `"full_column"` |
 | `input_columns` | list[str] | No | Required input columns |
 | `output_columns` | list[str] | No | Additional columns created |
 | `kwargs` | dict | No | Custom parameters for `ctx.kwargs` |

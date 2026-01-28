@@ -483,26 +483,32 @@ class CustomColumnConfig(SingleColumnConfig):
     Custom columns allow users to provide their own generation logic via a callable function.
     This provides a flexible way to implement custom column generation without creating a full plugin.
 
-    The generate function receives a single row (as a dict) and must return the row with the
-    new column(s) added. The framework automatically parallelizes execution across rows.
+    Two strategies are supported:
+        - cell_by_cell (default): Function receives a single row (dict), framework parallelizes.
+        - full_column: Function receives the entire batch (DataFrame) for vectorized operations.
 
-    Two function signatures are supported:
-        - fn(row: dict) -> dict                            # Simple, no context needed
-        - fn(row: dict, ctx: CustomColumnContext) -> dict  # With LLM/resource access
+    For cell_by_cell, two function signatures are supported:
+        - fn(row: dict) -> dict
+        - fn(row: dict, ctx: CustomColumnContext) -> dict
+
+    For full_column:
+        - fn(df: pd.DataFrame) -> pd.DataFrame
+        - fn(df: pd.DataFrame, ctx: CustomColumnContext) -> pd.DataFrame
 
      Attributes:
-        generate_fn: A callable that processes a single row. Takes a dict and returns a dict
-            with the new column(s) added. Optionally accepts a CustomColumnContext for LLM access.
+        generate_fn: A callable that processes data. Signature depends on strategy.
+        strategy: Generation strategy - "cell_by_cell" (row-based) or "full_column" (batch-based).
         input_columns: List of column names that must exist before this column can be generated.
-            These columns will be available in the input row dict passed to generate_fn.
-        output_columns: List of additional column names that generate_fn will create (besides
-            the primary column specified by `name`). Useful when the function generates multiple
-            columns at once.
+        output_columns: List of additional column names that generate_fn will create.
         kwargs: Optional dictionary of additional parameters accessible via ctx.kwargs.
         column_type: Discriminator field, always "custom" for this configuration type.
     """
 
-    generate_fn: Any = Field(description="Function to generate the column (row: dict) -> dict")
+    generate_fn: Any = Field(description="Function to generate the column")
+    strategy: Literal["cell_by_cell", "full_column"] = Field(
+        default="cell_by_cell",
+        description="Generation strategy: 'cell_by_cell' for row-based or 'full_column' for batch-based",
+    )
     input_columns: list[str] = Field(
         default_factory=list,
         description="List of column names required as input for generation",
