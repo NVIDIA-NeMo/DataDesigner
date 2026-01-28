@@ -10,7 +10,6 @@ import logging
 import time
 import uuid
 from pathlib import Path
-from threading import Lock
 from typing import TYPE_CHECKING, Callable
 
 from data_designer.config.column_types import ColumnConfigT
@@ -222,83 +221,22 @@ class ColumnWiseDatasetBuilder:
                 "generator so concurrency through threads is not supported."
             )
 
-        total_records = self.batch_manager.num_records_batch
-        progress_interval = max(1, (total_records + 9) // 10) if total_records > 0 else 1
-        progress_label = f"{generator.config.column_type} column '{generator.config.name}'"
-        progress_lock = Lock()
-        start_time = time.perf_counter()
-        completed = 0
-        success = 0
-        failed = 0
-        next_log_at = progress_interval
-
-        def _log_progress(snapshot: tuple[int, int, int]) -> None:
-            completed_count, success_count, failed_count = snapshot
-            elapsed = time.perf_counter() - start_time
-            rate = completed_count / elapsed if elapsed > 0 else 0.0
-            remaining = max(0, total_records - completed_count)
-            eta = f"{(remaining / rate):.1f}s" if rate > 0 else "unknown"
-            percent = (completed_count / total_records) * 100 if total_records else 100.0
-            logger.info(
-                "📈 %s progress: %d/%d (%.0f%%) complete, %d ok, %d failed, %.2f rec/s, eta %s",
-                progress_label,
-                completed_count,
-                total_records,
-                percent,
-                success_count,
-                failed_count,
-                rate,
-                eta,
-            )
-
-        def _update_progress(*, success_item: bool) -> None:
-            nonlocal completed, success, failed, next_log_at
-            snapshot: tuple[int, int, int] | None = None
-            with progress_lock:
-                completed += 1
-                if success_item:
-                    success += 1
-                else:
-                    failed += 1
-                if completed >= next_log_at:
-                    snapshot = (completed, success, failed)
-                    while next_log_at <= completed:
-                        next_log_at += progress_interval
-            if snapshot is not None:
-                _log_progress(snapshot)
-
-        def _result_callback(result: dict, *, context: dict | None = None) -> None:
-            self._worker_result_callback(result, context=context)
-            _update_progress(success_item=True)
-
-        def _error_callback(exc: Exception, *, context: dict | None = None) -> None:
-            self._worker_error_callback(exc, context=context)
-            _update_progress(success_item=False)
-
         logger.info(
             f"🐙 Processing {generator.config.column_type} column '{generator.config.name}' "
             f"with {max_workers} concurrent workers"
-        )
-        logger.info(
-            "🧭 %s will report progress every %d record(s).",
-            progress_label,
-            progress_interval,
         )
         settings = self._resource_provider.run_config
         with ConcurrentThreadExecutor(
             max_workers=max_workers,
             column_name=generator.config.name,
-            result_callback=_result_callback,
-            error_callback=_error_callback,
+            result_callback=self._worker_result_callback,
+            error_callback=self._worker_error_callback,
             shutdown_error_rate=settings.shutdown_error_rate,
             shutdown_error_window=settings.shutdown_error_window,
             disable_early_shutdown=settings.disable_early_shutdown,
         ) as executor:
             for i, record in self.batch_manager.iter_current_batch():
                 executor.submit(lambda record: generator.generate(record), record, context={"index": i})
-
-        if total_records > 0 and completed < total_records:
-            _log_progress((completed, success, failed))
 
         if len(self._records_to_drop) > 0:
             self.batch_manager.drop_records(self._records_to_drop)
