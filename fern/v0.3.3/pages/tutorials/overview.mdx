@@ -1,0 +1,85 @@
+---
+title: 📓 Tutorials
+description: Step-by-step tutorials for learning Data Designer.
+---
+
+Welcome to the Data Designer tutorials! These interactive notebooks guide you through the core concepts and features of Data Designer.
+
+## Getting Started
+
+Each tutorial builds on the previous one, so we recommend following them in order:
+
+<Cards>
+  <Card
+    title="The Basics"
+    icon="graduation-cap"
+    href="/docs/tutorials/the-basics"
+  >
+    Learn the fundamentals of Data Designer by generating a simple product review dataset.
+    
+    **Topics covered:**
+    - Sampler columns for categorical and numerical data
+    - LLM-generated text columns
+    - Previewing and iterating on your dataset
+  </Card>
+  <Card
+    title="Structured Outputs"
+    icon="brackets-curly"
+    href="/docs/tutorials/structured-outputs"
+  >
+    Learn advanced data generation using structured outputs and Jinja expressions.
+    
+    **Topics covered:**
+    - Pydantic models for structured output schemas
+    - Expression columns with Jinja2 templates
+    - Conditional logic in prompts
+  </Card>
+  <Card
+    title="Seeding with a Dataset"
+    icon="seedling"
+    href="/docs/tutorials/seeding-with-dataset"
+  >
+    Bootstrap generation from existing data to create domain-grounded synthetic datasets.
+    
+    **Topics covered:**
+    - Loading seed datasets from local files
+    - Referencing seed data in prompts
+    - Combining real and synthetic data
+  </Card>
+  <Card
+    title="Images as Context"
+    icon="image"
+    href="/docs/tutorials/images-as-context"
+  >
+    Use vision-language models to generate text descriptions from images.
+    
+    **Topics covered:**
+    - Processing images for model input
+    - Vision model configuration
+    - Document summarization workflows
+  </Card>
+</Cards>
+
+## Running the Tutorials
+
+Each tutorial is available as an interactive Jupyter notebook that you can run in Google Colab. Click the "Open in Colab" badge at the top of each tutorial to launch it directly in your browser.
+
+### Prerequisites
+
+Before running the tutorials, make sure you have:
+
+1. **An API key** from one of the supported providers:
+   - [NVIDIA API Key](https://build.nvidia.com) (recommended)
+   - [OpenAI API Key](https://platform.openai.com/api-keys)
+   - [OpenRouter API Key](https://openrouter.ai)
+
+2. **Set your API key** as an environment variable or in the notebook:
+   ```bash
+   export NVIDIA_API_KEY="your-api-key-here"
+   ```
+
+## Additional Resources
+
+- **[Quick Start Guide](/docs/quick-start)**: A condensed introduction to Data Designer
+- **[Use Case Recipes](/docs/recipes)**: Complete working examples for specific use cases
+- **[API Reference](/api/models)**: Detailed documentation for all configuration options
