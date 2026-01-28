@@ -62,7 +62,7 @@ def test_dag_construction():
     column_configs.append(
         ExpressionColumnConfig(
             name="test_code_and_depends_on_validation_reasoning_traces",
-            expr="{{ test_code__reasoning_trace }} {{ depends_on_validation }}",
+            expr="{{ test_code__trace }} {{ depends_on_validation }}",
         )
     )
     column_configs.append(

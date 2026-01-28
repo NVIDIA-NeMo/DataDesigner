@@ -85,7 +85,7 @@ def test_llm_text_column_config():
     assert llm_text_column_config.system_prompt == stub_system_prompt
     assert llm_text_column_config.column_type == DataDesignerColumnType.LLM_TEXT
     assert set(llm_text_column_config.required_columns) == {"some_column", "some_other_column"}
-    assert llm_text_column_config.side_effect_columns == ["test_llm_text__reasoning_trace"]
+    assert llm_text_column_config.side_effect_columns == ["test_llm_text__trace"]
 
     # invalid prompt
     with pytest.raises(

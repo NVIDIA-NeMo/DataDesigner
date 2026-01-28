@@ -81,4 +81,22 @@ Each recipe is a self-contained example that can be run independently.
     [:material-book-open-page-variant: View Recipe](qa_and_chat/multi_turn_chat.md){ .md-button }
     [Download Code :octicons-download-24:](../assets/recipes/qa_and_chat/multi_turn_chat.py){ .md-button download="multi_turn_chat.py" }
 
+
+-   :material-tools:{ .lg .middle } **D&D Rules QA (MCP + Tool Use)**
+
+    Generate grounded Q&A pairs from the D&D rules using MCP tool calls and document search.
+
+    ---
+
+    **Demonstrates:**
+
+    - MCP tool calling
+    - Retrieval-grounded QA
+    - Document indexing
+
+    ---
+
+    [:material-book-open-page-variant: View Recipe](mcp_and_tooluse/dnd_rules_qa.md){ .md-button }
+    [Download Code :octicons-download-24:](../assets/recipes/mcp_and_tooluse/dnd_rules_qa.py){ .md-button download="dnd_rules_qa.py" }
+
 </div>

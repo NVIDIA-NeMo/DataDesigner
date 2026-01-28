@@ -2,18 +2,40 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections import namedtuple
+from types import SimpleNamespace
+from typing import Any
 from unittest.mock import patch
 
 import pytest
 from litellm.types.utils import Choices, EmbeddingResponse, Message, ModelResponse
 
+from data_designer.config.mcp import MCPToolConfig
+from data_designer.engine.mcp.errors import MCPConfigurationError
 from data_designer.engine.models.errors import ModelGenerationValidationFailureError
 from data_designer.engine.models.facade import ModelFacade
 from data_designer.engine.models.parsers.errors import ParserException
+from data_designer.engine.models.utils import ChatMessage
 
 MockMessage = namedtuple("MockMessage", ["content"])
 MockChoice = namedtuple("MockChoice", ["message"])
 MockCompletion = namedtuple("MockCompletion", ["choices"])
+
+
+class FakeMessage:
+    def __init__(self, content: str | None, tool_calls: list[dict] | None = None) -> None:
+        self.content = content
+        self.tool_calls = tool_calls
+        self.reasoning_content = None
+
+
+class FakeChoice:
+    def __init__(self, message: FakeMessage) -> None:
+        self.message = message
+
+
+class FakeResponse:
+    def __init__(self, message: FakeMessage) -> None:
+        self.choices = [FakeChoice(message)]
 
 
 def mock_oai_response_object(response_text: str) -> MockCompletion:
@@ -30,8 +52,8 @@ def stub_model_facade(stub_model_configs, stub_secrets_resolver, stub_model_prov
 
 
 @pytest.fixture
-def stub_completion_messages():
-    return [{"role": "user", "content": "test"}]
+def stub_completion_messages() -> list[ChatMessage]:
+    return [ChatMessage.user("test")]
 
 
 @pytest.fixture
@@ -93,17 +115,29 @@ def test_generate(
 @pytest.mark.parametrize(
     "system_prompt,expected_messages",
     [
-        ("", [{"role": "user", "content": "does not matter"}]),
-        ("hello!", [{"content": "hello!", "role": "system"}, {"role": "user", "content": "does not matter"}]),
+        ("", [ChatMessage.user("does not matter")]),
+        ("hello!", [ChatMessage.system("hello!"), ChatMessage.user("does not matter")]),
     ],
 )
 @patch("data_designer.engine.models.facade.ModelFacade.completion", autospec=True)
-def test_generate_with_system_prompt(mock_completion, stub_model_facade, system_prompt, expected_messages):
-    mock_completion.return_value = ModelResponse(choices=Choices(message=Message(content="Hello!")))
+def test_generate_with_system_prompt(
+    mock_completion: Any,
+    stub_model_facade: ModelFacade,
+    system_prompt: str,
+    expected_messages: list[ChatMessage],
+) -> None:
+    # Capture messages at call time since they get mutated after the call
+    captured_messages = []
+
+    def capture_and_return(*args: Any, **kwargs: Any) -> ModelResponse:
+        captured_messages.append(list(args[1]))  # Copy the messages list
+        return ModelResponse(choices=Choices(message=Message(content="Hello!")))
+
+    mock_completion.side_effect = capture_and_return
 
     stub_model_facade.generate(prompt="does not matter", system_prompt=system_prompt, parser=lambda x: x)
     assert mock_completion.call_count == 1
-    assert mock_completion.call_args[0][1] == expected_messages
+    assert captured_messages[0] == expected_messages
 
 
 def test_model_alias_property(stub_model_facade, stub_model_configs):
@@ -151,26 +185,31 @@ def test_consolidate_kwargs(stub_model_configs, stub_model_facade):
 )
 @patch("data_designer.engine.models.facade.CustomRouter.completion", autospec=True)
 def test_completion_success(
-    mock_router_completion,
-    stub_completion_messages,
-    stub_model_configs,
-    stub_model_facade,
-    stub_expected_completion_response,
-    skip_usage_tracking,
-):
+    mock_router_completion: Any,
+    stub_completion_messages: list[ChatMessage],
+    stub_model_configs: Any,
+    stub_model_facade: ModelFacade,
+    stub_expected_completion_response: ModelResponse,
+    skip_usage_tracking: bool,
+) -> None:
     mock_router_completion.side_effect = lambda self, model, messages, **kwargs: stub_expected_completion_response
     result = stub_model_facade.completion(stub_completion_messages, skip_usage_tracking=skip_usage_tracking)
+    expected_messages = [message.to_dict() for message in stub_completion_messages]
     assert result == stub_expected_completion_response
     assert mock_router_completion.call_count == 1
     assert mock_router_completion.call_args[1] == {
         "model": "stub-model-text",
-        "messages": stub_completion_messages,
+        "messages": expected_messages,
         **stub_model_configs[0].inference_parameters.generate_kwargs,
     }
 
 
 @patch("data_designer.engine.models.facade.CustomRouter.completion", autospec=True)
-def test_completion_with_exception(mock_router_completion, stub_completion_messages, stub_model_facade):
+def test_completion_with_exception(
+    mock_router_completion: Any,
+    stub_completion_messages: list[ChatMessage],
+    stub_model_facade: ModelFacade,
+) -> None:
     mock_router_completion.side_effect = Exception("Router error")
 
     with pytest.raises(Exception, match="Router error"):
@@ -179,15 +218,15 @@ def test_completion_with_exception(mock_router_completion, stub_completion_messa
 
 @patch("data_designer.engine.models.facade.CustomRouter.completion", autospec=True)
 def test_completion_with_kwargs(
-    mock_router_completion,
-    stub_completion_messages,
-    stub_model_configs,
-    stub_model_facade,
-    stub_expected_completion_response,
-):
+    mock_router_completion: Any,
+    stub_completion_messages: list[ChatMessage],
+    stub_model_configs: Any,
+    stub_model_facade: ModelFacade,
+    stub_expected_completion_response: ModelResponse,
+) -> None:
     captured_kwargs = {}
 
-    def mock_completion(self, model, messages, **kwargs):
+    def mock_completion(self: Any, model: str, messages: list[dict[str, Any]], **kwargs: Any) -> ModelResponse:
         captured_kwargs.update(kwargs)
         return stub_expected_completion_response
 
@@ -231,3 +270,80 @@ def test_generate_text_embeddings_with_kwargs(
     kwargs = {"temperature": 0.7, "max_tokens": 100, "input_type": "query"}
     _ = stub_model_facade.generate_text_embeddings(["test1", "test2"], **kwargs)
     assert captured_kwargs == {**stub_model_configs[0].inference_parameters.generate_kwargs, **kwargs}
+
+
+def test_generate_with_mcp_tools(
+    stub_model_configs: Any,
+    stub_secrets_resolver: Any,
+    stub_model_provider_registry: Any,
+) -> None:
+    tool_config = MCPToolConfig(server_name="tools", tool_names=["lookup"], max_tool_calls=3)
+    tool_call = {
+        "id": "call-1",
+        "type": "function",
+        "function": {"name": "lookup", "arguments": '{"query": "foo"}'},
+    }
+    responses = [
+        FakeResponse(FakeMessage(content=None, tool_calls=[tool_call])),
+        FakeResponse(FakeMessage(content="final result")),
+    ]
+    captured_calls: list[tuple[list[ChatMessage], dict[str, Any]]] = []
+
+    class FakeMCPManager:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str, dict]] = []
+
+        def get_tool_schemas(self, config: MCPToolConfig) -> list[dict]:
+            return [
+                {
+                    "type": "function",
+                    "function": {"name": "lookup", "description": "Lookup", "parameters": {"type": "object"}},
+                }
+            ]
+
+        def call_tool(
+            self,
+            server_name: str,
+            tool_name: str,
+            arguments: dict,
+            *,
+            timeout_sec: float | None = None,
+        ) -> SimpleNamespace:
+            self.calls.append((server_name, tool_name, arguments, timeout_sec))
+            return SimpleNamespace(content="tool-output")
+
+    def _completion(self: Any, messages: list[ChatMessage], **kwargs: Any) -> FakeResponse:
+        captured_calls.append((messages, kwargs))
+        return responses.pop(0)
+
+    model = ModelFacade(
+        model_config=stub_model_configs[0],
+        secret_resolver=stub_secrets_resolver,
+        model_provider_registry=stub_model_provider_registry,
+        mcp_client_manager=FakeMCPManager(),
+    )
+
+    with patch.object(ModelFacade, "completion", new=_completion):
+        result, _ = model.generate(prompt="question", parser=lambda x: x, tool_config=tool_config)
+
+    assert result == "final result"
+    assert len(captured_calls) == 2
+    assert "tools" in captured_calls[0][1]
+    assert captured_calls[0][1]["tools"][0]["function"]["name"] == "lookup"
+    assert any(message.role == "tool" for message in captured_calls[1][0])
+    assert model._mcp_client_manager.calls == [("tools", "lookup", {"query": "foo"}, None)]
+
+
+def test_generate_with_tools_missing_manager(
+    stub_model_configs, stub_secrets_resolver, stub_model_provider_registry
+) -> None:
+    tool_config = MCPToolConfig(server_name="tools", tool_names=["lookup"])
+    model = ModelFacade(
+        model_config=stub_model_configs[0],
+        secret_resolver=stub_secrets_resolver,
+        model_provider_registry=stub_model_provider_registry,
+        mcp_client_manager=None,
+    )
+
+    with pytest.raises(MCPConfigurationError):
+        model.generate(prompt="question", parser=lambda x: x, tool_config=tool_config)

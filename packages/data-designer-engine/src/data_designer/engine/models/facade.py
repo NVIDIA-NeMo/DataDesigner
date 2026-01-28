@@ -8,7 +8,10 @@ from collections.abc import Callable
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
+from data_designer.config.mcp import MCPToolConfig
 from data_designer.config.models import GenerationType, ModelConfig, ModelProvider
+from data_designer.engine.mcp.errors import MCPToolError
+from data_designer.engine.mcp.tool_executor import MCPToolExecutor
 from data_designer.engine.model_provider import ModelProviderRegistry
 from data_designer.engine.models.errors import (
     GenerationValidationFailureError,
@@ -18,12 +21,14 @@ from data_designer.engine.models.errors import (
 from data_designer.engine.models.litellm_overrides import CustomRouter, LiteLLMRouterDefaultKwargs
 from data_designer.engine.models.parsers.errors import ParserException
 from data_designer.engine.models.usage import ModelUsageStats, RequestUsageStats, TokenUsageStats
-from data_designer.engine.models.utils import prompt_to_messages, str_to_message
+from data_designer.engine.models.utils import ChatMessage, prompt_to_messages
 from data_designer.engine.secret_resolver import SecretResolver
 from data_designer.lazy_heavy_imports import litellm
 
 if TYPE_CHECKING:
     import litellm
+
+    from data_designer.engine.mcp.manager import MCPClientManager
 
 logger = logging.getLogger(__name__)
 
@@ -34,10 +39,14 @@ class ModelFacade:
         model_config: ModelConfig,
         secret_resolver: SecretResolver,
         model_provider_registry: ModelProviderRegistry,
+        *,
+        mcp_client_manager: MCPClientManager | None = None,
     ):
         self._model_config = model_config
         self._secret_resolver = secret_resolver
         self._model_provider_registry = model_provider_registry
+        self._mcp_client_manager = mcp_client_manager
+        self._tool_executor = MCPToolExecutor(mcp_client_manager)
         self._litellm_deployment = self._get_litellm_deployment(model_config)
         self._router = CustomRouter([self._litellm_deployment], **LiteLLMRouterDefaultKwargs().model_dump())
         self._usage_stats = ModelUsageStats()
@@ -67,16 +76,17 @@ class ModelFacade:
         return self._usage_stats
 
     def completion(
-        self, messages: list[dict[str, str]], skip_usage_tracking: bool = False, **kwargs
+        self, messages: list[ChatMessage], skip_usage_tracking: bool = False, **kwargs
     ) -> litellm.ModelResponse:
+        message_payloads = [message.to_dict() for message in messages]
         logger.debug(
             f"Prompting model {self.model_name!r}...",
-            extra={"model": self.model_name, "messages": messages},
+            extra={"model": self.model_name, "messages": message_payloads},
         )
         response = None
         kwargs = self.consolidate_kwargs(**kwargs)
         try:
-            response = self._router.completion(model=self.model_name, messages=messages, **kwargs)
+            response = self._router.completion(model=self.model_name, messages=message_payloads, **kwargs)
             logger.debug(
                 f"Received completion from model {self.model_name!r}",
                 extra={
@@ -144,12 +154,13 @@ class ModelFacade:
         parser: Callable[[str], Any],
         system_prompt: str | None = None,
         multi_modal_context: list[dict[str, Any]] | None = None,
+        tool_config: MCPToolConfig | None = None,
         max_correction_steps: int = 0,
         max_conversation_restarts: int = 0,
         skip_usage_tracking: bool = False,
         purpose: str | None = None,
         **kwargs,
-    ) -> tuple[Any, str | None]:
+    ) -> tuple[Any, list[ChatMessage]]:
         """Generate a parsed output with correction steps.
 
         This generation call will attempt to generate an output which is
@@ -170,6 +181,8 @@ class ModelFacade:
                 prompt.
             parser (func(str) -> Any): A function applied to the LLM response which processes
                 an LLM response into some output object.
+            tool_config (MCPToolConfig | None): Optional MCP tool configuration. When provided,
+                the model may call permitted tools from the configured MCP server.
             max_correction_steps (int): Maximum number of correction rounds permitted
                 within a single conversation. Note, many rounds can lead to increasing
                 context size without necessarily improving performance -- small language
@@ -182,12 +195,20 @@ class ModelFacade:
                 It is expected to be used by the @catch_llm_exceptions decorator.
             **kwargs: Additional arguments to pass to the model.
 
+        Returns:
+            A tuple containing:
+                - The parsed output object from the parser.
+                - The full trace of ChatMessage entries in the conversation, including any tool calls,
+                  corrections, and reasoning traces. Callers can decide whether to store this.
+
         Raises:
             GenerationValidationFailureError: If the maximum number of retries or
                 correction steps are met and the last response failures on
                 generation validation.
         """
         output_obj = None
+        tool_schemas = None
+        tool_calls_used = 0
         curr_num_correction_steps = 0
         curr_num_restarts = 0
         curr_generation_attempt = 0
@@ -196,48 +217,75 @@ class ModelFacade:
         starting_messages = prompt_to_messages(
             user_prompt=prompt, system_prompt=system_prompt, multi_modal_context=multi_modal_context
         )
-        messages = deepcopy(starting_messages)
+        messages: list[ChatMessage] = deepcopy(starting_messages)
+
+        if tool_config is not None:
+            tool_schemas = self._tool_executor.get_tool_schemas(tool_config)
 
         while True:
+            completion_kwargs = dict(kwargs)
+            if tool_schemas is not None:
+                completion_kwargs["tools"] = tool_schemas
+
+            completion_response = self.completion(
+                messages,
+                skip_usage_tracking=skip_usage_tracking,
+                **completion_kwargs,
+            )
+
+            # Process any tool calls in the response (handles parallel tool calling)
+            if tool_config is not None:
+                execution_result = self._tool_executor.process_completion_response(completion_response, tool_config)
+                if execution_result is not None:
+                    tool_calls_used += execution_result.tool_calls_count
+                    if tool_calls_used > tool_config.max_tool_calls:
+                        raise MCPToolError(
+                            f"Exceeded maximum MCP tool calls ({tool_config.max_tool_calls}) for server "
+                            f"{tool_config.server_name!r}."
+                        )
+
+                    messages.append(execution_result.assistant_message)
+                    messages.extend(execution_result.tool_messages)
+                    continue
+
             curr_generation_attempt += 1
             logger.debug(
                 f"Starting generation attempt {curr_generation_attempt} of {max_generation_attempts} attempts."
             )
 
-            completion_response = self.completion(messages, skip_usage_tracking=skip_usage_tracking, **kwargs)
+            # No tool calls remaining to process
             response = completion_response.choices[0].message.content or ""
             reasoning_trace = getattr(completion_response.choices[0].message, "reasoning_content", None)
-
-            if reasoning_trace:
-                ## There are generally some extra newlines with how these get parsed.
-                response = response.strip()
-                reasoning_trace = reasoning_trace.strip()
-
             curr_num_correction_steps += 1
 
             try:
                 output_obj = parser(response)  # type: ignore - if not a string will cause a ParserException below
+                messages.append(ChatMessage.assistant(content=response, reasoning_content=reasoning_trace or None))
                 break
             except ParserException as exc:
                 if max_correction_steps == 0 and max_conversation_restarts == 0:
                     raise GenerationValidationFailureError(
                         "Unsuccessful generation attempt. No retries were attempted."
                     ) from exc
+
                 if curr_num_correction_steps <= max_correction_steps:
                     ## Add turns to loop-back errors for correction
                     messages += [
-                        str_to_message(content=response, role="assistant"),
-                        str_to_message(content=str(get_exception_primary_cause(exc)), role="user"),
+                        ChatMessage.assistant(content=response, reasoning_content=reasoning_trace or None),
+                        ChatMessage.user(content=str(get_exception_primary_cause(exc))),
                     ]
+
                 elif curr_num_restarts < max_conversation_restarts:
                     curr_num_correction_steps = 0
                     curr_num_restarts += 1
                     messages = deepcopy(starting_messages)
+
                 else:
                     raise GenerationValidationFailureError(
                         f"Unsuccessful generation attempt despite {max_generation_attempts} attempts."
                     ) from exc
-        return output_obj, reasoning_trace
+
+        return output_obj, messages
 
     def _get_litellm_deployment(self, model_config: ModelConfig) -> litellm.DeploymentTypedDict:
         provider = self._model_provider_registry.get_provider(model_config.provider)
