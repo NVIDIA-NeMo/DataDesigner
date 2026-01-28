@@ -1,12 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""MCP + Tool Use Recipe (D&D Q&A) with BM25S Lexical Search
+"""MCP + Tool Use Recipe: Document Q&A with BM25S Lexical Search
 
 This recipe demonstrates an end-to-end MCP tool-calling workflow:
 
-1) Download the Dungeons & Dragons v1 rules PDF.
-2) Index it with BM25S for fast lexical search.
+1) Load one or more PDF documents from URLs or local paths.
+2) Index them with BM25S for fast lexical search.
 3) Use Data Designer tool calls (`search_docs`) to generate grounded Q&A pairs.
 
 Prerequisites:
@@ -17,35 +17,42 @@ Run:
     # Install recipe dependencies (preserves workspace packages)
     make install-dev-recipes
 
-    # Then run the recipe
-    uv run docs/assets/recipes/mcp_and_tooluse/dnd_rules_qa.py
+    # Then run the recipe (uses default sample PDF)
+    uv run docs/assets/recipes/mcp_and_tooluse/pdf_qa.py
+
+    # With custom PDFs (can specify multiple)
+    uv run docs/assets/recipes/mcp_and_tooluse/pdf_qa.py --pdf /path/to/doc.pdf
+    uv run docs/assets/recipes/mcp_and_tooluse/pdf_qa.py --pdf https://example.com/doc.pdf --pdf ./local.pdf
 
     # Or run all recipes via Makefile
     make test-run-recipes
 
 Common flags:
     # Generate a few Q&A pairs
-    uv run docs/assets/recipes/mcp_and_tooluse/dnd_rules_qa.py --num-records 3
+    uv run docs/assets/recipes/mcp_and_tooluse/pdf_qa.py --num-records 3
 
     # Use a different model
-    uv run docs/assets/recipes/mcp_and_tooluse/dnd_rules_qa.py --model-alias gpt-4o
+    uv run docs/assets/recipes/mcp_and_tooluse/pdf_qa.py --model-alias gpt-4o
 
 Server mode (used internally by Data Designer):
-    python docs/assets/recipes/mcp_and_tooluse/dnd_rules_qa.py serve
+    python docs/assets/recipes/mcp_and_tooluse/pdf_qa.py serve
 
 Notes:
-- Downloads are stored locally under this directory.
-- The BM25S index is built at server startup from the PDF.
+- URLs are streamed directly into memory (no local download required).
+- Local file paths are read directly from disk.
+- The BM25S index is built at server startup from all provided PDFs.
 """
 
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import os
 import sys
 from pathlib import Path
-from urllib.request import urlretrieve
+from urllib.parse import urlparse
+from urllib.request import urlopen
 
 import bm25s
 import fitz
@@ -56,17 +63,16 @@ import data_designer.config as dd
 from data_designer.config.preview_results import PreviewResults
 from data_designer.interface import DataDesigner
 
-PDF_URL = "https://idiscepolidellamanticora.wordpress.com/wp-content/uploads/2012/09/tsr2010-players-handbook.pdf"
-PDF_FILENAME = "tsr2010-players-handbook.pdf"
-MCP_SERVER_NAME = "dnd-bm25-search"
+DEFAULT_PDF_URL = "https://research.nvidia.com/labs/nemotron/files/NVIDIA-Nemotron-3-Nano-Technical-Report.pdf"
+MCP_SERVER_NAME = "doc-bm25-search"
 
 # Global state for the BM25 index (populated at server startup)
 _bm25_retriever: bm25s.BM25 | None = None
 _corpus: list[dict[str, str]] = []
 
 
-class DndQAPair(BaseModel):
-    question: str = Field(..., description="A question grounded in the D&D rules text.")
+class QAPair(BaseModel):
+    question: str = Field(..., description="A question grounded in the document text.")
     answer: str = Field(..., description="A concise answer grounded in the supporting passage.")
     supporting_passage: str = Field(
         ..., description="A short excerpt (2-4 sentences) copied from the search result that supports the answer."
@@ -76,29 +82,48 @@ class DndQAPair(BaseModel):
     )
 
 
-class DndTopicList(BaseModel):
+class TopicList(BaseModel):
     topics: list[str] = Field(
         ...,
-        description="High-level topics from the D&D rulebook.",
+        description="High-level topics covered by the document.",
     )
 
 
-def download_pdf(pdf_url: str, destination_dir: Path) -> Path:
-    """Download the PDF if not already cached."""
-    destination_dir.mkdir(parents=True, exist_ok=True)
-    pdf_path = destination_dir / PDF_FILENAME
-    if not pdf_path.exists() or pdf_path.stat().st_size == 0:
-        urlretrieve(pdf_url, pdf_path)
-    return pdf_path
+def _is_url(path_or_url: str) -> bool:
+    """Check if the given string is a URL."""
+    parsed = urlparse(path_or_url)
+    return parsed.scheme in ("http", "https")
 
 
-def extract_pdf_text(pdf_path: Path) -> list[dict[str, str]]:
-    """Extract text from PDF, returning a list of passages with metadata.
+def _get_source_name(path_or_url: str) -> str:
+    """Extract a human-readable source name from a path or URL."""
+    if _is_url(path_or_url):
+        parsed = urlparse(path_or_url)
+        return Path(parsed.path).name or parsed.netloc
+    return Path(path_or_url).name
+
+
+def extract_pdf_text(path_or_url: str) -> list[dict[str, str]]:
+    """Extract text from a PDF file or URL, returning a list of passages with metadata.
 
     Each passage corresponds to a page from the PDF.
+
+    Args:
+        path_or_url: Either a local file path or a URL to a PDF document.
+            URLs are streamed directly into memory without saving to disk.
+
+    Returns:
+        List of passage dictionaries with 'text', 'page', and 'source' keys.
     """
     passages: list[dict[str, str]] = []
-    doc = fitz.open(pdf_path)
+    source_name = _get_source_name(path_or_url)
+
+    if _is_url(path_or_url):
+        with urlopen(path_or_url) as response:
+            pdf_bytes = response.read()
+        doc = fitz.open(stream=io.BytesIO(pdf_bytes), filetype="pdf")
+    else:
+        doc = fitz.open(path_or_url)
 
     for page_num in range(len(doc)):
         page = doc[page_num]
@@ -108,7 +133,7 @@ def extract_pdf_text(pdf_path: Path) -> list[dict[str, str]]:
                 {
                     "text": text,
                     "page": str(page_num + 1),
-                    "source": pdf_path.name,
+                    "source": source_name,
                 }
             )
 
@@ -127,13 +152,21 @@ def build_bm25_index(passages: list[dict[str, str]]) -> bm25s.BM25:
     return retriever
 
 
-def initialize_search_index(downloads_dir: Path) -> None:
-    """Download PDF and build the BM25 index."""
+def initialize_search_index(pdf_sources: list[str]) -> None:
+    """Load PDFs from paths/URLs and build the BM25 index.
+
+    Args:
+        pdf_sources: List of PDF file paths or URLs to index.
+    """
     global _bm25_retriever, _corpus
 
-    pdf_path = download_pdf(PDF_URL, downloads_dir)
-    _corpus = extract_pdf_text(pdf_path)
-    _bm25_retriever = build_bm25_index(_corpus)
+    _corpus = []
+    for source in pdf_sources:
+        passages = extract_pdf_text(source)
+        _corpus.extend(passages)
+
+    if _corpus:
+        _bm25_retriever = build_bm25_index(_corpus)
 
 
 # MCP Server Definition
@@ -141,31 +174,33 @@ mcp_server = FastMCP(MCP_SERVER_NAME)
 
 
 @mcp_server.tool()
-def search_docs(query: str, limit: int = 5) -> str:
+def search_docs(query: str, limit: int = 5, document: str = "", page: str = "") -> str:
     """Search through documents using BM25 lexical search.
 
     BM25 is a keyword-based retrieval algorithm that matches exact terms. For best results:
 
-    - Use specific keywords, not full questions (e.g., "fireball damage radius" not "How much damage does fireball do?")
-    - Include domain-specific terms that would appear in the source text (e.g., "THAC0", "saving throw", "armor class")
-    - Combine multiple relevant terms to narrow results (e.g., "cleric spell healing cure")
+    - Use specific keywords, not full questions (e.g., "configuration parameters timeout" not "How do I set the timeout?")
+    - Include domain-specific terms that would appear in the source text
+    - Combine multiple relevant terms to narrow results (e.g., "installation requirements dependencies")
     - Try synonyms or alternative phrasings if initial searches return poor results
     - Avoid filler words and focus on content-bearing terms
 
     Examples:
         Good queries:
-        - "ranger tracking wilderness survival"
-        - "magic missile automatic hit"
-        - "dwarf constitution bonus saving throw"
+        - "error handling retry mechanism"
+        - "authentication token expiration"
+        - "memory allocation buffer size"
 
         Less effective queries:
-        - "What are the rules for rangers?"
-        - "Tell me about magic missile"
-        - "How do dwarves work?"
+        - "What are the error handling options?"
+        - "Tell me about authentication"
+        - "How does memory work?"
 
     Args:
         query: Search query string - use specific keywords for best results
         limit: Maximum number of results to return (default: 5)
+        document: Optional document source name to restrict search to (use list_docs to see available documents)
+        page: Optional page number to restrict search to (requires document to be specified)
 
     Returns:
         JSON string with search results including text excerpts and page numbers
@@ -175,8 +210,15 @@ def search_docs(query: str, limit: int = 5) -> str:
     if _bm25_retriever is None or not _corpus:
         return json.dumps({"error": "Search index not initialized"})
 
+    # Validate that page requires document
+    if page and not document:
+        return json.dumps({"error": "The 'page' parameter requires 'document' to be specified"})
+
     query_tokens = bm25s.tokenize([query], stopwords="en")
-    results, scores = _bm25_retriever.retrieve(query_tokens, k=min(limit, len(_corpus)))
+
+    # When filtering, retrieve more results to ensure we have enough after filtering
+    retrieve_limit = len(_corpus) if (document or page) else limit
+    results, scores = _bm25_retriever.retrieve(query_tokens, k=min(retrieve_limit, len(_corpus)))
 
     search_results: list[dict[str, str | float]] = []
     for i in range(results.shape[1]):
@@ -187,6 +229,15 @@ def search_docs(query: str, limit: int = 5) -> str:
             continue
 
         passage = _corpus[doc_idx]
+
+        # Apply document filter
+        if document and passage["source"] != document:
+            continue
+
+        # Apply page filter
+        if page and passage["page"] != page:
+            continue
+
         search_results.append(
             {
                 "text": passage["text"][:2000],
@@ -197,11 +248,40 @@ def search_docs(query: str, limit: int = 5) -> str:
             }
         )
 
+        # Stop once we have enough results
+        if len(search_results) >= limit:
+            break
+
     return json.dumps({"results": search_results, "query": query, "total": len(search_results)})
 
 
+@mcp_server.tool()
+def list_docs() -> str:
+    """List all documents in the search index with their page counts.
+
+    Returns:
+        JSON string with a list of documents, each containing the source name and page count.
+    """
+    global _corpus
+
+    if not _corpus:
+        return json.dumps({"error": "Search index not initialized", "documents": []})
+
+    doc_pages: dict[str, set[str]] = {}
+    for passage in _corpus:
+        source = passage["source"]
+        page = passage["page"]
+        if source not in doc_pages:
+            doc_pages[source] = set()
+        doc_pages[source].add(page)
+
+    documents = [{"source": source, "page_count": len(pages)} for source, pages in sorted(doc_pages.items())]
+
+    return json.dumps({"documents": documents, "total_documents": len(documents)})
+
+
 def build_config(model_alias: str, server_name: str) -> dd.DataDesignerConfigBuilder:
-    """Build the Data Designer configuration for D&D Q&A generation."""
+    """Build the Data Designer configuration for document Q&A generation."""
     config_builder = dd.DataDesignerConfigBuilder()
     config_builder.add_column(
         dd.SamplerColumnConfig(
@@ -214,24 +294,22 @@ def build_config(model_alias: str, server_name: str) -> dd.DataDesignerConfigBui
 
     tool_config = dd.MCPToolConfig(
         server_name=server_name,
-        tool_names=["search_docs"],
+        tool_names=["list_docs", "search_docs"],
         max_tool_calls=100,
         timeout_sec=30.0,
     )
-
-    topic_prompt = "Extract a high-level list of all topics covered by this document."
 
     config_builder.add_column(
         dd.LLMStructuredColumnConfig(
             name="topic_candidates",
             model_alias=model_alias,
-            prompt=topic_prompt,
+            prompt="Extract a high-level list of all topics covered by documents our knowledge base.",
             system_prompt=(
-                "You must call the search_docs tool before answering. "
+                "You must call tools before answering. "
                 "Do not use outside knowledge; only use tool results. "
                 "You can use as many tool calls as required to answer the user query."
             ),
-            output_format=DndTopicList,
+            output_format=TopicList,
             tool_config=tool_config,
         )
     )
@@ -255,11 +333,11 @@ why the answer is correct.
             model_alias=model_alias,
             prompt=qa_prompt,
             system_prompt=(
-                "You must call the search_docs tool before answering. "
+                "You must call tools before answering. "
                 "Do not use outside knowledge; only use tool results. "
                 "You can use as many tool calls as required to answer the user query."
             ),
-            output_format=DndQAPair,
+            output_format=QAPair,
             tool_config=tool_config,
         )
     )
@@ -407,14 +485,17 @@ def display_preview_record(preview_results: PreviewResults) -> None:
 
 def serve() -> None:
     """Run the MCP server (called when launched as subprocess by Data Designer)."""
-    downloads_dir = Path(os.environ.get("PDF_CACHE_DIR", Path(__file__).resolve().parent / "downloads"))
-    initialize_search_index(downloads_dir)
+    pdf_sources_json = os.environ.get("PDF_SOURCES", "[]")
+    pdf_sources = json.loads(pdf_sources_json)
+    if not pdf_sources:
+        pdf_sources = [DEFAULT_PDF_URL]
+    initialize_search_index(pdf_sources)
     mcp_server.run()
 
 
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
-    parser = argparse.ArgumentParser(description="Generate D&D Q&A pairs using MCP tool calls with BM25S search.")
+    parser = argparse.ArgumentParser(description="Generate document Q&A pairs using MCP tool calls with BM25S search.")
     subparsers = parser.add_subparsers(dest="command")
 
     # 'serve' subcommand for running the MCP server
@@ -423,6 +504,14 @@ def parse_args() -> argparse.Namespace:
     # Default command arguments (demo mode)
     parser.add_argument("--model-alias", type=str, default="nvidia-text", help="Model alias to use for generation")
     parser.add_argument("--num-records", type=int, default=4, help="Number of Q&A pairs to generate")
+    parser.add_argument(
+        "--pdf",
+        type=str,
+        action="append",
+        dest="pdfs",
+        metavar="PATH_OR_URL",
+        help="PDF file path or URL to index (can be specified multiple times). Defaults to a sample PDF if not provided.",
+    )
 
     return parser.parse_args()
 
@@ -440,18 +529,15 @@ def main() -> None:
     if os.environ.get("NVIDIA_API_KEY") is None and args.model_alias.startswith("nvidia"):
         raise RuntimeError("NVIDIA_API_KEY must be set when using NVIDIA model aliases.")
 
-    base_dir = Path(__file__).resolve().parent
-    downloads_dir = base_dir / "downloads"
-
-    # Ensure PDF is downloaded before starting server
-    download_pdf(PDF_URL, downloads_dir)
+    # Use provided PDFs or fall back to default
+    pdf_sources = args.pdfs if args.pdfs else [DEFAULT_PDF_URL]
 
     # Configure MCP server to run via stdio transport
     mcp_server_config = dd.MCPServerConfig(
         name=MCP_SERVER_NAME,
         command=sys.executable,
         args=[str(Path(__file__).resolve()), "serve"],
-        env={"PDF_CACHE_DIR": str(downloads_dir)},
+        env={"PDF_SOURCES": json.dumps(pdf_sources)},
     )
 
     config_builder = build_config(
