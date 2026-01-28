@@ -107,6 +107,11 @@ class ModelRegistry:
     def run_health_check(self, model_aliases: list[str]) -> None:
         logger.info("🩺 Running health checks for models...")
         for model_alias in model_aliases:
+            model_config = self.get_model_config(model_alias=model_alias)
+            if model_config.skip_health_check:
+                logger.info(f"  |-- ⏭️  Skipping health check for model alias {model_alias!r} (skip_health_check=True)")
+                continue
+
             model = self.get_model(model_alias=model_alias)
             logger.info(
                 f"  |-- 👀 Checking {model.model_name!r} in provider named {model.model_provider_name!r} for model alias {model.model_alias!r}..."
