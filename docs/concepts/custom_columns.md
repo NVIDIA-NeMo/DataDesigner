@@ -38,7 +38,7 @@ dd.CustomColumnConfig(
     name="result",
     generate_fn=my_generator,
     input_columns=["input"],
-    # strategy="cell_by_cell" is the default
+    # generation_strategy="cell_by_cell" is the default
 )
 ```
 
@@ -59,7 +59,7 @@ dd.CustomColumnConfig(
     name="result",
     generate_fn=batch_generator,
     input_columns=["input"],
-    strategy="full_column",
+    generation_strategy="full_column",
 )
 ```
 
@@ -139,7 +139,7 @@ response, metadata = model.generate(
 |-----------|------|----------|-------------|
 | `name` | str | Yes | Primary column name |
 | `generate_fn` | Callable | Yes | Generator function |
-| `strategy` | str | No | `"cell_by_cell"` (default) or `"full_column"` |
+| `generation_strategy` | str | No | `"cell_by_cell"` (default) or `"full_column"` |
 | `input_columns` | list[str] | No | Required input columns |
 | `output_columns` | list[str] | No | Additional columns created |
 | `kwargs` | dict | No | Custom parameters for `ctx.kwargs` |

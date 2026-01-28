@@ -462,7 +462,7 @@ def test_full_column_strategy() -> None:
         name="result",
         generate_fn=batch_processor,
         input_columns=["input"],
-        strategy="full_column",
+        generation_strategy="full_column",
     )
     generator = CustomColumnGenerator(config=config, resource_provider=Mock(spec=ResourceProvider))
 
@@ -493,7 +493,7 @@ def test_full_column_with_context() -> None:
         name="result",
         generate_fn=batch_with_context,
         input_columns=["input"],
-        strategy="full_column",
+        generation_strategy="full_column",
         kwargs={"multiplier": 10},
     )
     generator = CustomColumnGenerator(config=config, resource_provider=mock_resource_provider)
@@ -516,7 +516,7 @@ def test_full_column_validates_output() -> None:
         name="expected_name",
         generate_fn=batch_wrong_column,
         input_columns=["input"],
-        strategy="full_column",
+        generation_strategy="full_column",
     )
     generator = CustomColumnGenerator(config=config, resource_provider=Mock(spec=ResourceProvider))
 
@@ -541,7 +541,7 @@ def test_full_column_removes_undeclared_columns(caplog: pytest.LogCaptureFixture
         name="result",
         generate_fn=batch_extra_columns,
         input_columns=["input"],
-        strategy="full_column",
+        generation_strategy="full_column",
     )
     generator = CustomColumnGenerator(config=config, resource_provider=Mock(spec=ResourceProvider))
 
@@ -582,7 +582,7 @@ def test_generate_text_batch() -> None:
         name="result",
         generate_fn=batch_with_parallel_llm,
         input_columns=["input"],
-        strategy="full_column",
+        generation_strategy="full_column",
     )
     generator = CustomColumnGenerator(config=config, resource_provider=mock_resource_provider)
 

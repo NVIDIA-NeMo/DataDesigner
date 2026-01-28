@@ -496,8 +496,8 @@ class CustomColumnConfig(SingleColumnConfig):
         - fn(df: pd.DataFrame, ctx: CustomColumnContext) -> pd.DataFrame
 
      Attributes:
-        generate_fn: A callable that processes data. Signature depends on strategy.
-        strategy: Generation strategy - "cell_by_cell" (row-based) or "full_column" (batch-based).
+        generate_fn: A callable that processes data. Signature depends on generation_strategy.
+        generation_strategy: "cell_by_cell" (row-based) or "full_column" (batch-based).
         input_columns: List of column names that must exist before this column can be generated.
         output_columns: List of additional column names that generate_fn will create.
         kwargs: Optional dictionary of additional parameters accessible via ctx.kwargs.
@@ -505,7 +505,7 @@ class CustomColumnConfig(SingleColumnConfig):
     """
 
     generate_fn: Any = Field(description="Function to generate the column")
-    strategy: Literal["cell_by_cell", "full_column"] = Field(
+    generation_strategy: Literal["cell_by_cell", "full_column"] = Field(
         default="cell_by_cell",
         description="Generation strategy: 'cell_by_cell' for row-based or 'full_column' for batch-based",
     )

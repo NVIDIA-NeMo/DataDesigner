@@ -33,7 +33,7 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
 
     def get_generation_strategy(self) -> GenerationStrategy:
         """Return strategy based on config."""
-        if self.config.strategy == "full_column":
+        if self.config.generation_strategy == "full_column":
             return GenerationStrategy.FULL_COLUMN
         return GenerationStrategy.CELL_BY_CELL
 
@@ -46,7 +46,7 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
         Returns:
             The data with new column(s) added.
         """
-        if self.config.strategy == "full_column":
+        if self.config.generation_strategy == "full_column":
             return self._generate_full_column(data)
         return self._generate_cell_by_cell(data)
 
@@ -189,7 +189,7 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
     def log_pre_generation(self) -> None:
         logger.info(f"{self.config.get_column_emoji()} Custom column config for column '{self.config.name}'")
         logger.info(f"  |-- generate_fn: {self.config.generate_fn.__name__!r}")
-        logger.info(f"  |-- strategy: {self.config.strategy!r}")
+        logger.info(f"  |-- generation_strategy: {self.config.generation_strategy!r}")
         logger.info(f"  |-- input_columns: {self.config.input_columns}")
         if self.config.output_columns:
             logger.info(f"  |-- output_columns: {self.config.output_columns}")
