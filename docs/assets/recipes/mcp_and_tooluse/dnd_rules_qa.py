@@ -1,42 +1,41 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""MCP + Tool Use Recipe (D&D Q&A)
+"""MCP + Tool Use Recipe (D&D Q&A) with BM25S Lexical Search
 
 This recipe demonstrates an end-to-end MCP tool-calling workflow:
 
 1) Download the Dungeons & Dragons v1 rules PDF.
-2) Index it with `docs-mcp-server` (MCP search).
+2) Index it with BM25S for fast lexical search.
 3) Use Data Designer tool calls (`search_docs`) to generate grounded Q&A pairs.
 
 Prerequisites:
-- Node.js 20+ (for `npx @arabold/docs-mcp-server`)
-- `OPENAI_API_KEY` for docs-mcp-server embeddings
 - `NVIDIA_API_KEY` if using `--model-alias nvidia-text` (default)
+- Recipe dependencies: Install with `make install-dev-recipes`
 
 Run:
+    # Install recipe dependencies (preserves workspace packages)
+    make install-dev-recipes
+
+    # Then run the recipe
     uv run docs/assets/recipes/mcp_and_tooluse/dnd_rules_qa.py
 
+    # Or run all recipes via Makefile
+    make test-run-recipes
+
 Common flags:
-    # First run: scrape the PDF (default)
+    # Generate a few Q&A pairs
     uv run docs/assets/recipes/mcp_and_tooluse/dnd_rules_qa.py --num-records 3
 
-    # Subsequent runs: reuse the indexed corpus
-    uv run docs/assets/recipes/mcp_and_tooluse/dnd_rules_qa.py --skip-scrape --num-records 5
+    # Use a different model
+    uv run docs/assets/recipes/mcp_and_tooluse/dnd_rules_qa.py --model-alias gpt-4o
 
-    # Customize embeddings
-    uv run docs/assets/recipes/mcp_and_tooluse/dnd_rules_qa.py \
-      --embedding-model text-embedding-3-small \
-      --embedding-api-key-env OPENAI_API_KEY
-
-    # Increase PDF size limit if needed (default: 40MB)
-    uv run docs/assets/recipes/mcp_and_tooluse/dnd_rules_qa.py --document-max-size-mb 60
+Server mode (used internally by Data Designer):
+    python docs/assets/recipes/mcp_and_tooluse/dnd_rules_qa.py serve
 
 Notes:
-- The script writes a docs-mcp config file to `docs_mcp_store/docs_mcp_config.yaml` to raise the PDF size limit.
-- Downloads and artifacts are stored locally under this directory.
-- If you want to use a different LLM provider for generation, set `--model-alias` and the
-  corresponding API key for that provider.
+- Downloads are stored locally under this directory.
+- The BM25S index is built at server startup from the PDF.
 """
 
 from __future__ import annotations
@@ -44,13 +43,13 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shutil
-import socket
-import subprocess
-import time
+import sys
 from pathlib import Path
 from urllib.request import urlretrieve
 
+import bm25s
+import fitz
+from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, Field
 
 import data_designer.config as dd
@@ -59,63 +58,33 @@ from data_designer.interface import DataDesigner
 
 PDF_URL = "https://idiscepolidellamanticora.wordpress.com/wp-content/uploads/2012/09/tsr2010-players-handbook.pdf"
 PDF_FILENAME = "tsr2010-players-handbook.pdf"
+MCP_SERVER_NAME = "dnd-bm25-search"
 
-DOCS_MCP_HOST = "127.0.0.1"
-DOCS_MCP_PORT = 6280
-DOCS_MCP_SERVER_NAME = "docs-mcp-server"
-
-DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
-
-DEFAULT_LIBRARY = "dnd-basic-rules"
-DEFAULT_LIBRARY_VERSION = "1"
-DEFAULT_DOCS_MCP_MAX_SIZE_MB = 40
+# Global state for the BM25 index (populated at server startup)
+_bm25_retriever: bm25s.BM25 | None = None
+_corpus: list[dict[str, str]] = []
 
 
 class DndQAPair(BaseModel):
     question: str = Field(..., description="A question grounded in the D&D rules text.")
     answer: str = Field(..., description="A concise answer grounded in the supporting passage.")
-    supporting_passage: str = Field(..., description="A short excerpt (2-4 sentences) copied from the search result.")
-    source_url: str = Field(..., description="The URL for the supporting passage.")
+    supporting_passage: str = Field(
+        ..., description="A short excerpt (2-4 sentences) copied from the search result that supports the answer."
+    )
+    citation: str = Field(
+        ..., description="The citation (e.g. source url, page number, etc) of the supporting passage."
+    )
 
 
 class DndTopicList(BaseModel):
     topics: list[str] = Field(
         ...,
-        description="High-level topics from the D&D rules table of contents (up to 10).",
+        description="High-level topics from the D&D rulebook.",
     )
 
 
-def resolve_embedding_provider(embedding_model: str) -> str:
-    if ":" in embedding_model:
-        return embedding_model.split(":", 1)[0]
-    return "openai"
-
-
-def build_docs_mcp_env(
-    store_path: Path,
-    embedding_model: str,
-    embedding_api_base: str | None,
-    embedding_api_key_env: str,
-) -> dict[str, str]:
-    env = os.environ.copy()
-    env["DOCS_MCP_STORE_PATH"] = str(store_path)
-    env["DOCS_MCP_TELEMETRY"] = "false"
-    env["DOCS_MCP_EMBEDDING_MODEL"] = embedding_model
-
-    provider = resolve_embedding_provider(embedding_model)
-    if provider == "openai":
-        api_key = os.environ.get(embedding_api_key_env)
-        if not api_key:
-            raise RuntimeError(
-                f"{embedding_api_key_env} must be set to use embeddings with provider 'openai'."
-            )
-        env["OPENAI_API_KEY"] = api_key
-        if embedding_api_base:
-            env["OPENAI_API_BASE"] = embedding_api_base
-    return env
-
-
 def download_pdf(pdf_url: str, destination_dir: Path) -> Path:
+    """Download the PDF if not already cached."""
     destination_dir.mkdir(parents=True, exist_ok=True)
     pdf_path = destination_dir / PDF_FILENAME
     if not pdf_path.exists() or pdf_path.stat().st_size == 0:
@@ -123,93 +92,116 @@ def download_pdf(pdf_url: str, destination_dir: Path) -> Path:
     return pdf_path
 
 
-def scrape_pdf_with_docs_mcp(
-    npx_path: str,
-    env: dict[str, str],
-    library: str,
-    version: str | None,
-    pdf_uri: str,
-    config_path: Path,
-) -> None:
-    command = [
-        npx_path,
-        "--yes",
-        "@arabold/docs-mcp-server@latest",
-        "scrape",
-        library,
-        pdf_uri,
-        "--max-pages",
-        "1",
-        "--max-depth",
-        "1",
-        "--scope",
-        "subpages",
-    ]
-    if version:
-        command.extend(["--version", version])
-    command.extend(["--config", str(config_path)])
-    subprocess.run(command, env=env, check=True)
+def extract_pdf_text(pdf_path: Path) -> list[dict[str, str]]:
+    """Extract text from PDF, returning a list of passages with metadata.
+
+    Each passage corresponds to a page from the PDF.
+    """
+    passages: list[dict[str, str]] = []
+    doc = fitz.open(pdf_path)
+
+    for page_num in range(len(doc)):
+        page = doc[page_num]
+        text = page.get_text("text").strip()
+        if text:
+            passages.append(
+                {
+                    "text": text,
+                    "page": str(page_num + 1),
+                    "source": pdf_path.name,
+                }
+            )
+
+    doc.close()
+    return passages
 
 
-def start_docs_mcp_server(
-    npx_path: str,
-    env: dict[str, str],
-    host: str,
-    port: int,
-    config_path: Path,
-) -> subprocess.Popen[str]:
-    command = [
-        npx_path,
-        "--yes",
-        "@arabold/docs-mcp-server@latest",
-        "--protocol",
-        "http",
-        "--host",
-        host,
-        "--port",
-        str(port),
-        "--config",
-        str(config_path),
-    ]
-    return subprocess.Popen(command, env=env)
+def build_bm25_index(passages: list[dict[str, str]]) -> bm25s.BM25:
+    """Build a BM25S index from the extracted passages."""
+    corpus_texts = [p["text"] for p in passages]
+    corpus_tokens = bm25s.tokenize(corpus_texts, stopwords="en")
+
+    retriever = bm25s.BM25()
+    retriever.index(corpus_tokens)
+
+    return retriever
 
 
-def wait_for_port(host: str, port: int, timeout_sec: float) -> None:
-    deadline = time.monotonic() + timeout_sec
-    while time.monotonic() < deadline:
-        try:
-            with socket.create_connection((host, port), timeout=1.0):
-                return
-        except OSError:
-            time.sleep(0.5)
-    raise TimeoutError(f"docs-mcp-server did not start on {host}:{port} within {timeout_sec} seconds.")
+def initialize_search_index(downloads_dir: Path) -> None:
+    """Download PDF and build the BM25 index."""
+    global _bm25_retriever, _corpus
+
+    pdf_path = download_pdf(PDF_URL, downloads_dir)
+    _corpus = extract_pdf_text(pdf_path)
+    _bm25_retriever = build_bm25_index(_corpus)
 
 
-def stop_process(process: subprocess.Popen[str]) -> None:
-    if process.poll() is not None:
-        return
-    process.terminate()
-    try:
-        process.wait(timeout=10)
-    except subprocess.TimeoutExpired:
-        process.kill()
-        process.wait(timeout=5)
+# MCP Server Definition
+mcp_server = FastMCP(MCP_SERVER_NAME)
 
 
-def write_docs_mcp_config(store_path: Path, max_document_size_mb: int) -> Path:
-    config_path = store_path / "docs_mcp_config.yaml"
-    max_size_bytes = max_document_size_mb * 1024 * 1024
-    config_contents = f"document:\n  maxSize: {max_size_bytes}\n"
-    config_path.write_text(config_contents, encoding="utf-8")
-    return config_path
+@mcp_server.tool()
+def search_docs(query: str, limit: int = 5) -> str:
+    """Search through documents using BM25 lexical search.
+
+    BM25 is a keyword-based retrieval algorithm that matches exact terms. For best results:
+
+    - Use specific keywords, not full questions (e.g., "fireball damage radius" not "How much damage does fireball do?")
+    - Include domain-specific terms that would appear in the source text (e.g., "THAC0", "saving throw", "armor class")
+    - Combine multiple relevant terms to narrow results (e.g., "cleric spell healing cure")
+    - Try synonyms or alternative phrasings if initial searches return poor results
+    - Avoid filler words and focus on content-bearing terms
+
+    Examples:
+        Good queries:
+        - "ranger tracking wilderness survival"
+        - "magic missile automatic hit"
+        - "dwarf constitution bonus saving throw"
+
+        Less effective queries:
+        - "What are the rules for rangers?"
+        - "Tell me about magic missile"
+        - "How do dwarves work?"
+
+    Args:
+        query: Search query string - use specific keywords for best results
+        limit: Maximum number of results to return (default: 5)
+
+    Returns:
+        JSON string with search results including text excerpts and page numbers
+    """
+    global _bm25_retriever, _corpus
+
+    if _bm25_retriever is None or not _corpus:
+        return json.dumps({"error": "Search index not initialized"})
+
+    query_tokens = bm25s.tokenize([query], stopwords="en")
+    results, scores = _bm25_retriever.retrieve(query_tokens, k=min(limit, len(_corpus)))
+
+    search_results: list[dict[str, str | float]] = []
+    for i in range(results.shape[1]):
+        doc_idx = results[0, i]
+        score = float(scores[0, i])
+
+        if score <= 0:
+            continue
+
+        passage = _corpus[doc_idx]
+        search_results.append(
+            {
+                "text": passage["text"][:2000],
+                "page": passage["page"],
+                "source": passage["source"],
+                "score": round(score, 4),
+                "url": f"file://{passage['source']}#page={passage['page']}",
+            }
+        )
+
+    return json.dumps({"results": search_results, "query": query, "total": len(search_results)})
 
 
-def build_config(
-    model_alias: str,
-    server_name: str,
-    library: str,
-    version: str | None,
-) -> dd.DataDesignerConfigBuilder:
+def build_config(model_alias: str, server_name: str) -> dd.DataDesignerConfigBuilder:
+    """Build the Data Designer configuration for D&D Q&A generation."""
     config_builder = dd.DataDesignerConfigBuilder()
     config_builder.add_column(
         dd.SamplerColumnConfig(
@@ -223,27 +215,21 @@ def build_config(
     tool_config = dd.MCPToolConfig(
         server_name=server_name,
         tool_names=["search_docs"],
-        max_tool_calls=5,
-        timeout_sec=15.0,
+        max_tool_calls=100,
+        timeout_sec=30.0,
     )
 
-    topic_prompt_lines = [
-        "You are extracting high-level topics from the Dungeons & Dragons Basic Rules (v1).",
-        "First, call the MCP tool `search_docs` to find the table of contents or overview sections.",
-        "Use the tool with:",
-        f'- library: "{library}"',
-    ]
-    if version:
-        topic_prompt_lines.append(f'- version: "{version}"')
+    topic_prompt = "Extract a high-level list of all topics covered by this document."
 
     config_builder.add_column(
         dd.LLMStructuredColumnConfig(
             name="topic_candidates",
             model_alias=model_alias,
-            prompt="\n".join(topic_prompt_lines),
+            prompt=topic_prompt,
             system_prompt=(
                 "You must call the search_docs tool before answering. "
-                "Do not use outside knowledge; only use tool results."
+                "Do not use outside knowledge; only use tool results. "
+                "You can use as many tool calls as required to answer the user query."
             ),
             output_format=DndTopicList,
             tool_config=tool_config,
@@ -257,35 +243,21 @@ def build_config(
         )
     )
 
-    prompt_lines = [
-        "You are generating Q&A pairs grounded in the Dungeons & Dragons Basic Rules (v1).",
-        "First, call the MCP tool `search_docs` to retrieve relevant rules text.",
-        "Use the tool with:",
-        f'- library: "{library}"',
-    ]
-    if version:
-        prompt_lines.append(f'- version: "{version}"')
-    prompt_lines.extend(
-        [
-            '- query: "Dungeons & Dragons basic rules {{ topic }}"',
-            "- limit: 3",
-            "",
-            "If the tool returns no results, broaden the query and try again.",
-            "Then choose one result and create a grounded Q&A pair.",
-            "",
-            "Return JSON with keys: question, answer, supporting_passage, source_url.",
-            "The supporting_passage must be a 2-4 sentence excerpt copied from the tool result.",
-        ]
-    )
+    qa_prompt = """\
+Create a question-answer pair on the topic "{{topic}}", with supporting text and citation.
+The supporting_passage must be a 2-4 sentence excerpt copied from the tool result that demonstrates
+why the answer is correct.
+"""
 
     config_builder.add_column(
         dd.LLMStructuredColumnConfig(
             name="qa_pair",
             model_alias=model_alias,
-            prompt="\n".join(prompt_lines),
+            prompt=qa_prompt,
             system_prompt=(
                 "You must call the search_docs tool before answering. "
-                "Do not use outside knowledge; only use tool results."
+                "Do not use outside knowledge; only use tool results. "
+                "You can use as many tool calls as required to answer the user query."
             ),
             output_format=DndQAPair,
             tool_config=tool_config,
@@ -312,8 +284,8 @@ def build_config(
     )
     config_builder.add_column(
         dd.ExpressionColumnConfig(
-            name="source_url",
-            expr="{{ qa_pair.source_url }}",
+            name="citation",
+            expr="{{ qa_pair.citation }}",
         )
     )
     return config_builder
@@ -322,126 +294,178 @@ def build_config(
 def generate_preview(
     config_builder: dd.DataDesignerConfigBuilder,
     num_records: int,
-    artifact_path: Path | str | None,
-    mcp_server: dd.MCPServerConfig,
+    mcp_server_config: dd.MCPServerConfig,
 ) -> PreviewResults:
-    data_designer = DataDesigner(artifact_path=artifact_path, mcp_servers=[mcp_server])
+    """Run Data Designer preview with the MCP server."""
+    data_designer = DataDesigner(mcp_servers=[mcp_server_config])
     data_designer.set_run_config(dd.RunConfig(include_full_traces=True))
     return data_designer.preview(config_builder, num_records=num_records)
 
 
+def _truncate(text: str, max_length: int = 100) -> str:
+    """Truncate text to max_length, adding ellipsis if needed."""
+    text = text.replace("\n", " ").strip()
+    if len(text) <= max_length:
+        return text
+    return text[: max_length - 3] + "..."
+
+
+def _format_trace_step(msg: dict[str, object]) -> str:
+    """Format a single trace message as a concise one-liner."""
+    role = msg.get("role", "unknown")
+    content = msg.get("content", "")
+    reasoning = msg.get("reasoning_content")
+    tool_calls = msg.get("tool_calls")
+    tool_call_id = msg.get("tool_call_id")
+
+    if role == "system":
+        return f"[bold cyan]system[/]({_truncate(str(content))})"
+
+    if role == "user":
+        return f"[bold green]user[/]({_truncate(str(content))})"
+
+    if role == "assistant":
+        parts: list[str] = []
+        if reasoning:
+            parts.append(f"[bold magenta]reasoning[/]({_truncate(str(reasoning))})")
+        if tool_calls and isinstance(tool_calls, list):
+            for tc in tool_calls:
+                if isinstance(tc, dict):
+                    func = tc.get("function", {})
+                    if isinstance(func, dict):
+                        name = func.get("name", "?")
+                        args = func.get("arguments", "")
+                        parts.append(f"[bold yellow]tool_call[/]({name}: {_truncate(str(args), 60)})")
+        if content:
+            parts.append(f"[bold blue]content[/]({_truncate(str(content))})")
+        return "\n".join(parts) if parts else "[bold blue]assistant[/](empty)"
+
+    if role == "tool":
+        tool_id = str(tool_call_id or "?")[:8]
+        return f"[bold red]tool_response[/]([{tool_id}] {_truncate(str(content), 80)})"
+
+    return f"[dim]{role}[/]({_truncate(str(content))})"
+
+
+def _display_column_trace(column_name: str, trace: list[dict[str, object]]) -> None:
+    """Display a trace for a single column using Rich Panel."""
+    from rich.console import Console
+    from rich.panel import Panel
+
+    console = Console()
+    lines: list[str] = []
+
+    for msg in trace:
+        if not isinstance(msg, dict):
+            continue
+        formatted = _format_trace_step(msg)
+        for line in formatted.split("\n"):
+            lines.append(f"  * {line}")
+
+    trace_content = "\n".join(lines) if lines else "  (no trace messages)"
+    panel = Panel(
+        trace_content,
+        title=f"[bold]Column Trace: {column_name}[/]",
+        border_style="blue",
+        padding=(0, 1),
+    )
+    console.print(panel)
+
+
 def display_preview_record(preview_results: PreviewResults) -> None:
+    """Display a sample record from the preview results with trace visualization."""
+    from rich.console import Console
+
+    console = Console()
     dataset = preview_results.dataset
+
     if dataset is None or dataset.empty:
-        print("No preview records generated.")
+        console.print("[red]No preview records generated.[/]")
         return
+
     record = dataset.iloc[0].to_dict()
-    print("Sample record:")
-    print(json.dumps(record, indent=2, default=str))
+
+    # Find trace columns and their base column names
+    trace_columns = [col for col in dataset.columns if col.endswith("__trace")]
+
+    # Display non-trace columns as summary
+    non_trace_record = {k: v for k, v in record.items() if not k.endswith("__trace")}
+    console.print("\n[bold]Sample Record (data columns):[/]")
+    console.print(json.dumps(non_trace_record, indent=2, default=str))
+
+    # Display each trace column in its own panel
+    if trace_columns:
+        console.print("\n[bold]Generation Traces:[/]")
+        for trace_col in trace_columns:
+            base_name = trace_col.replace("__trace", "")
+            trace_data = record.get(trace_col)
+            if isinstance(trace_data, list):
+                _display_column_trace(base_name, trace_data)
+
+    preview_results.display_sample_record()
+
+
+def serve() -> None:
+    """Run the MCP server (called when launched as subprocess by Data Designer)."""
+    downloads_dir = Path(os.environ.get("PDF_CACHE_DIR", Path(__file__).resolve().parent / "downloads"))
+    initialize_search_index(downloads_dir)
+    mcp_server.run()
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Generate D&D Q&A pairs using MCP tool calls.")
-    parser.add_argument("--model-alias", type=str, default="nvidia-text")
-    parser.add_argument("--num-records", type=int, default=4)
-    parser.add_argument("--artifact-path", type=str, default=None)
-    parser.add_argument("--library", type=str, default=DEFAULT_LIBRARY)
-    parser.add_argument("--version", type=str, default=DEFAULT_LIBRARY_VERSION)
-    parser.add_argument("--skip-scrape", action="store_true")
-    parser.add_argument("--port", type=int, default=DOCS_MCP_PORT)
-    parser.add_argument(
-        "--document-max-size-mb",
-        type=int,
-        default=DEFAULT_DOCS_MCP_MAX_SIZE_MB,
-        help="Docs MCP max document size for PDFs (default: 40MB).",
-    )
-    parser.add_argument(
-        "--embedding-model",
-        type=str,
-        default="text-embedding-3-small",
-        help="Docs MCP embedding model (default: text-embedding-3-small).",
-    )
-    parser.add_argument(
-        "--embedding-api-base",
-        type=str,
-        default=None,
-        help=f"Optional OpenAI-compatible base URL (omit to use {DEFAULT_OPENAI_BASE_URL}).",
-    )
-    parser.add_argument(
-        "--embedding-api-key-env",
-        type=str,
-        default="OPENAI_API_KEY",
-        help="Env var name holding the embeddings API key (default: OPENAI_API_KEY).",
-    )
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(description="Generate D&D Q&A pairs using MCP tool calls with BM25S search.")
+    subparsers = parser.add_subparsers(dest="command")
+
+    # 'serve' subcommand for running the MCP server
+    subparsers.add_parser("serve", help="Run the MCP server (used by Data Designer)")
+
+    # Default command arguments (demo mode)
+    parser.add_argument("--model-alias", type=str, default="nvidia-text", help="Model alias to use for generation")
+    parser.add_argument("--num-records", type=int, default=4, help="Number of Q&A pairs to generate")
+
     return parser.parse_args()
 
 
 def main() -> None:
+    """Main entry point for the demo."""
     args = parse_args()
 
+    # Handle 'serve' subcommand
+    if args.command == "serve":
+        serve()
+        return
+
+    # Demo mode: run Data Designer with the BM25S MCP server
     if os.environ.get("NVIDIA_API_KEY") is None and args.model_alias.startswith("nvidia"):
         raise RuntimeError("NVIDIA_API_KEY must be set when using NVIDIA model aliases.")
 
-    npx_path = shutil.which("npx")
-    if not npx_path:
-        raise RuntimeError("npx was not found. Install Node.js 20+ and ensure npx is on PATH.")
-
     base_dir = Path(__file__).resolve().parent
     downloads_dir = base_dir / "downloads"
-    store_path = base_dir / "docs_mcp_store"
-    store_path.mkdir(parents=True, exist_ok=True)
-    config_path = write_docs_mcp_config(store_path, args.document_max_size_mb)
 
-    pdf_path = download_pdf(PDF_URL, downloads_dir)
-    pdf_uri = pdf_path.resolve().as_uri()
+    # Ensure PDF is downloaded before starting server
+    download_pdf(PDF_URL, downloads_dir)
 
-    docs_mcp_env = build_docs_mcp_env(
-        store_path=store_path,
-        embedding_model=args.embedding_model,
-        embedding_api_base=args.embedding_api_base,
-        embedding_api_key_env=args.embedding_api_key_env,
+    # Configure MCP server to run via stdio transport
+    mcp_server_config = dd.MCPServerConfig(
+        name=MCP_SERVER_NAME,
+        command=sys.executable,
+        args=[str(Path(__file__).resolve()), "serve"],
+        env={"PDF_CACHE_DIR": str(downloads_dir)},
     )
 
-    if not args.skip_scrape:
-        scrape_pdf_with_docs_mcp(
-            npx_path=npx_path,
-            env=docs_mcp_env,
-            library=args.library,
-            version=args.version,
-            pdf_uri=pdf_uri,
-            config_path=config_path,
-        )
-
-    server_process = start_docs_mcp_server(
-        npx_path=npx_path,
-        env=docs_mcp_env,
-        host=DOCS_MCP_HOST,
-        port=args.port,
-        config_path=config_path,
+    config_builder = build_config(
+        model_alias=args.model_alias,
+        server_name=MCP_SERVER_NAME,
     )
 
-    try:
-        wait_for_port(DOCS_MCP_HOST, args.port, timeout_sec=60)
-        mcp_server = dd.MCPServerConfig(
-            name=DOCS_MCP_SERVER_NAME,
-            url=f"http://{DOCS_MCP_HOST}:{args.port}/sse",
-        )
+    preview_results = generate_preview(
+        config_builder=config_builder,
+        num_records=args.num_records,
+        mcp_server_config=mcp_server_config,
+    )
 
-        config_builder = build_config(
-            model_alias=args.model_alias,
-            server_name=DOCS_MCP_SERVER_NAME,
-            library=args.library,
-            version=args.version,
-        )
-        preview_results = generate_preview(
-            config_builder=config_builder,
-            num_records=args.num_records,
-            artifact_path=args.artifact_path or base_dir / "artifacts",
-            mcp_server=mcp_server,
-        )
-        display_preview_record(preview_results)
-    finally:
-        stop_process(server_process)
+    display_preview_record(preview_results)
 
 
 if __name__ == "__main__":
