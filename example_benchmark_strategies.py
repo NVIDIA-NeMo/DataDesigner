@@ -125,7 +125,3 @@ if __name__ == "__main__":
     else:
         speedup = elapsed_cell / elapsed_full
         print(f"\nfull_column is {speedup:.1f}x faster")
-
-    print("\nRecommendation:")
-    print("- Use cell_by_cell (default) for LLM workloads - framework handles parallelization")
-    print("- Use full_column for vectorized operations or when you need cross-row access")
