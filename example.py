@@ -22,6 +22,7 @@ def simple_text_transform(row: dict) -> dict:
     row["greeting"] = f"Hello, {row['name']}! Welcome to our store."
     return row
 
+
 # Example 2: Custom generator with LLM access via CustomColumnContext
 def generate_personalized_message(row: dict, ctx: dd.CustomColumnContext) -> dict:
     """A generator that uses an LLM to create personalized messages.
@@ -50,6 +51,7 @@ def generate_personalized_message(row: dict, ctx: dd.CustomColumnContext) -> dic
     row[ctx.column_name] = result
     row["prompt"] = prompt
     return row
+
 
 # Example 3: Advanced - Direct model access for more control
 def generate_with_direct_model_access(row: dict, ctx: dd.CustomColumnContext) -> dict:

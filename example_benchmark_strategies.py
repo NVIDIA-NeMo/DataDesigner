@@ -5,8 +5,8 @@
 Benchmark: cell_by_cell vs full_column strategies for CustomColumnGenerator.
 
 This example compares:
-- cell_by_cell: Framework parallelizes across rows automatically
 - full_column: User controls parallelization via generate_text_batch()
+- cell_by_cell: Framework parallelizes across rows automatically
 
 Run with: uv run python example_benchmark_strategies.py
 """
@@ -24,19 +24,7 @@ MODEL_ALIAS = "nvidia-text"
 NUM_RECORDS = 6
 
 
-# Strategy 1: cell_by_cell (default) - framework parallelizes
-def cell_by_cell_generator(row: dict, ctx: dd.CustomColumnContext) -> dict:
-    """Each row processed independently, framework handles parallelization."""
-    response = ctx.generate_text(
-        model_alias=MODEL_ALIAS,
-        prompt=f"Write a one-sentence fact about the topic: {row['topic']}",
-        system_prompt="Be concise and informative.",
-    )
-    row[ctx.column_name] = response
-    return row
-
-
-# Strategy 2: full_column - user parallelizes via generate_text_batch
+# Strategy 1: full_column - user parallelizes via generate_text_batch
 def full_column_generator(df: pd.DataFrame, ctx: dd.CustomColumnContext) -> pd.DataFrame:
     """Entire batch processed at once, user parallelizes with generate_text_batch."""
     prompts = [f"Write a one-sentence fact about the topic: {topic}" for topic in df["topic"]]
@@ -52,6 +40,18 @@ def full_column_generator(df: pd.DataFrame, ctx: dd.CustomColumnContext) -> pd.D
     return df
 
 
+# Strategy 2: cell_by_cell (default) - framework parallelizes
+def cell_by_cell_generator(row: dict, ctx: dd.CustomColumnContext) -> dict:
+    """Each row processed independently, framework handles parallelization."""
+    response = ctx.generate_text(
+        model_alias=MODEL_ALIAS,
+        prompt=f"Write a one-sentence fact about the topic: {row['topic']}",
+        system_prompt="Be concise and informative.",
+    )
+    row[ctx.column_name] = response
+    return row
+
+
 if __name__ == "__main__":
     data_designer = DataDesigner()
 
@@ -64,35 +64,11 @@ if __name__ == "__main__":
         ),
     )
 
-    # Benchmark cell_by_cell
-    print(f"\n{'='*60}")
-    print(f"Strategy: cell_by_cell (framework parallelization)")
+    # Benchmark full_column first
+    print(f"\n{'=' * 60}")
+    print("Strategy: full_column (user parallelization via generate_text_batch)")
     print(f"Records: {NUM_RECORDS}")
-    print(f"{'='*60}")
-
-    config_cell = dd.DataDesignerConfigBuilder()
-    config_cell.add_column(topic_config)
-    config_cell.add_column(
-        dd.CustomColumnConfig(
-            name="fact",
-            generate_fn=cell_by_cell_generator,
-            input_columns=["topic"],
-            generation_strategy="cell_by_cell",
-        )
-    )
-
-    start = time.perf_counter()
-    result_cell = data_designer.preview(config_builder=config_cell, num_records=NUM_RECORDS)
-    elapsed_cell = time.perf_counter() - start
-
-    print(f"Time: {elapsed_cell:.2f}s")
-    print(f"Sample result: {result_cell.dataset['fact'].iloc[0][:80]}...")
-
-    # Benchmark full_column
-    print(f"\n{'='*60}")
-    print(f"Strategy: full_column (user parallelization via generate_text_batch)")
-    print(f"Records: {NUM_RECORDS}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     config_full = dd.DataDesignerConfigBuilder()
     config_full.add_column(topic_config)
@@ -112,12 +88,36 @@ if __name__ == "__main__":
     print(f"Time: {elapsed_full:.2f}s")
     print(f"Sample result: {result_full.dataset['fact'].iloc[0][:80]}...")
 
+    # Benchmark cell_by_cell
+    print(f"\n{'=' * 60}")
+    print("Strategy: cell_by_cell (framework parallelization)")
+    print(f"Records: {NUM_RECORDS}")
+    print(f"{'=' * 60}")
+
+    config_cell = dd.DataDesignerConfigBuilder()
+    config_cell.add_column(topic_config)
+    config_cell.add_column(
+        dd.CustomColumnConfig(
+            name="fact",
+            generate_fn=cell_by_cell_generator,
+            input_columns=["topic"],
+            generation_strategy="cell_by_cell",
+        )
+    )
+
+    start = time.perf_counter()
+    result_cell = data_designer.preview(config_builder=config_cell, num_records=NUM_RECORDS)
+    elapsed_cell = time.perf_counter() - start
+
+    print(f"Time: {elapsed_cell:.2f}s")
+    print(f"Sample result: {result_cell.dataset['fact'].iloc[0][:80]}...")
+
     # Summary
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("SUMMARY")
-    print(f"{'='*60}")
-    print(f"cell_by_cell: {elapsed_cell:.2f}s")
+    print(f"{'=' * 60}")
     print(f"full_column:  {elapsed_full:.2f}s")
+    print(f"cell_by_cell: {elapsed_cell:.2f}s")
 
     if elapsed_cell < elapsed_full:
         speedup = elapsed_full / elapsed_cell
@@ -125,3 +125,7 @@ if __name__ == "__main__":
     else:
         speedup = elapsed_cell / elapsed_full
         print(f"\nfull_column is {speedup:.1f}x faster")
+
+    print("\nRecommendation:")
+    print("- Use cell_by_cell (default) for LLM workloads - framework handles parallelization")
+    print("- Use full_column for vectorized operations or when you need cross-row access")
