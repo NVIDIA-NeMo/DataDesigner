@@ -496,15 +496,15 @@ class CustomColumnConfig(SingleColumnConfig):
         - fn(df: pd.DataFrame, ctx: CustomColumnContext) -> pd.DataFrame
 
      Attributes:
-        generate_fn: A callable that processes data. Signature depends on generation_strategy.
+        generation_function: A callable that processes data. Signature depends on generation_strategy.
         generation_strategy: "cell_by_cell" (row-based) or "full_column" (batch-based).
         input_columns: List of column names that must exist before this column can be generated.
-        output_columns: List of additional column names that generate_fn will create.
+        output_columns: List of additional column names that generation_function will create.
         kwargs: Optional dictionary of additional parameters accessible via ctx.kwargs.
         column_type: Discriminator field, always "custom" for this configuration type.
     """
 
-    generate_fn: Any = Field(description="Function to generate the column")
+    generation_function: Any = Field(description="Function to generate the column")
     generation_strategy: Literal["cell_by_cell", "full_column"] = Field(
         default="cell_by_cell",
         description="Generation strategy: 'cell_by_cell' for row-based or 'full_column' for batch-based",
@@ -515,7 +515,7 @@ class CustomColumnConfig(SingleColumnConfig):
     )
     output_columns: list[str] = Field(
         default_factory=list,
-        description="List of additional column names that generate_fn will create",
+        description="List of additional column names that generation_function will create",
     )
     kwargs: dict[str, Any] = Field(
         default_factory=dict,
@@ -537,15 +537,15 @@ class CustomColumnConfig(SingleColumnConfig):
         """Returns additional columns created by this generator."""
         return self.output_columns
 
-    @field_serializer("generate_fn")
-    def serialize_generate_fn(self, v: Any) -> Any:
+    @field_serializer("generation_function")
+    def serialize_generation_function(self, v: Any) -> Any:
         return v.__name__
 
     @model_validator(mode="after")
-    def validate_generate_fn(self) -> Self:
-        if not callable(self.generate_fn):
+    def validate_generation_function(self) -> Self:
+        if not callable(self.generation_function):
             raise InvalidConfigError(
-                f"🛑 `generate_fn` must be a callable for custom column '{self.name}'. "
+                f"🛑 `generation_function` must be a callable for custom column '{self.name}'. "
                 f"Expected a function with signature (row: dict) -> dict or (row: dict, ctx) -> dict."
             )
         return self

@@ -75,7 +75,7 @@ if __name__ == "__main__":
     config_full.add_column(
         dd.CustomColumnConfig(
             name="fact",
-            generate_fn=full_column_generator,
+            generation_function=full_column_generator,
             input_columns=["topic"],
             generation_strategy="full_column",
         )
@@ -99,7 +99,7 @@ if __name__ == "__main__":
     config_cell.add_column(
         dd.CustomColumnConfig(
             name="fact",
-            generate_fn=cell_by_cell_generator,
+            generation_function=cell_by_cell_generator,
             input_columns=["topic"],
             generation_strategy="cell_by_cell",
         )
