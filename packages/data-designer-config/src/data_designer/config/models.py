@@ -109,6 +109,9 @@ class ImageContext(ModalityContext):
                 context_values = [raw_value]
         elif isinstance(raw_value, list):
             context_values = raw_value
+        elif hasattr(raw_value, "__iter__") and not isinstance(raw_value, (str, bytes, dict)):
+            # Handle array-like objects (numpy arrays, pandas Series, etc.)
+            context_values = list(raw_value)
         else:
             context_values = [raw_value]
 
