@@ -95,6 +95,10 @@ jobs:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
 
+      # Needed for the build to work
+      - name: Copy README to data-designer package
+        run: cp README.md packages/data-designer/README.md
+
       - name: Install data-designer (full package)
         run: uv sync --package data-designer
 

@@ -84,6 +84,13 @@ help:
 	@echo "  perf-import CLEAN=1       - Clean cache, then profile import time"
 	@echo "  perf-import NOFILE=1      - Profile without writing to file (for CI)"
 	@echo ""
+	@echo "🚀 Publish:"
+	@echo "  publish VERSION=X.Y.Z                        - Publish all packages to PyPI"
+	@echo "  publish VERSION=X.Y.Z DRY_RUN=1              - Dry run (no tags or uploads)"
+	@echo "  publish VERSION=X.Y.Z TEST_PYPI=1            - Publish to TestPyPI"
+	@echo "  publish VERSION=X.Y.Z ALLOW_BRANCH=1         - Publish from non-main branch"
+	@echo "  publish VERSION=X.Y.Z FORCE_TAG=1            - Overwrite existing git tag"
+	@echo ""
 	@echo "📦 Per-Package Commands (use suffix: -config, -engine, -interface):"
 	@echo "  test-<pkg>                - Run tests for a specific package"
 	@echo "  lint-<pkg>                - Lint a specific package"
@@ -114,6 +121,8 @@ install-dev:
 	@echo "📦 Installing DataDesigner workspace in development mode..."
 	@echo "   Packages: data-designer-config → data-designer-engine → data-designer"
 	@echo "   Groups: dev (pytest, coverage, etc.)"
+	@echo "📄 Copying top-level README to data-designer package..."
+	cp README.md packages/data-designer/README.md
 	uv sync --all-packages --group dev
 	$(call install-pre-commit-hooks)
 	@echo ""
@@ -215,6 +224,8 @@ test-engine-isolated:
 
 test-interface-isolated:
 	@echo "🧪 Testing data-designer (interface) in isolation..."
+	@echo "📄 Copying top-level README to data-designer package..."
+	@cp README.md packages/data-designer/README.md
 	@ISOLATED_VENV=$$(mktemp -d); \
 	trap "rm -rf $$ISOLATED_VENV" EXIT; \
 	echo "   Creating isolated environment in $$ISOLATED_VENV..."; \
@@ -250,6 +261,8 @@ coverage-interface:
 	uv run --group dev pytest $(INTERFACE_TESTS) --cov=data_designer --cov-report=term-missing --cov-report=html
 
 test-e2e:
+	@echo "📄 Copying top-level README to data-designer package..."
+	@cp README.md packages/data-designer/README.md
 	@echo "🧹 Cleaning e2e test environment..."
 	rm -rf tests_e2e/uv.lock tests_e2e/__pycache__ tests_e2e/.venv
 	@echo "🧪 Running e2e tests..."
@@ -394,6 +407,8 @@ build-engine:
 
 build-interface:
 	@echo "🏗️  Building data-designer (interface)..."
+	@echo "📄 Copying top-level README to data-designer package..."
+	cp README.md $(INTERFACE_PKG)/README.md
 	cd $(INTERFACE_PKG) && uv build -o dist
 
 # ==============================================================================
@@ -483,6 +498,40 @@ else
 	printf "%-12s %-12s %s\n" "--------" "--------------" "------"; \
 	grep "import time:" "$$PERF_FILE" | sort -rn -k5 | head -10 | awk '{printf "%-12.3f %-12.3f %s", $$3/1000000, $$5/1000000, $$7; for(i=8;i<=NF;i++) printf " %s", $$i; printf "\n"}'
 endif
+
+# ==============================================================================
+# PUBLISH
+# ==============================================================================
+
+# Build publish flags based on options
+PUBLISH_FLAGS :=
+ifdef DRY_RUN
+PUBLISH_FLAGS += --dry-run
+endif
+ifdef TEST_PYPI
+PUBLISH_FLAGS += --test-pypi
+endif
+ifdef ALLOW_BRANCH
+PUBLISH_FLAGS += --allow-branch
+endif
+ifdef FORCE_TAG
+PUBLISH_FLAGS += --force-tag
+endif
+
+publish:
+ifndef VERSION
+	$(error VERSION is required. Usage: make publish VERSION=0.3.9rc1 [DRY_RUN=1] [TEST_PYPI=1] [ALLOW_BRANCH=1] [FORCE_TAG=1])
+endif
+ifdef TEST_PYPI
+	@echo "🚀 Publishing version $(VERSION) to TestPyPI..."
+else
+ifdef DRY_RUN
+	@echo "🚀 Running publish dry-run for version $(VERSION)..."
+else
+	@echo "🚀 Publishing version $(VERSION) to PyPI..."
+endif
+endif
+	$(REPO_PATH)/scripts/publish.sh $(VERSION) $(PUBLISH_FLAGS)
 
 # ==============================================================================
 # CLEANUP
