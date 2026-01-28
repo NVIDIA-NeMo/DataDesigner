@@ -26,20 +26,122 @@ from data_designer.config.models import (
 )
 
 
-def test_image_context_get_context():
+def test_image_context_get_contexts_single_string():
+    """Test get_contexts with a single string value."""
     image_context = ImageContext(
         column_name="image_base64", data_type=ModalityDataType.BASE64, image_format=ImageFormat.PNG
     )
-    assert image_context.get_context({"image_base64": "somebase64encodedimagestring"}) == {
-        "type": "image_url",
-        "image_url": {"url": "data:image/png;base64,somebase64encodedimagestring", "format": "png"},
-    }
+    assert image_context.get_contexts({"image_base64": "somebase64encodedimagestring"}) == [
+        {
+            "type": "image_url",
+            "image_url": {"url": "data:image/png;base64,somebase64encodedimagestring", "format": "png"},
+        }
+    ]
 
     image_context = ImageContext(column_name="image_url", data_type=ModalityDataType.URL)
-    assert image_context.get_context({"image_url": "https://example.com/examle_image.png"}) == {
-        "type": "image_url",
-        "image_url": "https://example.com/examle_image.png",
-    }
+    assert image_context.get_contexts({"image_url": "https://example.com/examle_image.png"}) == [
+        {
+            "type": "image_url",
+            "image_url": "https://example.com/examle_image.png",
+        }
+    ]
+
+
+def test_image_context_get_contexts_list_of_strings():
+    """Test get_contexts with a list of strings."""
+    image_context = ImageContext(
+        column_name="image_base64", data_type=ModalityDataType.BASE64, image_format=ImageFormat.PNG
+    )
+    assert image_context.get_contexts({"image_base64": ["image1base64", "image2base64", "image3base64"]}) == [
+        {
+            "type": "image_url",
+            "image_url": {"url": "data:image/png;base64,image1base64", "format": "png"},
+        },
+        {
+            "type": "image_url",
+            "image_url": {"url": "data:image/png;base64,image2base64", "format": "png"},
+        },
+        {
+            "type": "image_url",
+            "image_url": {"url": "data:image/png;base64,image3base64", "format": "png"},
+        },
+    ]
+
+    image_context = ImageContext(column_name="image_url", data_type=ModalityDataType.URL)
+    assert image_context.get_contexts(
+        {"image_url": ["https://example.com/image1.png", "https://example.com/image2.png"]}
+    ) == [
+        {
+            "type": "image_url",
+            "image_url": "https://example.com/image1.png",
+        },
+        {
+            "type": "image_url",
+            "image_url": "https://example.com/image2.png",
+        },
+    ]
+
+
+def test_image_context_get_contexts_json_serialized_list():
+    """Test get_contexts with a JSON serialized list of strings."""
+    image_context = ImageContext(
+        column_name="image_base64", data_type=ModalityDataType.BASE64, image_format=ImageFormat.PNG
+    )
+    json_str = json.dumps(["image1base64", "image2base64"])
+    assert image_context.get_contexts({"image_base64": json_str}) == [
+        {
+            "type": "image_url",
+            "image_url": {"url": "data:image/png;base64,image1base64", "format": "png"},
+        },
+        {
+            "type": "image_url",
+            "image_url": {"url": "data:image/png;base64,image2base64", "format": "png"},
+        },
+    ]
+
+    image_context = ImageContext(column_name="image_url", data_type=ModalityDataType.URL)
+    json_str = json.dumps(["https://example.com/image1.png", "https://example.com/image2.png"])
+    assert image_context.get_contexts({"image_url": json_str}) == [
+        {
+            "type": "image_url",
+            "image_url": "https://example.com/image1.png",
+        },
+        {
+            "type": "image_url",
+            "image_url": "https://example.com/image2.png",
+        },
+    ]
+
+
+def test_image_context_get_contexts_json_string_not_list():
+    """Test get_contexts with a JSON string that isn't a list (should treat as single string)."""
+    image_context = ImageContext(column_name="image_url", data_type=ModalityDataType.URL)
+    json_str = json.dumps({"nested": "object"})
+    # Should treat the entire JSON string as a single image URL
+    assert image_context.get_contexts({"image_url": json_str}) == [
+        {
+            "type": "image_url",
+            "image_url": json_str,
+        }
+    ]
+
+
+def test_image_context_get_contexts_invalid_json():
+    """Test get_contexts with invalid JSON string (should treat as single string)."""
+    image_context = ImageContext(column_name="image_url", data_type=ModalityDataType.URL)
+    invalid_json = "not a valid json string"
+    assert image_context.get_contexts({"image_url": invalid_json}) == [
+        {
+            "type": "image_url",
+            "image_url": invalid_json,
+        }
+    ]
+
+
+def test_image_context_get_contexts_empty_list():
+    """Test get_contexts with an empty list."""
+    image_context = ImageContext(column_name="image_url", data_type=ModalityDataType.URL)
+    assert image_context.get_contexts({"image_url": []}) == []
 
 
 def test_image_context_validate_image_format():

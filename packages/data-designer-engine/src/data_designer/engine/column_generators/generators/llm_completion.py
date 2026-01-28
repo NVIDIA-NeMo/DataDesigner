@@ -62,9 +62,9 @@ class ColumnGeneratorWithModelChatCompletion(ColumnGeneratorWithModel[TaskConfig
 
         multi_modal_context = None
         if self.config.multi_modal_context is not None and len(self.config.multi_modal_context) > 0:
-            multi_modal_context = [
-                context.get_context(deserialized_record) for context in self.config.multi_modal_context
-            ]
+            multi_modal_context = []
+            for context in self.config.multi_modal_context:
+                multi_modal_context.extend(context.get_contexts(deserialized_record))
 
         response, reasoning_trace = self.model.generate(
             prompt=self.prompt_renderer.render(
