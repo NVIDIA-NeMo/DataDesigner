@@ -33,9 +33,10 @@ class RunConfig(ConfigBase):
         max_conversation_correction_steps: Maximum number of correction rounds permitted within a
             single conversation when generation tasks call `ModelFacade.generate(...)`. Must be >= 0.
             Default is 0.
-        include_full_traces: If True, includes an additional `__trace` column for LLM generations,
-            containing the full ordered message history (system/user/assistant/tool) for the final
-            generation attempt. Default is False.
+        debug_override_save_all_column_traces: If True, overrides per-column `with_trace` settings
+            and includes `__trace` columns for ALL LLM generations, containing the full ordered
+            message history (system/user/assistant/tool) for the final generation attempt.
+            Useful for debugging. Default is False.
     """
 
     disable_early_shutdown: bool = False
@@ -45,7 +46,7 @@ class RunConfig(ConfigBase):
     non_inference_max_parallel_workers: int = Field(default=4, ge=1)
     max_conversation_restarts: int = Field(default=5, ge=0)
     max_conversation_correction_steps: int = Field(default=0, ge=0)
-    include_full_traces: bool = False
+    debug_override_save_all_column_traces: bool = False
 
     @model_validator(mode="after")
     def normalize_shutdown_settings(self) -> Self:

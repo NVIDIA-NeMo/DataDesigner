@@ -3,79 +3,107 @@
 
 from __future__ import annotations
 
-from pydantic import Field, model_validator
-from typing_extensions import Self
+from typing import Annotated, Literal
+
+from pydantic import Field
+from typing_extensions import TypeAlias
 
 from data_designer.config.base import ConfigBase
-from data_designer.config.errors import InvalidConfigError
 
 
-class MCPServerConfig(ConfigBase):
-    """Configuration for a single MCP server connection.
+class MCPProvider(ConfigBase):
+    """Configuration for a remote MCP server connection.
 
-    MCP servers can be launched locally via stdio (command/args) or accessed remotely
-    over SSE (url), allowing the same configuration type to cover both deployment modes.
+    MCPProvider is used to connect to pre-existing MCP servers via SSE (Server-Sent Events)
+    transport. For local subprocess-based MCP servers, use LocalStdioMCPProvider instead.
 
     Attributes:
-        name (str): Unique name used to reference this MCP server.
-        command (str | None): Executable to launch the MCP server via stdio transport. Defaults to None.
+        name (str): Unique name used to reference this MCP provider.
+        endpoint (str): SSE endpoint URL for connecting to the remote MCP server.
+        api_key (str | None): Optional API key for authentication. Defaults to None.
+        provider_type (Literal["sse"]): Transport type discriminator, always "sse".
+
+    Examples:
+        Remote SSE transport:
+
+        >>> MCPProvider(
+        ...     name="remote-mcp",
+        ...     endpoint="http://localhost:8080/sse",
+        ...     api_key="your-api-key",
+        ... )
+    """
+
+    provider_type: Literal["sse"] = "sse"
+    name: str
+    endpoint: str
+    api_key: str | None = None
+
+
+class LocalStdioMCPProvider(ConfigBase):
+    """Configuration for launching a local MCP server via stdio transport.
+
+    LocalStdioMCPProvider is used to launch MCP servers as subprocesses using stdio
+    for communication. For connecting to remote/pre-existing MCP servers, use MCPProvider instead.
+
+    Attributes:
+        name (str): Unique name used to reference this MCP provider.
+        command (str): Executable to launch the MCP server via stdio transport.
         args (list[str]): Arguments passed to the MCP server executable. Defaults to [].
-        url (str | None): SSE endpoint URL for connecting to a remote MCP server. Defaults to None.
         env (dict[str, str]): Environment variables passed to the MCP server subprocess. Defaults to {}.
+        provider_type (Literal["stdio"]): Transport type discriminator, always "stdio".
 
     Examples:
         Stdio (subprocess) transport:
 
-        >>> MCPServerConfig(
+        >>> LocalStdioMCPProvider(
         ...     name="demo-mcp",
         ...     command="python",
         ...     args=["-m", "data_designer_e2e_tests.mcp_demo_server"],
         ...     env={"PYTHONPATH": "/path/to/project"},
         ... )
+    """
 
-        SSE (HTTP) transport:
+    provider_type: Literal["stdio"] = "stdio"
+    name: str
+    command: str
+    args: list[str] = Field(default_factory=list)
+    env: dict[str, str] = Field(default_factory=dict)
 
-        >>> MCPServerConfig(
-        ...     name="remote-mcp",
-        ...     url="http://localhost:8080/sse",
+
+MCPProviderT: TypeAlias = Annotated[MCPProvider | LocalStdioMCPProvider, Field(discriminator="provider_type")]
+
+
+class ToolConfig(ConfigBase):
+    """Configuration for permitting MCP tools on an LLM column.
+
+    ToolConfig defines which tools are available for use during LLM generation.
+    It references one or more MCP providers by name and can optionally restrict
+    which tools from those providers are permitted.
+
+    Attributes:
+        tool_alias (str): User-defined alias to reference this tool configuration in column configs.
+        providers (list[str]): Names of the MCP providers to use for tool calls. Tools can be
+            drawn from multiple providers.
+        allow_tools (list[str] | None): Optional allowlist of tool names that restricts which
+            tools are permitted. If None, all tools from the specified providers are allowed.
+            Defaults to None.
+        max_tool_call_turns (int): Maximum number of tool-calling turns permitted in a single
+            generation. A turn is one iteration where the LLM requests tool calls. With parallel
+            tool calling, a single turn may execute multiple tools simultaneously. Defaults to 5.
+        timeout_sec (float | None): Timeout in seconds for MCP tool calls. Defaults to None (no timeout).
+
+    Examples:
+        >>> ToolConfig(
+        ...     tool_alias="search-tools",
+        ...     providers=["doc-search-mcp", "web-search-mcp"],
+        ...     allow_tools=["search_docs", "list_docs"],
+        ...     max_tool_call_turns=10,
+        ...     timeout_sec=30.0,
         ... )
     """
 
-    name: str
-    command: str | None = None
-    args: list[str] = Field(default_factory=list)
-    url: str | None = None
-    env: dict[str, str] = Field(default_factory=dict)
-
-    @model_validator(mode="after")
-    def validate_transport(self) -> Self:
-        """Validate that exactly one transport is configured.
-
-        Returns:
-            The validated MCPServerConfig instance.
-
-        Raises:
-            InvalidConfigError: If both or neither of `command` and `url` are provided,
-                or if `args` are supplied for an SSE-based server.
-        """
-        if bool(self.command) == bool(self.url):
-            raise InvalidConfigError("MCP server config must define exactly one of 'command' or 'url'.")
-        if self.url and self.args:
-            raise InvalidConfigError("MCP server config 'args' is only valid when using 'command'.")
-        return self
-
-
-class MCPToolConfig(ConfigBase):
-    """Configuration for permitting MCP tools on an LLM column.
-
-    Attributes:
-        server_name (str): Name of the MCP server to use for tool calls.
-        tool_names (list[str] | None): Optional allowlist of tool names. If None, all tools are allowed. Defaults to None.
-        max_tool_calls (int): Maximum number of tool calls permitted in a single generation. Defaults to 5.
-        timeout_sec (float | None): Timeout in seconds for MCP tool calls. Defaults to None (no timeout).
-    """
-
-    server_name: str
-    tool_names: list[str] | None = None
-    max_tool_calls: int = Field(default=5, ge=1)
+    tool_alias: str
+    providers: list[str]
+    allow_tools: list[str] | None = None
+    max_tool_call_turns: int = Field(default=5, ge=1)
     timeout_sec: float | None = Field(default=None, gt=0)

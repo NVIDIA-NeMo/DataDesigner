@@ -853,7 +853,7 @@ requires-dist = [
     { name = "litellm", specifier = ">=1.73.6,<1.80.12" },
     { name = "lxml", specifier = ">=6.0.2,<7" },
     { name = "marko", specifier = ">=2.1.2,<3" },
-    { name = "mcp", specifier = ">=1.26.0" },
+    { name = "mcp", specifier = ">=1.26.0,<2" },
     { name = "networkx", specifier = ">=3.0,<4" },
     { name = "ruff", specifier = ">=0.14.10,<1" },
     { name = "scipy", specifier = ">=1.11.0,<2" },

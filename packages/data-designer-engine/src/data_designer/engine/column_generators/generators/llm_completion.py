@@ -79,7 +79,7 @@ class ColumnGeneratorWithModelChatCompletion(ColumnGeneratorWithModel[TaskConfig
             ),
             parser=self.response_recipe.parse,
             multi_modal_context=multi_modal_context,
-            tool_config=self.config.tool_config,
+            tool_alias=self.config.tool_alias,
             max_correction_steps=self.max_conversation_correction_steps,
             max_conversation_restarts=self.max_conversation_restarts,
             purpose=f"running generation for column '{self.config.name}'",
@@ -88,7 +88,10 @@ class ColumnGeneratorWithModelChatCompletion(ColumnGeneratorWithModel[TaskConfig
         serialized_output = self.response_recipe.serialize_output(response)
         data[self.config.name] = self._process_serialized_output(serialized_output)
 
-        if self.resource_provider.run_config.include_full_traces:
+        should_save_trace = (
+            self.config.with_trace or self.resource_provider.run_config.debug_override_save_all_column_traces
+        )
+        if should_save_trace:
             data[self.config.name + TRACE_COLUMN_POSTFIX] = [message.to_dict() for message in trace]
 
         return data

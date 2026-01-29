@@ -11,7 +11,6 @@ from typing_extensions import Self
 
 from data_designer.config.base import ConfigBase
 from data_designer.config.errors import InvalidConfigError
-from data_designer.config.mcp import MCPToolConfig
 from data_designer.config.models import ImageContext
 from data_designer.config.sampler_params import SamplerParamsT, SamplerType
 from data_designer.config.utils.code_lang import CodeLang
@@ -160,8 +159,13 @@ class LLMTextColumnConfig(SingleColumnConfig):
             `LLMStructuredColumnConfig` for structured output, `LLMCodeColumnConfig` for code.
         multi_modal_context: Optional list of image contexts for multi-modal generation.
             Enables vision-capable models to generate text based on image inputs.
-        tool_config: Optional MCP tool configuration. When provided, the model may call
-            permitted tools from the configured MCP server during generation.
+        tool_alias: Optional alias of the tool configuration to use for MCP tool calls.
+            Must match a tool alias defined when initializing the DataDesignerConfigBuilder.
+            When provided, the model may call permitted tools during generation.
+        with_trace: If True, creates a `{column_name}__trace` column containing the full
+            ordered message history (system/user/assistant/tool) for the generation.
+            Can be overridden globally via `RunConfig.debug_override_save_all_column_traces`.
+            Defaults to False.
         column_type: Discriminator field, always "llm-text" for this configuration type.
     """
 
@@ -169,7 +173,8 @@ class LLMTextColumnConfig(SingleColumnConfig):
     model_alias: str
     system_prompt: str | None = None
     multi_modal_context: list[ImageContext] | None = None
-    tool_config: MCPToolConfig | None = None
+    tool_alias: str | None = None
+    with_trace: bool = False
     column_type: Literal["llm-text"] = "llm-text"
 
     @staticmethod
@@ -192,7 +197,8 @@ class LLMTextColumnConfig(SingleColumnConfig):
     def side_effect_columns(self) -> list[str]:
         """Returns the trace column, which may be generated alongside the main column.
 
-        Full traces are only returned when enabled via `RunConfig.include_full_traces`.
+        Traces are generated when `with_trace=True` on the column config or
+        when `RunConfig.debug_override_save_all_column_traces=True` globally.
 
         Returns:
             List containing the trace column name.

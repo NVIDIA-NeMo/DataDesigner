@@ -280,9 +280,17 @@ def list_docs() -> str:
     return json.dumps({"documents": documents, "total_documents": len(documents)})
 
 
-def build_config(model_alias: str, server_name: str) -> dd.DataDesignerConfigBuilder:
+def build_config(model_alias: str, provider_name: str) -> dd.DataDesignerConfigBuilder:
     """Build the Data Designer configuration for document Q&A generation."""
-    config_builder = dd.DataDesignerConfigBuilder()
+    tool_config = dd.ToolConfig(
+        tool_alias="doc-search",
+        providers=[provider_name],
+        allow_tools=["list_docs", "search_docs"],
+        max_tool_call_turns=100,
+        timeout_sec=30.0,
+    )
+
+    config_builder = dd.DataDesignerConfigBuilder(tool_configs=[tool_config])
     config_builder.add_column(
         dd.SamplerColumnConfig(
             name="seed_id",
@@ -290,13 +298,6 @@ def build_config(model_alias: str, server_name: str) -> dd.DataDesignerConfigBui
             params=dd.UUIDSamplerParams(),
             drop=True,
         )
-    )
-
-    tool_config = dd.MCPToolConfig(
-        server_name=server_name,
-        tool_names=["list_docs", "search_docs"],
-        max_tool_calls=100,
-        timeout_sec=30.0,
     )
 
     config_builder.add_column(
@@ -310,7 +311,8 @@ def build_config(model_alias: str, server_name: str) -> dd.DataDesignerConfigBui
                 "You can use as many tool calls as required to answer the user query."
             ),
             output_format=TopicList,
-            tool_config=tool_config,
+            tool_alias="doc-search",
+            with_trace=True,  # Enable trace to capture tool call history
         )
     )
 
@@ -338,7 +340,8 @@ why the answer is correct.
                 "You can use as many tool calls as required to answer the user query."
             ),
             output_format=QAPair,
-            tool_config=tool_config,
+            tool_alias="doc-search",
+            with_trace=True,  # Enable trace to capture tool call history
         )
     )
 
@@ -372,11 +375,11 @@ why the answer is correct.
 def generate_preview(
     config_builder: dd.DataDesignerConfigBuilder,
     num_records: int,
-    mcp_server_config: dd.MCPServerConfig,
+    mcp_provider: dd.LocalStdioMCPProvider,
 ) -> PreviewResults:
-    """Run Data Designer preview with the MCP server."""
-    data_designer = DataDesigner(mcp_servers=[mcp_server_config])
-    data_designer.set_run_config(dd.RunConfig(include_full_traces=True))
+    """Run Data Designer preview with the MCP provider."""
+    data_designer = DataDesigner(mcp_providers=[mcp_provider])
+    # Traces are enabled per-column via with_trace=True on LLM column configs
     return data_designer.preview(config_builder, num_records=num_records)
 
 
@@ -512,6 +515,8 @@ def parse_args() -> argparse.Namespace:
         metavar="PATH_OR_URL",
         help="PDF file path or URL to index (can be specified multiple times). Defaults to a sample PDF if not provided.",
     )
+    # For compatibility with Makefile test-run-recipes target (ignored in demo mode)
+    parser.add_argument("--artifact-path", type=str, default=None, help=argparse.SUPPRESS)
 
     return parser.parse_args()
 
@@ -532,8 +537,8 @@ def main() -> None:
     # Use provided PDFs or fall back to default
     pdf_sources = args.pdfs if args.pdfs else [DEFAULT_PDF_URL]
 
-    # Configure MCP server to run via stdio transport
-    mcp_server_config = dd.MCPServerConfig(
+    # Configure MCP provider to run via stdio transport (local subprocess)
+    mcp_provider = dd.LocalStdioMCPProvider(
         name=MCP_SERVER_NAME,
         command=sys.executable,
         args=[str(Path(__file__).resolve()), "serve"],
@@ -542,13 +547,13 @@ def main() -> None:
 
     config_builder = build_config(
         model_alias=args.model_alias,
-        server_name=MCP_SERVER_NAME,
+        provider_name=MCP_SERVER_NAME,
     )
 
     preview_results = generate_preview(
         config_builder=config_builder,
         num_records=args.num_records,
-        mcp_server_config=mcp_server_config,
+        mcp_provider=mcp_provider,
     )
 
     display_preview_record(preview_results)

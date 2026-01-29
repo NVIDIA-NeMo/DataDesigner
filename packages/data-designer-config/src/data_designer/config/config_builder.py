@@ -25,6 +25,7 @@ from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.default_model_settings import get_default_model_configs
 from data_designer.config.errors import BuilderConfigurationError, BuilderSerializationError, InvalidColumnTypeError
+from data_designer.config.mcp import ToolConfig
 from data_designer.config.models import ModelConfig, load_model_configs
 from data_designer.config.processors import ProcessorConfigT, ProcessorType, get_processor_config_from_kwargs
 from data_designer.config.sampler_constraints import (
@@ -93,7 +94,10 @@ class DataDesignerConfigBuilder:
             json_config = json.loads(serialize_data(smart_load_yaml(config)))
             builder_config = BuilderConfig.model_validate(json_config)
 
-        builder = cls(model_configs=builder_config.data_designer.model_configs)
+        builder = cls(
+            model_configs=builder_config.data_designer.model_configs,
+            tool_configs=builder_config.data_designer.tool_configs,
+        )
         data_designer_config = builder_config.data_designer
 
         for col in data_designer_config.columns:
@@ -111,7 +115,11 @@ class DataDesignerConfigBuilder:
 
         return builder
 
-    def __init__(self, model_configs: list[ModelConfig] | str | Path | None = None):
+    def __init__(
+        self,
+        model_configs: list[ModelConfig] | str | Path | None = None,
+        tool_configs: list[ToolConfig] | None = None,
+    ):
         """Initialize a new DataDesignerConfigBuilder instance.
 
         Args:
@@ -119,9 +127,13 @@ class DataDesignerConfigBuilder:
                 - None to use default model configurations in local mode
                 - A list of ModelConfig objects
                 - A string or Path to a model configuration file
+            tool_configs: Tool configurations for MCP tool calling. Can be:
+                - None if no tool configs are needed
+                - A list of ToolConfig objects
         """
         self._column_configs = {}
         self._model_configs = _load_model_configs(model_configs)
+        self._tool_configs: list[ToolConfig] = tool_configs or []
         self._processor_configs: list[ProcessorConfigT] = []
         self._seed_config: SeedConfig | None = None
         self._constraints: list[ColumnConstraintT] = []
@@ -135,6 +147,15 @@ class DataDesignerConfigBuilder:
             A list of ModelConfig objects used for data generation.
         """
         return self._model_configs
+
+    @property
+    def tool_configs(self) -> list[ToolConfig]:
+        """Get the tool configurations for this builder.
+
+        Returns:
+            A list of ToolConfig objects used for MCP tool calling.
+        """
+        return self._tool_configs
 
     @property
     def allowed_references(self) -> list[str]:
@@ -182,6 +203,38 @@ class DataDesignerConfigBuilder:
             logger.warning(
                 f"⚠️ No model configurations found after deleting model configuration with alias {alias}. Please add a model configuration before building the configuration."
             )
+        return self
+
+    def add_tool_config(self, tool_config: ToolConfig) -> Self:
+        """Add a tool configuration to the current Data Designer configuration.
+
+        Args:
+            tool_config: The tool configuration to add.
+
+        Returns:
+            The current Data Designer config builder instance.
+
+        Raises:
+            BuilderConfigurationError: If a tool configuration with the same alias already exists.
+        """
+        if tool_config.tool_alias in [tc.tool_alias for tc in self._tool_configs]:
+            raise BuilderConfigurationError(
+                f"🛑 Tool configuration with alias {tool_config.tool_alias} already exists. "
+                "Please delete the existing tool configuration or choose a different alias."
+            )
+        self._tool_configs.append(tool_config)
+        return self
+
+    def delete_tool_config(self, alias: str) -> Self:
+        """Delete a tool configuration from the current Data Designer configuration by alias.
+
+        Args:
+            alias: The alias of the tool configuration to delete.
+
+        Returns:
+            The current Data Designer config builder instance.
+        """
+        self._tool_configs = [tc for tc in self._tool_configs if tc.tool_alias != alias]
         return self
 
     def add_column(
@@ -353,6 +406,7 @@ class DataDesignerConfigBuilder:
         """
         return DataDesignerConfig(
             model_configs=self._model_configs,
+            tool_configs=self._tool_configs or None,
             seed_config=self._seed_config,
             columns=list(self._column_configs.values()),
             constraints=self._constraints or None,
@@ -410,6 +464,31 @@ class DataDesignerConfigBuilder:
             A list of all column configuration objects.
         """
         return list(self._column_configs.values())
+
+    def get_tool_config(self, alias: str) -> ToolConfig:
+        """Get a tool configuration by alias.
+
+        Args:
+            alias: The alias of the tool configuration to retrieve.
+
+        Returns:
+            The tool configuration object.
+
+        Raises:
+            KeyError: If no tool configuration with the given alias exists.
+        """
+        for tc in self._tool_configs:
+            if tc.tool_alias == alias:
+                return tc
+        raise KeyError(f"No tool configuration with alias {alias!r} found")
+
+    def get_tool_configs(self) -> list[ToolConfig]:
+        """Get all tool configurations.
+
+        Returns:
+            A list of all tool configuration objects.
+        """
+        return self._tool_configs
 
     def get_constraints(self, target_column: str) -> list[ColumnConstraintT]:
         """Get all constraints for the given target column.

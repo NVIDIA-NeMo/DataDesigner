@@ -14,11 +14,11 @@ from data_designer.config import (
     CategorySamplerParams,
     DataDesignerConfigBuilder,
     LLMTextColumnConfig,
-    MCPServerConfig,
-    MCPToolConfig,
+    LocalStdioMCPProvider,
     RunConfig,
     SamplerColumnConfig,
     SamplerType,
+    ToolConfig,
 )
 from data_designer.interface import DataDesigner
 
@@ -34,7 +34,7 @@ def test_mcp_server_tool_usage_with_nvidia_text(tmp_path: Path) -> None:
 
     log_path = tmp_path / "mcp_tool_calls.jsonl"
 
-    mcp_server = MCPServerConfig(
+    mcp_provider = LocalStdioMCPProvider(
         name="demo-mcp",
         command=sys.executable,
         args=["-m", "data_designer_e2e_tests.mcp_demo_server"],
@@ -44,10 +44,16 @@ def test_mcp_server_tool_usage_with_nvidia_text(tmp_path: Path) -> None:
         },
     )
 
-    data_designer = DataDesigner(mcp_servers=[mcp_server])
-    data_designer.set_run_config(RunConfig(include_full_traces=True))
+    data_designer = DataDesigner(mcp_providers=[mcp_provider])
+    data_designer.set_run_config(RunConfig(debug_override_save_all_column_traces=True))
 
-    config_builder = DataDesignerConfigBuilder()
+    tool_config = ToolConfig(
+        tool_alias="demo-tools",
+        providers=["demo-mcp"],
+        allow_tools=["get_fact", "add_numbers"],
+    )
+
+    config_builder = DataDesignerConfigBuilder(tool_configs=[tool_config])
     config_builder.add_column(
         SamplerColumnConfig(
             name="topic",
@@ -64,7 +70,7 @@ def test_mcp_server_tool_usage_with_nvidia_text(tmp_path: Path) -> None:
                 "Do not answer before calling both tools."
             ),
             model_alias="nvidia-text",
-            tool_config=MCPToolConfig(server_name="demo-mcp", tool_names=["get_fact", "add_numbers"]),
+            tool_alias="demo-tools",
         )
     )
 

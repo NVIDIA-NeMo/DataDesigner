@@ -50,12 +50,12 @@ class ChatMessage:
         return result
 
     @classmethod
-    def user(cls, content: str | list[dict[str, Any]]) -> ChatMessage:
+    def as_user(cls, content: str | list[dict[str, Any]]) -> ChatMessage:
         """Create a user message."""
         return cls(role="user", content=content)
 
     @classmethod
-    def assistant(
+    def as_assistant(
         cls,
         content: str = "",
         reasoning_content: str | None = None,
@@ -70,12 +70,12 @@ class ChatMessage:
         )
 
     @classmethod
-    def system(cls, content: str) -> ChatMessage:
+    def as_system(cls, content: str) -> ChatMessage:
         """Create a system message."""
         return cls(role="system", content=content)
 
     @classmethod
-    def tool(cls, content: str, tool_call_id: str) -> ChatMessage:
+    def as_tool(cls, content: str, tool_call_id: str) -> ChatMessage:
         """Create a tool response message."""
         return cls(role="tool", content=content, tool_call_id=tool_call_id)
 
@@ -97,5 +97,5 @@ user_content: str | list[dict[str, Any]] = user_prompt
         user_content = [*multi_modal_context, {"type": "text", "text": user_prompt}]
 
     if system_prompt:
-        return [ChatMessage.system(system_prompt), ChatMessage.user(user_content)]
-    return [ChatMessage.user(user_content)]
+        return [ChatMessage.as_system(system_prompt), ChatMessage.as_user(user_content)]
+    return [ChatMessage.as_user(user_content)]

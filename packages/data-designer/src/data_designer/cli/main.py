@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import typer
 
-from data_designer.cli.commands import download, models, providers, reset
+from data_designer.cli.commands import download, mcp, models, providers, reset, tools
 from data_designer.cli.commands import list as list_cmd
 from data_designer.config.default_model_settings import resolve_seed_default_model_settings
 from data_designer.config.utils.misc import can_run_data_designer_locally
@@ -31,6 +31,8 @@ config_app = typer.Typer(
 )
 config_app.command(name="providers", help="Configure model providers interactively")(providers.providers_command)
 config_app.command(name="models", help="Configure models interactively")(models.models_command)
+config_app.command(name="mcp", help="Configure MCP providers interactively")(mcp.mcp_command)
+config_app.command(name="tools", help="Configure tool configs interactively")(tools.tools_command)
 config_app.command(name="list", help="List current configurations")(list_cmd.list_command)
 config_app.command(name="reset", help="Reset configuration files")(reset.reset_command)
 

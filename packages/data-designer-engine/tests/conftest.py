@@ -7,7 +7,7 @@ import pytest
 
 from data_designer.engine.testing.stubs import StubHuggingFaceSeedReader
 
-pytest_plugins = ["data_designer.config.testing.fixtures"]
+# Fixtures are loaded via root conftest.py's pytest_plugins declaration
 
 
 @pytest.fixture

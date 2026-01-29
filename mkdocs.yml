@@ -36,13 +36,14 @@ nav:
           - Product Info QA: recipes/qa_and_chat/product_info_qa.md
           - Multi-Turn Chat: recipes/qa_and_chat/multi_turn_chat.md
       - MCP and Tool Use:
-          - "D&D Rules QA": recipes/mcp_and_tooluse/dnd_rules_qa.md
+          - "PDF Document QA": recipes/mcp_and_tooluse/pdf_qa.md
   - Plugins:
       - Overview: plugins/overview.md
       - Example Plugin: plugins/example.md
       - Available Plugin List: plugins/available.md
   - Code Reference:
       - models: code_reference/models.md
+      - mcp: code_reference/mcp.md
       - column_configs: code_reference/column_configs.md
       - config_builder: code_reference/config_builder.md
       - data_designer_config: code_reference/data_designer_config.md

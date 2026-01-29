@@ -78,4 +78,9 @@ preview_results.display_sample_record()
 
 🎉 Congratulations, you successfully ran one iteration designing your synthetic data. Follow along to learn more.
 
-To learn more about the default providers and model configurations available, see the [Default Model Settings](concepts/models/default-model-settings.md) guide.
+## Next steps
+
+- **Model providers**: Learn about [default model settings](concepts/models/default-model-settings.md) and how to configure custom providers
+- **Column types**: Explore all available [column types](concepts/columns.md) including samplers, code generation, and structured outputs
+- **Tool use**: Enable LLM columns to call external tools for retrieval-grounded generation via [MCP integration](concepts/tool_use_and_mcp.md)
+- **Recipes**: See complete [working examples](recipes/cards.md) for common use cases

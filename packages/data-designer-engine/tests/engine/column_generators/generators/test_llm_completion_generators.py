@@ -11,7 +11,6 @@ from data_designer.config.column_configs import (
     LLMStructuredColumnConfig,
     LLMTextColumnConfig,
 )
-from data_designer.config.mcp import MCPToolConfig
 from data_designer.config.run_config import RunConfig
 from data_designer.config.utils.constants import TRACE_COLUMN_POSTFIX
 from data_designer.engine.column_generators.generators.base import GenerationStrategy
@@ -94,10 +93,10 @@ def test_generate_method() -> None:
     # Test with full trace enabled
     mock_model.reset_mock()
     mock_prompt_renderer.reset_mock()
-    generator.resource_provider.run_config.include_full_traces = True
+    generator.resource_provider.run_config.debug_override_save_all_column_traces = True
     mock_prompt_renderer.render.side_effect = ["rendered_user_prompt", "rendered_system_prompt"]
     mock_response_recipe.serialize_output.return_value = {"result": "test_output"}
-    mock_model.generate.return_value = ({"result": "test_output"}, [ChatMessage.user("x")])
+    mock_model.generate.return_value = ({"result": "test_output"}, [ChatMessage.as_user("x")])
     result = generator.generate(data)
 
     assert result["test_column"] == {"result": "test_output"}
@@ -275,17 +274,17 @@ def test_generate_with_json_deserialization():
     assert result["test_column"] == {"result": "json_output"}
 
 
-def test_generate_passes_tool_config() -> None:
-    tool_config = MCPToolConfig(server_name="tools", tool_names=["lookup"])
-    generator, _, mock_model, _, _, mock_prompt_renderer, mock_response_recipe = _create_generator_with_mocks(
-        tool_config=tool_config
+def test_generate_passes_tool_alias() -> None:
+    generator, mock_resource_provider, mock_model, _, _, mock_prompt_renderer, mock_response_recipe = (
+        _create_generator_with_mocks(tool_alias="search")
     )
     _setup_generate_mocks(mock_prompt_renderer, mock_response_recipe, mock_model)
 
     data = {"input": "test_input"}
     _ = generator.generate(data)
 
-    assert mock_model.generate.call_args[1]["tool_config"] == tool_config
+    # Verify tool_alias is passed directly to model.generate()
+    assert mock_model.generate.call_args[1]["tool_alias"] == "search"
 
 
 @pytest.mark.parametrize(

@@ -10,6 +10,7 @@ from pydantic import Field
 from data_designer.config.analysis.column_profilers import ColumnProfilerConfigT
 from data_designer.config.base import ExportableConfigBase
 from data_designer.config.column_types import ColumnConfigT
+from data_designer.config.mcp import ToolConfig
 from data_designer.config.models import ModelConfig
 from data_designer.config.processors import ProcessorConfigT
 from data_designer.config.sampler_constraints import ColumnConstraintT
@@ -27,6 +28,8 @@ class DataDesignerConfig(ExportableConfigBase):
             should be generated. Must contain at least one column.
         model_configs: Optional list of model configurations for LLM-based generation.
             Each model config defines the model, provider, and inference parameters.
+        tool_configs: Optional list of tool configurations for MCP tool calling.
+            Each tool config defines the provider, allowed tools, and execution limits.
         seed_config: Optional seed dataset settings to use for generation.
         constraints: Optional list of column constraints.
         profilers: Optional list of column profilers for analyzing generated data characteristics.
@@ -34,6 +37,7 @@ class DataDesignerConfig(ExportableConfigBase):
 
     columns: list[Annotated[ColumnConfigT, Field(discriminator="column_type")]] = Field(min_length=1)
     model_configs: list[ModelConfig] | None = None
+    tool_configs: list[ToolConfig] | None = None
     seed_config: SeedConfig | None = None
     constraints: list[ColumnConstraintT] | None = None
     profilers: list[ColumnProfilerConfigT] | None = None

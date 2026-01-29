@@ -8,10 +8,8 @@ from collections.abc import Callable
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
-from data_designer.config.mcp import MCPToolConfig
 from data_designer.config.models import GenerationType, ModelConfig, ModelProvider
-from data_designer.engine.mcp.errors import MCPToolError
-from data_designer.engine.mcp.tool_executor import MCPToolExecutor
+from data_designer.engine.mcp.errors import MCPConfigurationError
 from data_designer.engine.model_provider import ModelProviderRegistry
 from data_designer.engine.models.errors import (
     GenerationValidationFailureError,
@@ -28,7 +26,8 @@ from data_designer.lazy_heavy_imports import litellm
 if TYPE_CHECKING:
     import litellm
 
-    from data_designer.engine.mcp.manager import MCPClientManager
+    from data_designer.engine.mcp.facade import MCPFacade
+    from data_designer.engine.mcp.registry import MCPRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -40,13 +39,12 @@ class ModelFacade:
         secret_resolver: SecretResolver,
         model_provider_registry: ModelProviderRegistry,
         *,
-        mcp_client_manager: MCPClientManager | None = None,
-    ):
+        mcp_registry: MCPRegistry | None = None,
+    ) -> None:
         self._model_config = model_config
         self._secret_resolver = secret_resolver
         self._model_provider_registry = model_provider_registry
-        self._mcp_client_manager = mcp_client_manager
-        self._tool_executor = MCPToolExecutor(mcp_client_manager)
+        self._mcp_registry = mcp_registry
         self._litellm_deployment = self._get_litellm_deployment(model_config)
         self._router = CustomRouter([self._litellm_deployment], **LiteLLMRouterDefaultKwargs().model_dump())
         self._usage_stats = ModelUsageStats()
@@ -113,6 +111,17 @@ class ModelFacade:
             kwargs["extra_headers"] = self.model_provider.extra_headers
         return kwargs
 
+    def _get_mcp_facade(self, tool_alias: str | None) -> MCPFacade | None:
+        if tool_alias is None:
+            return None
+        if self._mcp_registry is None:
+            raise MCPConfigurationError(f"Tool alias {tool_alias!r} specified but no MCPRegistry configured.")
+
+        try:
+            return self._mcp_registry.get_mcp(tool_alias=tool_alias)
+        except ValueError as exc:
+            raise MCPConfigurationError(f"Tool alias {tool_alias!r} is not registered.") from exc
+
     @catch_llm_exceptions
     def generate_text_embeddings(
         self, input_texts: list[str], skip_usage_tracking: bool = False, **kwargs
@@ -154,7 +163,7 @@ class ModelFacade:
         parser: Callable[[str], Any],
         system_prompt: str | None = None,
         multi_modal_context: list[dict[str, Any]] | None = None,
-        tool_config: MCPToolConfig | None = None,
+        tool_alias: str | None = None,
         max_correction_steps: int = 0,
         max_conversation_restarts: int = 0,
         skip_usage_tracking: bool = False,
@@ -181,8 +190,9 @@ class ModelFacade:
                 prompt.
             parser (func(str) -> Any): A function applied to the LLM response which processes
                 an LLM response into some output object.
-            tool_config (MCPToolConfig | None): Optional MCP tool configuration. When provided,
-                the model may call permitted tools from the configured MCP server.
+            tool_alias (str | None): Optional tool configuration alias. When provided,
+                the model may call permitted tools from the configured MCP providers.
+                The alias must reference a ToolConfig registered in the MCPRegistry.
             max_correction_steps (int): Maximum number of correction rounds permitted
                 within a single conversation. Note, many rounds can lead to increasing
                 context size without necessarily improving performance -- small language
@@ -205,22 +215,25 @@ class ModelFacade:
             GenerationValidationFailureError: If the maximum number of retries or
                 correction steps are met and the last response failures on
                 generation validation.
+            MCPConfigurationError: If tool_alias is specified but no MCPRegistry is configured.
         """
         output_obj = None
         tool_schemas = None
-        tool_calls_used = 0
+        tool_call_turns = 0
         curr_num_correction_steps = 0
         curr_num_restarts = 0
         curr_generation_attempt = 0
         max_generation_attempts = (max_correction_steps + 1) * (max_conversation_restarts + 1)
+
+        mcp_facade = self._get_mcp_facade(tool_alias)
 
         starting_messages = prompt_to_messages(
             user_prompt=prompt, system_prompt=system_prompt, multi_modal_context=multi_modal_context
         )
         messages: list[ChatMessage] = deepcopy(starting_messages)
 
-        if tool_config is not None:
-            tool_schemas = self._tool_executor.get_tool_schemas(tool_config)
+        if mcp_facade is not None:
+            tool_schemas = mcp_facade.get_tool_schemas()
 
         while True:
             completion_kwargs = dict(kwargs)
@@ -234,19 +247,16 @@ class ModelFacade:
             )
 
             # Process any tool calls in the response (handles parallel tool calling)
-            if tool_config is not None:
-                execution_result = self._tool_executor.process_completion_response(completion_response, tool_config)
-                if execution_result is not None:
-                    tool_calls_used += execution_result.tool_calls_count
-                    if tool_calls_used > tool_config.max_tool_calls:
-                        raise MCPToolError(
-                            f"Exceeded maximum MCP tool calls ({tool_config.max_tool_calls}) for server "
-                            f"{tool_config.server_name!r}."
-                        )
+            if mcp_facade is not None and mcp_facade.has_tool_calls(completion_response):
+                tool_call_turns += 1
 
-                    messages.append(execution_result.assistant_message)
-                    messages.extend(execution_result.tool_messages)
-                    continue
+                if tool_call_turns > mcp_facade.max_tool_call_turns:
+                    # Gracefully refuse tool calls when budget is exhausted
+                    messages.extend(mcp_facade.refuse_completion_response(completion_response))
+                else:
+                    messages.extend(mcp_facade.process_completion_response(completion_response))
+
+                continue
 
             curr_generation_attempt += 1
             logger.debug(
@@ -260,7 +270,7 @@ class ModelFacade:
 
             try:
                 output_obj = parser(response)  # type: ignore - if not a string will cause a ParserException below
-                messages.append(ChatMessage.assistant(content=response, reasoning_content=reasoning_trace or None))
+                messages.append(ChatMessage.as_assistant(content=response, reasoning_content=reasoning_trace or None))
                 break
             except ParserException as exc:
                 if max_correction_steps == 0 and max_conversation_restarts == 0:
@@ -271,8 +281,8 @@ class ModelFacade:
                 if curr_num_correction_steps <= max_correction_steps:
                     ## Add turns to loop-back errors for correction
                     messages += [
-                        ChatMessage.assistant(content=response, reasoning_content=reasoning_trace or None),
-                        ChatMessage.user(content=str(get_exception_primary_cause(exc))),
+                        ChatMessage.as_assistant(content=response, reasoning_content=reasoning_trace or None),
+                        ChatMessage.as_user(content=str(get_exception_primary_cause(exc))),
                     ]
 
                 elif curr_num_restarts < max_conversation_restarts:

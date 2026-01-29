@@ -5,14 +5,18 @@ from __future__ import annotations
 
 from data_designer.config.base import ConfigBase
 from data_designer.config.dataset_metadata import DatasetMetadata
-from data_designer.config.mcp import MCPServerConfig
+from data_designer.config.mcp import LocalStdioMCPProvider, MCPProvider, ToolConfig
 from data_designer.config.models import ModelConfig
 from data_designer.config.run_config import RunConfig
 from data_designer.config.seed_source import SeedSource
 from data_designer.config.utils.type_helpers import StrEnum
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
-from data_designer.engine.mcp.manager import MCPClientManager
-from data_designer.engine.model_provider import ModelProviderRegistry
+from data_designer.engine.mcp.factory import create_mcp_registry
+from data_designer.engine.mcp.registry import MCPRegistry
+from data_designer.engine.model_provider import (
+    ModelProviderRegistry,
+    resolve_mcp_provider_registry,
+)
 from data_designer.engine.models.factory import create_model_registry
 from data_designer.engine.models.registry import ModelRegistry
 from data_designer.engine.resources.managed_storage import ManagedBlobStorage, init_managed_blob_storage
@@ -30,7 +34,7 @@ class ResourceProvider(ConfigBase):
     artifact_storage: ArtifactStorage
     blob_storage: ManagedBlobStorage | None = None
     model_registry: ModelRegistry | None = None
-    mcp_manager: MCPClientManager | None = None
+    mcp_registry: MCPRegistry | None = None
     run_config: RunConfig = RunConfig()
     seed_reader: SeedReader | None = None
 
@@ -46,6 +50,34 @@ class ResourceProvider(ConfigBase):
         return DatasetMetadata(seed_column_names=seed_column_names)
 
 
+MCPProviderT = MCPProvider | LocalStdioMCPProvider
+
+
+def _validate_tool_configs_against_providers(
+    tool_configs: list[ToolConfig],
+    mcp_providers: list[MCPProviderT],
+) -> None:
+    """Validate that all providers referenced in tool configs exist.
+
+    Args:
+        tool_configs: List of tool configurations to validate.
+        mcp_providers: List of available MCP provider configurations.
+
+    Raises:
+        ValueError: If a tool config references a provider that doesn't exist.
+    """
+    available_providers = {p.name for p in mcp_providers}
+
+    for tc in tool_configs:
+        missing_providers = [p for p in tc.providers if p not in available_providers]
+        if missing_providers:
+            available_list = sorted(available_providers) if available_providers else ["(none configured)"]
+            raise ValueError(
+                f"ToolConfig '{tc.tool_alias}' references provider(s) {missing_providers!r} "
+                f"which are not registered. Available providers: {available_list}"
+            )
+
+
 def create_resource_provider(
     *,
     artifact_storage: ArtifactStorage,
@@ -56,11 +88,35 @@ def create_resource_provider(
     blob_storage: ManagedBlobStorage | None = None,
     seed_dataset_source: SeedSource | None = None,
     run_config: RunConfig | None = None,
-    mcp_servers: list[MCPServerConfig] | None = None,
+    mcp_providers: list[MCPProviderT] | None = None,
+    tool_configs: list[ToolConfig] | None = None,
 ) -> ResourceProvider:
     """Factory function for creating a ResourceProvider instance.
+
     This function triggers lazy loading of heavy dependencies like litellm.
+    The creation order is:
+    1. MCPProviderRegistry (can be empty)
+    2. MCPRegistry with tool_configs
+    3. ModelRegistry with mcp_registry
+
+    Args:
+        artifact_storage: Storage for build artifacts.
+        model_configs: List of model configurations.
+        secret_resolver: Resolver for secrets.
+        model_provider_registry: Registry of model providers.
+        seed_reader_registry: Registry of seed readers.
+        blob_storage: Optional blob storage for large files.
+        seed_dataset_source: Optional source for seed datasets.
+        run_config: Optional runtime configuration.
+        mcp_providers: Optional list of MCP provider configurations.
+        tool_configs: Optional list of tool configurations.
+
+    Returns:
+        A configured ResourceProvider instance.
     """
+    if tool_configs:
+        _validate_tool_configs_against_providers(tool_configs, mcp_providers or [])
+
     seed_reader = None
     if seed_dataset_source:
         seed_reader = seed_reader_registry.get_reader(
@@ -68,17 +124,28 @@ def create_resource_provider(
             secret_resolver,
         )
 
-    mcp_manager = MCPClientManager(server_configs=mcp_servers or []) if mcp_servers else None
+    # Create MCPProviderRegistry first (can be empty)
+    mcp_provider_registry = resolve_mcp_provider_registry(mcp_providers)
+
+    # Create MCPRegistry with tool configs (only if tool_configs provided)
+    mcp_registry = None
+    if tool_configs:
+        mcp_registry = create_mcp_registry(
+            tool_configs=tool_configs,
+            secret_resolver=secret_resolver,
+            mcp_provider_registry=mcp_provider_registry,
+        )
+
     return ResourceProvider(
         artifact_storage=artifact_storage,
         model_registry=create_model_registry(
             model_configs=model_configs,
             secret_resolver=secret_resolver,
             model_provider_registry=model_provider_registry,
-            mcp_client_manager=mcp_manager,
+            mcp_registry=mcp_registry,
         ),
         blob_storage=blob_storage or init_managed_blob_storage(),
-        mcp_manager=mcp_manager,
+        mcp_registry=mcp_registry,
         seed_reader=seed_reader,
         run_config=run_config or RunConfig(),
     )

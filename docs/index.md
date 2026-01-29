@@ -16,6 +16,7 @@ Data Designer is **purpose-built** to support large-scale, high-quality data gen
   * **Correlations** – meaningful relationships between fields that LLMs cannot maintain across independent calls
   * **Steerability** – flexible control over data characteristics throughout the generation process
   * **Validation** – automated quality checks and verification that data meets specifications
+  * **Tool Use** – LLM columns can call external tools via MCP for retrieval-grounded generation
   * **Reproducibility** – shareable and reproducible generation workflows
 
 ## How does it work?
