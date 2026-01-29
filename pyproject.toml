@@ -63,8 +63,8 @@ notebooks = [
     "pillow>=12.0.0,<13",
 ]
 recipes = [
-    "bm25s>=0.2.0",
-    "pymupdf>=1.24.0",
+    "bm25s>=0.2.0,<1",
+    "pymupdf>=1.24.0,<2",
 ]
 
 [tool.pytest.ini_options]
