@@ -34,6 +34,7 @@ from data_designer.engine.dataset_builders.multi_column_configs import MultiColu
 from data_designer.engine.dataset_builders.utils.concurrency import ConcurrentThreadExecutor
 from data_designer.engine.dataset_builders.utils.config_compiler import compile_dataset_builder_column_configs
 from data_designer.engine.dataset_builders.utils.dataset_batch_manager import DatasetBatchManager
+from data_designer.engine.dataset_builders.utils.progress_tracker import ProgressTracker
 from data_designer.engine.models.telemetry import InferenceEvent, NemoSourceEnum, TaskStatusEnum, TelemetryHandler
 from data_designer.engine.processing.processors.base import Processor
 from data_designer.engine.processing.processors.drop_columns import DropColumnsProcessor
@@ -221,16 +222,18 @@ class ColumnWiseDatasetBuilder:
                 "generator so concurrency through threads is not supported."
             )
 
-        logger.info(
-            f"🐙 Processing {generator.config.column_type} column '{generator.config.name}' "
-            f"with {max_workers} concurrent workers"
+        progress_tracker = ProgressTracker(
+            total_records=self.batch_manager.num_records_batch,
+            label=f"{generator.config.column_type} column '{generator.config.name}'",
         )
+        progress_tracker.log_start(max_workers)
+
         settings = self._resource_provider.run_config
         with ConcurrentThreadExecutor(
             max_workers=max_workers,
             column_name=generator.config.name,
-            result_callback=self._worker_result_callback,
-            error_callback=self._worker_error_callback,
+            result_callback=self._make_result_callback(progress_tracker),
+            error_callback=self._make_error_callback(progress_tracker),
             shutdown_error_rate=settings.shutdown_error_rate,
             shutdown_error_window=settings.shutdown_error_window,
             disable_early_shutdown=settings.disable_early_shutdown,
@@ -238,9 +241,25 @@ class ColumnWiseDatasetBuilder:
             for i, record in self.batch_manager.iter_current_batch():
                 executor.submit(lambda record: generator.generate(record), record, context={"index": i})
 
+        progress_tracker.log_final()
+
         if len(self._records_to_drop) > 0:
             self.batch_manager.drop_records(self._records_to_drop)
             self._records_to_drop.clear()
+
+    def _make_result_callback(self, progress_tracker: ProgressTracker) -> Callable[[dict], None]:
+        def callback(result: dict, *, context: dict | None = None) -> None:
+            self._worker_result_callback(result, context=context)
+            progress_tracker.record_success()
+
+        return callback
+
+    def _make_error_callback(self, progress_tracker: ProgressTracker) -> Callable[[Exception], None]:
+        def callback(exc: Exception, *, context: dict | None = None) -> None:
+            self._worker_error_callback(exc, context=context)
+            progress_tracker.record_failure()
+
+        return callback
 
     def _write_processed_batch(self, dataframe: pd.DataFrame) -> None:
         self.batch_manager.update_records(dataframe.to_dict(orient="records"))

@@ -378,6 +378,7 @@ def test_fan_out_with_threads_uses_early_shutdown_settings_from_resource_provide
     mock_generator.config.column_type = "llm_text"
 
     builder.batch_manager = Mock()
+    builder.batch_manager.num_records_batch = 10
     builder.batch_manager.iter_current_batch.return_value = []
 
     builder._fan_out_with_threads(mock_generator, max_workers=4)
