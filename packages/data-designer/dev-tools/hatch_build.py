@@ -1,5 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+
 """Custom hatch metadata hook to sync README from root.
 
 This hook runs during metadata resolution (before build hooks) to ensure

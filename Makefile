@@ -12,7 +12,7 @@ INTERFACE_PKG := packages/data-designer
 # Package source and test paths
 CONFIG_PATHS := $(CONFIG_PKG)/src $(CONFIG_PKG)/tests
 ENGINE_PATHS := $(ENGINE_PKG)/src $(ENGINE_PKG)/tests
-INTERFACE_PATHS := $(INTERFACE_PKG)/src $(INTERFACE_PKG)/tests
+INTERFACE_PATHS := $(INTERFACE_PKG)/src $(INTERFACE_PKG)/tests $(INTERFACE_PKG)/dev-tools
 ALL_PKG_PATHS := packages/ scripts/ tests_e2e/
 
 # Test directories
