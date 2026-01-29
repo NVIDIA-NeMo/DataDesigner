@@ -4,9 +4,9 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Discriminator, Field, model_validator
+from pydantic import BaseModel, Discriminator, Field, field_serializer, model_validator
 from typing_extensions import Self
 
 from data_designer.config.base import ConfigBase
@@ -468,3 +468,77 @@ class EmbeddingColumnConfig(SingleColumnConfig):
     @property
     def side_effect_columns(self) -> list[str]:
         return []
+
+
+class CustomColumnConfig(SingleColumnConfig):
+    """Configuration for custom user-defined column generators.
+
+    Custom columns allow users to provide their own generation logic via a callable function.
+    This provides a flexible way to implement custom column generation without creating a full plugin.
+
+    Two strategies are supported:
+        - cell_by_cell (default): Function receives a single row (dict), framework parallelizes.
+        - full_column: Function receives the entire batch (DataFrame) for vectorized operations.
+
+    For cell_by_cell, two function signatures are supported:
+        - fn(row: dict) -> dict
+        - fn(row: dict, ctx: CustomColumnContext) -> dict
+
+    For full_column:
+        - fn(df: pd.DataFrame) -> pd.DataFrame
+        - fn(df: pd.DataFrame, ctx: CustomColumnContext) -> pd.DataFrame
+
+     Attributes:
+        generation_function: A callable that processes data. Signature depends on generation_strategy.
+        generation_strategy: "cell_by_cell" (row-based) or "full_column" (batch-based).
+        input_columns: List of column names that must exist before this column can be generated.
+        output_columns: List of additional column names that generation_function will create.
+        kwargs: Optional dictionary of additional parameters accessible via ctx.kwargs.
+        column_type: Discriminator field, always "custom" for this configuration type.
+    """
+
+    generation_function: Any = Field(description="Function to generate the column")
+    generation_strategy: Literal["cell_by_cell", "full_column"] = Field(
+        default="cell_by_cell",
+        description="Generation strategy: 'cell_by_cell' for row-based or 'full_column' for batch-based",
+    )
+    input_columns: list[str] = Field(
+        default_factory=list,
+        description="List of column names required as input for generation",
+    )
+    output_columns: list[str] = Field(
+        default_factory=list,
+        description="List of additional column names that generation_function will create",
+    )
+    kwargs: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional parameters to pass to the generate function",
+    )
+    column_type: Literal["custom"] = "custom"
+
+    @staticmethod
+    def get_column_emoji() -> str:
+        return "🔧"
+
+    @property
+    def required_columns(self) -> list[str]:
+        """Returns the columns required for custom generation."""
+        return self.input_columns
+
+    @property
+    def side_effect_columns(self) -> list[str]:
+        """Returns additional columns created by this generator."""
+        return self.output_columns
+
+    @field_serializer("generation_function")
+    def serialize_generation_function(self, v: Any) -> Any:
+        return v.__name__
+
+    @model_validator(mode="after")
+    def validate_generation_function(self) -> Self:
+        if not callable(self.generation_function):
+            raise InvalidConfigError(
+                f"🛑 `generation_function` must be a callable for custom column '{self.name}'. "
+                f"Expected a function with signature (row: dict) -> dict or (row: dict, ctx) -> dict."
+            )
+        return self
