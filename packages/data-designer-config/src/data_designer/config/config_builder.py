@@ -403,7 +403,11 @@ class DataDesignerConfigBuilder:
 
         Returns:
             The current Data Designer config object.
+
+        Raises:
+            BuilderConfigurationError: If any ToolConfig has duplicate tool names in its allow_tools list.
         """
+        self._validate_tool_configs_no_duplicates()
         return DataDesignerConfig(
             model_configs=self._model_configs,
             tool_configs=self._tool_configs or None,
@@ -413,6 +417,31 @@ class DataDesignerConfigBuilder:
             profilers=self._profilers or None,
             processors=self._processor_configs or None,
         )
+
+    def _validate_tool_configs_no_duplicates(self) -> None:
+        """Validate that no ToolConfig has duplicate tool names in its allow_tools list.
+
+        This is a static validation that catches obvious duplicates at config build time,
+        before providers are queried. Full validation (including duplicates across providers)
+        happens at resource provider creation time.
+
+        Raises:
+            BuilderConfigurationError: If any ToolConfig has duplicate tool names in allow_tools.
+        """
+        for tool_config in self._tool_configs:
+            if tool_config.allow_tools is None:
+                continue
+            seen: set[str] = set()
+            duplicates: list[str] = []
+            for tool_name in tool_config.allow_tools:
+                if tool_name in seen:
+                    duplicates.append(tool_name)
+                seen.add(tool_name)
+            if duplicates:
+                raise BuilderConfigurationError(
+                    f"🛑 ToolConfig '{tool_config.tool_alias}' has duplicate tool names in allow_tools: "
+                    f"{sorted(set(duplicates))!r}. Each tool name must be unique within a ToolConfig."
+                )
 
     def delete_constraints(self, target_column: str) -> Self:
         """Delete all constraints for the given target column.

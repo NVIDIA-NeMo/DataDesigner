@@ -132,6 +132,8 @@ def create_resource_provider(
             secret_resolver=secret_resolver,
             mcp_provider_registry=mcp_provider_registry,
         )
+        # Validate early that no ToolConfig has duplicate tool names across its providers
+        mcp_registry.validate_no_duplicate_tool_names()
 
     return ResourceProvider(
         artifact_storage=artifact_storage,

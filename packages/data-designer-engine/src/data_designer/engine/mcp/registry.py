@@ -119,7 +119,6 @@ class MCPRegistry:
 
         Raises:
             ValueError: If no tool config with the given alias is found.
-            RuntimeError: If no facade factory was provided.
         """
         if tool_alias not in self._tool_configs:
             raise ValueError(f"No tool config with alias {tool_alias!r} found!")
@@ -153,3 +152,18 @@ class MCPRegistry:
     def _create_facade(self, tool_config: ToolConfig) -> MCPFacade:
         """Create an MCPFacade for a tool configuration."""
         return self._mcp_facade_factory(tool_config, self._secret_resolver, self._mcp_provider_registry)
+
+    def validate_no_duplicate_tool_names(self) -> None:
+        """Validate that no ToolConfig has duplicate tool names across its providers.
+
+        This method eagerly fetches tool schemas for all registered ToolConfigs,
+        which triggers duplicate tool name detection. This catches cases where
+        multiple providers in the same ToolConfig expose a tool with the same name.
+
+        Raises:
+            DuplicateToolNameError: If any ToolConfig has duplicate tool names across providers.
+        """
+        for tool_alias in self._tool_configs:
+            facade = self.get_mcp(tool_alias=tool_alias)
+            # get_tool_schemas() validates for duplicate tool names
+            facade.get_tool_schemas()
