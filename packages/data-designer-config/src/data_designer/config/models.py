@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from abc import ABC, abstractmethod
 from enum import Enum
@@ -65,7 +66,7 @@ class ModalityContext(ABC, BaseModel):
     data_type: ModalityDataType
 
     @abstractmethod
-    def get_context(self, record: dict) -> dict[str, Any]: ...
+    def get_contexts(self, record: dict) -> list[dict[str, Any]]: ...
 
 
 class ImageContext(ModalityContext):
@@ -81,25 +82,53 @@ class ImageContext(ModalityContext):
     modality: Modality = Modality.IMAGE
     image_format: ImageFormat | None = None
 
-    def get_context(self, record: dict) -> dict[str, Any]:
-        """Get the context for the image modality.
+    def get_contexts(self, record: dict) -> list[dict[str, Any]]:
+        """Get the contexts for the image modality.
 
         Args:
-            record: The record containing the image data.
+            record: The record containing the image data. The data can be:
+                - A JSON serialized list of strings
+                - A list of strings
+                - A single string
 
         Returns:
-            The context for the image modality.
+            A list of image contexts.
         """
-        context = dict(type="image_url")
-        context_value = record[self.column_name]
-        if self.data_type == ModalityDataType.URL:
-            context["image_url"] = context_value
+        raw_value = record[self.column_name]
+
+        # Normalize to list of strings
+        if isinstance(raw_value, str):
+            # Try to parse as JSON first
+            try:
+                parsed_value = json.loads(raw_value)
+                if isinstance(parsed_value, list):
+                    context_values = parsed_value
+                else:
+                    context_values = [raw_value]
+            except (json.JSONDecodeError, TypeError):
+                context_values = [raw_value]
+        elif isinstance(raw_value, list):
+            context_values = raw_value
+        elif hasattr(raw_value, "__iter__") and not isinstance(raw_value, (str, bytes, dict)):
+            # Handle array-like objects (numpy arrays, pandas Series, etc.)
+            context_values = list(raw_value)
         else:
-            context["image_url"] = {
-                "url": f"data:image/{self.image_format.value};base64,{context_value}",
-                "format": self.image_format.value,
-            }
-        return context
+            context_values = [raw_value]
+
+        # Build context list
+        contexts = []
+        for context_value in context_values:
+            context = dict(type="image_url")
+            if self.data_type == ModalityDataType.URL:
+                context["image_url"] = context_value
+            else:
+                context["image_url"] = {
+                    "url": f"data:image/{self.image_format.value};base64,{context_value}",
+                    "format": self.image_format.value,
+                }
+            contexts.append(context)
+
+        return contexts
 
     @model_validator(mode="after")
     def _validate_image_format(self) -> Self:

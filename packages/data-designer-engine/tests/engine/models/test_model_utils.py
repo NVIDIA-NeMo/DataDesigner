@@ -26,11 +26,11 @@ def test_prompt_to_messages():
         {"content": "hello", "role": "user"},
     ]
     assert prompt_to_messages(user_prompt="hello", multi_modal_context=[mult_modal_context]) == [
-        {"content": [{"type": "text", "text": "hello"}, mult_modal_context], "role": "user"}
+        {"content": [mult_modal_context, {"type": "text", "text": "hello"}], "role": "user"}
     ]
     assert prompt_to_messages(
         user_prompt="hello", system_prompt=stub_system_prompt, multi_modal_context=[mult_modal_context]
     ) == [
         {"content": stub_system_prompt, "role": "system"},
-        {"content": [{"type": "text", "text": "hello"}, mult_modal_context], "role": "user"},
+        {"content": [mult_modal_context, {"type": "text", "text": "hello"}], "role": "user"},
     ]
