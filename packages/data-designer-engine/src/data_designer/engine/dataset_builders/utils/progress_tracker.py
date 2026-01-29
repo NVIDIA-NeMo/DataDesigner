@@ -110,7 +110,7 @@ class ProgressTracker:
         percent = (self.completed / self.total_records) * 100 if self.total_records else 100.0
 
         logger.info(
-            "📈 %s progress: %d/%d (%.0f%%) complete, %d ok, %d failed, %.2f rec/s, eta %s",
+            "  |-- 📈 %s progress: %d/%d (%.0f%%) complete, %d ok, %d failed, %.2f rec/s, eta %s",
             self.label,
             self.completed,
             self.total_records,
