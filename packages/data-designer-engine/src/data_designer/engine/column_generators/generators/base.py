@@ -32,6 +32,21 @@ class ColumnGenerator(ConfigurableTask[TaskConfigT], ABC):
     def can_generate_from_scratch(self) -> bool:
         return False
 
+    @property
+    def is_row_streamable(self) -> bool:
+        """Whether this generator can emit results as rows complete.
+
+        For cell-by-cell generators, this is always True since they process
+        rows independently. For full-column generators, this defaults to False
+        (barrier behavior) but can be overridden for generators that can
+        process rows independently despite operating on full columns.
+
+        Returns:
+            True if the generator can emit results row-by-row, False if it
+            requires all inputs before producing any output.
+        """
+        return self.get_generation_strategy() == GenerationStrategy.CELL_BY_CELL
+
     @staticmethod
     @abstractmethod
     def get_generation_strategy() -> GenerationStrategy: ...
