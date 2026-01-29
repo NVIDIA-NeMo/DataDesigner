@@ -363,8 +363,8 @@ if __name__ == "__main__":
             if not package_dir.is_dir():
                 continue
 
-            # Process src/ and tests/ within each package
-            for subfolder in ["src", "tests"]:
+            # Process src/, tests/, and dev-tools/ within each package
+            for subfolder in ["src", "tests", "dev-tools"]:
                 folder_path = package_dir / subfolder
                 if not folder_path.exists():
                     continue
