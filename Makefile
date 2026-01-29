@@ -112,8 +112,6 @@ help:
 install:
 	@echo "📦 Installing DataDesigner workspace (all packages in editable mode)..."
 	@echo "   Packages: data-designer-config → data-designer-engine → data-designer"
-	@echo "📄 Copying top-level README to data-designer package..."
-	@cp README.md packages/data-designer/README.md
 	uv sync --all-packages
 	@echo "✅ Installation complete!"
 	@echo ""
@@ -123,8 +121,6 @@ install-dev:
 	@echo "📦 Installing DataDesigner workspace in development mode..."
 	@echo "   Packages: data-designer-config → data-designer-engine → data-designer"
 	@echo "   Groups: dev (pytest, coverage, etc.)"
-	@echo "📄 Copying top-level README to data-designer package..."
-	cp README.md packages/data-designer/README.md
 	uv sync --all-packages --group dev
 	$(call install-pre-commit-hooks)
 	@echo ""
@@ -146,8 +142,6 @@ install-dev-notebooks:
 	@echo "📦 Installing DataDesigner workspace with notebook dependencies..."
 	@echo "   Packages: data-designer-config → data-designer-engine → data-designer"
 	@echo "   Groups: dev + notebooks (Jupyter, jupytext, etc.)"
-	@echo "📄 Copying top-level README to data-designer package..."
-	@cp README.md packages/data-designer/README.md
 	uv sync --all-packages --group dev --group notebooks
 	$(call install-pre-commit-hooks)
 	@echo "✅ Dev + notebooks installation complete!"
@@ -228,8 +222,6 @@ test-engine-isolated:
 
 test-interface-isolated:
 	@echo "🧪 Testing data-designer (interface) in isolation..."
-	@echo "📄 Copying top-level README to data-designer package..."
-	@cp README.md packages/data-designer/README.md
 	@ISOLATED_VENV=$$(mktemp -d); \
 	trap "rm -rf $$ISOLATED_VENV" EXIT; \
 	echo "   Creating isolated environment in $$ISOLATED_VENV..."; \
@@ -265,8 +257,6 @@ coverage-interface:
 	uv run --group dev pytest $(INTERFACE_TESTS) --cov=data_designer --cov-report=term-missing --cov-report=html
 
 test-e2e:
-	@echo "📄 Copying top-level README to data-designer package..."
-	@cp README.md packages/data-designer/README.md
 	@echo "🧹 Cleaning e2e test environment..."
 	rm -rf tests_e2e/uv.lock tests_e2e/__pycache__ tests_e2e/.venv
 	@echo "🧪 Running e2e tests..."
@@ -411,8 +401,6 @@ build-engine:
 
 build-interface:
 	@echo "🏗️  Building data-designer (interface)..."
-	@echo "📄 Copying top-level README to data-designer package..."
-	cp README.md $(INTERFACE_PKG)/README.md
 	cd $(INTERFACE_PKG) && uv build -o dist
 
 # ==============================================================================
