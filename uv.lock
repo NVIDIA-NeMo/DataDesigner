@@ -928,8 +928,8 @@ notebooks = [
     { name = "pillow", specifier = ">=12.0.0,<13" },
 ]
 recipes = [
-    { name = "bm25s", specifier = ">=0.2.0" },
-    { name = "pymupdf", specifier = ">=1.24.0" },
+    { name = "bm25s", specifier = ">=0.2.0,<1" },
+    { name = "pymupdf", specifier = ">=1.24.0,<2" },
 ]
 
 [[package]]
