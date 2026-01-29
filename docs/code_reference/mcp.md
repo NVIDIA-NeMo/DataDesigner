@@ -11,7 +11,7 @@ For user-facing guides, see:
 - **[MCP Providers](../concepts/mcp/mcp-providers.md)** - Configure local or remote MCP providers
 - **[Tool Configs](../concepts/mcp/tool-configs.md)** - Define tool permissions and limits
 - **[Enabling Tools](../concepts/mcp/enabling-tools.md)** - Use tools in LLM columns
-- **[Traces](../concepts/mcp/traces.md)** - Capture full conversation history
+- **[Traces](../concepts/traces.md)** - Capture full conversation history
 
 ## Internal Architecture
 

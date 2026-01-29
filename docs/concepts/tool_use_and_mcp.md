@@ -13,11 +13,20 @@ import data_designer.config as dd
 from data_designer.interface import DataDesigner
 
 # 1. Configure provider
+
+## Local Stdio provider
 mcp_provider = dd.LocalStdioMCPProvider(
     name="demo-mcp",
     command="python",
     args=["-m", "my_mcp_server"],
 )
+
+## Remote provider
+# mcp_provider = dd.MCPProvider(
+#     name="remote-mcp",
+#     endpoint="https://mcp.example.invalid/sse",
+#     api_key="REMOTE_MCP_API_KEY",
+# )
 
 data_designer = DataDesigner(mcp_providers=[mcp_provider])
 
@@ -48,9 +57,8 @@ builder.add_column(
 | **[Tool Configs](mcp/tool-configs.md)** | Define tool permissions and limits |
 | **[Enabling Tools on Columns](mcp/enabling-tools.md)** | Use tools in LLM generation |
 | **[Configure via CLI](mcp/configure-mcp-cli.md)** | Interactive CLI configuration |
-| **[Traces](mcp/traces.md)** | Capture full conversation history |
+| **[Traces](traces.md)** | Capture full conversation history |
 | **[Safety & Limits](mcp/safety-and-limits.md)** | Allowlists, budgets, timeouts |
-| **[Debugging](mcp/debugging.md)** | Troubleshoot tool call issues |
 
 ## Example
 

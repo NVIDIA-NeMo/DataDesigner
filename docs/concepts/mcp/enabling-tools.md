@@ -159,6 +159,5 @@ Question: {{ question }}"""
 ## See Also
 
 - **[Tool Configurations](tool-configs.md)**: Configure tool access and limits
-- **[Traces](traces.md)**: Capture and inspect tool call history
-- **[Debugging](debugging.md)**: Troubleshoot tool call issues
+- **[Traces](../traces.md)**: Capture and inspect tool call history
 - **[MCP Providers](mcp-providers.md)**: Configure MCP server connections

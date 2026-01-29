@@ -202,5 +202,4 @@ Different tasks may need different limits:
 ## See Also
 
 - **[Tool Configurations](tool-configs.md)**: Complete ToolConfig reference
-- **[Debugging](debugging.md)**: Troubleshoot issues with limits
-- **[Traces](traces.md)**: Monitor tool usage patterns
+- **[Traces](../traces.md)**: Monitor tool usage patterns
