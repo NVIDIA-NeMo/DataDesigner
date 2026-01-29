@@ -3,7 +3,15 @@
 
 import pytest
 
-from data_designer.engine.model_provider import ModelProvider, ModelProviderRegistry, UnknownProviderError
+from data_designer.config.mcp import LocalStdioMCPProvider
+from data_designer.engine.errors import NoModelProvidersError
+from data_designer.engine.model_provider import (
+    MCPProviderRegistry,
+    ModelProvider,
+    ModelProviderRegistry,
+    UnknownProviderError,
+    resolve_model_provider_registry,
+)
 
 
 @pytest.fixture
@@ -59,3 +67,69 @@ def test_get_provider(stub_foo_provider: ModelProvider, stub_bar_provider: Model
 
     with pytest.raises(UnknownProviderError):
         registry.get_provider("quux")
+
+
+def test_resolve_model_provider_registry(stub_foo_provider: ModelProvider) -> None:
+    """Test resolve_model_provider_registry creates a registry from providers."""
+    registry = resolve_model_provider_registry([stub_foo_provider])
+
+    assert len(registry.providers) == 1
+    assert registry.get_default_provider_name() == "foo"
+
+
+def test_resolve_model_provider_registry_with_explicit_default(
+    stub_foo_provider: ModelProvider, stub_bar_provider: ModelProvider
+) -> None:
+    """Test resolve_model_provider_registry with explicit default."""
+    registry = resolve_model_provider_registry([stub_foo_provider, stub_bar_provider], default_provider_name="bar")
+
+    assert registry.get_default_provider_name() == "bar"
+
+
+def test_resolve_model_provider_registry_empty_error() -> None:
+    """Test resolve_model_provider_registry raises error for empty providers."""
+    with pytest.raises(NoModelProvidersError, match="At least one model provider"):
+        resolve_model_provider_registry([])
+
+
+def test_mcp_provider_registry_empty() -> None:
+    """Test MCPProviderRegistry can be created empty."""
+    registry = MCPProviderRegistry()
+
+    assert len(registry.providers) == 0
+
+
+def test_mcp_provider_registry_with_providers() -> None:
+    """Test MCPProviderRegistry with providers."""
+    provider = LocalStdioMCPProvider(name="test-provider", command="test-cmd")
+    registry = MCPProviderRegistry(providers=[provider])
+
+    assert len(registry.providers) == 1
+    assert registry.get_provider("test-provider") == provider
+
+
+def test_mcp_provider_registry_duplicate_names() -> None:
+    """Test MCPProviderRegistry raises error for duplicate provider names."""
+    provider1 = LocalStdioMCPProvider(name="test-provider", command="test-cmd")
+    provider2 = LocalStdioMCPProvider(name="test-provider", command="test-cmd-2")
+
+    with pytest.raises(ValueError, match="duplicate"):
+        MCPProviderRegistry(providers=[provider1, provider2])
+
+
+def test_mcp_provider_registry_unknown_provider() -> None:
+    """Test MCPProviderRegistry raises error for unknown provider."""
+    registry = MCPProviderRegistry()
+
+    with pytest.raises(UnknownProviderError, match="registered"):
+        registry.get_provider("unknown-provider")
+
+
+def test_mcp_provider_registry_is_empty() -> None:
+    """Test MCPProviderRegistry is_empty method."""
+    empty_registry = MCPProviderRegistry()
+    assert empty_registry.is_empty() is True
+
+    provider = LocalStdioMCPProvider(name="test-provider", command="test-cmd")
+    registry_with_providers = MCPProviderRegistry(providers=[provider])
+    assert registry_with_providers.is_empty() is False

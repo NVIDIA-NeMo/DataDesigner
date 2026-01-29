@@ -710,3 +710,59 @@ def test_allow_tools_property_with_list(
 def test_timeout_sec_property(stub_mcp_facade: MCPFacade, stub_tool_config: ToolConfig) -> None:
     """Timeout sec property returns configured value."""
     assert stub_mcp_facade.timeout_sec == stub_tool_config.timeout_sec
+
+
+# =============================================================================
+# _resolve_provider tests
+# =============================================================================
+
+
+def test_resolve_provider_with_api_key() -> None:
+    """Test that _resolve_provider resolves api_key when present."""
+    from data_designer.config.mcp import MCPProvider
+
+    secret_resolver = MagicMock()
+    secret_resolver.resolve.return_value = "resolved-secret-key"
+
+    provider = MCPProvider(
+        name="test",
+        endpoint="http://localhost:8080/sse",
+        api_key="API_KEY_ENV_VAR",
+    )
+
+    tool_config = ToolConfig(tool_alias="test-tools", providers=["test"])
+    mcp_provider_registry = MCPProviderRegistry(providers=[provider])
+
+    facade = MCPFacade(
+        tool_config=tool_config,
+        secret_resolver=secret_resolver,
+        mcp_provider_registry=mcp_provider_registry,
+    )
+
+    resolved_provider = facade._resolve_provider(provider)
+
+    secret_resolver.resolve.assert_called_with("API_KEY_ENV_VAR")
+    assert resolved_provider.api_key == "resolved-secret-key"
+    # Original provider should not be modified
+    assert provider.api_key == "API_KEY_ENV_VAR"
+
+
+def test_resolve_provider_without_api_key() -> None:
+    """Test that _resolve_provider returns provider unchanged when no api_key."""
+    provider = LocalStdioMCPProvider(name="test", command="python")
+
+    tool_config = ToolConfig(tool_alias="test-tools", providers=["test"])
+    mcp_provider_registry = MCPProviderRegistry(providers=[provider])
+    secret_resolver = MagicMock()
+
+    facade = MCPFacade(
+        tool_config=tool_config,
+        secret_resolver=secret_resolver,
+        mcp_provider_registry=mcp_provider_registry,
+    )
+
+    resolved_provider = facade._resolve_provider(provider)
+
+    # Should return the same provider without calling resolve
+    assert resolved_provider is provider
+    secret_resolver.resolve.assert_not_called()

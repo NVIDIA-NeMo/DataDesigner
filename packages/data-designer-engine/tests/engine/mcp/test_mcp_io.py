@@ -715,3 +715,455 @@ async def test_list_tools_coalescing_different_providers_fetch_independently(
 
     mcp_io.clear_tools_cache()
     mcp_io.clear_session_pool()
+
+
+# =============================================================================
+# Stdio session creation tests
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_session_for_stdio_provider(
+    monkeypatch: pytest.MonkeyPatch, stub_stdio_provider: LocalStdioMCPProvider
+) -> None:
+    """Test that _get_or_create_session creates session for stdio provider."""
+    mcp_io.clear_session_pool()
+
+    class MockContextManager:
+        async def __aenter__(self) -> tuple[Any, Any]:
+            return ("mock_read", "mock_write")
+
+        async def __aexit__(self, *args: Any) -> None:
+            pass
+
+    class MockSession:
+        async def __aenter__(self) -> "MockSession":
+            return self
+
+        async def __aexit__(self, *args: Any) -> None:
+            pass
+
+        async def initialize(self) -> None:
+            pass
+
+    stdio_client_called = False
+    received_params: Any = None
+
+    def mock_stdio_client(params: Any) -> MockContextManager:
+        nonlocal stdio_client_called, received_params
+        stdio_client_called = True
+        received_params = params
+        return MockContextManager()
+
+    monkeypatch.setattr(mcp_io, "stdio_client", mock_stdio_client)
+    monkeypatch.setattr(mcp_io, "ClientSession", lambda r, w: MockSession())
+
+    session = await mcp_io._get_or_create_session(stub_stdio_provider)
+
+    assert stdio_client_called
+    assert received_params.command == stub_stdio_provider.command
+    assert received_params.args == stub_stdio_provider.args
+    assert received_params.env == stub_stdio_provider.env
+    assert session is not None
+
+    mcp_io.clear_session_pool()
+
+
+# =============================================================================
+# Session cleanup exception handling tests
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_close_all_sessions_handles_session_aexit_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that _close_all_sessions handles exceptions during session.__aexit__."""
+    mcp_io.clear_session_pool()
+
+    class MockContextManager:
+        async def __aenter__(self) -> tuple[Any, Any]:
+            return ("mock_read", "mock_write")
+
+        async def __aexit__(self, *args: Any) -> None:
+            pass
+
+    class MockSessionWithException:
+        async def __aenter__(self) -> "MockSessionWithException":
+            return self
+
+        async def __aexit__(self, *args: Any) -> None:
+            raise RuntimeError("Session cleanup error")
+
+        async def initialize(self) -> None:
+            pass
+
+    def mock_sse_client(endpoint: str, headers: dict[str, Any] | None = None) -> MockContextManager:
+        return MockContextManager()
+
+    monkeypatch.setattr(mcp_io, "sse_client", mock_sse_client)
+    monkeypatch.setattr(mcp_io, "ClientSession", lambda r, w: MockSessionWithException())
+
+    provider = MCPProvider(name="test", endpoint="http://localhost:8080/sse", api_key="key")
+    await mcp_io._get_or_create_session(provider)
+
+    # Verify session was created
+    assert mcp_io.get_session_pool_info()["active_sessions"] == 1
+
+    # Close should handle exception gracefully
+    await mcp_io._close_all_sessions()
+
+    # Pool should be cleared
+    assert mcp_io.get_session_pool_info()["active_sessions"] == 0
+
+
+@pytest.mark.asyncio
+async def test_close_all_sessions_handles_context_aexit_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that _close_all_sessions handles exceptions during ctx.__aexit__."""
+    mcp_io.clear_session_pool()
+
+    class MockContextManagerWithException:
+        async def __aenter__(self) -> tuple[Any, Any]:
+            return ("mock_read", "mock_write")
+
+        async def __aexit__(self, *args: Any) -> None:
+            raise RuntimeError("Context cleanup error")
+
+    class MockSession:
+        async def __aenter__(self) -> "MockSession":
+            return self
+
+        async def __aexit__(self, *args: Any) -> None:
+            pass
+
+        async def initialize(self) -> None:
+            pass
+
+    def mock_sse_client(endpoint: str, headers: dict[str, Any] | None = None) -> MockContextManagerWithException:
+        return MockContextManagerWithException()
+
+    monkeypatch.setattr(mcp_io, "sse_client", mock_sse_client)
+    monkeypatch.setattr(mcp_io, "ClientSession", lambda r, w: MockSession())
+
+    provider = MCPProvider(name="test", endpoint="http://localhost:8080/sse", api_key="key")
+    await mcp_io._get_or_create_session(provider)
+
+    # Verify session was created
+    assert mcp_io.get_session_pool_info()["active_sessions"] == 1
+
+    # Close should handle exception gracefully
+    await mcp_io._close_all_sessions()
+
+    # Pool should be cleared
+    assert mcp_io.get_session_pool_info()["active_sessions"] == 0
+
+
+@pytest.mark.asyncio
+async def test_close_all_sessions_handles_both_exceptions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that _close_all_sessions handles exceptions from both session and context."""
+    mcp_io.clear_session_pool()
+
+    class MockContextManagerWithException:
+        async def __aenter__(self) -> tuple[Any, Any]:
+            return ("mock_read", "mock_write")
+
+        async def __aexit__(self, *args: Any) -> None:
+            raise RuntimeError("Context cleanup error")
+
+    class MockSessionWithException:
+        async def __aenter__(self) -> "MockSessionWithException":
+            return self
+
+        async def __aexit__(self, *args: Any) -> None:
+            raise RuntimeError("Session cleanup error")
+
+        async def initialize(self) -> None:
+            pass
+
+    def mock_sse_client(endpoint: str, headers: dict[str, Any] | None = None) -> MockContextManagerWithException:
+        return MockContextManagerWithException()
+
+    monkeypatch.setattr(mcp_io, "sse_client", mock_sse_client)
+    monkeypatch.setattr(mcp_io, "ClientSession", lambda r, w: MockSessionWithException())
+
+    provider = MCPProvider(name="test", endpoint="http://localhost:8080/sse", api_key="key")
+    await mcp_io._get_or_create_session(provider)
+
+    # Close should handle both exceptions gracefully
+    await mcp_io._close_all_sessions()
+
+    # Pool should be cleared
+    assert mcp_io.get_session_pool_info()["active_sessions"] == 0
+
+
+@pytest.mark.asyncio
+async def test_close_all_sessions_handles_outer_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that _close_all_sessions handles outer exception during iteration."""
+    mcp_io.clear_session_pool()
+
+    # Manually inject sessions that will cause issues
+    mcp_io._sessions["bad_key"] = None
+    mcp_io._session_contexts["bad_key"] = None
+
+    # Should not raise
+    await mcp_io._close_all_sessions()
+
+    assert mcp_io.get_session_pool_info()["active_sessions"] == 0
+
+
+# =============================================================================
+# Shutdown loop tests
+# =============================================================================
+
+
+def test_shutdown_mcp_loop_when_loop_is_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test _shutdown_mcp_loop returns early when _mcp_loop is None."""
+    # Temporarily set _mcp_loop to None
+    original_loop = mcp_io._mcp_loop
+    monkeypatch.setattr(mcp_io, "_mcp_loop", None)
+
+    # Should not raise
+    mcp_io._shutdown_mcp_loop()
+
+    # Restore
+    monkeypatch.setattr(mcp_io, "_mcp_loop", original_loop)
+
+
+def test_shutdown_mcp_loop_handles_exception(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test _shutdown_mcp_loop handles exceptions gracefully."""
+    import asyncio
+    import threading
+    from unittest.mock import MagicMock
+
+    # Create a mock loop that raises on operations
+    mock_loop = MagicMock()
+    mock_loop.is_running.return_value = True
+
+    mock_thread = MagicMock(spec=threading.Thread)
+
+    def raise_exception(*args: Any, **kwargs: Any) -> None:
+        raise RuntimeError("Shutdown error")
+
+    mock_loop.call_soon_threadsafe = raise_exception
+
+    # Mock run_coroutine_threadsafe to raise
+    class MockFuture:
+        def result(self, timeout: float | None = None) -> None:
+            raise RuntimeError("Future error")
+
+    monkeypatch.setattr(asyncio, "run_coroutine_threadsafe", lambda coro, loop: MockFuture())
+
+    original_loop = mcp_io._mcp_loop
+    original_thread = mcp_io._mcp_thread
+
+    monkeypatch.setattr(mcp_io, "_mcp_loop", mock_loop)
+    monkeypatch.setattr(mcp_io, "_mcp_thread", mock_thread)
+
+    # Should not raise despite exceptions
+    mcp_io._shutdown_mcp_loop()
+
+    # Should reset to None in finally block
+    assert mcp_io._mcp_loop is None
+    assert mcp_io._mcp_thread is None
+
+    # Restore for other tests
+    mcp_io._mcp_loop = original_loop
+    mcp_io._mcp_thread = original_thread
+
+
+def test_shutdown_mcp_loop_joins_thread(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test _shutdown_mcp_loop joins the thread when present."""
+    import asyncio
+    import threading
+    from unittest.mock import MagicMock
+
+    mock_loop = MagicMock()
+    mock_loop.is_running.return_value = True
+
+    mock_thread = MagicMock(spec=threading.Thread)
+
+    class MockFuture:
+        def result(self, timeout: float | None = None) -> None:
+            pass
+
+    def mock_run_coroutine_threadsafe(coro: Any, loop: Any) -> MockFuture:
+        if hasattr(coro, "close"):
+            coro.close()
+        return MockFuture()
+
+    monkeypatch.setattr(asyncio, "run_coroutine_threadsafe", mock_run_coroutine_threadsafe)
+
+    original_loop = mcp_io._mcp_loop
+    original_thread = mcp_io._mcp_thread
+
+    monkeypatch.setattr(mcp_io, "_mcp_loop", mock_loop)
+    monkeypatch.setattr(mcp_io, "_mcp_thread", mock_thread)
+
+    mcp_io._shutdown_mcp_loop()
+
+    # Verify thread.join was called
+    mock_thread.join.assert_called_once_with(timeout=5)
+
+    # Restore for other tests
+    mcp_io._mcp_loop = original_loop
+    mcp_io._mcp_thread = original_thread
+
+
+def test_clear_session_pool_without_running_loop(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test clear_session_pool when loop is not running."""
+    from unittest.mock import MagicMock
+
+    # Add some entries to the pool manually
+    mcp_io._sessions["test_key"] = MagicMock()
+    mcp_io._session_contexts["test_key"] = MagicMock()
+
+    # Mock _mcp_loop to be None (not running)
+    original_loop = mcp_io._mcp_loop
+    monkeypatch.setattr(mcp_io, "_mcp_loop", None)
+
+    # Should clear manually without async cleanup
+    mcp_io.clear_session_pool()
+
+    assert len(mcp_io._sessions) == 0
+    assert len(mcp_io._session_contexts) == 0
+
+    # Restore
+    monkeypatch.setattr(mcp_io, "_mcp_loop", original_loop)
+
+
+def test_clear_session_pool_with_failing_async_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test clear_session_pool falls back to manual cleanup on async failure."""
+    import asyncio
+    from unittest.mock import MagicMock
+
+    # Add some entries to the pool manually
+    mcp_io._sessions["test_key"] = MagicMock()
+    mcp_io._session_contexts["test_key"] = MagicMock()
+
+    mock_loop = MagicMock()
+    mock_loop.is_running.return_value = True
+
+    class MockFuture:
+        def result(self, timeout: float | None = None) -> None:
+            raise RuntimeError("Async cleanup failed")
+
+    def mock_run_coroutine_threadsafe(coro: Any, loop: Any) -> MockFuture:
+        if hasattr(coro, "close"):
+            coro.close()
+        return MockFuture()
+
+    monkeypatch.setattr(asyncio, "run_coroutine_threadsafe", mock_run_coroutine_threadsafe)
+
+    original_loop = mcp_io._mcp_loop
+    monkeypatch.setattr(mcp_io, "_mcp_loop", mock_loop)
+
+    # Should fall back to manual cleanup
+    mcp_io.clear_session_pool()
+
+    assert len(mcp_io._sessions) == 0
+    assert len(mcp_io._session_contexts) == 0
+
+    # Restore
+    monkeypatch.setattr(mcp_io, "_mcp_loop", original_loop)
+
+
+# =============================================================================
+# Additional helper function tests
+# =============================================================================
+
+
+def test_build_auth_headers_with_none() -> None:
+    """Test _build_auth_headers returns None when api_key is None."""
+    result = mcp_io._build_auth_headers(None)
+    assert result is None
+
+
+def test_build_auth_headers_with_empty_string() -> None:
+    """Test _build_auth_headers returns None when api_key is empty string."""
+    result = mcp_io._build_auth_headers("")
+    assert result is None
+
+
+def test_build_auth_headers_with_key() -> None:
+    """Test _build_auth_headers returns proper headers when api_key is provided."""
+    result = mcp_io._build_auth_headers("my-secret-key")
+    assert result == {"Authorization": "Bearer my-secret-key"}
+
+
+def test_list_tools_timeout_error(monkeypatch: pytest.MonkeyPatch, stub_stdio_provider: LocalStdioMCPProvider) -> None:
+    """Test list_tools raises MCPToolError on timeout."""
+    import asyncio
+
+    mcp_io.clear_tools_cache()
+
+    def mock_ensure_loop() -> asyncio.AbstractEventLoop:
+        return asyncio.new_event_loop()
+
+    class MockFuture:
+        def result(self, timeout: float | None = None) -> None:
+            raise TimeoutError()
+
+    def mock_run_coroutine_threadsafe(coro: Any, loop: Any) -> MockFuture:
+        if hasattr(coro, "close"):
+            coro.close()
+        return MockFuture()
+
+    monkeypatch.setattr(mcp_io, "_ensure_loop", mock_ensure_loop)
+    monkeypatch.setattr(asyncio, "run_coroutine_threadsafe", mock_run_coroutine_threadsafe)
+
+    with pytest.raises(MCPToolError, match="Timed out"):
+        mcp_io.list_tools(stub_stdio_provider)
+
+
+def test_call_tool_timeout_error(monkeypatch: pytest.MonkeyPatch, stub_stdio_provider: LocalStdioMCPProvider) -> None:
+    """Test call_tool raises MCPToolError on timeout with proper message."""
+    import asyncio
+
+    def mock_ensure_loop() -> asyncio.AbstractEventLoop:
+        return asyncio.new_event_loop()
+
+    class MockFuture:
+        def result(self, timeout: float | None = None) -> None:
+            raise TimeoutError()
+
+    def mock_run_coroutine_threadsafe(coro: Any, loop: Any) -> MockFuture:
+        if hasattr(coro, "close"):
+            coro.close()
+        return MockFuture()
+
+    monkeypatch.setattr(mcp_io, "_ensure_loop", mock_ensure_loop)
+    monkeypatch.setattr(asyncio, "run_coroutine_threadsafe", mock_run_coroutine_threadsafe)
+
+    with pytest.raises(MCPToolError, match="Timed out after 10.0s"):
+        mcp_io.call_tool(stub_stdio_provider, "test_tool", {}, timeout_sec=10.0)
+
+
+def test_call_tool_timeout_error_without_timeout_value(
+    monkeypatch: pytest.MonkeyPatch, stub_stdio_provider: LocalStdioMCPProvider
+) -> None:
+    """Test call_tool timeout message when timeout_sec is None."""
+    import asyncio
+
+    def mock_ensure_loop() -> asyncio.AbstractEventLoop:
+        return asyncio.new_event_loop()
+
+    class MockFuture:
+        def result(self, timeout: float | None = None) -> None:
+            raise TimeoutError()
+
+    def mock_run_coroutine_threadsafe(coro: Any, loop: Any) -> MockFuture:
+        if hasattr(coro, "close"):
+            coro.close()
+        return MockFuture()
+
+    monkeypatch.setattr(mcp_io, "_ensure_loop", mock_ensure_loop)
+    monkeypatch.setattr(asyncio, "run_coroutine_threadsafe", mock_run_coroutine_threadsafe)
+
+    with pytest.raises(MCPToolError, match="Timed out after unknown"):
+        mcp_io.call_tool(stub_stdio_provider, "test_tool", {}, timeout_sec=None)
