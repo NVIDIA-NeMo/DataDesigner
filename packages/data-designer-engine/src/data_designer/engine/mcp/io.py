@@ -274,6 +274,44 @@ def get_session_pool_info() -> dict[str, Any]:
     }
 
 
+def clear_provider_caches(providers: list[MCPProviderT]) -> int:
+    """Clear all caches for specific MCP providers.
+
+    This function clears both the tools cache and session pool entries for the given
+    providers. Use this at job completion to prevent memory buildup in long-running
+    services.
+
+    Args:
+        providers: List of MCP provider configs to clear caches for.
+
+    Returns:
+        Number of cache entries cleared (tools + sessions).
+    """
+    cleared_count = 0
+
+    for provider in providers:
+        key = _provider_cache_key(provider)
+
+        # Clear tools cache for this provider
+        if key in _tools_cache:
+            del _tools_cache[key]
+            cleared_count += 1
+        if key in _tools_locks:
+            del _tools_locks[key]
+
+        # Clear session for this provider (best effort, async cleanup not guaranteed)
+        if key in _sessions:
+            del _sessions[key]
+            cleared_count += 1
+        if key in _session_contexts:
+            del _session_contexts[key]
+
+    if cleared_count > 0:
+        logger.debug("Cleared %d provider cache entries", cleared_count)
+
+    return cleared_count
+
+
 # =============================================================================
 # Public API - Cached Operations
 # =============================================================================

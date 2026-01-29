@@ -15,53 +15,6 @@ For user-facing guides, see:
 
 ## Internal Architecture
 
-The MCP layer mirrors the Model layer's registry/facade pattern:
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              DATA DESIGNER                                   │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  ┌─────────────────────────────┐    ┌─────────────────────────────┐         │
-│  │       MODEL LAYER           │    │        MCP LAYER            │         │
-│  ├─────────────────────────────┤    ├─────────────────────────────┤         │
-│  │                             │    │                             │         │
-│  │  ModelProviderRegistry      │    │  MCPProviderRegistry        │         │
-│  │    └─ ModelProvider configs │    │    └─ MCPProvider configs   │         │
-│  │                             │    │    └─ LocalStdioMCPProvider │         │
-│  │          │                  │    │          │                  │         │
-│  │          ▼                  │    │          ▼                  │         │
-│  │  ModelRegistry              │    │  MCPRegistry                │         │
-│  │    └─ ModelConfigs by alias │    │    └─ ToolConfigs by alias  │         │
-│  │    └─ Lazy ModelFacade      │    │    └─ Lazy MCPFacade        │         │
-│  │       creation              │    │       creation              │         │
-│  │          │                  │    │          │                  │         │
-│  │          ▼                  │    │          ▼                  │         │
-│  │  ModelFacade                │    │  mcp/io.py                  │         │
-│  │    └─ Per ModelConfig       │    │    └─ Session pool          │         │
-│  │    └─ generate()            │    │    └─ Request coalescing    │         │
-│  │    └─ completion()          │    │    └─ Background loop       │         │
-│  │                             │    │          │                  │         │
-│  │                             │    │          ▼                  │         │
-│  │                             │    │  MCPFacade                  │         │
-│  │                             │    │    └─ Per ToolConfig        │         │
-│  │                             │    │    └─ process_completion()  │         │
-│  │                             │    │    └─ refuse_completion()   │         │
-│  │                             │    │    └─ get_tool_schemas()    │         │
-│  │                             │    │                             │         │
-│  └─────────────────────────────┘    └─────────────────────────────┘         │
-│                                                                              │
-│                    ModelFacade.generate(tool_alias=...)                      │
-│                              │                                               │
-│                              ▼                                               │
-│                    MCPRegistry.get_mcp(tool_alias)                           │
-│                              │                                               │
-│                              ▼                                               │
-│                    MCPFacade.process_completion_response()                   │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
 ### Parallel Structure
 
 | Model Layer | MCP Layer | Purpose |

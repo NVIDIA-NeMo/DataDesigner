@@ -8,38 +8,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from data_designer.config.mcp import LocalStdioMCPProvider, ToolConfig
-from data_designer.engine.mcp.facade import MCPFacade
 from data_designer.engine.mcp.registry import MCPRegistry
 from data_designer.engine.model_provider import MCPProviderRegistry
-from data_designer.engine.secret_resolver import SecretResolver
-
-
-@pytest.fixture
-def stub_mcp_provider_registry() -> MCPProviderRegistry:
-    """Create a stub MCP provider registry with a single provider."""
-    return MCPProviderRegistry(providers=[LocalStdioMCPProvider(name="tools", command="python")])
-
-
-@pytest.fixture
-def stub_secret_resolver() -> MagicMock:
-    """Create a stub secret resolver for testing."""
-    resolver = MagicMock(spec=SecretResolver)
-    resolver.resolve.side_effect = lambda x: x  # Return the input as-is
-    return resolver
-
-
-@pytest.fixture
-def stub_mcp_facade_factory():
-    """Create a stub MCP facade factory for testing."""
-
-    def factory(
-        tool_config: ToolConfig, secret_resolver: SecretResolver, provider_registry: MCPProviderRegistry
-    ) -> MCPFacade:
-        return MCPFacade(
-            tool_config=tool_config, secret_resolver=secret_resolver, mcp_provider_registry=provider_registry
-        )
-
-    return factory
 
 
 def test_get_mcp_missing_alias(

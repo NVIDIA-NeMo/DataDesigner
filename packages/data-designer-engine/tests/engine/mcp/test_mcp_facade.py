@@ -16,6 +16,7 @@ from data_designer.engine.mcp.registry import MCPToolDefinition, MCPToolResult
 from data_designer.engine.model_provider import MCPProviderRegistry
 
 
+# Fake classes are used directly in tests to create custom responses
 class FakeMessage:
     """Fake message class for mocking LLM completion responses."""
 
@@ -42,115 +43,6 @@ class FakeResponse:
 
     def __init__(self, message: FakeMessage) -> None:
         self.choices = [FakeChoice(message)]
-
-
-@pytest.fixture
-def stub_mcp_provider_registry() -> MCPProviderRegistry:
-    """Create a stub MCP provider registry with test providers."""
-    return MCPProviderRegistry(
-        providers=[
-            LocalStdioMCPProvider(name="tools", command="python"),
-            LocalStdioMCPProvider(name="secondary", command="python"),
-        ]
-    )
-
-
-@pytest.fixture
-def stub_secret_resolver() -> MagicMock:
-    """Create a stub secret resolver for testing."""
-    resolver = MagicMock()
-    resolver.resolve.side_effect = lambda x: x  # Return the input as-is
-    return resolver
-
-
-@pytest.fixture
-def stub_tool_config() -> ToolConfig:
-    """Create a basic tool configuration for testing."""
-    return ToolConfig(
-        tool_alias="test-tools",
-        providers=["tools"],
-        max_tool_call_turns=3,
-        timeout_sec=30.0,
-    )
-
-
-@pytest.fixture
-def stub_tool_config_with_allow_list() -> ToolConfig:
-    """Create a tool configuration with an allow list."""
-    return ToolConfig(
-        tool_alias="test-tools",
-        providers=["tools"],
-        allow_tools=["lookup", "search"],
-        max_tool_call_turns=3,
-    )
-
-
-@pytest.fixture
-def stub_mcp_facade(
-    stub_tool_config: ToolConfig, stub_secret_resolver: MagicMock, stub_mcp_provider_registry: MCPProviderRegistry
-) -> MCPFacade:
-    """Create a stub MCPFacade for testing."""
-    return MCPFacade(
-        tool_config=stub_tool_config,
-        secret_resolver=stub_secret_resolver,
-        mcp_provider_registry=stub_mcp_provider_registry,
-    )
-
-
-@pytest.fixture
-def mock_completion_response_no_tools() -> FakeResponse:
-    """Mock LLM response with no tool calls."""
-    return FakeResponse(FakeMessage(content="Hello, I can help with that."))
-
-
-@pytest.fixture
-def mock_completion_response_single_tool() -> FakeResponse:
-    """Mock LLM response with single tool call."""
-    tool_call = {
-        "id": "call-1",
-        "type": "function",
-        "function": {"name": "lookup", "arguments": '{"query": "test"}'},
-    }
-    return FakeResponse(FakeMessage(content="Let me look that up.", tool_calls=[tool_call]))
-
-
-@pytest.fixture
-def mock_completion_response_parallel_tools() -> FakeResponse:
-    """Mock LLM response with multiple parallel tool calls."""
-    tool_calls = [
-        {"id": "call-1", "type": "function", "function": {"name": "lookup", "arguments": '{"query": "first"}'}},
-        {"id": "call-2", "type": "function", "function": {"name": "search", "arguments": '{"term": "second"}'}},
-        {"id": "call-3", "type": "function", "function": {"name": "fetch", "arguments": '{"url": "example.com"}'}},
-    ]
-    return FakeResponse(FakeMessage(content="Executing multiple tools.", tool_calls=tool_calls))
-
-
-@pytest.fixture
-def mock_completion_response_with_reasoning() -> FakeResponse:
-    """Mock LLM response with reasoning_content."""
-    return FakeResponse(
-        FakeMessage(
-            content="  Final answer with extra spaces.  ",
-            reasoning_content="  Thinking about the problem...  ",
-        )
-    )
-
-
-@pytest.fixture
-def mock_completion_response_tool_with_reasoning() -> FakeResponse:
-    """Mock LLM response with tool calls and reasoning_content."""
-    tool_call = {
-        "id": "call-1",
-        "type": "function",
-        "function": {"name": "lookup", "arguments": '{"query": "test"}'},
-    }
-    return FakeResponse(
-        FakeMessage(
-            content="  Looking it up...  ",
-            tool_calls=[tool_call],
-            reasoning_content="  I should use the lookup tool.  ",
-        )
-    )
 
 
 # =============================================================================
@@ -599,60 +491,148 @@ def test_get_tool_schemas_missing_allowed_tool(
 
 
 # =============================================================================
-# _normalize_tool_call() edge case tests
+# Tool call normalization via public API (process_completion_response)
 # =============================================================================
 
 
-def test_normalize_tool_call_missing_name(stub_mcp_facade: MCPFacade) -> None:
-    """Raises MCPToolError when tool call is missing a name."""
-    raw_tool_call = {"id": "call-1", "function": {"arguments": "{}"}}
+def test_process_completion_missing_tool_name(stub_mcp_facade: MCPFacade) -> None:
+    """process_completion_response raises MCPToolError when tool call has no name."""
+    tool_call = {"id": "call-1", "function": {"arguments": "{}"}}  # Missing name
+    response = FakeResponse(FakeMessage(content="", tool_calls=[tool_call]))
 
     with pytest.raises(MCPToolError, match="missing a tool name"):
-        stub_mcp_facade._normalize_tool_call(raw_tool_call)
+        stub_mcp_facade.process_completion_response(response)
 
 
-def test_normalize_tool_call_invalid_arguments(stub_mcp_facade: MCPFacade) -> None:
-    """Raises MCPToolError when arguments are invalid JSON."""
-    raw_tool_call = {"id": "call-1", "function": {"name": "lookup", "arguments": "not json"}}
+def test_process_completion_invalid_json_arguments(stub_mcp_facade: MCPFacade) -> None:
+    """process_completion_response raises MCPToolError when arguments are invalid JSON."""
+    tool_call = {"id": "call-1", "function": {"name": "lookup", "arguments": "not valid json"}}
+    response = FakeResponse(FakeMessage(content="", tool_calls=[tool_call]))
 
     with pytest.raises(MCPToolError, match="Invalid tool arguments"):
-        stub_mcp_facade._normalize_tool_call(raw_tool_call)
+        stub_mcp_facade.process_completion_response(response)
 
 
-def test_normalize_tool_call_dict_arguments(stub_mcp_facade: MCPFacade) -> None:
-    """Handles dict arguments correctly."""
-    raw_tool_call = {"id": "call-1", "function": {"name": "lookup", "arguments": {"query": "test"}}}
+def test_process_completion_dict_arguments(
+    monkeypatch: pytest.MonkeyPatch,
+    stub_mcp_facade: MCPFacade,
+) -> None:
+    """process_completion_response handles dict arguments correctly."""
 
-    result = stub_mcp_facade._normalize_tool_call(raw_tool_call)
+    def mock_list_tools(provider: Any) -> tuple[MCPToolDefinition, ...]:
+        return (MCPToolDefinition(name="lookup", description="Lookup", input_schema={"type": "object"}),)
 
-    assert result["name"] == "lookup"
-    assert result["arguments"] == {"query": "test"}
-    assert result["arguments_json"] == '{"query": "test"}'
+    captured_args: list[dict[str, Any]] = []
+
+    def mock_call_tools_parallel(
+        calls: list[tuple[Any, str, dict[str, Any]]],
+        *,
+        timeout_sec: float | None = None,
+    ) -> list[MCPToolResult]:
+        for _, _, args in calls:
+            captured_args.append(args)
+        return [MCPToolResult(content="result") for _ in calls]
+
+    monkeypatch.setattr(mcp_io, "list_tools", mock_list_tools)
+    monkeypatch.setattr(mcp_io, "call_tools_parallel", mock_call_tools_parallel)
+
+    # Pass dict arguments (not JSON string)
+    tool_call = {"id": "call-1", "function": {"name": "lookup", "arguments": {"query": "test"}}}
+    response = FakeResponse(FakeMessage(content="", tool_calls=[tool_call]))
+
+    messages = stub_mcp_facade.process_completion_response(response)
+
+    assert len(messages) == 2
+    assert captured_args[0] == {"query": "test"}
 
 
-def test_normalize_tool_call_empty_arguments(stub_mcp_facade: MCPFacade) -> None:
-    """Handles empty/None arguments gracefully."""
-    raw_tool_call = {"id": "call-1", "function": {"name": "lookup", "arguments": None}}
+def test_process_completion_empty_arguments(
+    monkeypatch: pytest.MonkeyPatch,
+    stub_mcp_facade: MCPFacade,
+) -> None:
+    """process_completion_response handles None/empty arguments gracefully."""
 
-    result = stub_mcp_facade._normalize_tool_call(raw_tool_call)
+    def mock_list_tools(provider: Any) -> tuple[MCPToolDefinition, ...]:
+        return (MCPToolDefinition(name="lookup", description="Lookup", input_schema={"type": "object"}),)
 
-    assert result["arguments"] == {}
-    assert result["arguments_json"] == "{}"
+    captured_args: list[dict[str, Any]] = []
+
+    def mock_call_tools_parallel(
+        calls: list[tuple[Any, str, dict[str, Any]]],
+        *,
+        timeout_sec: float | None = None,
+    ) -> list[MCPToolResult]:
+        for _, _, args in calls:
+            captured_args.append(args)
+        return [MCPToolResult(content="result") for _ in calls]
+
+    monkeypatch.setattr(mcp_io, "list_tools", mock_list_tools)
+    monkeypatch.setattr(mcp_io, "call_tools_parallel", mock_call_tools_parallel)
+
+    tool_call = {"id": "call-1", "function": {"name": "lookup", "arguments": None}}
+    response = FakeResponse(FakeMessage(content="", tool_calls=[tool_call]))
+
+    messages = stub_mcp_facade.process_completion_response(response)
+
+    assert len(messages) == 2
+    assert captured_args[0] == {}  # Empty dict for None arguments
 
 
-def test_normalize_tool_call_generates_id(stub_mcp_facade: MCPFacade) -> None:
-    """Generates UUID when tool call id is missing."""
-    raw_tool_call = {"function": {"name": "lookup", "arguments": "{}"}}
+def test_process_completion_generates_tool_call_id(
+    monkeypatch: pytest.MonkeyPatch,
+    stub_mcp_facade: MCPFacade,
+) -> None:
+    """process_completion_response generates UUID for tool calls without ID."""
 
-    result = stub_mcp_facade._normalize_tool_call(raw_tool_call)
+    def mock_list_tools(provider: Any) -> tuple[MCPToolDefinition, ...]:
+        return (MCPToolDefinition(name="lookup", description="Lookup", input_schema={"type": "object"}),)
 
-    assert result["id"] is not None
-    assert len(result["id"]) == 32  # UUID hex format
+    def mock_call_tools_parallel(
+        calls: list[tuple[Any, str, dict[str, Any]]],
+        *,
+        timeout_sec: float | None = None,
+    ) -> list[MCPToolResult]:
+        return [MCPToolResult(content="result") for _ in calls]
+
+    monkeypatch.setattr(mcp_io, "list_tools", mock_list_tools)
+    monkeypatch.setattr(mcp_io, "call_tools_parallel", mock_call_tools_parallel)
+
+    # Tool call without id
+    tool_call = {"function": {"name": "lookup", "arguments": "{}"}}
+    response = FakeResponse(FakeMessage(content="", tool_calls=[tool_call]))
+
+    messages = stub_mcp_facade.process_completion_response(response)
+
+    # Should have generated an ID
+    assert len(messages) == 2
+    assert messages[1].tool_call_id is not None
+    assert len(messages[1].tool_call_id) == 32  # UUID hex format
 
 
-def test_normalize_tool_call_object_format(stub_mcp_facade: MCPFacade) -> None:
-    """Handles object format tool calls (not dict)."""
+def test_process_completion_object_format_tool_calls(
+    monkeypatch: pytest.MonkeyPatch,
+    stub_mcp_facade: MCPFacade,
+) -> None:
+    """process_completion_response handles object format tool calls."""
 
+    def mock_list_tools(provider: Any) -> tuple[MCPToolDefinition, ...]:
+        return (MCPToolDefinition(name="lookup", description="Lookup", input_schema={"type": "object"}),)
+
+    captured_calls: list[tuple[str, dict[str, Any]]] = []
+
+    def mock_call_tools_parallel(
+        calls: list[tuple[Any, str, dict[str, Any]]],
+        *,
+        timeout_sec: float | None = None,
+    ) -> list[MCPToolResult]:
+        for _, tool_name, args in calls:
+            captured_calls.append((tool_name, args))
+        return [MCPToolResult(content="result") for _ in calls]
+
+    monkeypatch.setattr(mcp_io, "list_tools", mock_list_tools)
+    monkeypatch.setattr(mcp_io, "call_tools_parallel", mock_call_tools_parallel)
+
+    # Create object format tool call (simulating what some LLM libraries return)
     class FakeFunction:
         name = "lookup"
         arguments = '{"query": "test"}'
@@ -661,11 +641,13 @@ def test_normalize_tool_call_object_format(stub_mcp_facade: MCPFacade) -> None:
         id = "call-obj-1"
         function = FakeFunction()
 
-    result = stub_mcp_facade._normalize_tool_call(FakeToolCall())
+    response = FakeResponse(FakeMessage(content="", tool_calls=[FakeToolCall()]))
 
-    assert result["id"] == "call-obj-1"
-    assert result["name"] == "lookup"
-    assert result["arguments"] == {"query": "test"}
+    messages = stub_mcp_facade.process_completion_response(response)
+
+    assert len(messages) == 2
+    assert captured_calls[0] == ("lookup", {"query": "test"})
+    assert messages[1].tool_call_id == "call-obj-1"
 
 
 # =============================================================================

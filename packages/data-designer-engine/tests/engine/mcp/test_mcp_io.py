@@ -21,27 +21,6 @@ def clear_session_pool_before_tests() -> Iterator[None]:
     mcp_io.clear_session_pool()
 
 
-@pytest.fixture
-def stub_stdio_provider() -> LocalStdioMCPProvider:
-    """Create a stub stdio MCP provider for testing."""
-    return LocalStdioMCPProvider(
-        name="test-stdio",
-        command="python",
-        args=["-m", "test_server"],
-        env={"TEST_VAR": "value"},
-    )
-
-
-@pytest.fixture
-def stub_sse_provider() -> MCPProvider:
-    """Create a stub SSE MCP provider for testing."""
-    return MCPProvider(
-        name="test-sse",
-        endpoint="http://localhost:8080/sse",
-        api_key="test-key",
-    )
-
-
 # =============================================================================
 # Cache operations tests
 # =============================================================================
