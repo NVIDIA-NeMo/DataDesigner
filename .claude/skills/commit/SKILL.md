@@ -1,18 +1,17 @@
 ---
 name: commit
-description: Commit current changes with a descriptive message following conventional commit standards
-argument-hint: [special instructions or commit scope]
+description: Commit current changes with a clear, descriptive message
+argument-hint: [special instructions]
 disable-model-invocation: true
 ---
 
 # Commit Changes
 
-Commit the current staged/unstaged changes with a well-crafted commit message following industry best practices (Conventional Commits).
+Commit the current staged/unstaged changes with a well-crafted commit message.
 
 ## Arguments
 
 `$ARGUMENTS` can be used for special instructions, such as:
-- Specifying a scope: "scope: config"
 - Guiding the message: "emphasize the breaking change"
 - Adding context: "this fixes issue #123"
 - Requesting amend: "amend the previous commit"
@@ -40,40 +39,15 @@ Review the diff to understand:
 
 ## Step 3: Generate Commit Message
 
-### Conventional Commit Format
-
-```
-<type>(<optional scope>): <description>
-
-[optional body]
-
-[optional footer(s)]
-```
-
-### Commit Types
-
-| Type | Description |
-|------|-------------|
-| `feat` | New feature or capability |
-| `fix` | Bug fix |
-| `docs` | Documentation only changes |
-| `style` | Formatting, whitespace (no code change) |
-| `refactor` | Code change that neither fixes bug nor adds feature |
-| `perf` | Performance improvement |
-| `test` | Adding or correcting tests |
-| `chore` | Maintenance, dependencies, build changes |
-| `ci` | CI/CD configuration changes |
-| `revert` | Reverting a previous commit |
-
 ### Message Guidelines
 
 1. **Subject line**:
    - Use imperative mood ("Add feature" not "Added feature")
    - Keep under 50 characters (hard limit: 72)
    - Don't end with a period
-   - Capitalize the first letter after the type/scope
+   - Capitalize the first letter
 
-2. **Body** (if needed):
+2. **Body** (if needed for complex changes):
    - Separate from subject with blank line
    - Wrap at 72 characters
    - Explain *what* and *why*, not *how*
@@ -81,37 +55,23 @@ Review the diff to understand:
 
 3. **Footer** (if needed):
    - Reference issues: `Fixes #123`, `Closes #456`
-   - Note breaking changes: `BREAKING CHANGE: description`
 
 ### Examples
 
-**Simple feature:**
+**Simple change:**
 ```
-feat: Add user authentication endpoint
-```
-
-**Bug fix with scope:**
-```
-fix(parser): Handle empty input gracefully
+Add user authentication endpoint
 ```
 
-**Feature with body:**
+**Change with body:**
 ```
-feat(api): Add rate limiting to public endpoints
+Add rate limiting to public endpoints
 
 - Implement token bucket algorithm
 - Add configurable limits per endpoint
 - Include rate limit headers in responses
 
 Closes #234
-```
-
-**Breaking change:**
-```
-feat(config)!: Rename 'timeout' to 'request_timeout'
-
-BREAKING CHANGE: Configuration key 'timeout' has been renamed to
-'request_timeout' for clarity. Update your config files accordingly.
 ```
 
 ## Step 4: Create the Commit
@@ -125,7 +85,7 @@ BREAKING CHANGE: Configuration key 'timeout' has been renamed to
 2. **Create commit** using HEREDOC for proper formatting:
    ```bash
    git commit -m "$(cat <<'EOF'
-   <type>(<scope>): <description>
+   <description>
 
    <body if needed>
 
