@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from data_designer.config.base import ConfigBase
 from data_designer.config.dataset_metadata import DatasetMetadata
-from data_designer.config.mcp import LocalStdioMCPProvider, MCPProvider, ToolConfig
+from data_designer.config.mcp import MCPProviderT, ToolConfig
 from data_designer.config.models import ModelConfig
 from data_designer.config.run_config import RunConfig
 from data_designer.config.seed_source import SeedSource
@@ -48,9 +48,6 @@ class ResourceProvider(ConfigBase):
         if self.seed_reader is not None:
             seed_column_names = self.seed_reader.get_column_names()
         return DatasetMetadata(seed_column_names=seed_column_names)
-
-
-MCPProviderT = MCPProvider | LocalStdioMCPProvider
 
 
 def _validate_tool_configs_against_providers(

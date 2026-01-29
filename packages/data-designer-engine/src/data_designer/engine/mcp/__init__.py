@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from data_designer.engine.mcp import io
 from data_designer.engine.mcp.errors import (
+    DuplicateToolNameError,
     MCPClientUnavailableError,
     MCPConfigurationError,
     MCPError,
@@ -15,6 +16,7 @@ from data_designer.engine.mcp.factory import create_mcp_registry
 from data_designer.engine.mcp.registry import MCPRegistry, MCPToolDefinition, MCPToolResult
 
 __all__ = [
+    "DuplicateToolNameError",
     "MCPClientUnavailableError",
     "MCPConfigurationError",
     "MCPError",

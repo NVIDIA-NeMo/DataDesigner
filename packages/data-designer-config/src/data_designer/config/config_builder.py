@@ -482,14 +482,6 @@ class DataDesignerConfigBuilder:
                 return tc
         raise KeyError(f"No tool configuration with alias {alias!r} found")
 
-    def get_tool_configs(self) -> list[ToolConfig]:
-        """Get all tool configurations.
-
-        Returns:
-            A list of all tool configuration objects.
-        """
-        return self._tool_configs
-
     def get_constraints(self, target_column: str) -> list[ColumnConstraintT]:
         """Get all constraints for the given target column.
 

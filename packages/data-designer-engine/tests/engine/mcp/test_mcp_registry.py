@@ -28,28 +28,60 @@ def stub_secret_resolver() -> MagicMock:
     return resolver
 
 
+@pytest.fixture
+def stub_mcp_facade_factory():
+    """Create a stub MCP facade factory for testing."""
+
+    def factory(
+        tool_config: ToolConfig, secret_resolver: SecretResolver, provider_registry: MCPProviderRegistry
+    ) -> MCPFacade:
+        return MCPFacade(
+            tool_config=tool_config, secret_resolver=secret_resolver, mcp_provider_registry=provider_registry
+        )
+
+    return factory
+
+
 def test_get_mcp_missing_alias(
-    stub_secret_resolver: MagicMock, stub_mcp_provider_registry: MCPProviderRegistry
+    stub_secret_resolver: MagicMock,
+    stub_mcp_provider_registry: MCPProviderRegistry,
+    stub_mcp_facade_factory,
 ) -> None:
-    registry = MCPRegistry(secret_resolver=stub_secret_resolver, mcp_provider_registry=stub_mcp_provider_registry)
+    registry = MCPRegistry(
+        secret_resolver=stub_secret_resolver,
+        mcp_provider_registry=stub_mcp_provider_registry,
+        mcp_facade_factory=stub_mcp_facade_factory,
+    )
 
     with pytest.raises(ValueError, match="No tool config with alias"):
         registry.get_mcp(tool_alias="missing")
 
 
 def test_get_tool_config_missing_alias(
-    stub_secret_resolver: MagicMock, stub_mcp_provider_registry: MCPProviderRegistry
+    stub_secret_resolver: MagicMock,
+    stub_mcp_provider_registry: MCPProviderRegistry,
+    stub_mcp_facade_factory,
 ) -> None:
-    registry = MCPRegistry(secret_resolver=stub_secret_resolver, mcp_provider_registry=stub_mcp_provider_registry)
+    registry = MCPRegistry(
+        secret_resolver=stub_secret_resolver,
+        mcp_provider_registry=stub_mcp_provider_registry,
+        mcp_facade_factory=stub_mcp_facade_factory,
+    )
 
     with pytest.raises(ValueError, match="No tool config with alias"):
         registry.get_tool_config(tool_alias="missing")
 
 
 def test_register_tool_configs(
-    stub_secret_resolver: MagicMock, stub_mcp_provider_registry: MCPProviderRegistry
+    stub_secret_resolver: MagicMock,
+    stub_mcp_provider_registry: MCPProviderRegistry,
+    stub_mcp_facade_factory,
 ) -> None:
-    registry = MCPRegistry(secret_resolver=stub_secret_resolver, mcp_provider_registry=stub_mcp_provider_registry)
+    registry = MCPRegistry(
+        secret_resolver=stub_secret_resolver,
+        mcp_provider_registry=stub_mcp_provider_registry,
+        mcp_facade_factory=stub_mcp_facade_factory,
+    )
 
     tool_config = ToolConfig(tool_alias="search", providers=["tools"])
     registry.register_tool_configs([tool_config])
@@ -59,23 +91,17 @@ def test_register_tool_configs(
 
 
 def test_get_mcp_creates_facade(
-    stub_secret_resolver: MagicMock, stub_mcp_provider_registry: MCPProviderRegistry
+    stub_secret_resolver: MagicMock,
+    stub_mcp_provider_registry: MCPProviderRegistry,
+    stub_mcp_facade_factory,
 ) -> None:
     """Test that get_mcp creates and caches facades."""
-
-    def facade_factory(
-        tool_config: ToolConfig, secret_resolver: SecretResolver, provider_registry: MCPProviderRegistry
-    ) -> MCPFacade:
-        return MCPFacade(
-            tool_config=tool_config, secret_resolver=secret_resolver, mcp_provider_registry=provider_registry
-        )
-
     tool_config = ToolConfig(tool_alias="search", providers=["tools"])
     registry = MCPRegistry(
         secret_resolver=stub_secret_resolver,
         mcp_provider_registry=stub_mcp_provider_registry,
+        mcp_facade_factory=stub_mcp_facade_factory,
         tool_configs=[tool_config],
-        mcp_facade_factory=facade_factory,
     )
 
     facade = registry.get_mcp(tool_alias="search")
@@ -87,43 +113,32 @@ def test_get_mcp_creates_facade(
     assert facade is facade2
 
 
-def test_get_mcp_no_factory(stub_secret_resolver: MagicMock, stub_mcp_provider_registry: MCPProviderRegistry) -> None:
-    """Test that get_mcp raises when no factory is provided."""
-    tool_config = ToolConfig(tool_alias="search", providers=["tools"])
+def test_mcp_provider_registry_property(
+    stub_secret_resolver: MagicMock,
+    stub_mcp_provider_registry: MCPProviderRegistry,
+    stub_mcp_facade_factory,
+) -> None:
+    """Test that mcp_provider_registry property returns the registry."""
     registry = MCPRegistry(
         secret_resolver=stub_secret_resolver,
         mcp_provider_registry=stub_mcp_provider_registry,
-        tool_configs=[tool_config],
+        mcp_facade_factory=stub_mcp_facade_factory,
     )
-
-    with pytest.raises(RuntimeError, match="not initialized with an mcp_facade_factory"):
-        registry.get_mcp(tool_alias="search")
-
-
-def test_mcp_provider_registry_property(
-    stub_secret_resolver: MagicMock, stub_mcp_provider_registry: MCPProviderRegistry
-) -> None:
-    """Test that mcp_provider_registry property returns the registry."""
-    registry = MCPRegistry(secret_resolver=stub_secret_resolver, mcp_provider_registry=stub_mcp_provider_registry)
     assert registry.mcp_provider_registry is stub_mcp_provider_registry
 
 
-def test_facades_property(stub_secret_resolver: MagicMock, stub_mcp_provider_registry: MCPProviderRegistry) -> None:
+def test_facades_property(
+    stub_secret_resolver: MagicMock,
+    stub_mcp_provider_registry: MCPProviderRegistry,
+    stub_mcp_facade_factory,
+) -> None:
     """Test that facades property returns the facades dict."""
-
-    def facade_factory(
-        tool_config: ToolConfig, secret_resolver: SecretResolver, provider_registry: MCPProviderRegistry
-    ) -> MCPFacade:
-        return MCPFacade(
-            tool_config=tool_config, secret_resolver=secret_resolver, mcp_provider_registry=provider_registry
-        )
-
     tool_config = ToolConfig(tool_alias="search", providers=["tools"])
     registry = MCPRegistry(
         secret_resolver=stub_secret_resolver,
         mcp_provider_registry=stub_mcp_provider_registry,
+        mcp_facade_factory=stub_mcp_facade_factory,
         tool_configs=[tool_config],
-        mcp_facade_factory=facade_factory,
     )
 
     # Initially empty
@@ -135,7 +150,9 @@ def test_facades_property(stub_secret_resolver: MagicMock, stub_mcp_provider_reg
 
 
 def test_tool_configs_property(
-    stub_secret_resolver: MagicMock, stub_mcp_provider_registry: MCPProviderRegistry
+    stub_secret_resolver: MagicMock,
+    stub_mcp_provider_registry: MCPProviderRegistry,
+    stub_mcp_facade_factory,
 ) -> None:
     """Test that tool_configs property returns all registered configs."""
     tool_config1 = ToolConfig(tool_alias="search", providers=["tools"])
@@ -143,6 +160,7 @@ def test_tool_configs_property(
     registry = MCPRegistry(
         secret_resolver=stub_secret_resolver,
         mcp_provider_registry=stub_mcp_provider_registry,
+        mcp_facade_factory=stub_mcp_facade_factory,
         tool_configs=[tool_config1, tool_config2],
     )
 

@@ -16,3 +16,7 @@ class MCPClientUnavailableError(MCPError): ...
 
 
 class MCPToolError(MCPError): ...
+
+
+class DuplicateToolNameError(MCPConfigurationError):
+    """Raised when the same tool name exists in multiple MCP providers or tool configs."""

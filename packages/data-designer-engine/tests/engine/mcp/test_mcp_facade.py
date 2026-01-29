@@ -10,7 +10,7 @@ import pytest
 
 from data_designer.config.mcp import LocalStdioMCPProvider, ToolConfig
 from data_designer.engine.mcp import io as mcp_io
-from data_designer.engine.mcp.errors import MCPToolError
+from data_designer.engine.mcp.errors import DuplicateToolNameError, MCPToolError
 from data_designer.engine.mcp.facade import DEFAULT_TOOL_REFUSAL_MESSAGE, MCPFacade
 from data_designer.engine.mcp.registry import MCPToolDefinition, MCPToolResult
 from data_designer.engine.model_provider import MCPProviderRegistry
@@ -766,3 +766,125 @@ def test_resolve_provider_without_api_key() -> None:
     # Should return the same provider without calling resolve
     assert resolved_provider is provider
     secret_resolver.resolve.assert_not_called()
+
+
+# =============================================================================
+# Duplicate tool name validation tests
+# =============================================================================
+
+
+def test_get_tool_schemas_duplicate_tool_names_raises_error(
+    monkeypatch: pytest.MonkeyPatch,
+    stub_secret_resolver: MagicMock,
+    stub_mcp_provider_registry: MCPProviderRegistry,
+) -> None:
+    """Raises DuplicateToolNameError when same tool name appears in multiple providers."""
+    tool_config = ToolConfig(
+        tool_alias="multi-provider",
+        providers=["tools", "secondary"],
+        max_tool_call_turns=3,
+    )
+    facade = MCPFacade(
+        tool_config=tool_config, secret_resolver=stub_secret_resolver, mcp_provider_registry=stub_mcp_provider_registry
+    )
+
+    def mock_list_tools(provider: Any) -> tuple[MCPToolDefinition, ...]:
+        # Both providers have a tool named "lookup"
+        if provider.name == "tools":
+            return (
+                MCPToolDefinition(name="lookup", description="Lookup from tools", input_schema={"type": "object"}),
+                MCPToolDefinition(name="unique_to_tools", description="Unique", input_schema={"type": "object"}),
+            )
+        return (
+            MCPToolDefinition(name="lookup", description="Lookup from secondary", input_schema={"type": "object"}),
+            MCPToolDefinition(name="unique_to_secondary", description="Unique", input_schema={"type": "object"}),
+        )
+
+    monkeypatch.setattr(mcp_io, "list_tools", mock_list_tools)
+
+    with pytest.raises(DuplicateToolNameError, match="Duplicate tool names found"):
+        facade.get_tool_schemas()
+
+
+def test_get_tool_schemas_duplicate_tool_names_reports_all_duplicates(
+    monkeypatch: pytest.MonkeyPatch,
+    stub_secret_resolver: MagicMock,
+    stub_mcp_provider_registry: MCPProviderRegistry,
+) -> None:
+    """Error message reports all duplicate tool names, not just the first."""
+    tool_config = ToolConfig(
+        tool_alias="multi-provider",
+        providers=["tools", "secondary"],
+        max_tool_call_turns=3,
+    )
+    facade = MCPFacade(
+        tool_config=tool_config, secret_resolver=stub_secret_resolver, mcp_provider_registry=stub_mcp_provider_registry
+    )
+
+    def mock_list_tools(provider: Any) -> tuple[MCPToolDefinition, ...]:
+        # Both providers have "lookup" and "search" as duplicates
+        if provider.name == "tools":
+            return (
+                MCPToolDefinition(name="lookup", description="Lookup", input_schema={"type": "object"}),
+                MCPToolDefinition(name="search", description="Search", input_schema={"type": "object"}),
+            )
+        return (
+            MCPToolDefinition(name="lookup", description="Lookup", input_schema={"type": "object"}),
+            MCPToolDefinition(name="search", description="Search", input_schema={"type": "object"}),
+        )
+
+    monkeypatch.setattr(mcp_io, "list_tools", mock_list_tools)
+
+    with pytest.raises(DuplicateToolNameError) as exc_info:
+        facade.get_tool_schemas()
+
+    # Both duplicates should be reported
+    assert "lookup" in str(exc_info.value)
+    assert "search" in str(exc_info.value)
+
+
+def test_get_tool_schemas_no_duplicates_passes(
+    monkeypatch: pytest.MonkeyPatch,
+    stub_secret_resolver: MagicMock,
+    stub_mcp_provider_registry: MCPProviderRegistry,
+) -> None:
+    """No error when tool names are unique across providers."""
+    tool_config = ToolConfig(
+        tool_alias="multi-provider",
+        providers=["tools", "secondary"],
+        max_tool_call_turns=3,
+    )
+    facade = MCPFacade(
+        tool_config=tool_config, secret_resolver=stub_secret_resolver, mcp_provider_registry=stub_mcp_provider_registry
+    )
+
+    def mock_list_tools(provider: Any) -> tuple[MCPToolDefinition, ...]:
+        # Each provider has unique tool names
+        if provider.name == "tools":
+            return (MCPToolDefinition(name="lookup", description="Lookup", input_schema={"type": "object"}),)
+        return (MCPToolDefinition(name="fetch", description="Fetch", input_schema={"type": "object"}),)
+
+    monkeypatch.setattr(mcp_io, "list_tools", mock_list_tools)
+
+    # Should not raise
+    schemas = facade.get_tool_schemas()
+    assert len(schemas) == 2
+
+
+def test_get_tool_schemas_single_provider_no_duplicates(
+    monkeypatch: pytest.MonkeyPatch,
+    stub_mcp_facade: MCPFacade,
+) -> None:
+    """Single provider cannot have duplicates (each tool name unique within provider)."""
+
+    def mock_list_tools(provider: Any) -> tuple[MCPToolDefinition, ...]:
+        return (
+            MCPToolDefinition(name="lookup", description="Lookup", input_schema={"type": "object"}),
+            MCPToolDefinition(name="search", description="Search", input_schema={"type": "object"}),
+        )
+
+    monkeypatch.setattr(mcp_io, "list_tools", mock_list_tools)
+
+    # Should not raise
+    schemas = stub_mcp_facade.get_tool_schemas()
+    assert len(schemas) == 2

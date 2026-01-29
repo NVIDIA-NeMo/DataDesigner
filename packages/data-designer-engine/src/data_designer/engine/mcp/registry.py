@@ -23,6 +23,24 @@ class MCPToolDefinition:
     description: str | None
     input_schema: dict[str, Any] | None
 
+    def to_openai_tool_schema(self) -> dict[str, Any]:
+        """Convert this tool definition to OpenAI function calling format.
+
+        Returns:
+            A dictionary in OpenAI's tool schema format with 'type' set to
+            'function' and nested 'function' containing name, description,
+            and parameters.
+        """
+        schema = self.input_schema or {"type": "object", "properties": {}}
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description or "",
+                "parameters": schema,
+            },
+        }
+
 
 @dataclass(frozen=True)
 class MCPToolResult:
@@ -47,17 +65,16 @@ class MCPRegistry:
         *,
         secret_resolver: SecretResolver,
         mcp_provider_registry: MCPProviderRegistry,
+        mcp_facade_factory: Callable[[ToolConfig, SecretResolver, MCPProviderRegistry], MCPFacade],
         tool_configs: list[ToolConfig] | None = None,
-        mcp_facade_factory: Callable[[ToolConfig, SecretResolver, MCPProviderRegistry], MCPFacade] | None = None,
     ) -> None:
         """Initialize the MCPRegistry.
 
         Args:
             secret_resolver: Resolver for secrets referenced in provider configs.
             mcp_provider_registry: Registry of MCP provider configurations.
+            mcp_facade_factory: Factory for creating MCPFacade instances.
             tool_configs: Optional list of tool configurations to register.
-            mcp_facade_factory: Optional factory for creating MCPFacade instances.
-                If not provided, get_mcp() will raise RuntimeError.
         """
         self._secret_resolver = secret_resolver
         self._mcp_provider_registry = mcp_provider_registry
@@ -135,6 +152,4 @@ class MCPRegistry:
 
     def _create_facade(self, tool_config: ToolConfig) -> MCPFacade:
         """Create an MCPFacade for a tool configuration."""
-        if self._mcp_facade_factory is None:
-            raise RuntimeError("MCPRegistry was not initialized with an mcp_facade_factory")
         return self._mcp_facade_factory(tool_config, self._secret_resolver, self._mcp_provider_registry)

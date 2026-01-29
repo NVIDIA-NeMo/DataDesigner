@@ -43,15 +43,13 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.sse import sse_client
 from mcp.client.stdio import stdio_client
 
-from data_designer.config.mcp import LocalStdioMCPProvider, MCPProvider
+from data_designer.config.mcp import LocalStdioMCPProvider, MCPProviderT
 from data_designer.engine.mcp.errors import MCPToolError
 
 if TYPE_CHECKING:
     from data_designer.engine.mcp.registry import MCPToolDefinition, MCPToolResult
 
 logger = logging.getLogger(__name__)
-
-MCPProviderT = MCPProvider | LocalStdioMCPProvider
 
 # =============================================================================
 # Background Event Loop

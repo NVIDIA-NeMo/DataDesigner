@@ -44,8 +44,8 @@ def create_mcp_registry(
         )
 
     return MCPRegistry(
-        tool_configs=tool_configs,
         secret_resolver=secret_resolver,
         mcp_provider_registry=mcp_provider_registry,
         mcp_facade_factory=mcp_facade_factory,
+        tool_configs=tool_configs,
     )

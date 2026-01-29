@@ -6,11 +6,10 @@ from __future__ import annotations
 import json
 import uuid
 from typing import Any
-from typing_extensions import TypeAlias
 
-from data_designer.config.mcp import LocalStdioMCPProvider, MCPProvider, ToolConfig
+from data_designer.config.mcp import MCPProviderT, ToolConfig
 from data_designer.engine.mcp import io as mcp_io
-from data_designer.engine.mcp.errors import MCPConfigurationError, MCPToolError
+from data_designer.engine.mcp.errors import DuplicateToolNameError, MCPConfigurationError, MCPToolError
 from data_designer.engine.mcp.registry import MCPToolDefinition
 from data_designer.engine.model_provider import MCPProviderRegistry
 from data_designer.engine.models.utils import ChatMessage
@@ -20,8 +19,6 @@ DEFAULT_TOOL_REFUSAL_MESSAGE = (
     "Tool call refused: You have reached the maximum number of tool-calling turns. "
     "Please provide your final response without requesting additional tool calls."
 )
-
-MCPProviderT: TypeAlias = MCPProvider | LocalStdioMCPProvider
 
 
 class MCPFacade:
@@ -132,17 +129,29 @@ class MCPFacade:
 
         Raises:
             MCPConfigurationError: If allowed tools are not found on any provider.
+            DuplicateToolNameError: If the same tool name appears in multiple providers.
         """
         all_tools: list[MCPToolDefinition] = []
-        all_available_names: set[str] = set()
+        tool_to_providers: dict[str, list[str]] = {}
 
         for provider_name in self._tool_config.providers:
             provider = self._mcp_provider_registry.get_provider(provider_name)
             resolved_provider = self._resolve_provider(provider)
             tools = mcp_io.list_tools(resolved_provider)  # Cached in io module
+            for tool in tools:
+                tool_to_providers.setdefault(tool.name, []).append(provider_name)
             all_tools.extend(tools)
-            all_available_names.update(tool.name for tool in tools)
 
+        # Check for duplicate tool names across providers
+        duplicates = {name: providers for name, providers in tool_to_providers.items() if len(providers) > 1}
+        if duplicates:
+            dup_details = [f"'{name}' (in: {', '.join(providers)})" for name, providers in sorted(duplicates.items())]
+            raise DuplicateToolNameError(
+                f"Duplicate tool names found across MCP providers: {'; '.join(dup_details)}. "
+                "Each tool name must be unique across all providers in a ToolConfig."
+            )
+
+        all_available_names = set(tool_to_providers.keys())
         allowed_names = set(self._tool_config.allow_tools) if self._tool_config.allow_tools else None
         if allowed_names is not None:
             missing = allowed_names.difference(all_available_names)
@@ -153,7 +162,7 @@ class MCPFacade:
                 )
             all_tools = [tool for tool in all_tools if tool.name in allowed_names]
 
-        return [self._to_openai_tool_schema(tool) for tool in all_tools]
+        return [tool.to_openai_tool_schema() for tool in all_tools]
 
     def process_completion_response(
         self,
@@ -178,8 +187,12 @@ class MCPFacade:
             - If no tool calls: [assistant_message]
 
         Raises:
-            MCPToolError: If a requested tool is not in the allowed tools list
-                or if tool execution fails.
+            MCPToolError: If a tool call is missing a name.
+            MCPToolError: If tool call arguments cannot be parsed as JSON.
+            MCPToolError: If tool call arguments are an unsupported type.
+            MCPToolError: If a requested tool is not in the allowed tools list.
+            MCPToolError: If tool execution fails or times out.
+            MCPConfigurationError: If a requested tool is not found on any configured provider.
         """
         message = completion_response.choices[0].message
 
@@ -284,6 +297,11 @@ class MCPFacade:
                 - 'arguments_json': Arguments serialized as a JSON string
 
             Returns an empty list if no tool calls are present in the message.
+
+        Raises:
+            MCPToolError: If a tool call is missing a name.
+            MCPToolError: If tool call arguments cannot be parsed as JSON.
+            MCPToolError: If tool call arguments are an unsupported type.
         """
         raw_tool_calls = getattr(message, "tool_calls", None)
         if raw_tool_calls is None and isinstance(message, dict):
@@ -459,16 +477,3 @@ class MCPFacade:
                 return resolved_provider
 
         raise MCPConfigurationError(f"Tool {tool_name!r} not found on any configured provider.")
-
-    @staticmethod
-    def _to_openai_tool_schema(tool: MCPToolDefinition) -> dict[str, Any]:
-        """Convert an MCPToolDefinition to OpenAI function calling format."""
-        schema = tool.input_schema or {"type": "object", "properties": {}}
-        return {
-            "type": "function",
-            "function": {
-                "name": tool.name,
-                "description": tool.description or "",
-                "parameters": schema,
-            },
-        }
