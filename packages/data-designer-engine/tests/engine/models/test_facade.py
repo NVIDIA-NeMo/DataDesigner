@@ -782,8 +782,8 @@ def test_generate_tool_calls_with_conversation_restarts(
         )
 
     assert result == "good result"
-    # After restart, message count should reset (start fresh)
-    assert messages_at_call[2] == messages_at_call[0]  # Both should be initial message count
+    # After restart, message count should preserve tool call history (restart from checkpoint)
+    assert messages_at_call[2] == messages_at_call[1]  # Both should be post-tool-call message count
 
 
 # =============================================================================

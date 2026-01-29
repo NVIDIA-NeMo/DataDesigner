@@ -222,15 +222,15 @@ class ModelFacade:
         tool_call_turns = 0
         curr_num_correction_steps = 0
         curr_num_restarts = 0
-        curr_generation_attempt = 0
-        max_generation_attempts = (max_correction_steps + 1) * (max_conversation_restarts + 1)
 
         mcp_facade = self._get_mcp_facade(tool_alias)
 
-        starting_messages = prompt_to_messages(
+        # Checkpoint for restarts - updated after tool calls so we don't repeat them
+        restart_checkpoint = prompt_to_messages(
             user_prompt=prompt, system_prompt=system_prompt, multi_modal_context=multi_modal_context
         )
-        messages: list[ChatMessage] = deepcopy(starting_messages)
+        checkpoint_tool_call_turns = 0
+        messages: list[ChatMessage] = deepcopy(restart_checkpoint)
 
         if mcp_facade is not None:
             tool_schemas = mcp_facade.get_tool_schemas()
@@ -256,21 +256,20 @@ class ModelFacade:
                 else:
                     messages.extend(mcp_facade.process_completion_response(completion_response))
 
-                continue
+                # Update checkpoint so restarts don't repeat tool calls
+                restart_checkpoint = deepcopy(messages)
+                checkpoint_tool_call_turns = tool_call_turns
 
-            curr_generation_attempt += 1
-            logger.debug(
-                f"Starting generation attempt {curr_generation_attempt} of {max_generation_attempts} attempts."
-            )
+                continue  # Back to top
 
             # No tool calls remaining to process
             response = completion_response.choices[0].message.content or ""
             reasoning_trace = getattr(completion_response.choices[0].message, "reasoning_content", None)
+            messages.append(ChatMessage.as_assistant(content=response, reasoning_content=reasoning_trace or None))
             curr_num_correction_steps += 1
 
             try:
                 output_obj = parser(response)  # type: ignore - if not a string will cause a ParserException below
-                messages.append(ChatMessage.as_assistant(content=response, reasoning_content=reasoning_trace or None))
                 break
             except ParserException as exc:
                 if max_correction_steps == 0 and max_conversation_restarts == 0:
@@ -279,20 +278,19 @@ class ModelFacade:
                     ) from exc
 
                 if curr_num_correction_steps <= max_correction_steps:
-                    ## Add turns to loop-back errors for correction
-                    messages += [
-                        ChatMessage.as_assistant(content=response, reasoning_content=reasoning_trace or None),
-                        ChatMessage.as_user(content=str(get_exception_primary_cause(exc))),
-                    ]
+                    # Add user message with error for correction
+                    messages.append(ChatMessage.as_user(content=str(get_exception_primary_cause(exc))))
 
                 elif curr_num_restarts < max_conversation_restarts:
                     curr_num_correction_steps = 0
                     curr_num_restarts += 1
-                    messages = deepcopy(starting_messages)
+                    messages = deepcopy(restart_checkpoint)
+                    tool_call_turns = checkpoint_tool_call_turns
 
                 else:
                     raise GenerationValidationFailureError(
-                        f"Unsuccessful generation attempt despite {max_generation_attempts} attempts."
+                        f"Unsuccessful generation despite {max_correction_steps} correction steps "
+                        f"and {max_conversation_restarts} conversation restarts."
                     ) from exc
 
         return output_obj, messages

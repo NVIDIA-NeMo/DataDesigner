@@ -92,7 +92,7 @@ def prompt_to_messages(
         user_prompt (str): A user prompt.
         system_prompt (str, optional): An optional system prompt.
     """
-user_content: str | list[dict[str, Any]] = user_prompt
+    user_content: str | list[dict[str, Any]] = user_prompt
     if multi_modal_context:
         user_content = [*multi_modal_context, {"type": "text", "text": user_prompt}]
 
