@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import uuid
 from typing import Any
+from typing_extensions import TypeAlias
 
 from data_designer.config.mcp import LocalStdioMCPProvider, MCPProvider, ToolConfig
 from data_designer.engine.mcp import io as mcp_io
@@ -20,7 +21,7 @@ DEFAULT_TOOL_REFUSAL_MESSAGE = (
     "Please provide your final response without requesting additional tool calls."
 )
 
-MCPProviderT = MCPProvider | LocalStdioMCPProvider
+MCPProviderT: TypeAlias = MCPProvider | LocalStdioMCPProvider
 
 
 class MCPFacade:
