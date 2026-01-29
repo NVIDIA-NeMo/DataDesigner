@@ -42,10 +42,10 @@ Review the diff to understand:
 ### Message Guidelines
 
 1. **Subject line**:
-   - Use imperative mood ("Add feature" not "Added feature")
+   - Use imperative mood ("add feature" not "added feature")
    - Keep under 50 characters (hard limit: 72)
    - Don't end with a period
-   - Capitalize the first letter
+   - Use lowercase for the first letter
 
 2. **Body** (if needed for complex changes):
    - Separate from subject with blank line
@@ -60,12 +60,12 @@ Review the diff to understand:
 
 **Simple change:**
 ```
-Add user authentication endpoint
+add user authentication endpoint
 ```
 
 **Change with body:**
 ```
-Add rate limiting to public endpoints
+add rate limiting to public endpoints
 
 - Implement token bucket algorithm
 - Add configurable limits per endpoint
