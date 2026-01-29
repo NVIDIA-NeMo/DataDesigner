@@ -1,13 +1,14 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""
+""" "
 Telemetry handler for NeMo products.
 
 Environment variables:
 - NEMO_TELEMETRY_ENABLED: Whether telemetry is enabled.
 - NEMO_DEPLOYMENT_TYPE: The deployment type the event came from.
 - NEMO_TELEMETRY_ENDPOINT: The endpoint to send the telemetry events to.
+- NEMO_SESSION_PREFIX: Optional prefix to add to session IDs.
 """
 
 from __future__ import annotations
@@ -18,14 +19,11 @@ import platform
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import Any, ClassVar
 
 from pydantic import BaseModel, Field
 
 from data_designer.lazy_heavy_imports import httpx
-
-if TYPE_CHECKING:
-    import httpx
 
 TELEMETRY_ENABLED = os.getenv("NEMO_TELEMETRY_ENABLED", "true").lower() in ("1", "true", "yes")
 CLIENT_ID = "184482118588404"
@@ -35,6 +33,7 @@ NEMO_TELEMETRY_ENDPOINT = os.getenv(
     "NEMO_TELEMETRY_ENDPOINT", "https://events.telemetry.data.nvidia.com/v1.1/events/json"
 ).lower()
 CPU_ARCHITECTURE = platform.uname().machine
+SESSION_PREFIX = os.getenv("NEMO_SESSION_PREFIX")
 
 
 class NemoSourceEnum(str, Enum):
@@ -231,7 +230,11 @@ class TelemetryHandler:
         self._timer_task: asyncio.Task | None = None
         self._running = False
         self._source_client_version = source_client_version
-        self._session_id = session_id
+        # Apply session prefix if environment variable is set
+        if SESSION_PREFIX:
+            self._session_id = f"{SESSION_PREFIX}{session_id}"
+        else:
+            self._session_id = session_id
 
     async def astart(self) -> None:
         if self._running:
