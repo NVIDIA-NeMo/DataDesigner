@@ -29,6 +29,7 @@ Run these commands in parallel to understand the changes:
 4. **File changes summary**: `git diff --stat origin/main..HEAD`
 5. **Full diff**: `git diff origin/main..HEAD`
 6. **Recent commit style**: `git log -5 --oneline` (to match PR title convention)
+7. **Repo info**: `gh repo view --json nameWithOwner -q '.nameWithOwner'` (for constructing file URLs)
 
 **Important checks:**
 - If uncommitted changes exist, warn the user and ask if they want to commit first
@@ -97,7 +98,7 @@ If commits have mixed types, use the primary/most significant type.
 
 > ⚠️ **Reviewers:** Please pay special attention to the following:
 
-- `path/to/critical/file.py` - [Why this needs attention]
+- [`path/to/critical/file.py`](https://github.com/<owner>/<repo>/blob/<branch>/path/to/critical/file.py) - [Why this needs attention]
 
 ---
 🤖 *Generated with AI*
@@ -119,9 +120,11 @@ If commits have mixed types, use the primary/most significant type.
 - **Changes**: Group by type, omit empty sections
 - **Attention Areas**: Only include if there are genuinely important items; omit for simple PRs
 - **Links**: Include links to code and commits where helpful for reviewers:
-  - Link to specific files: `[filename](path/to/file.py)` - GitHub auto-links files in the repo
-  - Link to specific lines: `[description](path/to/file.py#L42-L50)` for key code sections
-  - Reference commits: `abc1234` - GitHub auto-links commit SHAs
+  - **File links require full URLs** - relative paths don't work in PR descriptions
+  - Link to a file: `[filename](https://github.com/<owner>/<repo>/blob/<branch>/path/to/file.py)`
+  - Link to specific lines: `[description](https://github.com/<owner>/<repo>/blob/<branch>/path/to/file.py#L42-L50)`
+  - Use the branch name (from Step 1) in the URL so links point to the PR's version of files
+  - Reference commits: `abc1234` - GitHub auto-links short commit SHAs in PR descriptions
   - For multi-commit PRs, reference individual commits when describing specific changes
 
 ## Edge Cases
