@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from data_designer.config.processors import SchemaTransformProcessorConfig
 from data_designer.engine.dataset_builders.artifact_storage import BatchStage
@@ -20,6 +20,26 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _json_escape_record(record: dict[str, Any]) -> dict[str, Any]:
+    """Escape record values for safe insertion into a JSON template."""
+
+    def escape_for_json_string(s: str) -> str:
+        """Use json.dumps to escape, then strip the surrounding quotes."""
+        return json.dumps(s)[1:-1]
+
+    escaped = {}
+    for key, value in record.items():
+        if isinstance(value, str):
+            escaped[key] = escape_for_json_string(value)
+        elif isinstance(value, (dict, list)):
+            escaped[key] = escape_for_json_string(json.dumps(value))
+        elif value is None:
+            escaped[key] = "null"
+        else:
+            escaped[key] = str(value)
+    return escaped
+
+
 class SchemaTransformProcessor(WithJinja2UserTemplateRendering, Processor[SchemaTransformProcessorConfig]):
     @property
     def template_as_str(self) -> str:
@@ -27,10 +47,12 @@ class SchemaTransformProcessor(WithJinja2UserTemplateRendering, Processor[Schema
 
     def process(self, data: pd.DataFrame, *, current_batch_number: int | None = None) -> pd.DataFrame:
         self.prepare_jinja2_template_renderer(self.template_as_str, data.columns.to_list())
-        formatted_records = [
-            json.loads(self.render_template(deserialize_json_values(record)).replace("\n", "\\n"))
-            for record in data.to_dict(orient="records")
-        ]
+        formatted_records = []
+        for record in data.to_dict(orient="records"):
+            deserialized = deserialize_json_values(record)
+            escaped = _json_escape_record(deserialized)
+            rendered = self.render_template(escaped)
+            formatted_records.append(json.loads(rendered))
         formatted_data = pd.DataFrame(formatted_records)
         if current_batch_number is not None:
             self.artifact_storage.write_batch_to_parquet_file(

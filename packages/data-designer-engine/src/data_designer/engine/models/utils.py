@@ -21,9 +21,9 @@ def prompt_to_messages(
     user_content = user_prompt
     if multi_modal_context and len(multi_modal_context) > 0:
         user_content = []
-        user_content.append({"type": "text", "text": user_prompt})
         for context in multi_modal_context:
             user_content.append(context)
+        user_content.append({"type": "text", "text": user_prompt})
     return (
         [
             str_to_message(content=system_prompt, role="system"),
