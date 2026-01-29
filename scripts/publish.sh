@@ -373,28 +373,6 @@ verify_package_versions() {
     success "All package versions verified"
 }
 
-rebuild_with_tag() {
-    header "Rebuilding with Tag"
-
-    if [[ "$DRY_RUN" == true ]]; then
-        warn "[DRY RUN] Would rebuild packages with tag for correct version embedding"
-        return
-    fi
-
-    info "Cleaning dist directories..."
-    make clean-dist
-
-    info "Rebuilding all packages with tag..."
-    if ! make build; then
-        abort "Package rebuild failed" \
-            "Please check the build output for errors"
-    fi
-    success "All packages rebuilt with correct version"
-
-    # Verify versions
-    verify_package_versions
-}
-
 upload_to_pypi() {
     local target_repo="$PYPI_REPOSITORY"
     local target_name="PyPI"
@@ -434,6 +412,21 @@ upload_to_pypi() {
     success "All packages uploaded to $target_name"
 }
 
+delete_local_tag() {
+    header "Cleaning Up Local Tag"
+
+    local tag="v$VERSION"
+
+    if [[ "$DRY_RUN" == true ]]; then
+        warn "[DRY RUN] Would delete local git tag: $tag"
+        return
+    fi
+
+    info "Deleting local tag (TestPyPI mode - tag not pushed to remote)"
+    git tag -d "$tag" > /dev/null 2>&1 || true
+    success "Deleted local git tag: $tag"
+}
+
 push_git_tag() {
     header "Pushing Git Tag"
 
@@ -445,13 +438,6 @@ push_git_tag() {
         else
             warn "[DRY RUN] Would push git tag to origin: $tag"
         fi
-        return
-    fi
-
-    if [[ "$TEST_PYPI" == true ]]; then
-        info "Cleaning up local tag (TestPyPI mode - tag not pushed)"
-        git tag -d "$tag" > /dev/null 2>&1 || true
-        success "Deleted local git tag: $tag"
         return
     fi
 
@@ -511,22 +497,19 @@ main() {
 
     elif [[ "$TEST_PYPI" == true ]]; then
         # TestPyPI: create temporary tag first, build once with correct version
-        # This is more efficient since the tag will be deleted anyway
         create_git_tag
         build_packages
-        # Verify versions match expected
         verify_package_versions
         check_packages_with_twine
         upload_to_pypi
-        push_git_tag  # This will delete the local tag for TestPyPI
+        delete_local_tag
 
     else
-        # Production: build first to validate, then tag and rebuild for safety
-        # This ensures we don't create a tag if the build process itself is broken
-        build_packages
-        check_packages_with_twine
+        # Production: create tag first (local only), build once with correct version
+        # If build fails, the local tag can be deleted - it's only pushed at the end
         create_git_tag
-        rebuild_with_tag
+        build_packages
+        verify_package_versions
         check_packages_with_twine
         upload_to_pypi
         push_git_tag
