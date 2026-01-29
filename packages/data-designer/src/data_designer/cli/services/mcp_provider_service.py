@@ -4,9 +4,7 @@
 from __future__ import annotations
 
 from data_designer.cli.repositories.mcp_provider_repository import MCPProviderRegistry, MCPProviderRepository
-from data_designer.config.mcp import LocalStdioMCPProvider, MCPProvider
-
-MCPProviderT = MCPProvider | LocalStdioMCPProvider
+from data_designer.config.mcp import MCPProviderT
 
 
 class MCPProviderService:

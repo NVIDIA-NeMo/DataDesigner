@@ -8,7 +8,7 @@ from functools import cached_property
 from pydantic import BaseModel, field_validator, model_validator
 from typing_extensions import Self
 
-from data_designer.config.mcp import LocalStdioMCPProvider, MCPProvider, MCPProviderT
+from data_designer.config.mcp import MCPProviderT
 from data_designer.config.models import ModelProvider
 from data_designer.engine.errors import NoModelProvidersError, UnknownProviderError
 
@@ -93,9 +93,7 @@ class MCPProviderRegistry(BaseModel):
 
     @field_validator("providers", mode="after")
     @classmethod
-    def validate_providers_have_unique_names(
-        cls, v: list[MCPProvider | LocalStdioMCPProvider]
-    ) -> list[MCPProvider | LocalStdioMCPProvider]:
+    def validate_providers_have_unique_names(cls, v: list[MCPProviderT]) -> list[MCPProviderT]:
         names = set()
         dupes = set()
         for provider in v:
@@ -108,10 +106,10 @@ class MCPProviderRegistry(BaseModel):
         return v
 
     @cached_property
-    def _providers_dict(self) -> dict[str, MCPProvider | LocalStdioMCPProvider]:
+    def _providers_dict(self) -> dict[str, MCPProviderT]:
         return {p.name: p for p in self.providers}
 
-    def get_provider(self, name: str) -> MCPProvider | LocalStdioMCPProvider:
+    def get_provider(self, name: str) -> MCPProviderT:
         """Get an MCP provider by name.
 
         Args:
@@ -134,7 +132,7 @@ class MCPProviderRegistry(BaseModel):
 
 
 def resolve_mcp_provider_registry(
-    mcp_providers: list[MCPProvider | LocalStdioMCPProvider] | None = None,
+    mcp_providers: list[MCPProviderT] | None = None,
 ) -> MCPProviderRegistry:
     """Create an MCPProviderRegistry from a list of MCP providers.
 

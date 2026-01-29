@@ -15,9 +15,7 @@ from data_designer.cli.ui import (
     select_with_arrows,
 )
 from data_designer.cli.utils import validate_url
-from data_designer.config.mcp import LocalStdioMCPProvider, MCPProvider
-
-MCPProviderT = MCPProvider | LocalStdioMCPProvider
+from data_designer.config.mcp import LocalStdioMCPProvider, MCPProvider, MCPProviderT
 
 
 class MCPProviderFormBuilder:

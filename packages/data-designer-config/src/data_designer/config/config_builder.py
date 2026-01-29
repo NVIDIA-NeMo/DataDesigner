@@ -410,7 +410,7 @@ class DataDesignerConfigBuilder:
         self._validate_tool_configs_no_duplicates()
         return DataDesignerConfig(
             model_configs=self._model_configs,
-            tool_configs=self._tool_configs or None,
+            tool_configs=self._tool_configs,
             seed_config=self._seed_config,
             columns=list(self._column_configs.values()),
             constraints=self._constraints or None,

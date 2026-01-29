@@ -554,7 +554,7 @@ def test_session_pool_info_after_creating_sessions(monkeypatch: pytest.MonkeyPat
     info = mcp_io.get_session_pool_info()
     assert info["active_sessions"] == 1
     assert len(info["provider_keys"]) == 1
-    assert provider.model_dump_json() in info["provider_keys"]
+    assert mcp_io._provider_cache_key(provider) in info["provider_keys"]
 
     # Clean up
     mcp_io.clear_session_pool()

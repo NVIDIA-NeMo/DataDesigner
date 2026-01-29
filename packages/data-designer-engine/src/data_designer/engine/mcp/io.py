@@ -60,6 +60,17 @@ _mcp_thread: threading.Thread | None = None
 _loop_lock = threading.Lock()
 
 
+def _provider_cache_key(provider: MCPProviderT) -> str:
+    """Create a stable cache key for a provider.
+
+    We intentionally derive cache/session keys from provider configuration, but
+    must ensure the serialization is stable across logically identical provider
+    instances (e.g., dict insertion order for nested structures like `env`).
+    """
+    data = provider.model_dump(mode="json")
+    return json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
 def _ensure_loop() -> asyncio.AbstractEventLoop:
     """Ensure the background MCP event loop is running.
 
@@ -126,7 +137,7 @@ async def _get_or_create_session(provider: MCPProviderT) -> ClientSession:
     Returns:
         A ClientSession connected to the provider.
     """
-    key = provider.model_dump_json()
+    key = _provider_cache_key(provider)
 
     async with _session_lock:
         if key in _sessions:
@@ -289,7 +300,7 @@ def list_tools(provider: MCPProviderT) -> tuple[MCPToolDefinition, ...]:
     Raises:
         MCPToolError: If communication with the provider fails or times out.
     """
-    key = provider.model_dump_json()
+    key = _provider_cache_key(provider)
 
     # Fast path: check cache without lock
     if key in _tools_cache:

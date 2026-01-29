@@ -17,7 +17,7 @@ from data_designer.config.default_model_settings import (
     get_providers_with_missing_api_keys,
 )
 from data_designer.config.interface import DataDesignerInterface
-from data_designer.config.mcp import LocalStdioMCPProvider, MCPProvider
+from data_designer.config.mcp import MCPProviderT
 from data_designer.config.models import (
     ModelConfig,
     ModelProvider,
@@ -76,9 +76,6 @@ DEFAULT_SEED_READERS = [
 ]
 for plugin in PluginRegistry().get_plugins(PluginType.SEED_READER):
     DEFAULT_SEED_READERS.append(plugin.impl_cls())
-
-
-MCPProviderT = MCPProvider | LocalStdioMCPProvider
 
 
 class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
