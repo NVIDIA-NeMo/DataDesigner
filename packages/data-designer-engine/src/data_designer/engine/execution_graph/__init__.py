@@ -30,6 +30,7 @@ Example:
 from data_designer.engine.execution_graph.builder import GraphBuilder
 from data_designer.engine.execution_graph.column_descriptor import ColumnDescriptor
 from data_designer.engine.execution_graph.completion import (
+    CHECKPOINT_VERSION,
     CompletionTracker,
     ThreadSafeCompletionTracker,
 )
@@ -61,4 +62,5 @@ __all__ = [
     # Completion tracking
     "CompletionTracker",
     "ThreadSafeCompletionTracker",
+    "CHECKPOINT_VERSION",
 ]

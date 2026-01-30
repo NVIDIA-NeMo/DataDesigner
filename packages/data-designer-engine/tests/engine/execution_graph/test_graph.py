@@ -372,3 +372,205 @@ def test_get_generator_and_config() -> None:
     gen_cls, config = graph.get_generator_and_config(CellNodeId(0, "my_col"))
     assert gen_cls is desc.generator_cls
     assert config is desc.config
+
+
+# --- Row completion tests ---
+
+
+def test_is_row_complete_no_cells_done() -> None:
+    descriptors = [
+        create_descriptor("a", ExecutionTraits.START | ExecutionTraits.ROW_STREAMABLE),
+        create_descriptor(
+            "b",
+            ExecutionTraits.CELL_BY_CELL | ExecutionTraits.ROW_STREAMABLE,
+            ["a"],
+        ),
+    ]
+    graph = ExecutionGraph(num_records=10, column_descriptors=descriptors)
+    tracker = CompletionTracker(10)
+
+    assert not graph.is_row_complete(0, tracker)
+
+
+def test_is_row_complete_partial_row() -> None:
+    descriptors = [
+        create_descriptor("a", ExecutionTraits.START | ExecutionTraits.ROW_STREAMABLE),
+        create_descriptor(
+            "b",
+            ExecutionTraits.CELL_BY_CELL | ExecutionTraits.ROW_STREAMABLE,
+            ["a"],
+        ),
+    ]
+    graph = ExecutionGraph(num_records=10, column_descriptors=descriptors)
+    tracker = CompletionTracker(10)
+
+    # Only complete column a for row 0
+    tracker.mark_complete(CellNodeId(0, "a"))
+
+    assert not graph.is_row_complete(0, tracker)
+
+
+def test_is_row_complete_full_row() -> None:
+    descriptors = [
+        create_descriptor("a", ExecutionTraits.START | ExecutionTraits.ROW_STREAMABLE),
+        create_descriptor(
+            "b",
+            ExecutionTraits.CELL_BY_CELL | ExecutionTraits.ROW_STREAMABLE,
+            ["a"],
+        ),
+    ]
+    graph = ExecutionGraph(num_records=10, column_descriptors=descriptors)
+    tracker = CompletionTracker(10)
+
+    tracker.mark_complete(CellNodeId(0, "a"))
+    tracker.mark_complete(CellNodeId(0, "b"))
+
+    assert graph.is_row_complete(0, tracker)
+
+
+def test_is_row_complete_with_barrier_incomplete() -> None:
+    descriptors = [
+        create_descriptor("a", ExecutionTraits.START | ExecutionTraits.ROW_STREAMABLE),
+        create_descriptor("b", ExecutionTraits.BARRIER, ["a"]),
+    ]
+    graph = ExecutionGraph(num_records=3, column_descriptors=descriptors)
+    tracker = CompletionTracker(3)
+
+    # Complete all cells in column a and column b, but not the barrier
+    for row in range(3):
+        tracker.mark_complete(CellNodeId(row, "a"))
+        tracker.mark_complete(CellNodeId(row, "b"))
+
+    # Row should not be complete because barrier is not complete
+    assert not graph.is_row_complete(0, tracker)
+
+
+def test_is_row_complete_with_barrier_complete() -> None:
+    descriptors = [
+        create_descriptor("a", ExecutionTraits.START | ExecutionTraits.ROW_STREAMABLE),
+        create_descriptor("b", ExecutionTraits.BARRIER, ["a"]),
+    ]
+    graph = ExecutionGraph(num_records=3, column_descriptors=descriptors)
+    tracker = CompletionTracker(3)
+
+    # Complete all cells and the barrier
+    for row in range(3):
+        tracker.mark_complete(CellNodeId(row, "a"))
+    tracker.mark_complete(BarrierNodeId("b"))
+    for row in range(3):
+        tracker.mark_complete(CellNodeId(row, "b"))
+
+    assert graph.is_row_complete(0, tracker)
+    assert graph.is_row_complete(1, tracker)
+    assert graph.is_row_complete(2, tracker)
+
+
+def test_is_row_complete_out_of_range() -> None:
+    desc = create_descriptor("a", ExecutionTraits.START)
+    graph = ExecutionGraph(num_records=10, column_descriptors=[desc])
+    tracker = CompletionTracker(10)
+
+    with pytest.raises(ValueError, match="Row 10 is out of range"):
+        graph.is_row_complete(10, tracker)
+
+    with pytest.raises(ValueError, match="Row -1 is out of range"):
+        graph.is_row_complete(-1, tracker)
+
+
+def test_get_completed_row_count_empty() -> None:
+    descriptors = [
+        create_descriptor("a", ExecutionTraits.START | ExecutionTraits.ROW_STREAMABLE),
+        create_descriptor(
+            "b",
+            ExecutionTraits.CELL_BY_CELL | ExecutionTraits.ROW_STREAMABLE,
+            ["a"],
+        ),
+    ]
+    graph = ExecutionGraph(num_records=10, column_descriptors=descriptors)
+    tracker = CompletionTracker(10)
+
+    assert graph.get_completed_row_count(tracker) == 0
+
+
+def test_get_completed_row_count_some_rows() -> None:
+    descriptors = [
+        create_descriptor("a", ExecutionTraits.START | ExecutionTraits.ROW_STREAMABLE),
+        create_descriptor(
+            "b",
+            ExecutionTraits.CELL_BY_CELL | ExecutionTraits.ROW_STREAMABLE,
+            ["a"],
+        ),
+    ]
+    graph = ExecutionGraph(num_records=10, column_descriptors=descriptors)
+    tracker = CompletionTracker(10)
+
+    # Complete first 5 rows
+    for row in range(5):
+        tracker.mark_complete(CellNodeId(row, "a"))
+        tracker.mark_complete(CellNodeId(row, "b"))
+
+    assert graph.get_completed_row_count(tracker) == 5
+
+
+def test_get_completed_row_count_all_rows() -> None:
+    descriptors = [
+        create_descriptor("a", ExecutionTraits.START | ExecutionTraits.ROW_STREAMABLE),
+        create_descriptor(
+            "b",
+            ExecutionTraits.CELL_BY_CELL | ExecutionTraits.ROW_STREAMABLE,
+            ["a"],
+        ),
+    ]
+    graph = ExecutionGraph(num_records=5, column_descriptors=descriptors)
+    tracker = CompletionTracker(5)
+
+    for row in range(5):
+        tracker.mark_complete(CellNodeId(row, "a"))
+        tracker.mark_complete(CellNodeId(row, "b"))
+
+    assert graph.get_completed_row_count(tracker) == 5
+
+
+def test_get_completed_row_count_non_contiguous() -> None:
+    descriptors = [
+        create_descriptor("a", ExecutionTraits.START | ExecutionTraits.ROW_STREAMABLE),
+        create_descriptor(
+            "b",
+            ExecutionTraits.CELL_BY_CELL | ExecutionTraits.ROW_STREAMABLE,
+            ["a"],
+        ),
+    ]
+    graph = ExecutionGraph(num_records=10, column_descriptors=descriptors)
+    tracker = CompletionTracker(10)
+
+    # Complete rows 0, 1, 2, skip 3, complete 4
+    for row in [0, 1, 2, 4]:
+        tracker.mark_complete(CellNodeId(row, "a"))
+        tracker.mark_complete(CellNodeId(row, "b"))
+
+    # Only count contiguous from row 0
+    assert graph.get_completed_row_count(tracker) == 3
+
+
+def test_get_completed_row_count_with_barrier() -> None:
+    descriptors = [
+        create_descriptor("a", ExecutionTraits.START | ExecutionTraits.ROW_STREAMABLE),
+        create_descriptor("b", ExecutionTraits.BARRIER, ["a"]),
+    ]
+    graph = ExecutionGraph(num_records=5, column_descriptors=descriptors)
+    tracker = CompletionTracker(5)
+
+    # Complete all cells in column a
+    for row in range(5):
+        tracker.mark_complete(CellNodeId(row, "a"))
+
+    # Without barrier complete, no rows are complete
+    assert graph.get_completed_row_count(tracker) == 0
+
+    # Complete barrier and all cells in column b
+    tracker.mark_complete(BarrierNodeId("b"))
+    for row in range(5):
+        tracker.mark_complete(CellNodeId(row, "b"))
+
+    # Now all rows are complete
+    assert graph.get_completed_row_count(tracker) == 5

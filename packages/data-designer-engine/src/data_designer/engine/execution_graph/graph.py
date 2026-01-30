@@ -445,3 +445,53 @@ class ExecutionGraph:
             if node not in completed:
                 return False
         return True
+
+    def is_row_complete(self, row: int, completed: CompletionTrackerProtocol) -> bool:
+        """Check if all cells for a row are complete.
+
+        A row is considered complete when all cells across all columns for that
+        row have been completed. For barrier columns, this also requires that
+        the barrier itself is complete.
+
+        Args:
+            row: The row index to check.
+            completed: A completion tracker (or set) indicating completed nodes.
+
+        Returns:
+            True if all cells for the row are complete, False otherwise.
+
+        Raises:
+            ValueError: If row is out of range.
+        """
+        if row < 0 or row >= self._num_records:
+            raise ValueError(f"Row {row} is out of range [0, {self._num_records})")
+
+        for col_name in self._topo_order:
+            desc = self._columns[col_name]
+            if desc.is_barrier:
+                if BarrierNodeId(col_name) not in completed:
+                    return False
+            if CellNodeId(row, col_name) not in completed:
+                return False
+        return True
+
+    def get_completed_row_count(self, completed: CompletionTrackerProtocol) -> int:
+        """Get the count of contiguous complete rows starting from row 0.
+
+        Returns the highest N where rows 0..N-1 are all complete. This is useful
+        for checkpoint/restart scenarios where you want to know how many rows
+        can be safely saved as a usable partial dataset.
+
+        Args:
+            completed: A completion tracker (or set) indicating completed nodes.
+
+        Returns:
+            The count of contiguous complete rows starting from row 0.
+        """
+        count = 0
+        for row in range(self._num_records):
+            if self.is_row_complete(row, completed):
+                count += 1
+            else:
+                break
+        return count

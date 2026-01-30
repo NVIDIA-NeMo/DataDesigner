@@ -11,13 +11,23 @@ nodes have completed in an execution graph. Two variants are provided:
 
 Both trackers use O(C) memory instead of O(C×R) by tracking fully completed
 columns as sets and only storing partial progress for in-progress columns.
+
+Checkpoint/Restart Support:
+- to_checkpoint(): Create a compact checkpoint representing complete rows
+- from_checkpoint(): Restore tracker state from a checkpoint
 """
 
 from __future__ import annotations
 
 import threading
+from typing import TYPE_CHECKING
 
 from data_designer.engine.execution_graph.node_id import BarrierNodeId, CellNodeId, NodeId
+
+if TYPE_CHECKING:
+    from data_designer.engine.execution_graph.graph import ExecutionGraph
+
+CHECKPOINT_VERSION = 1
 
 
 class CompletionTracker:
@@ -160,6 +170,74 @@ class CompletionTracker:
         completed_barriers = len(self._completed_barriers)
         return completed_cells + completed_barriers
 
+    def to_checkpoint(self, graph: ExecutionGraph) -> dict:
+        """Create a row-complete checkpoint.
+
+        Returns a compact checkpoint representing complete rows. The checkpoint
+        format is O(1) regardless of dataset size, storing only the count of
+        contiguously completed rows.
+
+        Args:
+            graph: The ExecutionGraph to use for row completion checking.
+
+        Returns:
+            A checkpoint dictionary with version and completed_rows count.
+
+        Example:
+            >>> checkpoint = tracker.to_checkpoint(graph)
+            >>> # {"version": 1, "completed_rows": 5000}
+        """
+        completed_rows = graph.get_completed_row_count(self)
+        return {
+            "version": CHECKPOINT_VERSION,
+            "completed_rows": completed_rows,
+        }
+
+    @classmethod
+    def from_checkpoint(cls, checkpoint: dict, graph: ExecutionGraph) -> "CompletionTracker":
+        """Restore a tracker from a row-complete checkpoint.
+
+        Marks all cells for completed rows as done, reconstructing the tracker
+        state from the compact checkpoint format.
+
+        Args:
+            checkpoint: A checkpoint dictionary from to_checkpoint().
+            graph: The ExecutionGraph to use for restoration.
+
+        Returns:
+            A new CompletionTracker with the restored state.
+
+        Raises:
+            ValueError: If the checkpoint version is incompatible.
+
+        Example:
+            >>> tracker = CompletionTracker.from_checkpoint(checkpoint, graph)
+            >>> # Resume generation from where we left off
+        """
+        version = checkpoint.get("version", 0)
+        if version != CHECKPOINT_VERSION:
+            raise ValueError(f"Incompatible checkpoint version: {version}, expected {CHECKPOINT_VERSION}")
+
+        tracker = cls(graph.num_records)
+        completed_rows = checkpoint["completed_rows"]
+
+        # Mark all cells for completed rows across all columns
+        for col_name in graph.column_names:
+            desc = graph.get_column_descriptor(col_name)
+            if desc.is_barrier:
+                # For barrier columns, mark the barrier as complete
+                tracker._completed_barriers.add(col_name)
+
+            # Mark cells as complete for this column
+            if completed_rows == graph.num_records:
+                # Entire column is complete
+                tracker._completed_columns.add(col_name)
+            elif completed_rows > 0:
+                # Partial completion - store row indices
+                tracker._column_completion[col_name] = set(range(completed_rows))
+
+        return tracker
+
 
 class ThreadSafeCompletionTracker:
     """Thread-safe completion tracker for concurrent access.
@@ -267,3 +345,40 @@ class ThreadSafeCompletionTracker:
         """Return the total number of completed nodes (thread-safe)."""
         with self._lock:
             return len(self._tracker)
+
+    def to_checkpoint(self, graph: ExecutionGraph) -> dict:
+        """Create a row-complete checkpoint (thread-safe).
+
+        Returns a compact checkpoint representing complete rows. The checkpoint
+        format is O(1) regardless of dataset size.
+
+        Args:
+            graph: The ExecutionGraph to use for row completion checking.
+
+        Returns:
+            A checkpoint dictionary with version and completed_rows count.
+        """
+        with self._lock:
+            return self._tracker.to_checkpoint(graph)
+
+    @classmethod
+    def from_checkpoint(cls, checkpoint: dict, graph: ExecutionGraph) -> "ThreadSafeCompletionTracker":
+        """Restore a tracker from a row-complete checkpoint (thread-safe).
+
+        Marks all cells for completed rows as done, reconstructing the tracker
+        state from the compact checkpoint format.
+
+        Args:
+            checkpoint: A checkpoint dictionary from to_checkpoint().
+            graph: The ExecutionGraph to use for restoration.
+
+        Returns:
+            A new ThreadSafeCompletionTracker with the restored state.
+
+        Raises:
+            ValueError: If the checkpoint version is incompatible.
+        """
+        inner_tracker = CompletionTracker.from_checkpoint(checkpoint, graph)
+        wrapper = cls(graph.num_records)
+        wrapper._tracker = inner_tracker
+        return wrapper

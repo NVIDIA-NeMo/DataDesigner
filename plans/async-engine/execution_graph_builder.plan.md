@@ -29,6 +29,9 @@ todos:
   - id: tests
     content: Add comprehensive tests for graph building, node iteration, and dependency resolution
     status: pending
+  - id: checkpoint-support
+    content: Add checkpoint/restart support with row-complete batch checkpointing
+    status: done
 isProject: false
 ---
 
@@ -354,3 +357,107 @@ The graph builder validates:
 2. No circular dependencies (enforced by topological order)
 3. At least one column has `START` trait (can generate from scratch)
 
+## Checkpoint/Restart Support
+
+The execution graph supports **row-complete batch checkpointing** for resuming interrupted generation runs.
+
+### Key Design Decisions
+
+1. **Row-complete batches**: Checkpoint when all cells for a batch of rows are complete
+2. **Compact checkpoint format**: Store `{"completed_rows": 5000}` not individual cell indices
+3. **Usable partial datasets**: Each checkpoint can be loaded and used independently
+4. **Restore via graph**: Restoration uses the graph structure to expand row ranges into cell-level tracking
+
+### Mental Model
+
+A row is "complete" when **all columns for that row** have their cells done:
+- For regular columns: `CellNodeId(row, column)` is complete
+- For barrier columns: the `BarrierNodeId(column)` is complete AND `CellNodeId(row, column)` is complete
+
+### Checkpoint Format
+
+```json
+{
+    "version": 1,
+    "completed_rows": 5000
+}
+```
+
+This is **O(1) regardless of dataset size** - no row indices stored.
+
+### Row Completion API
+
+`ExecutionGraph` provides methods for row-level completion checking:
+
+```python
+# Check if a specific row is complete (all columns done)
+graph.is_row_complete(row=5, completed=tracker)
+
+# Get count of contiguous complete rows from row 0
+completed_count = graph.get_completed_row_count(tracker)
+```
+
+### Checkpoint API
+
+Both `CompletionTracker` and `ThreadSafeCompletionTracker` support checkpointing:
+
+```python
+# Create checkpoint
+checkpoint = tracker.to_checkpoint(graph)
+# Returns: {"version": 1, "completed_rows": 5000}
+
+# Restore from checkpoint
+tracker = CompletionTracker.from_checkpoint(checkpoint, graph)
+# or
+tracker = ThreadSafeCompletionTracker.from_checkpoint(checkpoint, graph)
+```
+
+### Usage Pattern
+
+**Checkpoint during execution:**
+```python
+BATCH_SIZE = 1000
+last_checkpoint = 0
+
+# Periodically check and checkpoint
+completed = graph.get_completed_row_count(tracker)
+if completed >= last_checkpoint + BATCH_SIZE:
+    storage.update_metadata({"checkpoint": tracker.to_checkpoint(graph)})
+    last_checkpoint = completed
+```
+
+**Resume from checkpoint:**
+```python
+try:
+    metadata = storage.read_metadata()
+    if "checkpoint" in metadata:
+        tracker = CompletionTracker.from_checkpoint(metadata["checkpoint"], graph)
+        print(f"Resumed: {metadata['checkpoint']['completed_rows']} rows complete")
+    else:
+        tracker = CompletionTracker(graph.num_records)
+except FileNotFoundError:
+    tracker = CompletionTracker(graph.num_records)
+
+# iter_ready_nodes automatically skips completed rows
+for node in graph.iter_ready_nodes(tracker):
+    ...
+```
+
+### Why Row-Complete Batches?
+
+| Approach | Checkpoint Size (1M records, 50% done) | Usable? |
+|----------|----------------------------------------|---------|
+| Per-cell indices | ~4MB per partial column | Partial |
+| Row-complete batch | ~50 bytes | ✓ Yes |
+
+Row-complete batches give you:
+- **Constant-size checkpoints**: O(1) storage
+- **Usable partial data**: Each checkpoint is a valid dataset subset
+- **Simple mental model**: "5000 rows are done"
+
+### Out-of-Order Completion Note
+
+If rows don't complete in order (due to concurrent workers), the current implementation uses **Option A: Wait for contiguous completion**:
+- Only checkpoint contiguous rows from 0
+- Some work may be re-done on restart
+- Simpler implementation that matches the batch-oriented nature of dataset generation
