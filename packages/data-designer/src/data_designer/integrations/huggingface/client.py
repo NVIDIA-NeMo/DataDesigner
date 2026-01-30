@@ -72,6 +72,32 @@ class HuggingFaceHubClient:
         self._validate_repo_id(repo_id)
         self._validate_dataset_path(base_dataset_path)
 
+        self._create_or_get_repo(repo_id, private=private)
+
+        logger.info(f"|-- {RandomEmoji.data()} Uploading dataset card...")
+        try:
+            self._upload_dataset_card(repo_id, base_dataset_path, description, create_pr=create_pr)
+        except Exception as e:
+            raise HuggingFaceUploadError(f"Failed to upload dataset card: {e}") from e
+
+        self._upload_main_dataset_files(repo_id, base_dataset_path, create_pr=create_pr)
+        self._upload_processor_files(repo_id, base_dataset_path, create_pr=create_pr)
+        self._upload_config_files(repo_id, base_dataset_path, create_pr=create_pr)
+
+        url = f"https://huggingface.co/datasets/{repo_id}"
+        logger.info(f"|-- {RandomEmoji.success()} Dataset uploaded successfully! View at: {url}")
+        return url
+
+    def _create_or_get_repo(self, repo_id: str, *, private: bool = False) -> None:
+        """Create or get existing repository on HuggingFace Hub.
+
+        Args:
+            repo_id: HuggingFace repo ID
+            private: Whether to create private repo
+
+        Raises:
+            HuggingFaceUploadError: If repository creation fails
+        """
         logger.info(f"|-- {RandomEmoji.working()} Checking if repository exists...")
         try:
             repo_exists = self._api.repo_exists(repo_id=repo_id, repo_type="dataset")
@@ -103,12 +129,17 @@ class HuggingFaceHubClient:
         except Exception as e:
             raise HuggingFaceUploadError(f"Unexpected error creating repository '{repo_id}': {e}") from e
 
-        logger.info(f"|-- {RandomEmoji.data()} Uploading dataset card...")
-        try:
-            self._upload_dataset_card(repo_id, base_dataset_path, description, create_pr=create_pr)
-        except Exception as e:
-            raise HuggingFaceUploadError(f"Failed to upload dataset card: {e}") from e
+    def _upload_main_dataset_files(self, repo_id: str, base_dataset_path: Path, *, create_pr: bool = False) -> None:
+        """Upload main parquet dataset files.
 
+        Args:
+            repo_id: HuggingFace repo ID
+            base_dataset_path: Path to dataset directory
+            create_pr: Whether to create a PR instead of direct push
+
+        Raises:
+            HuggingFaceUploadError: If upload fails
+        """
         logger.info(f"|-- {RandomEmoji.loading()} Uploading main dataset files...")
         parquet_folder = base_dataset_path / "parquet-files"
         try:
@@ -123,28 +154,52 @@ class HuggingFaceHubClient:
         except Exception as e:
             raise HuggingFaceUploadError(f"Failed to upload parquet files: {e}") from e
 
-        processors_folder = base_dataset_path / "processors-files"
-        if processors_folder.exists():
-            processor_dirs = [d for d in processors_folder.iterdir() if d.is_dir()]
-            if processor_dirs:
-                logger.info(
-                    f"|-- {RandomEmoji.loading()} Uploading processor outputs ({len(processor_dirs)} processors)..."
-                )
-            for processor_dir in processor_dirs:
-                try:
-                    self._api.upload_folder(
-                        repo_id=repo_id,
-                        folder_path=str(processor_dir),
-                        path_in_repo=processor_dir.name,
-                        repo_type="dataset",
-                        commit_message=f"Upload {processor_dir.name} processor outputs",
-                        create_pr=create_pr,
-                    )
-                except Exception as e:
-                    raise HuggingFaceUploadError(
-                        f"Failed to upload processor outputs for '{processor_dir.name}': {e}"
-                    ) from e
+    def _upload_processor_files(self, repo_id: str, base_dataset_path: Path, *, create_pr: bool = False) -> None:
+        """Upload processor output files.
 
+        Args:
+            repo_id: HuggingFace repo ID
+            base_dataset_path: Path to dataset directory
+            create_pr: Whether to create a PR instead of direct push
+
+        Raises:
+            HuggingFaceUploadError: If upload fails
+        """
+        processors_folder = base_dataset_path / "processors-files"
+        if not processors_folder.exists():
+            return
+
+        processor_dirs = [d for d in processors_folder.iterdir() if d.is_dir()]
+        if not processor_dirs:
+            return
+
+        logger.info(f"|-- {RandomEmoji.loading()} Uploading processor outputs ({len(processor_dirs)} processors)...")
+        for processor_dir in processor_dirs:
+            try:
+                self._api.upload_folder(
+                    repo_id=repo_id,
+                    folder_path=str(processor_dir),
+                    path_in_repo=processor_dir.name,
+                    repo_type="dataset",
+                    commit_message=f"Upload {processor_dir.name} processor outputs",
+                    create_pr=create_pr,
+                )
+            except Exception as e:
+                raise HuggingFaceUploadError(
+                    f"Failed to upload processor outputs for '{processor_dir.name}': {e}"
+                ) from e
+
+    def _upload_config_files(self, repo_id: str, base_dataset_path: Path, *, create_pr: bool = False) -> None:
+        """Upload configuration files (sdg.json and metadata.json).
+
+        Args:
+            repo_id: HuggingFace repo ID
+            base_dataset_path: Path to dataset directory
+            create_pr: Whether to create a PR instead of direct push
+
+        Raises:
+            HuggingFaceUploadError: If upload fails
+        """
         logger.info(f"|-- {RandomEmoji.loading()} Uploading configuration files...")
 
         sdg_path = base_dataset_path / "sdg.json"
@@ -182,10 +237,6 @@ class HuggingFaceHubClient:
                     Path(tmp_path).unlink()
             except Exception as e:
                 raise HuggingFaceUploadError(f"Failed to upload metadata.json: {e}") from e
-
-        url = f"https://huggingface.co/datasets/{repo_id}"
-        logger.info(f"|-- {RandomEmoji.success()} Dataset uploaded successfully! View at: {url}")
-        return url
 
     def _upload_dataset_card(
         self, repo_id: str, base_dataset_path: Path, description: str, *, create_pr: bool = False
