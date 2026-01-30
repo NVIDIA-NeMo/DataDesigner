@@ -4,17 +4,12 @@
 from __future__ import annotations
 
 import logging
-import random
 import time
 from threading import Lock
 
-logger = logging.getLogger(__name__)
+from data_designer.logging import RandomEmoji
 
-PROGRESS_STYLES = [
-    ["🌑", "🌘", "🌗", "🌖", "🌕"],  # Moon phases
-    ["🌧️", "🌦️", "⛅", "🌤️", "☀️"],  # Weather (storm to sun)
-    ["🥚", "🐣", "🐥", "🐤", "🐔"],  # Hatching (egg to chicken)
-]
+logger = logging.getLogger(__name__)
 
 
 class ProgressTracker:
@@ -58,7 +53,7 @@ class ProgressTracker:
 
         self.start_time = time.perf_counter()
         self.lock = Lock()
-        self._progress_style = random.choice(PROGRESS_STYLES)
+        self._random_emoji = RandomEmoji()
 
     def log_start(self, max_workers: int) -> None:
         """Log the start of processing with worker count and interval information."""
@@ -118,11 +113,10 @@ class ProgressTracker:
         remaining = max(0, self.total_records - self.completed)
         eta = f"{(remaining / rate):.1f}s" if rate > 0 else "unknown"
         percent = (self.completed / self.total_records) * 100 if self.total_records else 100.0
-        phase_idx = min(int(percent / 25), len(self._progress_style) - 1)
 
         logger.info(
             "  |-- %s %s progress: %d/%d (%.0f%%) complete, %d ok, %d failed, %.2f rec/s, eta %s",
-            self._progress_style[phase_idx],
+            self._random_emoji.progress(percent),
             self.label,
             self.completed,
             self.total_records,
