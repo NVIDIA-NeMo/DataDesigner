@@ -34,8 +34,17 @@ class HuggingFaceHubClient:
                 resolved from HF_TOKEN environment variable or cached credentials
                 from `huggingface-cli login`.
         """
-        self.token = token
+        self._token = token
         self._api = HfApi(token=token)
+
+    @property
+    def has_token(self) -> bool:
+        """Check if a token was explicitly provided.
+
+        Returns:
+            True if a token was provided during initialization, False otherwise.
+        """
+        return self._token is not None
 
     def upload_dataset(
         self,

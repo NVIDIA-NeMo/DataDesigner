@@ -108,14 +108,14 @@ def test_client_initialization() -> None:
     """Test HuggingFaceHubClient initialization."""
     with patch("data_designer.integrations.huggingface.client.HfApi"):
         client = HuggingFaceHubClient(token="test-token")
-        assert client.token == "test-token"
+        assert client.has_token is True
 
 
 def test_client_initialization_no_token() -> None:
     """Test HuggingFaceHubClient initialization without token."""
     with patch("data_designer.integrations.huggingface.client.HfApi"):
         client = HuggingFaceHubClient()
-        assert client.token is None
+        assert client.has_token is False
 
 
 def test_upload_dataset_creates_repo(mock_hf_api: MagicMock, sample_dataset_path: Path) -> None:
