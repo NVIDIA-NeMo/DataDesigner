@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from collections import namedtuple
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -10,14 +10,33 @@ from litellm.types.utils import Choices, EmbeddingResponse, Message, ModelRespon
 from data_designer.engine.models.errors import ModelGenerationValidationFailureError
 from data_designer.engine.models.facade import ModelFacade
 from data_designer.engine.models.parsers.errors import ParserException
-
-MockMessage = namedtuple("MockMessage", ["content"])
-MockChoice = namedtuple("MockChoice", ["message"])
-MockCompletion = namedtuple("MockCompletion", ["choices"])
+from data_designer.engine.models.utils import ChatMessage
 
 
-def mock_oai_response_object(response_text: str) -> MockCompletion:
-    return MockCompletion(choices=[MockChoice(message=MockMessage(content=response_text))])
+class FakeMessage:
+    """Unified fake message class for mocking LLM completion responses."""
+
+    def __init__(
+        self,
+        content: str | None,
+        reasoning_content: str | None = None,
+    ) -> None:
+        self.content = content
+        self.reasoning_content = reasoning_content
+
+
+class FakeChoice:
+    def __init__(self, message: FakeMessage) -> None:
+        self.message = message
+
+
+class FakeResponse:
+    def __init__(self, message: FakeMessage) -> None:
+        self.choices = [FakeChoice(message)]
+
+
+def mock_oai_response_object(response_text: str) -> FakeResponse:
+    return FakeResponse(FakeMessage(content=response_text))
 
 
 @pytest.fixture
@@ -30,8 +49,8 @@ def stub_model_facade(stub_model_configs, stub_secrets_resolver, stub_model_prov
 
 
 @pytest.fixture
-def stub_completion_messages():
-    return [{"role": "user", "content": "test"}]
+def stub_completion_messages() -> list[ChatMessage]:
+    return [ChatMessage.as_user("test")]
 
 
 @pytest.fixture
@@ -93,17 +112,29 @@ def test_generate(
 @pytest.mark.parametrize(
     "system_prompt,expected_messages",
     [
-        ("", [{"role": "user", "content": "does not matter"}]),
-        ("hello!", [{"content": "hello!", "role": "system"}, {"role": "user", "content": "does not matter"}]),
+        ("", [ChatMessage.as_user("does not matter")]),
+        ("hello!", [ChatMessage.as_system("hello!"), ChatMessage.as_user("does not matter")]),
     ],
 )
 @patch("data_designer.engine.models.facade.ModelFacade.completion", autospec=True)
-def test_generate_with_system_prompt(mock_completion, stub_model_facade, system_prompt, expected_messages):
-    mock_completion.return_value = ModelResponse(choices=Choices(message=Message(content="Hello!")))
+def test_generate_with_system_prompt(
+    mock_completion: Any,
+    stub_model_facade: ModelFacade,
+    system_prompt: str,
+    expected_messages: list[ChatMessage],
+) -> None:
+    # Capture messages at call time since they get mutated after the call
+    captured_messages = []
+
+    def capture_and_return(*args: Any, **kwargs: Any) -> ModelResponse:
+        captured_messages.append(list(args[1]))  # Copy the messages list
+        return ModelResponse(choices=Choices(message=Message(content="Hello!")))
+
+    mock_completion.side_effect = capture_and_return
 
     stub_model_facade.generate(prompt="does not matter", system_prompt=system_prompt, parser=lambda x: x)
     assert mock_completion.call_count == 1
-    assert mock_completion.call_args[0][1] == expected_messages
+    assert captured_messages[0] == expected_messages
 
 
 def test_model_alias_property(stub_model_facade, stub_model_configs):
@@ -151,26 +182,31 @@ def test_consolidate_kwargs(stub_model_configs, stub_model_facade):
 )
 @patch("data_designer.engine.models.facade.CustomRouter.completion", autospec=True)
 def test_completion_success(
-    mock_router_completion,
-    stub_completion_messages,
-    stub_model_configs,
-    stub_model_facade,
-    stub_expected_completion_response,
-    skip_usage_tracking,
-):
+    mock_router_completion: Any,
+    stub_completion_messages: list[ChatMessage],
+    stub_model_configs: Any,
+    stub_model_facade: ModelFacade,
+    stub_expected_completion_response: ModelResponse,
+    skip_usage_tracking: bool,
+) -> None:
     mock_router_completion.side_effect = lambda self, model, messages, **kwargs: stub_expected_completion_response
     result = stub_model_facade.completion(stub_completion_messages, skip_usage_tracking=skip_usage_tracking)
+    expected_messages = [message.to_dict() for message in stub_completion_messages]
     assert result == stub_expected_completion_response
     assert mock_router_completion.call_count == 1
     assert mock_router_completion.call_args[1] == {
         "model": "stub-model-text",
-        "messages": stub_completion_messages,
+        "messages": expected_messages,
         **stub_model_configs[0].inference_parameters.generate_kwargs,
     }
 
 
 @patch("data_designer.engine.models.facade.CustomRouter.completion", autospec=True)
-def test_completion_with_exception(mock_router_completion, stub_completion_messages, stub_model_facade):
+def test_completion_with_exception(
+    mock_router_completion: Any,
+    stub_completion_messages: list[ChatMessage],
+    stub_model_facade: ModelFacade,
+) -> None:
     mock_router_completion.side_effect = Exception("Router error")
 
     with pytest.raises(Exception, match="Router error"):
@@ -179,15 +215,15 @@ def test_completion_with_exception(mock_router_completion, stub_completion_messa
 
 @patch("data_designer.engine.models.facade.CustomRouter.completion", autospec=True)
 def test_completion_with_kwargs(
-    mock_router_completion,
-    stub_completion_messages,
-    stub_model_configs,
-    stub_model_facade,
-    stub_expected_completion_response,
-):
+    mock_router_completion: Any,
+    stub_completion_messages: list[ChatMessage],
+    stub_model_configs: Any,
+    stub_model_facade: ModelFacade,
+    stub_expected_completion_response: ModelResponse,
+) -> None:
     captured_kwargs = {}
 
-    def mock_completion(self, model, messages, **kwargs):
+    def mock_completion(self: Any, model: str, messages: list[dict[str, Any]], **kwargs: Any) -> ModelResponse:
         captured_kwargs.update(kwargs)
         return stub_expected_completion_response
 

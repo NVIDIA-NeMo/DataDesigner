@@ -18,7 +18,7 @@ from data_designer.engine.models.errors import (
 from data_designer.engine.models.litellm_overrides import CustomRouter, LiteLLMRouterDefaultKwargs
 from data_designer.engine.models.parsers.errors import ParserException
 from data_designer.engine.models.usage import ModelUsageStats, RequestUsageStats, TokenUsageStats
-from data_designer.engine.models.utils import prompt_to_messages, str_to_message
+from data_designer.engine.models.utils import ChatMessage, prompt_to_messages
 from data_designer.engine.secret_resolver import SecretResolver
 from data_designer.lazy_heavy_imports import litellm
 
@@ -67,16 +67,17 @@ class ModelFacade:
         return self._usage_stats
 
     def completion(
-        self, messages: list[dict[str, str]], skip_usage_tracking: bool = False, **kwargs
+        self, messages: list[ChatMessage], skip_usage_tracking: bool = False, **kwargs
     ) -> litellm.ModelResponse:
+        message_payloads = [message.to_dict() for message in messages]
         logger.debug(
             f"Prompting model {self.model_name!r}...",
-            extra={"model": self.model_name, "messages": messages},
+            extra={"model": self.model_name, "messages": message_payloads},
         )
         response = None
         kwargs = self.consolidate_kwargs(**kwargs)
         try:
-            response = self._router.completion(model=self.model_name, messages=messages, **kwargs)
+            response = self._router.completion(model=self.model_name, messages=message_payloads, **kwargs)
             logger.debug(
                 f"Received completion from model {self.model_name!r}",
                 extra={
@@ -149,7 +150,7 @@ class ModelFacade:
         skip_usage_tracking: bool = False,
         purpose: str | None = None,
         **kwargs,
-    ) -> tuple[Any, str | None]:
+    ) -> tuple[Any, list[ChatMessage]]:
         """Generate a parsed output with correction steps.
 
         This generation call will attempt to generate an output which is
@@ -182,6 +183,12 @@ class ModelFacade:
                 It is expected to be used by the @catch_llm_exceptions decorator.
             **kwargs: Additional arguments to pass to the model.
 
+        Returns:
+            A tuple containing:
+                - The parsed output object from the parser.
+                - The full trace of ChatMessage entries in the conversation, including any
+                  corrections and reasoning traces. Callers can decide whether to store this.
+
         Raises:
             GenerationValidationFailureError: If the maximum number of retries or
                 correction steps are met and the last response failures on
@@ -190,29 +197,17 @@ class ModelFacade:
         output_obj = None
         curr_num_correction_steps = 0
         curr_num_restarts = 0
-        curr_generation_attempt = 0
-        max_generation_attempts = (max_correction_steps + 1) * (max_conversation_restarts + 1)
 
         starting_messages = prompt_to_messages(
             user_prompt=prompt, system_prompt=system_prompt, multi_modal_context=multi_modal_context
         )
-        messages = deepcopy(starting_messages)
+        messages: list[ChatMessage] = deepcopy(starting_messages)
 
         while True:
-            curr_generation_attempt += 1
-            logger.debug(
-                f"Starting generation attempt {curr_generation_attempt} of {max_generation_attempts} attempts."
-            )
-
             completion_response = self.completion(messages, skip_usage_tracking=skip_usage_tracking, **kwargs)
             response = completion_response.choices[0].message.content or ""
             reasoning_trace = getattr(completion_response.choices[0].message, "reasoning_content", None)
-
-            if reasoning_trace:
-                ## There are generally some extra newlines with how these get parsed.
-                response = response.strip()
-                reasoning_trace = reasoning_trace.strip()
-
+            messages.append(ChatMessage.as_assistant(content=response, reasoning_content=reasoning_trace or None))
             curr_num_correction_steps += 1
 
             try:
@@ -223,21 +218,23 @@ class ModelFacade:
                     raise GenerationValidationFailureError(
                         "Unsuccessful generation attempt. No retries were attempted."
                     ) from exc
+
                 if curr_num_correction_steps <= max_correction_steps:
-                    ## Add turns to loop-back errors for correction
-                    messages += [
-                        str_to_message(content=response, role="assistant"),
-                        str_to_message(content=str(get_exception_primary_cause(exc)), role="user"),
-                    ]
+                    # Add user message with error for correction
+                    messages.append(ChatMessage.as_user(content=str(get_exception_primary_cause(exc))))
+
                 elif curr_num_restarts < max_conversation_restarts:
                     curr_num_correction_steps = 0
                     curr_num_restarts += 1
                     messages = deepcopy(starting_messages)
+
                 else:
                     raise GenerationValidationFailureError(
-                        f"Unsuccessful generation attempt despite {max_generation_attempts} attempts."
+                        f"Unsuccessful generation despite {max_correction_steps} correction steps "
+                        f"and {max_conversation_restarts} conversation restarts."
                     ) from exc
-        return output_obj, reasoning_trace
+
+        return output_obj, messages
 
     def _get_litellm_deployment(self, model_config: ModelConfig) -> litellm.DeploymentTypedDict:
         provider = self._model_provider_registry.get_provider(model_config.provider)

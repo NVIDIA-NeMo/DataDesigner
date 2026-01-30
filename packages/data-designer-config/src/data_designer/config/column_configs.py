@@ -14,7 +14,7 @@ from data_designer.config.errors import InvalidConfigError
 from data_designer.config.models import ImageContext
 from data_designer.config.sampler_params import SamplerParamsT, SamplerType
 from data_designer.config.utils.code_lang import CodeLang
-from data_designer.config.utils.constants import REASONING_TRACE_COLUMN_POSTFIX
+from data_designer.config.utils.constants import TRACE_COLUMN_POSTFIX
 from data_designer.config.utils.misc import assert_valid_jinja2_template, extract_keywords_from_jinja2_template
 from data_designer.config.validator_params import ValidatorParamsT, ValidatorType
 
@@ -143,8 +143,8 @@ class LLMTextColumnConfig(SingleColumnConfig):
 
     LLM text columns generate free-form text content using language models via LiteLLM.
     Prompts support Jinja2 templating to reference values from other columns, enabling
-    context-aware generation. The generated text can optionally include reasoning traces
-    when models support extended thinking.
+    context-aware generation. The generated text can optionally include message traces
+    capturing the full conversation history.
 
     Attributes:
         prompt: Prompt template for text generation. Supports Jinja2 syntax to
@@ -159,6 +159,10 @@ class LLMTextColumnConfig(SingleColumnConfig):
             `LLMStructuredColumnConfig` for structured output, `LLMCodeColumnConfig` for code.
         multi_modal_context: Optional list of image contexts for multi-modal generation.
             Enables vision-capable models to generate text based on image inputs.
+        with_trace: If True, creates a `{column_name}__trace` column containing the full
+            ordered message history (system/user/assistant) for the generation.
+            Can be overridden globally via `RunConfig.debug_override_save_all_column_traces`.
+            Defaults to False.
         column_type: Discriminator field, always "llm-text" for this configuration type.
     """
 
@@ -166,6 +170,7 @@ class LLMTextColumnConfig(SingleColumnConfig):
     model_alias: str
     system_prompt: str | None = None
     multi_modal_context: list[ImageContext] | None = None
+    with_trace: bool = False
     column_type: Literal["llm-text"] = "llm-text"
 
     @staticmethod
@@ -186,14 +191,15 @@ class LLMTextColumnConfig(SingleColumnConfig):
 
     @property
     def side_effect_columns(self) -> list[str]:
-        """Returns the reasoning trace column, which may be generated alongside the main column.
+        """Returns the trace column, which may be generated alongside the main column.
 
-        Reasoning traces are only returned if the served model parses and returns reasoning content.
+        Traces are generated when `with_trace=True` on the column config or
+        when `RunConfig.debug_override_save_all_column_traces=True` globally.
 
         Returns:
-            List containing the reasoning trace column name.
+            List containing the trace column name.
         """
-        return [f"{self.name}{REASONING_TRACE_COLUMN_POSTFIX}"]
+        return [f"{self.name}{TRACE_COLUMN_POSTFIX}"]
 
     @model_validator(mode="after")
     def assert_prompt_valid_jinja(self) -> Self:
