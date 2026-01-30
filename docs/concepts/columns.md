@@ -45,7 +45,7 @@ Use **Jinja2 templating** in prompts to reference other columns. Data Designer a
 
 LLM-Code columns generate code in specific programming languages. They handle the prompting and parsing necessary to extract clean code from the LLM's response—automatically detecting and extracting code from markdown blocks. You provide the prompt and choose the model; the column handles the extraction.
 
-Supported languages: **Python, JavaScript, TypeScript, Java, Kotlin, Go, Rust, Ruby, Scala, Swift**, plus **SQL** dialects (SQLite, PostgreSQL, MySQL, T-SQL, BigQuery, ANSI SQL).
+Supported languages: **Bash, C, C++, C#, COBOL, Go, Java, JavaScript, Kotlin, Python, Ruby, Rust, Scala, Swift, TypeScript**, plus **SQL** dialects (SQLite, PostgreSQL, MySQL, T-SQL, BigQuery, ANSI SQL).
 
 ### 🗂️ LLM-Structured Columns
 

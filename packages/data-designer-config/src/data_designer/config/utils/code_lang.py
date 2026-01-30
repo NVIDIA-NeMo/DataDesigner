@@ -7,9 +7,14 @@ from enum import Enum
 
 
 class CodeLang(str, Enum):
+    BASH = "bash"
+    C = "c"
+    COBOL = "cobol"
+    CPP = "cpp"
+    CSHARP = "csharp"
     GO = "go"
-    JAVASCRIPT = "javascript"
     JAVA = "java"
+    JAVASCRIPT = "javascript"
     KOTLIN = "kotlin"
     PYTHON = "python"
     RUBY = "ruby"
@@ -63,15 +68,21 @@ def code_lang_to_syntax_lexer(code_lang: CodeLang | str) -> str:
     Reference: https://pygments.org/docs/lexers/
     """
     code_lang_to_lexer = {
+        CodeLang.BASH: "bash",
+        CodeLang.C: "c",
+        CodeLang.COBOL: "cobol",
+        CodeLang.CPP: "cpp",
+        CodeLang.CSHARP: "csharp",
         CodeLang.GO: "golang",
-        CodeLang.JAVASCRIPT: "javascript",
         CodeLang.JAVA: "java",
+        CodeLang.JAVASCRIPT: "javascript",
         CodeLang.KOTLIN: "kotlin",
         CodeLang.PYTHON: "python",
         CodeLang.RUBY: "ruby",
         CodeLang.RUST: "rust",
         CodeLang.SCALA: "scala",
         CodeLang.SWIFT: "swift",
+        CodeLang.TYPESCRIPT: "typescript",
         CodeLang.SQL_SQLITE: "sql",
         CodeLang.SQL_ANSI: "sql",
         CodeLang.SQL_TSQL: "tsql",
