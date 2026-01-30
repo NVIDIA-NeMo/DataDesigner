@@ -84,7 +84,9 @@ class ProgressTracker:
     def log_final(self) -> None:
         """Log final progress if not already logged at completion."""
         with self.lock:
-            if self.total_records > 0 and self.completed < self.total_records:
+            if self.completed > 0 and self.completed == self.total_records:
+                self._log_progress_unlocked()  # always log 100%
+            elif self.total_records > 0 and self.completed < self.total_records:
                 self._log_progress_unlocked()
             elif self.completed > 0 and self.completed >= self.next_log_at - self.log_interval:
                 pass  # Already logged at the last interval
