@@ -16,6 +16,10 @@ configs:
 # {{ repo_id.split('/')[-1] | title }}
 
 This dataset was generated using **[NeMo Data Designer](https://github.com/NVIDIA-NeMo/DataDesigner)**, a comprehensive framework for creating high-quality synthetic datasets from scratch or using seed data.
+{% if custom_description %}
+
+{{ custom_description }}
+{% endif %}
 
 ## About NeMo Data Designer
 
