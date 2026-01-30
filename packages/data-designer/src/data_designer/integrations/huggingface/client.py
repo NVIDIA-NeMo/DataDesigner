@@ -219,24 +219,25 @@ class HuggingFaceHubClient:
 
         metadata_path = base_dataset_path / "metadata.json"
         if metadata_path.exists():
+            tmp_path = None
             try:
                 updated_metadata = self._update_metadata_paths(metadata_path)
                 with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp_file:
                     json.dump(updated_metadata, tmp_file, indent=2)
                     tmp_path = tmp_file.name
 
-                try:
-                    self._api.upload_file(
-                        repo_id=repo_id,
-                        path_or_fileobj=tmp_path,
-                        path_in_repo="metadata.json",
-                        repo_type="dataset",
-                        commit_message="Upload metadata.json",
-                    )
-                finally:
-                    Path(tmp_path).unlink()
+                self._api.upload_file(
+                    repo_id=repo_id,
+                    path_or_fileobj=tmp_path,
+                    path_in_repo="metadata.json",
+                    repo_type="dataset",
+                    commit_message="Upload metadata.json",
+                )
             except Exception as e:
                 raise HuggingFaceUploadError(f"Failed to upload metadata.json: {e}") from e
+            finally:
+                if tmp_path and Path(tmp_path).exists():
+                    Path(tmp_path).unlink()
 
     def _upload_dataset_card(self, repo_id: str, base_dataset_path: Path, description: str) -> None:
         """Generate and upload dataset card from metadata.json.
