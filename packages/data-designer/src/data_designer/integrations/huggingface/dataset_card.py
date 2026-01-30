@@ -34,7 +34,7 @@ class DataDesignerDatasetCard(DatasetCard):
         Args:
             metadata: Contents of metadata.json
             sdg_config: Contents of sdg.json (optional)
-            repo_id: HuggingFace repo ID
+            repo_id: Hugging Face dataset repo ID
             description: Custom description text
 
         Returns:
@@ -105,13 +105,13 @@ class DataDesignerDatasetCard(DatasetCard):
 
     @staticmethod
     def _compute_size_category(num_records: int) -> str:
-        """Compute HuggingFace size category from record count.
+        """Compute Hugging Face dataset size category from record count.
 
         Args:
             num_records: Number of records in the dataset
 
         Returns:
-            Size category string for HuggingFace Hub tags
+            Size category string for Hugging Face dataset repository tags
         """
         if num_records < 1000:
             return "n<1K"

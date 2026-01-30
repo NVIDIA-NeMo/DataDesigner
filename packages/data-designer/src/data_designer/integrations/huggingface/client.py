@@ -20,17 +20,17 @@ logger = logging.getLogger(__name__)
 
 
 class HuggingFaceUploadError(DataDesignerError):
-    """Error during HuggingFace dataset upload."""
+    """Error during Hugging Face dataset upload."""
 
 
 class HuggingFaceHubClient:
-    """Client for interacting with HuggingFace Hub to upload datasets."""
+    """Client for interacting with Hugging Face Hub to upload datasets."""
 
     def __init__(self, token: str | None = None):
-        """Initialize HuggingFace Hub client.
+        """Initialize Hugging Face Hub client.
 
         Args:
-            token: HuggingFace API token. If None, the token is automatically
+            token: Hugging Face API token. If None, the token is automatically
                 resolved from HF_TOKEN environment variable or cached credentials
                 from `huggingface-cli login`.
         """
@@ -55,7 +55,7 @@ class HuggingFaceHubClient:
         private: bool = False,
         create_pr: bool = False,
     ) -> str:
-        """Upload dataset to HuggingFace Hub.
+        """Upload dataset to Hugging Face Hub.
 
         Uploads the complete dataset including:
         - Main parquet batch files from parquet-files/ → data/
@@ -64,7 +64,7 @@ class HuggingFaceHubClient:
         - Auto-generated README.md (dataset card)
 
         Args:
-            repo_id: HuggingFace repo ID (e.g., "username/dataset-name")
+            repo_id: Hugging Face dataset repo ID (e.g., "username/dataset-name")
             base_dataset_path: Path to base_dataset_path (contains parquet-files/, sdg.json, etc.)
             description: Custom description text for dataset card
             private: Whether to create private repo
@@ -76,7 +76,7 @@ class HuggingFaceHubClient:
         Raises:
             HuggingFaceUploadError: If validation fails or upload encounters errors
         """
-        logger.info(f"🤗 Uploading dataset to HuggingFace Hub: {repo_id}")
+        logger.info(f"🤗 Uploading dataset to Hugging Face Hub: {repo_id}")
 
         self._validate_repo_id(repo_id)
         self._validate_dataset_path(base_dataset_path)
@@ -98,10 +98,10 @@ class HuggingFaceHubClient:
         return url
 
     def _create_or_get_repo(self, repo_id: str, *, private: bool = False) -> None:
-        """Create or get existing repository on HuggingFace Hub.
+        """Create or get existing repository on Hugging Face Hub.
 
         Args:
-            repo_id: HuggingFace repo ID
+            repo_id: Hugging Face dataset repo ID
             private: Whether to create private repo
 
         Raises:
@@ -124,7 +124,7 @@ class HuggingFaceHubClient:
         except HfHubHTTPError as e:
             if e.response.status_code == 401:
                 raise HuggingFaceUploadError(
-                    "Authentication failed. Please provide a valid HuggingFace token. "
+                    "Authentication failed. Please provide a valid Hugging Face token. "
                     "You can set it via the token parameter or HF_TOKEN environment variable, "
                     "or run 'huggingface-cli login'."
                 ) from e
@@ -142,7 +142,7 @@ class HuggingFaceHubClient:
         """Upload main parquet dataset files.
 
         Args:
-            repo_id: HuggingFace repo ID
+            repo_id: Hugging Face dataset repo ID
             base_dataset_path: Path to dataset directory
             create_pr: Whether to create a PR instead of direct push
 
@@ -167,7 +167,7 @@ class HuggingFaceHubClient:
         """Upload processor output files.
 
         Args:
-            repo_id: HuggingFace repo ID
+            repo_id: Hugging Face dataset repo ID
             base_dataset_path: Path to dataset directory
             create_pr: Whether to create a PR instead of direct push
 
@@ -202,7 +202,7 @@ class HuggingFaceHubClient:
         """Upload configuration files (sdg.json and metadata.json).
 
         Args:
-            repo_id: HuggingFace repo ID
+            repo_id: Hugging Face dataset repo ID
             base_dataset_path: Path to dataset directory
             create_pr: Whether to create a PR instead of direct push
 
@@ -253,7 +253,7 @@ class HuggingFaceHubClient:
         """Generate and upload dataset card from metadata.json.
 
         Args:
-            repo_id: HuggingFace repo ID
+            repo_id: Hugging Face dataset repo ID
             base_dataset_path: Path to dataset artifacts
             description: Custom description text for dataset card
             create_pr: Whether to create a PR instead of direct push
@@ -298,7 +298,7 @@ class HuggingFaceHubClient:
 
     @staticmethod
     def _validate_repo_id(repo_id: str) -> None:
-        """Validate HuggingFace repository ID format.
+        """Validate Hugging Face dataset repository ID format.
 
         Args:
             repo_id: Repository ID to validate
@@ -320,7 +320,7 @@ class HuggingFaceHubClient:
 
     @staticmethod
     def _update_metadata_paths(metadata_path: Path) -> dict:
-        """Update file paths in metadata.json to match HuggingFace Hub structure.
+        """Update file paths in metadata.json to match Hugging Face dataset repository structure.
 
         Local paths:
         - parquet-files/batch_00000.parquet → data/batch_00000.parquet
