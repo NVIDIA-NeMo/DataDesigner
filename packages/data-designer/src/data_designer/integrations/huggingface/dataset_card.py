@@ -91,7 +91,7 @@ class DataDesignerDatasetCard(DatasetCard):
             "column_statistics": column_stats,
             "num_columns_configured": num_columns_configured,
             "config_types": config_types,
-            "percent_complete": 100 * actual_num_records / (target_num_records + 1e-10),
+            "percent_complete": 100 * actual_num_records / target_num_records if target_num_records > 0 else 0,
             "current_year": datetime.now().year,
             "has_processors": len(processor_names) > 0,
             "processor_names": processor_names,
