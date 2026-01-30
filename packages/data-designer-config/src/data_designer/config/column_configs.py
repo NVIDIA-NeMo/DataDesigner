@@ -143,8 +143,8 @@ class LLMTextColumnConfig(SingleColumnConfig):
 
     LLM text columns generate free-form text content using language models via LiteLLM.
     Prompts support Jinja2 templating to reference values from other columns, enabling
-    context-aware generation. The generated text can optionally include reasoning traces
-    when models support extended thinking.
+    context-aware generation. The generated text can optionally include message traces
+    capturing the full conversation history.
 
     Attributes:
         prompt: Prompt template for text generation. Supports Jinja2 syntax to
