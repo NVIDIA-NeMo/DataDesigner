@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from huggingface_hub.utils import HfHubHTTPError
 
 from data_designer.integrations.huggingface.client import HuggingFaceHubClient, HuggingFaceUploadError
 
@@ -491,8 +492,6 @@ def test_upload_dataset_invalid_repo_id(mock_hf_api: MagicMock, sample_dataset_p
 
 def test_upload_dataset_authentication_error(mock_hf_api: MagicMock, sample_dataset_path: Path) -> None:
     """Test upload_dataset handles authentication errors."""
-    from huggingface_hub.utils import HfHubHTTPError
-
     client = HuggingFaceHubClient(token="invalid-token")
 
     # Mock 401 authentication error
@@ -510,8 +509,6 @@ def test_upload_dataset_authentication_error(mock_hf_api: MagicMock, sample_data
 
 def test_upload_dataset_permission_error(mock_hf_api: MagicMock, sample_dataset_path: Path) -> None:
     """Test upload_dataset handles permission errors."""
-    from huggingface_hub.utils import HfHubHTTPError
-
     client = HuggingFaceHubClient(token="test-token")
 
     # Mock 403 permission error
