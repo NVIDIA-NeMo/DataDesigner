@@ -12,6 +12,7 @@ from data_designer.config.dataset_metadata import DatasetMetadata
 from data_designer.config.utils.visualization import WithRecordSamplerMixin
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
+from data_designer.integrations.huggingface.client import HuggingFaceHubClient
 from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
@@ -96,3 +97,44 @@ class DatasetCreationResults(WithRecordSamplerMixin):
         if not self.artifact_storage.processors_outputs_path.exists():
             raise ArtifactStorageError(f"Processor {processor_name} has no artifacts.")
         return self.artifact_storage.processors_outputs_path / processor_name
+
+    def push_to_hub(
+        self,
+        repo_id: str,
+        *,
+        token: str | None = None,
+        private: bool = False,
+        create_pr: bool = False,
+    ) -> str:
+        """Push dataset to HuggingFace Hub.
+
+        Uploads all artifacts including:
+        - Main parquet batch files (data subset)
+        - Processor output batch files (data/{processor_name} subsets)
+        - Configuration (sdg.json)
+        - Metadata (metadata.json)
+        - Auto-generated dataset card (README.md)
+
+        Args:
+            repo_id: HuggingFace repo ID (e.g., "username/my-dataset")
+            token: HuggingFace API token. If None, the token is automatically
+                resolved from HF_TOKEN environment variable or cached credentials
+                from `huggingface-cli login`.
+            private: Create private repo
+            create_pr: Create PR instead of direct push
+
+        Returns:
+            URL to the uploaded dataset
+
+        Example:
+            >>> results = data_designer.create(config, num_records=1000)
+            >>> results.push_to_hub("username/my-synthetic-dataset")
+            'https://huggingface.co/datasets/username/my-synthetic-dataset'
+        """
+        client = HuggingFaceHubClient(token=token)
+        return client.upload_dataset(
+            repo_id=repo_id,
+            base_dataset_path=self.artifact_storage.base_dataset_path,
+            private=private,
+            create_pr=create_pr,
+        )
