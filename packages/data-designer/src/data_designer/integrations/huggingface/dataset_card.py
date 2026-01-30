@@ -71,20 +71,8 @@ class DataDesignerDatasetCard(DatasetCard):
         if "file_paths" in metadata and "processor-files" in metadata["file_paths"]:
             processor_names = list(metadata["file_paths"]["processor-files"].keys())
 
-        # Determine modalities based on column types
-        modalities = set()
-        has_text = False
-        for stat in column_stats:
-            col_type = stat.get("column_type", "")
-            if col_type in ["llm-text", "llm-code", "llm-structured", "llm-judge"]:
-                has_text = True
-
-        if has_text:
-            modalities.add("text")
-        modalities.add("tabular")
-
         # Prepare tags
-        tags = ["synthetic", "datadesigner"] + list(modalities)
+        tags = ["synthetic", "datadesigner"]
 
         # Prepare CardData (metadata for YAML frontmatter)
         card_data = CardData(
