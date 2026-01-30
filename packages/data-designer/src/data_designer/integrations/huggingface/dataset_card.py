@@ -64,11 +64,30 @@ class DataDesignerDatasetCard(DatasetCard):
                     col_type = col_type.get("value", "unknown")
                 config_types[col_type] = config_types.get(col_type, 0) + 1
 
+        # Extract processor names from file_paths
+        processor_names = []
+        if "file_paths" in metadata and "processor-files" in metadata["file_paths"]:
+            processor_names = list(metadata["file_paths"]["processor-files"].keys())
+
+        # Determine modalities based on column types
+        modalities = set()
+        has_text = False
+        for stat in column_stats:
+            col_type = stat.get("column_type", "")
+            if col_type in ["llm-text", "llm-code", "llm-structured", "llm-judge"]:
+                has_text = True
+
+        if has_text:
+            modalities.add("text")
+        modalities.add("tabular")
+
+        # Prepare tags
+        tags = ["synthetic", "datadesigner"] + list(modalities)
+
         # Prepare CardData (metadata for YAML frontmatter)
         card_data = CardData(
-            library="datadesigner",
             size_categories=size_categories,
-            tags=["synthetic", "nemo-data-designer"],
+            tags=tags,
         )
 
         # Prepare template variables
@@ -84,6 +103,9 @@ class DataDesignerDatasetCard(DatasetCard):
             "config_types": config_types,
             "percent_complete": 100 * actual_num_records / (target_num_records + 1e-10),
             "current_year": datetime.now().year,
+            "has_processors": len(processor_names) > 0,
+            "processor_names": processor_names,
+            "tags": tags,
         }
 
         # Create card from template

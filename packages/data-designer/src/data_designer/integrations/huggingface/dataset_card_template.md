@@ -1,14 +1,33 @@
 ---
-library: datadesigner
 size_categories: {{ size_categories }}
 tags:
-  - synthetic
-  - nemo-data-designer
+{% for tag in tags %}
+  - {{ tag }}
+{% endfor %}
+configs:
+- config_name: data
+  data_files: "data/*.parquet"
+  default: true
+{% if has_processors %}{% for processor_name in processor_names %}- config_name: {{ processor_name }}
+  data_files: "{{ processor_name }}/*.parquet"
+{% endfor %}{% endif %}
 ---
 
 # {{ repo_id.split('/')[-1] | title }}
 
-This dataset was generated using **[NeMo Data Designer](https://github.com/NVIDIA-NeMo/DataDesigner)**, a framework for creating high-quality synthetic datasets.
+This dataset was generated using **[NeMo Data Designer](https://github.com/NVIDIA-NeMo/DataDesigner)**, a comprehensive framework for creating high-quality synthetic datasets from scratch or using seed data.
+
+## About NeMo Data Designer
+
+NeMo Data Designer is a general framework for generating high-quality synthetic data that goes beyond simple LLM prompting. It provides:
+
+- **Diverse data generation** using statistical samplers, LLMs, or existing seed datasets
+- **Relationship control** between fields with dependency-aware generation
+- **Quality validation** with built-in Python, SQL, and custom local and remote validators
+- **LLM-as-a-judge** scoring for quality assessment
+- **Fast iteration** with preview mode before full-scale generation
+
+For more information, visit: [https://github.com/NVIDIA-NeMo/DataDesigner](https://github.com/NVIDIA-NeMo/DataDesigner) (`pip install data-designer`)
 
 ## Dataset Summary
 
@@ -23,32 +42,24 @@ This dataset was generated using **[NeMo Data Designer](https://github.com/NVIDI
 ```python
 from datasets import load_dataset
 
-# Load the dataset
-dataset = load_dataset("{{ repo_id }}")
-df = dataset["train"].to_pandas()
+# Load the main dataset
+dataset = load_dataset("{{ repo_id }}", "data", split="train")
+df = dataset.to_pandas()
+{% if has_processors %}
+# Load processor outputs (if available){% for processor_name in processor_names %}
+processor_{{ processor_name }} = load_dataset("{{ repo_id }}", "{{ processor_name }}", split="train")
+df_{{ processor_name }} = processor_{{ processor_name }}.to_pandas()
+{% endfor %}{% endif %}
 ```
 
 ## Schema & Statistics
 
 {% if column_statistics %}
-{% for stat in column_statistics %}
-### {{ stat.column_name }}
-
-- **Type**: `{{ stat.simple_dtype }}`
-- **Column Type**: {{ stat.column_type }}
-- **Unique Values**: {{ stat.num_unique }} ({{ "%.1f" | format((stat.num_unique / stat.num_records * 100) if stat.num_records > 0 else 0) }}%)
-{% if stat.num_null > 0 %}
-- **Null Values**: {{ stat.num_null }} ({{ "%.1f" | format((stat.num_null / stat.num_records * 100) if stat.num_records > 0 else 0) }}%)
-{% endif %}
-{% if stat.column_type in ["llm-text", "llm-code", "llm-structured", "llm-judge"] %}
-- **Avg Output Tokens**: {{ "%.1f" | format(stat.output_tokens_mean) if stat.output_tokens_mean is defined else "N/A" }}
-- **Avg Input Tokens**: {{ "%.1f" | format(stat.input_tokens_mean) if stat.input_tokens_mean is defined else "N/A" }}
-{% endif %}
-{% if stat.column_type == "sampler" and stat.sampler_type is defined %}
-- **Sampler Type**: {% if stat.sampler_type is mapping %}{{ stat.sampler_type.value }}{% else %}{{ stat.sampler_type }}{% endif %}
-{% endif %}
-
-{% endfor %}
+| Column | Type | Column Type | Unique (%) | Null (%) | Details |
+|--------|------|-------------|------------|----------|---------|
+{% for stat in column_statistics -%}
+| `{{ stat.column_name }}` | `{{ stat.simple_dtype }}` | {{ stat.column_type }} | {{ stat.num_unique }} ({{ "%.1f" | format((stat.num_unique / stat.num_records * 100) if stat.num_records > 0 else 0) }}%) | {{ stat.num_null if stat.num_null > 0 else 0 }} ({{ "%.1f" | format((stat.num_null / stat.num_records * 100) if stat.num_records > 0 else 0) }}%) | {% if stat.column_type in ["llm-text", "llm-code", "llm-structured", "llm-judge"] %}Tokens: {{ "%.0f" | format(stat.output_tokens_mean) if stat.output_tokens_mean is defined else "N/A" }} out / {{ "%.0f" | format(stat.input_tokens_mean) if stat.input_tokens_mean is defined else "N/A" }} in{% elif stat.column_type == "sampler" and stat.sampler_type is defined %}{% if stat.sampler_type is mapping %}{{ stat.sampler_type.value }}{% else %}{{ stat.sampler_type }}{% endif %}{% else %}-{% endif %} |
+{% endfor -%}
 {% else %}
 | Column | Type |
 |--------|------|
@@ -67,7 +78,7 @@ Generated with {{ num_columns_configured }} column configuration(s):
 {% endfor %}
 {% endif %}
 
-Full configuration available in `sdg.json` and detailed metadata in `metadata.json`.
+Full configuration available in [`sdg.json`](sdg.json) and detailed metadata in [`metadata.json`](metadata.json).
 
 ## Citation
 

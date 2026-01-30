@@ -122,4 +122,43 @@ def test_from_metadata_with_llm_columns() -> None:
 
     # Verify LLM statistics are included
     assert card is not None
-    assert "50.5" in str(card) or "Avg Output Tokens" in str(card)
+    assert "Tokens:" in str(card) and "out" in str(card) and "in" in str(card)
+
+
+def test_from_metadata_with_processors() -> None:
+    """Test creating dataset card with processor outputs includes loading examples."""
+    metadata = {
+        "target_num_records": 100,
+        "schema": {"col1": "string"},
+        "file_paths": {
+            "parquet-files": ["parquet-files/batch_00000.parquet"],
+            "processor-files": {
+                "processor1": ["processors-files/processor1/batch_00000.parquet"],
+                "processor2": ["processors-files/processor2/batch_00000.parquet"],
+            },
+        },
+        "column_statistics": [
+            {
+                "column_name": "col1",
+                "num_records": 100,
+                "num_unique": 100,
+                "num_null": 0,
+                "simple_dtype": "string",
+                "column_type": "sampler",
+            }
+        ],
+    }
+
+    card = DataDesignerDatasetCard.from_metadata(
+        metadata=metadata,
+        sdg_config=None,
+        repo_id="test/dataset-with-processors",
+    )
+
+    card_str = str(card)
+    assert card is not None
+    assert "processor1" in card_str
+    assert "processor2" in card_str
+    assert '"processor1"' in card_str
+    assert '"processor2"' in card_str
+    assert "Load processor outputs" in card_str
