@@ -41,10 +41,10 @@ class HuggingFaceHubClient:
         self,
         repo_id: str,
         base_dataset_path: Path,
+        description: str,
         *,
         private: bool = False,
         create_pr: bool = False,
-        description: str | None = None,
     ) -> str:
         """Upload dataset to HuggingFace Hub.
 
@@ -57,9 +57,9 @@ class HuggingFaceHubClient:
         Args:
             repo_id: HuggingFace repo ID (e.g., "username/dataset-name")
             base_dataset_path: Path to base_dataset_path (contains parquet-files/, sdg.json, etc.)
+            description: Custom description text for dataset card
             private: Whether to create private repo
             create_pr: Whether to create a PR instead of direct push
-            description: Optional custom description text for dataset card
 
         Returns:
             URL to the uploaded dataset
@@ -105,7 +105,7 @@ class HuggingFaceHubClient:
 
         logger.info(f"|-- {RandomEmoji.data()} Uploading dataset card...")
         try:
-            self._upload_dataset_card(repo_id, base_dataset_path, create_pr=create_pr, description=description)
+            self._upload_dataset_card(repo_id, base_dataset_path, description, create_pr=create_pr)
         except Exception as e:
             raise HuggingFaceUploadError(f"Failed to upload dataset card: {e}") from e
 
@@ -188,15 +188,15 @@ class HuggingFaceHubClient:
         return url
 
     def _upload_dataset_card(
-        self, repo_id: str, base_dataset_path: Path, *, create_pr: bool = False, description: str | None = None
+        self, repo_id: str, base_dataset_path: Path, description: str, *, create_pr: bool = False
     ) -> None:
         """Generate and upload dataset card from metadata.json.
 
         Args:
             repo_id: HuggingFace repo ID
             base_dataset_path: Path to dataset artifacts
+            description: Custom description text for dataset card
             create_pr: Whether to create a PR instead of direct push
-            description: Optional custom description text for dataset card
 
         Raises:
             HuggingFaceUploadError: If dataset card generation or upload fails

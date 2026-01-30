@@ -126,6 +126,7 @@ def test_upload_dataset_creates_repo(mock_hf_api: MagicMock, sample_dataset_path
         client.upload_dataset(
             repo_id="test/dataset",
             base_dataset_path=sample_dataset_path,
+            description="Test dataset",
         )
 
     mock_hf_api.create_repo.assert_called_once_with(
@@ -144,6 +145,7 @@ def test_upload_dataset_uploads_parquet_files(mock_hf_api: MagicMock, sample_dat
         client.upload_dataset(
             repo_id="test/dataset",
             base_dataset_path=sample_dataset_path,
+            description="Test dataset",
         )
 
     # Check that upload_folder was called for parquet files
@@ -159,6 +161,7 @@ def test_upload_dataset_uploads_processor_outputs(mock_hf_api: MagicMock, sample
         client.upload_dataset(
             repo_id="test/dataset",
             base_dataset_path=sample_dataset_path,
+            description="Test dataset",
         )
 
     # Check that upload_folder was called for processor outputs
@@ -174,6 +177,7 @@ def test_upload_dataset_uploads_config_files(mock_hf_api: MagicMock, sample_data
         client.upload_dataset(
             repo_id="test/dataset",
             base_dataset_path=sample_dataset_path,
+            description="Test dataset",
         )
 
     # Check that upload_file was called for config files
@@ -191,6 +195,7 @@ def test_upload_dataset_returns_url(mock_hf_api: MagicMock, sample_dataset_path:
         url = client.upload_dataset(
             repo_id="test/dataset",
             base_dataset_path=sample_dataset_path,
+            description="Test dataset",
         )
 
     assert url == "https://huggingface.co/datasets/test/dataset"
@@ -204,6 +209,7 @@ def test_upload_dataset_with_private_repo(mock_hf_api: MagicMock, sample_dataset
         client.upload_dataset(
             repo_id="test/dataset",
             base_dataset_path=sample_dataset_path,
+            description="Test dataset",
             private=True,
         )
 
@@ -223,6 +229,7 @@ def test_upload_dataset_with_create_pr(mock_hf_api: MagicMock, sample_dataset_pa
         client.upload_dataset(
             repo_id="test/dataset",
             base_dataset_path=sample_dataset_path,
+            description="Test dataset",
             create_pr=True,
         )
 
@@ -240,7 +247,7 @@ def test_upload_dataset_card_missing_metadata(tmp_path: Path) -> None:
     base_path.mkdir()
 
     with pytest.raises(HuggingFaceUploadError, match="Failed to read metadata.json"):
-        client._upload_dataset_card("test/dataset", base_path)
+        client._upload_dataset_card("test/dataset", base_path, "Test description")
 
 
 def test_upload_dataset_card_calls_push_to_hub(sample_dataset_path: Path) -> None:
@@ -251,7 +258,7 @@ def test_upload_dataset_card_calls_push_to_hub(sample_dataset_path: Path) -> Non
         mock_card = MagicMock()
         mock_card_class.from_metadata.return_value = mock_card
 
-        client._upload_dataset_card("test/dataset", sample_dataset_path)
+        client._upload_dataset_card("test/dataset", sample_dataset_path, "Test description")
 
         # Verify card was created from metadata
         mock_card_class.from_metadata.assert_called_once()
@@ -287,6 +294,7 @@ def test_upload_dataset_without_processors(mock_hf_api: MagicMock, tmp_path: Pat
         client.upload_dataset(
             repo_id="test/dataset",
             base_dataset_path=base_path,
+            description="Test dataset",
         )
 
     # Should only upload parquet files, not processors
@@ -318,6 +326,7 @@ def test_upload_dataset_without_sdg_config(mock_hf_api: MagicMock, tmp_path: Pat
         client.upload_dataset(
             repo_id="test/dataset",
             base_dataset_path=base_path,
+            description="Test dataset",
         )
 
     # Should only upload metadata.json, not sdg.json
@@ -337,6 +346,7 @@ def test_upload_dataset_multiple_processors(mock_hf_api: MagicMock, sample_datas
         client.upload_dataset(
             repo_id="test/dataset",
             base_dataset_path=sample_dataset_path,
+            description="Test dataset",
         )
 
     # Check that both processors were uploaded
@@ -475,6 +485,7 @@ def test_upload_dataset_invalid_repo_id(mock_hf_api: MagicMock, sample_dataset_p
         client.upload_dataset(
             repo_id="invalid-repo-id",  # Missing slash
             base_dataset_path=sample_dataset_path,
+            description="Test dataset",
         )
 
 
@@ -493,6 +504,7 @@ def test_upload_dataset_authentication_error(mock_hf_api: MagicMock, sample_data
         client.upload_dataset(
             repo_id="test/dataset",
             base_dataset_path=sample_dataset_path,
+            description="Test dataset",
         )
 
 
@@ -511,6 +523,7 @@ def test_upload_dataset_permission_error(mock_hf_api: MagicMock, sample_dataset_
         client.upload_dataset(
             repo_id="test/dataset",
             base_dataset_path=sample_dataset_path,
+            description="Test dataset",
         )
 
 
@@ -522,7 +535,7 @@ def test_upload_dataset_card_invalid_json(tmp_path: Path) -> None:
     (base_path / "metadata.json").write_text("invalid json")
 
     with pytest.raises(HuggingFaceUploadError, match="Failed to parse metadata.json"):
-        client._upload_dataset_card("test/dataset", base_path)
+        client._upload_dataset_card("test/dataset", base_path, "Test description")
 
 
 def test_update_metadata_paths(tmp_path: Path) -> None:

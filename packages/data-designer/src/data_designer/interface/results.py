@@ -101,11 +101,11 @@ class DatasetCreationResults(WithRecordSamplerMixin):
     def push_to_hub(
         self,
         repo_id: str,
+        description: str,
         *,
         token: str | None = None,
         private: bool = False,
         create_pr: bool = False,
-        description: str | None = None,
     ) -> str:
         """Push dataset to HuggingFace Hub.
 
@@ -118,25 +118,22 @@ class DatasetCreationResults(WithRecordSamplerMixin):
 
         Args:
             repo_id: HuggingFace repo ID (e.g., "username/my-dataset")
+            description: Custom description text for the dataset card.
+                Appears after the title.
             token: HuggingFace API token. If None, the token is automatically
                 resolved from HF_TOKEN environment variable or cached credentials
                 from `huggingface-cli login`.
             private: Create private repo
             create_pr: Create PR instead of direct push
-            description: Optional custom description text for the dataset card.
-                Appears after the NeMo Data Designer intro.
 
         Returns:
             URL to the uploaded dataset
 
         Example:
             >>> results = data_designer.create(config, num_records=1000)
-            >>> results.push_to_hub("username/my-synthetic-dataset")
-            'https://huggingface.co/datasets/username/my-synthetic-dataset'
-
-            >>> # With custom description
             >>> description = "This dataset contains synthetic conversations for training chatbots."
-            >>> results.push_to_hub("username/my-dataset", description=description)
+            >>> results.push_to_hub("username/my-synthetic-dataset", description)
+            'https://huggingface.co/datasets/username/my-synthetic-dataset'
         """
         client = HuggingFaceHubClient(token=token)
         return client.upload_dataset(

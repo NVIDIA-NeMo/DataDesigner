@@ -27,7 +27,7 @@ class DataDesignerDatasetCard(DatasetCard):
         metadata: dict,
         sdg_config: dict | None,
         repo_id: str,
-        description: str | None = None,
+        description: str,
     ) -> DataDesignerDatasetCard:
         """Create dataset card from metadata.json and sdg.json.
 
@@ -35,7 +35,7 @@ class DataDesignerDatasetCard(DatasetCard):
             metadata: Contents of metadata.json
             sdg_config: Contents of sdg.json (optional)
             repo_id: HuggingFace repo ID
-            description: Optional custom description text
+            description: Custom description text
 
         Returns:
             DataDesignerDatasetCard instance ready to upload

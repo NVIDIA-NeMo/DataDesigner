@@ -37,6 +37,7 @@ def test_from_metadata_minimal() -> None:
         metadata=metadata,
         sdg_config=None,
         repo_id="test/dataset",
+        description="Test dataset for unit testing.",
     )
 
     # Verify card was created
@@ -87,6 +88,7 @@ def test_from_metadata_with_sdg_config() -> None:
         metadata=metadata,
         sdg_config=sdg_config,
         repo_id="test/dataset-with-config",
+        description="Test dataset with SDG config.",
     )
 
     # Verify card includes config info
@@ -118,6 +120,7 @@ def test_from_metadata_with_llm_columns() -> None:
         metadata=metadata,
         sdg_config=None,
         repo_id="test/llm-dataset",
+        description="Test dataset with LLM columns.",
     )
 
     # Verify LLM statistics are included
@@ -153,6 +156,7 @@ def test_from_metadata_with_processors() -> None:
         metadata=metadata,
         sdg_config=None,
         repo_id="test/dataset-with-processors",
+        description="Test dataset with processor outputs.",
     )
 
     card_str = str(card)
@@ -195,8 +199,8 @@ def test_from_metadata_with_custom_description() -> None:
     assert "This dataset contains synthetic data for testing chatbot responses." in card_str
 
 
-def test_from_metadata_without_custom_description() -> None:
-    """Test creating dataset card without custom description."""
+def test_from_metadata_description_placement() -> None:
+    """Test that description appears in the correct location."""
     metadata = {
         "target_num_records": 50,
         "schema": {"col1": "string"},
@@ -215,9 +219,15 @@ def test_from_metadata_without_custom_description() -> None:
     card = DataDesignerDatasetCard.from_metadata(
         metadata=metadata,
         sdg_config=None,
-        repo_id="test/dataset-no-description",
+        repo_id="test/dataset-description-placement",
+        description="Test description placement.",
     )
 
     card_str = str(card)
     assert card is not None
+    assert "Test description placement." in card_str
     assert "About NeMo Data Designer" in card_str
+    # Description should appear before Dataset Summary
+    desc_pos = card_str.find("Test description placement.")
+    summary_pos = card_str.find("Dataset Summary")
+    assert desc_pos < summary_pos

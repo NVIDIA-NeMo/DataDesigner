@@ -13,35 +13,18 @@ configs:
 {% endfor %}{% endif %}
 ---
 
-# {{ repo_id.split('/')[-1] | title }}
+<div style="display: flex; justify-content: space-between; align-items: flex-end; width: 100%; margin-bottom: 1rem;">
+<h1 style="flex: 1; margin: 0;">{{ repo_id.split('/')[-1] | title }}</h1>
+<sub style="white-space: nowrap;">Made with ❤️ using 🎨 <a href="https://github.com/NVIDIA-NeMo/DataDesigner">NeMo Data Designer</a></sub>
+</div>
 
-This dataset was generated using **[NeMo Data Designer](https://github.com/NVIDIA-NeMo/DataDesigner)**, a comprehensive framework for creating high-quality synthetic datasets from scratch or using seed data.
-{% if custom_description %}
+---
 
 {{ custom_description }}
-{% endif %}
 
-## About NeMo Data Designer
+---
 
-NeMo Data Designer is a general framework for generating high-quality synthetic data that goes beyond simple LLM prompting. It provides:
-
-- **Diverse data generation** using statistical samplers, LLMs, or existing seed datasets
-- **Relationship control** between fields with dependency-aware generation
-- **Quality validation** with built-in Python, SQL, and custom local and remote validators
-- **LLM-as-a-judge** scoring for quality assessment
-- **Fast iteration** with preview mode before full-scale generation
-
-For more information, visit: [https://github.com/NVIDIA-NeMo/DataDesigner](https://github.com/NVIDIA-NeMo/DataDesigner) (`pip install data-designer`)
-
-## Dataset Summary
-
-- **Records**: {{ "{:,}".format(num_records) }}
-- **Columns**: {{ num_columns }}
-{% if target_num_records != num_records %}
-- **Completion**: {{ "%.1f" | format(percent_complete) }}% ({{ "{:,}".format(target_num_records) }} requested)
-{% endif %}
-
-## Quick Start
+## 🚀 Quick Start
 
 ```python
 from datasets import load_dataset
@@ -50,13 +33,26 @@ from datasets import load_dataset
 dataset = load_dataset("{{ repo_id }}", "data", split="train")
 df = dataset.to_pandas()
 {% if has_processors %}
+
 # Load processor outputs (if available){% for processor_name in processor_names %}
 processor_{{ processor_name }} = load_dataset("{{ repo_id }}", "{{ processor_name }}", split="train")
 df_{{ processor_name }} = processor_{{ processor_name }}.to_pandas()
 {% endfor %}{% endif %}
 ```
 
-## Schema & Statistics
+---
+
+## 📊 Dataset Summary
+
+- **📈 Records**: {{ "{:,}".format(num_records) }}
+- **📋 Columns**: {{ num_columns }}
+{% if target_num_records != num_records %}
+- **✅ Completion**: {{ "%.1f" | format(percent_complete) }}% ({{ "{:,}".format(target_num_records) }} requested)
+{% endif %}
+
+---
+
+## 📋 Schema & Statistics
 
 {% if column_statistics %}
 | Column | Type | Column Type | Unique (%) | Null (%) | Details |
@@ -72,7 +68,9 @@ df_{{ processor_name }} = processor_{{ processor_name }}.to_pandas()
 {% endfor %}
 {% endif %}
 
-## Generation Details
+---
+
+## ⚙️ Generation Details
 
 {% if config_types %}
 Generated with {{ num_columns_configured }} column configuration(s):
@@ -80,11 +78,13 @@ Generated with {{ num_columns_configured }} column configuration(s):
 {% for col_type, count in config_types.items() | sort %}
 - **{{ col_type }}**: {{ count }} column(s)
 {% endfor %}
+
 {% endif %}
+📄 Full configuration available in [`sdg.json`](sdg.json) and detailed metadata in [`metadata.json`](metadata.json).
 
-Full configuration available in [`sdg.json`](sdg.json) and detailed metadata in [`metadata.json`](metadata.json).
+---
 
-## Citation
+## 📚 Citation
 
 ```bibtex
 @misc{nemo-data-designer,
@@ -95,3 +95,17 @@ Full configuration available in [`sdg.json`](sdg.json) and detailed metadata in 
   note = {GitHub Repository},
 }
 ```
+
+---
+
+## 💡 About NeMo Data Designer
+
+NeMo Data Designer is a general framework for generating high-quality synthetic data that goes beyond simple LLM prompting. It provides:
+
+- **Diverse data generation** using statistical samplers, LLMs, or existing seed datasets
+- **Relationship control** between fields with dependency-aware generation
+- **Quality validation** with built-in Python, SQL, and custom local and remote validators
+- **LLM-as-a-judge** scoring for quality assessment
+- **Fast iteration** with preview mode before full-scale generation
+
+For more information, visit: [https://github.com/NVIDIA-NeMo/DataDesigner](https://github.com/NVIDIA-NeMo/DataDesigner) (`pip install data-designer`)
