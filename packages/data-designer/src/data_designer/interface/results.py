@@ -105,7 +105,6 @@ class DatasetCreationResults(WithRecordSamplerMixin):
         *,
         token: str | None = None,
         private: bool = False,
-        create_pr: bool = False,
     ) -> str:
         """Push dataset to HuggingFace Hub.
 
@@ -124,7 +123,6 @@ class DatasetCreationResults(WithRecordSamplerMixin):
                 resolved from HF_TOKEN environment variable or cached credentials
                 from `huggingface-cli login`.
             private: Create private repo
-            create_pr: Create PR instead of direct push
 
         Returns:
             URL to the uploaded dataset
@@ -140,6 +138,5 @@ class DatasetCreationResults(WithRecordSamplerMixin):
             repo_id=repo_id,
             base_dataset_path=self.artifact_storage.base_dataset_path,
             private=private,
-            create_pr=create_pr,
             description=description,
         )

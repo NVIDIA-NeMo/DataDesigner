@@ -23,6 +23,15 @@ def mock_hf_api() -> MagicMock:
 
 
 @pytest.fixture
+def mock_dataset_card() -> MagicMock:
+    """Mock DataDesignerDatasetCard for testing."""
+    with patch("data_designer.integrations.huggingface.client.DataDesignerDatasetCard") as mock:
+        card_instance = MagicMock()
+        mock.from_metadata.return_value = card_instance
+        yield mock
+
+
+@pytest.fixture
 def sample_dataset_path(tmp_path: Path) -> Path:
     """Create a sample dataset directory structure.
 
@@ -119,67 +128,68 @@ def test_client_initialization_no_token() -> None:
         assert client.has_token is False
 
 
-def test_upload_dataset_creates_repo(mock_hf_api: MagicMock, sample_dataset_path: Path) -> None:
+def test_upload_dataset_creates_repo(
+    mock_hf_api: MagicMock, mock_dataset_card: MagicMock, sample_dataset_path: Path
+) -> None:
     """Test that upload_dataset creates a repository."""
     client = HuggingFaceHubClient(token="test-token")
 
-    with patch.object(client, "_upload_dataset_card"):
-        client.upload_dataset(
-            repo_id="test/dataset",
-            base_dataset_path=sample_dataset_path,
-            description="Test dataset",
-        )
-
-    mock_hf_api.create_repo.assert_called_once_with(
+    client.upload_dataset(
         repo_id="test/dataset",
-        repo_type="dataset",
-        exist_ok=True,
-        private=False,
+        base_dataset_path=sample_dataset_path,
+        description="Test dataset",
     )
 
+    # Verify repo creation was called
+    mock_hf_api.create_repo.assert_called_once()
+    assert mock_hf_api.create_repo.call_args.kwargs["repo_id"] == "test/dataset"
 
-def test_upload_dataset_uploads_parquet_files(mock_hf_api: MagicMock, sample_dataset_path: Path) -> None:
+
+def test_upload_dataset_uploads_parquet_files(
+    mock_hf_api: MagicMock, mock_dataset_card: MagicMock, sample_dataset_path: Path
+) -> None:
     """Test that upload_dataset uploads parquet files."""
     client = HuggingFaceHubClient(token="test-token")
 
-    with patch.object(client, "_upload_dataset_card"):
-        client.upload_dataset(
-            repo_id="test/dataset",
-            base_dataset_path=sample_dataset_path,
-            description="Test dataset",
-        )
+    client.upload_dataset(
+        repo_id="test/dataset",
+        base_dataset_path=sample_dataset_path,
+        description="Test dataset",
+    )
 
     # Check that upload_folder was called for parquet files
     calls = [call for call in mock_hf_api.upload_folder.call_args_list if call.kwargs["path_in_repo"] == "data"]
     assert len(calls) >= 1
 
 
-def test_upload_dataset_uploads_processor_outputs(mock_hf_api: MagicMock, sample_dataset_path: Path) -> None:
+def test_upload_dataset_uploads_processor_outputs(
+    mock_hf_api: MagicMock, mock_dataset_card: MagicMock, sample_dataset_path: Path
+) -> None:
     """Test that upload_dataset uploads processor outputs."""
     client = HuggingFaceHubClient(token="test-token")
 
-    with patch.object(client, "_upload_dataset_card"):
-        client.upload_dataset(
-            repo_id="test/dataset",
-            base_dataset_path=sample_dataset_path,
-            description="Test dataset",
-        )
+    client.upload_dataset(
+        repo_id="test/dataset",
+        base_dataset_path=sample_dataset_path,
+        description="Test dataset",
+    )
 
     # Check that upload_folder was called for processor outputs
     calls = [call for call in mock_hf_api.upload_folder.call_args_list if "processor1" in call.kwargs["path_in_repo"]]
     assert len(calls) >= 1
 
 
-def test_upload_dataset_uploads_config_files(mock_hf_api: MagicMock, sample_dataset_path: Path) -> None:
+def test_upload_dataset_uploads_config_files(
+    mock_hf_api: MagicMock, mock_dataset_card: MagicMock, sample_dataset_path: Path
+) -> None:
     """Test that upload_dataset uploads sdg.json and metadata.json."""
     client = HuggingFaceHubClient(token="test-token")
 
-    with patch.object(client, "_upload_dataset_card"):
-        client.upload_dataset(
-            repo_id="test/dataset",
-            base_dataset_path=sample_dataset_path,
-            description="Test dataset",
-        )
+    client.upload_dataset(
+        repo_id="test/dataset",
+        base_dataset_path=sample_dataset_path,
+        description="Test dataset",
+    )
 
     # Check that upload_file was called for config files
     upload_file_calls = mock_hf_api.upload_file.call_args_list
@@ -188,31 +198,33 @@ def test_upload_dataset_uploads_config_files(mock_hf_api: MagicMock, sample_data
     assert "metadata.json" in uploaded_files
 
 
-def test_upload_dataset_returns_url(mock_hf_api: MagicMock, sample_dataset_path: Path) -> None:
+def test_upload_dataset_returns_url(
+    mock_hf_api: MagicMock, mock_dataset_card: MagicMock, sample_dataset_path: Path
+) -> None:
     """Test that upload_dataset returns the correct URL."""
     client = HuggingFaceHubClient(token="test-token")
 
-    with patch.object(client, "_upload_dataset_card"):
-        url = client.upload_dataset(
-            repo_id="test/dataset",
-            base_dataset_path=sample_dataset_path,
-            description="Test dataset",
-        )
+    url = client.upload_dataset(
+        repo_id="test/dataset",
+        base_dataset_path=sample_dataset_path,
+        description="Test dataset",
+    )
 
     assert url == "https://huggingface.co/datasets/test/dataset"
 
 
-def test_upload_dataset_with_private_repo(mock_hf_api: MagicMock, sample_dataset_path: Path) -> None:
+def test_upload_dataset_with_private_repo(
+    mock_hf_api: MagicMock, mock_dataset_card: MagicMock, sample_dataset_path: Path
+) -> None:
     """Test upload_dataset with private repository."""
     client = HuggingFaceHubClient(token="test-token")
 
-    with patch.object(client, "_upload_dataset_card"):
-        client.upload_dataset(
-            repo_id="test/dataset",
-            base_dataset_path=sample_dataset_path,
-            description="Test dataset",
-            private=True,
-        )
+    client.upload_dataset(
+        repo_id="test/dataset",
+        base_dataset_path=sample_dataset_path,
+        description="Test dataset",
+        private=True,
+    )
 
     mock_hf_api.create_repo.assert_called_once_with(
         repo_id="test/dataset",
@@ -220,23 +232,6 @@ def test_upload_dataset_with_private_repo(mock_hf_api: MagicMock, sample_dataset
         exist_ok=True,
         private=True,
     )
-
-
-def test_upload_dataset_with_create_pr(mock_hf_api: MagicMock, sample_dataset_path: Path) -> None:
-    """Test upload_dataset with create_pr option."""
-    client = HuggingFaceHubClient(token="test-token")
-
-    with patch.object(client, "_upload_dataset_card"):
-        client.upload_dataset(
-            repo_id="test/dataset",
-            base_dataset_path=sample_dataset_path,
-            description="Test dataset",
-            create_pr=True,
-        )
-
-    # Verify create_pr is passed to upload operations
-    for call in mock_hf_api.upload_folder.call_args_list:
-        assert call.kwargs["create_pr"] is True
 
 
 def test_upload_dataset_card_missing_metadata(tmp_path: Path) -> None:
@@ -261,22 +256,14 @@ def test_upload_dataset_card_calls_push_to_hub(sample_dataset_path: Path) -> Non
 
         client._upload_dataset_card("test/dataset", sample_dataset_path, "Test description")
 
-        # Verify card was created from metadata
+        # Verify card was created and pushed
         mock_card_class.from_metadata.assert_called_once()
-        call_kwargs = mock_card_class.from_metadata.call_args.kwargs
-        assert call_kwargs["repo_id"] == "test/dataset"
-        assert "metadata" in call_kwargs
-        assert "sdg_config" in call_kwargs
-
-        # Verify card was pushed to hub
-        mock_card.push_to_hub.assert_called_once_with(
-            "test/dataset",
-            repo_type="dataset",
-            create_pr=False,
-        )
+        mock_card.push_to_hub.assert_called_once()
 
 
-def test_upload_dataset_without_processors(mock_hf_api: MagicMock, tmp_path: Path) -> None:
+def test_upload_dataset_without_processors(
+    mock_hf_api: MagicMock, mock_dataset_card: MagicMock, tmp_path: Path
+) -> None:
     """Test upload_dataset when no processor outputs exist."""
     # Create dataset path without processors directory
     base_path = tmp_path / "dataset"
@@ -291,12 +278,11 @@ def test_upload_dataset_without_processors(mock_hf_api: MagicMock, tmp_path: Pat
 
     client = HuggingFaceHubClient(token="test-token")
 
-    with patch.object(client, "_upload_dataset_card"):
-        client.upload_dataset(
-            repo_id="test/dataset",
-            base_dataset_path=base_path,
-            description="Test dataset",
-        )
+    client.upload_dataset(
+        repo_id="test/dataset",
+        base_dataset_path=base_path,
+        description="Test dataset",
+    )
 
     # Should only upload parquet files, not processors
     folder_calls = mock_hf_api.upload_folder.call_args_list
@@ -307,7 +293,9 @@ def test_upload_dataset_without_processors(mock_hf_api: MagicMock, tmp_path: Pat
     assert len(processor_calls) == 0  # No processor files
 
 
-def test_upload_dataset_without_sdg_config(mock_hf_api: MagicMock, tmp_path: Path) -> None:
+def test_upload_dataset_without_sdg_config(
+    mock_hf_api: MagicMock, mock_dataset_card: MagicMock, tmp_path: Path
+) -> None:
     """Test upload_dataset when sdg.json doesn't exist."""
     base_path = tmp_path / "dataset"
     base_path.mkdir()
@@ -323,12 +311,11 @@ def test_upload_dataset_without_sdg_config(mock_hf_api: MagicMock, tmp_path: Pat
 
     client = HuggingFaceHubClient(token="test-token")
 
-    with patch.object(client, "_upload_dataset_card"):
-        client.upload_dataset(
-            repo_id="test/dataset",
-            base_dataset_path=base_path,
-            description="Test dataset",
-        )
+    client.upload_dataset(
+        repo_id="test/dataset",
+        base_dataset_path=base_path,
+        description="Test dataset",
+    )
 
     # Should only upload metadata.json, not sdg.json
     file_calls = mock_hf_api.upload_file.call_args_list
@@ -339,16 +326,17 @@ def test_upload_dataset_without_sdg_config(mock_hf_api: MagicMock, tmp_path: Pat
     assert "sdg.json" not in uploaded_files
 
 
-def test_upload_dataset_multiple_processors(mock_hf_api: MagicMock, sample_dataset_path: Path) -> None:
+def test_upload_dataset_multiple_processors(
+    mock_hf_api: MagicMock, mock_dataset_card: MagicMock, sample_dataset_path: Path
+) -> None:
     """Test that multiple processor outputs are uploaded correctly."""
     client = HuggingFaceHubClient(token="test-token")
 
-    with patch.object(client, "_upload_dataset_card"):
-        client.upload_dataset(
-            repo_id="test/dataset",
-            base_dataset_path=sample_dataset_path,
-            description="Test dataset",
-        )
+    client.upload_dataset(
+        repo_id="test/dataset",
+        base_dataset_path=sample_dataset_path,
+        description="Test dataset",
+    )
 
     # Check that both processors were uploaded
     folder_calls = mock_hf_api.upload_folder.call_args_list

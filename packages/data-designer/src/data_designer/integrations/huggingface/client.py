@@ -53,7 +53,6 @@ class HuggingFaceHubClient:
         description: str,
         *,
         private: bool = False,
-        create_pr: bool = False,
     ) -> str:
         """Upload dataset to Hugging Face Hub.
 
@@ -68,7 +67,6 @@ class HuggingFaceHubClient:
             base_dataset_path: Path to base_dataset_path (contains parquet-files/, sdg.json, etc.)
             description: Custom description text for dataset card
             private: Whether to create private repo
-            create_pr: Whether to create a PR instead of direct push
 
         Returns:
             URL to the uploaded dataset
@@ -85,13 +83,13 @@ class HuggingFaceHubClient:
 
         logger.info(f"|-- {RandomEmoji.data()} Uploading dataset card...")
         try:
-            self._upload_dataset_card(repo_id, base_dataset_path, description, create_pr=create_pr)
+            self._upload_dataset_card(repo_id, base_dataset_path, description)
         except Exception as e:
             raise HuggingFaceUploadError(f"Failed to upload dataset card: {e}") from e
 
-        self._upload_main_dataset_files(repo_id, base_dataset_path, create_pr=create_pr)
-        self._upload_processor_files(repo_id, base_dataset_path, create_pr=create_pr)
-        self._upload_config_files(repo_id, base_dataset_path, create_pr=create_pr)
+        self._upload_main_dataset_files(repo_id, base_dataset_path)
+        self._upload_processor_files(repo_id, base_dataset_path)
+        self._upload_config_files(repo_id, base_dataset_path)
 
         url = f"https://huggingface.co/datasets/{repo_id}"
         logger.info(f"|-- {RandomEmoji.success()} Dataset uploaded successfully! View at: {url}")
@@ -138,13 +136,12 @@ class HuggingFaceHubClient:
         except Exception as e:
             raise HuggingFaceUploadError(f"Unexpected error creating repository '{repo_id}': {e}") from e
 
-    def _upload_main_dataset_files(self, repo_id: str, base_dataset_path: Path, *, create_pr: bool = False) -> None:
+    def _upload_main_dataset_files(self, repo_id: str, base_dataset_path: Path) -> None:
         """Upload main parquet dataset files.
 
         Args:
             repo_id: Hugging Face dataset repo ID
             base_dataset_path: Path to dataset directory
-            create_pr: Whether to create a PR instead of direct push
 
         Raises:
             HuggingFaceUploadError: If upload fails
@@ -158,18 +155,16 @@ class HuggingFaceHubClient:
                 path_in_repo="data",
                 repo_type="dataset",
                 commit_message="Upload main dataset files",
-                create_pr=create_pr,
             )
         except Exception as e:
             raise HuggingFaceUploadError(f"Failed to upload parquet files: {e}") from e
 
-    def _upload_processor_files(self, repo_id: str, base_dataset_path: Path, *, create_pr: bool = False) -> None:
+    def _upload_processor_files(self, repo_id: str, base_dataset_path: Path) -> None:
         """Upload processor output files.
 
         Args:
             repo_id: Hugging Face dataset repo ID
             base_dataset_path: Path to dataset directory
-            create_pr: Whether to create a PR instead of direct push
 
         Raises:
             HuggingFaceUploadError: If upload fails
@@ -191,20 +186,18 @@ class HuggingFaceHubClient:
                     path_in_repo=processor_dir.name,
                     repo_type="dataset",
                     commit_message=f"Upload {processor_dir.name} processor outputs",
-                    create_pr=create_pr,
                 )
             except Exception as e:
                 raise HuggingFaceUploadError(
                     f"Failed to upload processor outputs for '{processor_dir.name}': {e}"
                 ) from e
 
-    def _upload_config_files(self, repo_id: str, base_dataset_path: Path, *, create_pr: bool = False) -> None:
+    def _upload_config_files(self, repo_id: str, base_dataset_path: Path) -> None:
         """Upload configuration files (sdg.json and metadata.json).
 
         Args:
             repo_id: Hugging Face dataset repo ID
             base_dataset_path: Path to dataset directory
-            create_pr: Whether to create a PR instead of direct push
 
         Raises:
             HuggingFaceUploadError: If upload fails
@@ -220,7 +213,6 @@ class HuggingFaceHubClient:
                     path_in_repo="sdg.json",
                     repo_type="dataset",
                     commit_message="Upload sdg.json",
-                    create_pr=create_pr,
                 )
             except Exception as e:
                 raise HuggingFaceUploadError(f"Failed to upload sdg.json: {e}") from e
@@ -240,23 +232,19 @@ class HuggingFaceHubClient:
                         path_in_repo="metadata.json",
                         repo_type="dataset",
                         commit_message="Upload metadata.json",
-                        create_pr=create_pr,
                     )
                 finally:
                     Path(tmp_path).unlink()
             except Exception as e:
                 raise HuggingFaceUploadError(f"Failed to upload metadata.json: {e}") from e
 
-    def _upload_dataset_card(
-        self, repo_id: str, base_dataset_path: Path, description: str, *, create_pr: bool = False
-    ) -> None:
+    def _upload_dataset_card(self, repo_id: str, base_dataset_path: Path, description: str) -> None:
         """Generate and upload dataset card from metadata.json.
 
         Args:
             repo_id: Hugging Face dataset repo ID
             base_dataset_path: Path to dataset artifacts
             description: Custom description text for dataset card
-            create_pr: Whether to create a PR instead of direct push
 
         Raises:
             HuggingFaceUploadError: If dataset card generation or upload fails
@@ -292,7 +280,7 @@ class HuggingFaceHubClient:
             raise HuggingFaceUploadError(f"Failed to generate dataset card: {e}") from e
 
         try:
-            card.push_to_hub(repo_id, repo_type="dataset", create_pr=create_pr)
+            card.push_to_hub(repo_id, repo_type="dataset")
         except Exception as e:
             raise HuggingFaceUploadError(f"Failed to push dataset card to hub: {e}") from e
 
