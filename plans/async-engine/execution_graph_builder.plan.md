@@ -461,3 +461,114 @@ If rows don't complete in order (due to concurrent workers), the current impleme
 - Only checkpoint contiguous rows from 0
 - Some work may be re-done on restart
 - Simpler implementation that matches the batch-oriented nature of dataset generation
+
+---
+
+## Open Decision: Checkpointing with Barrier Columns
+
+### The Problem
+
+With the current design, **barrier columns prevent any intermediate checkpoints**.
+
+A row is only "complete" when ALL columns (including barriers) are done for that row. Since barrier columns require ALL input rows before producing ANY output, no rows can be checkpointed until the barrier finishes processing the entire dataset.
+
+**Example Pipeline**: `A (start) → B (row-streamable) → C (barrier/validation)`
+
+| Stage | `get_completed_row_count()` |
+|-------|----------------------------|
+| A: 5000/10000 rows done | 0 |
+| B: 5000/10000 rows done | 0 |
+| C barrier waiting | 0 |
+| C barrier executing | 0 |
+| C barrier complete | 10000 |
+
+**Impact**: If generation fails during or before barrier execution, all pre-barrier work is lost.
+
+### Options
+
+#### Option A: Accept Current Behavior (Dataset-Scoped Barriers)
+
+Keep barriers dataset-scoped. Accept that checkpoints only occur after all barriers complete.
+
+| Pros | Cons |
+|------|------|
+| Simple mental model | No intermediate checkpoints with barriers |
+| No changes needed | Work lost on failure before barrier completes |
+| Correct for cross-row operations (global dedup, normalization) | |
+
+#### Option B: Batch-Scoped Barriers
+
+Execute barriers per-batch instead of per-dataset. Each batch completes independently.
+
+```
+Batch 0: A[0:999] → B[0:999] → Barrier(C, batch=0) → C[0:999] → checkpoint(1000)
+Batch 1: A[1000:1999] → B[1000:1999] → Barrier(C, batch=1) → C[1000:1999] → checkpoint(2000)
+```
+
+**Implementation changes:**
+```python
+@dataclass(frozen=True, slots=True)
+class BarrierNodeId:
+    column: str
+    batch: int | None = None  # None = dataset-scoped, int = batch-scoped
+```
+
+| Pros | Cons |
+|------|------|
+| Enables incremental checkpoints | More complex graph structure |
+| Limits work lost on failure | Not valid for cross-row operations |
+| Natural fit for batch-oriented execution | Requires generator to declare batch-safety |
+
+**Semantic validity depends on barrier type:**
+- ✅ Row-independent validation (format checks, schema validation)
+- ✅ Per-batch statistics
+- ❌ Global uniqueness checks
+- ❌ Min-max normalization across dataset
+
+#### Option C: Column-Level Checkpointing
+
+Extend checkpoint format to track completed columns, not just completed rows.
+
+```json
+{
+    "version": 2,
+    "completed_rows": 0,
+    "completed_columns": ["A", "B"]
+}
+```
+
+On restart, skip re-generating completed columns and feed their data into the barrier.
+
+| Pros | Cons |
+|------|------|
+| Preserves pre-barrier work | More complex checkpoint format |
+| Works with dataset-scoped barriers | Requires loading partial data on restart |
+| No changes to barrier semantics | Larger checkpoint size O(C) vs O(1) |
+
+#### Option D: Hybrid Approach
+
+Add a `BATCH_BARRIER` trait for barriers that are batch-safe, keeping `BARRIER` for dataset-scoped operations.
+
+```python
+class ExecutionTraits(Flag):
+    ...
+    BARRIER = auto()           # Dataset-scoped (e.g., global dedup)
+    BATCH_BARRIER = auto()     # Batch-scoped (e.g., validation)
+```
+
+Generators declare which type they support. Graph builder creates appropriate node structure.
+
+| Pros | Cons |
+|------|------|
+| Flexibility - use right tool for job | Most complex implementation |
+| Preserves correctness for cross-row ops | Generators must declare batch-safety |
+| Enables checkpoints where semantically valid | Two barrier code paths to maintain |
+
+### Decision Needed
+
+Which approach should we implement? Considerations:
+
+1. **How common are barriers in typical pipelines?** (validation is common)
+2. **How long do generation runs typically take?** (longer = more checkpoint value)
+3. **Are there cross-row barriers we need to support?** (global dedup, normalization)
+4. **Implementation complexity vs. user value tradeoff?**
