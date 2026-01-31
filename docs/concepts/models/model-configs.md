@@ -136,40 +136,6 @@ model_config = dd.ModelConfig(
 
     Note that skipping health checks means errors will only be discovered during actual data generation.
 
-## Concurrency Control
-
-The `max_parallel_requests` parameter in inference parameters controls how many concurrent API calls Data Designer makes to this model:
-
-```python
-import data_designer.config as dd
-
-model_config = dd.ModelConfig(
-    alias="high-throughput-model",
-    model="meta/llama-3.1-70b-instruct",
-    provider="nvidia",
-    inference_parameters=dd.ChatCompletionInferenceParams(
-        temperature=0.7,
-        max_tokens=2048,
-        max_parallel_requests=16,  # Allow 16 concurrent requests
-    ),
-)
-```
-
-### Guidelines by Deployment
-
-| Inference Backend | Recommended `max_parallel_requests` |
-|-------------------|-------------------------------------|
-| NVIDIA API Catalog (build.nvidia.com) | 4-8 |
-| Self-hosted vLLM (single GPU) | 8-16 |
-| Self-hosted vLLM (multi-GPU) | 16-64 |
-| OpenAI API | 4-8 (tier-dependent) |
-| NeMo Inference Microservices | 16-32 |
-
-!!! tip "Matching Inference Capacity"
-    Set `max_parallel_requests` to match what your inference server can handle. Too low = underutilized capacity. Too high = request queuing or rate limit errors.
-
-    See the [Performance Tuning](../performance-tuning.md) guide for detailed optimization strategies.
-
 ## See Also
 
 - **[Inference Parameters](inference-parameters.md)**: Detailed guide to inference parameters and how to configure them
@@ -178,5 +144,4 @@ model_config = dd.ModelConfig(
 - **[Custom Model Settings](custom-model-settings.md)**: Learn how to create custom providers and model configurations
 - **[Configure Model Settings With the CLI](configure-model-settings-with-the-cli.md)**: Use the CLI to manage model settings
 - **[Column Configurations](../../code_reference/column_configs.md)**: Learn how to use models in column configurations
-- **[Inference Architecture](../inference-architecture.md)**: Understanding separation of concerns with inference servers
-- **[Performance Tuning](../performance-tuning.md)**: Optimize concurrency and batching for your workload
+- **[Architecture & Performance](../architecture-and-performance.md)**: Understanding separation of concerns and optimizing concurrency

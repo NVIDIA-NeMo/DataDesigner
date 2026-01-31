@@ -57,7 +57,7 @@ Use **Jinja2 templating** in prompts to reference other columns. Data Designer a
     When `tool_alias` is set, the model can request tool calls during generation. Data Designer executes the tools via configured MCP providers and feeds results back until the model produces a final answer. See [Tool Use & MCP](tool_use_and_mcp.md) for full configuration details.
 
 !!! tip "Performance"
-    LLM columns are parallelized within each batch using `max_parallel_requests` from your model's inference parameters. See the [Performance Tuning](performance-tuning.md) guide for optimization strategies.
+    LLM columns are parallelized within each batch using `max_parallel_requests` from your model's inference parameters. See the [Architecture & Performance](architecture-and-performance.md) guide for optimization strategies.
 
 ### 💻 LLM-Code Columns
 

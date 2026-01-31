@@ -116,53 +116,10 @@ inference_params = dd.ChatCompletionInferenceParams(
 
 ## Concurrency Control
 
-The `max_parallel_requests` parameter controls how many concurrent API calls Data Designer makes to a specific model. This is a critical performance tuning parameter.
+The `max_parallel_requests` parameter controls how many concurrent API calls Data Designer makes to a specific model. This directly impacts throughput and should be tuned to match your inference server's capacity.
 
-### How It Works
-
-Within each batch of records (controlled by `buffer_size` in `RunConfig`), Data Designer generates columns sequentially but parallelizes cell generation within each column:
-
-```
-Batch (1000 records)
-├── Column A: 1000 cells processed with max_parallel_requests concurrent LLM calls
-├── Column B: 1000 cells processed with max_parallel_requests concurrent LLM calls
-└── Column C: 1000 cells processed with max_parallel_requests concurrent LLM calls
-```
-
-### Recommended Values
-
-| Inference Backend | Recommended `max_parallel_requests` |
-|-------------------|-------------------------------------|
-| NVIDIA API Catalog (build.nvidia.com) | 4-8 |
-| Self-hosted vLLM (single GPU) | 8-16 |
-| Self-hosted vLLM (multi-GPU) | 16-64 |
-| OpenAI API | 4-8 (tier-dependent) |
-| NeMo Inference Microservices | 16-32 |
-
-### Example
-
-```python
-import data_designer.config as dd
-
-# High-throughput configuration for self-hosted vLLM
-inference_params = dd.ChatCompletionInferenceParams(
-    temperature=0.7,
-    max_tokens=2048,
-    max_parallel_requests=16,  # Higher for local deployment
-    timeout=120,
-)
-```
-
-!!! warning "Match Your Inference Capacity"
-    Setting `max_parallel_requests` too high can cause:
-
-    - Rate limit errors (429) on cloud APIs
-    - Request queuing and timeouts on self-hosted servers
-    - Out-of-memory errors on GPU inference servers
-
-    Start with conservative values and increase based on monitoring.
-
-For detailed performance optimization, see the [Performance Tuning](../performance-tuning.md) guide.
+!!! tip "Performance Tuning"
+    For recommended values by deployment type (NVIDIA API Catalog, vLLM, OpenAI, NIMs) and detailed optimization strategies, see the [Architecture & Performance](../architecture-and-performance.md) guide.
 
 ## Embedding Inference Parameters
 
@@ -185,5 +142,4 @@ The `EmbeddingInferenceParams` class controls how models generate embeddings. Th
 - **[Custom Model Settings](custom-model-settings.md)**: Learn how to create custom providers and model configurations
 - **[Model Configurations](model-configs.md)**: Learn about configuring model settings
 - **[Model Providers](model-providers.md)**: Learn about configuring model providers
-- **[Inference Architecture](../inference-architecture.md)**: Understanding separation of concerns with inference servers
-- **[Performance Tuning](../performance-tuning.md)**: Comprehensive guide to optimizing concurrency and batching
+- **[Architecture & Performance](../architecture-and-performance.md)**: Understanding separation of concerns and optimizing concurrency

@@ -8,7 +8,7 @@ Data Designer is available as both an **open-source library** and a **NeMo Micro
 |--------|---------------------|-------------------|
 | **What it is** | Python package you import and run | REST API service exposing `preview` and `create` methods |
 | **Best for** | Developers with LLM access who want flexibility and customization | Teams using NeMo Microservices platform |
-| **LLM Access** | You provide (any OpenAI-compatible API) | Integrated with NeMo Inference Microservices |
+| **LLM Access** | You provide (any OpenAI-compatible API) | Integrated with NeMo Microservices Platform |
 | **Installation** | `pip install data-designer` | Deploy via NeMo Microservices platform |
 | **Scaling** | You manage inference capacity | Managed alongside other NeMo services |
 
