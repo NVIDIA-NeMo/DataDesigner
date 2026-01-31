@@ -107,7 +107,7 @@ _sessions: dict[str, ClientSession] = {}
 _session_contexts: dict[str, Any] = {}
 
 # Lock for thread-safe access to session cache (only used from event loop thread)
-_session_lock = asyncio.Lock()
+_session_lock: asyncio.Lock | None = None
 
 # =============================================================================
 # Tools Cache with Request Coalescing
@@ -120,7 +120,23 @@ _tools_cache: dict[str, tuple[MCPToolDefinition, ...]] = {}
 _tools_locks: dict[str, asyncio.Lock] = {}
 
 # Lock for creating new per-key locks
-_tools_locks_lock = asyncio.Lock()
+_tools_locks_lock: asyncio.Lock | None = None
+
+
+def _get_session_lock() -> asyncio.Lock:
+    """Get or create the session lock for the current event loop."""
+    global _session_lock
+    if _session_lock is None:
+        _session_lock = asyncio.Lock()
+    return _session_lock
+
+
+def _get_tools_locks_lock() -> asyncio.Lock:
+    """Get or create the tools-locks lock for the current event loop."""
+    global _tools_locks_lock
+    if _tools_locks_lock is None:
+        _tools_locks_lock = asyncio.Lock()
+    return _tools_locks_lock
 
 
 async def _get_or_create_session(provider: MCPProviderT) -> ClientSession:
@@ -139,7 +155,7 @@ async def _get_or_create_session(provider: MCPProviderT) -> ClientSession:
     """
     key = _provider_cache_key(provider)
 
-    async with _session_lock:
+    async with _get_session_lock():
         if key in _sessions:
             return _sessions[key]
 
@@ -173,7 +189,7 @@ async def _close_all_sessions() -> None:
 
     This function must be called from within the background event loop.
     """
-    async with _session_lock:
+    async with _get_session_lock():
         for key in list(_sessions.keys()):
             try:
                 session = _sessions.get(key)
@@ -202,7 +218,7 @@ async def _close_all_sessions() -> None:
 
 def _shutdown_mcp_loop() -> None:
     """Shutdown the MCP event loop and close all sessions."""
-    global _mcp_loop, _mcp_thread
+    global _mcp_loop, _mcp_thread, _session_lock, _tools_locks_lock
 
     if _mcp_loop is None:
         return
@@ -228,6 +244,9 @@ def _shutdown_mcp_loop() -> None:
     finally:
         _mcp_loop = None
         _mcp_thread = None
+        _session_lock = None
+        _tools_locks_lock = None
+        _tools_locks.clear()
 
 
 # Register cleanup on program exit
@@ -287,19 +306,80 @@ def clear_provider_caches(providers: list[MCPProviderT]) -> int:
     Returns:
         Number of cache entries cleared (tools + sessions).
     """
+    if not providers:
+        return 0
+
+    if _mcp_loop is not None and _mcp_loop.is_running():
+        try:
+            future = asyncio.run_coroutine_threadsafe(_clear_provider_caches_async(providers), _mcp_loop)
+            return future.result(timeout=5)
+        except Exception:
+            if _mcp_loop is not None and _mcp_loop.is_running():
+                logger.debug("Failed to clear provider caches on the MCP event loop.")
+                return 0  # Avoid cross-thread mutation while loop is active
+
+    return _clear_provider_caches_sync(providers)
+
+
+async def _clear_provider_caches_async(providers: list[MCPProviderT]) -> int:
+    """Clear provider caches within the background event loop."""
+    cleared_count = 0
+    keys = [_provider_cache_key(provider) for provider in providers]
+
+    for key in keys:
+        lock: asyncio.Lock | None = None
+        async with _get_tools_locks_lock():
+            lock = _tools_locks.get(key)
+
+        if lock is not None:
+            async with lock:
+                if key in _tools_cache:
+                    del _tools_cache[key]
+                    cleared_count += 1
+            async with _get_tools_locks_lock():
+                current_lock = _tools_locks.get(key)
+                if current_lock is lock:
+                    del _tools_locks[key]
+        else:
+            if key in _tools_cache:
+                del _tools_cache[key]
+                cleared_count += 1
+
+    async with _get_session_lock():
+        for key in keys:
+            session = _sessions.pop(key, None)
+            ctx = _session_contexts.pop(key, None)
+            if session is not None:
+                cleared_count += 1
+                try:
+                    await session.__aexit__(None, None, None)
+                except Exception:
+                    pass
+            if ctx is not None:
+                try:
+                    await ctx.__aexit__(None, None, None)
+                except Exception:
+                    pass
+
+    if cleared_count > 0:
+        logger.debug("Cleared %d provider cache entries", cleared_count)
+
+    return cleared_count
+
+
+def _clear_provider_caches_sync(providers: list[MCPProviderT]) -> int:
+    """Clear provider caches synchronously when no event loop is running."""
     cleared_count = 0
 
     for provider in providers:
         key = _provider_cache_key(provider)
 
-        # Clear tools cache for this provider
         if key in _tools_cache:
             del _tools_cache[key]
             cleared_count += 1
         if key in _tools_locks:
             del _tools_locks[key]
 
-        # Clear session for this provider (best effort, async cleanup not guaranteed)
         if key in _sessions:
             del _sessions[key]
             cleared_count += 1
@@ -317,7 +397,7 @@ def clear_provider_caches(providers: list[MCPProviderT]) -> int:
 # =============================================================================
 
 
-def list_tools(provider: MCPProviderT) -> tuple[MCPToolDefinition, ...]:
+def list_tools(provider: MCPProviderT, timeout_sec: float | None = None) -> tuple[MCPToolDefinition, ...]:
     """List tools from an MCP provider (cached with request coalescing).
 
     Results are cached using the provider's serialized config (including api_key).
@@ -331,6 +411,7 @@ def list_tools(provider: MCPProviderT) -> tuple[MCPToolDefinition, ...]:
 
     Args:
         provider: The MCP provider config (with resolved api_key if applicable).
+        timeout_sec: Optional timeout in seconds.
 
     Returns:
         Tuple of tool definitions from the provider (tuple for hashability).
@@ -352,9 +433,10 @@ def list_tools(provider: MCPProviderT) -> tuple[MCPToolDefinition, ...]:
     )
 
     try:
-        return future.result()
+        return future.result(timeout=timeout_sec)
     except TimeoutError as exc:
-        raise MCPToolError(f"Timed out while listing tools on {provider.name!r}.") from exc
+        timeout_label = f"{timeout_sec:.1f}" if timeout_sec is not None else "unknown"
+        raise MCPToolError(f"Timed out after {timeout_label}s while listing tools on {provider.name!r}.") from exc
 
 
 def clear_tools_cache() -> None:
@@ -498,7 +580,7 @@ async def _list_tools_with_coalescing(
     from data_designer.engine.mcp.registry import MCPToolDefinition
 
     # Get or create lock for this key
-    async with _tools_locks_lock:
+    async with _get_tools_locks_lock():
         if key not in _tools_locks:
             _tools_locks[key] = asyncio.Lock()
         lock = _tools_locks[key]

@@ -111,7 +111,7 @@ def test_process_completion_with_tool_calls(
 ) -> None:
     """Returns [assistant_msg, tool_msg] for tool calls."""
 
-    def mock_list_tools(provider: Any) -> tuple[MCPToolDefinition, ...]:
+    def mock_list_tools(provider: Any, timeout_sec: float | None = None) -> tuple[MCPToolDefinition, ...]:
         return (MCPToolDefinition(name="lookup", description="Lookup", input_schema={"type": "object"}),)
 
     def mock_call_tools_parallel(
@@ -174,7 +174,7 @@ def test_process_completion_parallel_tool_calls(
 ) -> None:
     """All parallel tool calls are executed and messages returned."""
 
-    def mock_list_tools(provider: Any) -> tuple[MCPToolDefinition, ...]:
+    def mock_list_tools(provider: Any, timeout_sec: float | None = None) -> tuple[MCPToolDefinition, ...]:
         return (
             MCPToolDefinition(name="lookup", description="Lookup", input_schema={"type": "object"}),
             MCPToolDefinition(name="search", description="Search", input_schema={"type": "object"}),
@@ -240,7 +240,7 @@ def test_process_completion_empty_content(
 ) -> None:
     """Handles empty/None content gracefully."""
 
-    def mock_list_tools(provider: Any) -> tuple[MCPToolDefinition, ...]:
+    def mock_list_tools(provider: Any, timeout_sec: float | None = None) -> tuple[MCPToolDefinition, ...]:
         return (MCPToolDefinition(name="lookup", description="Lookup", input_schema={"type": "object"}),)
 
     def mock_call_tools_parallel(
@@ -391,7 +391,7 @@ def test_get_tool_schemas_single_provider(
 ) -> None:
     """Fetches schemas from single provider."""
 
-    def mock_list_tools(provider: Any) -> tuple[MCPToolDefinition, ...]:
+    def mock_list_tools(provider: Any, timeout_sec: float | None = None) -> tuple[MCPToolDefinition, ...]:
         return (
             MCPToolDefinition(name="lookup", description="Lookup tool", input_schema={"type": "object"}),
             MCPToolDefinition(name="search", description="Search tool", input_schema={"type": "object"}),
@@ -421,7 +421,7 @@ def test_get_tool_schemas_multiple_providers(
         tool_config=tool_config, secret_resolver=stub_secret_resolver, mcp_provider_registry=stub_mcp_provider_registry
     )
 
-    def mock_list_tools(provider: Any) -> tuple[MCPToolDefinition, ...]:
+    def mock_list_tools(provider: Any, timeout_sec: float | None = None) -> tuple[MCPToolDefinition, ...]:
         if provider.name == "tools":
             return (MCPToolDefinition(name="lookup", description="Lookup", input_schema={"type": "object"}),)
         return (MCPToolDefinition(name="fetch", description="Fetch", input_schema={"type": "object"}),)
@@ -448,7 +448,7 @@ def test_get_tool_schemas_with_allow_tools_filter(
         mcp_provider_registry=stub_mcp_provider_registry,
     )
 
-    def mock_list_tools(provider: Any) -> tuple[MCPToolDefinition, ...]:
+    def mock_list_tools(provider: Any, timeout_sec: float | None = None) -> tuple[MCPToolDefinition, ...]:
         return (
             MCPToolDefinition(name="lookup", description="Lookup", input_schema={"type": "object"}),
             MCPToolDefinition(name="search", description="Search", input_schema={"type": "object"}),
@@ -479,7 +479,7 @@ def test_get_tool_schemas_missing_allowed_tool(
         tool_config=tool_config, secret_resolver=stub_secret_resolver, mcp_provider_registry=stub_mcp_provider_registry
     )
 
-    def mock_list_tools(provider: Any) -> tuple[MCPToolDefinition, ...]:
+    def mock_list_tools(provider: Any, timeout_sec: float | None = None) -> tuple[MCPToolDefinition, ...]:
         return (MCPToolDefinition(name="lookup", description="Lookup", input_schema={"type": "object"}),)
 
     monkeypatch.setattr(mcp_io, "list_tools", mock_list_tools)
@@ -519,7 +519,7 @@ def test_process_completion_dict_arguments(
 ) -> None:
     """process_completion_response handles dict arguments correctly."""
 
-    def mock_list_tools(provider: Any) -> tuple[MCPToolDefinition, ...]:
+    def mock_list_tools(provider: Any, timeout_sec: float | None = None) -> tuple[MCPToolDefinition, ...]:
         return (MCPToolDefinition(name="lookup", description="Lookup", input_schema={"type": "object"}),)
 
     captured_args: list[dict[str, Any]] = []
@@ -552,7 +552,7 @@ def test_process_completion_empty_arguments(
 ) -> None:
     """process_completion_response handles None/empty arguments gracefully."""
 
-    def mock_list_tools(provider: Any) -> tuple[MCPToolDefinition, ...]:
+    def mock_list_tools(provider: Any, timeout_sec: float | None = None) -> tuple[MCPToolDefinition, ...]:
         return (MCPToolDefinition(name="lookup", description="Lookup", input_schema={"type": "object"}),)
 
     captured_args: list[dict[str, Any]] = []
@@ -584,7 +584,7 @@ def test_process_completion_generates_tool_call_id(
 ) -> None:
     """process_completion_response generates UUID for tool calls without ID."""
 
-    def mock_list_tools(provider: Any) -> tuple[MCPToolDefinition, ...]:
+    def mock_list_tools(provider: Any, timeout_sec: float | None = None) -> tuple[MCPToolDefinition, ...]:
         return (MCPToolDefinition(name="lookup", description="Lookup", input_schema={"type": "object"}),)
 
     def mock_call_tools_parallel(
@@ -615,7 +615,7 @@ def test_process_completion_object_format_tool_calls(
 ) -> None:
     """process_completion_response handles object format tool calls."""
 
-    def mock_list_tools(provider: Any) -> tuple[MCPToolDefinition, ...]:
+    def mock_list_tools(provider: Any, timeout_sec: float | None = None) -> tuple[MCPToolDefinition, ...]:
         return (MCPToolDefinition(name="lookup", description="Lookup", input_schema={"type": "object"}),)
 
     captured_calls: list[tuple[str, dict[str, Any]]] = []
@@ -770,7 +770,7 @@ def test_get_tool_schemas_duplicate_tool_names_raises_error(
         tool_config=tool_config, secret_resolver=stub_secret_resolver, mcp_provider_registry=stub_mcp_provider_registry
     )
 
-    def mock_list_tools(provider: Any) -> tuple[MCPToolDefinition, ...]:
+    def mock_list_tools(provider: Any, timeout_sec: float | None = None) -> tuple[MCPToolDefinition, ...]:
         # Both providers have a tool named "lookup"
         if provider.name == "tools":
             return (
@@ -803,7 +803,7 @@ def test_get_tool_schemas_duplicate_tool_names_reports_all_duplicates(
         tool_config=tool_config, secret_resolver=stub_secret_resolver, mcp_provider_registry=stub_mcp_provider_registry
     )
 
-    def mock_list_tools(provider: Any) -> tuple[MCPToolDefinition, ...]:
+    def mock_list_tools(provider: Any, timeout_sec: float | None = None) -> tuple[MCPToolDefinition, ...]:
         # Both providers have "lookup" and "search" as duplicates
         if provider.name == "tools":
             return (
@@ -840,7 +840,7 @@ def test_get_tool_schemas_no_duplicates_passes(
         tool_config=tool_config, secret_resolver=stub_secret_resolver, mcp_provider_registry=stub_mcp_provider_registry
     )
 
-    def mock_list_tools(provider: Any) -> tuple[MCPToolDefinition, ...]:
+    def mock_list_tools(provider: Any, timeout_sec: float | None = None) -> tuple[MCPToolDefinition, ...]:
         # Each provider has unique tool names
         if provider.name == "tools":
             return (MCPToolDefinition(name="lookup", description="Lookup", input_schema={"type": "object"}),)
@@ -859,7 +859,7 @@ def test_get_tool_schemas_single_provider_no_duplicates(
 ) -> None:
     """Single provider cannot have duplicates (each tool name unique within provider)."""
 
-    def mock_list_tools(provider: Any) -> tuple[MCPToolDefinition, ...]:
+    def mock_list_tools(provider: Any, timeout_sec: float | None = None) -> tuple[MCPToolDefinition, ...]:
         return (
             MCPToolDefinition(name="lookup", description="Lookup", input_schema={"type": "object"}),
             MCPToolDefinition(name="search", description="Search", input_schema={"type": "object"}),

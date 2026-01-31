@@ -158,7 +158,9 @@ class TestValidateNoDuplicateToolNames:
         ]
         provider_registry = MCPProviderRegistry(providers=providers)
 
-        def mock_list_tools(provider: LocalStdioMCPProvider) -> tuple[MCPToolDefinition, ...]:
+        def mock_list_tools(
+            provider: LocalStdioMCPProvider, timeout_sec: float | None = None
+        ) -> tuple[MCPToolDefinition, ...]:
             if provider.name == "provider-1":
                 return (MCPToolDefinition(name="lookup", description="Lookup", input_schema={"type": "object"}),)
             return (MCPToolDefinition(name="fetch", description="Fetch", input_schema={"type": "object"}),)
@@ -193,7 +195,9 @@ class TestValidateNoDuplicateToolNames:
         ]
         provider_registry = MCPProviderRegistry(providers=providers)
 
-        def mock_list_tools(provider: LocalStdioMCPProvider) -> tuple[MCPToolDefinition, ...]:
+        def mock_list_tools(
+            provider: LocalStdioMCPProvider, timeout_sec: float | None = None
+        ) -> tuple[MCPToolDefinition, ...]:
             # Both providers return "lookup" - duplicate
             return (MCPToolDefinition(name="lookup", description="Lookup", input_schema={"type": "object"}),)
 
@@ -227,7 +231,9 @@ class TestValidateNoDuplicateToolNames:
         ]
         provider_registry = MCPProviderRegistry(providers=providers)
 
-        def mock_list_tools(provider: LocalStdioMCPProvider) -> tuple[MCPToolDefinition, ...]:
+        def mock_list_tools(
+            provider: LocalStdioMCPProvider, timeout_sec: float | None = None
+        ) -> tuple[MCPToolDefinition, ...]:
             # Both providers return "lookup" - duplicate
             return (MCPToolDefinition(name="lookup", description="Lookup", input_schema={"type": "object"}),)
 

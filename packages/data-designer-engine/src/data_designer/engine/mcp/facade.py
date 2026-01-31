@@ -137,7 +137,9 @@ class MCPFacade:
         for provider_name in self._tool_config.providers:
             provider = self._mcp_provider_registry.get_provider(provider_name)
             resolved_provider = self._resolve_provider(provider)
-            tools = mcp_io.list_tools(resolved_provider)  # Cached in io module
+            tools = mcp_io.list_tools(
+                resolved_provider, timeout_sec=self._tool_config.timeout_sec
+            )  # Cached in io module
             for tool in tools:
                 tool_to_providers.setdefault(tool.name, []).append(provider_name)
             all_tools.extend(tools)
@@ -472,7 +474,9 @@ class MCPFacade:
         for provider_name in self._tool_config.providers:
             provider = self._mcp_provider_registry.get_provider(provider_name)
             resolved_provider = self._resolve_provider(provider)
-            tools = mcp_io.list_tools(resolved_provider)  # Cached in io module
+            tools = mcp_io.list_tools(
+                resolved_provider, timeout_sec=self._tool_config.timeout_sec
+            )  # Cached in io module
             if any(tool.name == tool_name for tool in tools):
                 return resolved_provider
 

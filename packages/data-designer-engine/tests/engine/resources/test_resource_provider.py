@@ -126,7 +126,9 @@ class TestDuplicateToolNameValidation:
         # ToolConfig uses both providers which will have duplicate tool names
         tool_configs = [ToolConfig(tool_alias="tools", providers=["provider-1", "provider-2"])]
 
-        def mock_list_tools(provider: LocalStdioMCPProvider) -> tuple[MCPToolDefinition, ...]:
+        def mock_list_tools(
+            provider: LocalStdioMCPProvider, timeout_sec: float | None = None
+        ) -> tuple[MCPToolDefinition, ...]:
             # Both providers return a tool named "lookup" - this is a duplicate
             return (MCPToolDefinition(name="lookup", description="Lookup", input_schema={"type": "object"}),)
 
@@ -159,7 +161,9 @@ class TestDuplicateToolNameValidation:
 
         list_tools_call_count = 0
 
-        def mock_list_tools(provider: LocalStdioMCPProvider) -> tuple[MCPToolDefinition, ...]:
+        def mock_list_tools(
+            provider: LocalStdioMCPProvider, timeout_sec: float | None = None
+        ) -> tuple[MCPToolDefinition, ...]:
             nonlocal list_tools_call_count
             list_tools_call_count += 1
             # Both providers return "lookup" - duplicate
