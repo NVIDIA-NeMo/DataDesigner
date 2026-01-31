@@ -15,7 +15,7 @@ Data Designer is available as both an **open-source library** and a **NeMo Micro
 !!! success "Same Configuration API"
     Both the library and microservice use the **same `DataDesignerConfigBuilder` API**. Start with the library, and your configurations migrate seamlessly if you later adopt the NeMo platform.
 
-## When to Use the Open-Source Library
+## 📦 When to Use the Open-Source Library
 
 The library is the right choice for most users. Choose it if you:
 
@@ -74,7 +74,7 @@ model = ModelConfig(
 
 ---
 
-## When to Use the Microservice
+## ☁️ When to Use the Microservice
 
 The NeMo Microservice exposes Data Designer's `preview` and `create` methods as REST API endpoints. Choose it if you:
 
@@ -98,7 +98,7 @@ If you need to provide synthetic data generation as a shared service:
 
 ---
 
-## Decision Flowchart
+## 🧭 Decision Flowchart
 
 ```
                     ┌─────────────────────────┐

@@ -1,4 +1,4 @@
-# Inference Architecture
+# 🔌 Inference Architecture
 
 Data Designer is an **orchestration framework** that coordinates synthetic data generation workflows. It is a **client** of LLM inference servers—it does not host models itself.
 
@@ -67,7 +67,7 @@ Configure Data Designer to match your inference capacity:
 
 ---
 
-## Common Deployment Scenarios
+## 🌐 Common Deployment Scenarios
 
 ### Scenario 1: NVIDIA API Catalog (build.nvidia.com)
 
@@ -204,7 +204,7 @@ quality_model = ModelConfig(
 
 ---
 
-## Troubleshooting
+## 🔧 Troubleshooting
 
 ### "Request timed out"
 

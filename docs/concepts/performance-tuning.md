@@ -1,4 +1,4 @@
-# Performance and Concurrency Tuning
+# ⚡ Performance and Concurrency Tuning
 
 This guide explains how Data Designer executes generation workflows and how to tune performance for your specific use case.
 
@@ -129,7 +129,7 @@ Concurrent requests = min(
 
 ---
 
-## Common Scenarios and Solutions
+## 🎯 Common Scenarios and Solutions
 
 ### Scenario: Throughput is too low
 
@@ -264,7 +264,7 @@ ChatCompletionInferenceParams(
 
 ---
 
-## Error Handling Configuration
+## 🛡️ Error Handling Configuration
 
 ### Early Shutdown
 
@@ -317,7 +317,7 @@ run_config = RunConfig(
 
 ---
 
-## Quick Reference
+## 📋 Quick Reference
 
 | Parameter | Location | Default | Description |
 |-----------|----------|---------|-------------|
@@ -332,7 +332,7 @@ run_config = RunConfig(
 
 ---
 
-## Tuning Workflow
+## 🔄 Tuning Workflow
 
 1. **Start with defaults** for initial development
 2. **Profile your workload**:
