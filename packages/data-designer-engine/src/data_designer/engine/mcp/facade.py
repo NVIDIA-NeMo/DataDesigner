@@ -448,7 +448,7 @@ class MCPFacade:
             calls_to_execute.append((resolved_provider, tool_name, tool_call["arguments"], tool_call["id"]))
 
         # Execute all calls in parallel
-        results = mcp_io.call_tools_parallel(
+        results = mcp_io.call_tools(
             [(p, n, a) for p, n, a, _ in calls_to_execute],
             timeout_sec=self._tool_config.timeout_sec,
         )

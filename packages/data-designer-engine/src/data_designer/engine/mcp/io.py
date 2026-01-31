@@ -3,13 +3,9 @@
 
 """Low-level MCP I/O operations with caching and session pooling.
 
-This module provides stateless functions for MCP communication. The `list_tools`
-function uses request coalescing to prevent thundering herd problems when many
-concurrent workers start simultaneously.
-
-Session pooling is implemented to reuse MCP connections across multiple tool calls,
-avoiding the overhead of creating new connections and performing MCP handshakes
-for every single call.
+This module provides stateless functions for MCP communication using an actor-style
+service that owns all async state within a single background event loop. Public APIs
+are synchronous wrappers that submit coroutines to the loop and wait for results.
 
 Architecture:
     All MCP I/O is funneled through a single dedicated asyncio event loop running
@@ -37,7 +33,8 @@ import atexit
 import json
 import logging
 import threading
-from typing import TYPE_CHECKING, Any
+from collections.abc import Coroutine, Iterable
+from typing import Any
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.sse import sse_client
@@ -45,159 +42,190 @@ from mcp.client.stdio import stdio_client
 
 from data_designer.config.mcp import LocalStdioMCPProvider, MCPProviderT
 from data_designer.engine.mcp.errors import MCPToolError
-
-if TYPE_CHECKING:
-    from data_designer.engine.mcp.registry import MCPToolDefinition, MCPToolResult
+from data_designer.engine.mcp.registry import MCPToolDefinition, MCPToolResult
 
 logger = logging.getLogger(__name__)
 
-# =============================================================================
-# Background Event Loop
-# =============================================================================
-
-_mcp_loop: asyncio.AbstractEventLoop | None = None
-_mcp_thread: threading.Thread | None = None
-_loop_lock = threading.Lock()
-
 
 def _provider_cache_key(provider: MCPProviderT) -> str:
-    """Create a stable cache key for a provider.
-
-    We intentionally derive cache/session keys from provider configuration, but
-    must ensure the serialization is stable across logically identical provider
-    instances (e.g., dict insertion order for nested structures like `env`).
-    """
+    """Create a stable cache key for a provider."""
     data = provider.model_dump(mode="json")
     return json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
-def _ensure_loop() -> asyncio.AbstractEventLoop:
-    """Ensure the background MCP event loop is running.
+class MCPIOService:
+    """Actor-style MCP I/O service owning all async state."""
 
-    Lazily starts the background event loop thread on first use.
-    Thread-safe for concurrent initialization.
+    def __init__(self) -> None:
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._thread: threading.Thread | None = None
+        self._loop_lock = threading.Lock()
 
-    Returns:
-        The background event loop.
-    """
-    global _mcp_loop, _mcp_thread
+        self._sessions: dict[str, ClientSession] = {}
+        self._session_contexts: dict[str, Any] = {}
+        self._session_inflight: dict[str, asyncio.Task[ClientSession]] = {}
 
-    with _loop_lock:
-        if _mcp_loop is None or not _mcp_loop.is_running():
-            _mcp_loop = asyncio.new_event_loop()
-            _mcp_thread = threading.Thread(
-                target=_mcp_loop.run_forever,
-                daemon=True,
-                name="MCP-EventLoop",
-            )
-            _mcp_thread.start()
-            logger.debug("Started MCP background event loop")
+        self._tools_cache: dict[str, tuple[MCPToolDefinition, ...]] = {}
+        self._tools_cache_epoch: dict[str, int] = {}
+        self._inflight_tools: dict[str, asyncio.Task[tuple[MCPToolDefinition, ...]]] = {}
 
-    return _mcp_loop
+    def list_tools(self, provider: MCPProviderT, timeout_sec: float | None = None) -> tuple[MCPToolDefinition, ...]:
+        """List tools from an MCP provider (cached with request coalescing)."""
+        try:
+            return self._run_on_loop(self._list_tools_async(provider), timeout_sec)
+        except TimeoutError as exc:
+            timeout_label = f"{timeout_sec:.1f}" if timeout_sec is not None else "unknown"
+            raise MCPToolError(f"Timed out after {timeout_label}s while listing tools on {provider.name!r}.") from exc
 
+    def call_tools(
+        self,
+        calls: list[tuple[MCPProviderT, str, dict[str, Any]]],
+        *,
+        timeout_sec: float | None = None,
+    ) -> list[MCPToolResult]:
+        """Call multiple tools in parallel."""
+        if not calls:
+            return []
+        try:
+            return self._run_on_loop(self._call_tools_async(calls), timeout_sec)
+        except TimeoutError as exc:
+            timeout_label = f"{timeout_sec:.1f}" if timeout_sec is not None else "unknown"
+            raise MCPToolError(f"Timed out after {timeout_label}s while calling tools in parallel.") from exc
 
-# =============================================================================
-# Session Pooling (runs in the background event loop)
-# =============================================================================
-
-# Session cache: keyed by provider's serialized JSON config
-_sessions: dict[str, ClientSession] = {}
-
-# Context managers for sessions (we need to keep them alive)
-_session_contexts: dict[str, Any] = {}
-
-# Lock for thread-safe access to session cache (only used from event loop thread)
-_session_lock: asyncio.Lock | None = None
-
-# =============================================================================
-# Tools Cache with Request Coalescing
-# =============================================================================
-
-# Tools cache: keyed by provider's serialized JSON config
-_tools_cache: dict[str, tuple[MCPToolDefinition, ...]] = {}
-
-# Per-key locks for request coalescing (prevents thundering herd)
-_tools_locks: dict[str, asyncio.Lock] = {}
-
-# Lock for creating new per-key locks
-_tools_locks_lock: asyncio.Lock | None = None
-
-
-def _get_session_lock() -> asyncio.Lock:
-    """Get or create the session lock for the current event loop."""
-    global _session_lock
-    if _session_lock is None:
-        _session_lock = asyncio.Lock()
-    return _session_lock
-
-
-def _get_tools_locks_lock() -> asyncio.Lock:
-    """Get or create the tools-locks lock for the current event loop."""
-    global _tools_locks_lock
-    if _tools_locks_lock is None:
-        _tools_locks_lock = asyncio.Lock()
-    return _tools_locks_lock
-
-
-async def _get_or_create_session(provider: MCPProviderT) -> ClientSession:
-    """Get an existing session from pool or create a new one.
-
-    Sessions are cached by provider config, so the same provider will
-    always return the same session (connection reuse).
-
-    This function must be called from within the background event loop.
-
-    Args:
-        provider: The MCP provider config.
-
-    Returns:
-        A ClientSession connected to the provider.
-    """
-    key = _provider_cache_key(provider)
-
-    async with _get_session_lock():
-        if key in _sessions:
-            return _sessions[key]
-
-        # Create new session
-        if isinstance(provider, LocalStdioMCPProvider):
-            params = StdioServerParameters(
-                command=provider.command,
-                args=provider.args,
-                env=provider.env,
-            )
-            ctx = stdio_client(params)
-        else:
-            headers = _build_auth_headers(provider.api_key)
-            ctx = sse_client(provider.endpoint, headers=headers)
-
-        # Enter the async context manager to get read/write streams
-        read, write = await ctx.__aenter__()
-        session = ClientSession(read, write)
-        await session.__aenter__()
-        await session.initialize()
-
-        _sessions[key] = session
-        _session_contexts[key] = ctx
-
-        logger.debug("Created pooled MCP session for provider %r", provider.name)
-        return session
-
-
-async def _close_all_sessions() -> None:
-    """Close all pooled sessions.
-
-    This function must be called from within the background event loop.
-    """
-    async with _get_session_lock():
-        for key in list(_sessions.keys()):
+    def clear_provider_caches(self, providers: list[MCPProviderT]) -> int:
+        """Clear caches and session pool entries for specific providers."""
+        if not providers:
+            return 0
+        if self._loop is not None and self._loop.is_running():
             try:
-                session = _sessions.get(key)
-                ctx = _session_contexts.get(key)
+                return self._run_on_loop(self._clear_provider_caches_async(providers), timeout_sec=5)
+            except Exception:
+                logger.debug("Failed to clear provider caches on MCP IO service.", exc_info=True)
+                return 0
+        return self._clear_provider_caches_sync(providers)
 
-                if session is not None:
+    def clear_tools_cache(self) -> None:
+        """Clear the list_tools cache (best effort)."""
+        if self._loop is not None and self._loop.is_running():
+            try:
+                self._run_on_loop(self._clear_tools_cache_async(), timeout_sec=5)
+                return
+            except Exception:
+                logger.debug("Failed to clear tools cache on MCP IO service.", exc_info=True)
+                return
+        self._clear_tools_cache_sync()
+
+    def get_cache_info(self) -> dict[str, Any]:
+        """Get cache statistics for list_tools."""
+        if self._loop is not None and self._loop.is_running():
+            try:
+                return self._run_on_loop(self._get_cache_info_async(), timeout_sec=5)
+            except Exception:
+                logger.debug("Failed to read tools cache info on MCP IO service.", exc_info=True)
+        return {"currsize": len(self._tools_cache), "providers": list(self._tools_cache.keys())}
+
+    def clear_session_pool(self) -> None:
+        """Clear all pooled MCP sessions (best effort)."""
+        if self._loop is not None and self._loop.is_running():
+            try:
+                self._run_on_loop(self._close_all_sessions_async(), timeout_sec=5)
+                return
+            except Exception:
+                logger.debug("Failed to clear session pool on MCP IO service.", exc_info=True)
+                # Fall through to sync cleanup
+        self._clear_session_pool_sync()
+
+    def get_session_pool_info(self) -> dict[str, Any]:
+        """Get information about the session pool."""
+        if self._loop is not None and self._loop.is_running():
+            try:
+                return self._run_on_loop(self._get_session_pool_info_async(), timeout_sec=5)
+            except Exception:
+                logger.debug("Failed to read session pool info on MCP IO service.", exc_info=True)
+        return {"active_sessions": len(self._sessions), "provider_keys": list(self._sessions.keys())}
+
+    def shutdown(self) -> None:
+        """Shutdown the MCP event loop and close all sessions."""
+        if self._loop is None:
+            self._reset_state()
+            return
+        try:
+            future = asyncio.run_coroutine_threadsafe(self._close_all_sessions_async(), self._loop)
+            try:
+                future.result(timeout=5)
+            except Exception:
+                pass
+            self._loop.call_soon_threadsafe(self._loop.stop)
+            if self._thread is not None:
+                self._thread.join(timeout=5)
+        finally:
+            self._loop = None
+            self._thread = None
+            self._reset_state()
+
+    def _ensure_loop(self) -> asyncio.AbstractEventLoop:
+        with self._loop_lock:
+            if self._loop is None or not self._loop.is_running():
+                loop = asyncio.new_event_loop()
+                self._loop = loop
+                self._thread = threading.Thread(
+                    target=self._run_loop,
+                    args=(loop,),
+                    daemon=True,
+                    name="MCP-EventLoop",
+                )
+                self._thread.start()
+                logger.debug("Started MCP background event loop")
+        return self._loop
+
+    @staticmethod
+    def _run_loop(loop: asyncio.AbstractEventLoop) -> None:
+        asyncio.set_event_loop(loop)
+        loop.run_forever()
+
+    def _run_on_loop(self, coro: Coroutine[Any, Any, Any], timeout_sec: float | None) -> Any:
+        loop = self._ensure_loop()
+        future = asyncio.run_coroutine_threadsafe(coro, loop)
+        return future.result(timeout=timeout_sec)
+
+    async def _get_or_create_session(self, provider: MCPProviderT) -> ClientSession:
+        key = _provider_cache_key(provider)
+        session = self._sessions.get(key)
+        if session is not None:
+            return session
+
+        inflight = self._session_inflight.get(key)
+        if inflight is not None:
+            return await inflight
+
+        async def create_session() -> ClientSession:
+            ctx: Any | None = None
+            new_session: ClientSession | None = None
+            try:
+                if isinstance(provider, LocalStdioMCPProvider):
+                    params = StdioServerParameters(
+                        command=provider.command,
+                        args=provider.args,
+                        env=provider.env,
+                    )
+                    ctx = stdio_client(params)
+                else:
+                    headers = _build_auth_headers(provider.api_key)
+                    ctx = sse_client(provider.endpoint, headers=headers)
+
+                read, write = await ctx.__aenter__()
+                new_session = ClientSession(read, write)
+                await new_session.__aenter__()
+                await new_session.initialize()
+
+                self._sessions[key] = new_session
+                self._session_contexts[key] = ctx
+                logger.debug("Created pooled MCP session for provider %r", provider.name)
+                return new_session
+            except Exception:
+                if new_session is not None:
                     try:
-                        await session.__aexit__(None, None, None)
+                        await new_session.__aexit__(None, None, None)
                     except Exception:
                         pass
                 if ctx is not None:
@@ -205,150 +233,76 @@ async def _close_all_sessions() -> None:
                         await ctx.__aexit__(None, None, None)
                     except Exception:
                         pass
-            except Exception:
-                pass  # Best effort cleanup
+                raise
 
-        count = len(_sessions)
-        _sessions.clear()
-        _session_contexts.clear()
-
-    if count > 0:
-        logger.debug("Closed %d pooled MCP sessions", count)
-
-
-def _shutdown_mcp_loop() -> None:
-    """Shutdown the MCP event loop and close all sessions."""
-    global _mcp_loop, _mcp_thread, _session_lock, _tools_locks_lock
-
-    if _mcp_loop is None:
-        return
-
-    try:
-        # Close all sessions
-        future = asyncio.run_coroutine_threadsafe(_close_all_sessions(), _mcp_loop)
+        task = asyncio.create_task(create_session())
+        self._session_inflight[key] = task
         try:
-            future.result(timeout=5)
-        except Exception:
-            pass  # Best effort
+            return await task
+        finally:
+            self._session_inflight.pop(key, None)
 
-        # Stop the event loop
-        _mcp_loop.call_soon_threadsafe(_mcp_loop.stop)
+    async def _list_tools_async(self, provider: MCPProviderT) -> tuple[MCPToolDefinition, ...]:
+        key = _provider_cache_key(provider)
+        cached = self._tools_cache.get(key)
+        if cached is not None:
+            return cached
 
-        # Wait for the thread to finish
-        if _mcp_thread is not None:
-            _mcp_thread.join(timeout=5)
+        inflight = self._inflight_tools.get(key)
+        if inflight is not None:
+            return await inflight
 
-        logger.debug("Shutdown MCP background event loop")
-    except Exception:
-        pass  # Best effort cleanup on exit
-    finally:
-        _mcp_loop = None
-        _mcp_thread = None
-        _session_lock = None
-        _tools_locks_lock = None
-        _tools_locks.clear()
+        epoch = self._tools_cache_epoch.get(key, 0)
 
+        async def fetch_tools() -> tuple[MCPToolDefinition, ...]:
+            session = await self._get_or_create_session(provider)
+            result = await session.list_tools()
+            raw_tools = getattr(result, "tools", result)
+            if not isinstance(raw_tools, list):
+                raise MCPToolError("Unexpected response from MCP provider when listing tools.")
+            tools = tuple(_coerce_tool_definition(tool, MCPToolDefinition) for tool in raw_tools)
+            if self._tools_cache_epoch.get(key, 0) == epoch:
+                self._tools_cache[key] = tools
+                logger.debug("Cached tools for provider %r (%d tools)", provider.name, len(tools))
+            return tools
 
-# Register cleanup on program exit
-atexit.register(_shutdown_mcp_loop)
-
-
-# =============================================================================
-# Public API - Session Pool Management
-# =============================================================================
-
-
-def clear_session_pool() -> None:
-    """Clear all pooled MCP sessions.
-
-    This closes all active connections and clears the session cache.
-    Useful for testing or when provider configurations change.
-    """
-    global _sessions, _session_contexts
-
-    # Try to close sessions gracefully through the event loop if running
-    if _mcp_loop is not None and _mcp_loop.is_running():
+        task = asyncio.create_task(fetch_tools())
+        self._inflight_tools[key] = task
         try:
-            future = asyncio.run_coroutine_threadsafe(_close_all_sessions(), _mcp_loop)
-            future.result(timeout=5)
-            return
-        except Exception:
-            pass  # Fall through to manual cleanup
+            return await task
+        finally:
+            self._inflight_tools.pop(key, None)
 
-    # Manual cleanup - just clear the dictionaries
-    # This is safe for testing but won't gracefully close connections
-    _sessions.clear()
-    _session_contexts.clear()
+    async def _call_tool_async(
+        self,
+        provider: MCPProviderT,
+        tool_name: str,
+        arguments: dict[str, Any],
+    ) -> MCPToolResult:
+        session = await self._get_or_create_session(provider)
+        result = await session.call_tool(tool_name, arguments)
 
+        content = _serialize_tool_result_content(result)
+        is_error = getattr(result, "isError", None)
+        if is_error is None:
+            is_error = getattr(result, "is_error", False)
 
-def get_session_pool_info() -> dict[str, Any]:
-    """Get information about the session pool.
+        return MCPToolResult(content=content, is_error=bool(is_error))
 
-    Returns:
-        Dictionary with pool statistics.
-    """
-    return {
-        "active_sessions": len(_sessions),
-        "provider_keys": list(_sessions.keys()),
-    }
+    async def _call_tools_async(
+        self,
+        calls: list[tuple[MCPProviderT, str, dict[str, Any]]],
+    ) -> list[MCPToolResult]:
+        return await asyncio.gather(*[self._call_tool_async(p, n, a) for p, n, a in calls])
 
+    async def _clear_provider_caches_async(self, providers: list[MCPProviderT]) -> int:
+        keys = [_provider_cache_key(provider) for provider in providers]
+        self._invalidate_tools_cache(keys)
 
-def clear_provider_caches(providers: list[MCPProviderT]) -> int:
-    """Clear all caches for specific MCP providers.
-
-    This function clears both the tools cache and session pool entries for the given
-    providers. Use this at job completion to prevent memory buildup in long-running
-    services.
-
-    Args:
-        providers: List of MCP provider configs to clear caches for.
-
-    Returns:
-        Number of cache entries cleared (tools + sessions).
-    """
-    if not providers:
-        return 0
-
-    if _mcp_loop is not None and _mcp_loop.is_running():
-        try:
-            future = asyncio.run_coroutine_threadsafe(_clear_provider_caches_async(providers), _mcp_loop)
-            return future.result(timeout=5)
-        except Exception:
-            if _mcp_loop is not None and _mcp_loop.is_running():
-                logger.debug("Failed to clear provider caches on the MCP event loop.")
-                return 0  # Avoid cross-thread mutation while loop is active
-
-    return _clear_provider_caches_sync(providers)
-
-
-async def _clear_provider_caches_async(providers: list[MCPProviderT]) -> int:
-    """Clear provider caches within the background event loop."""
-    cleared_count = 0
-    keys = [_provider_cache_key(provider) for provider in providers]
-
-    for key in keys:
-        lock: asyncio.Lock | None = None
-        async with _get_tools_locks_lock():
-            lock = _tools_locks.get(key)
-
-        if lock is not None:
-            async with lock:
-                if key in _tools_cache:
-                    del _tools_cache[key]
-                    cleared_count += 1
-            async with _get_tools_locks_lock():
-                current_lock = _tools_locks.get(key)
-                if current_lock is lock:
-                    del _tools_locks[key]
-        else:
-            if key in _tools_cache:
-                del _tools_cache[key]
-                cleared_count += 1
-
-    async with _get_session_lock():
+        cleared_count = 0
         for key in keys:
-            session = _sessions.pop(key, None)
-            ctx = _session_contexts.pop(key, None)
+            session = self._sessions.pop(key, None)
+            ctx = self._session_contexts.pop(key, None)
             if session is not None:
                 cleared_count += 1
                 try:
@@ -361,320 +315,131 @@ async def _clear_provider_caches_async(providers: list[MCPProviderT]) -> int:
                 except Exception:
                     pass
 
-    if cleared_count > 0:
-        logger.debug("Cleared %d provider cache entries", cleared_count)
+        if cleared_count > 0:
+            logger.debug("Cleared %d provider cache entries", cleared_count)
+        return cleared_count
 
-    return cleared_count
+    def _clear_provider_caches_sync(self, providers: list[MCPProviderT]) -> int:
+        keys = [_provider_cache_key(provider) for provider in providers]
+        self._invalidate_tools_cache(keys)
+
+        cleared_count = 0
+        for key in keys:
+            if key in self._sessions:
+                del self._sessions[key]
+                cleared_count += 1
+            if key in self._session_contexts:
+                del self._session_contexts[key]
+
+        if cleared_count > 0:
+            logger.debug("Cleared %d provider cache entries", cleared_count)
+        return cleared_count
+
+    async def _clear_tools_cache_async(self) -> None:
+        self._invalidate_tools_cache(self._all_tools_keys())
+
+    def _clear_tools_cache_sync(self) -> None:
+        self._invalidate_tools_cache(self._all_tools_keys())
+
+    async def _get_cache_info_async(self) -> dict[str, Any]:
+        return {"currsize": len(self._tools_cache), "providers": list(self._tools_cache.keys())}
+
+    async def _close_all_sessions_async(self) -> None:
+        for key in list(self._sessions.keys()):
+            session = self._sessions.pop(key, None)
+            ctx = self._session_contexts.pop(key, None)
+            if session is not None:
+                try:
+                    await session.__aexit__(None, None, None)
+                except Exception:
+                    pass
+            if ctx is not None:
+                try:
+                    await ctx.__aexit__(None, None, None)
+                except Exception:
+                    pass
+
+        for task in self._session_inflight.values():
+            task.cancel()
+        self._session_inflight.clear()
+
+    def _clear_session_pool_sync(self) -> None:
+        self._sessions.clear()
+        self._session_contexts.clear()
+        self._session_inflight.clear()
+
+    async def _get_session_pool_info_async(self) -> dict[str, Any]:
+        return {"active_sessions": len(self._sessions), "provider_keys": list(self._sessions.keys())}
+
+    def _invalidate_tools_cache(self, keys: Iterable[str]) -> None:
+        for key in keys:
+            self._tools_cache.pop(key, None)
+            self._tools_cache_epoch[key] = self._tools_cache_epoch.get(key, 0) + 1
+
+    def _all_tools_keys(self) -> set[str]:
+        return set(self._tools_cache) | set(self._inflight_tools) | set(self._tools_cache_epoch)
+
+    def _reset_state(self) -> None:
+        self._sessions.clear()
+        self._session_contexts.clear()
+        self._session_inflight.clear()
+        self._tools_cache.clear()
+        self._tools_cache_epoch.clear()
+        self._inflight_tools.clear()
 
 
-def _clear_provider_caches_sync(providers: list[MCPProviderT]) -> int:
-    """Clear provider caches synchronously when no event loop is running."""
-    cleared_count = 0
-
-    for provider in providers:
-        key = _provider_cache_key(provider)
-
-        if key in _tools_cache:
-            del _tools_cache[key]
-            cleared_count += 1
-        if key in _tools_locks:
-            del _tools_locks[key]
-
-        if key in _sessions:
-            del _sessions[key]
-            cleared_count += 1
-        if key in _session_contexts:
-            del _session_contexts[key]
-
-    if cleared_count > 0:
-        logger.debug("Cleared %d provider cache entries", cleared_count)
-
-    return cleared_count
-
-
-# =============================================================================
-# Public API - Cached Operations
-# =============================================================================
+_MCP_IO_SERVICE = MCPIOService()
+atexit.register(_MCP_IO_SERVICE.shutdown)
 
 
 def list_tools(provider: MCPProviderT, timeout_sec: float | None = None) -> tuple[MCPToolDefinition, ...]:
-    """List tools from an MCP provider (cached with request coalescing).
+    """List tools from an MCP provider (cached with request coalescing)."""
+    return _MCP_IO_SERVICE.list_tools(provider, timeout_sec=timeout_sec)
 
-    Results are cached using the provider's serialized config (including api_key).
-    This cache is shared across all MCPFacade instances for efficiency.
 
-    Request coalescing ensures that concurrent requests for the same provider
-    share a single in-flight request, preventing thundering herd problems.
+def call_tools(
+    calls: list[tuple[MCPProviderT, str, dict[str, Any]]],
+    *,
+    timeout_sec: float | None = None,
+) -> list[MCPToolResult]:
+    """Call multiple tools in parallel."""
+    return _MCP_IO_SERVICE.call_tools(calls, timeout_sec=timeout_sec)
 
-    The provider's api_key should already be resolved by the caller - this function
-    uses it directly for authentication.
 
-    Args:
-        provider: The MCP provider config (with resolved api_key if applicable).
-        timeout_sec: Optional timeout in seconds.
-
-    Returns:
-        Tuple of tool definitions from the provider (tuple for hashability).
-
-    Raises:
-        MCPToolError: If communication with the provider fails or times out.
-    """
-    key = _provider_cache_key(provider)
-
-    # Fast path: check cache without lock
-    if key in _tools_cache:
-        return _tools_cache[key]
-
-    # Slow path: fetch with coalescing
-    loop = _ensure_loop()
-    future = asyncio.run_coroutine_threadsafe(
-        _list_tools_with_coalescing(provider, key),
-        loop,
-    )
-
-    try:
-        return future.result(timeout=timeout_sec)
-    except TimeoutError as exc:
-        timeout_label = f"{timeout_sec:.1f}" if timeout_sec is not None else "unknown"
-        raise MCPToolError(f"Timed out after {timeout_label}s while listing tools on {provider.name!r}.") from exc
+def clear_provider_caches(providers: list[MCPProviderT]) -> int:
+    """Clear all caches for specific MCP providers."""
+    return _MCP_IO_SERVICE.clear_provider_caches(providers)
 
 
 def clear_tools_cache() -> None:
-    """Clear the list_tools cache.
-
-    Useful for testing or when providers need to be refreshed.
-    """
-    _tools_cache.clear()
-    _tools_locks.clear()
+    """Clear the list_tools cache."""
+    _MCP_IO_SERVICE.clear_tools_cache()
 
 
 def get_cache_info() -> dict[str, Any]:
-    """Get cache statistics for list_tools.
-
-    Returns:
-        Dictionary with cache statistics.
-    """
-    return {
-        "currsize": len(_tools_cache),
-        "providers": list(_tools_cache.keys()),
-    }
+    """Get cache statistics for list_tools."""
+    return _MCP_IO_SERVICE.get_cache_info()
 
 
-# =============================================================================
-# Public API - Uncached Operations
-# =============================================================================
+def clear_session_pool() -> None:
+    """Clear all pooled MCP sessions."""
+    _MCP_IO_SERVICE.clear_session_pool()
 
 
-def call_tool(
-    provider: MCPProviderT,
-    tool_name: str,
-    arguments: dict[str, Any],
-    *,
-    timeout_sec: float | None = None,
-) -> MCPToolResult:
-    """Call a tool on an MCP provider.
-
-    This operation is NOT cached - each call executes against the MCP server.
-
-    The provider's api_key should already be resolved by the caller - this function
-    uses it directly for authentication.
-
-    Args:
-        provider: The MCP provider config (with resolved api_key if applicable).
-        tool_name: Name of the tool to call.
-        arguments: Arguments to pass to the tool.
-        timeout_sec: Optional timeout in seconds.
-
-    Returns:
-        Result from the tool execution.
-
-    Raises:
-        MCPToolError: If the tool call fails or times out.
-    """
-    loop = _ensure_loop()
-    future = asyncio.run_coroutine_threadsafe(
-        _call_tool_async(provider, tool_name, arguments),
-        loop,
-    )
-
-    try:
-        return future.result(timeout=timeout_sec)
-    except TimeoutError as exc:
-        timeout_label = f"{timeout_sec:.1f}" if timeout_sec is not None else "unknown"
-        raise MCPToolError(f"Timed out after {timeout_label}s while calling tool {tool_name!r}.") from exc
-
-
-def call_tools_parallel(
-    calls: list[tuple[MCPProviderT, str, dict[str, Any]]],
-    *,
-    timeout_sec: float | None = None,
-) -> list[MCPToolResult]:
-    """Call multiple tools in parallel.
-
-    Executes all tool calls concurrently within the background event loop.
-    This is more efficient than sequential calls when multiple tool calls
-    are needed (e.g., parallel tool calling from LLMs).
-
-    Args:
-        calls: List of (provider, tool_name, arguments) tuples.
-        timeout_sec: Optional timeout in seconds for all calls.
-
-    Returns:
-        List of results, in the same order as the input calls.
-
-    Raises:
-        MCPToolError: If any tool call fails or times out.
-    """
-    if not calls:
-        return []
-
-    loop = _ensure_loop()
-    future = asyncio.run_coroutine_threadsafe(
-        _call_tools_parallel_async(calls),
-        loop,
-    )
-
-    try:
-        return future.result(timeout=timeout_sec)
-    except TimeoutError as exc:
-        timeout_label = f"{timeout_sec:.1f}" if timeout_sec is not None else "unknown"
-        raise MCPToolError(f"Timed out after {timeout_label}s while calling tools in parallel.") from exc
-
-
-async def _call_tools_parallel_async(
-    calls: list[tuple[MCPProviderT, str, dict[str, Any]]],
-) -> list[MCPToolResult]:
-    """Internal async implementation of parallel tool calling.
-
-    Args:
-        calls: List of (provider, tool_name, arguments) tuples.
-
-    Returns:
-        List of results in same order as input.
-    """
-    return await asyncio.gather(*[_call_tool_async(p, n, a) for p, n, a in calls])
-
-
-# =============================================================================
-# Internal - Request Coalescing Implementation
-# =============================================================================
-
-
-async def _list_tools_with_coalescing(
-    provider: MCPProviderT,
-    key: str,
-) -> tuple[MCPToolDefinition, ...]:
-    """List tools with request coalescing to prevent thundering herd.
-
-    Uses per-key locks to ensure only one in-flight request per provider.
-    Other concurrent callers wait for the first request to complete and
-    share the cached result.
-
-    Args:
-        provider: The MCP provider config.
-        key: Cache key (provider's serialized JSON).
-
-    Returns:
-        Tuple of tool definitions.
-    """
-    from data_designer.engine.mcp.registry import MCPToolDefinition
-
-    # Get or create lock for this key
-    async with _get_tools_locks_lock():
-        if key not in _tools_locks:
-            _tools_locks[key] = asyncio.Lock()
-        lock = _tools_locks[key]
-
-    # Acquire the per-key lock (coalescing happens here)
-    async with lock:
-        # Double-check cache inside lock - critical for coalescing!
-        if key in _tools_cache:
-            return _tools_cache[key]
-
-        # Actually fetch (only one caller per key gets here)
-        session = await _get_or_create_session(provider)
-        result = await session.list_tools()
-
-        raw_tools = getattr(result, "tools", result)
-        if not isinstance(raw_tools, list):
-            raise MCPToolError("Unexpected response from MCP provider when listing tools.")
-
-        tools = tuple(_coerce_tool_definition(tool, MCPToolDefinition) for tool in raw_tools)
-
-        # Cache the result
-        _tools_cache[key] = tools
-        logger.debug("Cached tools for provider %r (%d tools)", provider.name, len(tools))
-
-        return tools
-
-
-# =============================================================================
-# Internal - Async Implementations
-# =============================================================================
-
-
-async def _call_tool_async(
-    provider: MCPProviderT,
-    tool_name: str,
-    arguments: dict[str, Any],
-) -> MCPToolResult:
-    """Call a tool on a provider asynchronously.
-
-    Uses the session pool to reuse connections across calls.
-
-    Args:
-        provider: The MCP provider config (with resolved api_key if applicable).
-        tool_name: Name of the tool to call.
-        arguments: Arguments to pass to the tool.
-
-    Returns:
-        Result from the tool execution.
-    """
-    from data_designer.engine.mcp.registry import MCPToolResult
-
-    session = await _get_or_create_session(provider)
-    result = await session.call_tool(tool_name, arguments)
-
-    content = _serialize_tool_result_content(result)
-    is_error = getattr(result, "isError", None)
-    if is_error is None:
-        is_error = getattr(result, "is_error", False)
-
-    return MCPToolResult(content=content, is_error=bool(is_error))
-
-
-# =============================================================================
-# Internal - Helpers
-# =============================================================================
+def get_session_pool_info() -> dict[str, Any]:
+    """Get information about the session pool."""
+    return _MCP_IO_SERVICE.get_session_pool_info()
 
 
 def _build_auth_headers(api_key: str | None) -> dict[str, Any] | None:
-    """Build authentication headers for SSE client.
-
-    Args:
-        api_key: Optional resolved API key.
-
-    Returns:
-        Headers dict with Authorization header, or None if no api_key.
-    """
+    """Build authentication headers for SSE client."""
     if not api_key:
         return None
     return {"Authorization": f"Bearer {api_key}"}
 
 
 def _coerce_tool_definition(tool: Any, tool_definition_cls: type[MCPToolDefinition]) -> MCPToolDefinition:
-    """Coerce a tool from various formats into MCPToolDefinition.
-
-    Args:
-        tool: The tool object from the MCP response.
-        tool_definition_cls: The MCPToolDefinition class to instantiate.
-
-    Returns:
-        A normalized MCPToolDefinition.
-
-    Raises:
-        MCPToolError: If the tool has no name.
-    """
+    """Coerce a tool from various formats into MCPToolDefinition."""
     if isinstance(tool, dict):
         name = tool.get("name")
         description = tool.get("description")
@@ -691,17 +456,7 @@ def _coerce_tool_definition(tool: Any, tool_definition_cls: type[MCPToolDefiniti
 
 
 def _serialize_tool_result_content(result: Any) -> str:
-    """Serialize tool result content to a string.
-
-    Handles various result formats including strings, dicts, lists,
-    and MCP content objects.
-
-    Args:
-        result: The raw result from the MCP tool call.
-
-    Returns:
-        The serialized content as a string.
-    """
+    """Serialize tool result content to a string."""
     content = getattr(result, "content", result)
     if content is None:
         return ""

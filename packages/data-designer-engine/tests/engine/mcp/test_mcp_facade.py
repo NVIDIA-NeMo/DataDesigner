@@ -114,7 +114,7 @@ def test_process_completion_with_tool_calls(
     def mock_list_tools(provider: Any, timeout_sec: float | None = None) -> tuple[MCPToolDefinition, ...]:
         return (MCPToolDefinition(name="lookup", description="Lookup", input_schema={"type": "object"}),)
 
-    def mock_call_tools_parallel(
+    def mock_call_tools(
         calls: list[tuple[Any, str, dict[str, Any]]],
         *,
         timeout_sec: float | None = None,
@@ -122,7 +122,7 @@ def test_process_completion_with_tool_calls(
         return [MCPToolResult(content="Tool result for: " + args.get("query", "")) for _, _, args in calls]
 
     monkeypatch.setattr(mcp_io, "list_tools", mock_list_tools)
-    monkeypatch.setattr(mcp_io, "call_tools_parallel", mock_call_tools_parallel)
+    monkeypatch.setattr(mcp_io, "call_tools", mock_call_tools)
 
     messages = stub_mcp_facade.process_completion_response(mock_completion_response_single_tool)
 
@@ -183,7 +183,7 @@ def test_process_completion_parallel_tool_calls(
 
     tool_names_called: list[str] = []
 
-    def mock_call_tools_parallel(
+    def mock_call_tools(
         calls: list[tuple[Any, str, dict[str, Any]]],
         *,
         timeout_sec: float | None = None,
@@ -193,7 +193,7 @@ def test_process_completion_parallel_tool_calls(
         return [MCPToolResult(content=f"Result from {tool_name}") for _, tool_name, _ in calls]
 
     monkeypatch.setattr(mcp_io, "list_tools", mock_list_tools)
-    monkeypatch.setattr(mcp_io, "call_tools_parallel", mock_call_tools_parallel)
+    monkeypatch.setattr(mcp_io, "call_tools", mock_call_tools)
 
     messages = stub_mcp_facade.process_completion_response(mock_completion_response_parallel_tools)
 
@@ -243,7 +243,7 @@ def test_process_completion_empty_content(
     def mock_list_tools(provider: Any, timeout_sec: float | None = None) -> tuple[MCPToolDefinition, ...]:
         return (MCPToolDefinition(name="lookup", description="Lookup", input_schema={"type": "object"}),)
 
-    def mock_call_tools_parallel(
+    def mock_call_tools(
         calls: list[tuple[Any, str, dict[str, Any]]],
         *,
         timeout_sec: float | None = None,
@@ -251,7 +251,7 @@ def test_process_completion_empty_content(
         return [MCPToolResult(content="result") for _ in calls]
 
     monkeypatch.setattr(mcp_io, "list_tools", mock_list_tools)
-    monkeypatch.setattr(mcp_io, "call_tools_parallel", mock_call_tools_parallel)
+    monkeypatch.setattr(mcp_io, "call_tools", mock_call_tools)
 
     tool_call = {"id": "call-1", "type": "function", "function": {"name": "lookup", "arguments": "{}"}}
     response = FakeResponse(FakeMessage(content=None, tool_calls=[tool_call]))
@@ -366,18 +366,18 @@ def test_refuse_does_not_call_mcp_server(
     mock_completion_response_single_tool: FakeResponse,
 ) -> None:
     """Verify MCP server is NOT called during refusal."""
-    call_tool_called = False
+    call_tools_called = False
 
-    def mock_call_tool(*args: Any, **kwargs: Any) -> MCPToolResult:
-        nonlocal call_tool_called
-        call_tool_called = True
-        return MCPToolResult(content="should not be called")
+    def mock_call_tools(*args: Any, **kwargs: Any) -> list[MCPToolResult]:
+        nonlocal call_tools_called
+        call_tools_called = True
+        return [MCPToolResult(content="should not be called")]
 
-    monkeypatch.setattr(mcp_io, "call_tool", mock_call_tool)
+    monkeypatch.setattr(mcp_io, "call_tools", mock_call_tools)
 
     stub_mcp_facade.refuse_completion_response(mock_completion_response_single_tool)
 
-    assert call_tool_called is False
+    assert call_tools_called is False
 
 
 # =============================================================================
@@ -524,7 +524,7 @@ def test_process_completion_dict_arguments(
 
     captured_args: list[dict[str, Any]] = []
 
-    def mock_call_tools_parallel(
+    def mock_call_tools(
         calls: list[tuple[Any, str, dict[str, Any]]],
         *,
         timeout_sec: float | None = None,
@@ -534,7 +534,7 @@ def test_process_completion_dict_arguments(
         return [MCPToolResult(content="result") for _ in calls]
 
     monkeypatch.setattr(mcp_io, "list_tools", mock_list_tools)
-    monkeypatch.setattr(mcp_io, "call_tools_parallel", mock_call_tools_parallel)
+    monkeypatch.setattr(mcp_io, "call_tools", mock_call_tools)
 
     # Pass dict arguments (not JSON string)
     tool_call = {"id": "call-1", "function": {"name": "lookup", "arguments": {"query": "test"}}}
@@ -557,7 +557,7 @@ def test_process_completion_empty_arguments(
 
     captured_args: list[dict[str, Any]] = []
 
-    def mock_call_tools_parallel(
+    def mock_call_tools(
         calls: list[tuple[Any, str, dict[str, Any]]],
         *,
         timeout_sec: float | None = None,
@@ -567,7 +567,7 @@ def test_process_completion_empty_arguments(
         return [MCPToolResult(content="result") for _ in calls]
 
     monkeypatch.setattr(mcp_io, "list_tools", mock_list_tools)
-    monkeypatch.setattr(mcp_io, "call_tools_parallel", mock_call_tools_parallel)
+    monkeypatch.setattr(mcp_io, "call_tools", mock_call_tools)
 
     tool_call = {"id": "call-1", "function": {"name": "lookup", "arguments": None}}
     response = FakeResponse(FakeMessage(content="", tool_calls=[tool_call]))
@@ -587,7 +587,7 @@ def test_process_completion_generates_tool_call_id(
     def mock_list_tools(provider: Any, timeout_sec: float | None = None) -> tuple[MCPToolDefinition, ...]:
         return (MCPToolDefinition(name="lookup", description="Lookup", input_schema={"type": "object"}),)
 
-    def mock_call_tools_parallel(
+    def mock_call_tools(
         calls: list[tuple[Any, str, dict[str, Any]]],
         *,
         timeout_sec: float | None = None,
@@ -595,7 +595,7 @@ def test_process_completion_generates_tool_call_id(
         return [MCPToolResult(content="result") for _ in calls]
 
     monkeypatch.setattr(mcp_io, "list_tools", mock_list_tools)
-    monkeypatch.setattr(mcp_io, "call_tools_parallel", mock_call_tools_parallel)
+    monkeypatch.setattr(mcp_io, "call_tools", mock_call_tools)
 
     # Tool call without id
     tool_call = {"function": {"name": "lookup", "arguments": "{}"}}
@@ -620,7 +620,7 @@ def test_process_completion_object_format_tool_calls(
 
     captured_calls: list[tuple[str, dict[str, Any]]] = []
 
-    def mock_call_tools_parallel(
+    def mock_call_tools(
         calls: list[tuple[Any, str, dict[str, Any]]],
         *,
         timeout_sec: float | None = None,
@@ -630,7 +630,7 @@ def test_process_completion_object_format_tool_calls(
         return [MCPToolResult(content="result") for _ in calls]
 
     monkeypatch.setattr(mcp_io, "list_tools", mock_list_tools)
-    monkeypatch.setattr(mcp_io, "call_tools_parallel", mock_call_tools_parallel)
+    monkeypatch.setattr(mcp_io, "call_tools", mock_call_tools)
 
     # Create object format tool call (simulating what some LLM libraries return)
     class FakeFunction:
