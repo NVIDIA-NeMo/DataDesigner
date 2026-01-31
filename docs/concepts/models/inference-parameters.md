@@ -17,7 +17,7 @@ The `ChatCompletionInferenceParams` class controls how models generate text comp
 | `temperature` | `float` or `Distribution` | No | Controls randomness in generation (0.0 to 2.0). Higher values = more creative/random |
 | `top_p` | `float` or `Distribution` | No | Nucleus sampling parameter (0.0 to 1.0). Controls diversity by filtering low-probability tokens |
 | `max_tokens` | `int` | No | Maximum number of tokens to generate in the response (≥ 1) |
-| `max_parallel_requests` | `int` | No | Maximum concurrent API requests (default: 4, ≥ 1) |
+| `max_parallel_requests` | `int` | No | Maximum concurrent API requests to this model (default: 4, ≥ 1). See [Concurrency Control](#concurrency-control) below. |
 | `timeout` | `int` | No | API request timeout in seconds (≥ 1) |
 | `extra_body` | `dict[str, Any]` | No | Additional parameters to include in the API request body |
 
@@ -114,6 +114,56 @@ inference_params = dd.ChatCompletionInferenceParams(
 )
 ```
 
+## Concurrency Control
+
+The `max_parallel_requests` parameter controls how many concurrent API calls Data Designer makes to a specific model. This is a critical performance tuning parameter.
+
+### How It Works
+
+Within each batch of records (controlled by `buffer_size` in `RunConfig`), Data Designer generates columns sequentially but parallelizes cell generation within each column:
+
+```
+Batch (1000 records)
+├── Column A: 1000 cells processed with max_parallel_requests concurrent LLM calls
+├── Column B: 1000 cells processed with max_parallel_requests concurrent LLM calls
+└── Column C: 1000 cells processed with max_parallel_requests concurrent LLM calls
+```
+
+### Recommended Values
+
+| Inference Backend | Recommended `max_parallel_requests` |
+|-------------------|-------------------------------------|
+| NVIDIA API Catalog (build.nvidia.com) | 4-8 |
+| Self-hosted vLLM (single GPU) | 8-16 |
+| Self-hosted vLLM (multi-GPU) | 16-64 |
+| OpenAI API | 4-8 (tier-dependent) |
+| NeMo Inference Microservices | 16-32 |
+
+### Example
+
+```python
+import data_designer.config as dd
+
+# High-throughput configuration for self-hosted vLLM
+inference_params = dd.ChatCompletionInferenceParams(
+    temperature=0.7,
+    max_tokens=2048,
+    max_parallel_requests=16,  # Higher for local deployment
+    timeout=120,
+)
+```
+
+!!! warning "Match Your Inference Capacity"
+    Setting `max_parallel_requests` too high can cause:
+
+    - Rate limit errors (429) on cloud APIs
+    - Request queuing and timeouts on self-hosted servers
+    - Out-of-memory errors on GPU inference servers
+
+    Start with conservative values and increase based on monitoring.
+
+For detailed performance optimization, see the [Performance Tuning](../performance-tuning.md) guide.
+
 ## Embedding Inference Parameters
 
 The `EmbeddingInferenceParams` class controls how models generate embeddings. This is used when working with embedding models for tasks like semantic search or similarity analysis.
@@ -135,3 +185,5 @@ The `EmbeddingInferenceParams` class controls how models generate embeddings. Th
 - **[Custom Model Settings](custom-model-settings.md)**: Learn how to create custom providers and model configurations
 - **[Model Configurations](model-configs.md)**: Learn about configuring model settings
 - **[Model Providers](model-providers.md)**: Learn about configuring model providers
+- **[Inference Architecture](../inference-architecture.md)**: Understanding separation of concerns with inference servers
+- **[Performance Tuning](../performance-tuning.md)**: Comprehensive guide to optimizing concurrency and batching
