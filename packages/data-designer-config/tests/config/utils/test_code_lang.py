@@ -26,7 +26,7 @@ def test_parse_dialect():
 
 
 def test_supported_values():
-    assert len(CodeLang.supported_values()) == 16
+    assert len(CodeLang.supported_values()) == 21
 
 
 def test_code_lang_to_syntax_lexer():
