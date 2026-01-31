@@ -50,6 +50,14 @@ class LoggingConfig:
 class RandomEmoji:
     """A generator for various themed emoji collections."""
 
+    def __init__(self) -> None:
+        self._progress_style = random.choice(_PROGRESS_STYLES)
+
+    def progress(self, percent: float) -> str:
+        """Get a progress emoji based on completion percentage (0-100)."""
+        phase_idx = min(int(percent / 25), len(self._progress_style) - 1)
+        return self._progress_style[phase_idx]
+
     @staticmethod
     def cooking() -> str:
         """Get a random cooking or food preparation emoji."""
@@ -163,3 +171,10 @@ def _make_stream_formatter() -> logging.Formatter:
 
 
 _DEFAULT_NOISY_LOGGERS = ["httpx", "matplotlib"]
+
+
+_PROGRESS_STYLES: list[list[str]] = [
+    ["🌑", "🌘", "🌗", "🌖", "🌕"],  # Moon phases
+    ["🌧️", "🌦️", "⛅", "🌤️", "☀️"],  # Weather (storm to sun)
+    ["🥚", "🐣", "🐥", "🐤", "🐔"],  # Hatching (egg to chicken)
+]
