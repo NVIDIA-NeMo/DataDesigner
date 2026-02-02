@@ -10,7 +10,7 @@ import pytest
 
 from data_designer.engine.mcp.errors import MCPConfigurationError, MCPToolError
 from data_designer.engine.models.errors import ImageGenerationError, ModelGenerationValidationFailureError
-from data_designer.engine.models.facade import ModelFacade
+from data_designer.engine.models.facade import CustomRouter, ModelFacade
 from data_designer.engine.models.parsers.errors import ParserException
 from data_designer.engine.models.utils import ChatMessage
 from data_designer.engine.testing import StubMCPFacade, StubMCPRegistry, StubMessage, StubResponse
@@ -61,18 +61,18 @@ def stub_expected_embedding_response():
         (3, 3, 16),
     ],
 )
-@patch("data_designer.engine.models.facade.ModelFacade.completion", autospec=True)
+@patch.object(ModelFacade, "completion", autospec=True)
 def test_generate(
-    mock_completion,
-    stub_model_facade,
-    max_correction_steps,
-    max_conversation_restarts,
-    total_calls,
-):
+    mock_completion: Any,
+    stub_model_facade: ModelFacade,
+    max_correction_steps: int,
+    max_conversation_restarts: int,
+    total_calls: int,
+) -> None:
     bad_response = mock_oai_response_object("bad response")
     mock_completion.side_effect = lambda *args, **kwargs: bad_response
 
-    def _failing_parser(response: str):
+    def _failing_parser(response: str) -> str:
         raise ParserException("parser exception")
 
     with pytest.raises(ModelGenerationValidationFailureError):
@@ -103,7 +103,7 @@ def test_generate(
         ("hello!", [ChatMessage.as_system("hello!"), ChatMessage.as_user("does not matter")]),
     ],
 )
-@patch("data_designer.engine.models.facade.ModelFacade.completion", autospec=True)
+@patch.object(ModelFacade, "completion", autospec=True)
 def test_generate_with_system_prompt(
     mock_completion: Any,
     stub_model_facade: ModelFacade,
@@ -191,7 +191,7 @@ def test_consolidate_kwargs(stub_model_configs, stub_model_facade):
         True,
     ],
 )
-@patch("data_designer.engine.models.facade.CustomRouter.completion", autospec=True)
+@patch.object(CustomRouter, "completion", autospec=True)
 def test_completion_success(
     mock_router_completion: Any,
     stub_completion_messages: list[ChatMessage],
@@ -212,7 +212,7 @@ def test_completion_success(
     }
 
 
-@patch("data_designer.engine.models.facade.CustomRouter.completion", autospec=True)
+@patch.object(CustomRouter, "completion", autospec=True)
 def test_completion_with_exception(
     mock_router_completion: Any,
     stub_completion_messages: list[ChatMessage],
@@ -224,7 +224,7 @@ def test_completion_with_exception(
         stub_model_facade.completion(stub_completion_messages)
 
 
-@patch("data_designer.engine.models.facade.CustomRouter.completion", autospec=True)
+@patch.object(CustomRouter, "completion", autospec=True)
 def test_completion_with_kwargs(
     mock_router_completion: Any,
     stub_completion_messages: list[ChatMessage],
@@ -250,29 +250,36 @@ def test_completion_with_kwargs(
     assert captured_kwargs == {**stub_model_configs[0].inference_parameters.generate_kwargs, **kwargs}
 
 
-@patch("data_designer.engine.models.facade.CustomRouter.embedding", autospec=True)
-def test_generate_text_embeddings_success(mock_router_embedding, stub_model_facade, stub_expected_embedding_response):
+@patch.object(CustomRouter, "embedding", autospec=True)
+def test_generate_text_embeddings_success(
+    mock_router_embedding: Any,
+    stub_model_facade: ModelFacade,
+    stub_expected_embedding_response: EmbeddingResponse,
+) -> None:
     mock_router_embedding.side_effect = lambda self, model, input, **kwargs: stub_expected_embedding_response
     input_texts = ["test1", "test2"]
     result = stub_model_facade.generate_text_embeddings(input_texts)
     assert result == [data["embedding"] for data in stub_expected_embedding_response.data]
 
 
-@patch("data_designer.engine.models.facade.CustomRouter.embedding", autospec=True)
-def test_generate_text_embeddings_with_exception(mock_router_embedding, stub_model_facade):
+@patch.object(CustomRouter, "embedding", autospec=True)
+def test_generate_text_embeddings_with_exception(mock_router_embedding: Any, stub_model_facade: ModelFacade) -> None:
     mock_router_embedding.side_effect = Exception("Router error")
 
     with pytest.raises(Exception, match="Router error"):
         stub_model_facade.generate_text_embeddings(["test1", "test2"])
 
 
-@patch("data_designer.engine.models.facade.CustomRouter.embedding", autospec=True)
+@patch.object(CustomRouter, "embedding", autospec=True)
 def test_generate_text_embeddings_with_kwargs(
-    mock_router_embedding, stub_model_configs, stub_model_facade, stub_expected_embedding_response
-):
+    mock_router_embedding: Any,
+    stub_model_configs: Any,
+    stub_model_facade: ModelFacade,
+    stub_expected_embedding_response: EmbeddingResponse,
+) -> None:
     captured_kwargs = {}
 
-    def mock_embedding(self, model, input, **kwargs):
+    def mock_embedding(self: Any, model: str, input: list[str], **kwargs: Any) -> EmbeddingResponse:
         captured_kwargs.update(kwargs)
         return stub_expected_embedding_response
 
