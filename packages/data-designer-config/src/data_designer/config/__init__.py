@@ -20,7 +20,7 @@ from data_designer.config.column_configs import (
 )
 from data_designer.config.column_types import DataDesignerColumnType
 from data_designer.config.config_builder import DataDesignerConfigBuilder
-from data_designer.config.custom_column import CustomColumnContext
+from data_designer.config.custom_column import CustomColumnContext, custom_column_generator
 from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.mcp import LocalStdioMCPProvider, MCPProvider, ToolConfig
@@ -90,6 +90,7 @@ def get_config_exports() -> list[str]:
     return [
         CustomColumnConfig.__name__,
         CustomColumnContext.__name__,
+        custom_column_generator.__name__,
         SchemaTransformProcessorConfig.__name__,
         BernoulliMixtureSamplerParams.__name__,
         BernoulliSamplerParams.__name__,

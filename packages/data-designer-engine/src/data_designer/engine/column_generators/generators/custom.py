@@ -27,8 +27,12 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
         - cell_by_cell: Processes rows one at a time (dict -> dict), parallelized by framework.
         - full_column: Processes entire batch (DataFrame -> DataFrame) for vectorized ops.
 
-    The context provides access to kwargs, column_name, generate_text(),
-    and get_model() for LLM integration.
+    Supported function signatures (detected via inspection):
+        - fn(row) -> dict                     # 1 arg: simple transform
+        - fn(row, params) -> dict             # 2 args: with typed params
+        - fn(row, params, ctx) -> dict        # 3 args: with params and LLM access
+
+    The context provides access to generate_text() and get_model() for LLM integration.
     """
 
     def get_generation_strategy(self) -> GenerationStrategy:
@@ -131,8 +135,8 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
         missing_output_columns = set(self.config.side_effect_columns) - set(result.keys())
         if missing_output_columns:
             raise CustomColumnGenerationError(
-                f"Custom generator for column '{self.config.name}' did not create declared output_columns: "
-                f"{sorted(missing_output_columns)}. Declared output_columns must be added to the row."
+                f"Custom generator for column '{self.config.name}' did not create declared side_effect_columns: "
+                f"{sorted(missing_output_columns)}. Declared side_effect_columns must be added to the row."
             )
 
         removed_keys = keys_before - set(result.keys())
@@ -149,7 +153,7 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
             logger.warning(
                 f"⚠️ Custom generator for column '{self.config.name}' created undeclared columns: "
                 f"{sorted(undeclared_keys)}. These columns will be removed. "
-                f"To keep additional columns, declare them in 'output_columns'."
+                f"To keep additional columns, declare them in @custom_column_generator(side_effect_columns=[...])."
             )
             for key in undeclared_keys:
                 del result[key]
@@ -169,8 +173,8 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
         missing_output_columns = set(self.config.side_effect_columns) - set(result.columns)
         if missing_output_columns:
             raise CustomColumnGenerationError(
-                f"Custom generator for column '{self.config.name}' did not create declared output_columns: "
-                f"{sorted(missing_output_columns)}. Declared output_columns must be added to the DataFrame."
+                f"Custom generator for column '{self.config.name}' did not create declared side_effect_columns: "
+                f"{sorted(missing_output_columns)}. Declared side_effect_columns must be added to the DataFrame."
             )
 
         removed_cols = columns_before - set(result.columns)
@@ -187,31 +191,45 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
             logger.warning(
                 f"⚠️ Custom generator for column '{self.config.name}' created undeclared columns: "
                 f"{sorted(undeclared_cols)}. These columns will be removed. "
-                f"To keep additional columns, declare them in 'output_columns'."
+                f"To keep additional columns, declare them in @custom_column_generator(side_effect_columns=[...])."
             )
             result = result.drop(columns=list(undeclared_cols))
 
         return result
 
     def _invoke_generator_function(self, data: dict | pd.DataFrame) -> dict | pd.DataFrame:
-        """Invoke the user's generate function with appropriate arguments."""
-        if self._function_accepts_context():
+        """Invoke the user's generate function with appropriate arguments.
+
+        Detects function signature and calls with appropriate arguments:
+            - 1 param: fn(data)
+            - 2 params: fn(data, params)
+            - 3 params: fn(data, params, ctx)
+        """
+        num_params = self._get_positional_param_count()
+
+        if num_params == 1:
+            # fn(row) -> dict
+            return self.config.generator_function(data)
+        elif num_params == 2:
+            # fn(row, params) -> dict
+            return self.config.generator_function(data, self.config.generator_params)
+        else:
+            # fn(row, params, ctx) -> dict (3 or more params)
             ctx = CustomColumnContext(
                 resource_provider=self.resource_provider,
-                config=self.config,
+                column_name=self.config.name,
             )
-            return self.config.generator_function(data, ctx)
-        return self.config.generator_function(data)
+            return self.config.generator_function(data, self.config.generator_params, ctx)
 
-    def _function_accepts_context(self) -> bool:
-        """Check if the user's generator_function accepts a context parameter (2+ args)."""
+    def _get_positional_param_count(self) -> int:
+        """Get the number of positional parameters in the generator function."""
         sig = inspect.signature(self.config.generator_function)
         positional_params = [
             p
             for p in sig.parameters.values()
             if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
         ]
-        return len(positional_params) >= 2
+        return len(positional_params)
 
     def log_pre_generation(self) -> None:
         logger.info(f"{self.config.get_column_emoji()} Custom column config for column '{self.config.name}'")
@@ -222,5 +240,5 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
             logger.info(f"  |-- side_effect_columns: {self.config.side_effect_columns}")
         if self.config.model_aliases:
             logger.info(f"  |-- model_aliases: {self.config.model_aliases}")
-        if self.config.generator_config:
-            logger.info(f"  |-- generator_config: {self.config.generator_config}")
+        if self.config.generator_params:
+            logger.info(f"  |-- generator_params: {self.config.generator_params}")

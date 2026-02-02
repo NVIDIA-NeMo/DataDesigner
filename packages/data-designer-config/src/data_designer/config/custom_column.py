@@ -5,46 +5,87 @@
 
 from __future__ import annotations
 
+import functools
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable, TypeVar
 
 if TYPE_CHECKING:
-    from pydantic import BaseModel
-
-    from data_designer.config.column_configs import CustomColumnConfig
+    from data_designer.config.interface import DataDesignerInterface
 
 logger = logging.getLogger(__name__)
 
+F = TypeVar("F", bound=Callable[..., Any])
+
+
+def custom_column_generator(
+    required_columns: list[str] | None = None,
+    side_effect_columns: list[str] | None = None,
+    model_aliases: list[str] | None = None,
+) -> Callable[[F], F]:
+    """Decorator to define metadata for a custom column generator function.
+
+    Args:
+        required_columns: Columns that must exist before this column runs (DAG ordering).
+        side_effect_columns: Additional columns the function will create.
+        model_aliases: Model aliases used (enables health checks).
+    """
+
+    def decorator(fn: F) -> F:
+        fn._custom_column_metadata = {  # type: ignore[attr-defined]
+            "required_columns": required_columns or [],
+            "side_effect_columns": side_effect_columns or [],
+            "model_aliases": model_aliases or [],
+        }
+
+        @functools.wraps(fn)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            return fn(*args, **kwargs)
+
+        # Copy metadata to wrapper
+        wrapper._custom_column_metadata = fn._custom_column_metadata  # type: ignore[attr-defined]
+        return wrapper  # type: ignore[return-value]
+
+    return decorator
+
 
 class CustomColumnContext:
-    """Facade providing access to resources for custom column generation.
+    """Facade providing access to LLM models for custom column generation.
 
-    This context is passed to user-defined generator functions, providing
-    access to LLM models and custom parameters without exposing internal
-    implementation details.
-
-    Attributes:
-        generator_config: Typed configuration object passed via the CustomColumnConfig.
-        column_name: The name of the column being generated.
+    Created automatically by the engine, or manually via `from_data_designer()` for development.
     """
 
     def __init__(
         self,
         resource_provider: Any,
-        config: CustomColumnConfig,
+        column_name: str = "custom_column",
     ):
         self._resource_provider = resource_provider
-        self._config = config
+        self._column_name = column_name
 
-    @property
-    def generator_config(self) -> BaseModel | None:
-        """Typed configuration object passed via the CustomColumnConfig."""
-        return self._config.generator_config
+    @classmethod
+    def from_data_designer(
+        cls,
+        data_designer: DataDesignerInterface,
+        column_name: str = "dev_column",
+    ) -> CustomColumnContext:
+        """Create a context from a DataDesigner instance for development/testing."""
+        # Access the resource provider from DataDesigner
+        # We need to create a minimal resource provider for development
+        from data_designer.config.config_builder import DataDesignerConfigBuilder
+
+        # Create a minimal config builder to get a resource provider
+        config_builder = DataDesignerConfigBuilder()
+        resource_provider = data_designer._create_resource_provider("dev", config_builder)
+
+        return cls(
+            resource_provider=resource_provider,
+            column_name=column_name,
+        )
 
     @property
     def column_name(self) -> str:
         """The name of the column being generated."""
-        return self._config.name
+        return self._column_name
 
     @property
     def model_registry(self) -> Any:
@@ -52,14 +93,7 @@ class CustomColumnContext:
         return self._resource_provider.model_registry
 
     def get_model(self, model_alias: str) -> Any:
-        """Get a model facade for direct access.
-
-        Args:
-            model_alias: The alias of the model to use.
-
-        Returns:
-            A ModelFacade for generating text with full control over parameters.
-        """
+        """Get a ModelFacade for direct model access."""
         return self._resource_provider.model_registry.get_model(model_alias=model_alias)
 
     def generate_text(
@@ -71,20 +105,7 @@ class CustomColumnContext:
     ) -> str | tuple[str, list[Any]]:
         """Generate text using an LLM model.
 
-        This is a convenience method for simple text generation. For more control
-        over generation parameters, use get_model() and call generate() directly.
-
-        Args:
-            model_alias: The alias of the model to use (e.g., "openai-text").
-            prompt: The prompt to send to the model.
-            system_prompt: Optional system prompt to set model behavior.
-            return_trace: If True, returns a tuple of (response, trace) where trace
-                is the full conversation history including any corrections or tool calls.
-
-        Returns:
-            If return_trace is False: The generated text as a string.
-            If return_trace is True: A tuple of (text, trace) where trace is
-                a list of ChatMessage objects representing the conversation.
+        Returns the generated text, or (text, trace) tuple if return_trace=True.
         """
         model = self.get_model(model_alias)
         response, trace = model.generate(
@@ -106,22 +127,7 @@ class CustomColumnContext:
         max_workers: int = 8,
         return_trace: bool = False,
     ) -> list[str] | list[tuple[str, list[Any]]]:
-        """Generate text for multiple prompts in parallel.
-
-        Use this method in full_column strategy to parallelize LLM calls across rows.
-
-        Args:
-            model_alias: The alias of the model to use.
-            prompts: List of prompts to send to the model.
-            system_prompt: Optional system prompt to set model behavior.
-            max_workers: Maximum number of parallel requests (default: 8).
-            return_trace: If True, returns list of (response, trace) tuples.
-
-        Returns:
-            If return_trace is False: List of generated texts in the same order as the input prompts.
-            If return_trace is True: List of (text, trace) tuples where each trace is
-                a list of ChatMessage objects representing that conversation.
-        """
+        """Generate text for multiple prompts in parallel. Use in full_column strategy."""
         from concurrent.futures import ThreadPoolExecutor
 
         model = self.get_model(model_alias)

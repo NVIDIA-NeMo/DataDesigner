@@ -494,57 +494,49 @@ class EmbeddingColumnConfig(SingleColumnConfig):
 class CustomColumnConfig(SingleColumnConfig):
     """Configuration for custom user-defined column generators.
 
-    Custom columns allow users to provide their own generation logic via a callable function.
-    This provides a flexible way to implement custom column generation without creating a full plugin.
+    Custom columns allow users to provide their own generation logic via a callable function
+    decorated with `@custom_column_generator`. This provides a flexible way to implement
+    custom column generation without creating a full plugin.
 
     Two strategies are supported:
         - cell_by_cell (default): Function receives a single row (dict), framework parallelizes.
         - full_column: Function receives the entire batch (DataFrame) for vectorized operations.
 
-    For cell_by_cell, two function signatures are supported:
-        - fn(row: dict) -> dict
-        - fn(row: dict, ctx: CustomColumnContext) -> dict
+    Supported function signatures (detected via inspection):
+        - fn(row: dict) -> dict                           # Simple transform
+        - fn(row: dict, params: BaseModel) -> dict        # With typed params
+        - fn(row: dict, params: BaseModel, ctx) -> dict   # With params and LLM access
 
-    For full_column:
-        - fn(df: pd.DataFrame) -> pd.DataFrame
-        - fn(df: pd.DataFrame, ctx: CustomColumnContext) -> pd.DataFrame
+    For full_column strategy, replace `row: dict` with `df: pd.DataFrame`.
+
+    The generator function should be decorated with `@custom_column_generator` to declare
+    its dependencies:
+        ```python
+        @custom_column_generator(
+            required_columns=["name", "product"],
+            side_effect_columns=["prompt"],
+            model_aliases=["nvidia-text"],  # optional, for health checks
+        )
+        def my_generator(row: dict, params: MyParams, ctx: CustomColumnContext) -> dict:
+            ...
+        ```
 
     Attributes:
-        generator_function: A callable that processes data. Signature depends on generation_strategy.
+        generator_function: A callable decorated with @custom_column_generator.
         generation_strategy: "cell_by_cell" (row-based) or "full_column" (batch-based).
-        input_columns: List of column names that must exist before this column can be generated.
-            These columns determine DAG ordering and are validated at runtime before generation.
-            Accessible via the `required_columns` property for consistency with other column types.
-        output_columns: List of additional column names that generator_function will create.
-            Any columns created but not declared here will be removed with a warning.
-            Accessible via the `side_effect_columns` property for consistency with other column types.
-        model_aliases: Optional list of model aliases used by the generation function.
-            Declaring these enables health checks to validate model access before generation starts.
-        generator_config: Optional typed configuration object (Pydantic BaseModel) accessible
-            via ctx.generator_config. Provides type-safe access to custom parameters.
+        generator_params: Optional typed configuration object (Pydantic BaseModel) passed
+            as the second argument to the generator function.
         column_type: Discriminator field, always "custom" for this configuration type.
     """
 
-    generator_function: Any = Field(description="Function to generate the column")
+    generator_function: Any = Field(description="Function decorated with @custom_column_generator")
     generation_strategy: GenerationStrategy = Field(
         default=GenerationStrategy.CELL_BY_CELL,
         description="Generation strategy: 'cell_by_cell' for row-based or 'full_column' for batch-based",
     )
-    input_columns: list[str] = Field(
-        default_factory=list,
-        description="List of column names required as input for generation (determines DAG ordering)",
-    )
-    output_columns: list[str] = Field(
-        default_factory=list,
-        description="List of additional column names that generator_function will create",
-    )
-    model_aliases: list[str] = Field(
-        default_factory=list,
-        description="List of model aliases used by the generation function for health checks",
-    )
-    generator_config: BaseModel | None = Field(
+    generator_params: BaseModel | None = Field(
         default=None,
-        description="Optional typed configuration object accessible via ctx.generator_config",
+        description="Optional typed configuration object passed as second argument to generator function",
     )
     column_type: Literal["custom"] = "custom"
 
@@ -554,20 +546,28 @@ class CustomColumnConfig(SingleColumnConfig):
 
     @property
     def required_columns(self) -> list[str]:
-        """Returns the columns required for custom generation (maps to input_columns)."""
-        return self.input_columns
+        """Returns the columns required for custom generation (from decorator metadata)."""
+        metadata = getattr(self.generator_function, "_custom_column_metadata", {})
+        return metadata.get("required_columns", [])
 
     @property
     def side_effect_columns(self) -> list[str]:
-        """Returns additional columns created by this generator (maps to output_columns)."""
-        return self.output_columns
+        """Returns additional columns created by this generator (from decorator metadata)."""
+        metadata = getattr(self.generator_function, "_custom_column_metadata", {})
+        return metadata.get("side_effect_columns", [])
+
+    @property
+    def model_aliases(self) -> list[str]:
+        """Returns model aliases for health checks (from decorator metadata)."""
+        metadata = getattr(self.generator_function, "_custom_column_metadata", {})
+        return metadata.get("model_aliases", [])
 
     @field_serializer("generator_function")
     def serialize_generator_function(self, v: Any) -> str:
         return getattr(v, "__name__", repr(v))
 
-    @field_serializer("generator_config")
-    def serialize_generator_config(self, v: BaseModel | None) -> dict[str, Any] | None:
+    @field_serializer("generator_params")
+    def serialize_generator_params(self, v: BaseModel | None) -> dict[str, Any] | None:
         if v is None:
             return None
         return v.model_dump()
@@ -577,6 +577,6 @@ class CustomColumnConfig(SingleColumnConfig):
         if not callable(self.generator_function):
             raise InvalidConfigError(
                 f"🛑 `generator_function` must be a callable for custom column '{self.name}'. "
-                f"Expected a function with signature (row: dict) -> dict or (row: dict, ctx) -> dict."
+                f"Expected a function decorated with @custom_column_generator."
             )
         return self
