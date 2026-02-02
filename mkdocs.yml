@@ -59,7 +59,7 @@ nav:
       - validator_params: code_reference/validator_params.md
       - processors: code_reference/processors.md
       - analysis: code_reference/analysis.md
-  - Dev Notes: blog/index.md
+  - Dev Notes: blog/
 
 theme:
   name: material
@@ -107,6 +107,12 @@ watch:
 
 plugins:
   - search
+  - blog:
+      blog_dir: blog
+      blog_toc: true
+      post_date_format: long
+      post_url_format: "{slug}"
+      categories: false
   - mike:
       alias_type: symlink
       canonical_version: latest
