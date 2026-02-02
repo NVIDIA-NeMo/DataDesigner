@@ -29,6 +29,11 @@ class SeedDatasetColumnGenerator(FromScratchColumnGenerator[SeedDatasetMultiColu
         return GenerationStrategy.FULL_COLUMN
 
     @property
+    def is_row_streamable(self) -> bool:
+        """Seed dataset generators produce independent per-row data."""
+        return True
+
+    @property
     def num_records_sampled(self) -> int:
         return self._num_records_sampled
 

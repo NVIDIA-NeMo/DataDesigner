@@ -20,6 +20,11 @@ logger = logging.getLogger(__name__)
 
 
 class ExpressionColumnGenerator(WithJinja2UserTemplateRendering, ColumnGeneratorFullColumn[ExpressionColumnConfig]):
+    @property
+    def is_row_streamable(self) -> bool:
+        """Expression generators process rows independently."""
+        return True
+
     def generate(self, data: pd.DataFrame) -> pd.DataFrame:
         logger.info(f"🧩 Generating column `{self.config.name}` from expression")
 

@@ -29,6 +29,11 @@ class SamplerColumnGenerator(FromScratchColumnGenerator[SamplerMultiColumnConfig
     def get_generation_strategy() -> GenerationStrategy:
         return GenerationStrategy.FULL_COLUMN
 
+    @property
+    def is_row_streamable(self) -> bool:
+        """Sampler generators produce independent per-row data."""
+        return True
+
     def generate(self, data: pd.DataFrame) -> pd.DataFrame:
         df_samplers = self.generate_from_scratch(len(data))
         return concat_datasets([data, df_samplers])
