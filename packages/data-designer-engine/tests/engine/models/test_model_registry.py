@@ -6,6 +6,7 @@ from unittest.mock import patch
 import pytest
 
 from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig
+from data_designer.engine.models import litellm_overrides
 from data_designer.engine.models.errors import ModelAuthenticationError
 from data_designer.engine.models.facade import ModelFacade
 from data_designer.engine.models.factory import create_model_registry
@@ -40,10 +41,13 @@ def stub_no_usage_config():
     )
 
 
-@patch("data_designer.engine.models.litellm_overrides.apply_litellm_patches", autospec=True)
+@patch.object(litellm_overrides, "apply_litellm_patches", autospec=True)
 def test_create_model_registry(
-    mock_apply_litellm_patches, stub_model_configs, stub_secrets_resolver, stub_model_provider_registry
-):
+    mock_apply_litellm_patches: object,
+    stub_model_configs: list[ModelConfig],
+    stub_secrets_resolver: object,
+    stub_model_provider_registry: object,
+) -> None:
     model_registry = create_model_registry(
         model_configs=stub_model_configs,
         secret_resolver=stub_secrets_resolver,
@@ -272,20 +276,26 @@ def test_get_usage_deltas(
         assert deltas == {}
 
 
-@patch("data_designer.engine.models.facade.ModelFacade.generate_text_embeddings", autospec=True)
-@patch("data_designer.engine.models.facade.ModelFacade.completion", autospec=True)
-def test_run_health_check_success(mock_completion, mock_generate_text_embeddings, stub_model_registry):
+@patch.object(ModelFacade, "generate_text_embeddings", autospec=True)
+@patch.object(ModelFacade, "completion", autospec=True)
+def test_run_health_check_success(
+    mock_completion: object,
+    mock_generate_text_embeddings: object,
+    stub_model_registry: ModelRegistry,
+) -> None:
     model_aliases = {"stub-text", "stub-reasoning", "stub-embedding"}
     stub_model_registry.run_health_check(model_aliases)
     assert mock_completion.call_count == 2
     assert mock_generate_text_embeddings.call_count == 1
 
 
-@patch("data_designer.engine.models.facade.ModelFacade.generate_text_embeddings", autospec=True)
-@patch("data_designer.engine.models.facade.ModelFacade.completion", autospec=True)
+@patch.object(ModelFacade, "generate_text_embeddings", autospec=True)
+@patch.object(ModelFacade, "completion", autospec=True)
 def test_run_health_check_completion_authentication_error(
-    mock_completion, mock_generate_text_embeddings, stub_model_registry
-):
+    mock_completion: object,
+    mock_generate_text_embeddings: object,
+    stub_model_registry: ModelRegistry,
+) -> None:
     auth_error = ModelAuthenticationError("Invalid API key for completion model")
     mock_completion.side_effect = auth_error
     model_aliases = ["stub-text", "stub-reasoning", "stub-embedding"]
@@ -297,11 +307,13 @@ def test_run_health_check_completion_authentication_error(
     mock_generate_text_embeddings.assert_not_called()
 
 
-@patch("data_designer.engine.models.facade.ModelFacade.generate_text_embeddings", autospec=True)
-@patch("data_designer.engine.models.facade.ModelFacade.completion", autospec=True)
+@patch.object(ModelFacade, "generate_text_embeddings", autospec=True)
+@patch.object(ModelFacade, "completion", autospec=True)
 def test_run_health_check_embedding_authentication_error(
-    mock_completion, mock_generate_text_embeddings, stub_model_registry
-):
+    mock_completion: object,
+    mock_generate_text_embeddings: object,
+    stub_model_registry: ModelRegistry,
+) -> None:
     auth_error = ModelAuthenticationError("Invalid API key for embedding model")
     mock_generate_text_embeddings.side_effect = auth_error
     model_aliases = ["stub-text", "stub-reasoning", "stub-embedding"]
@@ -313,12 +325,12 @@ def test_run_health_check_embedding_authentication_error(
     mock_generate_text_embeddings.assert_called_once()
 
 
-@patch("data_designer.engine.models.facade.ModelFacade.completion", autospec=True)
+@patch.object(ModelFacade, "completion", autospec=True)
 def test_run_health_check_skip_health_check_flag(
-    mock_completion,
-    stub_secrets_resolver,
-    stub_model_provider_registry,
-):
+    mock_completion: object,
+    stub_secrets_resolver: object,
+    stub_model_provider_registry: object,
+) -> None:
     # Create model configs: one with skip_health_check=True, others with default (False)
     model_configs = [
         ModelConfig(
