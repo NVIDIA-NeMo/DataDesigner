@@ -65,7 +65,7 @@ if __name__ == "__main__":
     config_builder.add_column(
         dd.CustomColumnConfig(
             name="refined_intro",
-            generation_function=multi_turn_writer_editor,
+            generator_function=multi_turn_writer_editor,
             input_columns=["topic"],
             output_columns=["conversation_trace"],
             model_aliases=[WRITER_MODEL_ALIAS, REVIEWER_MODEL_ALIAS],

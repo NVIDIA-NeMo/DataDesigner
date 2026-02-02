@@ -61,7 +61,7 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
         keys_before = set(data.keys())
 
         try:
-            result = self._invoke_generation_function(data)
+            result = self._invoke_generator_function(data)
         except Exception as e:
             logger.error(f"Custom column generator failed for '{self.config.name}': {e}")
             raise CustomColumnGenerationError(
@@ -89,7 +89,7 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
         columns_before = set(data.columns)
 
         try:
-            result = self._invoke_generation_function(data)
+            result = self._invoke_generator_function(data)
         except Exception as e:
             logger.error(f"Custom column generator failed for '{self.config.name}': {e}")
             raise CustomColumnGenerationError(
@@ -111,7 +111,7 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
         if self.config.name not in result:
             raise CustomColumnGenerationError(
                 f"Custom generator for column '{self.config.name}' did not create the expected column. "
-                f"The generation_function must add a key named '{self.config.name}' to the row dict."
+                f"The generator_function must add a key named '{self.config.name}' to the row dict."
             )
 
         missing_output_columns = set(self.config.side_effect_columns) - set(result.keys())
@@ -125,7 +125,7 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
         if removed_keys:
             raise CustomColumnGenerationError(
                 f"Custom generator for column '{self.config.name}' removed pre-existing columns: "
-                f"{sorted(removed_keys)}. The generation_function must not remove any existing columns from the row."
+                f"{sorted(removed_keys)}. The generator_function must not remove any existing columns from the row."
             )
 
         actual_new_keys = set(result.keys()) - keys_before
@@ -149,7 +149,7 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
         if self.config.name not in result.columns:
             raise CustomColumnGenerationError(
                 f"Custom generator for column '{self.config.name}' did not create the expected column. "
-                f"The generation_function must add a column named '{self.config.name}' to the DataFrame."
+                f"The generator_function must add a column named '{self.config.name}' to the DataFrame."
             )
 
         missing_output_columns = set(self.config.side_effect_columns) - set(result.columns)
@@ -163,7 +163,7 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
         if removed_cols:
             raise CustomColumnGenerationError(
                 f"Custom generator for column '{self.config.name}' removed pre-existing columns: "
-                f"{sorted(removed_cols)}. The generation_function must not remove any existing columns from the DataFrame."
+                f"{sorted(removed_cols)}. The generator_function must not remove any existing columns from the DataFrame."
             )
 
         actual_new_cols = set(result.columns) - columns_before
@@ -179,19 +179,19 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
 
         return result
 
-    def _invoke_generation_function(self, data: dict | pd.DataFrame) -> dict | pd.DataFrame:
+    def _invoke_generator_function(self, data: dict | pd.DataFrame) -> dict | pd.DataFrame:
         """Invoke the user's generate function with appropriate arguments."""
         if self._function_accepts_context():
             ctx = CustomColumnContext(
                 resource_provider=self.resource_provider,
                 config=self.config,
             )
-            return self.config.generation_function(data, ctx)
-        return self.config.generation_function(data)
+            return self.config.generator_function(data, ctx)
+        return self.config.generator_function(data)
 
     def _function_accepts_context(self) -> bool:
-        """Check if the user's generation_function accepts a context parameter (2+ args)."""
-        sig = inspect.signature(self.config.generation_function)
+        """Check if the user's generator_function accepts a context parameter (2+ args)."""
+        sig = inspect.signature(self.config.generator_function)
         positional_params = [
             p
             for p in sig.parameters.values()
@@ -201,12 +201,12 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
 
     def log_pre_generation(self) -> None:
         logger.info(f"{self.config.get_column_emoji()} Custom column config for column '{self.config.name}'")
-        logger.info(f"  |-- generation_function: {self.config.generation_function.__name__!r}")
+        logger.info(f"  |-- generator_function: {self.config.generator_function.__name__!r}")
         logger.info(f"  |-- generation_strategy: {self.config.generation_strategy!r}")
         logger.info(f"  |-- required_columns: {self.config.required_columns}")
         if self.config.side_effect_columns:
             logger.info(f"  |-- side_effect_columns: {self.config.side_effect_columns}")
         if self.config.model_aliases:
             logger.info(f"  |-- model_aliases: {self.config.model_aliases}")
-        if self.config.kwargs:
-            logger.info(f"  |-- kwargs: {self.config.kwargs}")
+        if self.config.generator_config:
+            logger.info(f"  |-- generator_config: {self.config.generator_config}")

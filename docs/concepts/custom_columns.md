@@ -36,7 +36,7 @@ def my_generator(row: dict, ctx: dd.CustomColumnContext) -> dict:
 
 dd.CustomColumnConfig(
     name="result",
-    generation_function=my_generator,
+    generator_function=my_generator,
     input_columns=["input"],
     model_aliases=["my-model"],
     # generation_strategy="cell_by_cell" is the default
@@ -58,7 +58,7 @@ def batch_generator(df: pd.DataFrame, ctx: dd.CustomColumnContext) -> pd.DataFra
 
 dd.CustomColumnConfig(
     name="result",
-    generation_function=batch_generator,
+    generator_function=batch_generator,
     input_columns=["input"],
     model_aliases=["my-model"],
     generation_strategy=dd.GenerationStrategy.FULL_COLUMN,
@@ -77,7 +77,7 @@ def create_greeting(row: dict) -> dict:
 config_builder.add_column(
     dd.CustomColumnConfig(
         name="greeting",
-        generation_function=create_greeting,
+        generator_function=create_greeting,
         input_columns=["name"],
     )
 )
@@ -100,7 +100,7 @@ def generate_message(row: dict, ctx: dd.CustomColumnContext) -> dict:
 config_builder.add_column(
     dd.CustomColumnConfig(
         name="message",
-        generation_function=generate_message,
+        generator_function=generate_message,
         input_columns=["name"],
         model_aliases=["my-model"],
     )
@@ -116,7 +116,7 @@ The `ctx` argument provides access to LLM models and custom parameters.
 | Property | Type | Description |
 |----------|------|-------------|
 | `column_name` | str | Name of the column being generated |
-| `kwargs` | dict | Custom parameters from configuration |
+| `generator_config` | BaseModel \| None | Typed configuration object from the config |
 | `model_registry` | ModelRegistry | Access to all configured models |
 
 ### Methods
@@ -141,12 +141,12 @@ response, metadata = model.generate(
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `name` | str | Yes | Primary column name |
-| `generation_function` | Callable | Yes | Generator function |
+| `generator_function` | Callable | Yes | Generator function |
 | `generation_strategy` | GenerationStrategy | No | `GenerationStrategy.CELL_BY_CELL` (default) or `GenerationStrategy.FULL_COLUMN`. String values `"cell_by_cell"` and `"full_column"` are also accepted. |
 | `input_columns` | list[str] | No | Columns that must exist before this column runs (determines DAG order) |
 | `output_columns` | list[str] | No | Additional columns created by the function |
 | `model_aliases` | list[str] | No | Model aliases used by the function (enables health checks) |
-| `kwargs` | dict | No | Custom parameters accessible via `ctx.kwargs` |
+| `generator_config` | BaseModel | No | Typed configuration object accessible via `ctx.generator_config` |
 
 ## Multiple Output Columns
 
@@ -164,7 +164,7 @@ def generate_with_trace(row: dict, ctx: dd.CustomColumnContext) -> dict:
 config_builder.add_column(
     dd.CustomColumnConfig(
         name="content",
-        generation_function=generate_with_trace,
+        generator_function=generate_with_trace,
         input_columns=["topic"],
         output_columns=["prompt_used"],
         model_aliases=["my-model"],
@@ -178,33 +178,40 @@ config_builder.add_column(
 !!! danger "Don't remove existing columns"
     Your generation function must not remove any pre-existing columns from the row/DataFrame. The framework validates this and will raise an error if columns are removed.
 
-## Custom Parameters
+## Typed Configuration
 
-Pass configuration to your function via the `kwargs` parameter. These values are accessible inside your generation function through `ctx.kwargs`:
+Pass typed configuration to your function via the `generator_config` parameter. Define a Pydantic model for type safety and validation:
 
 ```python
-def configurable_generator(row: dict, ctx: dd.CustomColumnContext) -> dict:
-    # Access kwargs passed from the config
-    tone = ctx.kwargs.get("tone", "neutral")
-    max_length = ctx.kwargs.get("max_length", 100)
+from pydantic import BaseModel
 
-    prompt = f"Write a {tone} message about {row['topic']} in under {max_length} words."
+class ContentGeneratorConfig(BaseModel):
+    tone: str = "neutral"
+    max_length: int = 100
+
+def configurable_generator(row: dict, ctx: dd.CustomColumnContext) -> dict:
+    # Access typed config - IDE autocomplete works!
+    config = ctx.generator_config
+    prompt = f"Write a {config.tone} message about {row['topic']} in under {config.max_length} words."
     row[ctx.column_name] = ctx.generate_text(model_alias="my-model", prompt=prompt)
     return row
 
 config_builder.add_column(
     dd.CustomColumnConfig(
         name="styled_content",
-        generation_function=configurable_generator,
+        generator_function=configurable_generator,
         input_columns=["topic"],
         model_aliases=["my-model"],
-        # These kwargs are passed to ctx.kwargs inside your function
-        kwargs={"tone": "professional", "max_length": 50},
+        generator_config=ContentGeneratorConfig(tone="professional", max_length=50),
     )
 )
 ```
 
-This pattern lets you reuse the same function with different configurations without modifying the code.
+This pattern provides:
+
+- **Type safety**: Pydantic validates your configuration at construction time
+- **IDE support**: Full autocomplete and type hints for your config fields
+- **Reusability**: Same function with different typed configurations
 
 ## Capturing Conversation Traces
 
@@ -226,7 +233,7 @@ def generate_with_trace(row: dict, ctx: dd.CustomColumnContext) -> dict:
 config_builder.add_column(
     dd.CustomColumnConfig(
         name="content",
-        generation_function=generate_with_trace,
+        generator_function=generate_with_trace,
         input_columns=["topic"],
         output_columns=["conversation_trace"],
         model_aliases=["my-model"],
@@ -267,7 +274,7 @@ def writer_editor_workflow(row: dict, ctx: dd.CustomColumnContext) -> dict:
 config_builder.add_column(
     dd.CustomColumnConfig(
         name="refined_content",
-        generation_function=writer_editor_workflow,
+        generator_function=writer_editor_workflow,
         input_columns=["topic"],
         output_columns=["draft", "critique"],
         model_aliases=["writer", "editor"],

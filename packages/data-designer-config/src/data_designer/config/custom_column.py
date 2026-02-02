@@ -9,6 +9,8 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from pydantic import BaseModel
+
     from data_designer.config.column_configs import CustomColumnConfig
 
 logger = logging.getLogger(__name__)
@@ -22,7 +24,7 @@ class CustomColumnContext:
     implementation details.
 
     Attributes:
-        kwargs: Custom parameters passed via the CustomColumnConfig.
+        generator_config: Typed configuration object passed via the CustomColumnConfig.
         column_name: The name of the column being generated.
     """
 
@@ -35,9 +37,9 @@ class CustomColumnContext:
         self._config = config
 
     @property
-    def kwargs(self) -> dict[str, Any]:
-        """Custom parameters passed via the CustomColumnConfig."""
-        return self._config.kwargs
+    def generator_config(self) -> BaseModel | None:
+        """Typed configuration object passed via the CustomColumnConfig."""
+        return self._config.generator_config
 
     @property
     def column_name(self) -> str:

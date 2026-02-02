@@ -7,10 +7,19 @@ Example demonstrating the CustomColumnGenerator with LLM access.
 
 from __future__ import annotations
 
+from pydantic import BaseModel
+
 import data_designer.config as dd
 from data_designer.interface import DataDesigner
 
 MODEL_ALIAS = "nvidia-text"
+
+
+class MessageConfig(BaseModel):
+    """Typed configuration for the personalized message generator."""
+
+    tone: str = "friendly"
+    max_words: int = 50
 
 
 # Example 1: Simple custom generator (no LLM)
@@ -28,18 +37,16 @@ def generate_personalized_message(row: dict, ctx: dd.CustomColumnContext) -> dic
     """A generator that uses an LLM to create personalized messages.
 
     This demonstrates the clean API provided by CustomColumnContext:
-    - ctx.kwargs: Access custom parameters from the config
+    - ctx.generator_config: Access typed configuration from the config
     - ctx.generate_text(): Generate text with an LLM
     - ctx.column_name: The name of the column being generated
     """
-    tone = ctx.kwargs.get("tone", "friendly")
-    max_words = ctx.kwargs.get("max_words", 50)
-
+    config: MessageConfig = ctx.generator_config
     name = row["name"]
     product = row["product_interest"]
     prompt = (
-        f"Write a {tone} personalized message for a customer named {name} "
-        f"who is interested in {product}. Keep it under {max_words} words."
+        f"Write a {config.tone} personalized message for a customer named {name} "
+        f"who is interested in {product}. Keep it under {config.max_words} words."
     )
 
     result = ctx.generate_text(
@@ -102,7 +109,7 @@ if __name__ == "__main__":
     config_builder.add_column(
         dd.CustomColumnConfig(
             name="greeting",
-            generation_function=simple_text_transform,
+            generator_function=simple_text_transform,
             input_columns=["name"],
         )
     )
@@ -110,14 +117,14 @@ if __name__ == "__main__":
     config_builder.add_column(
         dd.CustomColumnConfig(
             name="personalized_message",
-            generation_function=generate_personalized_message,
+            generator_function=generate_personalized_message,
             input_columns=["name", "product_interest"],
             output_columns=["prompt"],
             model_aliases=[MODEL_ALIAS],
-            kwargs={
-                "tone": "friendly and professional",
-                "max_words": 30,
-            },
+            generator_config=MessageConfig(
+                tone="friendly and professional",
+                max_words=30,
+            ),
         )
     )
 

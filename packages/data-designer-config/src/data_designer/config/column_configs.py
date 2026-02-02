@@ -512,21 +512,22 @@ class CustomColumnConfig(SingleColumnConfig):
         - fn(df: pd.DataFrame, ctx: CustomColumnContext) -> pd.DataFrame
 
     Attributes:
-        generation_function: A callable that processes data. Signature depends on generation_strategy.
+        generator_function: A callable that processes data. Signature depends on generation_strategy.
         generation_strategy: "cell_by_cell" (row-based) or "full_column" (batch-based).
         input_columns: List of column names that must exist before this column can be generated.
             These columns determine DAG ordering and are validated at runtime before generation.
             Accessible via the `required_columns` property for consistency with other column types.
-        output_columns: List of additional column names that generation_function will create.
+        output_columns: List of additional column names that generator_function will create.
             Any columns created but not declared here will be removed with a warning.
             Accessible via the `side_effect_columns` property for consistency with other column types.
         model_aliases: Optional list of model aliases used by the generation function.
             Declaring these enables health checks to validate model access before generation starts.
-        kwargs: Optional dictionary of additional parameters accessible via ctx.kwargs.
+        generator_config: Optional typed configuration object (Pydantic BaseModel) accessible
+            via ctx.generator_config. Provides type-safe access to custom parameters.
         column_type: Discriminator field, always "custom" for this configuration type.
     """
 
-    generation_function: Any = Field(description="Function to generate the column")
+    generator_function: Any = Field(description="Function to generate the column")
     generation_strategy: GenerationStrategy = Field(
         default=GenerationStrategy.CELL_BY_CELL,
         description="Generation strategy: 'cell_by_cell' for row-based or 'full_column' for batch-based",
@@ -537,15 +538,15 @@ class CustomColumnConfig(SingleColumnConfig):
     )
     output_columns: list[str] = Field(
         default_factory=list,
-        description="List of additional column names that generation_function will create",
+        description="List of additional column names that generator_function will create",
     )
     model_aliases: list[str] = Field(
         default_factory=list,
         description="List of model aliases used by the generation function for health checks",
     )
-    kwargs: dict[str, Any] = Field(
-        default_factory=dict,
-        description="Additional parameters passed to ctx.kwargs in the generate function",
+    generator_config: BaseModel | None = Field(
+        default=None,
+        description="Optional typed configuration object accessible via ctx.generator_config",
     )
     column_type: Literal["custom"] = "custom"
 
@@ -563,15 +564,21 @@ class CustomColumnConfig(SingleColumnConfig):
         """Returns additional columns created by this generator (maps to output_columns)."""
         return self.output_columns
 
-    @field_serializer("generation_function")
-    def serialize_generation_function(self, v: Any) -> Any:
+    @field_serializer("generator_function")
+    def serialize_generator_function(self, v: Any) -> Any:
         return v.__name__
 
+    @field_serializer("generator_config")
+    def serialize_generator_config(self, v: BaseModel | None) -> dict[str, Any] | None:
+        if v is None:
+            return None
+        return v.model_dump()
+
     @model_validator(mode="after")
-    def validate_generation_function(self) -> Self:
-        if not callable(self.generation_function):
+    def validate_generator_function(self) -> Self:
+        if not callable(self.generator_function):
             raise InvalidConfigError(
-                f"🛑 `generation_function` must be a callable for custom column '{self.name}'. "
+                f"🛑 `generator_function` must be a callable for custom column '{self.name}'. "
                 f"Expected a function with signature (row: dict) -> dict or (row: dict, ctx) -> dict."
             )
         return self
