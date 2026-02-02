@@ -391,10 +391,31 @@ def _truncate(text: str, max_length: int = 100) -> str:
     return text[: max_length - 3] + "..."
 
 
+def _summarize_content(content: object) -> str:
+    """Summarize ChatML-style content blocks for display."""
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, dict):
+                block_type = block.get("type", "block")
+                if block_type == "text":
+                    text = str(block.get("text", ""))
+                    if text:
+                        parts.append(text)
+                elif block_type == "image_url":
+                    parts.append("[image]")
+                else:
+                    parts.append(f"[{block_type}]")
+            else:
+                parts.append(str(block))
+        return " ".join(parts)
+    return str(content)
+
+
 def _format_trace_step(msg: dict[str, object]) -> str:
     """Format a single trace message as a concise one-liner."""
     role = msg.get("role", "unknown")
-    content = msg.get("content", "")
+    content = _summarize_content(msg.get("content", ""))
     reasoning = msg.get("reasoning_content")
     tool_calls = msg.get("tool_calls")
     tool_call_id = msg.get("tool_call_id")

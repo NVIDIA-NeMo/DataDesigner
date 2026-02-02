@@ -68,10 +68,10 @@ Each trace is a `list[dict]` where each dict represents a message in the convers
 
 | Role | Fields | Description |
 |------|--------|-------------|
-| `system` | `role`, `content` | System prompt setting model behavior |
-| `user` | `role`, `content` | User prompt (rendered from template) |
-| `assistant` | `role`, `content`, `tool_calls`, `reasoning_content` | Model response; `content` may be `None` if only requesting tools |
-| `tool` | `role`, `content`, `tool_call_id` | Tool execution result; `tool_call_id` links to the request |
+| `system` | `role`, `content` | System prompt setting model behavior. `content` is a list of blocks in ChatML format. |
+| `user` | `role`, `content` | User prompt (rendered from template). `content` is a list of blocks (text + multimodal). |
+| `assistant` | `role`, `content`, `tool_calls`, `reasoning_content` | Model response; `content` may be empty if only requesting tools. |
+| `tool` | `role`, `content`, `tool_call_id` | Tool execution result; `tool_call_id` links to the request. |
 
 ### Example Trace (Simple Generation)
 
@@ -82,17 +82,17 @@ A basic trace without tool use:
     # System message (if configured)
     {
         "role": "system",
-        "content": "You are a helpful assistant that provides clear, concise answers."
+        "content": [{"type": "text", "text": "You are a helpful assistant that provides clear, concise answers."}]
     },
     # User message (the rendered prompt)
     {
         "role": "user",
-        "content": "What is the capital of France?"
+        "content": [{"type": "text", "text": "What is the capital of France?"}]
     },
     # Final assistant response
     {
         "role": "assistant",
-        "content": "The capital of France is Paris.",
+        "content": [{"type": "text", "text": "The capital of France is Paris."}],
         "reasoning_content": None  # May contain reasoning if model supports it
     }
 ]
@@ -107,17 +107,17 @@ When tool use is enabled, traces capture the full conversation including tool ca
     # System message
     {
         "role": "system",
-        "content": "You must call tools before answering. Only use tool results."
+        "content": [{"type": "text", "text": "You must call tools before answering. Only use tool results."}]
     },
     # User message (the rendered prompt)
     {
         "role": "user",
-        "content": "What documents are in the knowledge base about machine learning?"
+        "content": [{"type": "text", "text": "What documents are in the knowledge base about machine learning?"}]
     },
     # Assistant requests tool calls
     {
         "role": "assistant",
-        "content": None,
+        "content": [{"type": "text", "text": ""}],
         "tool_calls": [
             {
                 "id": "call_abc123",
@@ -132,13 +132,13 @@ When tool use is enabled, traces capture the full conversation including tool ca
     # Tool response (linked by tool_call_id)
     {
         "role": "tool",
-        "content": "Found 3 documents: intro_ml.pdf, neural_networks.pdf, transformers.pdf",
+        "content": [{"type": "text", "text": "Found 3 documents: intro_ml.pdf, neural_networks.pdf, transformers.pdf"}],
         "tool_call_id": "call_abc123"
     },
     # Final assistant response
     {
         "role": "assistant",
-        "content": "The knowledge base contains three documents about machine learning: ..."
+        "content": [{"type": "text", "text": "The knowledge base contains three documents about machine learning: ..."}]
     }
 ]
 ```

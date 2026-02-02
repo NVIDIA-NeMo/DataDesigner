@@ -100,11 +100,33 @@ def test_generate_method() -> None:
     result = generator.generate(data)
 
     assert result["test_column"] == {"result": "test_output"}
-    assert result["test_column" + TRACE_COLUMN_POSTFIX] == [{"role": "user", "content": "x"}]
+    assert result["test_column" + TRACE_COLUMN_POSTFIX] == [
+        {"role": "user", "content": [{"type": "text", "text": "x"}]}
+    ]
 
     # Test multi-modal context is None
     call_args = mock_model.generate.call_args
     assert call_args[1]["multi_modal_context"] is None
+
+
+def test_generate_method_normalizes_trace_content_blocks() -> None:
+    generator, _, mock_model, _, _, mock_prompt_renderer, mock_response_recipe = _create_generator_with_mocks()
+
+    generator.resource_provider.run_config.debug_override_save_all_column_traces = True
+    mock_prompt_renderer.render.side_effect = ["rendered_user_prompt", "rendered_system_prompt"]
+    mock_response_recipe.serialize_output.return_value = {"result": "test_output"}
+
+    multi_modal_content = [
+        {"type": "image_url", "image_url": {"url": "https://example.com/image.png"}},
+        {"type": "text", "text": "describe the image"},
+    ]
+    mock_model.generate.return_value = ({"result": "test_output"}, [ChatMessage.as_user(multi_modal_content)])
+
+    result = generator.generate({"input": "test_input"})
+
+    trace = result["test_column" + TRACE_COLUMN_POSTFIX]
+    assert trace[0]["role"] == "user"
+    assert trace[0]["content"] == multi_modal_content
 
 
 @patch("data_designer.engine.column_generators.generators.base.logger", autospec=True)
