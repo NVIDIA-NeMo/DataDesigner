@@ -12,6 +12,7 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
+from data_designer.config.column_configs import CustomColumnConfig
 from data_designer.config.column_types import ColumnConfigT
 from data_designer.config.config_builder import BuilderConfig
 from data_designer.config.data_designer_config import DataDesignerConfig
@@ -218,7 +219,7 @@ class ColumnWiseDatasetBuilder:
             model_aliases.add(config.model_alias)
 
         for config in self.single_column_configs:
-            if hasattr(config, "model_aliases") and config.model_aliases:
+            if isinstance(config, CustomColumnConfig) and config.model_aliases:
                 model_aliases.update(config.model_aliases)
 
         if model_aliases:

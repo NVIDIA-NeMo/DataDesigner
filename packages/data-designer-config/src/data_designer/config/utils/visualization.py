@@ -219,7 +219,7 @@ def display_sample_record(
                 # Also display side_effect_columns for custom generators
                 if col.column_type == DataDesignerColumnType.CUSTOM:
                     for output_col in col.side_effect_columns:
-                        if output_col in record.index:
+                        if output_col in record:
                             table.add_row(output_col, convert_to_row_element(record[output_col]))
         render_list.append(pad_console_element(table))
 

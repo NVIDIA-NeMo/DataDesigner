@@ -5,15 +5,15 @@
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import Mock
 
 import pytest
 from pydantic import BaseModel
 
-from data_designer.config.column_configs import CustomColumnConfig
+from data_designer.config.column_configs import CustomColumnConfig, GenerationStrategy
 from data_designer.config.custom_column import CustomColumnContext
 from data_designer.config.errors import InvalidConfigError
-from data_designer.engine.column_generators.generators.base import GenerationStrategy
 from data_designer.engine.column_generators.generators.custom import CustomColumnGenerator
 from data_designer.engine.column_generators.utils.errors import CustomColumnGenerationError
 from data_designer.engine.resources.resource_provider import ResourceProvider
@@ -29,7 +29,7 @@ class SampleGeneratorConfig(BaseModel):
 
 def _create_test_generator(
     name: str = "test_column",
-    generator_function: callable = None,
+    generator_function: Any = None,
     input_columns: list[str] | None = None,
     output_columns: list[str] | None = None,
     model_aliases: list[str] | None = None,
@@ -281,7 +281,7 @@ def test_log_pre_generation(caplog: pytest.LogCaptureFixture) -> None:
 
     assert "Custom column config for column 'result'" in caplog.text
     assert "my_generator" in caplog.text
-    assert "required_columns" in caplog.text or "input_columns" in caplog.text
+    assert "required_columns" in caplog.text
     assert "model_aliases" in caplog.text
 
 

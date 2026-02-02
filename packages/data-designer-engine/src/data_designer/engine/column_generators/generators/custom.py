@@ -45,10 +45,24 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
 
         Returns:
             The data with new column(s) added.
+
+        Raises:
+            CustomColumnGenerationError: If data type doesn't match the generation strategy.
         """
         if self.config.generation_strategy == GenerationStrategy.FULL_COLUMN:
+            if isinstance(data, dict):
+                raise CustomColumnGenerationError(
+                    f"Custom generator '{self.config.name}' is configured for 'full_column' strategy "
+                    f"but received a dict. Expected a DataFrame."
+                )
             return self._generate_full_column(data)
-        return self._generate_cell_by_cell(data)
+        else:
+            if not isinstance(data, dict):
+                raise CustomColumnGenerationError(
+                    f"Custom generator '{self.config.name}' is configured for 'cell_by_cell' strategy "
+                    f"but received a DataFrame. Expected a dict."
+                )
+            return self._generate_cell_by_cell(data)
 
     def _generate_cell_by_cell(self, data: dict) -> dict:
         """Generate column for a single row."""

@@ -11,15 +11,6 @@ from pydantic import BaseModel, Discriminator, Field, field_serializer, model_va
 from typing_extensions import Self
 
 from data_designer.config.base import ConfigBase
-
-
-class GenerationStrategy(str, Enum):
-    """Strategy for custom column generation."""
-
-    CELL_BY_CELL = "cell_by_cell"
-    FULL_COLUMN = "full_column"
-
-
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.models import ImageContext
 from data_designer.config.sampler_params import SamplerParamsT, SamplerType
@@ -28,6 +19,13 @@ from data_designer.config.utils.constants import TRACE_COLUMN_POSTFIX
 from data_designer.config.utils.misc import assert_valid_jinja2_template, extract_keywords_from_jinja2_template
 from data_designer.config.utils.trace_type import TraceType
 from data_designer.config.validator_params import ValidatorParamsT, ValidatorType
+
+
+class GenerationStrategy(str, Enum):
+    """Strategy for custom column generation."""
+
+    CELL_BY_CELL = "cell_by_cell"
+    FULL_COLUMN = "full_column"
 
 
 class SingleColumnConfig(ConfigBase, ABC):
@@ -565,8 +563,8 @@ class CustomColumnConfig(SingleColumnConfig):
         return self.output_columns
 
     @field_serializer("generator_function")
-    def serialize_generator_function(self, v: Any) -> Any:
-        return v.__name__
+    def serialize_generator_function(self, v: Any) -> str:
+        return getattr(v, "__name__", repr(v))
 
     @field_serializer("generator_config")
     def serialize_generator_config(self, v: BaseModel | None) -> dict[str, Any] | None:
