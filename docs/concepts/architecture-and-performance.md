@@ -45,6 +45,9 @@ This guide explains the architecture, execution model, and how to tune performan
 
 ## Execution Model
 
+!!! note "Column-Wise Generator"
+    This describes Data Designer's current **column-wise dataset generator**. Other dataset generation strategies are in development.
+
 Data Designer processes datasets in **batches**, with **parallel** operations within each batch.
 
 ### How It Works
@@ -55,7 +58,9 @@ Your dataset is divided into batches of `buffer_size` records. Each batch is pro
 
 **Step 2: Process columns sequentially**
 
-Within a batch, columns are generated one at a time following the dependency graph:
+Within a batch, columns are generated one at a time following the dependency graph. The order depends on column dependencies—expression columns may come before LLM columns if the LLM columns depend on them.
+
+Example workflow:
 
 ```
 Batch 1 (100 records)
@@ -113,9 +118,13 @@ concurrent_requests = min(
 Controls how many records are processed per batch.
 
 ```python
-from data_designer.config import RunConfig
+import data_designer.config as dd
+from data_designer.interface import DataDesigner
 
-run_config = RunConfig(buffer_size=2000)
+run_config = dd.RunConfig(buffer_size=2000)
+
+designer = DataDesigner()
+designer.set_run_config(run_config)
 ```
 
 | Value | Memory Usage | Throughput | Error Feedback |
@@ -135,12 +144,12 @@ run_config = RunConfig(buffer_size=2000)
 Controls concurrent LLM API calls **per model alias**.
 
 ```python
-from data_designer.config import ModelConfig, ChatCompletionInferenceParams
+import data_designer.config as dd
 
-model = ModelConfig(
+model = dd.ModelConfig(
     alias="my-model",
     model="nvidia/nemotron-3-nano-30b-a3b",
-    inference_parameters=ChatCompletionInferenceParams(
+    inference_parameters=dd.ChatCompletionInferenceParams(
         max_parallel_requests=8,
     ),
 )
@@ -152,6 +161,11 @@ model = ModelConfig(
 
 **When to decrease**: You're hitting rate limits or 429 errors, the inference server is overloaded, or you want more predictable/debuggable execution
 
+!!! tip "Finding the optimal value"
+    The right value depends on your inference stack and model. Self-hosted vLLM servers can often handle values as high as 256, 512, or even 1024 depending on your hardware.
+
+    **Benchmark approach**: Run a small dataset (e.g., 100 records) with increasing `max_parallel_requests` values (4 → 8 → 16 → 32 → ...) and measure generation time. Stop increasing when the runtime stops decreasing—that's when your inference server is saturated.
+
 ---
 
 ### `non_inference_max_parallel_workers` (RunConfig)
@@ -159,7 +173,8 @@ model = ModelConfig(
 Controls thread pool size for non-LLM operations (samplers, expressions, validators).
 
 ```python
-run_config = RunConfig(non_inference_max_parallel_workers=8)
+run_config = dd.RunConfig(non_inference_max_parallel_workers=8)
+designer.set_run_config(run_config)
 ```
 
 **Default**: 4
@@ -173,13 +188,14 @@ run_config = RunConfig(non_inference_max_parallel_workers=8)
 Control retry behavior and early shutdown for failed generations.
 
 ```python
-run_config = RunConfig(
+run_config = dd.RunConfig(
     max_conversation_restarts=5,           # Full conversation restarts (default: 5)
     max_conversation_correction_steps=0,   # In-conversation corrections (default: 0)
     disable_early_shutdown=False,          # Enable early shutdown (default)
     shutdown_error_rate=0.5,               # Shut down if >50% errors
     shutdown_error_window=10,              # Min tasks before error monitoring
 )
+designer.set_run_config(run_config)
 ```
 
 **When to adjust**:
