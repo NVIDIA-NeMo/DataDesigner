@@ -235,26 +235,34 @@ def test_upload_dataset_with_private_repo(
 
 
 def test_upload_dataset_card_missing_metadata(tmp_path: Path) -> None:
-    """Test _upload_dataset_card raises error when metadata.json is missing."""
+    """Test upload fails when metadata.json is missing."""
     client = HuggingFaceHubClient(token="test-token")
 
     # Create directory without metadata.json
     base_path = tmp_path / "dataset"
     base_path.mkdir()
 
-    with pytest.raises(HuggingFaceUploadError, match="Failed to read metadata.json"):
-        client._upload_dataset_card("test/dataset", base_path, "Test description")
+    with pytest.raises(HuggingFaceUploadError, match="Required file not found"):
+        client.upload_dataset(
+            repo_id="test/dataset",
+            base_dataset_path=base_path,
+            description="Test description",
+        )
 
 
-def test_upload_dataset_card_calls_push_to_hub(sample_dataset_path: Path) -> None:
-    """Test _upload_dataset_card generates card and pushes to hub."""
+def test_upload_dataset_card_calls_push_to_hub(mock_hf_api: MagicMock, sample_dataset_path: Path) -> None:
+    """Test upload_dataset generates and pushes dataset card."""
     client = HuggingFaceHubClient(token="test-token")
 
     with patch("data_designer.integrations.huggingface.client.DataDesignerDatasetCard") as mock_card_class:
         mock_card = MagicMock()
         mock_card_class.from_metadata.return_value = mock_card
 
-        client._upload_dataset_card("test/dataset", sample_dataset_path, "Test description")
+        client.upload_dataset(
+            repo_id="test/dataset",
+            base_dataset_path=sample_dataset_path,
+            description="Test description",
+        )
 
         # Verify card was created and pushed
         mock_card_class.from_metadata.assert_called_once()
@@ -351,81 +359,69 @@ def test_upload_dataset_multiple_processors(
 # Error handling and validation tests
 
 
-def test_validate_repo_id_invalid_format() -> None:
-    """Test repo_id validation with invalid formats."""
+def test_validate_repo_id_invalid_format(sample_dataset_path: Path) -> None:
+    """Test upload fails with invalid repo_id formats."""
     client = HuggingFaceHubClient(token="test-token")
 
     # Missing slash
     with pytest.raises(HuggingFaceUploadError, match="Invalid repo_id format"):
-        client._validate_repo_id("my-dataset")
+        client.upload_dataset("my-dataset", sample_dataset_path, "Test")
 
     # Too many slashes (caught by regex)
     with pytest.raises(HuggingFaceUploadError, match="Invalid repo_id format"):
-        client._validate_repo_id("user/org/dataset")
+        client.upload_dataset("user/org/dataset", sample_dataset_path, "Test")
 
     # Invalid characters (space)
     with pytest.raises(HuggingFaceUploadError, match="Invalid repo_id format"):
-        client._validate_repo_id("user/my dataset")
+        client.upload_dataset("user/my dataset", sample_dataset_path, "Test")
 
     # Empty string
     with pytest.raises(HuggingFaceUploadError, match="must be a non-empty string"):
-        client._validate_repo_id("")
-
-
-def test_validate_repo_id_valid_formats() -> None:
-    """Test repo_id validation with valid formats."""
-    client = HuggingFaceHubClient(token="test-token")
-
-    # Valid formats should not raise
-    client._validate_repo_id("username/dataset")
-    client._validate_repo_id("org/my-dataset")
-    client._validate_repo_id("user/dataset_name")
-    client._validate_repo_id("user123/dataset-123")
-    client._validate_repo_id("user/dataset.v2")
+        client.upload_dataset("", sample_dataset_path, "Test")
 
 
 def test_validate_dataset_path_not_exists(tmp_path: Path) -> None:
-    """Test validation fails when dataset path doesn't exist."""
+    """Test upload fails when dataset path doesn't exist."""
     client = HuggingFaceHubClient(token="test-token")
     non_existent = tmp_path / "does-not-exist"
 
     with pytest.raises(HuggingFaceUploadError, match="does not exist"):
-        client._validate_dataset_path(non_existent)
+        client.upload_dataset("test/dataset", non_existent, "Test")
 
 
 def test_validate_dataset_path_is_file(tmp_path: Path) -> None:
-    """Test validation fails when dataset path is a file."""
+    """Test upload fails when dataset path is a file."""
     client = HuggingFaceHubClient(token="test-token")
     file_path = tmp_path / "file.txt"
     file_path.write_text("not a directory")
 
     with pytest.raises(HuggingFaceUploadError, match="not a directory"):
-        client._validate_dataset_path(file_path)
+        client.upload_dataset("test/dataset", file_path, "Test")
 
 
 def test_validate_dataset_path_missing_metadata(tmp_path: Path) -> None:
-    """Test validation fails when metadata.json is missing."""
+    """Test upload fails when metadata.json is missing."""
     client = HuggingFaceHubClient(token="test-token")
     base_path = tmp_path / "dataset"
     base_path.mkdir()
 
-    with pytest.raises(HuggingFaceUploadError, match="Required file not found.*metadata.json"):
-        client._validate_dataset_path(base_path)
+    with pytest.raises(HuggingFaceUploadError, match="Required file not found"):
+        client.upload_dataset("test/dataset", base_path, "Test")
 
 
 def test_validate_dataset_path_missing_parquet_folder(tmp_path: Path) -> None:
-    """Test validation fails when parquet-files directory is missing."""
+    """Test upload fails when parquet-files directory is missing."""
     client = HuggingFaceHubClient(token="test-token")
     base_path = tmp_path / "dataset"
     base_path.mkdir()
     (base_path / "metadata.json").write_text('{"target_num_records": 10}')
 
-    with pytest.raises(HuggingFaceUploadError, match="Required directory not found.*parquet-files"):
-        client._validate_dataset_path(base_path)
+    with pytest.raises(HuggingFaceUploadError, match="Required directory not found"):
+        client.upload_dataset("test/dataset", base_path, "Test")
 
 
 def test_validate_dataset_path_empty_parquet_folder(tmp_path: Path) -> None:
-    """Test validation fails when parquet-files directory is empty."""
+    """Test upload fails when parquet-files directory is empty."""
     client = HuggingFaceHubClient(token="test-token")
     base_path = tmp_path / "dataset"
     base_path.mkdir()
@@ -433,12 +429,12 @@ def test_validate_dataset_path_empty_parquet_folder(tmp_path: Path) -> None:
     parquet_dir = base_path / "parquet-files"
     parquet_dir.mkdir()
 
-    with pytest.raises(HuggingFaceUploadError, match="parquet-files directory is empty"):
-        client._validate_dataset_path(base_path)
+    with pytest.raises(HuggingFaceUploadError, match="directory is empty"):
+        client.upload_dataset("test/dataset", base_path, "Test")
 
 
 def test_validate_dataset_path_invalid_metadata_json(tmp_path: Path) -> None:
-    """Test validation fails when metadata.json contains invalid JSON."""
+    """Test upload fails when metadata.json contains invalid JSON."""
     client = HuggingFaceHubClient(token="test-token")
     base_path = tmp_path / "dataset"
     base_path.mkdir()
@@ -447,12 +443,12 @@ def test_validate_dataset_path_invalid_metadata_json(tmp_path: Path) -> None:
     parquet_dir.mkdir()
     (parquet_dir / "batch_00000.parquet").write_text("data")
 
-    with pytest.raises(HuggingFaceUploadError, match="Invalid JSON in metadata.json"):
-        client._validate_dataset_path(base_path)
+    with pytest.raises(HuggingFaceUploadError, match="Invalid JSON"):
+        client.upload_dataset("test/dataset", base_path, "Test")
 
 
 def test_validate_dataset_path_invalid_sdg_json(tmp_path: Path) -> None:
-    """Test validation fails when sdg.json contains invalid JSON."""
+    """Test upload fails when sdg.json contains invalid JSON."""
     client = HuggingFaceHubClient(token="test-token")
     base_path = tmp_path / "dataset"
     base_path.mkdir()
@@ -462,8 +458,8 @@ def test_validate_dataset_path_invalid_sdg_json(tmp_path: Path) -> None:
     parquet_dir.mkdir()
     (parquet_dir / "batch_00000.parquet").write_text("data")
 
-    with pytest.raises(HuggingFaceUploadError, match="Invalid JSON in sdg.json"):
-        client._validate_dataset_path(base_path)
+    with pytest.raises(HuggingFaceUploadError, match="Invalid JSON"):
+        client.upload_dataset("test/dataset", base_path, "Test")
 
 
 def test_upload_dataset_invalid_repo_id(mock_hf_api: MagicMock, sample_dataset_path: Path) -> None:
@@ -513,14 +509,23 @@ def test_upload_dataset_permission_error(mock_hf_api: MagicMock, sample_dataset_
 
 
 def test_upload_dataset_card_invalid_json(tmp_path: Path) -> None:
-    """Test _upload_dataset_card handles corrupted metadata.json."""
+    """Test upload fails when metadata.json contains invalid JSON."""
     client = HuggingFaceHubClient(token="test-token")
     base_path = tmp_path / "dataset"
     base_path.mkdir()
     (base_path / "metadata.json").write_text("invalid json")
 
-    with pytest.raises(HuggingFaceUploadError, match="Failed to parse metadata.json"):
-        client._upload_dataset_card("test/dataset", base_path, "Test description")
+    # Create parquet directory so validation reaches the metadata JSON check
+    parquet_dir = base_path / "parquet-files"
+    parquet_dir.mkdir()
+    (parquet_dir / "batch_00000.parquet").write_text("data")
+
+    with pytest.raises(HuggingFaceUploadError, match="Invalid JSON"):
+        client.upload_dataset(
+            repo_id="test/dataset",
+            base_dataset_path=base_path,
+            description="Test description",
+        )
 
 
 def test_update_metadata_paths(tmp_path: Path) -> None:

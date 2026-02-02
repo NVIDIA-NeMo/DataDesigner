@@ -12,6 +12,12 @@ from pathlib import Path
 from huggingface_hub import HfApi
 from huggingface_hub.utils import HfHubHTTPError
 
+from data_designer.engine.dataset_builders.artifact_storage import (
+    FINAL_DATASET_FOLDER_NAME,
+    METADATA_FILENAME,
+    PROCESSORS_OUTPUTS_FOLDER_NAME,
+    SDG_CONFIG_FILENAME,
+)
 from data_designer.errors import DataDesignerError
 from data_designer.integrations.huggingface.dataset_card import DataDesignerDatasetCard
 from data_designer.logging import RandomEmoji
@@ -76,20 +82,30 @@ class HuggingFaceHubClient:
         """
         logger.info(f"🤗 Uploading dataset to Hugging Face Hub: {repo_id}")
 
-        self._validate_repo_id(repo_id)
-        self._validate_dataset_path(base_dataset_path)
-
-        self._create_or_get_repo(repo_id, private=private)
+        self._validate_repo_id(repo_id=repo_id)
+        self._validate_dataset_path(base_dataset_path=base_dataset_path)
+        self._create_or_get_repo(repo_id=repo_id, private=private)
 
         logger.info(f"  |-- {RandomEmoji.data()} Uploading dataset card...")
         try:
-            self._upload_dataset_card(repo_id, base_dataset_path, description)
+            self._upload_dataset_card(
+                repo_id=repo_id,
+                metadata_path=base_dataset_path / METADATA_FILENAME,
+                sdg_path=base_dataset_path / SDG_CONFIG_FILENAME,
+                description=description,
+            )
         except Exception as e:
             raise HuggingFaceUploadError(f"Failed to upload dataset card: {e}") from e
 
-        self._upload_main_dataset_files(repo_id, base_dataset_path)
-        self._upload_processor_files(repo_id, base_dataset_path)
-        self._upload_config_files(repo_id, base_dataset_path)
+        self._upload_main_dataset_files(repo_id=repo_id, parquet_folder=base_dataset_path / FINAL_DATASET_FOLDER_NAME)
+        self._upload_processor_files(
+            repo_id=repo_id, processors_folder=base_dataset_path / PROCESSORS_OUTPUTS_FOLDER_NAME
+        )
+        self._upload_config_files(
+            repo_id=repo_id,
+            metadata_path=base_dataset_path / METADATA_FILENAME,
+            sdg_path=base_dataset_path / SDG_CONFIG_FILENAME,
+        )
 
         url = f"https://huggingface.co/datasets/{repo_id}"
         logger.info(f"  |-- {RandomEmoji.success()} Dataset uploaded successfully! View at: {url}")
@@ -136,18 +152,17 @@ class HuggingFaceHubClient:
         except Exception as e:
             raise HuggingFaceUploadError(f"Unexpected error creating repository '{repo_id}': {e}") from e
 
-    def _upload_main_dataset_files(self, repo_id: str, base_dataset_path: Path) -> None:
+    def _upload_main_dataset_files(self, repo_id: str, parquet_folder: Path) -> None:
         """Upload main parquet dataset files.
 
         Args:
             repo_id: Hugging Face dataset repo ID
-            base_dataset_path: Path to dataset directory
+            parquet_folder: Path to folder containing parquet files
 
         Raises:
             HuggingFaceUploadError: If upload fails
         """
         logger.info(f"  |-- {RandomEmoji.loading()} Uploading main dataset files...")
-        parquet_folder = base_dataset_path / "parquet-files"
         try:
             self._api.upload_folder(
                 repo_id=repo_id,
@@ -159,17 +174,16 @@ class HuggingFaceHubClient:
         except Exception as e:
             raise HuggingFaceUploadError(f"Failed to upload parquet files: {e}") from e
 
-    def _upload_processor_files(self, repo_id: str, base_dataset_path: Path) -> None:
+    def _upload_processor_files(self, repo_id: str, processors_folder: Path) -> None:
         """Upload processor output files.
 
         Args:
             repo_id: Hugging Face dataset repo ID
-            base_dataset_path: Path to dataset directory
+            processors_folder: Path to folder containing processor output directories
 
         Raises:
             HuggingFaceUploadError: If upload fails
         """
-        processors_folder = base_dataset_path / "processors-files"
         if not processors_folder.exists():
             return
 
@@ -192,32 +206,31 @@ class HuggingFaceHubClient:
                     f"Failed to upload processor outputs for '{processor_dir.name}': {e}"
                 ) from e
 
-    def _upload_config_files(self, repo_id: str, base_dataset_path: Path) -> None:
+    def _upload_config_files(self, repo_id: str, metadata_path: Path, sdg_path: Path) -> None:
         """Upload configuration files (sdg.json and metadata.json).
 
         Args:
             repo_id: Hugging Face dataset repo ID
-            base_dataset_path: Path to dataset directory
+            metadata_path: Path to metadata.json file
+            sdg_path: Path to sdg.json file
 
         Raises:
             HuggingFaceUploadError: If upload fails
         """
         logger.info(f"  |-- {RandomEmoji.loading()} Uploading configuration files...")
 
-        sdg_path = base_dataset_path / "sdg.json"
         if sdg_path.exists():
             try:
                 self._api.upload_file(
                     repo_id=repo_id,
                     path_or_fileobj=str(sdg_path),
-                    path_in_repo="sdg.json",
+                    path_in_repo=SDG_CONFIG_FILENAME,
                     repo_type="dataset",
                     commit_message="Upload sdg.json",
                 )
             except Exception as e:
                 raise HuggingFaceUploadError(f"Failed to upload sdg.json: {e}") from e
 
-        metadata_path = base_dataset_path / "metadata.json"
         if metadata_path.exists():
             tmp_path = None
             try:
@@ -229,37 +242,36 @@ class HuggingFaceHubClient:
                 self._api.upload_file(
                     repo_id=repo_id,
                     path_or_fileobj=tmp_path,
-                    path_in_repo="metadata.json",
+                    path_in_repo=METADATA_FILENAME,
                     repo_type="dataset",
-                    commit_message="Upload metadata.json",
+                    commit_message=f"Upload {METADATA_FILENAME}",
                 )
             except Exception as e:
-                raise HuggingFaceUploadError(f"Failed to upload metadata.json: {e}") from e
+                raise HuggingFaceUploadError(f"Failed to upload {METADATA_FILENAME}: {e}") from e
             finally:
                 if tmp_path and Path(tmp_path).exists():
                     Path(tmp_path).unlink()
 
-    def _upload_dataset_card(self, repo_id: str, base_dataset_path: Path, description: str) -> None:
+    def _upload_dataset_card(self, repo_id: str, metadata_path: Path, sdg_path: Path, description: str) -> None:
         """Generate and upload dataset card from metadata.json.
 
         Args:
             repo_id: Hugging Face dataset repo ID
-            base_dataset_path: Path to dataset artifacts
+            metadata_path: Path to metadata.json file
+            sdg_path: Path to sdg.json file
             description: Custom description text for dataset card
 
         Raises:
             HuggingFaceUploadError: If dataset card generation or upload fails
         """
-        metadata_path = base_dataset_path / "metadata.json"
         try:
             with open(metadata_path) as f:
                 metadata = json.load(f)
         except json.JSONDecodeError as e:
-            raise HuggingFaceUploadError(f"Failed to parse metadata.json: {e}") from e
+            raise HuggingFaceUploadError(f"Failed to parse {METADATA_FILENAME}: {e}") from e
         except Exception as e:
-            raise HuggingFaceUploadError(f"Failed to read metadata.json: {e}") from e
+            raise HuggingFaceUploadError(f"Failed to read {METADATA_FILENAME}: {e}") from e
 
-        sdg_path = base_dataset_path / "sdg.json"
         sdg_config = None
         if sdg_path.exists():
             try:
@@ -327,16 +339,20 @@ class HuggingFaceHubClient:
         if "file_paths" in metadata:
             updated_file_paths = {}
 
-            if "parquet-files" in metadata["file_paths"]:
+            # Update parquet files path: parquet-files/ → data/
+            if FINAL_DATASET_FOLDER_NAME in metadata["file_paths"]:
                 updated_file_paths["data"] = [
-                    path.replace("parquet-files/", "data/") for path in metadata["file_paths"]["parquet-files"]
+                    path.replace(f"{FINAL_DATASET_FOLDER_NAME}/", "data/")
+                    for path in metadata["file_paths"][FINAL_DATASET_FOLDER_NAME]
                 ]
 
+            # Update processor files paths: processors-files/{name}/ → {name}/
             if "processor-files" in metadata["file_paths"]:
                 updated_file_paths["processor-files"] = {}
                 for processor_name, paths in metadata["file_paths"]["processor-files"].items():
                     updated_file_paths["processor-files"][processor_name] = [
-                        path.replace(f"processors-files/{processor_name}/", f"{processor_name}/") for path in paths
+                        path.replace(f"{PROCESSORS_OUTPUTS_FOLDER_NAME}/{processor_name}/", f"{processor_name}/")
+                        for path in paths
                     ]
 
             metadata["file_paths"] = updated_file_paths
@@ -359,14 +375,14 @@ class HuggingFaceHubClient:
         if not base_dataset_path.is_dir():
             raise HuggingFaceUploadError(f"Dataset path is not a directory: {base_dataset_path}")
 
-        metadata_path = base_dataset_path / "metadata.json"
+        metadata_path = base_dataset_path / METADATA_FILENAME
         if not metadata_path.exists():
             raise HuggingFaceUploadError(f"Required file not found: {metadata_path}")
 
         if not metadata_path.is_file():
-            raise HuggingFaceUploadError(f"metadata.json is not a file: {metadata_path}")
+            raise HuggingFaceUploadError(f"{METADATA_FILENAME} is not a file: {metadata_path}")
 
-        parquet_dir = base_dataset_path / "parquet-files"
+        parquet_dir = base_dataset_path / FINAL_DATASET_FOLDER_NAME
         if not parquet_dir.exists():
             raise HuggingFaceUploadError(
                 f"Required directory not found: {parquet_dir}. "
@@ -385,14 +401,14 @@ class HuggingFaceHubClient:
             with open(metadata_path) as f:
                 json.load(f)
         except json.JSONDecodeError as e:
-            raise HuggingFaceUploadError(f"Invalid JSON in metadata.json: {e}")
+            raise HuggingFaceUploadError(f"Invalid JSON in {METADATA_FILENAME}: {e}")
 
-        sdg_path = base_dataset_path / "sdg.json"
+        sdg_path = base_dataset_path / SDG_CONFIG_FILENAME
         if sdg_path.exists():
             if not sdg_path.is_file():
-                raise HuggingFaceUploadError(f"sdg.json is not a file: {sdg_path}")
+                raise HuggingFaceUploadError(f"{SDG_CONFIG_FILENAME} is not a file: {sdg_path}")
             try:
                 with open(sdg_path) as f:
                     json.load(f)
             except json.JSONDecodeError as e:
-                raise HuggingFaceUploadError(f"Invalid JSON in sdg.json: {e}")
+                raise HuggingFaceUploadError(f"Invalid JSON in {SDG_CONFIG_FILENAME}: {e}")
