@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -13,6 +14,8 @@ from data_designer.engine.secret_resolver import SecretResolver
 
 if TYPE_CHECKING:
     from data_designer.engine.mcp.facade import MCPFacade
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -81,6 +84,7 @@ class MCPRegistry:
         self._mcp_facade_factory = mcp_facade_factory
         self._tool_configs: dict[str, ToolConfig] = {}
         self._facades: dict[str, MCPFacade] = {}
+        self._validated_tool_aliases: set[str] = set()
 
         self._set_tool_configs(tool_configs)
 
@@ -153,6 +157,38 @@ class MCPRegistry:
         """Create an MCPFacade for a tool configuration."""
         return self._mcp_facade_factory(tool_config, self._secret_resolver, self._mcp_provider_registry)
 
+    def _validate_tool_config_providers(self, tool_config: ToolConfig) -> None:
+        available_providers = {provider.name for provider in self._mcp_provider_registry.providers}
+        missing_providers = [provider for provider in tool_config.providers if provider not in available_providers]
+        if missing_providers:
+            available_list = sorted(available_providers) if available_providers else ["(none configured)"]
+            raise ValueError(
+                f"ToolConfig '{tool_config.tool_alias}' references provider(s) {missing_providers!r} "
+                f"which are not registered. Available providers: {available_list}"
+            )
+
+    def _validate_tool_alias(self, tool_alias: str) -> None:
+        if tool_alias not in self._tool_configs:
+            raise ValueError(f"No tool config with alias {tool_alias!r} found!")
+        tool_config = self._tool_configs[tool_alias]
+        self._validate_tool_config_providers(tool_config)
+        facade = self.get_mcp(tool_alias=tool_alias)
+        facade.get_tool_schemas()
+        self._validated_tool_aliases.add(tool_alias)
+
+    def run_health_check(self, tool_aliases: list[str]) -> None:
+        if not tool_aliases:
+            return
+        logger.info("🧰 Running health checks for MCP tools...")
+        for tool_alias in tool_aliases:
+            logger.info(f"  |-- 👀 Checking tools for tool alias {tool_alias!r}...")
+            try:
+                self._validate_tool_alias(tool_alias)
+                logger.info("  |-- ✅ Passed!")
+            except Exception:
+                logger.error("  |-- ❌ Failed!")
+                raise
+
     def validate_no_duplicate_tool_names(self) -> None:
         """Validate that no ToolConfig has duplicate tool names across its providers.
 
@@ -164,6 +200,4 @@ class MCPRegistry:
             DuplicateToolNameError: If any ToolConfig has duplicate tool names across providers.
         """
         for tool_alias in self._tool_configs:
-            facade = self.get_mcp(tool_alias=tool_alias)
-            # get_tool_schemas() validates for duplicate tool names
-            facade.get_tool_schemas()
+            self._validate_tool_alias(tool_alias)

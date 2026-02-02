@@ -8,7 +8,9 @@ from unittest.mock import MagicMock
 import pytest
 
 from data_designer.config.mcp import LocalStdioMCPProvider, ToolConfig
-from data_designer.engine.mcp.registry import MCPRegistry
+from data_designer.engine.mcp import io as mcp_io
+from data_designer.engine.mcp.errors import DuplicateToolNameError
+from data_designer.engine.mcp.registry import MCPRegistry, MCPToolDefinition
 from data_designer.engine.model_provider import MCPProviderRegistry
 
 
@@ -61,11 +63,20 @@ def test_register_tool_configs(
 
 
 def test_get_mcp_creates_facade(
+    monkeypatch: pytest.MonkeyPatch,
     stub_secret_resolver: MagicMock,
     stub_mcp_provider_registry: MCPProviderRegistry,
     stub_mcp_facade_factory,
 ) -> None:
     """Test that get_mcp creates and caches facades."""
+
+    def mock_list_tools(
+        provider: LocalStdioMCPProvider, timeout_sec: float | None = None
+    ) -> tuple[MCPToolDefinition, ...]:
+        return (MCPToolDefinition(name="lookup", description="Lookup", input_schema={"type": "object"}),)
+
+    monkeypatch.setattr(mcp_io, "list_tools", mock_list_tools)
+
     tool_config = ToolConfig(tool_alias="search", providers=["tools"])
     registry = MCPRegistry(
         secret_resolver=stub_secret_resolver,
@@ -98,11 +109,20 @@ def test_mcp_provider_registry_property(
 
 
 def test_facades_property(
+    monkeypatch: pytest.MonkeyPatch,
     stub_secret_resolver: MagicMock,
     stub_mcp_provider_registry: MCPProviderRegistry,
     stub_mcp_facade_factory,
 ) -> None:
     """Test that facades property returns the facades dict."""
+
+    def mock_list_tools(
+        provider: LocalStdioMCPProvider, timeout_sec: float | None = None
+    ) -> tuple[MCPToolDefinition, ...]:
+        return (MCPToolDefinition(name="lookup", description="Lookup", input_schema={"type": "object"}),)
+
+    monkeypatch.setattr(mcp_io, "list_tools", mock_list_tools)
+
     tool_config = ToolConfig(tool_alias="search", providers=["tools"])
     registry = MCPRegistry(
         secret_resolver=stub_secret_resolver,
@@ -149,9 +169,6 @@ class TestValidateNoDuplicateToolNames:
         stub_mcp_facade_factory,
     ) -> None:
         """Validation passes when tool names are unique across providers."""
-        from data_designer.engine.mcp import io as mcp_io
-        from data_designer.engine.mcp.registry import MCPToolDefinition
-
         providers = [
             LocalStdioMCPProvider(name="provider-1", command="python"),
             LocalStdioMCPProvider(name="provider-2", command="python"),
@@ -185,10 +202,6 @@ class TestValidateNoDuplicateToolNames:
         stub_mcp_facade_factory,
     ) -> None:
         """Validation raises DuplicateToolNameError when duplicates found."""
-        from data_designer.engine.mcp import io as mcp_io
-        from data_designer.engine.mcp.errors import DuplicateToolNameError
-        from data_designer.engine.mcp.registry import MCPToolDefinition
-
         providers = [
             LocalStdioMCPProvider(name="provider-1", command="python"),
             LocalStdioMCPProvider(name="provider-2", command="python"),
@@ -221,10 +234,6 @@ class TestValidateNoDuplicateToolNames:
         stub_mcp_facade_factory,
     ) -> None:
         """Validation checks all registered ToolConfigs."""
-        from data_designer.engine.mcp import io as mcp_io
-        from data_designer.engine.mcp.errors import DuplicateToolNameError
-        from data_designer.engine.mcp.registry import MCPToolDefinition
-
         providers = [
             LocalStdioMCPProvider(name="provider-1", command="python"),
             LocalStdioMCPProvider(name="provider-2", command="python"),

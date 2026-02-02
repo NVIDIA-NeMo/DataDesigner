@@ -356,21 +356,23 @@ class MCPFacade:
             raise MCPToolError("MCP tool call is missing a tool name.")
 
         arguments_payload: dict[str, Any]
-        arguments_json: str
         if arguments is None or arguments == "":
             arguments_payload = {}
-            arguments_json = "{}"
         elif isinstance(arguments, str):
             try:
                 arguments_payload = json.loads(arguments)
             except json.JSONDecodeError as exc:
                 raise MCPToolError(f"Invalid tool arguments for '{name}': {arguments}") from exc
-            arguments_json = arguments
         elif isinstance(arguments, dict):
             arguments_payload = arguments
-            arguments_json = json.dumps(arguments_payload)
         else:
             raise MCPToolError(f"Unsupported tool arguments type for '{name}': {type(arguments)!r}")
+
+        # Normalize arguments_json to ensure valid, canonical JSON
+        try:
+            arguments_json = json.dumps(arguments_payload)
+        except TypeError as exc:
+            raise MCPToolError(f"Non-serializable tool arguments for '{name}': {exc}") from exc
 
         return {
             "id": tool_call_id or uuid.uuid4().hex,

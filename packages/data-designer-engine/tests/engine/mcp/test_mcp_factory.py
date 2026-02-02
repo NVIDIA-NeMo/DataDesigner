@@ -52,6 +52,10 @@ def test_create_mcp_registry_with_tool_configs() -> None:
 
 def test_create_mcp_registry_facade_factory_creates_facades() -> None:
     """Test that the registry's facade factory creates MCPFacade instances."""
+    from unittest.mock import patch
+
+    from data_designer.engine.mcp.registry import MCPToolDefinition
+
     secret_resolver = PlaintextResolver()
 
     provider = LocalStdioMCPProvider(name="test-provider", command="echo")
@@ -70,8 +74,11 @@ def test_create_mcp_registry_facade_factory_creates_facades() -> None:
         mcp_provider_registry=mcp_provider_registry,
     )
 
-    # Get the facade through the registry
-    facade = registry.get_mcp(tool_alias="test-tool")
+    # Mock list_tools to avoid actual MCP connection (validation is deferred to first get_mcp call)
+    mock_tools = (MCPToolDefinition(name="mock-tool", description="Mock", input_schema={}),)
+    with patch("data_designer.engine.mcp.io.list_tools", return_value=mock_tools):
+        # Get the facade through the registry
+        facade = registry.get_mcp(tool_alias="test-tool")
 
     # Verify it's an MCPFacade
     from data_designer.engine.mcp.facade import MCPFacade

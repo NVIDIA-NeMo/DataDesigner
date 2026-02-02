@@ -4,10 +4,14 @@
 from __future__ import annotations
 
 import copy
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from data_designer.cli.forms.provider_builder import ProviderFormBuilder
+
+# Pattern for valid environment variable names (uppercase letters, digits, underscores, not starting with digit)
+_ENV_VAR_PATTERN = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 from data_designer.cli.repositories.model_repository import ModelRepository
 from data_designer.cli.repositories.provider_repository import ProviderRepository
 from data_designer.cli.services.model_service import ModelService
@@ -95,8 +99,8 @@ class ProviderController:
             for provider in masked["providers"]:
                 if "api_key" in provider and provider["api_key"]:
                     api_key = provider["api_key"]
-                    # Keep environment variable names visible
-                    if not api_key.isupper():
+                    # Only show unmasked if it looks like a valid environment variable name
+                    if not _ENV_VAR_PATTERN.match(api_key):
                         provider["api_key"] = "***" + api_key[-4:] if len(api_key) > 4 else "***"
 
         return masked

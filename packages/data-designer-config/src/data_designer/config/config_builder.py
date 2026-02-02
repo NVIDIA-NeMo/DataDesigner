@@ -219,7 +219,7 @@ class DataDesignerConfigBuilder:
         """
         if tool_config.tool_alias in {tc.tool_alias for tc in self._tool_configs}:
             raise BuilderConfigurationError(
-                f"🛑 Tool configuration with alias {tool_config.tool_alias} already exists. "
+                f"Tool configuration with alias {tool_config.tool_alias} already exists. "
                 "Please delete the existing tool configuration or choose a different alias."
             )
         self._tool_configs.append(tool_config)

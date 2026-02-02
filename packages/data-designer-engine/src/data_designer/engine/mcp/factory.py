@@ -3,14 +3,11 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from data_designer.config.mcp import ToolConfig
+from data_designer.engine.mcp.facade import MCPFacade
+from data_designer.engine.mcp.registry import MCPRegistry
 from data_designer.engine.model_provider import MCPProviderRegistry
 from data_designer.engine.secret_resolver import SecretResolver
-
-if TYPE_CHECKING:
-    from data_designer.engine.mcp.registry import MCPRegistry
 
 
 def create_mcp_registry(
@@ -33,8 +30,6 @@ def create_mcp_registry(
     Returns:
         A configured MCPRegistry instance.
     """
-    from data_designer.engine.mcp.facade import MCPFacade
-    from data_designer.engine.mcp.registry import MCPRegistry
 
     def mcp_facade_factory(
         tool_config: ToolConfig, secret_resolver: SecretResolver, provider_registry: MCPProviderRegistry

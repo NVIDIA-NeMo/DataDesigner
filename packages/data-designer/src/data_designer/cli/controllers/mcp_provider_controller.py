@@ -4,7 +4,11 @@
 from __future__ import annotations
 
 import copy
+import re
 from pathlib import Path
+
+# Pattern for valid environment variable names (uppercase letters, digits, underscores, not starting with digit)
+_ENV_VAR_PATTERN = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 
 from data_designer.cli.forms.mcp_provider_builder import MCPProviderFormBuilder, MCPProviderT
 from data_designer.cli.repositories.mcp_provider_repository import MCPProviderRepository
@@ -86,8 +90,8 @@ class MCPProviderController:
             for provider in masked["providers"]:
                 if "api_key" in provider and provider["api_key"]:
                     api_key = provider["api_key"]
-                    # Keep environment variable names visible
-                    if not api_key.isupper():
+                    # Only show unmasked if it looks like a valid environment variable name
+                    if not _ENV_VAR_PATTERN.match(api_key):
                         provider["api_key"] = "***" + api_key[-4:] if len(api_key) > 4 else "***"
 
         return masked

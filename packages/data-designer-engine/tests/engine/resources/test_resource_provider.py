@@ -7,11 +7,21 @@ import pytest
 
 from data_designer.config.mcp import LocalStdioMCPProvider, MCPProvider, ToolConfig
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
+from data_designer.engine.models.registry import ModelRegistry
 from data_designer.engine.resources.resource_provider import (
     ResourceProvider,
     _validate_tool_configs_against_providers,
     create_resource_provider,
 )
+
+
+def _stub_model_registry() -> ModelRegistry:
+    return ModelRegistry(
+        secret_resolver=Mock(),
+        model_provider_registry=Mock(),
+        model_facade_factory=lambda *_args, **_kwargs: Mock(),
+        model_configs=[],
+    )
 
 
 def test_resource_provider_artifact_storage_required():
@@ -90,16 +100,16 @@ class TestToolConfigValidation:
         # Should not raise
         _validate_tool_configs_against_providers([], providers)
 
-    def test_create_resource_provider_validates_tool_configs(self, tmp_path: str) -> None:
-        """create_resource_provider validates tool configs against providers."""
+    def test_tool_config_validation_happens_during_health_check(self, tmp_path: str) -> None:
+        """Tool config validation is deferred to health checks."""
         artifact_storage = ArtifactStorage(artifact_path=str(tmp_path), dataset_name="test")
         tool_configs = [ToolConfig(tool_alias="tools", providers=["nonexistent"])]
 
-        with (
-            patch("data_designer.engine.resources.resource_provider.create_model_registry"),
-            pytest.raises(ValueError, match="ToolConfig 'tools' references provider"),
+        with patch(
+            "data_designer.engine.resources.resource_provider.create_model_registry",
+            return_value=_stub_model_registry(),
         ):
-            create_resource_provider(
+            resource_provider = create_resource_provider(
                 artifact_storage=artifact_storage,
                 model_configs=[],
                 secret_resolver=Mock(),
@@ -109,12 +119,15 @@ class TestToolConfigValidation:
                 mcp_providers=[],
             )
 
+        with pytest.raises(ValueError, match="ToolConfig 'tools' references provider"):
+            resource_provider.mcp_registry.run_health_check(["tools"])
+
 
 class TestDuplicateToolNameValidation:
-    """Tests for duplicate tool name validation at resource provider creation time."""
+    """Tests for duplicate tool name validation at health check time."""
 
-    def test_create_resource_provider_validates_duplicate_tool_names(self, tmp_path: str) -> None:
-        """create_resource_provider validates for duplicate tool names across providers."""
+    def test_health_check_validates_duplicate_tool_names(self, tmp_path: str) -> None:
+        """Health check validates for duplicate tool names across providers."""
         from data_designer.engine.mcp.errors import DuplicateToolNameError
         from data_designer.engine.mcp.registry import MCPToolDefinition
 
@@ -133,11 +146,13 @@ class TestDuplicateToolNameValidation:
             return (MCPToolDefinition(name="lookup", description="Lookup", input_schema={"type": "object"}),)
 
         with (
-            patch("data_designer.engine.resources.resource_provider.create_model_registry"),
+            patch(
+                "data_designer.engine.resources.resource_provider.create_model_registry",
+                return_value=_stub_model_registry(),
+            ),
             patch("data_designer.engine.mcp.io.list_tools", side_effect=mock_list_tools),
-            pytest.raises(DuplicateToolNameError, match="Duplicate tool names found"),
         ):
-            create_resource_provider(
+            resource_provider = create_resource_provider(
                 artifact_storage=artifact_storage,
                 model_configs=[],
                 secret_resolver=Mock(),
@@ -147,8 +162,11 @@ class TestDuplicateToolNameValidation:
                 mcp_providers=providers,
             )
 
-    def test_duplicate_validation_happens_at_creation_not_execution(self, tmp_path: str) -> None:
-        """Duplicate tool names are caught during resource provider creation, not job execution."""
+            with pytest.raises(DuplicateToolNameError, match="Duplicate tool names found"):
+                resource_provider.mcp_registry.run_health_check(["tools"])
+
+    def test_duplicate_validation_happens_at_health_check(self, tmp_path: str) -> None:
+        """Duplicate tool names are caught during health checks, not creation."""
         from data_designer.engine.mcp.errors import DuplicateToolNameError
         from data_designer.engine.mcp.registry import MCPToolDefinition
 
@@ -170,11 +188,13 @@ class TestDuplicateToolNameValidation:
             return (MCPToolDefinition(name="lookup", description="Lookup", input_schema={"type": "object"}),)
 
         with (
-            patch("data_designer.engine.resources.resource_provider.create_model_registry"),
+            patch(
+                "data_designer.engine.resources.resource_provider.create_model_registry",
+                return_value=_stub_model_registry(),
+            ),
             patch("data_designer.engine.mcp.io.list_tools", side_effect=mock_list_tools),
-            pytest.raises(DuplicateToolNameError),
         ):
-            create_resource_provider(
+            resource_provider = create_resource_provider(
                 artifact_storage=artifact_storage,
                 model_configs=[],
                 secret_resolver=Mock(),
@@ -184,5 +204,7 @@ class TestDuplicateToolNameValidation:
                 mcp_providers=providers,
             )
 
-        # list_tools should have been called during creation (not deferred)
-        assert list_tools_call_count > 0
+            assert list_tools_call_count == 0
+            with pytest.raises(DuplicateToolNameError):
+                resource_provider.mcp_registry.run_health_check(["tools"])
+            assert list_tools_call_count > 0

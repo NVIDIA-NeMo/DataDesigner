@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import re
+
 from rich.table import Table
 
 from data_designer.cli.repositories.mcp_provider_repository import MCPProviderRepository
@@ -12,6 +14,41 @@ from data_designer.cli.repositories.tool_repository import ToolRepository
 from data_designer.cli.ui import console, print_error, print_header, print_info, print_warning
 from data_designer.config.mcp import LocalStdioMCPProvider, MCPProvider
 from data_designer.config.utils.constants import DATA_DESIGNER_HOME, NordColor
+
+# Pattern for valid environment variable names (uppercase letters, digits, underscores, not starting with digit)
+_ENV_VAR_PATTERN = re.compile(r"^[A-Z_][A-Z0-9_]*$")
+
+
+def _is_env_var_name(value: str) -> bool:
+    """Check if a string looks like an environment variable name.
+
+    Returns True only if the string matches the pattern for typical env var names:
+    - All uppercase letters, digits, and underscores only
+    - Does not start with a digit
+    - At least one character
+
+    This is intentionally conservative to avoid leaking secrets that happen
+    to be uppercase (e.g., base32-encoded API keys).
+    """
+    return bool(_ENV_VAR_PATTERN.match(value))
+
+
+def _mask_api_key(api_key: str | None) -> str:
+    """Mask an API key for display, preserving environment variable names.
+
+    Args:
+        api_key: The API key value or None.
+
+    Returns:
+        A display string: "(not set)" if None, the original value if it looks
+        like an env var name, or a masked version showing only the last 4 chars.
+    """
+    if not api_key:
+        return "(not set)"
+    # Only show unmasked if it looks like a valid environment variable name
+    if _is_env_var_name(api_key):
+        return api_key
+    return "***" + api_key[-4:] if len(api_key) > 4 else "***"
 
 
 def list_command() -> None:
@@ -61,11 +98,7 @@ def display_providers(provider_repo: ProviderRepository) -> None:
 
         for provider in provider_registry.providers:
             is_default = "✓" if provider.name == default_name else ""
-            api_key_display = provider.api_key or "(not set)"
-
-            # Mask actual API keys (keep env var names visible)
-            if provider.api_key and not provider.api_key.isupper():
-                api_key_display = "***" + provider.api_key[-4:] if len(provider.api_key) > 4 else "***"
+            api_key_display = _mask_api_key(provider.api_key)
 
             table.add_row(
                 provider.name,
@@ -152,10 +185,7 @@ def display_mcp_providers(mcp_provider_repo: MCPProviderRepository) -> None:
         for provider in registry.providers:
             if isinstance(provider, MCPProvider):
                 endpoint_display = provider.endpoint
-                api_key_display = provider.api_key or "(not set)"
-                # Mask actual API keys (keep env var names visible)
-                if provider.api_key and not provider.api_key.isupper():
-                    api_key_display = "***" + provider.api_key[-4:] if len(provider.api_key) > 4 else "***"
+                api_key_display = _mask_api_key(provider.api_key)
             elif isinstance(provider, LocalStdioMCPProvider):
                 # Display command + args for stdio provider
                 args_str = " ".join(provider.args) if provider.args else ""

@@ -176,7 +176,9 @@ class MCPIOService:
                 )
                 self._thread.start()
                 logger.debug("Started MCP background event loop")
-        return self._loop
+            # Capture local reference to avoid race with concurrent shutdown()
+            loop = self._loop
+        return loop
 
     @staticmethod
     def _run_loop(loop: asyncio.AbstractEventLoop) -> None:
