@@ -65,7 +65,8 @@ class CustomColumnContext:
         model_alias: str,
         prompt: str,
         system_prompt: str | None = None,
-    ) -> str:
+        return_trace: bool = False,
+    ) -> str | tuple[str, list[Any]]:
         """Generate text using an LLM model.
 
         This is a convenience method for simple text generation. For more control
@@ -75,18 +76,24 @@ class CustomColumnContext:
             model_alias: The alias of the model to use (e.g., "openai-text").
             prompt: The prompt to send to the model.
             system_prompt: Optional system prompt to set model behavior.
+            return_trace: If True, returns a tuple of (response, trace) where trace
+                is the full conversation history including any corrections or tool calls.
 
         Returns:
-            The generated text as a string.
+            If return_trace is False: The generated text as a string.
+            If return_trace is True: A tuple of (text, trace) where trace is
+                a list of ChatMessage objects representing the conversation.
         """
         model = self.get_model(model_alias)
-        response, _ = model.generate(
+        response, trace = model.generate(
             prompt=prompt,
             parser=lambda x: x,
             system_prompt=system_prompt,
             max_correction_steps=0,
             max_conversation_restarts=0,
         )
+        if return_trace:
+            return response, trace
         return response
 
     def generate_text_batch(
@@ -95,7 +102,8 @@ class CustomColumnContext:
         prompts: list[str],
         system_prompt: str | None = None,
         max_workers: int = 8,
-    ) -> list[str]:
+        return_trace: bool = False,
+    ) -> list[str] | list[tuple[str, list[Any]]]:
         """Generate text for multiple prompts in parallel.
 
         Use this method in full_column strategy to parallelize LLM calls across rows.
@@ -105,22 +113,27 @@ class CustomColumnContext:
             prompts: List of prompts to send to the model.
             system_prompt: Optional system prompt to set model behavior.
             max_workers: Maximum number of parallel requests (default: 8).
+            return_trace: If True, returns list of (response, trace) tuples.
 
         Returns:
-            List of generated texts in the same order as the input prompts.
+            If return_trace is False: List of generated texts in the same order as the input prompts.
+            If return_trace is True: List of (text, trace) tuples where each trace is
+                a list of ChatMessage objects representing that conversation.
         """
         from concurrent.futures import ThreadPoolExecutor
 
         model = self.get_model(model_alias)
 
-        def generate_single(prompt: str) -> str:
-            response, _ = model.generate(
+        def generate_single(prompt: str) -> str | tuple[str, list[Any]]:
+            response, trace = model.generate(
                 prompt=prompt,
                 parser=lambda x: x,
                 system_prompt=system_prompt,
                 max_correction_steps=0,
                 max_conversation_restarts=0,
             )
+            if return_trace:
+                return response, trace
             return response
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:

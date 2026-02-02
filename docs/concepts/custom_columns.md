@@ -61,7 +61,7 @@ dd.CustomColumnConfig(
     generation_function=batch_generator,
     input_columns=["input"],
     model_aliases=["my-model"],
-    generation_strategy="full_column",
+    generation_strategy=dd.GenerationStrategy.FULL_COLUMN,
 )
 ```
 
@@ -121,9 +121,9 @@ The `ctx` argument provides access to LLM models and custom parameters.
 
 ### Methods
 
-**`generate_text(model_alias, prompt, system_prompt=None)`** — Generate text for a single prompt. Returns a string.
+**`generate_text(model_alias, prompt, system_prompt=None, return_trace=False)`** — Generate text for a single prompt. Returns a string, or a `(string, trace)` tuple if `return_trace=True`.
 
-**`generate_text_batch(model_alias, prompts, system_prompt=None, max_workers=8)`** — Generate text for multiple prompts in parallel. Returns a list of strings. Use this in `full_column` strategy.
+**`generate_text_batch(model_alias, prompts, system_prompt=None, max_workers=8, return_trace=False)`** — Generate text for multiple prompts in parallel. Returns a list of strings, or a list of `(string, trace)` tuples if `return_trace=True`. Use this in `full_column` strategy.
 
 **`get_model(model_alias)`** — Returns a `ModelFacade` for advanced control:
 
@@ -142,7 +142,7 @@ response, metadata = model.generate(
 |-----------|------|----------|-------------|
 | `name` | str | Yes | Primary column name |
 | `generation_function` | Callable | Yes | Generator function |
-| `generation_strategy` | str | No | `"cell_by_cell"` (default) or `"full_column"` |
+| `generation_strategy` | GenerationStrategy | No | `GenerationStrategy.CELL_BY_CELL` (default) or `GenerationStrategy.FULL_COLUMN`. String values `"cell_by_cell"` and `"full_column"` are also accepted. |
 | `input_columns` | list[str] | No | Columns that must exist before this column runs (determines DAG order) |
 | `output_columns` | list[str] | No | Additional columns created by the function |
 | `model_aliases` | list[str] | No | Model aliases used by the function (enables health checks) |
@@ -205,6 +205,36 @@ config_builder.add_column(
 ```
 
 This pattern lets you reuse the same function with different configurations without modifying the code.
+
+## Capturing Conversation Traces
+
+Use `return_trace=True` to capture the full conversation history, including any corrections or tool calls:
+
+```python
+def generate_with_trace(row: dict, ctx: dd.CustomColumnContext) -> dict:
+    response, trace = ctx.generate_text(
+        model_alias="my-model",
+        prompt=f"Write about {row['topic']}.",
+        return_trace=True,
+    )
+
+    row[ctx.column_name] = response
+    # Store trace as JSON for debugging or analysis
+    row["conversation_trace"] = [msg.to_dict() for msg in trace]
+    return row
+
+config_builder.add_column(
+    dd.CustomColumnConfig(
+        name="content",
+        generation_function=generate_with_trace,
+        input_columns=["topic"],
+        output_columns=["conversation_trace"],
+        model_aliases=["my-model"],
+    )
+)
+```
+
+The trace is a list of `ChatMessage` objects representing the full conversation, useful for debugging, auditing, or analyzing model behavior.
 
 ## Multi-Turn Workflows
 

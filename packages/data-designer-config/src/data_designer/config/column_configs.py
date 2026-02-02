@@ -3,20 +3,77 @@
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
+from enum import Enum
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Discriminator, Field, field_serializer, model_validator
 from typing_extensions import Self
 
-from data_designer.config.base import ConfigBase, SingleColumnConfig
+from data_designer.config.base import ConfigBase
+
+
+class GenerationStrategy(str, Enum):
+    """Strategy for custom column generation."""
+
+    CELL_BY_CELL = "cell_by_cell"
+    FULL_COLUMN = "full_column"
+
+
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.models import ImageContext
 from data_designer.config.sampler_params import SamplerParamsT, SamplerType
 from data_designer.config.utils.code_lang import CodeLang
-from data_designer.config.utils.constants import REASONING_CONTENT_COLUMN_POSTFIX, TRACE_COLUMN_POSTFIX
+from data_designer.config.utils.constants import TRACE_COLUMN_POSTFIX
 from data_designer.config.utils.misc import assert_valid_jinja2_template, extract_keywords_from_jinja2_template
 from data_designer.config.utils.trace_type import TraceType
 from data_designer.config.validator_params import ValidatorParamsT, ValidatorType
+
+
+class SingleColumnConfig(ConfigBase, ABC):
+    """Abstract base class for all single-column configuration types.
+
+    This class serves as the foundation for all column configurations in DataDesigner,
+    defining shared fields and properties across all column types.
+
+    Attributes:
+        name: Unique name of the column to be generated.
+        drop: If True, the column will be generated but removed from the final dataset.
+            Useful for intermediate columns that are dependencies for other columns.
+        column_type: Discriminator field that identifies the specific column type.
+            Subclasses must override this field to specify the column type with a `Literal` value.
+    """
+
+    name: str
+    drop: bool = False
+    column_type: str
+
+    @staticmethod
+    def get_column_emoji() -> str:
+        return "🎨"
+
+    @property
+    @abstractmethod
+    def required_columns(self) -> list[str]:
+        """Returns a list of column names that must exist before this column can be generated.
+
+        Returns:
+            List of column names that this column depends on. Empty list indicates
+            no dependencies. Override in subclasses to specify dependencies.
+        """
+
+    @property
+    @abstractmethod
+    def side_effect_columns(self) -> list[str]:
+        """Returns a list of additional columns that this column will create as a side effect.
+
+        Some column types generate additional metadata or auxiliary columns alongside
+        the primary column (e.g., reasoning traces for LLM columns).
+
+        Returns:
+            List of column names that this column will create as a side effect. Empty list
+            indicates no side effect columns. Override in subclasses to specify side effects.
+        """
 
 
 class SamplerColumnConfig(SingleColumnConfig):
@@ -121,10 +178,7 @@ class LLMTextColumnConfig(SingleColumnConfig):
             - `TraceType.NONE` (default): No trace is captured.
             - `TraceType.LAST_MESSAGE`: Only the final assistant message is captured.
             - `TraceType.ALL_MESSAGES`: Full conversation history (system/user/assistant/tool).
-        extract_reasoning_content: If True, creates a `{column_name}__reasoning_content` column
-            containing only the reasoning_content from the final assistant response. This is
-            useful for models that expose chain-of-thought reasoning separately from the main
-            response. Defaults to False.
+            Can be overridden globally via `RunConfig.debug_trace_override`.
         column_type: Discriminator field, always "llm-text" for this configuration type.
     """
 
@@ -134,7 +188,6 @@ class LLMTextColumnConfig(SingleColumnConfig):
     multi_modal_context: list[ImageContext] | None = None
     tool_alias: str | None = None
     with_trace: TraceType = TraceType.NONE
-    extract_reasoning_content: bool = False
     column_type: Literal["llm-text"] = "llm-text"
 
     @staticmethod
@@ -155,20 +208,15 @@ class LLMTextColumnConfig(SingleColumnConfig):
 
     @property
     def side_effect_columns(self) -> list[str]:
-        """Returns side-effect columns that may be generated alongside the main column.
+        """Returns the trace column, which may be generated alongside the main column.
 
-        Side-effect columns include:
-        - `{name}__trace`: Generated when `with_trace` is not `TraceType.NONE` on the column
-          config.
-        - `{name}__reasoning_content`: Generated when `extract_reasoning_content=True`.
+        Traces are generated when `with_trace` is not `TraceType.NONE` on the column config
+        or when `RunConfig.debug_trace_override` is set globally.
 
         Returns:
-            List of side-effect column names.
+            List containing the trace column name.
         """
-        return [
-            *([f"{self.name}{TRACE_COLUMN_POSTFIX}"] if self.with_trace != TraceType.NONE else []),
-            *([f"{self.name}{REASONING_CONTENT_COLUMN_POSTFIX}"] if self.extract_reasoning_content else []),
-        ]
+        return [f"{self.name}{TRACE_COLUMN_POSTFIX}"]
 
     @model_validator(mode="after")
     def assert_prompt_valid_jinja(self) -> Self:
@@ -191,7 +239,7 @@ class LLMCodeColumnConfig(LLMTextColumnConfig):
 
     Extends LLMTextColumnConfig to generate code snippets in specific programming languages
     or SQL dialects. The generated code is automatically extracted from markdown code blocks
-    for the specified language. Inherits all prompt templating capabilities from LLMTextColumnConfig.
+    for the specified language. Inherits all prompt templating capabilities.
 
     Attributes:
         code_lang: Programming language or SQL dialect for code generation. Supported
@@ -199,16 +247,6 @@ class LLMCodeColumnConfig(LLMTextColumnConfig):
             "rust", "ruby", "scala", "swift", "sql:sqlite", "sql:postgres", "sql:mysql",
             "sql:tsql", "sql:bigquery", "sql:ansi". See CodeLang enum for complete list.
         column_type: Discriminator field, always "llm-code" for this configuration type.
-
-    Inherited Attributes:
-        prompt: Prompt template for code generation (supports Jinja2).
-        model_alias: Alias of the model configuration to use.
-        system_prompt: Optional system prompt (supports Jinja2).
-        multi_modal_context: Optional image contexts for multi-modal generation.
-        tool_alias: Optional tool configuration alias for MCP tool calls.
-        with_trace: If True, creates a `{column_name}__trace` column with message history.
-        extract_reasoning_content: If True, creates a `{column_name}__reasoning_content`
-            column containing the reasoning content from the final assistant response.
     """
 
     code_lang: CodeLang
@@ -224,24 +262,13 @@ class LLMStructuredColumnConfig(LLMTextColumnConfig):
 
     Extends LLMTextColumnConfig to generate structured data conforming to a specified schema.
     Uses JSON schema or Pydantic models to define the expected output structure, enabling
-    type-safe and validated structured output generation. Inherits prompt templating capabilities
-    from LLMTextColumnConfig.
+    type-safe and validated structured output generation. Inherits prompt templating capabilities.
 
     Attributes:
         output_format: The schema defining the expected output structure. Can be either:
             - A Pydantic BaseModel class (recommended)
             - A JSON schema dictionary
         column_type: Discriminator field, always "llm-structured" for this configuration type.
-
-    Inherited Attributes:
-        prompt: Prompt template for structured generation (supports Jinja2).
-        model_alias: Alias of the model configuration to use.
-        system_prompt: Optional system prompt (supports Jinja2).
-        multi_modal_context: Optional image contexts for multi-modal generation.
-        tool_alias: Optional tool configuration alias for MCP tool calls.
-        with_trace: If True, creates a `{column_name}__trace` column with message history.
-        extract_reasoning_content: If True, creates a `{column_name}__reasoning_content`
-            column containing the reasoning content from the final assistant response.
     """
 
     output_format: dict | type[BaseModel]
@@ -289,24 +316,13 @@ class LLMJudgeColumnConfig(LLMTextColumnConfig):
 
     Extends LLMTextColumnConfig to create judge columns that evaluate and score other
     generated content based on the defined criteria. Useful for quality assessment, preference
-    ranking, and multi-dimensional evaluation of generated data. Inherits prompt templating
-    capabilities from LLMTextColumnConfig.
+    ranking, and multi-dimensional evaluation of generated data.
 
     Attributes:
         scores: List of Score objects defining the evaluation dimensions. Each score
             represents a different aspect to evaluate (e.g., accuracy, relevance, fluency).
             Must contain at least one score.
         column_type: Discriminator field, always "llm-judge" for this configuration type.
-
-    Inherited Attributes:
-        prompt: Prompt template for the judge evaluation (supports Jinja2).
-        model_alias: Alias of the model configuration to use.
-        system_prompt: Optional system prompt (supports Jinja2).
-        multi_modal_context: Optional image contexts for multi-modal generation.
-        tool_alias: Optional tool configuration alias for MCP tool calls.
-        with_trace: If True, creates a `{column_name}__trace` column with message history.
-        extract_reasoning_content: If True, creates a `{column_name}__reasoning_content`
-            column containing the reasoning content from the final assistant response.
     """
 
     scores: list[Score] = Field(..., min_length=1)
@@ -511,8 +527,8 @@ class CustomColumnConfig(SingleColumnConfig):
     """
 
     generation_function: Any = Field(description="Function to generate the column")
-    generation_strategy: Literal["cell_by_cell", "full_column"] = Field(
-        default="cell_by_cell",
+    generation_strategy: GenerationStrategy = Field(
+        default=GenerationStrategy.CELL_BY_CELL,
         description="Generation strategy: 'cell_by_cell' for row-based or 'full_column' for batch-based",
     )
     input_columns: list[str] = Field(

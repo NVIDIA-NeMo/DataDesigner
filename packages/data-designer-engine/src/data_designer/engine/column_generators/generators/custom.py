@@ -9,9 +9,9 @@ import inspect
 import logging
 from typing import TYPE_CHECKING
 
-from data_designer.config.column_configs import CustomColumnConfig
+from data_designer.config.column_configs import CustomColumnConfig, GenerationStrategy
 from data_designer.config.custom_column import CustomColumnContext
-from data_designer.engine.column_generators.generators.base import ColumnGenerator, GenerationStrategy
+from data_designer.engine.column_generators.generators.base import ColumnGenerator
 from data_designer.engine.column_generators.utils.errors import CustomColumnGenerationError
 
 if TYPE_CHECKING:
@@ -33,7 +33,7 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
 
     def get_generation_strategy(self) -> GenerationStrategy:
         """Return strategy based on config."""
-        if self.config.generation_strategy == "full_column":
+        if self.config.generation_strategy == GenerationStrategy.FULL_COLUMN:
             return GenerationStrategy.FULL_COLUMN
         return GenerationStrategy.CELL_BY_CELL
 
@@ -46,7 +46,7 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
         Returns:
             The data with new column(s) added.
         """
-        if self.config.generation_strategy == "full_column":
+        if self.config.generation_strategy == GenerationStrategy.FULL_COLUMN:
             return self._generate_full_column(data)
         return self._generate_cell_by_cell(data)
 
