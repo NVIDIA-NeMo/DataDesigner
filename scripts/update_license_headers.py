@@ -99,6 +99,28 @@ def extract_license_header(lines: list[str], start_idx: int) -> tuple[str, int]:
     return "".join(header_lines), end_idx - start_idx
 
 
+def parse_header_start_year(header: str) -> int | None:
+    """Extract the start year from an existing license header.
+
+    This function parses the copyright year from SPDX headers, handling both
+    single-year and year-range formats.
+
+    Args:
+        header: The existing license header text
+
+    Returns:
+        The start year as an integer, or None if no valid year found.
+
+    Examples:
+        - "Copyright (c) 2026" -> 2026
+        - "Copyright (c) 2025-2026" -> 2025
+    """
+    match = re.search(r"Copyright \(c\) (\d{4})(?:-\d{4})?", header)
+    if match:
+        return int(match.group(1))
+    return None
+
+
 def _analyze_file_header(lines: list[str]) -> HeaderAnalysis:
     """Analyze a file to find its current header state."""
     if not lines:
@@ -260,13 +282,31 @@ def get_file_creation_year(file_path: Path) -> int | None:
     return None
 
 
-def get_copyright_year_string(file_path: Path, current_year: int) -> str:
+def get_copyright_year_string(file_path: Path, current_year: int, existing_header: str = "") -> str:
     """Generate the copyright year string for a file.
+
+    Uses the existing license header as the source of truth for the start year.
+    This ensures consistency across rebases, squash merges, and different branch
+    states. Git history is only used as a fallback for files without headers.
+
+    Args:
+        file_path: Path to the file being processed
+        current_year: The current year to use as the end year
+        existing_header: The existing license header content, if any
 
     Returns:
         - Just the current year if file was created this year (e.g., "2026")
         - A range if file was created in a previous year (e.g., "2025-2026")
     """
+    # First, try to get start year from existing header (source of truth)
+    if existing_header:
+        start_year = parse_header_start_year(existing_header)
+        if start_year is not None:
+            if start_year >= current_year:
+                return str(current_year)
+            return f"{start_year}-{current_year}"
+
+    # Fallback to git history for new files without headers
     creation_year = get_file_creation_year(file_path)
 
     if creation_year is None or creation_year >= current_year:
@@ -298,7 +338,16 @@ def main(path: Path, check_only: bool = False) -> tuple[int, int, int, list[Path
 
             processed += 1
 
-            copyright_year = get_copyright_year_string(file_path, current_year)
+            # Read file and analyze existing header first (source of truth for start year)
+            try:
+                content = file_path.read_text(encoding="utf-8")
+                lines = content.splitlines(keepends=True)
+                analysis = _analyze_file_header(lines)
+                existing_header = analysis.existing_header
+            except (UnicodeDecodeError, PermissionError):
+                existing_header = ""
+
+            copyright_year = get_copyright_year_string(file_path, current_year, existing_header)
             license_header = generate_license_header(copyright_year)
 
             if check_only:
