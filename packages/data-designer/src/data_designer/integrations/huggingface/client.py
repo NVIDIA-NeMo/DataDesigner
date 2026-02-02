@@ -12,6 +12,7 @@ from pathlib import Path
 from huggingface_hub import HfApi
 from huggingface_hub.utils import HfHubHTTPError
 
+from data_designer.config.utils.constants import HUGGINGFACE_HUB_DATASET_URL_PREFIX
 from data_designer.engine.dataset_builders.artifact_storage import (
     FINAL_DATASET_FOLDER_NAME,
     METADATA_FILENAME,
@@ -107,7 +108,7 @@ class HuggingFaceHubClient:
             sdg_path=base_dataset_path / SDG_CONFIG_FILENAME,
         )
 
-        url = f"https://huggingface.co/datasets/{repo_id}"
+        url = f"{HUGGINGFACE_HUB_DATASET_URL_PREFIX}{repo_id}"
         logger.info(f"  |-- {RandomEmoji.success()} Dataset uploaded successfully! View at: {url}")
         return url
 
