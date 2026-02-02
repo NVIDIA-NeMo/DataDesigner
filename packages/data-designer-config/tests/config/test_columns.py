@@ -88,6 +88,7 @@ def test_llm_text_column_config():
     assert set(llm_text_column_config.required_columns) == {"some_column", "some_other_column"}
     assert llm_text_column_config.side_effect_columns == ["test_llm_text__trace"]
     assert llm_text_column_config.with_trace == TraceType.NONE
+    assert llm_text_column_config.extract_reasoning_content is False
 
     # invalid prompt
     with pytest.raises(
@@ -139,6 +140,28 @@ def test_llm_text_column_config_with_trace_serialization() -> None:
     )
     assert config_last.with_trace == TraceType.LAST_MESSAGE
     assert config_last.model_dump()["with_trace"] == "last_message"
+
+
+def test_llm_text_column_config_extract_reasoning_content() -> None:
+    """Test that extract_reasoning_content controls side_effect_columns."""
+    # Default: extract_reasoning_content=False, only trace column in side effects
+    config_without_reasoning = LLMTextColumnConfig(
+        name="test_col",
+        prompt="test",
+        model_alias="test_model",
+    )
+    assert config_without_reasoning.extract_reasoning_content is False
+    assert config_without_reasoning.side_effect_columns == ["test_col__trace"]
+
+    # With extract_reasoning_content=True, reasoning_content column is added
+    config_with_reasoning = LLMTextColumnConfig(
+        name="test_col",
+        prompt="test",
+        model_alias="test_model",
+        extract_reasoning_content=True,
+    )
+    assert config_with_reasoning.extract_reasoning_content is True
+    assert config_with_reasoning.side_effect_columns == ["test_col__trace", "test_col__reasoning_content"]
 
 
 def test_llm_code_column_config():

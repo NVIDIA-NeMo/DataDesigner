@@ -193,6 +193,51 @@ When an assistant message includes tool calls:
 }
 ```
 
+## Extracting Reasoning Content
+
+Some models (particularly those with extended thinking or chain-of-thought capabilities) expose their reasoning process separately via the `reasoning_content` field in assistant messages. While this is included in full traces, you may want to capture it separately without the overhead of storing the entire conversation history.
+
+### Dedicated Reasoning Column
+
+Set `extract_reasoning_content=True` on any LLM column to create a `{column_name}__reasoning_content` side-effect column:
+
+```python
+import data_designer.config as dd
+
+builder.add_column(
+    dd.LLMTextColumnConfig(
+        name="solution",
+        prompt="Solve this math problem step by step: {{ problem }}",
+        model_alias="reasoning-model",
+        extract_reasoning_content=True,  # Creates solution__reasoning_content
+    )
+)
+```
+
+The extracted reasoning content:
+
+- Contains only the `reasoning_content` from the **final** assistant message in the trace
+- Is stripped of leading/trailing whitespace
+- Is `None` if the model didn't provide reasoning content or if it was whitespace-only
+
+### When to Use Each Approach
+
+| Need | Approach |
+|------|----------|
+| Full conversation history for debugging | `with_trace=True` |
+| Just the model's reasoning/thinking | `extract_reasoning_content=True` |
+| Both conversation history and separate reasoning | Use both options |
+| Fine-tuning data with reasoning | `extract_reasoning_content=True` for clean extraction |
+
+### Availability
+
+The `extract_reasoning_content` option is available on all LLM column types:
+
+- `LLMTextColumnConfig`
+- `LLMCodeColumnConfig`
+- `LLMStructuredColumnConfig`
+- `LLMJudgeColumnConfig`
+
 ## See Also
 
 - **[Safety and Limits](mcp/safety-and-limits.md)**: Understand turn limits and timeout behavior

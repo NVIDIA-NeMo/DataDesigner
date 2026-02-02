@@ -12,7 +12,7 @@ from data_designer.config.column_configs import (
     LLMTextColumnConfig,
 )
 from data_designer.config.run_config import RunConfig
-from data_designer.config.utils.constants import TRACE_COLUMN_POSTFIX
+from data_designer.config.utils.constants import REASONING_CONTENT_COLUMN_POSTFIX, TRACE_COLUMN_POSTFIX
 from data_designer.config.utils.trace_type import TraceType
 from data_designer.engine.column_generators.generators.base import GenerationStrategy
 from data_designer.engine.column_generators.generators.llm_completion import (
@@ -475,3 +475,131 @@ def test_generator_output_type_handling(
     result = generator.generate(data)
 
     assert result[config.name] == expected_output
+
+
+def test_generate_extracts_reasoning_content_when_enabled() -> None:
+    """Test that reasoning_content is extracted when extract_reasoning_content=True."""
+    generator, _, mock_model, _, _, mock_prompt_renderer, mock_response_recipe = _create_generator_with_mocks(
+        extract_reasoning_content=True
+    )
+
+    mock_prompt_renderer.render.side_effect = ["rendered_user_prompt", "rendered_system_prompt"]
+    mock_response_recipe.serialize_output.return_value = "test_output"
+
+    # Model returns a trace with reasoning_content in the assistant message
+    mock_model.generate.return_value = (
+        "test_output",
+        [
+            ChatMessage.as_user("test prompt"),
+            ChatMessage.as_assistant(content="response", reasoning_content="  Thinking about this...  "),
+        ],
+    )
+
+    data = {"input": "test_input"}
+    result = generator.generate(data)
+
+    # Reasoning content should be extracted and stripped
+    assert result["test_column" + REASONING_CONTENT_COLUMN_POSTFIX] == "Thinking about this..."
+
+
+def test_generate_extracts_reasoning_content_none_when_not_present() -> None:
+    """Test that reasoning_content is None when assistant message has no reasoning."""
+    generator, _, mock_model, _, _, mock_prompt_renderer, mock_response_recipe = _create_generator_with_mocks(
+        extract_reasoning_content=True
+    )
+
+    mock_prompt_renderer.render.side_effect = ["rendered_user_prompt", "rendered_system_prompt"]
+    mock_response_recipe.serialize_output.return_value = "test_output"
+
+    # Model returns a trace without reasoning_content
+    mock_model.generate.return_value = (
+        "test_output",
+        [
+            ChatMessage.as_user("test prompt"),
+            ChatMessage.as_assistant(content="response"),
+        ],
+    )
+
+    data = {"input": "test_input"}
+    result = generator.generate(data)
+
+    # Reasoning content should be None
+    assert result["test_column" + REASONING_CONTENT_COLUMN_POSTFIX] is None
+
+
+def test_generate_extracts_reasoning_content_from_final_assistant_in_tool_use_trace() -> None:
+    """Test that reasoning_content is extracted from the final assistant message in tool-use traces."""
+    generator, _, mock_model, _, _, mock_prompt_renderer, mock_response_recipe = _create_generator_with_mocks(
+        extract_reasoning_content=True
+    )
+
+    mock_prompt_renderer.render.side_effect = ["rendered_user_prompt", "rendered_system_prompt"]
+    mock_response_recipe.serialize_output.return_value = "test_output"
+
+    # Simulate a tool-use trace with multiple assistant messages
+    # The final assistant message has the reasoning we want
+    mock_model.generate.return_value = (
+        "test_output",
+        [
+            ChatMessage.as_user("test prompt"),
+            ChatMessage.as_assistant(
+                content="",
+                reasoning_content="Initial thinking...",
+                tool_calls=[{"id": "call_1", "type": "function", "function": {"name": "search", "arguments": "{}"}}],
+            ),
+            ChatMessage.as_tool(content="search result", tool_call_id="call_1"),
+            ChatMessage.as_assistant(content="Final answer", reasoning_content="Final reasoning after tool use"),
+        ],
+    )
+
+    data = {"input": "test_input"}
+    result = generator.generate(data)
+
+    # Should extract reasoning from the LAST assistant message
+    assert result["test_column" + REASONING_CONTENT_COLUMN_POSTFIX] == "Final reasoning after tool use"
+
+
+def test_generate_does_not_extract_reasoning_content_when_disabled() -> None:
+    """Test that reasoning_content is not extracted when extract_reasoning_content=False (default)."""
+    generator, _, mock_model, _, _, mock_prompt_renderer, mock_response_recipe = _create_generator_with_mocks()
+
+    mock_prompt_renderer.render.side_effect = ["rendered_user_prompt", "rendered_system_prompt"]
+    mock_response_recipe.serialize_output.return_value = "test_output"
+
+    mock_model.generate.return_value = (
+        "test_output",
+        [
+            ChatMessage.as_user("test prompt"),
+            ChatMessage.as_assistant(content="response", reasoning_content="Some reasoning"),
+        ],
+    )
+
+    data = {"input": "test_input"}
+    result = generator.generate(data)
+
+    # Reasoning content column should not be present
+    assert "test_column" + REASONING_CONTENT_COLUMN_POSTFIX not in result
+
+
+def test_generate_extracts_reasoning_content_as_none_when_only_whitespace() -> None:
+    """Test that whitespace-only reasoning_content is normalized to None."""
+    generator, _, mock_model, _, _, mock_prompt_renderer, mock_response_recipe = _create_generator_with_mocks(
+        extract_reasoning_content=True
+    )
+
+    mock_prompt_renderer.render.side_effect = ["rendered_user_prompt", "rendered_system_prompt"]
+    mock_response_recipe.serialize_output.return_value = "test_output"
+
+    mock_model.generate.return_value = (
+        "test_output",
+        [
+            ChatMessage.as_user("test prompt"),
+            ChatMessage.as_assistant(content="response", reasoning_content="   \n\t  "),
+        ],
+    )
+
+    data = {"input": "test_input"}
+    result = generator.generate(data)
+
+    # Whitespace-only reasoning should be normalized to None
+    assert result["test_column" + REASONING_CONTENT_COLUMN_POSTFIX] is None
