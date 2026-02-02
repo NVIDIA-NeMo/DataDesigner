@@ -68,11 +68,6 @@ recipes = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = [
-    "packages/data-designer-config/tests",
-    "packages/data-designer-engine/tests",
-    "packages/data-designer/tests",
-]
 asyncio_default_fixture_loop_scope = "session"
 env = ["DISABLE_DATA_DESIGNER_PLUGINS=true"]
 
