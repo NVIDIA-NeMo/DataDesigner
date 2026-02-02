@@ -81,7 +81,7 @@ class HuggingFaceHubClient:
 
         self._create_or_get_repo(repo_id, private=private)
 
-        logger.info(f"|-- {RandomEmoji.data()} Uploading dataset card...")
+        logger.info(f"  |-- {RandomEmoji.data()} Uploading dataset card...")
         try:
             self._upload_dataset_card(repo_id, base_dataset_path, description)
         except Exception as e:
@@ -92,7 +92,7 @@ class HuggingFaceHubClient:
         self._upload_config_files(repo_id, base_dataset_path)
 
         url = f"https://huggingface.co/datasets/{repo_id}"
-        logger.info(f"|-- {RandomEmoji.success()} Dataset uploaded successfully! View at: {url}")
+        logger.info(f"  |-- {RandomEmoji.success()} Dataset uploaded successfully! View at: {url}")
         return url
 
     def _create_or_get_repo(self, repo_id: str, *, private: bool = False) -> None:
@@ -105,13 +105,13 @@ class HuggingFaceHubClient:
         Raises:
             HuggingFaceUploadError: If repository creation fails
         """
-        logger.info(f"|-- {RandomEmoji.working()} Checking if repository exists...")
+        logger.info(f"  |-- {RandomEmoji.working()} Checking if repository exists...")
         try:
             repo_exists = self._api.repo_exists(repo_id=repo_id, repo_type="dataset")
             if repo_exists:
-                logger.info(f"|-- {RandomEmoji.success()} Repository already exists, updating content...")
+                logger.info(f"  |-- {RandomEmoji.success()} Repository already exists, updating content...")
             else:
-                logger.info(f"|-- {RandomEmoji.working()} Creating new repository...")
+                logger.info(f"  |-- {RandomEmoji.working()} Creating new repository...")
 
             self._api.create_repo(
                 repo_id=repo_id,
@@ -146,7 +146,7 @@ class HuggingFaceHubClient:
         Raises:
             HuggingFaceUploadError: If upload fails
         """
-        logger.info(f"|-- {RandomEmoji.loading()} Uploading main dataset files...")
+        logger.info(f"  |-- {RandomEmoji.loading()} Uploading main dataset files...")
         parquet_folder = base_dataset_path / "parquet-files"
         try:
             self._api.upload_folder(
@@ -177,7 +177,7 @@ class HuggingFaceHubClient:
         if not processor_dirs:
             return
 
-        logger.info(f"|-- {RandomEmoji.loading()} Uploading processor outputs ({len(processor_dirs)} processors)...")
+        logger.info(f"  |-- {RandomEmoji.loading()} Uploading processor outputs ({len(processor_dirs)} processors)...")
         for processor_dir in processor_dirs:
             try:
                 self._api.upload_folder(
@@ -202,7 +202,7 @@ class HuggingFaceHubClient:
         Raises:
             HuggingFaceUploadError: If upload fails
         """
-        logger.info(f"|-- {RandomEmoji.loading()} Uploading configuration files...")
+        logger.info(f"  |-- {RandomEmoji.loading()} Uploading configuration files...")
 
         sdg_path = base_dataset_path / "sdg.json"
         if sdg_path.exists():
