@@ -3,8 +3,7 @@
 
 """Pytest fixtures for engine testing.
 
-This module is registered as a pytest plugin in the root conftest.py per pytest best practices.
-https://docs.pytest.org/en/stable/deprecations.html#pytest-plugins-in-non-top-level-conftest-files
+Located in src/ so it can be packaged and shared across subpackages via pytest_plugins.
 """
 
 from __future__ import annotations
