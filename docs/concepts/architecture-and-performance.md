@@ -47,40 +47,62 @@ This guide explains the architecture, execution model, and how to tune performan
 
 Data Designer processes datasets in **batches**, with **parallel** operations within each batch.
 
+### How It Works
+
+**Step 1: Split into batches**
+
+Your dataset is divided into batches of `buffer_size` records. Each batch is processed completely before moving to the next.
+
+**Step 2: Process columns sequentially**
+
+Within a batch, columns are generated one at a time following the dependency graph:
+
 ```
-┌─────── Batch 1 (buffer_size records) ────────────────────────────────────────┐
-│                                                                               │
-│  Column 1 (Sampler):  ════════►  (non_inference_max_parallel_workers)        │
-│  Column 2 (LLM):      ════════════════════════►  (max_parallel_requests)     │
-│  Column 3 (LLM):      ══════════════════►  (max_parallel_requests)           │
-│  Column 4 (Expression): ══►  (computed from existing columns)                │
-│                                                                               │
-│  Post-batch processors → Write batch to disk                                 │
-└───────────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────── Batch 2 (buffer_size records) ────────────────────────────────────────┐
-│  ... repeat ...                                                               │
-└───────────────────────────────────────────────────────────────────────────────┘
+Batch 1 (100 records)
+│
+├─► Column 1: category (Sampler)      ──── All 100 values generated
+├─► Column 2: prompt (LLM Text)       ──── All 100 values generated
+├─► Column 3: response (LLM Text)     ──── All 100 values generated
+├─► Column 4: score (Expression)      ──── All 100 values computed
+│
+└─► Write batch to disk
+    │
+    ▼
+Batch 2 (100 records)
+    ...repeat...
 ```
+
+**Step 3: Generate cells in parallel**
+
+Within each column, cells are processed **in parallel** up to the configured limit:
+
+| Column Type | Parallelism Control |
+|-------------|---------------------|
+| Sampler | `non_inference_max_parallel_workers` |
+| LLM (Text, Code, Structured, Judge) | `max_parallel_requests` |
+| Expression | Sequential (fast, CPU-bound) |
 
 ### Key Concepts
 
-1. **Batching**: Records are split into batches of `buffer_size`. Each batch completes entirely before the next begins.
-2. **Sequential columns**: Within a batch, columns are generated one at a time (respecting dependencies).
-3. **Parallel cells**: Within a column, individual cells (records) are generated in parallel.
+| Concept | Description |
+|---------|-------------|
+| **Batching** | Records are split into batches of `buffer_size`. Each batch completes entirely before the next begins. |
+| **Sequential columns** | Within a batch, columns are generated one at a time, respecting the dependency graph. |
+| **Parallel cells** | Within a column, individual cells (records) are generated in parallel up to the configured limit. |
 
 ### Concurrency Formula
 
-The effective concurrency at any moment is:
+At any moment, the number of concurrent LLM requests is:
 
-```
-Concurrent requests = min(
-    buffer_size,                    # Records in current batch
-    max_parallel_requests,          # Per-model limit
-    remaining_cells_in_column       # Cells left to generate
+```python
+concurrent_requests = min(
+    buffer_size,                # Records in current batch
+    max_parallel_requests,      # Per-model limit
+    remaining_cells_in_column   # Cells left to generate
 )
 ```
+
+**Example**: With `buffer_size=100` and `max_parallel_requests=8`, Data Designer sends up to 8 LLM requests at a time until all 100 cells in the column are complete.
 
 ---
 
@@ -124,15 +146,11 @@ model = ModelConfig(
 )
 ```
 
-| Inference Backend | Recommended Value |
-|-------------------|-------------------|
-| NVIDIA API Catalog | 4-8 |
-| Self-hosted vLLM (single GPU) | 8-16 |
-| Self-hosted vLLM (multi-GPU) | 16-64 |
-| OpenAI API | 4-8 (tier-dependent) |
-| NeMo Inference Microservices | 16-32 |
+**Default**: 4
 
-**Key insight**: This is **per model**. If you have two models with `max_parallel_requests=8` each, you could have up to 8 concurrent calls to each model (but columns are processed sequentially, so typically only one model is active at a time).
+**When to increase**: Your inference backend has high throughput capacity, you're using a cloud API with generous rate limits, or you're running vLLM/TensorRT-LLM with multiple GPUs
+
+**When to decrease**: You're hitting rate limits or 429 errors, the inference server is overloaded, or you want more predictable/debuggable execution
 
 ---
 
@@ -150,236 +168,37 @@ run_config = RunConfig(non_inference_max_parallel_workers=8)
 
 ---
 
-## Deployment Scenarios
+### Error Handling (RunConfig)
 
-### NVIDIA API Catalog (build.nvidia.com)
-
-Cloud-hosted endpoints with rate limits.
-
-```python
-from data_designer.config import ModelConfig, ChatCompletionInferenceParams
-
-model = ModelConfig(
-    alias="nim-llama",
-    model="meta/llama-3.1-70b-instruct",
-    provider="nvidia",
-    inference_parameters=ChatCompletionInferenceParams(
-        max_parallel_requests=4,  # Respect rate limits
-        timeout=60,
-    ),
-)
-```
-
-**Tips**:
-
-- Start with `max_parallel_requests=4` and increase based on your tier
-- Monitor for rate limit errors (429) and adjust accordingly
-- Consider multiple model aliases to distribute load across endpoints
-
-### Self-Hosted vLLM
-
-Single or multi-GPU deployment you control.
-
-```python
-model = ModelConfig(
-    alias="local-llm",
-    model="meta-llama/Llama-3.1-8B-Instruct",
-    provider="openai",  # vLLM is OpenAI-compatible
-    base_url="http://localhost:8000/v1",
-    inference_parameters=ChatCompletionInferenceParams(
-        max_parallel_requests=16,  # Higher for local deployment
-        timeout=120,
-    ),
-)
-```
-
-**Tips**:
-
-- Set `max_parallel_requests` based on vLLM's `--max-num-seqs` setting
-- Monitor GPU utilization to find optimal parallelism
-- For multi-GPU, scale `max_parallel_requests` proportionally
-
-### Enterprise LLM Gateway
-
-Centralized gateway with RBAC and rate limiting.
-
-```python
-model = ModelConfig(
-    alias="enterprise-llm",
-    model="gpt-4-turbo",
-    provider="openai",
-    base_url="https://llm-gateway.company.com/v1",
-    api_key_env_var="GATEWAY_API_KEY",
-    inference_parameters=ChatCompletionInferenceParams(
-        max_parallel_requests=8,  # Based on your quota
-        timeout=90,
-    ),
-)
-```
-
-**Tips**:
-
-- Check your quota/rate limit allocation
-- Work with your platform team to understand capacity
-- Consider dedicated capacity for large generation jobs
-
-### NeMo Inference Microservices (NIMs)
-
-Kubernetes-deployed NIMs with auto-scaling.
-
-```python
-model = ModelConfig(
-    alias="nim-endpoint",
-    model="meta/llama-3.1-70b-instruct",
-    provider="nvidia",
-    base_url="http://nim-service.namespace.svc:8000/v1",
-    inference_parameters=ChatCompletionInferenceParams(
-        max_parallel_requests=32,  # NIMs can handle high parallelism
-        timeout=120,
-    ),
-)
-```
-
-**Tips**:
-
-- NIMs auto-scale based on load; higher `max_parallel_requests` is fine
-- Monitor NIM pod scaling to ensure adequate capacity
-- Consider pre-warming NIMs before large jobs
-
----
-
-## Common Problems & Solutions
-
-### Throughput is too low
-
-**Symptoms**: Low GPU utilization, generation slower than expected
-
-**Solutions**:
-
-```python
-# Increase LLM parallelism
-ChatCompletionInferenceParams(
-    max_parallel_requests=16,  # Up from default 4
-)
-
-# Increase batch size
-RunConfig(
-    buffer_size=2000,  # Up from default 1000
-)
-```
-
----
-
-### Long tail of slow generations
-
-**Symptoms**: Most records complete quickly, a few take much longer
-
-**Causes**: Reasoning models with variable output, structured output retries, complex prompts
-
-**Solutions**:
-
-1. **Tune retry settings**:
-
-```python
-run_config = RunConfig(
-    max_conversation_restarts=3,           # Reduce from default 5
-    max_conversation_correction_steps=1,   # Allow 1 in-conversation correction
-)
-```
-
-2. **Simplify structured output schemas** — flatter schemas parse more reliably
-
-3. **Improve prompts** — clearer prompts = fewer retries
-
----
-
-### Multi-model pipeline has idle periods
-
-**Symptoms**: One model busy while others idle, GPU utilization varies
-
-**Explanation**: With large `buffer_size` and multiple models, columns are processed sequentially:
-
-```
-Time →
-┌──────────────────┬──────────────────┬──────────────────┐
-│ Column A (fast)  │ Column B (slow)  │ Column C (fast)  │
-│ Model 1 active   │ Model 2 active   │ Model 1 active   │
-│ Model 2 IDLE     │ Model 1 IDLE     │ Model 2 IDLE     │
-└──────────────────┴──────────────────┴──────────────────┘
-```
-
-**Solutions**:
-
-1. **Reduce `buffer_size`** — smaller batches cycle through models faster
-2. **Accept the trade-off** — total GPU time is the same, just not concurrent
-3. **Consolidate models** — use one model for multiple columns if quality permits
-
----
-
-### Memory errors during generation
-
-**Symptoms**: Out of memory errors, process crashes
-
-**Solutions**:
-
-```python
-RunConfig(buffer_size=500)  # Lower memory footprint
-
-ChatCompletionInferenceParams(
-    max_parallel_requests=4,  # Lower GPU memory usage (if local inference)
-)
-```
-
----
-
-## Error Handling
-
-### Early Shutdown
-
-Data Designer monitors error rates and can shut down early if too many failures occur:
-
-```python
-run_config = RunConfig(
-    disable_early_shutdown=False,  # Enable early shutdown (default)
-    shutdown_error_rate=0.5,       # Shut down if >50% errors
-    shutdown_error_window=10,      # After at least 10 tasks complete
-)
-```
-
-**When to disable**: Debugging (want to see all errors), noisy endpoints with transient errors
-
-### Retry Configuration
-
-For LLM generation with parsing (structured outputs, code extraction):
+Control retry behavior and early shutdown for failed generations.
 
 ```python
 run_config = RunConfig(
     max_conversation_restarts=5,           # Full conversation restarts (default: 5)
     max_conversation_correction_steps=0,   # In-conversation corrections (default: 0)
+    disable_early_shutdown=False,          # Enable early shutdown (default)
+    shutdown_error_rate=0.5,               # Shut down if >50% errors
+    shutdown_error_window=10,              # Min tasks before error monitoring
 )
 ```
 
-| Scenario | `max_conversation_restarts` | `max_conversation_correction_steps` |
-|----------|-----------------------------|------------------------------------|
-| Development/debugging | 3 | 2 |
-| Production (well-tuned prompts) | 5 | 0 |
-| Strict schemas | 7 | 2 |
-| Simple text generation | 3 | 0 |
+**When to adjust**:
+
+- **Strict schemas**: Increase `max_conversation_restarts` to 7, add `max_conversation_correction_steps=2`
+- **Debugging**: Set `disable_early_shutdown=True` to see all errors
+- **Simple text**: Reduce `max_conversation_restarts` to 3
 
 ---
 
-## Quick Reference
+## Common Problems
 
-| Parameter | Location | Default | Description |
-|-----------|----------|---------|-------------|
-| `buffer_size` | `RunConfig` | 1000 | Records per batch |
-| `max_parallel_requests` | `ChatCompletionInferenceParams` | 4 | Concurrent LLM calls per model |
-| `non_inference_max_parallel_workers` | `RunConfig` | 4 | Threads for non-LLM work |
-| `shutdown_error_rate` | `RunConfig` | 0.5 | Error rate threshold for early shutdown |
-| `shutdown_error_window` | `RunConfig` | 10 | Minimum tasks before error monitoring |
-| `max_conversation_restarts` | `RunConfig` | 5 | Full retry attempts |
-| `max_conversation_correction_steps` | `RunConfig` | 0 | In-conversation corrections |
-| `disable_early_shutdown` | `RunConfig` | False | Disable early shutdown on errors |
+| Problem | Symptom | Solution |
+|---------|---------|----------|
+| **Low throughput** | Low GPU utilization | Increase `max_parallel_requests` and/or `buffer_size` |
+| **Long tail of slow generations** | Most records fast, few very slow | Reduce `max_conversation_restarts`, simplify schemas, improve prompts |
+| **Multi-model idle periods** | One model busy, others idle | Reduce `buffer_size` for faster cycling, or consolidate models |
+| **Memory errors** | OOM crashes | Reduce `buffer_size` and `max_parallel_requests` |
+| **Too many errors** | Generation fails frequently | Check prompts/schemas; adjust `shutdown_error_rate` or disable early shutdown for debugging |
 
 ---
 

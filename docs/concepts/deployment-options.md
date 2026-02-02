@@ -28,14 +28,14 @@ You have API keys or endpoints for LLM inference:
 - **Enterprise gateways**: Centralized LLM gateway with RBAC, rate limiting, or other enterprise features
 
 ```python
-from data_designer import DataDesigner
+from data_designer.interface import DataDesigner
 from data_designer.config import ModelConfig
 
 # Use any OpenAI-compatible endpoint
 model = ModelConfig(
     alias="my-model",
     model="meta/llama-3.1-8b-instruct",
-    provider="nvidia",  # or "openai", "azure", custom base_url
+    provider="nvidia",  # or "openai", or a custom ModelProvider
 )
 
 dd = DataDesigner()
@@ -62,13 +62,20 @@ dd = DataDesigner()
     In this case, **use the library** and point it at your enterprise gateway. You get enterprise-grade LLM access while retaining full control over your Data Designer workflows.
 
 ```python
-# Point Data Designer at your enterprise LLM gateway
+from data_designer.config import ModelConfig, ModelProvider
+
+# Define your enterprise gateway as a provider
+enterprise_provider = ModelProvider(
+    name="enterprise-gateway",
+    endpoint="https://llm-gateway.yourcompany.com/v1",
+    api_key="ENTERPRISE_LLM_KEY",  # Environment variable name (uppercase) or actual key
+)
+
+# Use the provider in your model config
 model = ModelConfig(
     alias="enterprise-llm",
     model="gpt-4",
-    provider="openai",
-    base_url="https://llm-gateway.yourcompany.com/v1",  # Your gateway
-    api_key_env_var="ENTERPRISE_LLM_KEY",
+    provider="enterprise-gateway",  # References the provider above
 )
 ```
 
