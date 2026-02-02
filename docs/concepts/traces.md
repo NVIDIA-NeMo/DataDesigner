@@ -1,6 +1,6 @@
 # Message Traces
 
-Traces capture the full conversation history during LLM generation, including system prompts, user prompts, model reasoning, tool calls, tool results, and the final response. This visibility is essential for understanding model behavior, debugging generation issues, and iterating on prompts.
+Traces capture the conversation history during LLM generation, including system prompts, user prompts, model reasoning, tool calls, tool results, and the final response. This visibility is essential for understanding model behavior, debugging generation issues, and iterating on prompts.
 
 Traces are also useful in certain scenarios as the target output of the workflow, e.g. producing an SFT dataset for fine-tuning tool-use capability, for instance.
 
@@ -19,38 +19,73 @@ When generating content with LLM columns, you often need to understand what happ
 
 Traces provide this visibility by capturing the ordered message history for each generation, including any multi-turn conversations that occur during tool use or retry scenarios.
 
+## Trace Types
+
+Data Designer supports three trace modes via the `TraceType` enum:
+
+| TraceType | Description |
+|-----------|-------------|
+| `TraceType.NONE` | No trace captured (default) |
+| `TraceType.LAST_MESSAGE` | Only the final assistant message is captured |
+| `TraceType.ALL_MESSAGES` | Full conversation history (system/user/assistant/tool) |
+
 ## Enabling Traces
 
 ### Per-Column (Recommended)
 
-Enable `with_trace=True` on specific LLM columns:
+Set `with_trace` on specific LLM columns:
 
 ```python
 import data_designer.config as dd
 
+# Capture full conversation history
 builder.add_column(
     dd.LLMTextColumnConfig(
         name="answer",
         prompt="Answer: {{ question }}",
         model_alias="nvidia-text",
-        with_trace=True,  # Enable trace for this column
+        with_trace=dd.TraceType.ALL_MESSAGES,  # Full trace
+    )
+)
+
+# Capture only the final assistant response
+builder.add_column(
+    dd.LLMTextColumnConfig(
+        name="summary",
+        prompt="Summarize: {{ text }}",
+        model_alias="nvidia-text",
+        with_trace=dd.TraceType.LAST_MESSAGE,  # Just the final response
     )
 )
 ```
 
 ### Global Debug Override
 
-Enable traces for ALL LLM columns (useful during development):
+Override trace settings for ALL LLM columns (useful during development):
 
 ```python
 import data_designer.config as dd
 from data_designer.interface import DataDesigner
 
 data_designer = DataDesigner()
+
+# Enable full traces for all columns
 data_designer.set_run_config(
-    dd.RunConfig(debug_override_save_all_column_traces=True)
+    dd.RunConfig(debug_trace_override=dd.TraceType.ALL_MESSAGES)
+)
+
+# Or capture only last messages for all columns
+data_designer.set_run_config(
+    dd.RunConfig(debug_trace_override=dd.TraceType.LAST_MESSAGE)
+)
+
+# Disable all traces (overrides per-column settings)
+data_designer.set_run_config(
+    dd.RunConfig(debug_trace_override=dd.TraceType.NONE)
 )
 ```
+
+When `debug_trace_override` is set (not `None`), it takes precedence over per-column `with_trace` settings.
 
 ## Trace Column Naming
 
@@ -161,4 +196,4 @@ When an assistant message includes tool calls:
 ## See Also
 
 - **[Safety and Limits](mcp/safety-and-limits.md)**: Understand turn limits and timeout behavior
-- **[Run Config](../code_reference/run_config.md)**: Runtime options including `debug_override_save_all_column_traces`
+- **[Run Config](../code_reference/run_config.md)**: Runtime options including `debug_trace_override`

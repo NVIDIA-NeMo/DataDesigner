@@ -36,6 +36,7 @@ from data_designer.config.sampler_params import (
 )
 from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.utils.errors import UserJinjaTemplateSyntaxError
+from data_designer.config.utils.trace_type import TraceType
 from data_designer.config.validator_params import CodeValidatorParams
 
 stub_prompt = "test_prompt {{some_column}}"
@@ -86,6 +87,7 @@ def test_llm_text_column_config():
     assert llm_text_column_config.column_type == DataDesignerColumnType.LLM_TEXT
     assert set(llm_text_column_config.required_columns) == {"some_column", "some_other_column"}
     assert llm_text_column_config.side_effect_columns == ["test_llm_text__trace"]
+    assert llm_text_column_config.with_trace == TraceType.NONE
 
     # invalid prompt
     with pytest.raises(
@@ -108,6 +110,35 @@ def test_llm_text_column_config():
             model_alias=stub_model_alias,
             system_prompt="test_system_prompt {{some_other_column",
         )
+
+
+def test_llm_text_column_config_with_trace_serialization() -> None:
+    """Test that with_trace field serializes and deserializes correctly."""
+    config = LLMTextColumnConfig(
+        name="test_llm_text",
+        prompt=stub_prompt,
+        model_alias=stub_model_alias,
+        with_trace=TraceType.ALL_MESSAGES,
+    )
+    assert config.with_trace == TraceType.ALL_MESSAGES
+
+    # Serialize
+    serialized = config.model_dump()
+    assert serialized["with_trace"] == "all_messages"
+
+    # Deserialize
+    deserialized = LLMTextColumnConfig(**serialized)
+    assert deserialized.with_trace == TraceType.ALL_MESSAGES
+
+    # Test with LAST_MESSAGE
+    config_last = LLMTextColumnConfig(
+        name="test_llm_text",
+        prompt=stub_prompt,
+        model_alias=stub_model_alias,
+        with_trace=TraceType.LAST_MESSAGE,
+    )
+    assert config_last.with_trace == TraceType.LAST_MESSAGE
+    assert config_last.model_dump()["with_trace"] == "last_message"
 
 
 def test_llm_code_column_config():

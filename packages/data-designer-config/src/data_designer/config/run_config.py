@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
@@ -7,6 +7,7 @@ from pydantic import Field, model_validator
 from typing_extensions import Self
 
 from data_designer.config.base import ConfigBase
+from data_designer.config.utils.trace_type import TraceType
 
 
 class RunConfig(ConfigBase):
@@ -33,10 +34,13 @@ class RunConfig(ConfigBase):
         max_conversation_correction_steps: Maximum number of correction rounds permitted within a
             single conversation when generation tasks call `ModelFacade.generate(...)`. Must be >= 0.
             Default is 0.
-        debug_override_save_all_column_traces: If True, overrides per-column `with_trace` settings
-            and includes `__trace` columns for ALL LLM generations, containing the full ordered
-            message history (system/user/assistant/tool) for the final generation attempt.
-            Useful for debugging. Default is False.
+        debug_trace_override: If set, overrides per-column `with_trace` settings for ALL LLM
+            generations. Options are:
+            - `None` (default): Use per-column `with_trace` settings.
+            - `TraceType.NONE`: Disable all traces, ignoring per-column settings.
+            - `TraceType.LAST_MESSAGE`: Capture only the final assistant message for all columns.
+            - `TraceType.ALL_MESSAGES`: Capture full conversation history for all columns.
+            Useful for debugging or bulk trace collection.
     """
 
     disable_early_shutdown: bool = False
@@ -46,7 +50,7 @@ class RunConfig(ConfigBase):
     non_inference_max_parallel_workers: int = Field(default=4, ge=1)
     max_conversation_restarts: int = Field(default=5, ge=0)
     max_conversation_correction_steps: int = Field(default=0, ge=0)
-    debug_override_save_all_column_traces: bool = False
+    debug_trace_override: TraceType | None = None
 
     @model_validator(mode="after")
     def normalize_shutdown_settings(self) -> Self:
