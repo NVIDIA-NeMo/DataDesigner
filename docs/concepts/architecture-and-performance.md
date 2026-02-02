@@ -139,7 +139,7 @@ from data_designer.config import ModelConfig, ChatCompletionInferenceParams
 
 model = ModelConfig(
     alias="my-model",
-    model="meta/llama-3.1-70b-instruct",
+    model="nvidia/nemotron-3-nano-30b-a3b",
     inference_parameters=ChatCompletionInferenceParams(
         max_parallel_requests=8,
     ),

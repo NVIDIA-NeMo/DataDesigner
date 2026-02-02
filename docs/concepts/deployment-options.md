@@ -34,7 +34,7 @@ from data_designer.config import ModelConfig
 # Use any OpenAI-compatible endpoint
 model = ModelConfig(
     alias="my-model",
-    model="meta/llama-3.1-8b-instruct",
+    model="nvidia/nemotron-3-nano-30b-a3b",
     provider="nvidia",  # or "openai", or a custom ModelProvider
 )
 
