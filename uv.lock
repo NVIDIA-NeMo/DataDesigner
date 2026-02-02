@@ -690,7 +690,6 @@ source = { editable = "packages/data-designer" }
 dependencies = [
     { name = "data-designer-config" },
     { name = "data-designer-engine" },
-    { name = "huggingface-hub" },
     { name = "prompt-toolkit" },
     { name = "typer" },
 ]
@@ -699,7 +698,6 @@ dependencies = [
 requires-dist = [
     { name = "data-designer-config", editable = "packages/data-designer-config" },
     { name = "data-designer-engine", editable = "packages/data-designer-engine" },
-    { name = "huggingface-hub", specifier = ">=1.0.1,<2" },
     { name = "prompt-toolkit", specifier = ">=3.0.0,<4" },
     { name = "typer", specifier = ">=0.12.0,<1" },
 ]
