@@ -38,6 +38,7 @@ dd.CustomColumnConfig(
     name="result",
     generation_function=my_generator,
     input_columns=["input"],
+    model_aliases=["my-model"],
     # generation_strategy="cell_by_cell" is the default
 )
 ```
@@ -59,6 +60,7 @@ dd.CustomColumnConfig(
     name="result",
     generation_function=batch_generator,
     input_columns=["input"],
+    model_aliases=["my-model"],
     generation_strategy="full_column",
 )
 ```
@@ -100,6 +102,7 @@ config_builder.add_column(
         name="message",
         generation_function=generate_message,
         input_columns=["name"],
+        model_aliases=["my-model"],
     )
 )
 ```
@@ -140,9 +143,10 @@ response, metadata = model.generate(
 | `name` | str | Yes | Primary column name |
 | `generation_function` | Callable | Yes | Generator function |
 | `generation_strategy` | str | No | `"cell_by_cell"` (default) or `"full_column"` |
-| `input_columns` | list[str] | No | Required input columns |
-| `output_columns` | list[str] | No | Additional columns created |
-| `kwargs` | dict | No | Custom parameters for `ctx.kwargs` |
+| `input_columns` | list[str] | No | Columns that must exist before this column runs (determines DAG order) |
+| `output_columns` | list[str] | No | Additional columns created by the function |
+| `model_aliases` | list[str] | No | Model aliases used by the function (enables health checks) |
+| `kwargs` | dict | No | Custom parameters accessible via `ctx.kwargs` |
 
 ## Multiple Output Columns
 
@@ -163,21 +167,28 @@ config_builder.add_column(
         generation_function=generate_with_trace,
         input_columns=["topic"],
         output_columns=["prompt_used"],
+        model_aliases=["my-model"],
     )
 )
 ```
 
 !!! warning "Undeclared columns are removed"
-    Columns not declared in `name` or `output_columns` will be removed with a warning.
+    Columns not declared in `name` or `output_columns` will be removed with a warning. This ensures an explicit contract between your function and the framework, preventing accidental columns from polluting the dataset.
+
+!!! danger "Don't remove existing columns"
+    Your generation function must not remove any pre-existing columns from the row/DataFrame. The framework validates this and will raise an error if columns are removed.
 
 ## Custom Parameters
 
-Pass configuration via `kwargs`:
+Pass configuration to your function via the `kwargs` parameter. These values are accessible inside your generation function through `ctx.kwargs`:
 
 ```python
 def configurable_generator(row: dict, ctx: dd.CustomColumnContext) -> dict:
+    # Access kwargs passed from the config
     tone = ctx.kwargs.get("tone", "neutral")
-    prompt = f"Write a {tone} message about {row['topic']}."
+    max_length = ctx.kwargs.get("max_length", 100)
+
+    prompt = f"Write a {tone} message about {row['topic']} in under {max_length} words."
     row[ctx.column_name] = ctx.generate_text(model_alias="my-model", prompt=prompt)
     return row
 
@@ -186,10 +197,14 @@ config_builder.add_column(
         name="styled_content",
         generation_function=configurable_generator,
         input_columns=["topic"],
-        kwargs={"tone": "professional"},
+        model_aliases=["my-model"],
+        # These kwargs are passed to ctx.kwargs inside your function
+        kwargs={"tone": "professional", "max_length": 50},
     )
 )
 ```
+
+This pattern lets you reuse the same function with different configurations without modifying the code.
 
 ## Multi-Turn Workflows
 
@@ -225,6 +240,7 @@ config_builder.add_column(
         generation_function=writer_editor_workflow,
         input_columns=["topic"],
         output_columns=["draft", "critique"],
+        model_aliases=["writer", "editor"],
     )
 )
 ```

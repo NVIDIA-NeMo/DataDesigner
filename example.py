@@ -113,6 +113,7 @@ if __name__ == "__main__":
             generation_function=generate_personalized_message,
             input_columns=["name", "product_interest"],
             output_columns=["prompt"],
+            model_aliases=[MODEL_ALIAS],
             kwargs={
                 "tone": "friendly and professional",
                 "max_words": 30,

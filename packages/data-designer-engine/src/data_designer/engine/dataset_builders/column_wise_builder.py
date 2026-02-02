@@ -212,10 +212,17 @@ class ColumnWiseDatasetBuilder:
         self.batch_manager.update_records(df.to_dict(orient="records"))
 
     def _run_model_health_check_if_needed(self) -> None:
-        if any(column_type_is_model_generated(config.column_type) for config in self.single_column_configs):
-            self._resource_provider.model_registry.run_health_check(
-                list(set(config.model_alias for config in self.llm_generated_column_configs))
-            )
+        model_aliases: set[str] = set()
+
+        for config in self.llm_generated_column_configs:
+            model_aliases.add(config.model_alias)
+
+        for config in self.single_column_configs:
+            if hasattr(config, "model_aliases") and config.model_aliases:
+                model_aliases.update(config.model_aliases)
+
+        if model_aliases:
+            self._resource_provider.model_registry.run_health_check(list(model_aliases))
 
     def _run_mcp_tool_check_if_needed(self) -> None:
         tool_aliases = sorted(

@@ -105,8 +105,8 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
         return result
 
     def _validate_output_columns(self, result: dict, keys_before: set[str]) -> dict:
-        """Validate expected columns were created and remove undeclared columns."""
-        expected_new_keys = {self.config.name} | set(self.config.output_columns)
+        """Validate expected columns were created, no pre-existing columns removed, and remove undeclared columns."""
+        expected_new_keys = {self.config.name} | set(self.config.side_effect_columns)
 
         if self.config.name not in result:
             raise CustomColumnGenerationError(
@@ -114,11 +114,18 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
                 f"The generation_function must add a key named '{self.config.name}' to the row dict."
             )
 
-        missing_output_columns = set(self.config.output_columns) - set(result.keys())
+        missing_output_columns = set(self.config.side_effect_columns) - set(result.keys())
         if missing_output_columns:
             raise CustomColumnGenerationError(
-                f"Custom generator for column '{self.config.name}' did not create declared output columns: "
+                f"Custom generator for column '{self.config.name}' did not create declared output_columns: "
                 f"{sorted(missing_output_columns)}. Declared output_columns must be added to the row."
+            )
+
+        removed_keys = keys_before - set(result.keys())
+        if removed_keys:
+            raise CustomColumnGenerationError(
+                f"Custom generator for column '{self.config.name}' removed pre-existing columns: "
+                f"{sorted(removed_keys)}. The generation_function must not remove any existing columns from the row."
             )
 
         actual_new_keys = set(result.keys()) - keys_before
@@ -136,8 +143,8 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
         return result
 
     def _validate_output_columns_df(self, result: pd.DataFrame, columns_before: set[str]) -> pd.DataFrame:
-        """Validate expected columns were created and remove undeclared columns (DataFrame version)."""
-        expected_new_cols = {self.config.name} | set(self.config.output_columns)
+        """Validate expected columns were created, no pre-existing columns removed, and remove undeclared columns."""
+        expected_new_cols = {self.config.name} | set(self.config.side_effect_columns)
 
         if self.config.name not in result.columns:
             raise CustomColumnGenerationError(
@@ -145,11 +152,18 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
                 f"The generation_function must add a column named '{self.config.name}' to the DataFrame."
             )
 
-        missing_output_columns = set(self.config.output_columns) - set(result.columns)
+        missing_output_columns = set(self.config.side_effect_columns) - set(result.columns)
         if missing_output_columns:
             raise CustomColumnGenerationError(
-                f"Custom generator for column '{self.config.name}' did not create declared output columns: "
+                f"Custom generator for column '{self.config.name}' did not create declared output_columns: "
                 f"{sorted(missing_output_columns)}. Declared output_columns must be added to the DataFrame."
+            )
+
+        removed_cols = columns_before - set(result.columns)
+        if removed_cols:
+            raise CustomColumnGenerationError(
+                f"Custom generator for column '{self.config.name}' removed pre-existing columns: "
+                f"{sorted(removed_cols)}. The generation_function must not remove any existing columns from the DataFrame."
             )
 
         actual_new_cols = set(result.columns) - columns_before
@@ -189,8 +203,10 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
         logger.info(f"{self.config.get_column_emoji()} Custom column config for column '{self.config.name}'")
         logger.info(f"  |-- generation_function: {self.config.generation_function.__name__!r}")
         logger.info(f"  |-- generation_strategy: {self.config.generation_strategy!r}")
-        logger.info(f"  |-- input_columns: {self.config.input_columns}")
-        if self.config.output_columns:
-            logger.info(f"  |-- output_columns: {self.config.output_columns}")
+        logger.info(f"  |-- required_columns: {self.config.required_columns}")
+        if self.config.side_effect_columns:
+            logger.info(f"  |-- side_effect_columns: {self.config.side_effect_columns}")
+        if self.config.model_aliases:
+            logger.info(f"  |-- model_aliases: {self.config.model_aliases}")
         if self.config.kwargs:
             logger.info(f"  |-- kwargs: {self.config.kwargs}")

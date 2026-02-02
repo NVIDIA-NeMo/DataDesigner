@@ -77,6 +77,7 @@ if __name__ == "__main__":
             name="fact",
             generation_function=full_column_generator,
             input_columns=["topic"],
+            model_aliases=[MODEL_ALIAS],
             generation_strategy="full_column",
         )
     )
@@ -101,6 +102,7 @@ if __name__ == "__main__":
             name="fact",
             generation_function=cell_by_cell_generator,
             input_columns=["topic"],
+            model_aliases=[MODEL_ALIAS],
             generation_strategy="cell_by_cell",
         )
     )

@@ -495,11 +495,17 @@ class CustomColumnConfig(SingleColumnConfig):
         - fn(df: pd.DataFrame) -> pd.DataFrame
         - fn(df: pd.DataFrame, ctx: CustomColumnContext) -> pd.DataFrame
 
-     Attributes:
+    Attributes:
         generation_function: A callable that processes data. Signature depends on generation_strategy.
         generation_strategy: "cell_by_cell" (row-based) or "full_column" (batch-based).
         input_columns: List of column names that must exist before this column can be generated.
+            These columns determine DAG ordering and are validated at runtime before generation.
+            Accessible via the `required_columns` property for consistency with other column types.
         output_columns: List of additional column names that generation_function will create.
+            Any columns created but not declared here will be removed with a warning.
+            Accessible via the `side_effect_columns` property for consistency with other column types.
+        model_aliases: Optional list of model aliases used by the generation function.
+            Declaring these enables health checks to validate model access before generation starts.
         kwargs: Optional dictionary of additional parameters accessible via ctx.kwargs.
         column_type: Discriminator field, always "custom" for this configuration type.
     """
@@ -511,15 +517,19 @@ class CustomColumnConfig(SingleColumnConfig):
     )
     input_columns: list[str] = Field(
         default_factory=list,
-        description="List of column names required as input for generation",
+        description="List of column names required as input for generation (determines DAG ordering)",
     )
     output_columns: list[str] = Field(
         default_factory=list,
         description="List of additional column names that generation_function will create",
     )
+    model_aliases: list[str] = Field(
+        default_factory=list,
+        description="List of model aliases used by the generation function for health checks",
+    )
     kwargs: dict[str, Any] = Field(
         default_factory=dict,
-        description="Additional parameters to pass to the generate function",
+        description="Additional parameters passed to ctx.kwargs in the generate function",
     )
     column_type: Literal["custom"] = "custom"
 
@@ -529,12 +539,12 @@ class CustomColumnConfig(SingleColumnConfig):
 
     @property
     def required_columns(self) -> list[str]:
-        """Returns the columns required for custom generation."""
+        """Returns the columns required for custom generation (maps to input_columns)."""
         return self.input_columns
 
     @property
     def side_effect_columns(self) -> list[str]:
-        """Returns additional columns created by this generator."""
+        """Returns additional columns created by this generator (maps to output_columns)."""
         return self.output_columns
 
     @field_serializer("generation_function")

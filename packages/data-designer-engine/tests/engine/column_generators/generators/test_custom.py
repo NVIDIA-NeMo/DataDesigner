@@ -23,6 +23,7 @@ def _create_test_generator(
     generation_function: callable = None,
     input_columns: list[str] | None = None,
     output_columns: list[str] | None = None,
+    model_aliases: list[str] | None = None,
     kwargs: dict | None = None,
     resource_provider: ResourceProvider | None = None,
 ) -> CustomColumnGenerator:
@@ -38,6 +39,7 @@ def _create_test_generator(
         generation_function=generation_function,
         input_columns=input_columns or [],
         output_columns=output_columns or [],
+        model_aliases=model_aliases or [],
         kwargs=kwargs or {},
     )
     if resource_provider is None:
@@ -175,7 +177,7 @@ def test_config_validation_non_callable() -> None:
 
 
 def test_config_required_columns_property() -> None:
-    """Test that required_columns returns input_columns."""
+    """Test that required_columns property returns input_columns."""
 
     def my_generator(row: dict) -> dict:
         return row
@@ -187,10 +189,11 @@ def test_config_required_columns_property() -> None:
     )
 
     assert config.required_columns == ["col1", "col2"]
+    assert config.input_columns == ["col1", "col2"]
 
 
 def test_config_side_effect_columns_property() -> None:
-    """Test that side_effect_columns returns output_columns."""
+    """Test that side_effect_columns property returns output_columns."""
 
     def my_generator(row: dict) -> dict:
         return row
@@ -202,10 +205,26 @@ def test_config_side_effect_columns_property() -> None:
     )
 
     assert config.side_effect_columns == ["extra_col1", "extra_col2"]
+    assert config.output_columns == ["extra_col1", "extra_col2"]
 
 
-def test_generate_multiple_output_columns() -> None:
-    """Test generating multiple output columns."""
+def test_config_model_aliases_property() -> None:
+    """Test that model_aliases field is accessible."""
+
+    def my_generator(row: dict) -> dict:
+        return row
+
+    config = CustomColumnConfig(
+        name="test",
+        generation_function=my_generator,
+        model_aliases=["model-a", "model-b"],
+    )
+
+    assert config.model_aliases == ["model-a", "model-b"]
+
+
+def test_generate_multiple_side_effect_columns() -> None:
+    """Test generating multiple side effect columns."""
 
     def my_generator(row: dict) -> dict:
         row["primary"] = row["input"] * 2
@@ -241,6 +260,7 @@ def test_log_pre_generation(caplog: pytest.LogCaptureFixture) -> None:
         generation_function=my_generator,
         input_columns=["input"],
         output_columns=["extra"],
+        model_aliases=["test-model"],
         kwargs={"key": "value"},
     )
 
@@ -249,7 +269,8 @@ def test_log_pre_generation(caplog: pytest.LogCaptureFixture) -> None:
 
     assert "Custom column config for column 'result'" in caplog.text
     assert "my_generator" in caplog.text
-    assert "input_columns" in caplog.text
+    assert "required_columns" in caplog.text or "input_columns" in caplog.text
+    assert "model_aliases" in caplog.text
 
 
 def test_config_serialization() -> None:
@@ -350,6 +371,7 @@ def test_context_generate_text() -> None:
         name="result",
         generation_function=my_generator_with_llm,
         input_columns=["input"],
+        model_aliases=["test-model"],
         resource_provider=mock_resource_provider,
     )
 
@@ -386,7 +408,7 @@ def test_missing_declared_output_columns_raises_error() -> None:
 
     row = {"input": 1}
 
-    with pytest.raises(CustomColumnGenerationError, match="did not create declared output columns"):
+    with pytest.raises(CustomColumnGenerationError, match="did not create declared output_columns"):
         generator.generate(row)
 
 
@@ -420,10 +442,11 @@ def test_undeclared_columns_removed_with_warning(caplog: pytest.LogCaptureFixtur
     # Warning should be logged
     assert "undeclared columns" in caplog.text
     assert "undeclared_column" in caplog.text
+    assert "output_columns" in caplog.text
 
 
-def test_declared_output_columns_kept() -> None:
-    """Test that declared output_columns are kept in the result."""
+def test_declared_side_effect_columns_kept() -> None:
+    """Test that declared side_effect_columns are kept in the result."""
 
     def my_generator(row: dict) -> dict:
         row["primary"] = row["input"] * 2
@@ -448,6 +471,26 @@ def test_declared_output_columns_kept() -> None:
     assert result["primary"] == 4
     assert result["secondary"] == 6
     assert result["tertiary"] == 8
+
+
+def test_removing_pre_existing_columns_raises_error() -> None:
+    """Test that removing pre-existing columns raises an error."""
+
+    def my_generator(row: dict) -> dict:
+        row["result"] = row["input"] * 2
+        del row["input"]  # Remove a pre-existing column
+        return row
+
+    generator = _create_test_generator(
+        name="result",
+        generation_function=my_generator,
+        input_columns=["input"],
+    )
+
+    row = {"input": 5, "other": "keep"}
+
+    with pytest.raises(CustomColumnGenerationError, match="removed pre-existing columns"):
+        generator.generate(row)
 
 
 def test_full_column_strategy() -> None:
@@ -582,6 +625,7 @@ def test_generate_text_batch() -> None:
         name="result",
         generation_function=batch_with_parallel_llm,
         input_columns=["input"],
+        model_aliases=["test-model"],
         generation_strategy="full_column",
     )
     generator = CustomColumnGenerator(config=config, resource_provider=mock_resource_provider)
@@ -645,6 +689,7 @@ def test_multi_step_workflow_intermediate_failure() -> None:
         name="result",
         generation_function=multi_turn_generator,
         input_columns=["topic"],
+        model_aliases=["writer", "editor"],
         resource_provider=mock_resource_provider,
     )
 

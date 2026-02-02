@@ -68,6 +68,7 @@ if __name__ == "__main__":
             generation_function=multi_turn_writer_editor,
             input_columns=["topic"],
             output_columns=["conversation_trace"],
+            model_aliases=[WRITER_MODEL_ALIAS, REVIEWER_MODEL_ALIAS],
         )
     )
 
