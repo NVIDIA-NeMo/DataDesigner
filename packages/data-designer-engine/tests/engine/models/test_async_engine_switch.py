@@ -10,13 +10,31 @@ from types import ModuleType
 
 import pytest
 
+_MODEL_PREFIXES = (
+    "data_designer.engine.models",
+    "data_designer.engine.models_v2",
+)
 
-def _clear_models_modules() -> None:
+
+def _matches_models_namespace(module_name: str) -> bool:
+    return any(module_name == prefix or module_name.startswith(f"{prefix}.") for prefix in _MODEL_PREFIXES)
+
+
+def _purge_models_modules() -> dict[str, ModuleType]:
+    saved: dict[str, ModuleType] = {}
     for module_name in list(sys.modules):
-        if module_name == "data_designer.engine.models" or module_name.startswith("data_designer.engine.models."):
+        if _matches_models_namespace(module_name):
+            module = sys.modules.pop(module_name, None)
+            if isinstance(module, ModuleType):
+                saved[module_name] = module
+    return saved
+
+
+def _restore_models_modules(saved: dict[str, ModuleType]) -> None:
+    for module_name in list(sys.modules):
+        if _matches_models_namespace(module_name):
             sys.modules.pop(module_name, None)
-        if module_name == "data_designer.engine.models_v2" or module_name.startswith("data_designer.engine.models_v2."):
-            sys.modules.pop(module_name, None)
+    sys.modules.update(saved)
 
 
 def _module_path_parts(module: ModuleType) -> tuple[str, ...]:
@@ -26,17 +44,18 @@ def _module_path_parts(module: ModuleType) -> tuple[str, ...]:
 
 
 def test_async_engine_env_switch(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("DATA_DESIGNER_ASYNC_ENGINE", raising=False)
-    _clear_models_modules()
-    default_facade = importlib.import_module("data_designer.engine.models.facade")
-    default_parts = _module_path_parts(default_facade)
-    assert "models_v2" not in default_parts
-    assert "models" in default_parts
+    saved_modules = _purge_models_modules()
+    try:
+        monkeypatch.delenv("DATA_DESIGNER_ASYNC_ENGINE", raising=False)
+        default_facade = importlib.import_module("data_designer.engine.models.facade")
+        default_parts = _module_path_parts(default_facade)
+        assert "models_v2" not in default_parts
+        assert "models" in default_parts
 
-    _clear_models_modules()
-    monkeypatch.setenv("DATA_DESIGNER_ASYNC_ENGINE", "1")
-    async_facade = importlib.import_module("data_designer.engine.models.facade")
-    async_parts = _module_path_parts(async_facade)
-    assert "models_v2" in async_parts
-
-    _clear_models_modules()
+        _purge_models_modules()
+        monkeypatch.setenv("DATA_DESIGNER_ASYNC_ENGINE", "1")
+        async_facade = importlib.import_module("data_designer.engine.models.facade")
+        async_parts = _module_path_parts(async_facade)
+        assert "models_v2" in async_parts
+    finally:
+        _restore_models_modules(saved_modules)
