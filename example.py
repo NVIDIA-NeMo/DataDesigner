@@ -82,7 +82,47 @@ def generate_with_direct_model_access(row: dict, ctx: dd.CustomColumnContext) ->
     return row
 
 
-if __name__ == "__main__":
+def develop_with_mock_context() -> None:
+    """Develop and iterate on generators using MockCustomColumnContext.
+
+    This lets you test your generator logic without LLM calls or the full framework.
+    """
+    print("=== Development with MockCustomColumnContext ===\n")
+
+    # Create a mock context with configurable responses
+    ctx = dd.MockCustomColumnContext(
+        column_name="personalized_message",
+        generator_config=MessageConfig(tone="friendly and professional", max_words=30),
+        mock_responses=[
+            "Hi Alice! Check out our amazing Electronics collection!",
+            "Hello Bob! We have great Books just for you!",
+        ],
+    )
+
+    # Test your generator with sample data
+    test_rows = [
+        {"name": "Alice", "product_interest": "Electronics"},
+        {"name": "Bob", "product_interest": "Books"},
+    ]
+
+    for row in test_rows:
+        result = generate_personalized_message(row.copy(), ctx)
+        print(f"Input:  {row}")
+        print(f"Output: {result}")
+        print()
+
+    # Inspect what prompts were generated
+    print("Generated prompts:")
+    for i, call in enumerate(ctx.call_history):
+        print(f"  {i + 1}. {call['prompt'][:80]}...")
+
+    print()
+
+
+def run_full_pipeline() -> None:
+    """Run the full DataDesigner pipeline with actual LLM calls."""
+    print("=== Full DataDesigner Pipeline ===\n")
+
     data_designer = DataDesigner()
     config_builder = dd.DataDesignerConfigBuilder()
 
@@ -131,3 +171,12 @@ if __name__ == "__main__":
     print("Generating preview...")
     preview = data_designer.preview(config_builder=config_builder, num_records=10)
     preview.display_sample_record()
+
+
+if __name__ == "__main__":
+    # First, develop and test with mock context (no LLM calls)
+    develop_with_mock_context()
+
+    # Then run the full pipeline (requires API keys and LLM access)
+    # Uncomment the line below when ready to test with real LLMs:
+    # run_full_pipeline()

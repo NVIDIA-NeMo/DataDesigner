@@ -282,6 +282,38 @@ config_builder.add_column(
 )
 ```
 
+## Developing Generators
+
+Use `MockCustomColumnContext` to iterate on your generator logic without running the full framework:
+
+```python
+from pydantic import BaseModel
+import data_designer.config as dd
+
+class MyConfig(BaseModel):
+    tone: str = "friendly"
+
+def my_generator(row: dict, ctx: dd.CustomColumnContext) -> dict:
+    config = ctx.generator_config
+    prompt = f"Write a {config.tone} message for {row['name']}"
+    row["message"] = ctx.generate_text(model_alias="my-model", prompt=prompt)
+    return row
+
+# Create a mock context for development
+ctx = dd.MockCustomColumnContext(
+    column_name="message",
+    generator_config=MyConfig(tone="professional"),
+    mock_responses=["Hello! How can I help you today?"],
+)
+
+# Iterate on your generator without LLM calls
+result = my_generator({"name": "Alice"}, ctx)
+print(result)  # {'name': 'Alice', 'message': 'Hello! How can I help you today?'}
+
+# Inspect what prompts were generated
+print(ctx.call_history)  # Shows all generate_text() calls
+```
+
 ## See Also
 
 - [Column Configs Reference](../code_reference/column_configs.md)
