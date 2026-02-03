@@ -13,7 +13,6 @@ from pygments.lexers import PythonLexer
 from typing_extensions import Self
 
 from data_designer.config.analysis.column_profilers import ColumnProfilerConfigT
-from data_designer.config.base import ExportableConfigBase
 from data_designer.config.column_configs import SeedDatasetColumnConfig
 from data_designer.config.column_types import (
     ColumnConfigT,
@@ -25,6 +24,7 @@ from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.default_model_settings import get_default_model_configs
 from data_designer.config.errors import BuilderConfigurationError, BuilderSerializationError, InvalidColumnTypeError
+from data_designer.config.exportable_config import ExportableConfigBase
 from data_designer.config.mcp import ToolConfig
 from data_designer.config.models import ModelConfig, load_model_configs
 from data_designer.config.processors import ProcessorConfigT, ProcessorType, get_processor_config_from_kwargs

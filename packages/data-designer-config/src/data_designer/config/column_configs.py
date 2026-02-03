@@ -8,7 +8,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, Discriminator, Field, model_validator
 from typing_extensions import Self
 
-from data_designer.base import ConfigBase, SingleColumnConfig
+from data_designer.config.base import ConfigBase, SingleColumnConfig
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.models import ImageContext
 from data_designer.config.sampler_params import SamplerParamsT, SamplerType

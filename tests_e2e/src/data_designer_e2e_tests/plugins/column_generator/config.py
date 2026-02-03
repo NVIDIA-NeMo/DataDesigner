@@ -3,7 +3,7 @@
 
 from typing import Literal
 
-from data_designer.base import SingleColumnConfig
+from data_designer.config.base import SingleColumnConfig
 
 
 class DemoColumnGeneratorConfig(SingleColumnConfig):

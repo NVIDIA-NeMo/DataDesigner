@@ -7,7 +7,7 @@ from abc import ABC
 from pathlib import Path
 from typing import TYPE_CHECKING, Generic, TypeVar, get_origin
 
-from data_designer.base import ConfigBase
+from data_designer.config.base import ConfigBase
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.engine.resources.resource_provider import ResourceProvider
 from data_designer.lazy_heavy_imports import pd

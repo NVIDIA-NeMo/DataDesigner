@@ -11,7 +11,6 @@ from rich.panel import Panel
 from rich.table import Column, Table
 from typing_extensions import TypeAlias
 
-from data_designer.base import ConfigBase
 from data_designer.config.analysis.column_statistics import (
     CategoricalDistribution,
     CategoricalHistogramData,
@@ -20,6 +19,7 @@ from data_designer.config.analysis.column_statistics import (
     NumericalDistribution,
 )
 from data_designer.config.analysis.utils.reporting import TITLE_STYLE, create_judge_score_summary_table
+from data_designer.config.base import ConfigBase
 from data_designer.config.utils.visualization import ColorPalette
 
 

@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Literal
 from pydantic import Field, field_validator, model_validator
 from typing_extensions import Self, TypeAlias
 
-from data_designer.base import ConfigBase
+from data_designer.config.base import ConfigBase
 from data_designer.config.utils.constants import (
     AVAILABLE_LOCALES,
     DEFAULT_AGE_RANGE,

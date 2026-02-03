@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import logging
 
-from data_designer.base import SingleColumnConfig
+from data_designer.config.base import SingleColumnConfig
 from data_designer.config.column_types import DataDesignerColumnType
 from data_designer.config.models import ModelConfig
 from data_designer.config.utils.code_lang import CodeLang

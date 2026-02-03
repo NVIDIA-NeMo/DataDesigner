@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Generic, Literal, TypeVar
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing_extensions import Self, TypeAlias
 
-from data_designer.base import ConfigBase
+from data_designer.config.base import ConfigBase
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.utils.constants import (
     MAX_TEMPERATURE,

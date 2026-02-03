@@ -9,7 +9,7 @@ from typing import Any
 from pydantic import Field, field_serializer, model_validator
 from typing_extensions import Self, TypeAlias
 
-from data_designer.base import ConfigBase
+from data_designer.config.base import ConfigBase
 from data_designer.config.utils.code_lang import SQL_DIALECTS, CodeLang
 
 SUPPORTED_CODE_LANGUAGES = {CodeLang.PYTHON, *SQL_DIALECTS}

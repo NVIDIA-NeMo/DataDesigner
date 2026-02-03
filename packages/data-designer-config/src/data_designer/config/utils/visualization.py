@@ -19,7 +19,7 @@ from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 
-from data_designer.base import ConfigBase
+from data_designer.config.base import ConfigBase
 from data_designer.config.column_types import DataDesignerColumnType
 from data_designer.config.models import ModelConfig, ModelProvider
 from data_designer.config.sampler_params import SamplerType
