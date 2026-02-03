@@ -22,6 +22,7 @@ if TYPE_CHECKING:
         SamplerColumnConfig,
         Score,
         SeedDatasetColumnConfig,
+        SingleColumnConfig,
         ValidationColumnConfig,
     )
     from data_designer.config.column_types import DataDesignerColumnType  # noqa: F401
@@ -111,6 +112,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "SamplerColumnConfig": ("data_designer.config.column_configs", "SamplerColumnConfig"),
     "Score": ("data_designer.config.column_configs", "Score"),
     "SeedDatasetColumnConfig": ("data_designer.config.column_configs", "SeedDatasetColumnConfig"),
+    "SingleColumnConfig": ("data_designer.config.column_configs", "SingleColumnConfig"),
     "ValidationColumnConfig": ("data_designer.config.column_configs", "ValidationColumnConfig"),
     # column_types
     "DataDesignerColumnType": ("data_designer.config.column_types", "DataDesignerColumnType"),
