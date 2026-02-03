@@ -39,7 +39,7 @@ LLM-Text columns generate natural language text: product descriptions, customer 
 Use **Jinja2 templating** in prompts to reference other columns. Data Designer automatically manages dependencies and injects the referenced column values into the prompt.
 
 !!! note "Generation Traces"
-    LLM columns can optionally capture message traces in a separate `{column_name}__trace` column. Set `with_trace` on the column config to control what's captured: `TraceType.NONE` (default, no trace), `TraceType.LAST_MESSAGE` (final assistant message only), or `TraceType.ALL_MESSAGES` (full conversation history). Override globally via `RunConfig(debug_trace_override=TraceType.ALL_MESSAGES)`. The trace includes the ordered message history for the final generation attempt (system/user/assistant/tool calls/tool results), and may include model reasoning fields when the provider exposes them.
+    LLM columns can optionally capture message traces in a separate `{column_name}__trace` column. Set `with_trace` on the column config to control what's captured: `TraceType.NONE` (default, no trace), `TraceType.LAST_MESSAGE` (final assistant message only), or `TraceType.ALL_MESSAGES` (full conversation history). The trace includes the ordered message history for the final generation attempt (system/user/assistant/tool calls/tool results), and may include model reasoning fields when the provider exposes them.
 
 !!! tip "Extracting Reasoning Content"
     Some models expose chain-of-thought reasoning separately from the main response via a `reasoning_content` field. To capture only this reasoning (without the full trace), set `extract_reasoning_content=True`:
@@ -181,7 +181,7 @@ You read this property for introspection but never set it—always computed from
 
 Computed property listing columns created implicitly alongside the primary column. Currently, only LLM columns produce side effects:
 
-- `{name}__trace`: Created when `with_trace` is not `TraceType.NONE` on the column or `debug_trace_override` is set globally.
+- `{name}__trace`: Created when `with_trace` is not `TraceType.NONE` on the column.
 - `{name}__reasoning_content`: Created when `extract_reasoning_content=True` on the column.
 
 For detailed information on each column type, refer to the [column configuration code reference](../code_reference/column_configs.md).

@@ -89,11 +89,7 @@ class ColumnGeneratorWithModelChatCompletion(ColumnGeneratorWithModel[TaskConfig
         serialized_output = self.response_recipe.serialize_output(response)
         data[self.config.name] = self._process_serialized_output(serialized_output)
 
-        effective_trace_type = (
-            self.resource_provider.run_config.debug_trace_override
-            if self.resource_provider.run_config.debug_trace_override is not None
-            else self.config.with_trace
-        )
+        effective_trace_type = self.config.with_trace
 
         if effective_trace_type == TraceType.ALL_MESSAGES:
             data[self.config.name + TRACE_COLUMN_POSTFIX] = [message.to_dict() for message in trace]

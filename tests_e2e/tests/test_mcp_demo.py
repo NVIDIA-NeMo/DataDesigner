@@ -15,7 +15,6 @@ from data_designer.config import (
     DataDesignerConfigBuilder,
     LLMTextColumnConfig,
     LocalStdioMCPProvider,
-    RunConfig,
     SamplerColumnConfig,
     SamplerType,
     ToolConfig,
@@ -46,7 +45,6 @@ def test_mcp_server_tool_usage_with_nvidia_text(tmp_path: Path) -> None:
     )
 
     data_designer = DataDesigner(mcp_providers=[mcp_provider])
-    data_designer.set_run_config(RunConfig(debug_trace_override=TraceType.ALL_MESSAGES))
 
     tool_config = ToolConfig(
         tool_alias="demo-tools",
@@ -72,6 +70,7 @@ def test_mcp_server_tool_usage_with_nvidia_text(tmp_path: Path) -> None:
             ),
             model_alias="nvidia-text",
             tool_alias="demo-tools",
+            with_trace=TraceType.ALL_MESSAGES,
         )
     )
 

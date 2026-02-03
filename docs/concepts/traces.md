@@ -59,34 +59,6 @@ builder.add_column(
 )
 ```
 
-### Global Debug Override
-
-Override trace settings for ALL LLM columns (useful during development):
-
-```python
-import data_designer.config as dd
-from data_designer.interface import DataDesigner
-
-data_designer = DataDesigner()
-
-# Enable full traces for all columns
-data_designer.set_run_config(
-    dd.RunConfig(debug_trace_override=dd.TraceType.ALL_MESSAGES)
-)
-
-# Or capture only last messages for all columns
-data_designer.set_run_config(
-    dd.RunConfig(debug_trace_override=dd.TraceType.LAST_MESSAGE)
-)
-
-# Disable all traces (overrides per-column settings)
-data_designer.set_run_config(
-    dd.RunConfig(debug_trace_override=dd.TraceType.NONE)
-)
-```
-
-When `debug_trace_override` is set (not `None`), it takes precedence over per-column `with_trace` settings.
-
 ## Trace Column Naming
 
 When enabled, LLM columns produce an additional side-effect column:
@@ -241,4 +213,3 @@ The `extract_reasoning_content` option is available on all LLM column types:
 ## See Also
 
 - **[Safety and Limits](mcp/safety-and-limits.md)**: Understand turn limits and timeout behavior
-- **[Run Config](../code_reference/run_config.md)**: Runtime options including `debug_trace_override`

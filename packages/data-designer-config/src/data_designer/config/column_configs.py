@@ -168,7 +168,6 @@ class LLMTextColumnConfig(SingleColumnConfig):
             - `TraceType.NONE` (default): No trace is captured.
             - `TraceType.LAST_MESSAGE`: Only the final assistant message is captured.
             - `TraceType.ALL_MESSAGES`: Full conversation history (system/user/assistant/tool).
-            Can be overridden globally via `RunConfig.debug_trace_override`.
         extract_reasoning_content: If True, creates a `{column_name}__reasoning_content` column
             containing only the reasoning_content from the final assistant response. This is
             useful for models that expose chain-of-thought reasoning separately from the main
@@ -207,7 +206,7 @@ class LLMTextColumnConfig(SingleColumnConfig):
 
         Side-effect columns include:
         - `{name}__trace`: Generated when `with_trace` is not `TraceType.NONE` on the column
-          config or when `RunConfig.debug_trace_override` is set globally.
+          config.
         - `{name}__reasoning_content`: Generated when `extract_reasoning_content=True`.
 
         Returns:
