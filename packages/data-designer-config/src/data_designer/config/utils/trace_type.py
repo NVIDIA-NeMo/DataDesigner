@@ -3,10 +3,10 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from data_designer.config.utils.type_helpers import StrEnum
 
 
-class TraceType(str, Enum):
+class TraceType(StrEnum):
     """Specifies the type of reasoning trace to capture for LLM columns.
 
     Traces capture the conversation history during LLM generation, which is
