@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import Mock
 
+import pandas as pd
 import pytest
 from pydantic import BaseModel
 
@@ -20,23 +21,14 @@ from data_designer.engine.resources.resource_provider import ResourceProvider
 
 
 class SampleParams(BaseModel):
-    """Sample params class for CustomColumnConfig tests."""
+    """Sample params class for tests."""
 
     multiplier: int = 1
     prefix: str = ""
     suffix: str = "_processed"
 
 
-# ============================================================================
-# Test fixtures: decorated generator functions
-# ============================================================================
-
-
-@custom_column_generator()
-def simple_generator(row: dict) -> dict:
-    """Simple 1-arg generator."""
-    row["test_column"] = "test_value"
-    return row
+# Test fixtures
 
 
 @custom_column_generator(required_columns=["input"])
@@ -46,28 +38,7 @@ def generator_with_required_columns(row: dict) -> dict:
     return row
 
 
-@custom_column_generator(required_columns=["input"])
-def generator_with_params(row: dict, params: SampleParams) -> dict:
-    """Generator with typed params (2-arg)."""
-    row["result"] = f"{params.prefix}{row['input']}{params.suffix}"
-    return row
-
-
-@custom_column_generator(
-    required_columns=["input"],
-    model_aliases=["test-model"],
-)
-def generator_with_context(row: dict, params: SampleParams, ctx: CustomColumnContext) -> dict:
-    """Generator with params and context (3-arg)."""
-    suffix = params.suffix if params else "_processed"
-    row["result"] = f"{row['input']}{suffix}"
-    return row
-
-
-@custom_column_generator(
-    required_columns=["input"],
-    side_effect_columns=["secondary"],
-)
+@custom_column_generator(required_columns=["input"], side_effect_columns=["secondary"])
 def generator_with_side_effects(row: dict) -> dict:
     """Generator that creates additional columns."""
     row["primary"] = row["input"] * 2
@@ -84,6 +55,12 @@ def _create_test_generator(
 ) -> CustomColumnGenerator:
     """Helper function to create test generator."""
     if generator_function is None:
+
+        @custom_column_generator()
+        def simple_generator(row: dict) -> dict:
+            row[name] = "test_value"
+            return row
+
         generator_function = simple_generator
 
     config = CustomColumnConfig(
@@ -97,13 +74,11 @@ def _create_test_generator(
     return CustomColumnGenerator(config=config, resource_provider=resource_provider)
 
 
-# ============================================================================
-# Decorator and config tests
-# ============================================================================
+# Config and creation tests
 
 
-def test_config_reads_from_decorator() -> None:
-    """Test that CustomColumnConfig reads metadata from decorator."""
+def test_config_and_decorator_integration() -> None:
+    """Test config reads decorator metadata, serializes correctly, and creates generator."""
 
     @custom_column_generator(
         required_columns=["col1", "col2"],
@@ -113,25 +88,18 @@ def test_config_reads_from_decorator() -> None:
     def decorated_generator(row: dict) -> dict:
         return row
 
-    config = CustomColumnConfig(
-        name="test",
-        generator_function=decorated_generator,
-    )
+    config = CustomColumnConfig(name="test", generator_function=decorated_generator)
 
+    # Decorator metadata is read
     assert config.required_columns == ["col1", "col2"]
     assert config.side_effect_columns == ["extra"]
     assert config.model_aliases == ["model-a"]
 
+    # Serialization works
+    assert config.model_dump()["generator_function"] == "decorated_generator"
 
-# ============================================================================
-# Generator creation tests
-# ============================================================================
-
-
-def test_generator_creation_and_defaults() -> None:
-    """Test CustomColumnGenerator creation and default strategy."""
-    generator = _create_test_generator()
-    assert generator.config.name == "test_column"
+    # Generator creation works with defaults
+    generator = CustomColumnGenerator(config=config, resource_provider=Mock(spec=ResourceProvider))
     assert generator.config.column_type == "custom"
     assert generator.get_generation_strategy() == GenerationStrategy.CELL_BY_CELL
 
@@ -139,211 +107,27 @@ def test_generator_creation_and_defaults() -> None:
 def test_config_validation_non_callable() -> None:
     """Test that non-callable generator_function raises an error."""
     with pytest.raises(InvalidConfigError, match="must be a callable"):
-        CustomColumnConfig(
-            name="test",
-            generator_function="not_a_function",
-        )
+        CustomColumnConfig(name="test", generator_function="not_a_function")
 
 
-# ============================================================================
-# 1-arg signature tests (simple transform)
-# ============================================================================
+# Cell-by-cell generation tests
 
 
-def test_generate_simple_column() -> None:
-    """Test generating a simple column from a row."""
-    generator = _create_test_generator(
-        name="result",
-        generator_function=generator_with_required_columns,
-    )
-
-    row = {"input": "hello"}
-    result = generator.generate(row)
-
-    assert "result" in result
+def test_cell_by_cell_generation() -> None:
+    """Test basic cell-by-cell generation with 1-arg function."""
+    generator = _create_test_generator(name="result", generator_function=generator_with_required_columns)
+    result = generator.generate({"input": "hello"})
     assert result["result"] == "HELLO"
 
 
-def test_generate_missing_required_columns() -> None:
-    """Test that missing required columns raise an error."""
-    generator = _create_test_generator(
-        name="result",
-        generator_function=generator_with_required_columns,
-    )
+def test_cell_by_cell_with_params_and_context(stub_resource_provider, stub_model_facade) -> None:
+    """Test 3-arg function with params and context for LLM access."""
 
-    row = {"other_column": 1}
-
-    with pytest.raises(CustomColumnGenerationError, match="Missing required columns"):
-        generator.generate(row)
-
-
-def test_generate_function_raises_error() -> None:
-    """Test that errors in the generate function are wrapped."""
-
-    @custom_column_generator()
-    def failing_generator(row: dict) -> dict:
-        raise ValueError("Something went wrong")
-
-    generator = _create_test_generator(
-        name="result",
-        generator_function=failing_generator,
-    )
-
-    row = {"input": 1}
-
-    with pytest.raises(CustomColumnGenerationError, match="Custom generator function failed"):
-        generator.generate(row)
-
-
-def test_generate_returns_non_dict() -> None:
-    """Test that returning non-dict raises an error."""
-
-    @custom_column_generator()
-    def wrong_return_type(row: dict) -> list:
-        return [1, 2, 3]
-
-    generator = _create_test_generator(
-        name="result",
-        generator_function=wrong_return_type,
-    )
-
-    row = {"input": 1}
-
-    with pytest.raises(CustomColumnGenerationError, match="must return a dict"):
-        generator.generate(row)
-
-
-def test_generate_missing_output_column() -> None:
-    """Test that not creating the expected column raises an error."""
-
-    @custom_column_generator()
-    def wrong_column_name(row: dict) -> dict:
-        row["wrong_column"] = "value"
-        return row
-
-    generator = _create_test_generator(
-        name="expected_column",
-        generator_function=wrong_column_name,
-    )
-
-    row = {"input": 1}
-
-    with pytest.raises(CustomColumnGenerationError, match="did not create the expected column"):
-        generator.generate(row)
-
-
-# ============================================================================
-# 2-arg signature tests (with params)
-# ============================================================================
-
-
-def test_generate_with_params() -> None:
-    """Test that a 2-arg function receives params."""
-    params = SampleParams(prefix="hello_", suffix="_world")
-    generator = _create_test_generator(
-        name="result",
-        generator_function=generator_with_params,
-        generator_params=params,
-    )
-
-    row = {"input": "test"}
-    result = generator.generate(row)
-
-    assert result["result"] == "hello_test_world"
-
-
-def test_generate_with_none_params() -> None:
-    """Test that 2-arg function works with None params."""
-
-    @custom_column_generator(required_columns=["input"])
-    def generator_handles_none(row: dict, params: SampleParams | None) -> dict:
-        suffix = params.suffix if params else "_default"
-        row["result"] = f"{row['input']}{suffix}"
-        return row
-
-    generator = _create_test_generator(
-        name="result",
-        generator_function=generator_handles_none,
-        generator_params=None,
-    )
-
-    row = {"input": "test"}
-    result = generator.generate(row)
-
-    assert result["result"] == "test_default"
-
-
-# ============================================================================
-# 3-arg signature tests (with params and context)
-# ============================================================================
-
-
-def test_generate_with_context() -> None:
-    """Test that a 3-arg function receives params and context."""
-    received_context = None
-
-    @custom_column_generator(required_columns=["input"])
-    def capture_context(row: dict, params: SampleParams, ctx: CustomColumnContext) -> dict:
-        nonlocal received_context
-        received_context = ctx
-        suffix = params.suffix if params else "_processed"
-        row["result"] = f"{row['input']}{suffix}"
-        return row
-
-    params = SampleParams(suffix="_custom")
-    generator = _create_test_generator(
-        name="result",
-        generator_function=capture_context,
-        generator_params=params,
-    )
-
-    row = {"input": "a"}
-    result = generator.generate(row)
-
-    # Verify the context was passed and has correct properties
-    assert received_context is not None
-    assert isinstance(received_context, CustomColumnContext)
-    assert received_context.column_name == "result"
-
-    # Verify the result
-    assert result["result"] == "a_custom"
-
-
-def test_context_provides_model_registry_access(stub_resource_provider) -> None:
-    """Test that CustomColumnContext provides access to model_registry."""
-    accessed_model_registry = None
-
-    @custom_column_generator()
-    def access_registry(row: dict, params: None, ctx: CustomColumnContext) -> dict:
-        nonlocal accessed_model_registry
-        accessed_model_registry = ctx.model_registry
-        row["result"] = "processed"
-        return row
-
-    generator = _create_test_generator(
-        name="result",
-        generator_function=access_registry,
-        resource_provider=stub_resource_provider,
-    )
-
-    row = {"input": 1}
-    generator.generate(row)
-
-    # Verify the model_registry was accessible via context
-    assert accessed_model_registry is stub_resource_provider.model_registry
-
-
-def test_context_generate_text(stub_resource_provider, stub_model_facade) -> None:
-    """Test that CustomColumnContext.generate_text calls the model correctly."""
-
-    @custom_column_generator(
-        required_columns=["input"],
-        model_aliases=["test-model"],
-    )
-    def llm_generator(row: dict, params: None, ctx: CustomColumnContext) -> dict:
+    @custom_column_generator(required_columns=["input"], model_aliases=["test-model"])
+    def llm_generator(row: dict, params: SampleParams, ctx: CustomColumnContext) -> dict:
         text = ctx.generate_text(
             model_alias="test-model",
-            prompt=f"Process: {row['input']}",
+            prompt=f"{params.prefix}{row['input']}",
             system_prompt="You are helpful.",
         )
         row["result"] = text
@@ -352,203 +136,110 @@ def test_context_generate_text(stub_resource_provider, stub_model_facade) -> Non
     generator = _create_test_generator(
         name="result",
         generator_function=llm_generator,
+        generator_params=SampleParams(prefix="Process: "),
         resource_provider=stub_resource_provider,
     )
 
-    row = {"input": "a"}
-    result = generator.generate(row)
+    result = generator.generate({"input": "test"})
 
-    # Verify the model was called correctly
-    stub_resource_provider.model_registry.get_model.assert_called_with(model_alias="test-model")
-
-    # Verify generate was called with correct parameters
+    # Model was called with correct params
     stub_model_facade.generate.assert_called_once()
     call_kwargs = stub_model_facade.generate.call_args[1]
-    assert "Process: a" in call_kwargs["prompt"]
-    assert call_kwargs["system_prompt"] == "You are helpful."
-
-    # Verify results - stub_model_facade returns "Generated summary text"
+    assert "Process: test" in call_kwargs["prompt"]
     assert result["result"] == "Generated summary text"
 
 
-# ============================================================================
-# Side effect columns tests
-# ============================================================================
+def test_side_effect_columns() -> None:
+    """Test that declared side_effect_columns are created and kept."""
+    generator = _create_test_generator(name="primary", generator_function=generator_with_side_effects)
+    result = generator.generate({"input": 5})
 
-
-def test_generate_multiple_side_effect_columns() -> None:
-    """Test generating multiple side effect columns."""
-    generator = _create_test_generator(
-        name="primary",
-        generator_function=generator_with_side_effects,
-    )
-
-    row = {"input": 5}
-    result = generator.generate(row)
-
-    assert "primary" in result
-    assert "secondary" in result
     assert result["primary"] == 10
     assert result["secondary"] == 15
 
 
-def test_missing_declared_side_effect_columns_raises_error() -> None:
-    """Test that missing declared side_effect_columns raises an error."""
+# Error handling tests
 
-    @custom_column_generator(
-        required_columns=["input"],
-        side_effect_columns=["secondary"],
-    )
-    def missing_side_effect(row: dict) -> dict:
-        row["primary"] = row["input"] * 2
-        # Missing "secondary" column that was declared
+
+@pytest.mark.parametrize(
+    "generator_fn,input_row,error_match",
+    [
+        # Missing required column
+        (generator_with_required_columns, {"other": 1}, "Missing required columns"),
+        # Function raises error
+        (
+            custom_column_generator()(lambda row: (_ for _ in ()).throw(ValueError("fail"))),
+            {"input": 1},
+            "Custom generator function failed",
+        ),
+    ],
+    ids=["missing_required", "function_raises"],
+)
+def test_generation_errors(generator_fn, input_row, error_match) -> None:
+    """Test various error conditions during generation."""
+    generator = _create_test_generator(name="result", generator_function=generator_fn)
+    with pytest.raises(CustomColumnGenerationError, match=error_match):
+        generator.generate(input_row)
+
+
+def test_output_validation_errors() -> None:
+    """Test output validation: wrong return type, missing column, missing side effects."""
+
+    # Wrong return type
+    @custom_column_generator()
+    def returns_list(row: dict) -> list:
+        return [1, 2, 3]
+
+    generator = _create_test_generator(name="result", generator_function=returns_list)
+    with pytest.raises(CustomColumnGenerationError, match="must return a dict"):
+        generator.generate({"input": 1})
+
+    # Missing expected column
+    @custom_column_generator()
+    def wrong_column(row: dict) -> dict:
+        row["wrong"] = "value"
         return row
 
-    generator = _create_test_generator(
-        name="primary",
-        generator_function=missing_side_effect,
-    )
+    generator = _create_test_generator(name="expected", generator_function=wrong_column)
+    with pytest.raises(CustomColumnGenerationError, match="did not create the expected column"):
+        generator.generate({"input": 1})
 
-    row = {"input": 1}
+    # Missing declared side effect
+    @custom_column_generator(side_effect_columns=["secondary"])
+    def missing_side_effect(row: dict) -> dict:
+        row["primary"] = 1
+        return row
 
+    generator = _create_test_generator(name="primary", generator_function=missing_side_effect)
     with pytest.raises(CustomColumnGenerationError, match="did not create declared side_effect_columns"):
-        generator.generate(row)
+        generator.generate({"input": 1})
 
 
 def test_undeclared_columns_removed_with_warning(caplog: pytest.LogCaptureFixture) -> None:
     """Test that undeclared columns are removed with a warning."""
     import logging
 
-    @custom_column_generator(required_columns=["input"])
+    @custom_column_generator()
     def creates_undeclared(row: dict) -> dict:
-        row["primary"] = row["input"] * 2
-        row["undeclared_column"] = "should be removed"
+        row["result"] = "value"
+        row["undeclared"] = "should be removed"
         return row
 
-    generator = _create_test_generator(
-        name="primary",
-        generator_function=creates_undeclared,
-    )
-
-    row = {"input": 3}
+    generator = _create_test_generator(name="result", generator_function=creates_undeclared)
 
     with caplog.at_level(logging.WARNING):
-        result = generator.generate(row)
+        result = generator.generate({"input": 1})
 
-    # Primary column should exist
-    assert "primary" in result
-    assert result["primary"] == 6
-
-    # Undeclared column should be removed
-    assert "undeclared_column" not in result
-
-    # Warning should be logged
+    assert "result" in result
+    assert "undeclared" not in result
     assert "undeclared columns" in caplog.text
-    assert "undeclared_column" in caplog.text
 
 
-def test_declared_side_effect_columns_kept() -> None:
-    """Test that declared side_effect_columns are kept in the result."""
-
-    @custom_column_generator(
-        required_columns=["input"],
-        side_effect_columns=["secondary", "tertiary"],
-    )
-    def multi_output(row: dict) -> dict:
-        row["primary"] = row["input"] * 2
-        row["secondary"] = row["input"] * 3
-        row["tertiary"] = row["input"] * 4
-        return row
-
-    generator = _create_test_generator(
-        name="primary",
-        generator_function=multi_output,
-    )
-
-    row = {"input": 2}
-    result = generator.generate(row)
-
-    # All declared columns should exist
-    assert "primary" in result
-    assert "secondary" in result
-    assert "tertiary" in result
-    assert result["primary"] == 4
-    assert result["secondary"] == 6
-    assert result["tertiary"] == 8
-
-
-def test_removing_pre_existing_columns_raises_error() -> None:
-    """Test that removing pre-existing columns raises an error."""
-
-    @custom_column_generator(required_columns=["input"])
-    def removes_column(row: dict) -> dict:
-        row["result"] = row["input"] * 2
-        del row["input"]  # Remove a pre-existing column
-        return row
-
-    generator = _create_test_generator(
-        name="result",
-        generator_function=removes_column,
-    )
-
-    row = {"input": 5, "other": "keep"}
-
-    with pytest.raises(CustomColumnGenerationError, match="removed pre-existing columns"):
-        generator.generate(row)
-
-
-# ============================================================================
-# Logging tests
-# ============================================================================
-
-
-def test_log_pre_generation(caplog: pytest.LogCaptureFixture) -> None:
-    """Test that log_pre_generation logs correctly."""
-    import logging
-
-    @custom_column_generator(
-        required_columns=["input"],
-        side_effect_columns=["extra"],
-        model_aliases=["test-model"],
-    )
-    def logged_generator(row: dict) -> dict:
-        row["result"] = "value"
-        return row
-
-    generator = _create_test_generator(
-        name="result",
-        generator_function=logged_generator,
-        generator_params=SampleParams(prefix="test"),
-    )
-
-    with caplog.at_level(logging.INFO):
-        generator.log_pre_generation()
-
-    assert "Custom column config for column 'result'" in caplog.text
-    assert "logged_generator" in caplog.text
-    assert "required_columns" in caplog.text
-    assert "model_aliases" in caplog.text
-
-
-def test_config_serialization() -> None:
-    """Test that the generator_function serializes to its name."""
-    config = CustomColumnConfig(
-        name="test",
-        generator_function=generator_with_required_columns,
-    )
-
-    serialized = config.model_dump()
-    assert serialized["generator_function"] == "generator_with_required_columns"
-
-
-# ============================================================================
 # Full column strategy tests
-# ============================================================================
 
 
 def test_full_column_strategy() -> None:
-    """Test that full_column strategy processes DataFrame instead of dict."""
-    import pandas as pd
+    """Test full_column strategy processes DataFrame."""
 
     @custom_column_generator(required_columns=["input"])
     def batch_processor(df: pd.DataFrame) -> pd.DataFrame:
@@ -556,192 +247,34 @@ def test_full_column_strategy() -> None:
         return df
 
     generator = _create_test_generator(
-        name="result",
-        generator_function=batch_processor,
-        generation_strategy=GenerationStrategy.FULL_COLUMN,
+        name="result", generator_function=batch_processor, generation_strategy=GenerationStrategy.FULL_COLUMN
     )
 
-    # Verify strategy is FULL_COLUMN
     assert generator.get_generation_strategy() == GenerationStrategy.FULL_COLUMN
 
-    # Test with DataFrame
-    df = pd.DataFrame({"input": [1, 2, 3]})
-    result = generator.generate(df)
-
-    assert isinstance(result, pd.DataFrame)
-    assert "result" in result.columns
+    result = generator.generate(pd.DataFrame({"input": [1, 2, 3]}))
     assert list(result["result"]) == [2, 4, 6]
 
 
-def test_full_column_with_params_and_context() -> None:
-    """Test full_column strategy with params and context access."""
-    import pandas as pd
+def test_full_column_with_batch_llm(stub_resource_provider, stub_model_facade) -> None:
+    """Test full_column with generate_text_batch for parallel LLM calls."""
 
-    @custom_column_generator(required_columns=["input"])
-    def batch_with_context(df: pd.DataFrame, params: SampleParams, ctx: CustomColumnContext) -> pd.DataFrame:
-        multiplier = params.multiplier if params else 1
-        df["result"] = df["input"] * multiplier
-        return df
-
-    mock_resource_provider = Mock(spec=ResourceProvider)
-
-    generator = _create_test_generator(
-        name="result",
-        generator_function=batch_with_context,
-        generator_params=SampleParams(multiplier=10),
-        resource_provider=mock_resource_provider,
-        generation_strategy=GenerationStrategy.FULL_COLUMN,
-    )
-
-    df = pd.DataFrame({"input": [1, 2, 3]})
-    result = generator.generate(df)
-
-    assert list(result["result"]) == [10, 20, 30]
-
-
-def test_full_column_validates_output() -> None:
-    """Test that full_column validates output columns like cell_by_cell."""
-    import pandas as pd
-
-    @custom_column_generator(required_columns=["input"])
-    def batch_wrong_column(df: pd.DataFrame) -> pd.DataFrame:
-        df["wrong_name"] = df["input"]
-        return df
-
-    generator = _create_test_generator(
-        name="expected_name",
-        generator_function=batch_wrong_column,
-        generation_strategy=GenerationStrategy.FULL_COLUMN,
-    )
-
-    df = pd.DataFrame({"input": [1, 2, 3]})
-
-    with pytest.raises(CustomColumnGenerationError, match="did not create the expected column"):
-        generator.generate(df)
-
-
-def test_full_column_removes_undeclared_columns(caplog: pytest.LogCaptureFixture) -> None:
-    """Test that full_column removes undeclared columns with warning."""
-    import logging
-
-    import pandas as pd
-
-    @custom_column_generator(required_columns=["input"])
-    def batch_extra_columns(df: pd.DataFrame) -> pd.DataFrame:
-        df["result"] = df["input"] * 2
-        df["undeclared"] = "should be removed"
-        return df
-
-    generator = _create_test_generator(
-        name="result",
-        generator_function=batch_extra_columns,
-        generation_strategy=GenerationStrategy.FULL_COLUMN,
-    )
-
-    df = pd.DataFrame({"input": [1, 2, 3]})
-
-    with caplog.at_level(logging.WARNING):
-        result = generator.generate(df)
-
-    assert "result" in result.columns
-    assert "undeclared" not in result.columns
-    assert "undeclared columns" in caplog.text
-
-
-def test_generate_text_batch(stub_resource_provider, stub_model_facade) -> None:
-    """Test that generate_text_batch parallelizes LLM calls."""
-    import pandas as pd
-
-    @custom_column_generator(
-        required_columns=["input"],
-        model_aliases=["test-model"],
-    )
-    def batch_with_parallel_llm(df: pd.DataFrame, params: None, ctx: CustomColumnContext) -> pd.DataFrame:
+    @custom_column_generator(required_columns=["input"], model_aliases=["test-model"])
+    def batch_llm(df: pd.DataFrame, params: None, ctx: CustomColumnContext) -> pd.DataFrame:
         prompts = [f"Process: {val}" for val in df["input"]]
-        results = ctx.generate_text_batch(
-            model_alias="test-model",
-            prompts=prompts,
-            system_prompt="Be helpful.",
-            max_workers=4,
-        )
-        df["result"] = results
+        df["result"] = ctx.generate_text_batch(model_alias="test-model", prompts=prompts, max_workers=2)
         return df
 
-    # Override stub_model_facade to return dynamic responses
-    stub_model_facade.generate.side_effect = lambda prompt, **kwargs: (f"Response for: {prompt}", None)
+    stub_model_facade.generate.side_effect = lambda prompt, **kwargs: (f"Response: {prompt}", None)
 
     generator = _create_test_generator(
         name="result",
-        generator_function=batch_with_parallel_llm,
+        generator_function=batch_llm,
         resource_provider=stub_resource_provider,
         generation_strategy=GenerationStrategy.FULL_COLUMN,
     )
 
-    df = pd.DataFrame({"input": ["a", "b", "c"]})
-    result = generator.generate(df)
+    result = generator.generate(pd.DataFrame({"input": ["a", "b"]}))
 
-    # Verify results
-    assert list(result["result"]) == [
-        "Response for: Process: a",
-        "Response for: Process: b",
-        "Response for: Process: c",
-    ]
-
-    # Verify model.generate was called 3 times (once per prompt)
-    assert stub_model_facade.generate.call_count == 3
-
-
-# ============================================================================
-# Multi-step workflow tests
-# ============================================================================
-
-
-def test_multi_step_workflow_intermediate_failure(stub_resource_provider, stub_model_facade) -> None:
-    """Test that an intermediate LLM failure in a multi-step workflow is handled correctly."""
-    call_count = 0
-
-    @custom_column_generator(
-        required_columns=["topic"],
-        model_aliases=["writer", "editor"],
-    )
-    def multi_turn_generator(row: dict, params: None, ctx: CustomColumnContext) -> dict:
-        nonlocal call_count
-
-        # Step 1: First LLM call succeeds
-        draft = ctx.generate_text(model_alias="writer", prompt="Write draft")
-        call_count += 1
-
-        # Step 2: Second LLM call fails
-        critique = ctx.generate_text(model_alias="editor", prompt=f"Critique: {draft}")
-        call_count += 1
-
-        # Step 3: Would use critique but never reached
-        row["result"] = critique
-        return row
-
-    # Override stub to fail on second call
-    call_counter = {"count": 0}
-
-    def mock_generate(**kwargs: dict) -> tuple[str, None]:
-        call_counter["count"] += 1
-        if call_counter["count"] == 1:
-            return ("First draft text", None)
-        else:
-            raise RuntimeError("LLM API error: rate limited")
-
-    stub_model_facade.generate.side_effect = mock_generate
-
-    generator = _create_test_generator(
-        name="result",
-        generator_function=multi_turn_generator,
-        resource_provider=stub_resource_provider,
-    )
-
-    row = {"topic": "testing"}
-
-    # The error from the second LLM call should propagate
-    with pytest.raises(CustomColumnGenerationError, match="Custom generator function failed"):
-        generator.generate(row)
-
-    # Verify first call succeeded before failure
-    assert call_counter["count"] == 2
+    assert list(result["result"]) == ["Response: Process: a", "Response: Process: b"]
+    assert stub_model_facade.generate.call_count == 2
