@@ -143,14 +143,14 @@ Typical pattern: use seed data for one part of your schema (real product names a
 
 ### 🔧 Custom Columns
 
-Custom columns let you implement your own generation logic using Python functions. This provides maximum flexibility for scenarios not covered by built-in column types—multi-step LLM workflows, external API integration, or complex business logic.
+Custom columns let you implement your own generation logic using Python functions. Use the `@custom_column_generator` decorator to declare dependencies, and the framework handles DAG ordering and parallelization.
 
-Two function signatures are supported:
+Two generation strategies:
 
-- **Simple**: `fn(row: dict) -> dict` for transformations without LLM access
-- **Context-aware**: `fn(row: dict, ctx: CustomColumnContext) -> dict` for LLM integration
+- **`cell_by_cell`** (default): Function receives one row, framework parallelizes
+- **`full_column`**: Function receives entire DataFrame for vectorized operations
 
-The framework automatically parallelizes execution across rows. For detailed usage, examples, and the `CustomColumnContext` API, see [Custom Columns](custom_columns.md).
+The `CustomColumnContext` provides helper methods like `generate_text()`, or use `get_model()` for full `ModelFacade` access. See [Custom Columns](custom_columns.md) for details.
 
 ## Shared Column Properties
 
