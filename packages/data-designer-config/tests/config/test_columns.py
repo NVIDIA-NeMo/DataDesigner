@@ -86,7 +86,7 @@ def test_llm_text_column_config():
     assert llm_text_column_config.system_prompt == stub_system_prompt
     assert llm_text_column_config.column_type == DataDesignerColumnType.LLM_TEXT
     assert set(llm_text_column_config.required_columns) == {"some_column", "some_other_column"}
-    assert llm_text_column_config.side_effect_columns == ["test_llm_text__trace"]
+    assert llm_text_column_config.side_effect_columns == []
     assert llm_text_column_config.with_trace == TraceType.NONE
     assert llm_text_column_config.extract_reasoning_content is False
 
@@ -122,6 +122,7 @@ def test_llm_text_column_config_with_trace_serialization() -> None:
         with_trace=TraceType.ALL_MESSAGES,
     )
     assert config.with_trace == TraceType.ALL_MESSAGES
+    assert config.side_effect_columns == ["test_llm_text__trace"]
 
     # Serialize
     serialized = config.model_dump()
@@ -144,16 +145,16 @@ def test_llm_text_column_config_with_trace_serialization() -> None:
 
 def test_llm_text_column_config_extract_reasoning_content() -> None:
     """Test that extract_reasoning_content controls side_effect_columns."""
-    # Default: extract_reasoning_content=False, only trace column in side effects
+    # Default: extract_reasoning_content=False and with_trace=NONE, so no side effects
     config_without_reasoning = LLMTextColumnConfig(
         name="test_col",
         prompt="test",
         model_alias="test_model",
     )
     assert config_without_reasoning.extract_reasoning_content is False
-    assert config_without_reasoning.side_effect_columns == ["test_col__trace"]
+    assert config_without_reasoning.side_effect_columns == []
 
-    # With extract_reasoning_content=True, reasoning_content column is added
+    # With extract_reasoning_content=True, reasoning_content column is added (independent of trace settings)
     config_with_reasoning = LLMTextColumnConfig(
         name="test_col",
         prompt="test",
@@ -161,7 +162,17 @@ def test_llm_text_column_config_extract_reasoning_content() -> None:
         extract_reasoning_content=True,
     )
     assert config_with_reasoning.extract_reasoning_content is True
-    assert config_with_reasoning.side_effect_columns == ["test_col__trace", "test_col__reasoning_content"]
+    assert config_with_reasoning.side_effect_columns == ["test_col__reasoning_content"]
+
+    # If both extract_reasoning_content=True and with_trace!=NONE, both side effects are present
+    config_with_reasoning_and_trace = LLMTextColumnConfig(
+        name="test_col",
+        prompt="test",
+        model_alias="test_model",
+        extract_reasoning_content=True,
+        with_trace=TraceType.LAST_MESSAGE,
+    )
+    assert config_with_reasoning_and_trace.side_effect_columns == ["test_col__trace", "test_col__reasoning_content"]
 
 
 def test_llm_code_column_config():
