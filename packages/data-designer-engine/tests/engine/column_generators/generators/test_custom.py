@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 from data_designer.config.column_configs import CustomColumnConfig, GenerationStrategy
 from data_designer.config.custom_column import custom_column_generator
+from data_designer.config.errors import InvalidConfigError
 from data_designer.engine.column_generators.generators.custom import CustomColumnGenerator
 from data_designer.engine.column_generators.utils.errors import CustomColumnGenerationError
 from data_designer.engine.resources.resource_provider import ResourceProvider
@@ -111,6 +112,31 @@ def test_config_validation_non_callable() -> None:
     """Test that non-callable generator_function raises an error."""
     with pytest.raises(ValidationError, match="must be callable"):
         CustomColumnConfig(name="test", generator_function="not_a_function")
+
+
+def test_config_validation_allow_resize_requires_full_column() -> None:
+    """Test that allow_resize=True requires generation_strategy=FULL_COLUMN."""
+
+    @custom_column_generator()
+    def dummy_fn(row: dict) -> dict:
+        return row
+
+    with pytest.raises(InvalidConfigError, match="allow_resize=True.*requires.*full_column"):
+        CustomColumnConfig(
+            name="test",
+            generator_function=dummy_fn,
+            allow_resize=True,
+            generation_strategy=GenerationStrategy.CELL_BY_CELL,
+        )
+
+    # Should work with FULL_COLUMN
+    config = CustomColumnConfig(
+        name="test",
+        generator_function=dummy_fn,
+        allow_resize=True,
+        generation_strategy=GenerationStrategy.FULL_COLUMN,
+    )
+    assert config.allow_resize is True
 
 
 # Cell-by-cell generation tests

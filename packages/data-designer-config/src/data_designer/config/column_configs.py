@@ -509,6 +509,14 @@ class CustomColumnConfig(SingleColumnConfig):
         default=None,
         description="Optional typed configuration object passed as second argument to generator function",
     )
+    allow_resize: bool = Field(
+        default=False,
+        description=(
+            "If True, allows the generator to produce a different number of records than the input. "
+            "Use for 1:N (expansion) or N:1 (retraction) generation patterns. "
+            "Only applicable when generation_strategy is 'full_column'."
+        ),
+    )
     column_type: Literal["custom"] = "custom"
 
     @field_validator("generator_function")
@@ -558,5 +566,14 @@ class CustomColumnConfig(SingleColumnConfig):
             raise InvalidConfigError(
                 f"🛑 `generator_function` must be a callable for custom column '{self.name}'. "
                 f"Expected a function decorated with @custom_column_generator."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_allow_resize_requires_full_column(self) -> Self:
+        if self.allow_resize and self.generation_strategy != GenerationStrategy.FULL_COLUMN:
+            raise InvalidConfigError(
+                f"🛑 `allow_resize=True` requires `generation_strategy='full_column'` for column '{self.name}'. "
+                f"Cell-by-cell strategy processes one row at a time and cannot change record count."
             )
         return self

@@ -230,8 +230,23 @@ class ColumnWiseDatasetBuilder:
         self._fan_out_with_threads(generator, max_workers=max_workers)
 
     def _run_full_column_generator(self, generator: ColumnGenerator) -> None:
+        original_count = self.batch_manager.num_records_in_buffer
         df = generator.generate(self.batch_manager.get_current_batch(as_dataframe=True))
-        self.batch_manager.update_records(df.to_dict(orient="records"))
+        allow_resize = getattr(generator.config, "allow_resize", False)
+        new_count = len(df)
+
+        if allow_resize and new_count != original_count:
+            if new_count == 0:
+                logger.warning(
+                    f"⚠️ Column '{generator.config.name}' reduced batch to 0 records. This batch will be skipped."
+                )
+            else:
+                logger.info(
+                    f"📊 Column '{generator.config.name}' resized batch: {original_count} -> {new_count} records. "
+                    f"Subsequent columns will operate on the new record count."
+                )
+
+        self.batch_manager.update_records(df.to_dict(orient="records"), allow_resize=allow_resize)
 
     def _run_model_health_check_if_needed(self) -> None:
         model_aliases: set[str] = set()
