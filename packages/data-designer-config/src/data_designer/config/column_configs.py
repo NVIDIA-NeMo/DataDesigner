@@ -213,10 +213,10 @@ class LLMTextColumnConfig(SingleColumnConfig):
         Returns:
             List of side-effect column names.
         """
-        columns = [f"{self.name}{TRACE_COLUMN_POSTFIX}"]
-        if self.extract_reasoning_content:
-            columns.append(f"{self.name}{REASONING_CONTENT_COLUMN_POSTFIX}")
-        return columns
+        return [
+            *([f"{self.name}{TRACE_COLUMN_POSTFIX}"] if self.with_trace != TraceType.NONE else []),
+            *([f"{self.name}{REASONING_CONTENT_COLUMN_POSTFIX}"] if self.extract_reasoning_content else []),
+        ]
 
     @model_validator(mode="after")
     def assert_prompt_valid_jinja(self) -> Self:
