@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 from data_designer.config.models import GenerationType, ModelConfig
 from data_designer.engine.model_provider import ModelProvider, ModelProviderRegistry
-from data_designer.engine.models.usage import ModelUsageStats, RequestUsageStats, TokenUsageStats
+from data_designer.engine.models.usage import ModelUsageStats, RequestUsageStats, TokenUsageStats, ToolUsageStats
 from data_designer.engine.secret_resolver import SecretResolver
 
 if TYPE_CHECKING:
@@ -99,6 +99,17 @@ class ModelRegistry:
                     request_usage=RequestUsageStats(successful_requests=delta_successful, failed_requests=delta_failed),
                 )
         return deltas
+
+    def get_tool_usage_snapshot(self, *, model_alias: str) -> ToolUsageStats:
+        return self.get_model(model_alias=model_alias).usage_stats.tool_usage.model_copy(deep=True)
+
+    def get_tool_usage_delta(self, *, model_alias: str, snapshot: ToolUsageStats) -> ToolUsageStats:
+        current = self.get_model(model_alias=model_alias).usage_stats.tool_usage
+        return ToolUsageStats(
+            total_tool_calls=current.total_tool_calls - snapshot.total_tool_calls,
+            total_tool_call_turns=current.total_tool_call_turns - snapshot.total_tool_call_turns,
+            generations_with_tools=current.generations_with_tools - snapshot.generations_with_tools,
+        )
 
     def get_model_provider(self, *, model_alias: str) -> ModelProvider:
         model_config = self.get_model_config(model_alias=model_alias)

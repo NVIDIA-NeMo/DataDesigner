@@ -244,8 +244,14 @@ class ColumnWiseDatasetBuilder:
             total_records=self.batch_manager.num_records_batch,
             label=f"{generator.config.column_type} column '{generator.config.name}'",
         )
-        extra_info = "  |-- 🛠️ Tool calling enabled" if getattr(generator.config, "tool_alias", None) else None
-        progress_tracker.log_start(max_workers, extra_info=extra_info)
+        progress_tracker.log_start(max_workers)
+
+        tool_usage_snapshot = None
+        if getattr(generator.config, "tool_alias", None):
+            tool_usage_snapshot = self._resource_provider.model_registry.get_tool_usage_snapshot(
+                model_alias=generator.config.model_alias
+            )
+            logger.info("  |---- 🛠️ Tool calling enabled")
 
         settings = self._resource_provider.run_config
         with ConcurrentThreadExecutor(
@@ -261,6 +267,15 @@ class ColumnWiseDatasetBuilder:
                 executor.submit(lambda record: generator.generate(record), record, context={"index": i})
 
         progress_tracker.log_final()
+
+        if tool_usage_snapshot is not None:
+            tool_usage_delta = self._resource_provider.model_registry.get_tool_usage_delta(
+                model_alias=generator.config.model_alias, snapshot=tool_usage_snapshot
+            )
+            if tool_usage_delta.generations_with_tools > 0:
+                logger.info(
+                    f"  |---- 🛠️ Mean tool calls per generation: {tool_usage_delta.calls_per_generation_mean:.1f}"
+                )
 
         if len(self._records_to_drop) > 0:
             self.batch_manager.drop_records(self._records_to_drop)

@@ -376,6 +376,7 @@ def test_fan_out_with_threads_uses_early_shutdown_settings_from_resource_provide
     mock_generator.get_generation_strategy.return_value = GenerationStrategy.CELL_BY_CELL
     mock_generator.config.name = "test"
     mock_generator.config.column_type = "llm_text"
+    mock_generator.config.tool_alias = None  # Avoid triggering tool usage code path
 
     builder.batch_manager = Mock()
     builder.batch_manager.num_records_batch = 10

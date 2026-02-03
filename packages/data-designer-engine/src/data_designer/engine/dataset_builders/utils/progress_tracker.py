@@ -55,15 +55,13 @@ class ProgressTracker:
         self.lock = Lock()
         self._random_emoji = RandomEmoji()
 
-    def log_start(self, max_workers: int, extra_info: str | None = None) -> None:
+    def log_start(self, max_workers: int) -> None:
         """Log the start of processing with worker count and interval information."""
         logger.info(
             "⚡️ Processing %s with %d concurrent workers",
             self.label,
             max_workers,
         )
-        if extra_info:
-            logger.info(extra_info)
         interval_str = "after each record" if self.log_interval == 1 else f"every {self.log_interval} records"
         logger.info(
             "⏱️ %s will report progress %s",
