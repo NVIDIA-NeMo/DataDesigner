@@ -29,6 +29,12 @@ if TYPE_CHECKING:
     from data_designer.engine.mcp.facade import MCPFacade
     from data_designer.engine.mcp.registry import MCPRegistry
 
+
+def _identity(x: Any) -> Any:
+    """Identity function for default parser. Module-level for pickling compatibility."""
+    return x
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -160,7 +166,7 @@ class ModelFacade:
         self,
         prompt: str,
         *,
-        parser: Callable[[str], Any] = lambda x: x,
+        parser: Callable[[str], Any] = _identity,
         system_prompt: str | None = None,
         multi_modal_context: list[dict[str, Any]] | None = None,
         tool_alias: str | None = None,
