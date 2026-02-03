@@ -98,92 +98,105 @@ if TYPE_CHECKING:
         ValidatorType,
     )
 
+# Base module path and submodule paths for lazy imports
+_MOD_BASE = "data_designer.config"
+_MOD_COLUMN_CONFIGS = f"{_MOD_BASE}.column_configs"
+_MOD_MCP = f"{_MOD_BASE}.mcp"
+_MOD_MODELS = f"{_MOD_BASE}.models"
+_MOD_PROCESSORS = f"{_MOD_BASE}.processors"
+_MOD_SAMPLER_CONSTRAINTS = f"{_MOD_BASE}.sampler_constraints"
+_MOD_SAMPLER_PARAMS = f"{_MOD_BASE}.sampler_params"
+_MOD_SEED = f"{_MOD_BASE}.seed"
+_MOD_SEED_SOURCE = f"{_MOD_BASE}.seed_source"
+_MOD_VALIDATOR_PARAMS = f"{_MOD_BASE}.validator_params"
+_MOD_UTILS = f"{_MOD_BASE}.utils"
+
 # Mapping of export names to (module_path, attribute_name) for lazy loading
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     # analysis.column_profilers
-    "JudgeScoreProfilerConfig": ("data_designer.config.analysis.column_profilers", "JudgeScoreProfilerConfig"),
+    "JudgeScoreProfilerConfig": (f"{_MOD_BASE}.analysis.column_profilers", "JudgeScoreProfilerConfig"),
     # column_configs
-    "EmbeddingColumnConfig": ("data_designer.config.column_configs", "EmbeddingColumnConfig"),
-    "ExpressionColumnConfig": ("data_designer.config.column_configs", "ExpressionColumnConfig"),
-    "LLMCodeColumnConfig": ("data_designer.config.column_configs", "LLMCodeColumnConfig"),
-    "LLMJudgeColumnConfig": ("data_designer.config.column_configs", "LLMJudgeColumnConfig"),
-    "LLMStructuredColumnConfig": ("data_designer.config.column_configs", "LLMStructuredColumnConfig"),
-    "LLMTextColumnConfig": ("data_designer.config.column_configs", "LLMTextColumnConfig"),
-    "SamplerColumnConfig": ("data_designer.config.column_configs", "SamplerColumnConfig"),
-    "Score": ("data_designer.config.column_configs", "Score"),
-    "SeedDatasetColumnConfig": ("data_designer.config.column_configs", "SeedDatasetColumnConfig"),
-    "SingleColumnConfig": ("data_designer.config.column_configs", "SingleColumnConfig"),
-    "ValidationColumnConfig": ("data_designer.config.column_configs", "ValidationColumnConfig"),
+    "EmbeddingColumnConfig": (_MOD_COLUMN_CONFIGS, "EmbeddingColumnConfig"),
+    "ExpressionColumnConfig": (_MOD_COLUMN_CONFIGS, "ExpressionColumnConfig"),
+    "LLMCodeColumnConfig": (_MOD_COLUMN_CONFIGS, "LLMCodeColumnConfig"),
+    "LLMJudgeColumnConfig": (_MOD_COLUMN_CONFIGS, "LLMJudgeColumnConfig"),
+    "LLMStructuredColumnConfig": (_MOD_COLUMN_CONFIGS, "LLMStructuredColumnConfig"),
+    "LLMTextColumnConfig": (_MOD_COLUMN_CONFIGS, "LLMTextColumnConfig"),
+    "SamplerColumnConfig": (_MOD_COLUMN_CONFIGS, "SamplerColumnConfig"),
+    "Score": (_MOD_COLUMN_CONFIGS, "Score"),
+    "SeedDatasetColumnConfig": (_MOD_COLUMN_CONFIGS, "SeedDatasetColumnConfig"),
+    "SingleColumnConfig": (_MOD_COLUMN_CONFIGS, "SingleColumnConfig"),
+    "ValidationColumnConfig": (_MOD_COLUMN_CONFIGS, "ValidationColumnConfig"),
     # column_types
-    "DataDesignerColumnType": ("data_designer.config.column_types", "DataDesignerColumnType"),
+    "DataDesignerColumnType": (f"{_MOD_BASE}.column_types", "DataDesignerColumnType"),
     # config_builder
-    "DataDesignerConfigBuilder": ("data_designer.config.config_builder", "DataDesignerConfigBuilder"),
+    "DataDesignerConfigBuilder": (f"{_MOD_BASE}.config_builder", "DataDesignerConfigBuilder"),
     # data_designer_config
-    "DataDesignerConfig": ("data_designer.config.data_designer_config", "DataDesignerConfig"),
+    "DataDesignerConfig": (f"{_MOD_BASE}.data_designer_config", "DataDesignerConfig"),
     # dataset_builders
-    "BuildStage": ("data_designer.config.dataset_builders", "BuildStage"),
+    "BuildStage": (f"{_MOD_BASE}.dataset_builders", "BuildStage"),
     # mcp
-    "LocalStdioMCPProvider": ("data_designer.config.mcp", "LocalStdioMCPProvider"),
-    "MCPProvider": ("data_designer.config.mcp", "MCPProvider"),
-    "ToolConfig": ("data_designer.config.mcp", "ToolConfig"),
+    "LocalStdioMCPProvider": (_MOD_MCP, "LocalStdioMCPProvider"),
+    "MCPProvider": (_MOD_MCP, "MCPProvider"),
+    "ToolConfig": (_MOD_MCP, "ToolConfig"),
     # models
-    "ChatCompletionInferenceParams": ("data_designer.config.models", "ChatCompletionInferenceParams"),
-    "EmbeddingInferenceParams": ("data_designer.config.models", "EmbeddingInferenceParams"),
-    "GenerationType": ("data_designer.config.models", "GenerationType"),
-    "ImageContext": ("data_designer.config.models", "ImageContext"),
-    "ImageFormat": ("data_designer.config.models", "ImageFormat"),
-    "ManualDistribution": ("data_designer.config.models", "ManualDistribution"),
-    "ManualDistributionParams": ("data_designer.config.models", "ManualDistributionParams"),
-    "Modality": ("data_designer.config.models", "Modality"),
-    "ModalityContext": ("data_designer.config.models", "ModalityContext"),
-    "ModalityDataType": ("data_designer.config.models", "ModalityDataType"),
-    "ModelConfig": ("data_designer.config.models", "ModelConfig"),
-    "ModelProvider": ("data_designer.config.models", "ModelProvider"),
-    "UniformDistribution": ("data_designer.config.models", "UniformDistribution"),
-    "UniformDistributionParams": ("data_designer.config.models", "UniformDistributionParams"),
+    "ChatCompletionInferenceParams": (_MOD_MODELS, "ChatCompletionInferenceParams"),
+    "EmbeddingInferenceParams": (_MOD_MODELS, "EmbeddingInferenceParams"),
+    "GenerationType": (_MOD_MODELS, "GenerationType"),
+    "ImageContext": (_MOD_MODELS, "ImageContext"),
+    "ImageFormat": (_MOD_MODELS, "ImageFormat"),
+    "ManualDistribution": (_MOD_MODELS, "ManualDistribution"),
+    "ManualDistributionParams": (_MOD_MODELS, "ManualDistributionParams"),
+    "Modality": (_MOD_MODELS, "Modality"),
+    "ModalityContext": (_MOD_MODELS, "ModalityContext"),
+    "ModalityDataType": (_MOD_MODELS, "ModalityDataType"),
+    "ModelConfig": (_MOD_MODELS, "ModelConfig"),
+    "ModelProvider": (_MOD_MODELS, "ModelProvider"),
+    "UniformDistribution": (_MOD_MODELS, "UniformDistribution"),
+    "UniformDistributionParams": (_MOD_MODELS, "UniformDistributionParams"),
     # processors
-    "DropColumnsProcessorConfig": ("data_designer.config.processors", "DropColumnsProcessorConfig"),
-    "ProcessorType": ("data_designer.config.processors", "ProcessorType"),
-    "SchemaTransformProcessorConfig": ("data_designer.config.processors", "SchemaTransformProcessorConfig"),
+    "DropColumnsProcessorConfig": (_MOD_PROCESSORS, "DropColumnsProcessorConfig"),
+    "ProcessorType": (_MOD_PROCESSORS, "ProcessorType"),
+    "SchemaTransformProcessorConfig": (_MOD_PROCESSORS, "SchemaTransformProcessorConfig"),
     # run_config
-    "RunConfig": ("data_designer.config.run_config", "RunConfig"),
+    "RunConfig": (f"{_MOD_BASE}.run_config", "RunConfig"),
     # sampler_constraints
-    "ColumnInequalityConstraint": ("data_designer.config.sampler_constraints", "ColumnInequalityConstraint"),
-    "ScalarInequalityConstraint": ("data_designer.config.sampler_constraints", "ScalarInequalityConstraint"),
+    "ColumnInequalityConstraint": (_MOD_SAMPLER_CONSTRAINTS, "ColumnInequalityConstraint"),
+    "ScalarInequalityConstraint": (_MOD_SAMPLER_CONSTRAINTS, "ScalarInequalityConstraint"),
     # sampler_params
-    "BernoulliMixtureSamplerParams": ("data_designer.config.sampler_params", "BernoulliMixtureSamplerParams"),
-    "BernoulliSamplerParams": ("data_designer.config.sampler_params", "BernoulliSamplerParams"),
-    "BinomialSamplerParams": ("data_designer.config.sampler_params", "BinomialSamplerParams"),
-    "CategorySamplerParams": ("data_designer.config.sampler_params", "CategorySamplerParams"),
-    "DatetimeSamplerParams": ("data_designer.config.sampler_params", "DatetimeSamplerParams"),
-    "GaussianSamplerParams": ("data_designer.config.sampler_params", "GaussianSamplerParams"),
-    "PersonFromFakerSamplerParams": ("data_designer.config.sampler_params", "PersonFromFakerSamplerParams"),
-    "PersonSamplerParams": ("data_designer.config.sampler_params", "PersonSamplerParams"),
-    "PoissonSamplerParams": ("data_designer.config.sampler_params", "PoissonSamplerParams"),
-    "SamplerType": ("data_designer.config.sampler_params", "SamplerType"),
-    "ScipySamplerParams": ("data_designer.config.sampler_params", "ScipySamplerParams"),
-    "SubcategorySamplerParams": ("data_designer.config.sampler_params", "SubcategorySamplerParams"),
-    "TimeDeltaSamplerParams": ("data_designer.config.sampler_params", "TimeDeltaSamplerParams"),
-    "UniformSamplerParams": ("data_designer.config.sampler_params", "UniformSamplerParams"),
-    "UUIDSamplerParams": ("data_designer.config.sampler_params", "UUIDSamplerParams"),
+    "BernoulliMixtureSamplerParams": (_MOD_SAMPLER_PARAMS, "BernoulliMixtureSamplerParams"),
+    "BernoulliSamplerParams": (_MOD_SAMPLER_PARAMS, "BernoulliSamplerParams"),
+    "BinomialSamplerParams": (_MOD_SAMPLER_PARAMS, "BinomialSamplerParams"),
+    "CategorySamplerParams": (_MOD_SAMPLER_PARAMS, "CategorySamplerParams"),
+    "DatetimeSamplerParams": (_MOD_SAMPLER_PARAMS, "DatetimeSamplerParams"),
+    "GaussianSamplerParams": (_MOD_SAMPLER_PARAMS, "GaussianSamplerParams"),
+    "PersonFromFakerSamplerParams": (_MOD_SAMPLER_PARAMS, "PersonFromFakerSamplerParams"),
+    "PersonSamplerParams": (_MOD_SAMPLER_PARAMS, "PersonSamplerParams"),
+    "PoissonSamplerParams": (_MOD_SAMPLER_PARAMS, "PoissonSamplerParams"),
+    "SamplerType": (_MOD_SAMPLER_PARAMS, "SamplerType"),
+    "ScipySamplerParams": (_MOD_SAMPLER_PARAMS, "ScipySamplerParams"),
+    "SubcategorySamplerParams": (_MOD_SAMPLER_PARAMS, "SubcategorySamplerParams"),
+    "TimeDeltaSamplerParams": (_MOD_SAMPLER_PARAMS, "TimeDeltaSamplerParams"),
+    "UniformSamplerParams": (_MOD_SAMPLER_PARAMS, "UniformSamplerParams"),
+    "UUIDSamplerParams": (_MOD_SAMPLER_PARAMS, "UUIDSamplerParams"),
     # seed
-    "IndexRange": ("data_designer.config.seed", "IndexRange"),
-    "PartitionBlock": ("data_designer.config.seed", "PartitionBlock"),
-    "SamplingStrategy": ("data_designer.config.seed", "SamplingStrategy"),
-    "SeedConfig": ("data_designer.config.seed", "SeedConfig"),
+    "IndexRange": (_MOD_SEED, "IndexRange"),
+    "PartitionBlock": (_MOD_SEED, "PartitionBlock"),
+    "SamplingStrategy": (_MOD_SEED, "SamplingStrategy"),
+    "SeedConfig": (_MOD_SEED, "SeedConfig"),
     # seed_source
-    "DataFrameSeedSource": ("data_designer.config.seed_source", "DataFrameSeedSource"),
-    "HuggingFaceSeedSource": ("data_designer.config.seed_source", "HuggingFaceSeedSource"),
-    "LocalFileSeedSource": ("data_designer.config.seed_source", "LocalFileSeedSource"),
+    "DataFrameSeedSource": (_MOD_SEED_SOURCE, "DataFrameSeedSource"),
+    "HuggingFaceSeedSource": (_MOD_SEED_SOURCE, "HuggingFaceSeedSource"),
+    "LocalFileSeedSource": (_MOD_SEED_SOURCE, "LocalFileSeedSource"),
     # utils
-    "CodeLang": ("data_designer.config.utils.code_lang", "CodeLang"),
-    "InfoType": ("data_designer.config.utils.info", "InfoType"),
-    "TraceType": ("data_designer.config.utils.trace_type", "TraceType"),
+    "CodeLang": (f"{_MOD_UTILS}.code_lang", "CodeLang"),
+    "InfoType": (f"{_MOD_UTILS}.info", "InfoType"),
+    "TraceType": (f"{_MOD_UTILS}.trace_type", "TraceType"),
     # validator_params
-    "CodeValidatorParams": ("data_designer.config.validator_params", "CodeValidatorParams"),
-    "LocalCallableValidatorParams": ("data_designer.config.validator_params", "LocalCallableValidatorParams"),
-    "RemoteValidatorParams": ("data_designer.config.validator_params", "RemoteValidatorParams"),
-    "ValidatorType": ("data_designer.config.validator_params", "ValidatorType"),
+    "CodeValidatorParams": (_MOD_VALIDATOR_PARAMS, "CodeValidatorParams"),
+    "LocalCallableValidatorParams": (_MOD_VALIDATOR_PARAMS, "LocalCallableValidatorParams"),
+    "RemoteValidatorParams": (_MOD_VALIDATOR_PARAMS, "RemoteValidatorParams"),
+    "ValidatorType": (_MOD_VALIDATOR_PARAMS, "ValidatorType"),
 }
 
 __all__ = list(_LAZY_IMPORTS.keys())
@@ -205,9 +218,4 @@ def __getattr__(name: str) -> object:
 
 def __dir__() -> list[str]:
     """Return list of available exports for tab-completion."""
-    return __all__
-
-
-def get_config_exports() -> list[str]:
-    """Return list of all config export names."""
     return __all__
