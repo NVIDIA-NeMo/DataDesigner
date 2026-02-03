@@ -21,7 +21,7 @@ def custom_column_generator(
     Args:
         required_columns: Columns that must exist before this column runs (DAG ordering).
         side_effect_columns: Additional columns the function will create.
-        model_aliases: Model aliases used (enables health checks).
+        model_aliases: Model aliases to include in the `models` dict (required for LLM access).
     """
 
     def decorator(fn: F) -> F:

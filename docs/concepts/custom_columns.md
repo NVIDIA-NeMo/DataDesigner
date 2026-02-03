@@ -59,13 +59,13 @@ For `full_column`, set `generation_strategy=dd.GenerationStrategy.FULL_COLUMN`.
 @dd.custom_column_generator(
     required_columns=["col1"],        # DAG ordering
     side_effect_columns=["extra"],    # Additional columns created
-    model_aliases=["model1"],         # For health checks
+    model_aliases=["model1"],         # Required for LLM access
 )
 ```
 
 ## Models Dict
 
-The third argument is a dict of `ModelFacade` instances, keyed by alias. The dict is populated based on `model_aliases` in the decorator.
+The third argument is a dict of `ModelFacade` instances, keyed by alias. **You must declare all models in `model_aliases`** - this populates the `models` dict and enables health checks before generation starts.
 
 ```python
 @dd.custom_column_generator(model_aliases=["my-model"])

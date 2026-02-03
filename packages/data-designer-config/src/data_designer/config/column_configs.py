@@ -529,7 +529,7 @@ class CustomColumnConfig(SingleColumnConfig):
 
     @property
     def model_aliases(self) -> list[str]:
-        """Returns model aliases for health checks (from decorator metadata)."""
+        """Returns model aliases for LLM access and health checks (from decorator metadata)."""
         metadata = getattr(self.generator_function, "custom_column_metadata", {})
         return metadata.get("model_aliases", [])
 
