@@ -127,21 +127,9 @@ class CustomColumnContext:
         return_trace: bool = False,
     ) -> list[str] | list[tuple[str, list[Any]]]:
         """Generate text for multiple prompts in parallel. Use in full_column strategy."""
-        model = self.get_model(model_alias)
 
         def generate_single(prompt: str) -> str | tuple[str, list[Any]]:
-            response, trace = model.generate(
-                prompt=prompt,
-                parser=lambda x: x,
-                system_prompt=system_prompt,
-                max_correction_steps=0,
-                max_conversation_restarts=0,
-            )
-            if return_trace:
-                return response, trace
-            return response
+            return self.generate_text(model_alias, prompt, system_prompt, return_trace)
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            results = list(executor.map(generate_single, prompts))
-
-        return results
+            return list(executor.map(generate_single, prompts))
