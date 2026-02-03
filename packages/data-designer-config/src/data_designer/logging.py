@@ -170,7 +170,7 @@ def _make_stream_formatter() -> logging.Formatter:
     return logging.Formatter(log_format, time_format)
 
 
-_DEFAULT_NOISY_LOGGERS = ["httpx", "matplotlib"]
+_DEFAULT_NOISY_LOGGERS = ["httpx", "matplotlib", "mcp"]
 
 
 _PROGRESS_STYLES: list[list[str]] = [
