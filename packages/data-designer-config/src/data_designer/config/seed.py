@@ -1,0 +1,116 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
+
+from enum import Enum
+
+from pydantic import Field, model_validator
+from typing_extensions import Self
+
+from data_designer.config.base import ConfigBase
+from data_designer.config.seed_source_types import SeedSourceT
+
+
+class SamplingStrategy(str, Enum):
+    ORDERED = "ordered"
+    SHUFFLE = "shuffle"
+
+
+class IndexRange(ConfigBase):
+    start: int = Field(ge=0, description="The start index of the index range (inclusive)")
+    end: int = Field(ge=0, description="The end index of the index range (inclusive)")
+
+    @model_validator(mode="after")
+    def _validate_index_range(self) -> Self:
+        if self.start > self.end:
+            raise ValueError("'start' index must be less than or equal to 'end' index")
+        return self
+
+    @property
+    def size(self) -> int:
+        return self.end - self.start + 1
+
+
+class PartitionBlock(ConfigBase):
+    index: int = Field(default=0, ge=0, description="The index of the partition to sample from")
+    num_partitions: int = Field(default=1, ge=1, description="The total number of partitions in the dataset")
+
+    @model_validator(mode="after")
+    def _validate_partition_block(self) -> Self:
+        if self.index >= self.num_partitions:
+            raise ValueError("'index' must be less than 'num_partitions'")
+        return self
+
+    def to_index_range(self, dataset_size: int) -> IndexRange:
+        partition_size = dataset_size // self.num_partitions
+        start = self.index * partition_size
+
+        # For the last partition, extend to the end of the dataset to include remainder rows
+        if self.index == self.num_partitions - 1:
+            end = dataset_size - 1
+        else:
+            end = ((self.index + 1) * partition_size) - 1
+        return IndexRange(start=start, end=end)
+
+
+class SeedConfig(ConfigBase):
+    """Configuration for sampling data from a seed dataset.
+
+    Args:
+        source: A SeedSource defining where the seed data exists
+        sampling_strategy: Strategy for how to sample rows from the dataset.
+            - ORDERED: Read rows sequentially in their original order.
+            - SHUFFLE: Randomly shuffle rows before sampling. When used with
+              selection_strategy, shuffling occurs within the selected range/partition.
+        selection_strategy: Optional strategy to select a subset of the dataset.
+            - IndexRange: Select a specific range of indices (e.g., rows 100-200).
+            - PartitionBlock: Select a partition by splitting the dataset into N equal parts.
+              Partition indices are zero-based (index=0 is the first partition, index=1 is
+              the second, etc.).
+
+    Examples:
+        Read rows sequentially from start to end:
+            SeedConfig(
+                source=LocalFileSeedSource(path="my_data.parquet"),
+                sampling_strategy=SamplingStrategy.ORDERED
+            )
+
+        Read rows in random order:
+            SeedConfig(
+                source=LocalFileSeedSource(path="my_data.parquet"),
+                sampling_strategy=SamplingStrategy.SHUFFLE
+            )
+
+        Read specific index range (rows 100-199):
+            SeedConfig(
+                source=LocalFileSeedSource(path="my_data.parquet"),
+                sampling_strategy=SamplingStrategy.ORDERED,
+                selection_strategy=IndexRange(start=100, end=199)
+            )
+
+        Read random rows from a specific index range (shuffles within rows 100-199):
+            SeedConfig(
+                source=LocalFileSeedSource(path="my_data.parquet"),
+                sampling_strategy=SamplingStrategy.SHUFFLE,
+                selection_strategy=IndexRange(start=100, end=199)
+            )
+
+        Read from partition 2 (3rd partition, zero-based) of 5 partitions (20% of dataset):
+            SeedConfig(
+                source=LocalFileSeedSource(path="my_data.parquet"),
+                sampling_strategy=SamplingStrategy.ORDERED,
+                selection_strategy=PartitionBlock(index=2, num_partitions=5)
+            )
+
+        Read shuffled rows from partition 0 of 10 partitions (shuffles within the partition):
+            SeedConfig(
+                source=LocalFileSeedSource(path="my_data.parquet"),
+                sampling_strategy=SamplingStrategy.SHUFFLE,
+                selection_strategy=PartitionBlock(index=0, num_partitions=10)
+            )
+    """
+
+    source: SeedSourceT
+    sampling_strategy: SamplingStrategy = SamplingStrategy.ORDERED
+    selection_strategy: IndexRange | PartitionBlock | None = None

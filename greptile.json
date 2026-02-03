@@ -1,0 +1,27 @@
+{
+  "triggerOnUpdates": true,
+  "statusCommentsEnabled": false,
+  "shouldUpdateDescription": false,
+  "updateExistingSummaryComment": true,
+  "fixWithAI": true,
+  "summarySection": {
+    "included": true,
+    "collapsible": false,
+    "defaultOpen": false
+  },
+  "issuesTableSection": {
+    "included": true,
+    "collapsible": false,
+    "defaultOpen": false
+  },
+  "confidenceScoreSection": {
+    "included": true,
+    "collapsible": true,
+    "defaultOpen": true
+  },
+  "sequenceDiagramSection": {
+    "included": true,
+    "collapsible": true,
+    "defaultOpen": true
+  }
+}

@@ -8,6 +8,7 @@ repos:
       - id: check-yaml
         exclude: ^mkdocs\.yml$
       - id: check-added-large-files
+        args: ["--maxkb=600"]
       - id: check-json
       - id: check-toml
       - id: check-merge-conflict

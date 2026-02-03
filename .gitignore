@@ -79,15 +79,22 @@ venv.bak/
 *.tar.gz
 *.zip
 
-# Auto-generated version file
-src/data_designer/_version.py
+# Auto-generated version files
+**/_version.py
 
 # Local scratch space
 .scratch/
-
-.claude/
 
 docs/notebooks/
 docs/notebook_source/*.ipynb
 docs/notebook_source/*.csv
 docs/**/artifacts/
+
+tests_e2e/uv.lock
+
+# Performance profiling
+perf_*.txt
+NOTEPAD.md
+
+# Build-time copy of README for data-designer package (copied from top-level during build)
+packages/data-designer/README.md

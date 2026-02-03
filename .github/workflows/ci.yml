@@ -8,8 +8,13 @@ on:
   workflow_dispatch:
 
 jobs:
-  test:
-    name: Test (Python ${{ matrix.python-version }} on ${{ matrix.os }})
+  # ===========================================================================
+  # Independent Package Tests
+  # Each package is tested in isolation to ensure proper dependency boundaries
+  # ===========================================================================
+
+  test-config:
+    name: Test Config (Python ${{ matrix.python-version }} on ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -28,13 +33,151 @@ jobs:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
 
-      - name: Install dependencies
+      - name: Install data-designer-config only
+        run: uv sync --package data-designer-config
+
+      - name: Run config tests
         run: |
-          uv sync --group dev
+          uv run --with pytest --with pytest-cov --with pytest-asyncio --with pytest-env \
+            pytest -v \
+            packages/data-designer-config/tests \
+            --cov=data_designer \
+            --cov-report=term-missing
+
+  test-engine:
+    name: Test Engine (Python ${{ matrix.python-version }} on ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+
+      - name: Install data-designer-engine only
+        run: uv sync --package data-designer-engine
+
+      - name: Run engine tests
+        run: |
+          uv run --with pytest --with pytest-cov --with pytest-asyncio --with pytest-httpx --with pytest-env \
+            pytest -v \
+            packages/data-designer-engine/tests \
+            --cov=data_designer \
+            --cov-report=term-missing
+
+  test-interface:
+    name: Test Interface (Python ${{ matrix.python-version }} on ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+
+      # Needed for the build to work
+      - name: Copy README to data-designer package
+        run: cp README.md packages/data-designer/README.md
+
+      - name: Install data-designer (full package)
+        run: uv sync --package data-designer
+
+      - name: Run interface tests
+        run: |
+          uv run --with pytest --with pytest-cov --with pytest-asyncio --with pytest-httpx --with pytest-env \
+            pytest -v \
+            packages/data-designer/tests \
+            --cov=data_designer \
+            --cov-report=term-missing
+
+  # ===========================================================================
+  # Combined Coverage Check
+  # Runs all tests together to verify overall coverage threshold
+  # ===========================================================================
+
+  coverage:
+    name: Coverage Check (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+
+      - name: Install all packages
+        run: make install-dev
 
       - name: Run tests with coverage
         run: |
-          uv run pytest -v --cov=data_designer --cov-report=term-missing --cov-report=xml --cov-fail-under=90
+          uv run --group dev pytest -v \
+            packages/data-designer-config/tests \
+            packages/data-designer-engine/tests \
+            packages/data-designer/tests \
+            --cov=data_designer \
+            --cov-report=term-missing \
+            --cov-report=xml \
+            --cov-fail-under=90
+
+  # ===========================================================================
+  # End-to-End Tests
+  # ===========================================================================
+
+  test-e2e:
+    name: End to end test (Python ${{ matrix.python-version }} on ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          python-version: ${{ matrix.python-version }}
+          enable-cache: false
+
+      - name: Run e2e tests
+        run: make test-e2e
+
+  # ===========================================================================
+  # Code Quality
+  # ===========================================================================
 
   lint:
     name: Lint and Format Check
@@ -52,16 +195,13 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: |
-          uv sync --group dev
+        run: make install-dev
 
       - name: Check formatting
-        run: |
-          uv run ruff format --check
+        run: make format-check
 
       - name: Run linter
-        run: |
-          uv run ruff check
+        run: make lint
 
   license-headers:
     name: Check License Headers
@@ -70,6 +210,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history needed for file creation dates
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
@@ -79,9 +221,37 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: |
-          uv sync --group dev
+        run: make install-dev
 
       - name: Check license headers
+        run: make check-license-headers
+
+  # ===========================================================================
+  # Summary Job for Branch Protection
+  # This job creates status checks matching the old job naming convention
+  # so that branch protection rules continue to work.
+  # ===========================================================================
+
+  test-summary:
+    name: Test (Python ${{ matrix.python-version }} on ${{ matrix.os }})
+    runs-on: ubuntu-latest
+    needs: [test-config, test-engine, test-interface]
+    if: always()
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+      - name: Check all tests passed
         run: |
-          uv run python scripts/update_license_headers.py --check
+          if [[ "${{ needs.test-config.result }}" != "success" ]] || \
+             [[ "${{ needs.test-engine.result }}" != "success" ]] || \
+             [[ "${{ needs.test-interface.result }}" != "success" ]]; then
+            echo "One or more test jobs failed"
+            echo "test-config: ${{ needs.test-config.result }}"
+            echo "test-engine: ${{ needs.test-engine.result }}"
+            echo "test-interface: ${{ needs.test-interface.result }}"
+            exit 1
+          fi
+          echo "All test jobs passed successfully"

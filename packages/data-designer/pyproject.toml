@@ -1,0 +1,64 @@
+[project]
+name = "data-designer"
+dynamic = ["version", "dependencies"]
+description = "General framework for synthetic data generation"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+[project.scripts]
+data-designer = "data_designer.cli:main"
+
+[build-system]
+requires = ["hatchling", "uv-dynamic-versioning>=0.7.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "uv-dynamic-versioning"
+
+[tool.uv-dynamic-versioning]
+vcs = "git"
+style = "pep440"
+bump = true
+
+[tool.hatch.metadata.hooks.custom]
+path = "dev-tools/hatch_build.py"
+
+[tool.hatch.metadata.hooks.uv-dynamic-versioning]
+dependencies = [
+    "data-designer-config=={{ version }}",
+    "data-designer-engine=={{ version }}",
+    "prompt-toolkit>=3.0.0,<4",
+    "typer>=0.12.0,<1",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/data_designer"]
+
+[tool.ruff]
+extend = "../../pyproject.toml"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_default_fixture_loop_scope = "session"
+env = ["DISABLE_DATA_DESIGNER_PLUGINS=true"]
+
+[tool.uv]
+package = true
+
+[tool.uv.sources]
+data-designer-config = { workspace = true }
+data-designer-engine = { workspace = true }

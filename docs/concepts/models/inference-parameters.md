@@ -10,17 +10,14 @@ When you create a `ModelConfig`, you can specify inference parameters to adjust 
 
 The `ChatCompletionInferenceParams` class controls how models generate text completions (for text, code, and structured data generation). It provides fine-grained control over generation behavior and supports both static values and dynamic distribution-based sampling.
 
-!!! warning "InferenceParameters is Deprecated"
-    The `InferenceParameters` class is deprecated and will be removed in a future version. Use `ChatCompletionInferenceParams` instead. The old `InferenceParameters` class now shows a deprecation warning when used.
-
 ### Fields
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `temperature` | `float` or `Distribution` | No | Controls randomness in generation (0.0 to 2.0). Higher values = more creative/random |
 | `top_p` | `float` or `Distribution` | No | Nucleus sampling parameter (0.0 to 1.0). Controls diversity by filtering low-probability tokens |
-| `max_tokens` | `int` | No | Maximum number of tokens for the request, including both input and output tokens (≥ 1) |
-| `max_parallel_requests` | `int` | No | Maximum concurrent API requests (default: 4, ≥ 1) |
+| `max_tokens` | `int` | No | Maximum number of tokens to generate in the response (≥ 1) |
+| `max_parallel_requests` | `int` | No | Maximum concurrent API requests to this model (default: 4, ≥ 1). See [Concurrency Control](#concurrency-control) below. |
 | `timeout` | `int` | No | API request timeout in seconds (≥ 1) |
 | `extra_body` | `dict[str, Any]` | No | Additional parameters to include in the API request body |
 
@@ -31,20 +28,20 @@ The `ChatCompletionInferenceParams` class controls how models generate text comp
     For gpt-oss models like `gpt-oss-20b` and `gpt-oss-120b`, you can control the reasoning effort using the `extra_body` parameter:
 
     ```python
-    from data_designer.essentials import ChatCompletionInferenceParams
+    import data_designer.config as dd
 
     # High reasoning effort (more thorough, slower)
-    inference_parameters = ChatCompletionInferenceParams(
+    inference_parameters = dd.ChatCompletionInferenceParams(
         extra_body={"reasoning_effort": "high"}
     )
 
     # Medium reasoning effort (balanced)
-    inference_parameters = ChatCompletionInferenceParams(
+    inference_parameters = dd.ChatCompletionInferenceParams(
         extra_body={"reasoning_effort": "medium"}
     )
 
     # Low reasoning effort (faster, less thorough)
-    inference_parameters = ChatCompletionInferenceParams(
+    inference_parameters = dd.ChatCompletionInferenceParams(
         extra_body={"reasoning_effort": "low"}
     )
     ```
@@ -83,15 +80,11 @@ For `temperature` and `top_p` in `ChatCompletionInferenceParams`, you can specif
 Samples values uniformly between a low and high bound:
 
 ```python
-from data_designer.essentials import (
-    ChatCompletionInferenceParams,
-    UniformDistribution,
-    UniformDistributionParams,
-)
+import data_designer.config as dd
 
-inference_params = ChatCompletionInferenceParams(
-    temperature=UniformDistribution(
-        params=UniformDistributionParams(low=0.7, high=1.0)
+inference_params = dd.ChatCompletionInferenceParams(
+    temperature=dd.UniformDistribution(
+        params=dd.UniformDistributionParams(low=0.7, high=1.0)
     ),
 )
 ```
@@ -101,29 +94,32 @@ inference_params = ChatCompletionInferenceParams(
 Samples from a discrete set of values with optional weights:
 
 ```python
-from data_designer.essentials import (
-    ChatCompletionInferenceParams,
-    ManualDistribution,
-    ManualDistributionParams,
-)
+import data_designer.config as dd
 
 # Equal probability for each value
-inference_params = ChatCompletionInferenceParams(
-    temperature=ManualDistribution(
-        params=ManualDistributionParams(values=[0.5, 0.7, 0.9])
+inference_params = dd.ChatCompletionInferenceParams(
+    temperature=dd.ManualDistribution(
+        params=dd.ManualDistributionParams(values=[0.5, 0.7, 0.9])
     ),
 )
 
 # Weighted probabilities (normalized automatically)
-inference_params = ChatCompletionInferenceParams(
-    top_p=ManualDistribution(
-        params=ManualDistributionParams(
+inference_params = dd.ChatCompletionInferenceParams(
+    top_p=dd.ManualDistribution(
+        params=dd.ManualDistributionParams(
             values=[0.8, 0.9, 0.95],
             weights=[0.2, 0.5, 0.3]  # 20%, 50%, 30% probability
         )
     ),
 )
 ```
+
+## Concurrency Control
+
+The `max_parallel_requests` parameter controls how many concurrent API calls Data Designer makes to a specific model. This directly impacts throughput and should be tuned to match your inference server's capacity.
+
+!!! tip "Performance Tuning"
+    For recommended values by deployment type (NVIDIA API Catalog, vLLM, OpenAI, NIMs) and detailed optimization strategies, see the [Architecture & Performance](../architecture-and-performance.md) guide.
 
 ## Embedding Inference Parameters
 
@@ -146,3 +142,4 @@ The `EmbeddingInferenceParams` class controls how models generate embeddings. Th
 - **[Custom Model Settings](custom-model-settings.md)**: Learn how to create custom providers and model configurations
 - **[Model Configurations](model-configs.md)**: Learn about configuring model settings
 - **[Model Providers](model-providers.md)**: Learn about configuring model providers
+- **[Architecture & Performance](../architecture-and-performance.md)**: Understanding separation of concerns and optimizing concurrency

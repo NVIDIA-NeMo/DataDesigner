@@ -46,9 +46,12 @@ export NVIDIA_API_KEY="your-api-key-here"
 
 # For OpenAI
 export OPENAI_API_KEY="your-api-key-here"
+
+# For OpenRouter
+export OPENROUTER_API_KEY="your-api-key-here"
 ```
 
-For more information, check the [Quick Start](../quick-start.md), [Default Model Settings](../concepts/models/default-model-settings.md) and how to [Configure Model Settings Using The CLI](../concepts/models/configure-model-settings-with-the-cli.md).
+For more information, check the [Welcome](../index.md), [Default Model Settings](../concepts/models/default-model-settings.md) and how to [Configure Model Settings Using The CLI](../concepts/models/configure-model-settings-with-the-cli.md).
 
 ## 📚 Tutorial Series
 
@@ -100,8 +103,7 @@ Before diving into the tutorials, familiarize yourself with these key documentat
 
 ### Getting Started
 
-- **[Installation](../installation.md)** - Detailed installation instructions for various setups
-- **[Welcome Guide](../index.md)** - Overview of Data Designer capabilities and architecture
+- **[Welcome & Installation](../index.md)** - Overview of Data Designer capabilities and installation instructions
 
 ### Core Concepts
 

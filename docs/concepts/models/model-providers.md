@@ -12,11 +12,12 @@ The `ModelProvider` class has the following fields:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `name` | `str` | Yes | Unique identifier for the provider (e.g., `"nvidia"`, `"openai"`) |
+| `name` | `str` | Yes | Unique identifier for the provider (e.g., `"nvidia"`, `"openai"`, `"openrouter"`) |
 | `endpoint` | `str` | Yes | API endpoint URL (e.g., `"https://integrate.api.nvidia.com/v1"`) |
 | `provider_type` | `str` | No | Provider type (default: `"openai"`). Uses OpenAI-compatible API format |
 | `api_key` | `str` | No | API key or environment variable name (e.g., `"NVIDIA_API_KEY"`) |
 | `extra_body` | `dict[str, Any]` | No | Additional parameters to include in the request body of all API requests to the provider. |
+| `extra_headers` | `dict[str, str]` | No | Additional headers to include in all API requests to the provider. |
 
 ## API Key Configuration
 
@@ -51,4 +52,4 @@ provider = ModelProvider(
 - **[Model Configurations](model-configs.md)**: Learn about configuring models
 - **[Inference Parameters](inference-parameters.md)**: Detailed guide to inference parameters and how to configure them
 - **[Configure Model Settings With the CLI](configure-model-settings-with-the-cli.md)**: Use the CLI to manage providers and model settings
-- **[Quick Start Guide](../../quick-start.md)**: Get started with a simple example
+- **[Getting Started](../../index.md)**: Installation and basic usage example

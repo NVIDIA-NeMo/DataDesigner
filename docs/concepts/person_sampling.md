@@ -25,17 +25,13 @@ Uses the Faker library to generate random personal information. The data is basi
 
 ### Usage Example
 ```python
-from data_designer.essentials import (
-    SamplerColumnConfig,
-    SamplerType,
-    PersonFromFakerSamplerParams,
-)
+import data_designer.config as dd
 
 config_builder.add_column(
-    SamplerColumnConfig(
+    dd.SamplerColumnConfig(
         name="customer",
-        sampler_type=SamplerType.PERSON_FROM_FAKER,
-        params=PersonFromFakerSamplerParams(
+        sampler_type=dd.SamplerType.PERSON_FROM_FAKER,
+        params=dd.PersonFromFakerSamplerParams(
             locale="en_US",
             age_range=[25, 65],
             sex="Female",
@@ -58,10 +54,12 @@ The NGC datasets are extended versions of the [open-source Nemotron-Personas dat
 Supported locales:
 
 - `en_US`: United States
-- `ja_JP`: Japan
-- `en_IN`: India
+- `en_IN`: India (English)
+- `en_SG`: Singapore (English)
 - `hi_Deva_IN`: India (Devanagari script)
 - `hi_Latn_IN`: India (Latin script)
+- `ja_JP`: Japan
+- `pt_BR`: Brazil (Portuguese)
 
 ### Features
 - **Demographically accurate personal details**: Names, ages, sex, marital status, education, occupation based on census data
@@ -123,6 +121,12 @@ ngc registry resource download-version "nvidia/nemotron-personas/nemotron-person
 
 # For Nemotron-Personas JP
 ngc registry resource download-version "nvidia/nemotron-personas/nemotron-personas-dataset-ja_jp"
+
+# For Nemotron-Personas SG
+ngc registry resource download-version "nvidia/nemotron-personas/nemotron-personas-dataset-en_sg"
+
+# For Nemotron-Personas BR
+ngc registry resource download-version "nvidia/nemotron-personas/nemotron-personas-dataset-pt_br"
 ```
 
 Then move the downloaded dataset to the Data Designer managed assets directory:
@@ -133,17 +137,13 @@ mv nemotron-personas-dataset-*/*.parquet ~/.data-designer/managed-assets/dataset
 
 #### Step 3: Use PersonSampler in Your Code
 ```python
-from data_designer.essentials import (
-    SamplerColumnConfig,
-    SamplerType,
-    PersonSamplerParams,
-)
+import data_designer.config as dd
 
 config_builder.add_column(
-    SamplerColumnConfig(
+    dd.SamplerColumnConfig(
         name="customer",
-        sampler_type=SamplerType.PERSON,
-        params=PersonSamplerParams(
+        sampler_type=dd.SamplerType.PERSON,
+        params=dd.PersonSamplerParams(
             locale="en_US",
             sex="Female",
             age_range=[25, 45],
@@ -186,10 +186,20 @@ For more details, see the documentation for [`SamplerColumnConfig`](../code_refe
 **Japan-Specific Fields (`ja_JP`):**
 
 - `area`
+- `prefecture`
+- `zone`
 
-**India-Specific Fields (`en_IN`, `hi_IN`, `hi_Deva_IN`, `hi_Latn_IN`):**
+**Brazil-Specific Fields (`pt_BR`):**
+
+- `race` - Census-reported race
+
+**Brazil and India Shared Fields (`pt_BR`, `en_IN`, `hi_Deva_IN`, `hi_Latn_IN`):**
 
 - `religion` - Census-reported religion
+
+**India-Specific Fields (`en_IN`, `hi_Deva_IN`, `hi_Latn_IN`):**
+
+- `district` - Census-reported district
 - `education_degree` - Census-reported education degree
 - `first_language` - Native language
 - `second_language` - Second language (if applicable)
@@ -205,11 +215,26 @@ For more details, see the documentation for [`SamplerColumnConfig`](../code_refe
 - Career goals
 - Context-specific personas (professional, financial, healthcare, sports, arts & entertainment, travel, culinary, etc.)
 
+*Japan-specific persona fields:*
+
+- `aspects`
+- `digital_skills`
+
+*Brazil and India shared persona fields (`pt_BR`, `en_IN`, `hi_Deva_IN`, `hi_Latn_IN`):*
+
+- `religious_persona`
+- `religious_background`
+
+*India-specific persona fields (`en_IN`, `hi_Deva_IN`, `hi_Latn_IN`):*
+
+- `linguistic_persona`
+- `linguistic_background`
+
 ### Configuration Parameters
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `locale` | str | Language/region code - must be one of: "en_US", "ja_JP", "en_IN", "hi_Deva_IN", "hi_Latn_IN" |
+| `locale` | str | Language/region code - must be one of: "en_US", "en_IN", "en_SG", "hi_Deva_IN", "hi_Latn_IN", "ja_JP", "pt_BR" |
 | `sex` | str (optional) | Filter by "Male" or "Female" |
 | `city` | str or list[str] (optional) | Filter by specific city or cities within locale |
 | `age_range` | list[int] (optional) | Two-element list [min_age, max_age] (default: [18, 114]) |

@@ -5,21 +5,29 @@ repo_url: https://github.com/NVIDIA-NeMo/DataDesigner
 nav:
   - Getting Started:
       - Welcome: index.md
-      - Installation: installation.md
-      - Quick Start: quick-start.md
       - Contributing: CONTRIBUTING.md
   - Concepts:
+      - Columns: concepts/columns.md
       - Models:
           - Default Model Settings: concepts/models/default-model-settings.md
-          - Custom Model Settings: concepts/models/custom-model-settings.md
           - Configure with the CLI: concepts/models/configure-model-settings-with-the-cli.md
+          - Custom Model Settings: concepts/models/custom-model-settings.md
           - Model Providers: concepts/models/model-providers.md
           - Model Configs: concepts/models/model-configs.md
           - Inference Parameters: concepts/models/inference-parameters.md
-      - Columns: concepts/columns.md
       - Validators: concepts/validators.md
       - Processors: concepts/processors.md
       - Person Sampling: concepts/person_sampling.md
+      - Traces: concepts/traces.md
+      - Tool Use & MCP:
+          - Overview: concepts/tool_use_and_mcp.md
+          - MCP Providers: concepts/mcp/mcp-providers.md
+          - Tool Configs: concepts/mcp/tool-configs.md
+          - Enabling Tools: concepts/mcp/enabling-tools.md
+          - CLI Configuration: concepts/mcp/configure-mcp-cli.md
+          - Safety & Limits: concepts/mcp/safety-and-limits.md
+      - Architecture & Performance: concepts/architecture-and-performance.md
+      - Deployment Options: concepts/deployment-options.md
   - Tutorials:
       - Overview: notebooks/README.md
       - The Basics: notebooks/1-the-basics.ipynb
@@ -34,19 +42,24 @@ nav:
       - QA and Chat:
           - Product Info QA: recipes/qa_and_chat/product_info_qa.md
           - Multi-Turn Chat: recipes/qa_and_chat/multi_turn_chat.md
+      - MCP and Tool Use:
+          - "PDF Document QA": recipes/mcp_and_tooluse/pdf_qa.md
   - Plugins:
       - Overview: plugins/overview.md
       - Example Plugin: plugins/example.md
       - Available Plugin List: plugins/available.md
   - Code Reference:
       - models: code_reference/models.md
+      - mcp: code_reference/mcp.md
       - column_configs: code_reference/column_configs.md
       - config_builder: code_reference/config_builder.md
       - data_designer_config: code_reference/data_designer_config.md
+      - run_config: code_reference/run_config.md
       - sampler_params: code_reference/sampler_params.md
       - validator_params: code_reference/validator_params.md
       - processors: code_reference/processors.md
       - analysis: code_reference/analysis.md
+  - Dev Notes: blog/
 
 theme:
   name: material
@@ -87,11 +100,19 @@ extra:
     default: latest
 
 watch:
-  - src/data_designer
+  - packages/data-designer-config/src/data_designer
+  - packages/data-designer-engine/src/data_designer
+  - packages/data-designer/src/data_designer
   - docs/
 
 plugins:
   - search
+  - blog:
+      blog_dir: blog
+      blog_toc: true
+      post_date_format: long
+      post_url_format: "{slug}"
+      categories: false
   - mike:
       alias_type: symlink
       canonical_version: latest
@@ -105,6 +126,10 @@ plugins:
   - mkdocstrings:
       handlers:
           python:
+              paths:
+                  - packages/data-designer-config/src
+                  - packages/data-designer-engine/src
+                  - packages/data-designer/src
               options:
                   show_symbol_type_heading: true
                   show_symbol_type_toc: true

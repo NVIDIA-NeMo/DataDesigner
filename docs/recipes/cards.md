@@ -6,6 +6,9 @@ Each recipe is a self-contained example that can be run independently.
 !!! question "New to Data Designer?"
     Recipes provide working code for specific use cases without detailed explanations. If you're learning Data Designer for the first time, we recommend starting with our [tutorial notebooks](../../notebooks/), which offer step-by-step guidance and explain core concepts. Once you're familiar with the basics, return here for practical, ready-to-use implementations.
 
+!!! tip Prerequisite
+    These recipes use the Open AI model provider by default. Ensure your OpenAI model provider has been set up using the Data Designer CLI before running a recipe.
+
 <div class="grid cards" markdown>
 
 -   :material-snake:{ .lg .middle } **Text to Python**
@@ -77,5 +80,24 @@ Each recipe is a self-contained example that can be run independently.
 
     [:material-book-open-page-variant: View Recipe](qa_and_chat/multi_turn_chat.md){ .md-button }
     [Download Code :octicons-download-24:](../assets/recipes/qa_and_chat/multi_turn_chat.py){ .md-button download="multi_turn_chat.py" }
+
+
+-   :material-tools:{ .lg .middle } **PDF Document QA (MCP + Tool Use)**
+
+    Generate grounded Q&A pairs from PDF documents using MCP tool calls and BM25 search.
+
+    ---
+
+    **Demonstrates:**
+
+    - MCP tool calling with LocalStdioMCPProvider
+    - BM25 lexical search for retrieval
+    - Retrieval-grounded QA generation
+    - Per-column trace capture
+
+    ---
+
+    [:material-book-open-page-variant: View Recipe](mcp_and_tooluse/pdf_qa.md){ .md-button }
+    [Download Code :octicons-download-24:](../assets/recipes/mcp_and_tooluse/pdf_qa.py){ .md-button download="pdf_qa.py" }
 
 </div>

@@ -23,25 +23,16 @@
 #
 
 # %% [markdown]
-# ### 📦 Import the essentials
+# ### 📦 Import Data Designer
 #
-# - The `essentials` module provides quick access to the most commonly used objects.
+# - `data_designer.config` provides access to the configuration API.
+#
+# - `DataDesigner` is the main interface for data generation.
 #
 
 # %%
-from data_designer.essentials import (
-    CategorySamplerParams,
-    ChatCompletionInferenceParams,
-    DataDesigner,
-    DataDesignerConfigBuilder,
-    ExpressionColumnConfig,
-    LLMStructuredColumnConfig,
-    ModelConfig,
-    PersonFromFakerSamplerParams,
-    SamplerColumnConfig,
-    SamplerType,
-    SubcategorySamplerParams,
-)
+import data_designer.config as dd
+from data_designer.interface import DataDesigner
 
 # %% [markdown]
 # ### ⚙️ Initialize the Data Designer interface
@@ -77,11 +68,11 @@ MODEL_ID = "nvidia/nemotron-3-nano-30b-a3b"
 MODEL_ALIAS = "nemotron-nano-v3"
 
 model_configs = [
-    ModelConfig(
+    dd.ModelConfig(
         alias=MODEL_ALIAS,
         model=MODEL_ID,
         provider=MODEL_PROVIDER,
-        inference_parameters=ChatCompletionInferenceParams(
+        inference_parameters=dd.ChatCompletionInferenceParams(
             temperature=1.0,
             top_p=1.0,
             max_tokens=2048,
@@ -101,7 +92,7 @@ model_configs = [
 #
 
 # %%
-config_builder = DataDesignerConfigBuilder(model_configs=model_configs)
+config_builder = dd.DataDesignerConfigBuilder(model_configs=model_configs)
 
 # %% [markdown]
 # ### 🧑‍🎨 Designing our data
@@ -156,19 +147,19 @@ class ProductReview(BaseModel):
 # Since we often only want a few attributes from Person objects, we can
 # set drop=True in the column config to drop the column from the final dataset.
 config_builder.add_column(
-    SamplerColumnConfig(
+    dd.SamplerColumnConfig(
         name="customer",
-        sampler_type=SamplerType.PERSON_FROM_FAKER,
-        params=PersonFromFakerSamplerParams(),
+        sampler_type=dd.SamplerType.PERSON_FROM_FAKER,
+        params=dd.PersonFromFakerSamplerParams(),
         drop=True,
     )
 )
 
 config_builder.add_column(
-    SamplerColumnConfig(
+    dd.SamplerColumnConfig(
         name="product_category",
-        sampler_type=SamplerType.CATEGORY,
-        params=CategorySamplerParams(
+        sampler_type=dd.SamplerType.CATEGORY,
+        params=dd.CategorySamplerParams(
             values=[
                 "Electronics",
                 "Clothing",
@@ -181,10 +172,10 @@ config_builder.add_column(
 )
 
 config_builder.add_column(
-    SamplerColumnConfig(
+    dd.SamplerColumnConfig(
         name="product_subcategory",
-        sampler_type=SamplerType.SUBCATEGORY,
-        params=SubcategorySamplerParams(
+        sampler_type=dd.SamplerType.SUBCATEGORY,
+        params=dd.SubcategorySamplerParams(
             category="product_category",
             values={
                 "Electronics": [
@@ -228,10 +219,10 @@ config_builder.add_column(
 )
 
 config_builder.add_column(
-    SamplerColumnConfig(
+    dd.SamplerColumnConfig(
         name="target_age_range",
-        sampler_type=SamplerType.CATEGORY,
-        params=CategorySamplerParams(values=["18-25", "25-35", "35-50", "50-65", "65+"]),
+        sampler_type=dd.SamplerType.CATEGORY,
+        params=dd.CategorySamplerParams(values=["18-25", "25-35", "35-50", "50-65", "65+"]),
     )
 )
 
@@ -239,21 +230,21 @@ config_builder.add_column(
 # In this example, we set the review style to rambling if the target age range is 18-25.
 # Note conditional parameters are only supported for Sampler column types.
 config_builder.add_column(
-    SamplerColumnConfig(
+    dd.SamplerColumnConfig(
         name="review_style",
-        sampler_type=SamplerType.CATEGORY,
-        params=CategorySamplerParams(
+        sampler_type=dd.SamplerType.CATEGORY,
+        params=dd.CategorySamplerParams(
             values=["rambling", "brief", "detailed", "structured with bullet points"],
             weights=[1, 2, 2, 1],
         ),
         conditional_params={
-            "target_age_range == '18-25'": CategorySamplerParams(values=["rambling"]),
+            "target_age_range == '18-25'": dd.CategorySamplerParams(values=["rambling"]),
         },
     )
 )
 
 # Optionally validate that the columns are configured correctly.
-config_builder.validate()
+data_designer.validate(config_builder)
 
 # %% [markdown]
 # Next, we will use more advanced Jinja expressions to create new columns.
@@ -271,13 +262,13 @@ config_builder.validate()
 # We can create new columns using Jinja expressions that reference
 # existing columns, including attributes of nested objects.
 config_builder.add_column(
-    ExpressionColumnConfig(name="customer_name", expr="{{ customer.first_name }} {{ customer.last_name }}")
+    dd.ExpressionColumnConfig(name="customer_name", expr="{{ customer.first_name }} {{ customer.last_name }}")
 )
 
-config_builder.add_column(ExpressionColumnConfig(name="customer_age", expr="{{ customer.age }}"))
+config_builder.add_column(dd.ExpressionColumnConfig(name="customer_age", expr="{{ customer.age }}"))
 
 config_builder.add_column(
-    LLMStructuredColumnConfig(
+    dd.LLMStructuredColumnConfig(
         name="product",
         prompt=(
             "Create a product in the '{{ product_category }}' category, focusing on products  "
@@ -291,7 +282,7 @@ config_builder.add_column(
 
 # We can even use if/else logic in our Jinja expressions to create more complex prompt patterns.
 config_builder.add_column(
-    LLMStructuredColumnConfig(
+    dd.LLMStructuredColumnConfig(
         name="customer_review",
         prompt=(
             "Your task is to write a review for the following product:\n\n"
@@ -312,7 +303,7 @@ config_builder.add_column(
     )
 )
 
-config_builder.validate()
+data_designer.validate(config_builder)
 
 # %% [markdown]
 # ### 🔁 Iteration is key – preview the dataset!
@@ -379,5 +370,5 @@ analysis.to_report()
 #
 # - [Seeding synthetic data generation with an external dataset](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/3-seeding-with-a-dataset/)
 #
-# - [Providing images as context](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/4-providing-images-as-context/)A
+# - [Providing images as context](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/4-providing-images-as-context/)
 #

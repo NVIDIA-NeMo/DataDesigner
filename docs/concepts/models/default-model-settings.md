@@ -4,7 +4,7 @@ Data Designer ships with pre-configured model providers and model configurations
 
 ## Model Providers
 
-Data Designer includes two default model providers that are configured automatically:
+Data Designer includes a few default model providers that are configured automatically:
 
 ### NVIDIA Provider (`nvidia`)
 
@@ -24,6 +24,15 @@ The NVIDIA provider gives you access to state-of-the-art models including Nemotr
 
 The OpenAI provider gives you access to GPT models and other OpenAI offerings.
 
+### OpenRouter Provider (`openrouter`)
+
+- **Endpoint**: `https://openrouter.ai/api/v1`
+- **API Key**: Set via `OPENROUTER_API_KEY` environment variable
+- **Models**: Access to a wide variety of models through OpenRouter's unified API
+- **Getting Started**: Get your API key from [openrouter.ai](https://openrouter.ai)
+
+The OpenRouter provider gives you access to a unified interface for many different language models from various providers.
+
 ## Model Configurations
 
 Data Designer provides pre-configured model aliases for common use cases. When you create a `DataDesignerConfigBuilder` without specifying `model_configs`, these default configurations are automatically available.
@@ -32,29 +41,42 @@ Data Designer provides pre-configured model aliases for common use cases. When y
 
 The following model configurations are automatically available when `NVIDIA_API_KEY` is set:
 
-| Alias | Model | Use Case | Temperature | Top P |
-|-------|-------|----------|-------------|-------|
-| `nvidia-text` | `nvidia/nemotron-3-nano-30b-a3b` | General text generation | 0.85 | 0.95 |
-| `nvidia-reasoning` | `openai/gpt-oss-20b` | Reasoning and analysis tasks | 0.35 | 0.95 |
-| `nvidia-vision` | `nvidia/nemotron-nano-12b-v2-vl` | Vision and image understanding | 0.85 | 0.95 |
+| Alias | Model | Use Case | Inference Parameters |
+|-------|-------|----------|---------------------|
+| `nvidia-text` | `nvidia/nemotron-3-nano-30b-a3b` | General text generation | `temperature=1.0, top_p=1.0` |
+| `nvidia-reasoning` | `openai/gpt-oss-20b` | Reasoning and analysis tasks | `temperature=0.35, top_p=0.95` |
+| `nvidia-vision` | `nvidia/nemotron-nano-12b-v2-vl` | Vision and image understanding | `temperature=0.85, top_p=0.95` |
+| `nvidia-embedding` | `nvidia/llama-3.2-nv-embedqa-1b-v2` | Text embeddings | `encoding_format="float", extra_body={"input_type": "query"}` |
 
 
 ### OpenAI Models
 
 The following model configurations are automatically available when `OPENAI_API_KEY` is set:
 
-| Alias | Model | Use Case | Temperature | Top P |
-|-------|-------|----------|-------------|-------|
-| `openai-text` | `gpt-4.1` | General text generation | 0.85 | 0.95 |
-| `openai-reasoning` | `gpt-5` | Reasoning and analysis tasks | 0.35 | 0.95 |
-| `openai-vision` | `gpt-5` | Vision and image understanding | 0.85 | 0.95 |
+| Alias | Model | Use Case | Inference Parameters |
+|-------|-------|----------|---------------------|
+| `openai-text` | `gpt-4.1` | General text generation | `temperature=0.85, top_p=0.95` |
+| `openai-reasoning` | `gpt-5` | Reasoning and analysis tasks | `temperature=0.35, top_p=0.95` |
+| `openai-vision` | `gpt-5` | Vision and image understanding | `temperature=0.85, top_p=0.95` |
+| `openai-embedding` | `text-embedding-3-large` | Text embeddings | `encoding_format="float"` |
+
+### OpenRouter Models
+
+The following model configurations are automatically available when `OPENROUTER_API_KEY` is set:
+
+| Alias | Model | Use Case | Inference Parameters |
+|-------|-------|----------|---------------------|
+| `openrouter-text` | `nvidia/nemotron-3-nano-30b-a3b` | General text generation | `temperature=1.0, top_p=1.0` |
+| `openrouter-reasoning` | `openai/gpt-oss-20b` | Reasoning and analysis tasks | `temperature=0.35, top_p=0.95` |
+| `openrouter-vision` | `nvidia/nemotron-nano-12b-v2-vl` | Vision and image understanding | `temperature=0.85, top_p=0.95` |
+| `openrouter-embedding` | `openai/text-embedding-3-large` | Text embeddings | `encoding_format="float"` |
 
 
 ## Using Default Settings
 
 Default settings work out of the box - no configuration needed! Simply create `DataDesigner` and `DataDesignerConfigBuilder` instances without any arguments, and reference the default model aliases in your column configurations.
 
-For a complete example showing how to use default model settings, see the **[Quick Start Guide](../../quick-start.md)**.
+For a complete example showing how to use default model settings, see the **[Getting Started](../../index.md)** page.
 
 ### How Default Model Providers and Configurations Work
 
@@ -83,7 +105,7 @@ Both methods operate on the same files, ensuring consistency across your entire 
 ## Important Notes
 
 !!! warning "API Key Requirements"
-    While default model configurations are always available, you need to set the appropriate API key environment variable (`NVIDIA_API_KEY` or `OPENAI_API_KEY`) to actually use the corresponding models for data generation. Without a valid API key, any attempt to generate data using that provider's models will fail.
+    While default model configurations are always available, you need to set the appropriate API key environment variable (`NVIDIA_API_KEY`, `OPENAI_API_KEY`, or `OPENROUTER_API_KEY`) to actually use the corresponding models for data generation. Without a valid API key, any attempt to generate data using that provider's models will fail.
 
 !!! tip "Environment Variables"
     Store your API keys in environment variables rather than hardcoding them in your scripts:
@@ -92,6 +114,7 @@ Both methods operate on the same files, ensuring consistency across your entire 
     # In your .bashrc, .zshrc, or similar
     export NVIDIA_API_KEY="your-api-key-here"
     export OPENAI_API_KEY="your-openai-api-key-here"
+    export OPENROUTER_API_KEY="your-openrouter-api-key-here"
     ```
 
 ## See Also
