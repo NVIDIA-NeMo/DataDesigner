@@ -14,8 +14,9 @@ from data_designer.config.errors import InvalidConfigError
 from data_designer.config.models import ImageContext
 from data_designer.config.sampler_params import SamplerParamsT, SamplerType
 from data_designer.config.utils.code_lang import CodeLang
-from data_designer.config.utils.constants import TRACE_COLUMN_POSTFIX
+from data_designer.config.utils.constants import REASONING_CONTENT_COLUMN_POSTFIX, TRACE_COLUMN_POSTFIX
 from data_designer.config.utils.misc import assert_valid_jinja2_template, extract_keywords_from_jinja2_template
+from data_designer.config.utils.trace_type import TraceType
 from data_designer.config.validator_params import ValidatorParamsT, ValidatorType
 
 
@@ -162,10 +163,16 @@ class LLMTextColumnConfig(SingleColumnConfig):
         tool_alias: Optional alias of the tool configuration to use for MCP tool calls.
             Must match a tool alias defined when initializing the DataDesignerConfigBuilder.
             When provided, the model may call permitted tools during generation.
-        with_trace: If True, creates a `{column_name}__trace` column containing the full
-            ordered message history (system/user/assistant/tool) for the generation.
-            Can be overridden globally via `RunConfig.debug_override_save_all_column_traces`.
-            Defaults to False.
+        with_trace: Specifies what trace information to capture in a `{column_name}__trace`
+            column. Options are:
+            - `TraceType.NONE` (default): No trace is captured.
+            - `TraceType.LAST_MESSAGE`: Only the final assistant message is captured.
+            - `TraceType.ALL_MESSAGES`: Full conversation history (system/user/assistant/tool).
+            Can be overridden globally via `RunConfig.debug_trace_override`.
+        extract_reasoning_content: If True, creates a `{column_name}__reasoning_content` column
+            containing only the reasoning_content from the final assistant response. This is
+            useful for models that expose chain-of-thought reasoning separately from the main
+            response. Defaults to False.
         column_type: Discriminator field, always "llm-text" for this configuration type.
     """
 
@@ -174,7 +181,8 @@ class LLMTextColumnConfig(SingleColumnConfig):
     system_prompt: str | None = None
     multi_modal_context: list[ImageContext] | None = None
     tool_alias: str | None = None
-    with_trace: bool = False
+    with_trace: TraceType = TraceType.NONE
+    extract_reasoning_content: bool = False
     column_type: Literal["llm-text"] = "llm-text"
 
     @staticmethod
@@ -195,15 +203,20 @@ class LLMTextColumnConfig(SingleColumnConfig):
 
     @property
     def side_effect_columns(self) -> list[str]:
-        """Returns the trace column, which may be generated alongside the main column.
+        """Returns side-effect columns that may be generated alongside the main column.
 
-        Traces are generated when `with_trace=True` on the column config or
-        when `RunConfig.debug_override_save_all_column_traces=True` globally.
+        Side-effect columns include:
+        - `{name}__trace`: Generated when `with_trace` is not `TraceType.NONE` on the column
+          config or when `RunConfig.debug_trace_override` is set globally.
+        - `{name}__reasoning_content`: Generated when `extract_reasoning_content=True`.
 
         Returns:
-            List containing the trace column name.
+            List of side-effect column names.
         """
-        return [f"{self.name}{TRACE_COLUMN_POSTFIX}"]
+        return [
+            *([f"{self.name}{TRACE_COLUMN_POSTFIX}"] if self.with_trace != TraceType.NONE else []),
+            *([f"{self.name}{REASONING_CONTENT_COLUMN_POSTFIX}"] if self.extract_reasoning_content else []),
+        ]
 
     @model_validator(mode="after")
     def assert_prompt_valid_jinja(self) -> Self:
@@ -226,7 +239,7 @@ class LLMCodeColumnConfig(LLMTextColumnConfig):
 
     Extends LLMTextColumnConfig to generate code snippets in specific programming languages
     or SQL dialects. The generated code is automatically extracted from markdown code blocks
-    for the specified language. Inherits all prompt templating capabilities.
+    for the specified language. Inherits all prompt templating capabilities from LLMTextColumnConfig.
 
     Attributes:
         code_lang: Programming language or SQL dialect for code generation. Supported
@@ -234,6 +247,16 @@ class LLMCodeColumnConfig(LLMTextColumnConfig):
             "rust", "ruby", "scala", "swift", "sql:sqlite", "sql:postgres", "sql:mysql",
             "sql:tsql", "sql:bigquery", "sql:ansi". See CodeLang enum for complete list.
         column_type: Discriminator field, always "llm-code" for this configuration type.
+
+    Inherited Attributes:
+        prompt: Prompt template for code generation (supports Jinja2).
+        model_alias: Alias of the model configuration to use.
+        system_prompt: Optional system prompt (supports Jinja2).
+        multi_modal_context: Optional image contexts for multi-modal generation.
+        tool_alias: Optional tool configuration alias for MCP tool calls.
+        with_trace: If True, creates a `{column_name}__trace` column with message history.
+        extract_reasoning_content: If True, creates a `{column_name}__reasoning_content`
+            column containing the reasoning content from the final assistant response.
     """
 
     code_lang: CodeLang
@@ -249,13 +272,24 @@ class LLMStructuredColumnConfig(LLMTextColumnConfig):
 
     Extends LLMTextColumnConfig to generate structured data conforming to a specified schema.
     Uses JSON schema or Pydantic models to define the expected output structure, enabling
-    type-safe and validated structured output generation. Inherits prompt templating capabilities.
+    type-safe and validated structured output generation. Inherits prompt templating capabilities
+    from LLMTextColumnConfig.
 
     Attributes:
         output_format: The schema defining the expected output structure. Can be either:
             - A Pydantic BaseModel class (recommended)
             - A JSON schema dictionary
         column_type: Discriminator field, always "llm-structured" for this configuration type.
+
+    Inherited Attributes:
+        prompt: Prompt template for structured generation (supports Jinja2).
+        model_alias: Alias of the model configuration to use.
+        system_prompt: Optional system prompt (supports Jinja2).
+        multi_modal_context: Optional image contexts for multi-modal generation.
+        tool_alias: Optional tool configuration alias for MCP tool calls.
+        with_trace: If True, creates a `{column_name}__trace` column with message history.
+        extract_reasoning_content: If True, creates a `{column_name}__reasoning_content`
+            column containing the reasoning content from the final assistant response.
     """
 
     output_format: dict | type[BaseModel]
@@ -303,13 +337,24 @@ class LLMJudgeColumnConfig(LLMTextColumnConfig):
 
     Extends LLMTextColumnConfig to create judge columns that evaluate and score other
     generated content based on the defined criteria. Useful for quality assessment, preference
-    ranking, and multi-dimensional evaluation of generated data.
+    ranking, and multi-dimensional evaluation of generated data. Inherits prompt templating
+    capabilities from LLMTextColumnConfig.
 
     Attributes:
         scores: List of Score objects defining the evaluation dimensions. Each score
             represents a different aspect to evaluate (e.g., accuracy, relevance, fluency).
             Must contain at least one score.
         column_type: Discriminator field, always "llm-judge" for this configuration type.
+
+    Inherited Attributes:
+        prompt: Prompt template for the judge evaluation (supports Jinja2).
+        model_alias: Alias of the model configuration to use.
+        system_prompt: Optional system prompt (supports Jinja2).
+        multi_modal_context: Optional image contexts for multi-modal generation.
+        tool_alias: Optional tool configuration alias for MCP tool calls.
+        with_trace: If True, creates a `{column_name}__trace` column with message history.
+        extract_reasoning_content: If True, creates a `{column_name}__reasoning_content`
+            column containing the reasoning content from the final assistant response.
     """
 
     scores: list[Score] = Field(..., min_length=1)

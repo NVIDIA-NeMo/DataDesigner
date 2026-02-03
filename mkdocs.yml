@@ -5,18 +5,16 @@ repo_url: https://github.com/NVIDIA-NeMo/DataDesigner
 nav:
   - Getting Started:
       - Welcome: index.md
-      - Installation: installation.md
-      - Quick Start: quick-start.md
       - Contributing: CONTRIBUTING.md
   - Concepts:
+      - Columns: concepts/columns.md
       - Models:
           - Default Model Settings: concepts/models/default-model-settings.md
-          - Custom Model Settings: concepts/models/custom-model-settings.md
           - Configure with the CLI: concepts/models/configure-model-settings-with-the-cli.md
+          - Custom Model Settings: concepts/models/custom-model-settings.md
           - Model Providers: concepts/models/model-providers.md
           - Model Configs: concepts/models/model-configs.md
           - Inference Parameters: concepts/models/inference-parameters.md
-      - Columns: concepts/columns.md
       - Validators: concepts/validators.md
       - Processors: concepts/processors.md
       - Person Sampling: concepts/person_sampling.md
@@ -28,6 +26,8 @@ nav:
           - Enabling Tools: concepts/mcp/enabling-tools.md
           - CLI Configuration: concepts/mcp/configure-mcp-cli.md
           - Safety & Limits: concepts/mcp/safety-and-limits.md
+      - Architecture & Performance: concepts/architecture-and-performance.md
+      - Deployment Options: concepts/deployment-options.md
   - Tutorials:
       - Overview: notebooks/README.md
       - The Basics: notebooks/1-the-basics.ipynb
@@ -59,6 +59,7 @@ nav:
       - validator_params: code_reference/validator_params.md
       - processors: code_reference/processors.md
       - analysis: code_reference/analysis.md
+  - Dev Notes: blog/
 
 theme:
   name: material
@@ -106,6 +107,12 @@ watch:
 
 plugins:
   - search
+  - blog:
+      blog_dir: blog
+      blog_toc: true
+      post_date_format: long
+      post_url_format: "{slug}"
+      categories: false
   - mike:
       alias_type: symlink
       canonical_version: latest

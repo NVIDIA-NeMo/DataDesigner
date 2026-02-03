@@ -211,4 +211,4 @@ preview_result.display_sample_record()
 
 - **[Default Model Settings](default-model-settings.md)**: Pre-configured providers and model settings
 - **[Configure Model Settings With the CLI](configure-model-settings-with-the-cli.md)**: CLI-based configuration
-- **[Quick Start Guide](../../quick-start.md)**: Basic usage example
+- **[Getting Started](../../index.md)**: Installation and basic usage example

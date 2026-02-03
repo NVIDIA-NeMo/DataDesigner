@@ -1,6 +1,6 @@
 # Message Traces
 
-Traces capture the full conversation history during LLM generation, including system prompts, user prompts, model reasoning, tool calls, tool results, and the final response. This visibility is essential for understanding model behavior, debugging generation issues, and iterating on prompts.
+Traces capture the conversation history during LLM generation, including system prompts, user prompts, model reasoning, tool calls, tool results, and the final response. This visibility is essential for understanding model behavior, debugging generation issues, and iterating on prompts.
 
 Traces are also useful in certain scenarios as the target output of the workflow, e.g. producing an SFT dataset for fine-tuning tool-use capability, for instance.
 
@@ -19,38 +19,73 @@ When generating content with LLM columns, you often need to understand what happ
 
 Traces provide this visibility by capturing the ordered message history for each generation, including any multi-turn conversations that occur during tool use or retry scenarios.
 
+## Trace Types
+
+Data Designer supports three trace modes via the `TraceType` enum:
+
+| TraceType | Description |
+|-----------|-------------|
+| `TraceType.NONE` | No trace captured (default) |
+| `TraceType.LAST_MESSAGE` | Only the final assistant message is captured |
+| `TraceType.ALL_MESSAGES` | Full conversation history (system/user/assistant/tool) |
+
 ## Enabling Traces
 
 ### Per-Column (Recommended)
 
-Enable `with_trace=True` on specific LLM columns:
+Set `with_trace` on specific LLM columns:
 
 ```python
 import data_designer.config as dd
 
+# Capture full conversation history
 builder.add_column(
     dd.LLMTextColumnConfig(
         name="answer",
         prompt="Answer: {{ question }}",
         model_alias="nvidia-text",
-        with_trace=True,  # Enable trace for this column
+        with_trace=dd.TraceType.ALL_MESSAGES,  # Full trace
+    )
+)
+
+# Capture only the final assistant response
+builder.add_column(
+    dd.LLMTextColumnConfig(
+        name="summary",
+        prompt="Summarize: {{ text }}",
+        model_alias="nvidia-text",
+        with_trace=dd.TraceType.LAST_MESSAGE,  # Just the final response
     )
 )
 ```
 
 ### Global Debug Override
 
-Enable traces for ALL LLM columns (useful during development):
+Override trace settings for ALL LLM columns (useful during development):
 
 ```python
 import data_designer.config as dd
 from data_designer.interface import DataDesigner
 
 data_designer = DataDesigner()
+
+# Enable full traces for all columns
 data_designer.set_run_config(
-    dd.RunConfig(debug_override_save_all_column_traces=True)
+    dd.RunConfig(debug_trace_override=dd.TraceType.ALL_MESSAGES)
+)
+
+# Or capture only last messages for all columns
+data_designer.set_run_config(
+    dd.RunConfig(debug_trace_override=dd.TraceType.LAST_MESSAGE)
+)
+
+# Disable all traces (overrides per-column settings)
+data_designer.set_run_config(
+    dd.RunConfig(debug_trace_override=dd.TraceType.NONE)
 )
 ```
+
+When `debug_trace_override` is set (not `None`), it takes precedence over per-column `with_trace` settings.
 
 ## Trace Column Naming
 
@@ -68,10 +103,10 @@ Each trace is a `list[dict]` where each dict represents a message in the convers
 
 | Role | Fields | Description |
 |------|--------|-------------|
-| `system` | `role`, `content` | System prompt setting model behavior |
-| `user` | `role`, `content` | User prompt (rendered from template) |
-| `assistant` | `role`, `content`, `tool_calls`, `reasoning_content` | Model response; `content` may be `None` if only requesting tools |
-| `tool` | `role`, `content`, `tool_call_id` | Tool execution result; `tool_call_id` links to the request |
+| `system` | `role`, `content` | System prompt setting model behavior. `content` is a list of blocks in ChatML format. |
+| `user` | `role`, `content` | User prompt (rendered from template). `content` is a list of blocks (text + multimodal). |
+| `assistant` | `role`, `content`, `tool_calls`, `reasoning_content` | Model response; `content` may be empty if only requesting tools. |
+| `tool` | `role`, `content`, `tool_call_id` | Tool execution result; `tool_call_id` links to the request. |
 
 ### Example Trace (Simple Generation)
 
@@ -82,17 +117,17 @@ A basic trace without tool use:
     # System message (if configured)
     {
         "role": "system",
-        "content": "You are a helpful assistant that provides clear, concise answers."
+        "content": [{"type": "text", "text": "You are a helpful assistant that provides clear, concise answers."}]
     },
     # User message (the rendered prompt)
     {
         "role": "user",
-        "content": "What is the capital of France?"
+        "content": [{"type": "text", "text": "What is the capital of France?"}]
     },
     # Final assistant response
     {
         "role": "assistant",
-        "content": "The capital of France is Paris.",
+        "content": [{"type": "text", "text": "The capital of France is Paris."}],
         "reasoning_content": None  # May contain reasoning if model supports it
     }
 ]
@@ -107,17 +142,17 @@ When tool use is enabled, traces capture the full conversation including tool ca
     # System message
     {
         "role": "system",
-        "content": "You must call tools before answering. Only use tool results."
+        "content": [{"type": "text", "text": "You must call tools before answering. Only use tool results."}]
     },
     # User message (the rendered prompt)
     {
         "role": "user",
-        "content": "What documents are in the knowledge base about machine learning?"
+        "content": [{"type": "text", "text": "What documents are in the knowledge base about machine learning?"}]
     },
     # Assistant requests tool calls
     {
         "role": "assistant",
-        "content": None,
+        "content": [{"type": "text", "text": ""}],
         "tool_calls": [
             {
                 "id": "call_abc123",
@@ -132,13 +167,13 @@ When tool use is enabled, traces capture the full conversation including tool ca
     # Tool response (linked by tool_call_id)
     {
         "role": "tool",
-        "content": "Found 3 documents: intro_ml.pdf, neural_networks.pdf, transformers.pdf",
+        "content": [{"type": "text", "text": "Found 3 documents: intro_ml.pdf, neural_networks.pdf, transformers.pdf"}],
         "tool_call_id": "call_abc123"
     },
     # Final assistant response
     {
         "role": "assistant",
-        "content": "The knowledge base contains three documents about machine learning: ..."
+        "content": [{"type": "text", "text": "The knowledge base contains three documents about machine learning: ..."}]
     }
 ]
 ```
@@ -158,7 +193,52 @@ When an assistant message includes tool calls:
 }
 ```
 
+## Extracting Reasoning Content
+
+Some models (particularly those with extended thinking or chain-of-thought capabilities) expose their reasoning process separately via the `reasoning_content` field in assistant messages. While this is included in full traces, you may want to capture it separately without the overhead of storing the entire conversation history.
+
+### Dedicated Reasoning Column
+
+Set `extract_reasoning_content=True` on any LLM column to create a `{column_name}__reasoning_content` side-effect column:
+
+```python
+import data_designer.config as dd
+
+builder.add_column(
+    dd.LLMTextColumnConfig(
+        name="solution",
+        prompt="Solve this math problem step by step: {{ problem }}",
+        model_alias="reasoning-model",
+        extract_reasoning_content=True,  # Creates solution__reasoning_content
+    )
+)
+```
+
+The extracted reasoning content:
+
+- Contains only the `reasoning_content` from the **final** assistant message in the trace
+- Is stripped of leading/trailing whitespace
+- Is `None` if the model didn't provide reasoning content or if it was whitespace-only
+
+### When to Use Each Approach
+
+| Need | Approach |
+|------|----------|
+| Full conversation history for debugging | `with_trace=True` |
+| Just the model's reasoning/thinking | `extract_reasoning_content=True` |
+| Both conversation history and separate reasoning | Use both options |
+| Fine-tuning data with reasoning | `extract_reasoning_content=True` for clean extraction |
+
+### Availability
+
+The `extract_reasoning_content` option is available on all LLM column types:
+
+- `LLMTextColumnConfig`
+- `LLMCodeColumnConfig`
+- `LLMStructuredColumnConfig`
+- `LLMJudgeColumnConfig`
+
 ## See Also
 
 - **[Safety and Limits](mcp/safety-and-limits.md)**: Understand turn limits and timeout behavior
-- **[Run Config](../code_reference/run_config.md)**: Runtime options including `debug_override_save_all_column_traces`
+- **[Run Config](../code_reference/run_config.md)**: Runtime options including `debug_trace_override`

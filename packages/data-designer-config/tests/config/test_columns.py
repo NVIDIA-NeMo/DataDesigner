@@ -36,6 +36,7 @@ from data_designer.config.sampler_params import (
 )
 from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.utils.errors import UserJinjaTemplateSyntaxError
+from data_designer.config.utils.trace_type import TraceType
 from data_designer.config.validator_params import CodeValidatorParams
 
 stub_prompt = "test_prompt {{some_column}}"
@@ -85,7 +86,9 @@ def test_llm_text_column_config():
     assert llm_text_column_config.system_prompt == stub_system_prompt
     assert llm_text_column_config.column_type == DataDesignerColumnType.LLM_TEXT
     assert set(llm_text_column_config.required_columns) == {"some_column", "some_other_column"}
-    assert llm_text_column_config.side_effect_columns == ["test_llm_text__trace"]
+    assert llm_text_column_config.side_effect_columns == []
+    assert llm_text_column_config.with_trace == TraceType.NONE
+    assert llm_text_column_config.extract_reasoning_content is False
 
     # invalid prompt
     with pytest.raises(
@@ -108,6 +111,68 @@ def test_llm_text_column_config():
             model_alias=stub_model_alias,
             system_prompt="test_system_prompt {{some_other_column",
         )
+
+
+def test_llm_text_column_config_with_trace_serialization() -> None:
+    """Test that with_trace field serializes and deserializes correctly."""
+    config = LLMTextColumnConfig(
+        name="test_llm_text",
+        prompt=stub_prompt,
+        model_alias=stub_model_alias,
+        with_trace=TraceType.ALL_MESSAGES,
+    )
+    assert config.with_trace == TraceType.ALL_MESSAGES
+    assert config.side_effect_columns == ["test_llm_text__trace"]
+
+    # Serialize
+    serialized = config.model_dump()
+    assert serialized["with_trace"] == "all_messages"
+
+    # Deserialize
+    deserialized = LLMTextColumnConfig(**serialized)
+    assert deserialized.with_trace == TraceType.ALL_MESSAGES
+
+    # Test with LAST_MESSAGE
+    config_last = LLMTextColumnConfig(
+        name="test_llm_text",
+        prompt=stub_prompt,
+        model_alias=stub_model_alias,
+        with_trace=TraceType.LAST_MESSAGE,
+    )
+    assert config_last.with_trace == TraceType.LAST_MESSAGE
+    assert config_last.model_dump()["with_trace"] == "last_message"
+
+
+def test_llm_text_column_config_extract_reasoning_content() -> None:
+    """Test that extract_reasoning_content controls side_effect_columns."""
+    # Default: extract_reasoning_content=False and with_trace=NONE, so no side effects
+    config_without_reasoning = LLMTextColumnConfig(
+        name="test_col",
+        prompt="test",
+        model_alias="test_model",
+    )
+    assert config_without_reasoning.extract_reasoning_content is False
+    assert config_without_reasoning.side_effect_columns == []
+
+    # With extract_reasoning_content=True, reasoning_content column is added (independent of trace settings)
+    config_with_reasoning = LLMTextColumnConfig(
+        name="test_col",
+        prompt="test",
+        model_alias="test_model",
+        extract_reasoning_content=True,
+    )
+    assert config_with_reasoning.extract_reasoning_content is True
+    assert config_with_reasoning.side_effect_columns == ["test_col__reasoning_content"]
+
+    # If both extract_reasoning_content=True and with_trace!=NONE, both side effects are present
+    config_with_reasoning_and_trace = LLMTextColumnConfig(
+        name="test_col",
+        prompt="test",
+        model_alias="test_model",
+        extract_reasoning_content=True,
+        with_trace=TraceType.LAST_MESSAGE,
+    )
+    assert config_with_reasoning_and_trace.side_effect_columns == ["test_col__trace", "test_col__reasoning_content"]
 
 
 def test_llm_code_column_config():

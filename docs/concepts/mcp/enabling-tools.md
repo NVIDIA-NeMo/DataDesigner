@@ -90,7 +90,7 @@ builder.add_column(
         prompt="Use the available tools to research and answer: {{ question }}",
         model_alias="nvidia-text",
         tool_alias="my-tools",  # Enable tools
-        with_trace=True,        # Capture tool call history
+        with_trace=dd.TraceType.ALL_MESSAGES,  # Capture tool call history
     )
 )
 
