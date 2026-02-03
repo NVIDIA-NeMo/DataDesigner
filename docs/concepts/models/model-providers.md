@@ -52,4 +52,4 @@ provider = ModelProvider(
 - **[Model Configurations](model-configs.md)**: Learn about configuring models
 - **[Inference Parameters](inference-parameters.md)**: Detailed guide to inference parameters and how to configure them
 - **[Configure Model Settings With the CLI](configure-model-settings-with-the-cli.md)**: Use the CLI to manage providers and model settings
-- **[Quick Start Guide](../../quick-start.md)**: Get started with a simple example
+- **[Getting Started](../../index.md)**: Installation and basic usage example
