@@ -93,6 +93,40 @@ This gives you direct access to all `ModelFacade` capabilities: custom parsers, 
 | `generator_function` | Callable | Yes | Decorated function |
 | `generation_strategy` | GenerationStrategy | No | `CELL_BY_CELL` or `FULL_COLUMN` |
 | `generator_params` | BaseModel | No | Typed params passed to function |
+| `allow_resize` | bool | No | Allow 1:N or N:1 generation. Requires `FULL_COLUMN` strategy |
+
+### Resizing (1:N and N:1)
+
+With `full_column` strategy, you can produce more or fewer records than the input using `allow_resize=True`:
+
+```python
+@dd.custom_column_generator(
+    required_columns=["topic"],
+    side_effect_columns=["variation_id"],
+)
+def expand_topics(df: pd.DataFrame, params: None, models: dict) -> pd.DataFrame:
+    rows = []
+    for _, row in df.iterrows():
+        for i in range(3):  # Generate 3 variations per input
+            rows.append({
+                "topic": row["topic"],
+                "question": f"Question {i+1} about {row['topic']}",
+                "variation_id": i,
+            })
+    return pd.DataFrame(rows)
+
+dd.CustomColumnConfig(
+    name="question",
+    generator_function=expand_topics,
+    generation_strategy=dd.GenerationStrategy.FULL_COLUMN,
+    allow_resize=True,
+)
+```
+
+Use cases:
+
+- **Expansion (1:N)**: Generate multiple variations per input
+- **Retraction (N:1)**: Filter, aggregate, or deduplicate records
 
 ## Multi-Turn Example
 
