@@ -1,5 +1,6 @@
 {
   "triggerOnUpdates": false,
+  "statusCommentsEnabled": false,
   "shouldUpdateDescription": false,
   "updateExistingSummaryComment": true,
   "fixWithAI": true,
