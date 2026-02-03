@@ -1,5 +1,5 @@
 {
-  "triggerOnUpdates": false,
+  "triggerOnUpdates": true,
   "statusCommentsEnabled": false,
   "shouldUpdateDescription": false,
   "updateExistingSummaryComment": true,
