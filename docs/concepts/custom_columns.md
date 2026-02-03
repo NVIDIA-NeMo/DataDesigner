@@ -42,6 +42,8 @@ def generate_message(row: dict, generator_params: None, models: dict) -> dict:
     return row
 ```
 
+Model aliases are validated before generation starts. If an alias doesn't exist in your config, an error is raised during the health check.
+
 ## Generation Strategies
 
 | Strategy | Input | Use Case |
@@ -65,7 +67,7 @@ For `full_column`, set `generation_strategy=dd.GenerationStrategy.FULL_COLUMN`.
 
 ## Models Dict
 
-The third argument is a dict of `ModelFacade` instances, keyed by alias. **You must declare all models in `model_aliases`** - this populates the `models` dict and enables health checks before generation starts.
+The third argument is a dict of `ModelFacade` instances, keyed by alias. **You must declare all models required in your custom column generator in `model_aliases`** - this populates the `models` dict and enables health checks before generation starts.
 
 ```python
 @dd.custom_column_generator(model_aliases=["my-model"])

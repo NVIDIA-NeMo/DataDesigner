@@ -6,7 +6,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Discriminator, Field, field_serializer, model_validator
+from pydantic import BaseModel, Discriminator, Field, field_serializer, field_validator, model_validator
 from typing_extensions import Self
 
 from data_designer.config.base import ConfigBase, SingleColumnConfig
@@ -510,6 +510,15 @@ class CustomColumnConfig(SingleColumnConfig):
         description="Optional typed configuration object passed as second argument to generator function",
     )
     column_type: Literal["custom"] = "custom"
+
+    @field_validator("generator_function")
+    @classmethod
+    def _validate_generator_function(cls, v: Any) -> Any:
+        if not callable(v):
+            raise ValueError("generator_function must be callable")
+        if not hasattr(v, "custom_column_metadata"):
+            raise ValueError("generator_function must be decorated with @custom_column_generator")
+        return v
 
     @staticmethod
     def get_column_emoji() -> str:

@@ -6,9 +6,30 @@
 from __future__ import annotations
 
 import functools
+import inspect
 from typing import Any, Callable, TypeVar
 
 F = TypeVar("F", bound=Callable[..., Any])
+
+# Expected parameter names by position (first param validated as row/df at runtime based on strategy)
+EXPECTED_PARAMS = ({"row", "df"}, {"generator_params"}, {"models"})
+
+
+def validate_generator_signature(fn: Callable[..., Any]) -> list[inspect.Parameter]:
+    """Validate generator function signature. Returns positional params if valid."""
+    params = [
+        p
+        for p in inspect.signature(fn).parameters.values()
+        if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+    ]
+    n = len(params)
+    if n == 0 or n > 3:
+        raise TypeError(f"Generator '{fn.__name__}' must have 1-3 parameters, got {n}.")
+    for i, param in enumerate(params):
+        if param.name not in EXPECTED_PARAMS[i]:
+            expected = " or ".join(f"'{p}'" for p in sorted(EXPECTED_PARAMS[i]))
+            raise TypeError(f"Generator '{fn.__name__}' param {i + 1} must be {expected}, got '{param.name}'.")
+    return params
 
 
 def custom_column_generator(
@@ -25,6 +46,7 @@ def custom_column_generator(
     """
 
     def decorator(fn: F) -> F:
+        validate_generator_signature(fn)
         fn.custom_column_metadata = {  # type: ignore[attr-defined]
             "required_columns": required_columns or [],
             "side_effect_columns": side_effect_columns or [],

@@ -214,11 +214,9 @@ class ColumnWiseDatasetBuilder:
 
     def _run_model_health_check_if_needed(self) -> None:
         model_aliases: set[str] = set()
-
-        for config in self.llm_generated_column_configs:
-            model_aliases.add(config.model_alias)
-
         for config in self.single_column_configs:
+            if column_type_is_model_generated(config.column_type):
+                model_aliases.add(config.model_alias)
             if isinstance(config, CustomColumnConfig) and config.model_aliases:
                 model_aliases.update(config.model_aliases)
 

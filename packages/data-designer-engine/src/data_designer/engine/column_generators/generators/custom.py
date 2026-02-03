@@ -38,12 +38,6 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
     The models dict provides direct access to ModelFacade instances keyed by alias.
     """
 
-    # Expected parameter names for each position
-    _EXPECTED_FIRST_PARAM_CELL = "row"
-    _EXPECTED_FIRST_PARAM_FULL = "df"
-    _EXPECTED_SECOND_PARAM = "generator_params"
-    _EXPECTED_THIRD_PARAM = "models"
-
     def get_generation_strategy(self) -> GenerationStrategy:
         """Return strategy based on config."""
         return self.config.generation_strategy
@@ -172,31 +166,20 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
         }
 
     def _get_validated_params(self) -> list[inspect.Parameter]:
-        """Get and validate positional parameters from the generator function signature."""
-        sig = inspect.signature(self.config.generator_function)
+        """Get positional params and validate first param matches generation strategy."""
         params = [
             p
-            for p in sig.parameters.values()
+            for p in inspect.signature(self.config.generator_function).parameters.values()
             if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
         ]
-        if not params:
-            raise CustomColumnGenerationError(f"Generator '{self.config.name}': no parameters.")
-        if len(params) > 3:
-            raise CustomColumnGenerationError(
-                f"Generator '{self.config.name}': max 3 positional parameters allowed, got {len(params)}."
-            )
-
+        # Decorator validated param names; here we only check strategy match
         is_full = self.config.generation_strategy == GenerationStrategy.FULL_COLUMN
-        expected = [
-            self._EXPECTED_FIRST_PARAM_FULL if is_full else self._EXPECTED_FIRST_PARAM_CELL,
-            self._EXPECTED_SECOND_PARAM,
-            self._EXPECTED_THIRD_PARAM,
-        ]
-        for i, (param, exp) in enumerate(zip(params, expected)):
-            if param.name != exp:
-                raise CustomColumnGenerationError(
-                    f"Generator '{self.config.name}': parameter {i + 1} must be '{exp}', got '{param.name}'."
-                )
+        expected = "df" if is_full else "row"
+        if params[0].name != expected:
+            raise CustomColumnGenerationError(
+                f"Generator '{self.config.name}': strategy is {'full_column' if is_full else 'cell_by_cell'}, "
+                f"first parameter must be '{expected}', got '{params[0].name}'."
+            )
         return params
 
     def log_pre_generation(self) -> None:
