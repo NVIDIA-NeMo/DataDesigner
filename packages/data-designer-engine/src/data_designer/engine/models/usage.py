@@ -120,7 +120,8 @@ class ModelUsageStats(BaseModel):
             )
 
     def get_usage_stats(self, *, total_time_elapsed: float) -> dict:
-        return self.model_dump() | {
+        exclude = {"tool_usage"} if not self.tool_usage.has_usage else None
+        return self.model_dump(exclude=exclude) | {
             "tokens_per_second": int(self.token_usage.total_tokens / total_time_elapsed)
             if total_time_elapsed > 0
             else 0,
