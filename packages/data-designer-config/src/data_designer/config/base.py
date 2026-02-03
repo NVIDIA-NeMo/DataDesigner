@@ -1,15 +1,14 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+# IMPORTANT: This module must NOT import from any data_designer submodules (i.e., data_designer.*).
+# These base abstractions are foundational and should only depend on pydantic and Python builtins.
+
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
+from abc import ABC, abstractmethod
 
-import yaml
 from pydantic import BaseModel, ConfigDict
-
-from data_designer.config.utils.io_helpers import serialize_data
 
 
 class ConfigBase(BaseModel):
@@ -22,48 +21,47 @@ class ConfigBase(BaseModel):
     )
 
 
-class ExportableConfigBase(ConfigBase):
-    def to_dict(self) -> dict[str, Any]:
-        """Convert the configuration to a dictionary.
+class SingleColumnConfig(ConfigBase, ABC):
+    """Abstract base class for all single-column configuration types.
+
+    This class serves as the foundation for all column configurations in DataDesigner,
+    defining shared fields and properties across all column types.
+
+    Attributes:
+        name: Unique name of the column to be generated.
+        drop: If True, the column will be generated but removed from the final dataset.
+            Useful for intermediate columns that are dependencies for other columns.
+        column_type: Discriminator field that identifies the specific column type.
+            Subclasses must override this field to specify the column type with a `Literal` value.
+    """
+
+    name: str
+    drop: bool = False
+    column_type: str
+
+    @staticmethod
+    def get_column_emoji() -> str:
+        return "🎨"
+
+    @property
+    @abstractmethod
+    def required_columns(self) -> list[str]:
+        """Returns a list of column names that must exist before this column can be generated.
 
         Returns:
-            A dictionary representation of the configuration using JSON-compatible
-            serialization.
+            List of column names that this column depends on. Empty list indicates
+            no dependencies. Override in subclasses to specify dependencies.
         """
-        return self.model_dump(mode="json")
 
-    def to_yaml(self, path: str | Path | None = None, *, indent: int | None = 2, **kwargs) -> str | None:
-        """Convert the configuration to a YAML string or file.
+    @property
+    @abstractmethod
+    def side_effect_columns(self) -> list[str]:
+        """Returns a list of additional columns that this column will create as a side effect.
 
-        Args:
-            path: Optional file path to write the YAML to. If None, returns the
-                YAML string instead of writing to file.
-            indent: Number of spaces for YAML indentation. Defaults to 2.
-            **kwargs: Additional keyword arguments passed to yaml.dump().
+        Some column types generate additional metadata or auxiliary columns alongside
+        the primary column (e.g., reasoning traces for LLM columns).
 
         Returns:
-            The YAML string if path is None, otherwise None (file is written).
+            List of column names that this column will create as a side effect. Empty list
+            indicates no side effect columns. Override in subclasses to specify side effects.
         """
-        yaml_str = yaml.dump(self.to_dict(), indent=indent, **kwargs)
-        if path is None:
-            return yaml_str
-        with open(path, "w") as f:
-            f.write(yaml_str)
-
-    def to_json(self, path: str | Path | None = None, *, indent: int | None = 2, **kwargs) -> str | None:
-        """Convert the configuration to a JSON string or file.
-
-        Args:
-            path: Optional file path to write the JSON to. If None, returns the
-                JSON string instead of writing to file.
-            indent: Number of spaces for JSON indentation. Defaults to 2.
-            **kwargs: Additional keyword arguments passed to json.dumps().
-
-        Returns:
-            The JSON string if path is None, otherwise None (file is written).
-        """
-        json_str = serialize_data(self.to_dict(), indent=indent, **kwargs)
-        if path is None:
-            return json_str
-        with open(path, "w") as f:
-            f.write(json_str)

@@ -35,7 +35,7 @@ The configuration class defines what parameters users can set when using your pl
 
 ```python
 from typing import Literal
-from data_designer.config.column_configs import SingleColumnConfig
+from data_designer.config.base import SingleColumnConfig
 
 class IndexMultiplierColumnConfig(SingleColumnConfig):
     """Configuration for the index multiplier column generator."""
@@ -134,7 +134,7 @@ from typing import Literal
 
 import pandas as pd
 
-from data_designer.config.column_configs import SingleColumnConfig
+from data_designer.config.base import SingleColumnConfig
 from data_designer.engine.column_generators.generators.base import ColumnGeneratorFullColumn
 
 from data_designer.plugins import Plugin, PluginType

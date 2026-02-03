@@ -3,13 +3,12 @@
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, Discriminator, Field, model_validator
 from typing_extensions import Self
 
-from data_designer.config.base import ConfigBase
+from data_designer.config.base import ConfigBase, SingleColumnConfig
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.models import ImageContext
 from data_designer.config.sampler_params import SamplerParamsT, SamplerType
@@ -18,52 +17,6 @@ from data_designer.config.utils.constants import REASONING_CONTENT_COLUMN_POSTFI
 from data_designer.config.utils.misc import assert_valid_jinja2_template, extract_keywords_from_jinja2_template
 from data_designer.config.utils.trace_type import TraceType
 from data_designer.config.validator_params import ValidatorParamsT, ValidatorType
-
-
-class SingleColumnConfig(ConfigBase, ABC):
-    """Abstract base class for all single-column configuration types.
-
-    This class serves as the foundation for all column configurations in DataDesigner,
-    defining shared fields and properties across all column types.
-
-    Attributes:
-        name: Unique name of the column to be generated.
-        drop: If True, the column will be generated but removed from the final dataset.
-            Useful for intermediate columns that are dependencies for other columns.
-        column_type: Discriminator field that identifies the specific column type.
-            Subclasses must override this field to specify the column type with a `Literal` value.
-    """
-
-    name: str
-    drop: bool = False
-    column_type: str
-
-    @staticmethod
-    def get_column_emoji() -> str:
-        return "🎨"
-
-    @property
-    @abstractmethod
-    def required_columns(self) -> list[str]:
-        """Returns a list of column names that must exist before this column can be generated.
-
-        Returns:
-            List of column names that this column depends on. Empty list indicates
-            no dependencies. Override in subclasses to specify dependencies.
-        """
-
-    @property
-    @abstractmethod
-    def side_effect_columns(self) -> list[str]:
-        """Returns a list of additional columns that this column will create as a side effect.
-
-        Some column types generate additional metadata or auxiliary columns alongside
-        the primary column (e.g., reasoning traces for LLM columns).
-
-        Returns:
-            List of column names that this column will create as a side effect. Empty list
-            indicates no side effect columns. Override in subclasses to specify side effects.
-        """
 
 
 class SamplerColumnConfig(SingleColumnConfig):
