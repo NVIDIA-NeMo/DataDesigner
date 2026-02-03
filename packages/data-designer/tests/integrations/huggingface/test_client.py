@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from huggingface_hub.utils import HfHubHTTPError
 
-from data_designer.integrations.huggingface.client import HuggingFaceHubClient, HuggingFaceUploadError
+from data_designer.integrations.huggingface.client import HuggingFaceHubClient, HuggingFaceHubClientUploadError
 
 
 @pytest.fixture
@@ -242,7 +242,7 @@ def test_upload_dataset_card_missing_metadata(tmp_path: Path) -> None:
     base_path = tmp_path / "dataset"
     base_path.mkdir()
 
-    with pytest.raises(HuggingFaceUploadError, match="Required file not found"):
+    with pytest.raises(HuggingFaceHubClientUploadError, match="Required file not found"):
         client.upload_dataset(
             repo_id="test/dataset",
             base_dataset_path=base_path,
@@ -364,19 +364,19 @@ def test_validate_repo_id_invalid_format(sample_dataset_path: Path) -> None:
     client = HuggingFaceHubClient(token="test-token")
 
     # Missing slash
-    with pytest.raises(HuggingFaceUploadError, match="Invalid repo_id format"):
+    with pytest.raises(HuggingFaceHubClientUploadError, match="Invalid repo_id format"):
         client.upload_dataset("my-dataset", sample_dataset_path, "Test")
 
     # Too many slashes (caught by regex)
-    with pytest.raises(HuggingFaceUploadError, match="Invalid repo_id format"):
+    with pytest.raises(HuggingFaceHubClientUploadError, match="Invalid repo_id format"):
         client.upload_dataset("user/org/dataset", sample_dataset_path, "Test")
 
     # Invalid characters (space)
-    with pytest.raises(HuggingFaceUploadError, match="Invalid repo_id format"):
+    with pytest.raises(HuggingFaceHubClientUploadError, match="Invalid repo_id format"):
         client.upload_dataset("user/my dataset", sample_dataset_path, "Test")
 
     # Empty string
-    with pytest.raises(HuggingFaceUploadError, match="must be a non-empty string"):
+    with pytest.raises(HuggingFaceHubClientUploadError, match="must be a non-empty string"):
         client.upload_dataset("", sample_dataset_path, "Test")
 
 
@@ -385,7 +385,7 @@ def test_validate_dataset_path_not_exists(tmp_path: Path) -> None:
     client = HuggingFaceHubClient(token="test-token")
     non_existent = tmp_path / "does-not-exist"
 
-    with pytest.raises(HuggingFaceUploadError, match="does not exist"):
+    with pytest.raises(HuggingFaceHubClientUploadError, match="does not exist"):
         client.upload_dataset("test/dataset", non_existent, "Test")
 
 
@@ -395,7 +395,7 @@ def test_validate_dataset_path_is_file(tmp_path: Path) -> None:
     file_path = tmp_path / "file.txt"
     file_path.write_text("not a directory")
 
-    with pytest.raises(HuggingFaceUploadError, match="not a directory"):
+    with pytest.raises(HuggingFaceHubClientUploadError, match="not a directory"):
         client.upload_dataset("test/dataset", file_path, "Test")
 
 
@@ -405,7 +405,7 @@ def test_validate_dataset_path_missing_metadata(tmp_path: Path) -> None:
     base_path = tmp_path / "dataset"
     base_path.mkdir()
 
-    with pytest.raises(HuggingFaceUploadError, match="Required file not found"):
+    with pytest.raises(HuggingFaceHubClientUploadError, match="Required file not found"):
         client.upload_dataset("test/dataset", base_path, "Test")
 
 
@@ -416,7 +416,7 @@ def test_validate_dataset_path_missing_parquet_folder(tmp_path: Path) -> None:
     base_path.mkdir()
     (base_path / "metadata.json").write_text('{"target_num_records": 10}')
 
-    with pytest.raises(HuggingFaceUploadError, match="Required directory not found"):
+    with pytest.raises(HuggingFaceHubClientUploadError, match="Required directory not found"):
         client.upload_dataset("test/dataset", base_path, "Test")
 
 
@@ -429,7 +429,7 @@ def test_validate_dataset_path_empty_parquet_folder(tmp_path: Path) -> None:
     parquet_dir = base_path / "parquet-files"
     parquet_dir.mkdir()
 
-    with pytest.raises(HuggingFaceUploadError, match="directory is empty"):
+    with pytest.raises(HuggingFaceHubClientUploadError, match="directory is empty"):
         client.upload_dataset("test/dataset", base_path, "Test")
 
 
@@ -443,7 +443,7 @@ def test_validate_dataset_path_invalid_metadata_json(tmp_path: Path) -> None:
     parquet_dir.mkdir()
     (parquet_dir / "batch_00000.parquet").write_text("data")
 
-    with pytest.raises(HuggingFaceUploadError, match="Invalid JSON"):
+    with pytest.raises(HuggingFaceHubClientUploadError, match="Invalid JSON"):
         client.upload_dataset("test/dataset", base_path, "Test")
 
 
@@ -458,7 +458,7 @@ def test_validate_dataset_path_invalid_sdg_json(tmp_path: Path) -> None:
     parquet_dir.mkdir()
     (parquet_dir / "batch_00000.parquet").write_text("data")
 
-    with pytest.raises(HuggingFaceUploadError, match="Invalid JSON"):
+    with pytest.raises(HuggingFaceHubClientUploadError, match="Invalid JSON"):
         client.upload_dataset("test/dataset", base_path, "Test")
 
 
@@ -466,7 +466,7 @@ def test_upload_dataset_invalid_repo_id(mock_hf_api: MagicMock, sample_dataset_p
     """Test upload_dataset fails with invalid repo_id."""
     client = HuggingFaceHubClient(token="test-token")
 
-    with pytest.raises(HuggingFaceUploadError, match="Invalid repo_id format"):
+    with pytest.raises(HuggingFaceHubClientUploadError, match="Invalid repo_id format"):
         client.upload_dataset(
             repo_id="invalid-repo-id",  # Missing slash
             base_dataset_path=sample_dataset_path,
@@ -483,7 +483,7 @@ def test_upload_dataset_authentication_error(mock_hf_api: MagicMock, sample_data
     error_response.status_code = 401
     mock_hf_api.create_repo.side_effect = HfHubHTTPError("Unauthorized", response=error_response)
 
-    with pytest.raises(HuggingFaceUploadError, match="Authentication failed"):
+    with pytest.raises(HuggingFaceHubClientUploadError, match="Authentication failed"):
         client.upload_dataset(
             repo_id="test/dataset",
             base_dataset_path=sample_dataset_path,
@@ -500,7 +500,7 @@ def test_upload_dataset_permission_error(mock_hf_api: MagicMock, sample_dataset_
     error_response.status_code = 403
     mock_hf_api.create_repo.side_effect = HfHubHTTPError("Forbidden", response=error_response)
 
-    with pytest.raises(HuggingFaceUploadError, match="Permission denied"):
+    with pytest.raises(HuggingFaceHubClientUploadError, match="Permission denied"):
         client.upload_dataset(
             repo_id="test/dataset",
             base_dataset_path=sample_dataset_path,
@@ -520,7 +520,7 @@ def test_upload_dataset_card_invalid_json(tmp_path: Path) -> None:
     parquet_dir.mkdir()
     (parquet_dir / "batch_00000.parquet").write_text("data")
 
-    with pytest.raises(HuggingFaceUploadError, match="Invalid JSON"):
+    with pytest.raises(HuggingFaceHubClientUploadError, match="Invalid JSON"):
         client.upload_dataset(
             repo_id="test/dataset",
             base_dataset_path=base_path,
