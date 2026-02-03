@@ -42,70 +42,43 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
         return GenerationStrategy.CELL_BY_CELL
 
     def generate(self, data: dict | pd.DataFrame) -> dict | pd.DataFrame:
-        """Generate column value(s).
+        """Generate column value(s) for a row (dict) or batch (DataFrame)."""
+        is_full_column = self.config.generation_strategy == GenerationStrategy.FULL_COLUMN
+        is_dataframe = not isinstance(data, dict)
 
-        Args:
-            data: A dict (cell_by_cell) or DataFrame (full_column).
-
-        Returns:
-            The data with new column(s) added.
-
-        Raises:
-            CustomColumnGenerationError: If data type doesn't match the generation strategy.
-        """
-        if self.config.generation_strategy == GenerationStrategy.FULL_COLUMN:
-            if isinstance(data, dict):
-                raise CustomColumnGenerationError(
-                    f"Custom generator '{self.config.name}' is configured for 'full_column' strategy "
-                    f"but received a dict. Expected a DataFrame."
-                )
-            return self._generate_full_column(data)
-        else:
-            if not isinstance(data, dict):
-                raise CustomColumnGenerationError(
-                    f"Custom generator '{self.config.name}' is configured for 'cell_by_cell' strategy "
-                    f"but received a DataFrame. Expected a dict."
-                )
-            return self._generate_cell_by_cell(data)
-
-    def _generate_cell_by_cell(self, data: dict) -> dict:
-        """Generate column for a single row."""
-        missing_columns = set(self.config.required_columns) - set(data.keys())
-        if missing_columns:
+        # Validate data type matches strategy
+        if is_full_column and not is_dataframe:
             raise CustomColumnGenerationError(
-                f"Missing required columns for custom generator '{self.config.name}': {sorted(missing_columns)}"
+                f"Custom generator '{self.config.name}' is configured for 'full_column' strategy "
+                f"but received a dict. Expected a DataFrame."
+            )
+        if not is_full_column and is_dataframe:
+            raise CustomColumnGenerationError(
+                f"Custom generator '{self.config.name}' is configured for 'cell_by_cell' strategy "
+                f"but received a DataFrame. Expected a dict."
             )
 
-        keys_before = set(data.keys())
+        return self._generate(data, is_dataframe)
 
-        try:
-            result = self._invoke_generator_function(data)
-        except Exception as e:
-            logger.error(f"Custom column generator failed for '{self.config.name}': {e}")
-            raise CustomColumnGenerationError(
-                f"Custom generator function failed for column '{self.config.name}': {e}"
-            ) from e
-
-        if not isinstance(result, dict):
-            raise CustomColumnGenerationError(
-                f"Custom generator for column '{self.config.name}' must return a dict, got {type(result).__name__}"
-            )
-
-        result = self._validate_output_columns(result, keys_before)
-        return result
-
-    def _generate_full_column(self, data: pd.DataFrame) -> pd.DataFrame:
-        """Generate column for entire batch."""
+    def _generate(self, data: dict | pd.DataFrame, is_dataframe: bool) -> dict | pd.DataFrame:
+        """Unified generation logic for both strategies."""
         from data_designer.lazy_heavy_imports import pd
 
-        missing_columns = set(self.config.required_columns) - set(data.columns)
-        if missing_columns:
+        # Get columns/keys using unified accessor
+        get_keys = (lambda d: set(d.columns)) if is_dataframe else (lambda d: set(d.keys()))
+        expected_type = pd.DataFrame if is_dataframe else dict
+        type_name = "DataFrame" if is_dataframe else "dict"
+
+        # Check required columns
+        missing = set(self.config.required_columns) - get_keys(data)
+        if missing:
             raise CustomColumnGenerationError(
-                f"Missing required columns for custom generator '{self.config.name}': {sorted(missing_columns)}"
+                f"Missing required columns for custom generator '{self.config.name}': {sorted(missing)}"
             )
 
-        columns_before = set(data.columns)
+        keys_before = get_keys(data)
 
+        # Invoke generator
         try:
             result = self._invoke_generator_function(data)
         except Exception as e:
@@ -114,107 +87,74 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
                 f"Custom generator function failed for column '{self.config.name}': {e}"
             ) from e
 
-        if not isinstance(result, pd.DataFrame):
+        # Validate return type
+        if not isinstance(result, expected_type):
             raise CustomColumnGenerationError(
-                f"Custom generator for column '{self.config.name}' must return a DataFrame, got {type(result).__name__}"
+                f"Custom generator for column '{self.config.name}' must return a {type_name}, "
+                f"got {type(result).__name__}"
             )
 
-        result = self._validate_output_columns_df(result, columns_before)
-        return result
+        return self._validate_output(result, keys_before, is_dataframe)
 
-    def _validate_output_columns(self, result: dict, keys_before: set[str]) -> dict:
-        """Validate expected columns were created, no pre-existing columns removed, and remove undeclared columns."""
-        expected_new_keys = {self.config.name} | set(self.config.side_effect_columns)
+    def _validate_output(
+        self, result: dict | pd.DataFrame, keys_before: set[str], is_dataframe: bool
+    ) -> dict | pd.DataFrame:
+        """Validate output columns and remove undeclared ones."""
+        # Unified accessors
+        get_keys = (lambda d: set(d.columns)) if is_dataframe else (lambda d: set(d.keys()))
+        container_name = "DataFrame" if is_dataframe else "row"
 
-        if self.config.name not in result:
-            raise CustomColumnGenerationError(
-                f"Custom generator for column '{self.config.name}' did not create the expected column. "
-                f"The generator_function must add a key named '{self.config.name}' to the row dict."
-            )
+        expected_new = {self.config.name} | set(self.config.side_effect_columns)
+        result_keys = get_keys(result)
 
-        missing_output_columns = set(self.config.side_effect_columns) - set(result.keys())
-        if missing_output_columns:
-            raise CustomColumnGenerationError(
-                f"Custom generator for column '{self.config.name}' did not create declared side_effect_columns: "
-                f"{sorted(missing_output_columns)}. Declared side_effect_columns must be added to the row."
-            )
-
-        removed_keys = keys_before - set(result.keys())
-        if removed_keys:
-            raise CustomColumnGenerationError(
-                f"Custom generator for column '{self.config.name}' removed pre-existing columns: "
-                f"{sorted(removed_keys)}. The generator_function must not remove any existing columns from the row."
-            )
-
-        actual_new_keys = set(result.keys()) - keys_before
-        undeclared_keys = actual_new_keys - expected_new_keys
-
-        if undeclared_keys:
-            logger.warning(
-                f"⚠️ Custom generator for column '{self.config.name}' created undeclared columns: "
-                f"{sorted(undeclared_keys)}. These columns will be removed. "
-                f"To keep additional columns, declare them in @custom_column_generator(side_effect_columns=[...])."
-            )
-            for key in undeclared_keys:
-                del result[key]
-
-        return result
-
-    def _validate_output_columns_df(self, result: pd.DataFrame, columns_before: set[str]) -> pd.DataFrame:
-        """Validate expected columns were created, no pre-existing columns removed, and remove undeclared columns."""
-        expected_new_cols = {self.config.name} | set(self.config.side_effect_columns)
-
-        if self.config.name not in result.columns:
+        # Check primary column exists
+        if self.config.name not in result_keys:
             raise CustomColumnGenerationError(
                 f"Custom generator for column '{self.config.name}' did not create the expected column. "
-                f"The generator_function must add a column named '{self.config.name}' to the DataFrame."
+                f"The generator_function must add a key named '{self.config.name}' to the {container_name}."
             )
 
-        missing_output_columns = set(self.config.side_effect_columns) - set(result.columns)
-        if missing_output_columns:
+        # Check side effect columns exist
+        missing = set(self.config.side_effect_columns) - result_keys
+        if missing:
             raise CustomColumnGenerationError(
                 f"Custom generator for column '{self.config.name}' did not create declared side_effect_columns: "
-                f"{sorted(missing_output_columns)}. Declared side_effect_columns must be added to the DataFrame."
+                f"{sorted(missing)}. Declared side_effect_columns must be added to the {container_name}."
             )
 
-        removed_cols = columns_before - set(result.columns)
-        if removed_cols:
+        # Check no pre-existing columns removed
+        removed = keys_before - result_keys
+        if removed:
             raise CustomColumnGenerationError(
                 f"Custom generator for column '{self.config.name}' removed pre-existing columns: "
-                f"{sorted(removed_cols)}. The generator_function must not remove any existing columns from the DataFrame."
+                f"{sorted(removed)}. The generator_function must not remove any existing columns."
             )
 
-        actual_new_cols = set(result.columns) - columns_before
-        undeclared_cols = actual_new_cols - expected_new_cols
-
-        if undeclared_cols:
+        # Remove undeclared columns with warning
+        undeclared = (result_keys - keys_before) - expected_new
+        if undeclared:
             logger.warning(
                 f"⚠️ Custom generator for column '{self.config.name}' created undeclared columns: "
-                f"{sorted(undeclared_cols)}. These columns will be removed. "
+                f"{sorted(undeclared)}. These columns will be removed. "
                 f"To keep additional columns, declare them in @custom_column_generator(side_effect_columns=[...])."
             )
-            result = result.drop(columns=list(undeclared_cols))
+            if is_dataframe:
+                result = result.drop(columns=list(undeclared))
+            else:
+                for key in undeclared:
+                    del result[key]
 
         return result
 
     def _invoke_generator_function(self, data: dict | pd.DataFrame) -> dict | pd.DataFrame:
-        """Invoke the user's generate function with appropriate arguments.
-
-        Detects function signature and calls with appropriate arguments:
-            - 1 param: fn(data)
-            - 2 params: fn(data, params)
-            - 3 params: fn(data, params, ctx)
-        """
+        """Invoke the user's generate function with appropriate arguments based on signature."""
         num_params = self._get_positional_param_count()
 
         if num_params == 1:
-            # fn(row) -> dict
             return self.config.generator_function(data)
         elif num_params == 2:
-            # fn(row, params) -> dict
             return self.config.generator_function(data, self.config.generator_params)
         else:
-            # fn(row, params, ctx) -> dict (3 or more params)
             ctx = CustomColumnContext(
                 resource_provider=self.resource_provider,
                 column_name=self.config.name,
@@ -224,12 +164,11 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
     def _get_positional_param_count(self) -> int:
         """Get the number of positional parameters in the generator function."""
         sig = inspect.signature(self.config.generator_function)
-        positional_params = [
-            p
+        return sum(
+            1
             for p in sig.parameters.values()
             if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
-        ]
-        return len(positional_params)
+        )
 
     def log_pre_generation(self) -> None:
         logger.info(f"{self.config.get_column_emoji()} Custom column config for column '{self.config.name}'")
