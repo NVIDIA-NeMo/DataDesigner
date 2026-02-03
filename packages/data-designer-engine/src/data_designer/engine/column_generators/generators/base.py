@@ -6,9 +6,9 @@ from __future__ import annotations
 import functools
 import logging
 from abc import ABC, abstractmethod
-from enum import Enum
 from typing import TYPE_CHECKING, overload
 
+from data_designer.config.column_configs import GenerationStrategy
 from data_designer.engine.configurable_task import ConfigurableTask, DataT, TaskConfigT
 from data_designer.lazy_heavy_imports import pd
 
@@ -20,11 +20,6 @@ if TYPE_CHECKING:
     from data_designer.engine.models.registry import ModelRegistry
 
 logger = logging.getLogger(__name__)
-
-
-class GenerationStrategy(str, Enum):
-    CELL_BY_CELL = "cell_by_cell"
-    FULL_COLUMN = "full_column"
 
 
 class ColumnGenerator(ConfigurableTask[TaskConfigT], ABC):
