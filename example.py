@@ -40,20 +40,21 @@ class MessageParams(BaseModel):
 
 
 @dd.custom_column_generator(required_columns=["name", "product_interest"])
-def greeting_with_params(row: dict, params: MessageParams) -> dict:
-    row["greeting"] = f"Hello, {row['name']}! Interested in {row['product_interest']}. (tone: {params.tone})"
+def greeting_with_params(row: dict, generator_params: MessageParams) -> dict:
+    row["greeting"] = f"Hello, {row['name']}! Interested in {row['product_interest']}. (tone: {generator_params.tone})"
     return row
 
 
-# %% 3-arg: With params and LLM access
+# %% 3-arg: With generator_params and LLM access
 @dd.custom_column_generator(
     required_columns=["name", "product_interest"],
     side_effect_columns=["prompt"],
     model_aliases=[MODEL_ALIAS],
 )
-def generate_personalized_message(row: dict, params: MessageParams, ctx: dd.CustomColumnContext) -> dict:
-    prompt = f"Write a {params.tone} message for {row['name']} about {row['product_interest']}. Max {params.max_words} words."
-    row[ctx.column_name] = ctx.generate_text(model_alias=MODEL_ALIAS, prompt=prompt)
+def generate_personalized_message(row: dict, generator_params: MessageParams, models: dict) -> dict:
+    prompt = f"Write a {generator_params.tone} message for {row['name']} about {row['product_interest']}. Max {generator_params.max_words} words."
+    response, _ = models[MODEL_ALIAS].generate(prompt=prompt)
+    row["personalized_message"] = response
     row["prompt"] = prompt
     return row
 
@@ -100,16 +101,15 @@ preview.display_sample_record()
     side_effect_columns=["conversation_trace"],
     model_aliases=[MODEL_ALIAS],
 )
-def writer_editor_workflow(row: dict, params: None, ctx: dd.CustomColumnContext) -> dict:
+def writer_editor_workflow(row: dict, generator_params: None, models: dict) -> dict:
     topic = row["topic"]
+    model = models[MODEL_ALIAS]
 
-    draft = ctx.generate_text(model_alias=MODEL_ALIAS, prompt=f"Write a 2-sentence hook about '{topic}'.")
-    critique = ctx.generate_text(model_alias=MODEL_ALIAS, prompt=f"Give one improvement for: {draft}")
-    revised = ctx.generate_text(
-        model_alias=MODEL_ALIAS, prompt=f"Revise based on feedback:\n\nOriginal: {draft}\n\nFeedback: {critique}"
-    )
+    draft, _ = model.generate(prompt=f"Write a 2-sentence hook about '{topic}'.")
+    critique, _ = model.generate(prompt=f"Give one improvement for: {draft}")
+    revised, _ = model.generate(prompt=f"Revise based on feedback:\n\nOriginal: {draft}\n\nFeedback: {critique}")
 
-    row[ctx.column_name] = revised
+    row["refined_intro"] = revised
     row["conversation_trace"] = f"Draft: {draft[:50]}... | Critique: {critique[:50]}..."
     return row
 
@@ -129,30 +129,45 @@ preview = data_designer.preview(config_builder=config_multiturn, num_records=2)
 preview.display_sample_record()
 
 # %% [markdown]
-# ## Benchmark: cell_by_cell vs full_column
+# ## Experimentation
 #
-# Compare row-by-row (framework parallelizes) vs batch processing (user controls parallelism).
+# Test custom column functions with real LLM calls without running the full pipeline.
+
+# %% Test a generator function directly
+models = data_designer.get_models([MODEL_ALIAS])
+
+# Call the function directly with a sample row
+sample_row = {"topic": "quantum computing"}
+result = writer_editor_workflow(sample_row, None, models)
+
+print(f"Input: {sample_row['topic']}")
+print(f"Output: {result['refined_intro'][:100]}...")
+
+# %% [markdown]
+# ## Generation Strategies
+#
+# - `cell_by_cell` (default): Framework handles parallelization. Recommended for LLM calls.
+# - `full_column`: For vectorized DataFrame operations. Not recommended for LLM calls.
 
 
-# %% Define both strategies
+# %% Define cell-by-cell strategy (recommended for LLM calls)
 @dd.custom_column_generator(required_columns=["topic"], model_aliases=[MODEL_ALIAS])
-def cell_by_cell_generator(row: dict, params: None, ctx: dd.CustomColumnContext) -> dict:
-    """Row-by-row, framework parallelizes."""
-    row[ctx.column_name] = ctx.generate_text(
-        model_alias=MODEL_ALIAS, prompt=f"Write a one-sentence fact about: {row['topic']}"
-    )
+def cell_by_cell_generator(row: dict, generator_params: None, models: dict) -> dict:
+    """Row-by-row processing. Framework handles parallelization."""
+    response, _ = models[MODEL_ALIAS].generate(prompt=f"Write a one-sentence fact about: {row['topic']}")
+    row["fact"] = response
     return row
 
 
-@dd.custom_column_generator(required_columns=["topic"], model_aliases=[MODEL_ALIAS])
-def full_column_generator(df: pd.DataFrame, params: None, ctx: dd.CustomColumnContext) -> pd.DataFrame:
-    """Batch processing with generate_text_batch."""
-    prompts = [f"Write a one-sentence fact about: {topic}" for topic in df["topic"]]
-    df["fact"] = ctx.generate_text_batch(model_alias=MODEL_ALIAS, prompts=prompts, max_workers=8)
+# %% Full-column strategy (for vectorized ops, not recommended for LLM calls)
+@dd.custom_column_generator(required_columns=["topic"])
+def full_column_transform(df: pd.DataFrame) -> pd.DataFrame:
+    """Batch processing for vectorized operations (no LLM)."""
+    df["topic_upper"] = df["topic"].str.upper()
     return df
 
 
-# %% Run benchmark
+# %% Run examples
 NUM_RECORDS = 6
 
 topic_config = dd.SamplerColumnConfig(
@@ -161,7 +176,7 @@ topic_config = dd.SamplerColumnConfig(
     params=dd.CategorySamplerParams(values=["space", "history", "biology", "physics"]),
 )
 
-# cell_by_cell
+# cell_by_cell with LLM (recommended)
 config_cell = dd.DataDesignerConfigBuilder()
 config_cell.add_column(topic_config)
 config_cell.add_column(dd.CustomColumnConfig(name="fact", generator_function=cell_by_cell_generator))
@@ -170,15 +185,17 @@ start = time.perf_counter()
 result_cell = data_designer.preview(config_builder=config_cell, num_records=NUM_RECORDS)
 elapsed_cell = time.perf_counter() - start
 
-# full_column
+print(f"cell_by_cell with LLM: {elapsed_cell:.2f}s")
+result_cell.display_sample_record()
+
+# full_column for vectorized ops (no LLM)
 config_full = dd.DataDesignerConfigBuilder()
 config_full.add_column(topic_config)
 config_full.add_column(
-    dd.CustomColumnConfig(name="fact", generator_function=full_column_generator, generation_strategy="full_column")
+    dd.CustomColumnConfig(
+        name="topic_upper", generator_function=full_column_transform, generation_strategy="full_column"
+    )
 )
 
-start = time.perf_counter()
 result_full = data_designer.preview(config_builder=config_full, num_records=NUM_RECORDS)
-elapsed_full = time.perf_counter() - start
-
-print(f"cell_by_cell: {elapsed_cell:.2f}s | full_column: {elapsed_full:.2f}s")
+print(result_full.dataset[["topic", "topic_upper"]].head())

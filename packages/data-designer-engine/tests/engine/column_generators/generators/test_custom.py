@@ -13,7 +13,7 @@ import pytest
 from pydantic import BaseModel
 
 from data_designer.config.column_configs import CustomColumnConfig, GenerationStrategy
-from data_designer.config.custom_column import CustomColumnContext, custom_column_generator
+from data_designer.config.custom_column import custom_column_generator
 from data_designer.config.errors import InvalidConfigError
 from data_designer.engine.column_generators.generators.custom import CustomColumnGenerator
 from data_designer.engine.column_generators.utils.errors import CustomColumnGenerationError
@@ -120,17 +120,16 @@ def test_cell_by_cell_generation() -> None:
     assert result["result"] == "HELLO"
 
 
-def test_cell_by_cell_with_params_and_context(stub_resource_provider, stub_model_facade) -> None:
-    """Test 3-arg function with params and context for LLM access."""
+def test_cell_by_cell_with_params_and_models(stub_resource_provider, stub_model_facade) -> None:
+    """Test 3-arg function with generator_params and models dict for LLM access."""
 
     @custom_column_generator(required_columns=["input"], model_aliases=["test-model"])
-    def llm_generator(row: dict, params: SampleParams, ctx: CustomColumnContext) -> dict:
-        text = ctx.generate_text(
-            model_alias="test-model",
-            prompt=f"{params.prefix}{row['input']}",
+    def llm_generator(row: dict, generator_params: SampleParams, models: dict) -> dict:
+        response, _ = models["test-model"].generate(
+            prompt=f"{generator_params.prefix}{row['input']}",
             system_prompt="You are helpful.",
         )
-        row["result"] = text
+        row["result"] = response
         return row
 
     generator = _create_test_generator(
@@ -256,25 +255,65 @@ def test_full_column_strategy() -> None:
     assert list(result["result"]) == [2, 4, 6]
 
 
-def test_full_column_with_batch_llm(stub_resource_provider, stub_model_facade) -> None:
-    """Test full_column with generate_text_batch for parallel LLM calls."""
+def test_full_column_with_params() -> None:
+    """Test full_column with generator_params."""
 
-    @custom_column_generator(required_columns=["input"], model_aliases=["test-model"])
-    def batch_llm(df: pd.DataFrame, params: None, ctx: CustomColumnContext) -> pd.DataFrame:
-        prompts = [f"Process: {val}" for val in df["input"]]
-        df["result"] = ctx.generate_text_batch(model_alias="test-model", prompts=prompts, max_workers=2)
+    @custom_column_generator(required_columns=["input"])
+    def batch_with_params(df: pd.DataFrame, generator_params: SampleParams) -> pd.DataFrame:
+        df["result"] = df["input"] * generator_params.multiplier
         return df
-
-    stub_model_facade.generate.side_effect = lambda prompt, **kwargs: (f"Response: {prompt}", None)
 
     generator = _create_test_generator(
         name="result",
-        generator_function=batch_llm,
-        resource_provider=stub_resource_provider,
+        generator_function=batch_with_params,
+        generator_params=SampleParams(multiplier=3),
         generation_strategy=GenerationStrategy.FULL_COLUMN,
     )
 
-    result = generator.generate(pd.DataFrame({"input": ["a", "b"]}))
+    result = generator.generate(pd.DataFrame({"input": [1, 2, 3]}))
+    assert list(result["result"]) == [3, 6, 9]
 
-    assert list(result["result"]) == ["Response: Process: a", "Response: Process: b"]
-    assert stub_model_facade.generate.call_count == 2
+
+# Parameter name validation tests
+
+
+def test_invalid_param_names() -> None:
+    """Test parameter name validation errors."""
+
+    # Wrong first param (cell_by_cell)
+    @custom_column_generator()
+    def bad_row(data: dict) -> dict:
+        return data
+
+    gen = _create_test_generator(name="result", generator_function=bad_row)
+    with pytest.raises(CustomColumnGenerationError, match="parameter 1 must be 'row'"):
+        gen.generate({"input": 1})
+
+    # Wrong first param (full_column)
+    @custom_column_generator()
+    def bad_df(dataframe: pd.DataFrame) -> pd.DataFrame:
+        return dataframe
+
+    gen = _create_test_generator(
+        name="result", generator_function=bad_df, generation_strategy=GenerationStrategy.FULL_COLUMN
+    )
+    with pytest.raises(CustomColumnGenerationError, match="parameter 1 must be 'df'"):
+        gen.generate(pd.DataFrame({"input": [1]}))
+
+    # Wrong second param
+    @custom_column_generator()
+    def bad_params(row: dict, params: None) -> dict:
+        return row
+
+    gen = _create_test_generator(name="result", generator_function=bad_params)
+    with pytest.raises(CustomColumnGenerationError, match="parameter 2 must be 'generator_params'"):
+        gen.generate({"input": 1})
+
+    # Wrong third param
+    @custom_column_generator()
+    def bad_models(row: dict, generator_params: None, llm: dict) -> dict:
+        return row
+
+    gen = _create_test_generator(name="result", generator_function=bad_models)
+    with pytest.raises(CustomColumnGenerationError, match="parameter 3 must be 'models'"):
+        gen.generate({"input": 1})

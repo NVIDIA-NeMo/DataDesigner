@@ -7,10 +7,9 @@ from __future__ import annotations
 
 import inspect
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from data_designer.config.column_configs import CustomColumnConfig, GenerationStrategy
-from data_designer.config.custom_column import CustomColumnContext
 from data_designer.engine.column_generators.generators.base import ColumnGenerator
 from data_designer.engine.column_generators.utils.errors import CustomColumnGenerationError
 
@@ -27,13 +26,22 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
         - cell_by_cell: Processes rows one at a time (dict -> dict), parallelized by framework.
         - full_column: Processes entire batch (DataFrame -> DataFrame) for vectorized ops.
 
-    Supported function signatures (detected via inspection):
-        - fn(row) -> dict                     # 1 arg: simple transform
-        - fn(row, params) -> dict             # 2 args: with typed params
-        - fn(row, params, ctx) -> dict        # 3 args: with params and LLM access
+    Supported function signatures (validated by parameter name):
+        - fn(row) -> dict                              # cell_by_cell, simple transform
+        - fn(row, generator_params) -> dict            # cell_by_cell, with typed params
+        - fn(row, generator_params, models) -> dict    # cell_by_cell, with LLM access
+        - fn(df) -> DataFrame                          # full_column, simple transform
+        - fn(df, generator_params) -> DataFrame        # full_column, with typed params
+        - fn(df, generator_params, models) -> DataFrame  # full_column, with LLM access
 
-    The context provides access to generate_text() and get_model() for LLM integration.
+    The models dict provides direct access to ModelFacade instances keyed by alias.
     """
+
+    # Expected parameter names for each position
+    _EXPECTED_FIRST_PARAM_CELL = "row"
+    _EXPECTED_FIRST_PARAM_FULL = "df"
+    _EXPECTED_SECOND_PARAM = "generator_params"
+    _EXPECTED_THIRD_PARAM = "models"
 
     def get_generation_strategy(self) -> GenerationStrategy:
         """Return strategy based on config."""
@@ -148,27 +156,46 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
 
     def _invoke_generator_function(self, data: dict | pd.DataFrame) -> dict | pd.DataFrame:
         """Invoke the user's generate function with appropriate arguments based on signature."""
-        num_params = self._get_positional_param_count()
+        params = self._get_validated_params()
 
-        if num_params == 1:
+        if len(params) == 1:
             return self.config.generator_function(data)
-        elif num_params == 2:
+        elif len(params) == 2:
             return self.config.generator_function(data, self.config.generator_params)
         else:
-            ctx = CustomColumnContext(
-                resource_provider=self.resource_provider,
-                column_name=self.config.name,
-            )
-            return self.config.generator_function(data, self.config.generator_params, ctx)
+            models = self._build_models_dict()
+            return self.config.generator_function(data, self.config.generator_params, models)
 
-    def _get_positional_param_count(self) -> int:
-        """Get the number of positional parameters in the generator function."""
+    def _build_models_dict(self) -> dict[str, Any]:
+        """Build a dict of ModelFacade instances from model_aliases."""
+        return {
+            alias: self.resource_provider.model_registry.get_model(model_alias=alias)
+            for alias in self.config.model_aliases
+        }
+
+    def _get_validated_params(self) -> list[inspect.Parameter]:
+        """Get and validate positional parameters from the generator function signature."""
         sig = inspect.signature(self.config.generator_function)
-        return sum(
-            1
+        params = [
+            p
             for p in sig.parameters.values()
             if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
-        )
+        ]
+        if not params:
+            raise CustomColumnGenerationError(f"Generator '{self.config.name}': no parameters.")
+
+        is_full = self.config.generation_strategy == GenerationStrategy.FULL_COLUMN
+        expected = [
+            self._EXPECTED_FIRST_PARAM_FULL if is_full else self._EXPECTED_FIRST_PARAM_CELL,
+            self._EXPECTED_SECOND_PARAM,
+            self._EXPECTED_THIRD_PARAM,
+        ]
+        for i, (param, exp) in enumerate(zip(params, expected)):
+            if param.name != exp:
+                raise CustomColumnGenerationError(
+                    f"Generator '{self.config.name}': parameter {i + 1} must be '{exp}', got '{param.name}'."
+                )
+        return params
 
     def log_pre_generation(self) -> None:
         logger.info(f"{self.config.get_column_emoji()} Custom column config for column '{self.config.name}'")

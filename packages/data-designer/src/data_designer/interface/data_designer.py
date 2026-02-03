@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
 from data_designer.config.config_builder import DataDesignerConfigBuilder
@@ -330,6 +330,23 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             due to error-rate thresholds. Errors are still tracked for reporting.
         """
         self._run_config = run_config
+
+    def get_models(self, model_aliases: list[str]) -> dict[str, Any]:
+        """Get a dict of ModelFacade instances for custom column development.
+
+        Use this to experiment with custom column generator functions outside of
+        the full pipeline. The returned dict matches the `models` argument passed
+        to 3-arg custom column functions.
+
+        Args:
+            model_aliases: List of model aliases to include in the dict.
+
+        Returns:
+            Dict mapping alias to ModelFacade instance.
+        """
+        config_builder = DataDesignerConfigBuilder()
+        resource_provider = self._create_resource_provider("dev", config_builder)
+        return {alias: resource_provider.model_registry.get_model(model_alias=alias) for alias in model_aliases}
 
     def _resolve_model_providers(self, model_providers: list[ModelProvider] | None) -> list[ModelProvider]:
         if model_providers is None:

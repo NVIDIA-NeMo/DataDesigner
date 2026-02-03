@@ -22,29 +22,34 @@ config_builder.add_column(
 
 ## Function Signatures
 
-Three signatures are supported, detected automatically by argument count:
+Three signatures are supported. **Parameter names are validated**:
 
 | Args | Signature | Use Case |
 |------|-----------|----------|
 | 1 | `fn(row) -> dict` | Simple transforms |
-| 2 | `fn(row, params) -> dict` | With typed params |
-| 3 | `fn(row, params, ctx) -> dict` | LLM access via context |
+| 2 | `fn(row, generator_params) -> dict` | With typed params |
+| 3 | `fn(row, generator_params, models) -> dict` | LLM access via models dict |
 
-For LLM access without params, use `params: None`:
+For `full_column` strategy, use `df` instead of `row`.
+
+For LLM access without params, use `generator_params: None`:
 
 ```python
 @dd.custom_column_generator(required_columns=["name"], model_aliases=["my-model"])
-def generate_message(row: dict, params: None, ctx: dd.CustomColumnContext) -> dict:
-    row[ctx.column_name] = ctx.generate_text(model_alias="my-model", prompt=f"Greet {row['name']}")
+def generate_message(row: dict, generator_params: None, models: dict) -> dict:
+    response, _ = models["my-model"].generate(prompt=f"Greet {row['name']}")
+    row["greeting"] = response
     return row
 ```
 
 ## Generation Strategies
 
-| Strategy | Input | Parallelization |
-|----------|-------|-----------------|
-| `cell_by_cell` (default) | `row: dict` | Framework handles |
-| `full_column` | `df: DataFrame` | Use `generate_text_batch()` |
+| Strategy | Input | Use Case |
+|----------|-------|----------|
+| `cell_by_cell` (default) | `row: dict` | LLM calls, row-by-row logic |
+| `full_column` | `df: DataFrame` | Vectorized DataFrame operations |
+
+**Recommendation:** Use `cell_by_cell` for LLM calls. The framework handles parallelization automatically. Use `full_column` only for vectorized operations that don't involve LLM calls.
 
 For `full_column`, set `generation_strategy=dd.GenerationStrategy.FULL_COLUMN`.
 
@@ -58,29 +63,25 @@ For `full_column`, set `generation_strategy=dd.GenerationStrategy.FULL_COLUMN`.
 )
 ```
 
-## CustomColumnContext
+## Models Dict
 
-The context provides convenience methods for LLM access:
-
-| Method | Description |
-|--------|-------------|
-| `generate_text(model_alias, prompt, ...)` | Single prompt |
-| `generate_text_batch(model_alias, prompts, ...)` | Parallel prompts |
-| `get_model(model_alias)` | Full `ModelFacade` access |
-
-**The helpers are just convenience wrappers.** For full control, use `get_model()`:
+The third argument is a dict of `ModelFacade` instances, keyed by alias. The dict is populated based on `model_aliases` in the decorator.
 
 ```python
-model = ctx.get_model("my-model")
-response, trace = model.generate(
-    prompt="...",
-    parser=my_custom_parser,
-    system_prompt="...",
-    max_correction_steps=3,
-)
+@dd.custom_column_generator(model_aliases=["my-model"])
+def my_generator(row: dict, generator_params: None, models: dict) -> dict:
+    model = models["my-model"]
+    response, trace = model.generate(
+        prompt="...",
+        parser=my_custom_parser,  # optional, defaults to identity
+        system_prompt="...",
+        max_correction_steps=3,
+    )
+    row["result"] = response
+    return row
 ```
 
-This gives you access to all `ModelFacade` capabilities: custom parsers, correction loops, structured output, etc.
+This gives you direct access to all `ModelFacade` capabilities: custom parsers, correction loops, structured output, tool use, etc.
 
 ## Configuration
 
@@ -99,12 +100,12 @@ This gives you access to all `ModelFacade` capabilities: custom parsers, correct
     side_effect_columns=["draft", "critique"],
     model_aliases=["writer", "editor"],
 )
-def writer_editor(row: dict, params: None, ctx: dd.CustomColumnContext) -> dict:
-    draft = ctx.generate_text("writer", f"Write about '{row['topic']}'")
-    critique = ctx.generate_text("editor", f"Critique: {draft}")
-    revised = ctx.generate_text("writer", f"Revise based on: {critique}\n\nOriginal: {draft}")
+def writer_editor(row: dict, generator_params: None, models: dict) -> dict:
+    draft, _ = models["writer"].generate(prompt=f"Write about '{row['topic']}'")
+    critique, _ = models["editor"].generate(prompt=f"Critique: {draft}")
+    revised, _ = models["writer"].generate(prompt=f"Revise based on: {critique}\n\nOriginal: {draft}")
 
-    row[ctx.column_name] = revised
+    row["final_text"] = revised
     row["draft"] = draft
     row["critique"] = critique
     return row
@@ -116,8 +117,8 @@ Test generators with real LLM calls without running the full pipeline:
 
 ```python
 data_designer = DataDesigner()
-ctx = dd.CustomColumnContext.from_data_designer(data_designer)
-result = my_generator({"name": "Alice"}, None, ctx)
+models = data_designer.get_models(["my-model"])
+result = my_generator({"name": "Alice"}, None, models)
 ```
 
 ## See Also

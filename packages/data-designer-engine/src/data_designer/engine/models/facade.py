@@ -160,7 +160,7 @@ class ModelFacade:
         self,
         prompt: str,
         *,
-        parser: Callable[[str], Any],
+        parser: Callable[[str], Any] = lambda x: x,
         system_prompt: str | None = None,
         multi_modal_context: list[dict[str, Any]] | None = None,
         tool_alias: str | None = None,
@@ -189,7 +189,7 @@ class ModelFacade:
                 no system message is provided and the model should use its default system
                 prompt.
             parser (func(str) -> Any): A function applied to the LLM response which processes
-                an LLM response into some output object.
+                an LLM response into some output object. Default: identity function.
             tool_alias (str | None): Optional tool configuration alias. When provided,
                 the model may call permitted tools from the configured MCP providers.
                 The alias must reference a ToolConfig registered in the MCPRegistry.

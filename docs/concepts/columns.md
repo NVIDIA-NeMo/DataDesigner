@@ -150,7 +150,7 @@ Two generation strategies:
 - **`cell_by_cell`** (default): Function receives one row, framework parallelizes
 - **`full_column`**: Function receives entire DataFrame for vectorized operations
 
-The `CustomColumnContext` provides helper methods like `generate_text()`, or use `get_model()` for full `ModelFacade` access. See [Custom Columns](custom_columns.md) for details.
+For LLM access, declare `model_aliases` in the decorator and receive a `models` dict as the third argument. See [Custom Columns](custom_columns.md) for details.
 
 ## Shared Column Properties
 
