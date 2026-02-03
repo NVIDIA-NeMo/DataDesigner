@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from data_designer.config.base import ConfigBase
+from data_designer.base import ConfigBase
 from data_designer.config.dataset_metadata import DatasetMetadata
 from data_designer.config.mcp import MCPProviderT, ToolConfig
 from data_designer.config.models import ModelConfig

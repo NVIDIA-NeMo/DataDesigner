@@ -5,7 +5,7 @@ import threading
 
 import pytest
 
-from data_designer.config.base import ConfigBase
+from data_designer.base import ConfigBase
 from data_designer.config.utils.type_helpers import StrEnum
 from data_designer.engine.configurable_task import ConfigurableTask
 from data_designer.engine.registry.base import TaskRegistry

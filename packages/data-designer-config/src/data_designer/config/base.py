@@ -7,19 +7,9 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, ConfigDict
 
+from data_designer.base import ConfigBase
 from data_designer.config.utils.io_helpers import serialize_data
-
-
-class ConfigBase(BaseModel):
-    model_config = ConfigDict(
-        protected_namespaces=(),
-        use_enum_values=True,
-        arbitrary_types_allowed=True,
-        extra="forbid",
-        json_schema_mode_override="validation",
-    )
 
 
 class ExportableConfigBase(ConfigBase):

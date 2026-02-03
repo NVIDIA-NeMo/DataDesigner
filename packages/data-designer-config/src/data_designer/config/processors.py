@@ -11,7 +11,7 @@ from typing import Any, Literal
 from pydantic import Field, field_validator
 from typing_extensions import TypeAlias
 
-from data_designer.config.base import ConfigBase
+from data_designer.base import ConfigBase
 from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.errors import InvalidConfigError
 

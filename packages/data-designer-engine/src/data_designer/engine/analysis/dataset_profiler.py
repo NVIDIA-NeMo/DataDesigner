@@ -10,10 +10,9 @@ from typing import TYPE_CHECKING
 
 from pydantic import Field, field_validator
 
+from data_designer.base import ConfigBase, SingleColumnConfig
 from data_designer.config.analysis.column_profilers import ColumnProfilerConfigT
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
-from data_designer.config.base import ConfigBase
-from data_designer.config.column_configs import SingleColumnConfig
 from data_designer.config.column_types import ColumnConfigT
 from data_designer.engine.analysis.column_profilers.base import ColumnConfigWithDataFrame, ColumnProfiler
 from data_designer.engine.analysis.column_statistics import get_column_statistics_calculator

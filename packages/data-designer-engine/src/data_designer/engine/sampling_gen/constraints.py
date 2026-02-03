@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from numpy.typing import NDArray
 
-from data_designer.config.base import ConfigBase
+from data_designer.base import ConfigBase
 from data_designer.config.sampler_constraints import (
     ColumnInequalityConstraint,
     Constraint,

@@ -8,7 +8,7 @@ from enum import Enum
 from pydantic import Field, model_validator
 from typing_extensions import Self
 
-from data_designer.config.base import ConfigBase
+from data_designer.base import ConfigBase
 from data_designer.config.seed_source_types import SeedSourceT
 
 

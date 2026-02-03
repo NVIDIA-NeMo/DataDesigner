@@ -8,7 +8,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from data_designer.config.base import ConfigBase
+from data_designer.base import ConfigBase
 from data_designer.engine.configurable_task import ConfigurableTask, DataT, TaskConfigT
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.engine.models.registry import ModelRegistry

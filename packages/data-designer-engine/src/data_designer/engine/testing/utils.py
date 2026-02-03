@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from data_designer.config.base import ConfigBase
+from data_designer.base import ConfigBase
 from data_designer.engine.configurable_task import ConfigurableTask
 from data_designer.engine.resources.seed_reader import SeedReader
 from data_designer.plugins.plugin import Plugin, PluginType

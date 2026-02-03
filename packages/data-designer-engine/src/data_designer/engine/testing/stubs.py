@@ -5,8 +5,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from data_designer.config.base import ConfigBase
-from data_designer.config.column_configs import SingleColumnConfig
+from data_designer.base import ConfigBase, SingleColumnConfig
 from data_designer.engine.column_generators.generators.base import ColumnGeneratorCellByCell
 from data_designer.engine.resources.seed_reader import SeedReader
 from data_designer.plugins.plugin import Plugin, PluginType

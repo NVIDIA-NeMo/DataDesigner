@@ -8,7 +8,7 @@ from typing import Annotated, Literal
 from pydantic import Field
 from typing_extensions import TypeAlias
 
-from data_designer.config.base import ConfigBase
+from data_designer.base import ConfigBase
 
 
 class MCPProvider(ConfigBase):

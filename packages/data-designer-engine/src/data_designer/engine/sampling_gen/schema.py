@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing_extensions import Self
 
-from data_designer.config.base import ConfigBase
+from data_designer.base import ConfigBase
 from data_designer.config.sampler_constraints import ColumnConstraintT
 from data_designer.config.sampler_params import SamplerType
 from data_designer.engine.sampling_gen.column import ConditionalDataColumn

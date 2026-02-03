@@ -8,7 +8,7 @@ from enum import Enum
 
 from typing_extensions import TypeAlias
 
-from data_designer.config.base import ConfigBase
+from data_designer.base import ConfigBase
 
 
 class ConstraintType(str, Enum):
