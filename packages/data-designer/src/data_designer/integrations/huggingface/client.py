@@ -5,12 +5,12 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import tempfile
 from pathlib import Path
 
 from huggingface_hub import HfApi
-from huggingface_hub.utils import HfHubHTTPError
+from huggingface_hub.errors import HFValidationError
+from huggingface_hub.utils import HfHubHTTPError, validate_repo_id
 
 from data_designer.config.utils.constants import HUGGINGFACE_HUB_DATASET_URL_PREFIX
 from data_designer.engine.dataset_builders.artifact_storage import (
@@ -306,19 +306,23 @@ class HuggingFaceHubClient:
             repo_id: Repository ID to validate
 
         Raises:
-            HuggingFaceUploadError: If repo_id format is invalid
+            HuggingFaceHubClientUploadError: If repo_id format is invalid
         """
-        if not repo_id or not isinstance(repo_id, str):
+        # Check if repo_id is empty
+        if not repo_id or not repo_id.strip():
             raise HuggingFaceHubClientUploadError("repo_id must be a non-empty string")
 
-        pattern = r"^[a-zA-Z0-9][-a-zA-Z0-9._]*/[a-zA-Z0-9][-a-zA-Z0-9._]*$"
-
-        if not re.match(pattern, repo_id):
+        # Check for exactly one slash (username/dataset-name format). This is not enforced by huggingface_hub's validator.
+        if repo_id.count("/") != 1:
             raise HuggingFaceHubClientUploadError(
-                f"Invalid repo_id format: '{repo_id}'. "
-                "Expected format: 'username/dataset-name' or 'organization/dataset-name'. "
-                "Names can contain alphanumeric characters, dashes, underscores, and dots."
+                f"Invalid repo_id format: '{repo_id}'. Expected format: 'username/dataset-name'"
             )
+
+        # Use huggingface_hub's validator for additional checks (characters, length, etc.)
+        try:
+            validate_repo_id(repo_id)
+        except HFValidationError as e:
+            raise HuggingFaceHubClientUploadError(f"Invalid repo_id format: '{repo_id}': {e}") from e
 
     @staticmethod
     def _update_metadata_paths(metadata_path: Path) -> dict:
