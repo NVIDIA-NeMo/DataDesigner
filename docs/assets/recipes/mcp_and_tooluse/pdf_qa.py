@@ -342,6 +342,7 @@ why the answer is correct.
             output_format=QAPair,
             tool_alias="doc-search",
             with_trace=dd.TraceType.ALL_MESSAGES,  # Enable trace to capture tool call history
+            extract_reasoning_content=True,
         )
     )
 
