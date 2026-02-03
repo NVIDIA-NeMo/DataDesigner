@@ -98,39 +98,8 @@ def _create_test_generator(
 
 
 # ============================================================================
-# Decorator tests
+# Decorator and config tests
 # ============================================================================
-
-
-def test_decorator_stores_metadata() -> None:
-    """Test that @custom_column_generator stores metadata on the function."""
-
-    @custom_column_generator(
-        required_columns=["a", "b"],
-        side_effect_columns=["c"],
-        model_aliases=["model-x"],
-    )
-    def my_func(row: dict) -> dict:
-        return row
-
-    assert hasattr(my_func, "_custom_column_metadata")
-    metadata = my_func._custom_column_metadata
-    assert metadata["required_columns"] == ["a", "b"]
-    assert metadata["side_effect_columns"] == ["c"]
-    assert metadata["model_aliases"] == ["model-x"]
-
-
-def test_decorator_default_metadata() -> None:
-    """Test that decorator with no args stores empty lists."""
-
-    @custom_column_generator()
-    def my_func(row: dict) -> dict:
-        return row
-
-    metadata = my_func._custom_column_metadata
-    assert metadata["required_columns"] == []
-    assert metadata["side_effect_columns"] == []
-    assert metadata["model_aliases"] == []
 
 
 def test_config_reads_from_decorator() -> None:
@@ -159,16 +128,11 @@ def test_config_reads_from_decorator() -> None:
 # ============================================================================
 
 
-def test_generator_creation() -> None:
-    """Test that a CustomColumnGenerator can be created."""
+def test_generator_creation_and_defaults() -> None:
+    """Test CustomColumnGenerator creation and default strategy."""
     generator = _create_test_generator()
     assert generator.config.name == "test_column"
     assert generator.config.column_type == "custom"
-
-
-def test_generation_strategy_is_cell_by_cell() -> None:
-    """Test that CustomColumnGenerator uses CELL_BY_CELL strategy by default."""
-    generator = _create_test_generator()
     assert generator.get_generation_strategy() == GenerationStrategy.CELL_BY_CELL
 
 
@@ -345,7 +309,7 @@ def test_generate_with_context() -> None:
     assert result["result"] == "a_custom"
 
 
-def test_context_provides_model_registry_access() -> None:
+def test_context_provides_model_registry_access(stub_resource_provider) -> None:
     """Test that CustomColumnContext provides access to model_registry."""
     accessed_model_registry = None
 
@@ -356,24 +320,20 @@ def test_context_provides_model_registry_access() -> None:
         row["result"] = "processed"
         return row
 
-    mock_resource_provider = Mock(spec=ResourceProvider)
-    mock_model_registry = Mock()
-    mock_resource_provider.model_registry = mock_model_registry
-
     generator = _create_test_generator(
         name="result",
         generator_function=access_registry,
-        resource_provider=mock_resource_provider,
+        resource_provider=stub_resource_provider,
     )
 
     row = {"input": 1}
     generator.generate(row)
 
     # Verify the model_registry was accessible via context
-    assert accessed_model_registry is mock_model_registry
+    assert accessed_model_registry is stub_resource_provider.model_registry
 
 
-def test_context_generate_text() -> None:
+def test_context_generate_text(stub_resource_provider, stub_model_facade) -> None:
     """Test that CustomColumnContext.generate_text calls the model correctly."""
 
     @custom_column_generator(
@@ -389,34 +349,26 @@ def test_context_generate_text() -> None:
         row["result"] = text
         return row
 
-    # Set up mocks
-    mock_resource_provider = Mock(spec=ResourceProvider)
-    mock_model_registry = Mock()
-    mock_model = Mock()
-    mock_model.generate.return_value = ("Generated text", None)
-    mock_model_registry.get_model.return_value = mock_model
-    mock_resource_provider.model_registry = mock_model_registry
-
     generator = _create_test_generator(
         name="result",
         generator_function=llm_generator,
-        resource_provider=mock_resource_provider,
+        resource_provider=stub_resource_provider,
     )
 
     row = {"input": "a"}
     result = generator.generate(row)
 
     # Verify the model was called correctly
-    mock_model_registry.get_model.assert_called_with(model_alias="test-model")
+    stub_resource_provider.model_registry.get_model.assert_called_with(model_alias="test-model")
 
     # Verify generate was called with correct parameters
-    mock_model.generate.assert_called_once()
-    call_kwargs = mock_model.generate.call_args[1]
+    stub_model_facade.generate.assert_called_once()
+    call_kwargs = stub_model_facade.generate.call_args[1]
     assert "Process: a" in call_kwargs["prompt"]
     assert call_kwargs["system_prompt"] == "You are helpful."
 
-    # Verify results
-    assert result["result"] == "Generated text"
+    # Verify results - stub_model_facade returns "Generated summary text"
+    assert result["result"] == "Generated summary text"
 
 
 # ============================================================================
@@ -696,7 +648,7 @@ def test_full_column_removes_undeclared_columns(caplog: pytest.LogCaptureFixture
     assert "undeclared columns" in caplog.text
 
 
-def test_generate_text_batch() -> None:
+def test_generate_text_batch(stub_resource_provider, stub_model_facade) -> None:
     """Test that generate_text_batch parallelizes LLM calls."""
     import pandas as pd
 
@@ -715,18 +667,13 @@ def test_generate_text_batch() -> None:
         df["result"] = results
         return df
 
-    # Set up mocks
-    mock_resource_provider = Mock(spec=ResourceProvider)
-    mock_model_registry = Mock()
-    mock_model = Mock()
-    mock_model.generate.side_effect = lambda prompt, **kwargs: (f"Response for: {prompt}", None)
-    mock_model_registry.get_model.return_value = mock_model
-    mock_resource_provider.model_registry = mock_model_registry
+    # Override stub_model_facade to return dynamic responses
+    stub_model_facade.generate.side_effect = lambda prompt, **kwargs: (f"Response for: {prompt}", None)
 
     generator = _create_test_generator(
         name="result",
         generator_function=batch_with_parallel_llm,
-        resource_provider=mock_resource_provider,
+        resource_provider=stub_resource_provider,
         generation_strategy=GenerationStrategy.FULL_COLUMN,
     )
 
@@ -741,7 +688,7 @@ def test_generate_text_batch() -> None:
     ]
 
     # Verify model.generate was called 3 times (once per prompt)
-    assert mock_model.generate.call_count == 3
+    assert stub_model_facade.generate.call_count == 3
 
 
 # ============================================================================
@@ -749,7 +696,7 @@ def test_generate_text_batch() -> None:
 # ============================================================================
 
 
-def test_multi_step_workflow_intermediate_failure() -> None:
+def test_multi_step_workflow_intermediate_failure(stub_resource_provider, stub_model_facade) -> None:
     """Test that an intermediate LLM failure in a multi-step workflow is handled correctly."""
     call_count = 0
 
@@ -772,11 +719,7 @@ def test_multi_step_workflow_intermediate_failure() -> None:
         row["result"] = critique
         return row
 
-    # Set up mock where second call fails
-    mock_resource_provider = Mock(spec=ResourceProvider)
-    mock_model_registry = Mock()
-
-    mock_model = Mock()
+    # Override stub to fail on second call
     call_counter = {"count": 0}
 
     def mock_generate(**kwargs: dict) -> tuple[str, None]:
@@ -786,14 +729,12 @@ def test_multi_step_workflow_intermediate_failure() -> None:
         else:
             raise RuntimeError("LLM API error: rate limited")
 
-    mock_model.generate.side_effect = mock_generate
-    mock_model_registry.get_model.return_value = mock_model
-    mock_resource_provider.model_registry = mock_model_registry
+    stub_model_facade.generate.side_effect = mock_generate
 
     generator = _create_test_generator(
         name="result",
         generator_function=multi_turn_generator,
-        resource_provider=mock_resource_provider,
+        resource_provider=stub_resource_provider,
     )
 
     row = {"topic": "testing"}
