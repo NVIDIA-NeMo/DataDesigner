@@ -495,31 +495,8 @@ class CustomColumnConfig(SingleColumnConfig):
     """Configuration for custom user-defined column generators.
 
     Custom columns allow users to provide their own generation logic via a callable function
-    decorated with `@custom_column_generator`. This provides a flexible way to implement
-    custom column generation without creating a full plugin.
-
-    Two strategies are supported:
-        - cell_by_cell (default): Function receives a single row (dict), framework parallelizes.
-        - full_column: Function receives the entire batch (DataFrame) for vectorized operations.
-
-    Supported function signatures (detected via inspection):
-        - fn(row: dict) -> dict                           # Simple transform
-        - fn(row: dict, params: BaseModel) -> dict        # With typed params
-        - fn(row: dict, params: BaseModel, ctx) -> dict   # With params and LLM access
-
-    For full_column strategy, replace `row: dict` with `df: pd.DataFrame`.
-
-    The generator function should be decorated with `@custom_column_generator` to declare
-    its dependencies:
-        ```python
-        @custom_column_generator(
-            required_columns=["name", "product"],
-            side_effect_columns=["prompt"],
-            model_aliases=["nvidia-text"],  # optional, for health checks
-        )
-        def my_generator(row: dict, params: MyParams, ctx: CustomColumnContext) -> dict:
-            ...
-        ```
+    decorated with `@custom_column_generator`. Two strategies are supported: cell_by_cell
+    (default, row-based) and full_column (batch-based with DataFrame access).
 
     Attributes:
         generator_function: A callable decorated with @custom_column_generator.
