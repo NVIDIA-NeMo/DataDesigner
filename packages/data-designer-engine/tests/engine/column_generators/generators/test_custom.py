@@ -5,12 +5,16 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import Mock
 
-import pandas as pd
 import pytest
 from pydantic import BaseModel
+
+from data_designer.lazy_heavy_imports import pd
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 from data_designer.config.column_configs import CustomColumnConfig, GenerationStrategy
 from data_designer.config.custom_column import custom_column_generator
@@ -316,4 +320,13 @@ def test_invalid_param_names() -> None:
 
     gen = _create_test_generator(name="result", generator_function=bad_models)
     with pytest.raises(CustomColumnGenerationError, match="parameter 3 must be 'models'"):
+        gen.generate({"input": 1})
+
+    # Too many params
+    @custom_column_generator()
+    def too_many_params(row: dict, generator_params: None, models: dict, extra: str) -> dict:
+        return row
+
+    gen = _create_test_generator(name="result", generator_function=too_many_params)
+    with pytest.raises(CustomColumnGenerationError, match="max 3 positional parameters allowed, got 4"):
         gen.generate({"input": 1})

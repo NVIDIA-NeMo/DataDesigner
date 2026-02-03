@@ -25,7 +25,7 @@ def custom_column_generator(
     """
 
     def decorator(fn: F) -> F:
-        fn._custom_column_metadata = {  # type: ignore[attr-defined]
+        fn.custom_column_metadata = {  # type: ignore[attr-defined]
             "required_columns": required_columns or [],
             "side_effect_columns": side_effect_columns or [],
             "model_aliases": model_aliases or [],
@@ -36,7 +36,7 @@ def custom_column_generator(
             return fn(*args, **kwargs)
 
         # Copy metadata to wrapper
-        wrapper._custom_column_metadata = fn._custom_column_metadata  # type: ignore[attr-defined]
+        wrapper.custom_column_metadata = fn.custom_column_metadata  # type: ignore[attr-defined]
         return wrapper  # type: ignore[return-value]
 
     return decorator

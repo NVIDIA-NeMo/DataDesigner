@@ -486,19 +486,19 @@ class CustomColumnConfig(SingleColumnConfig):
     @property
     def required_columns(self) -> list[str]:
         """Returns the columns required for custom generation (from decorator metadata)."""
-        metadata = getattr(self.generator_function, "_custom_column_metadata", {})
+        metadata = getattr(self.generator_function, "custom_column_metadata", {})
         return metadata.get("required_columns", [])
 
     @property
     def side_effect_columns(self) -> list[str]:
         """Returns additional columns created by this generator (from decorator metadata)."""
-        metadata = getattr(self.generator_function, "_custom_column_metadata", {})
+        metadata = getattr(self.generator_function, "custom_column_metadata", {})
         return metadata.get("side_effect_columns", [])
 
     @property
     def model_aliases(self) -> list[str]:
         """Returns model aliases for health checks (from decorator metadata)."""
-        metadata = getattr(self.generator_function, "_custom_column_metadata", {})
+        metadata = getattr(self.generator_function, "custom_column_metadata", {})
         return metadata.get("model_aliases", [])
 
     @field_serializer("generator_function")

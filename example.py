@@ -193,7 +193,9 @@ config_full = dd.DataDesignerConfigBuilder()
 config_full.add_column(topic_config)
 config_full.add_column(
     dd.CustomColumnConfig(
-        name="topic_upper", generator_function=full_column_transform, generation_strategy="full_column"
+        name="topic_upper",
+        generator_function=full_column_transform,
+        generation_strategy=dd.GenerationStrategy.FULL_COLUMN,
     )
 )
 

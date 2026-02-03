@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 from data_designer.config.column_configs import CustomColumnConfig, GenerationStrategy
 from data_designer.engine.column_generators.generators.base import ColumnGenerator
 from data_designer.engine.column_generators.utils.errors import CustomColumnGenerationError
+from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -45,9 +46,7 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
 
     def get_generation_strategy(self) -> GenerationStrategy:
         """Return strategy based on config."""
-        if self.config.generation_strategy == GenerationStrategy.FULL_COLUMN:
-            return GenerationStrategy.FULL_COLUMN
-        return GenerationStrategy.CELL_BY_CELL
+        return self.config.generation_strategy
 
     def generate(self, data: dict | pd.DataFrame) -> dict | pd.DataFrame:
         """Generate column value(s) for a row (dict) or batch (DataFrame)."""
@@ -57,21 +56,19 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
         # Validate data type matches strategy
         if is_full_column and not is_dataframe:
             raise CustomColumnGenerationError(
-                f"Custom generator '{self.config.name}' is configured for 'full_column' strategy "
-                f"but received a dict. Expected a DataFrame."
+                f"Custom generator {self.config.name!r} is configured for 'full_column' strategy "
+                "but received a dict. Expected a DataFrame."
             )
         if not is_full_column and is_dataframe:
             raise CustomColumnGenerationError(
-                f"Custom generator '{self.config.name}' is configured for 'cell_by_cell' strategy "
-                f"but received a DataFrame. Expected a dict."
+                f"Custom generator {self.config.name!r} is configured for 'cell_by_cell' strategy "
+                "but received a DataFrame. Expected a dict."
             )
 
         return self._generate(data, is_dataframe)
 
     def _generate(self, data: dict | pd.DataFrame, is_dataframe: bool) -> dict | pd.DataFrame:
         """Unified generation logic for both strategies."""
-        from data_designer.lazy_heavy_imports import pd
-
         # Get columns/keys using unified accessor
         get_keys = (lambda d: set(d.columns)) if is_dataframe else (lambda d: set(d.keys()))
         expected_type = pd.DataFrame if is_dataframe else dict
@@ -89,8 +86,9 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
         # Invoke generator
         try:
             result = self._invoke_generator_function(data)
+        except CustomColumnGenerationError:
+            raise
         except Exception as e:
-            logger.error(f"Custom column generator failed for '{self.config.name}': {e}")
             raise CustomColumnGenerationError(
                 f"Custom generator function failed for column '{self.config.name}': {e}"
             ) from e
@@ -183,6 +181,10 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
         ]
         if not params:
             raise CustomColumnGenerationError(f"Generator '{self.config.name}': no parameters.")
+        if len(params) > 3:
+            raise CustomColumnGenerationError(
+                f"Generator '{self.config.name}': max 3 positional parameters allowed, got {len(params)}."
+            )
 
         is_full = self.config.generation_strategy == GenerationStrategy.FULL_COLUMN
         expected = [
