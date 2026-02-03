@@ -74,6 +74,7 @@ from data_designer.config.seed_source import (
 )
 from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.utils.info import InfoType
+from data_designer.config.utils.trace_type import TraceType
 from data_designer.config.validator_params import (
     CodeValidatorParams,
     LocalCallableValidatorParams,
@@ -144,6 +145,7 @@ def get_config_exports() -> list[str]:
         SeedDatasetColumnConfig.__name__,
         SubcategorySamplerParams.__name__,
         TimeDeltaSamplerParams.__name__,
+        TraceType.__name__,
         UniformDistribution.__name__,
         UniformDistributionParams.__name__,
         UniformSamplerParams.__name__,

@@ -13,6 +13,7 @@ from data_designer.config.column_configs import (
 )
 from data_designer.config.run_config import RunConfig
 from data_designer.config.utils.constants import TRACE_COLUMN_POSTFIX
+from data_designer.config.utils.trace_type import TraceType
 from data_designer.engine.column_generators.generators.base import GenerationStrategy
 from data_designer.engine.column_generators.generators.llm_completion import (
     LLMCodeCellGenerator,
@@ -78,7 +79,7 @@ def _setup_generate_mocks(mock_prompt_renderer, mock_response_recipe, mock_model
 def test_generate_method() -> None:
     generator, _, mock_model, _, _, mock_prompt_renderer, mock_response_recipe = _create_generator_with_mocks()
 
-    # Test basic generation
+    # Test basic generation (no trace)
     _setup_generate_mocks(mock_prompt_renderer, mock_response_recipe, mock_model)
     data = {"input": "test_input"}
     result = generator.generate(data)
@@ -90,18 +91,22 @@ def test_generate_method() -> None:
     assert result["test_column"] == {"result": "test_output"}
     assert "test_column" + TRACE_COLUMN_POSTFIX not in result
 
-    # Test with full trace enabled
+    # Test with TraceType.ALL_MESSAGES override enabled
     mock_model.reset_mock()
     mock_prompt_renderer.reset_mock()
-    generator.resource_provider.run_config.debug_override_save_all_column_traces = True
+    generator.resource_provider.run_config.debug_trace_override = TraceType.ALL_MESSAGES
     mock_prompt_renderer.render.side_effect = ["rendered_user_prompt", "rendered_system_prompt"]
     mock_response_recipe.serialize_output.return_value = {"result": "test_output"}
-    mock_model.generate.return_value = ({"result": "test_output"}, [ChatMessage.as_user("x")])
+    mock_model.generate.return_value = (
+        {"result": "test_output"},
+        [ChatMessage.as_user("x"), ChatMessage.as_assistant("y")],
+    )
     result = generator.generate(data)
 
     assert result["test_column"] == {"result": "test_output"}
     assert result["test_column" + TRACE_COLUMN_POSTFIX] == [
-        {"role": "user", "content": [{"type": "text", "text": "x"}]}
+        {"role": "user", "content": [{"type": "text", "text": "x"}]},
+        {"role": "assistant", "content": [{"type": "text", "text": "y"}]},
     ]
 
     # Test multi-modal context is None
@@ -109,10 +114,94 @@ def test_generate_method() -> None:
     assert call_args[1]["multi_modal_context"] is None
 
 
+def test_generate_method_trace_type_last_message() -> None:
+    generator, _, mock_model, _, _, mock_prompt_renderer, mock_response_recipe = _create_generator_with_mocks()
+
+    # Test with TraceType.LAST_MESSAGE override
+    generator.resource_provider.run_config.debug_trace_override = TraceType.LAST_MESSAGE
+    mock_prompt_renderer.render.side_effect = ["rendered_user_prompt", "rendered_system_prompt"]
+    mock_response_recipe.serialize_output.return_value = {"result": "test_output"}
+    mock_model.generate.return_value = (
+        {"result": "test_output"},
+        [ChatMessage.as_user("x"), ChatMessage.as_assistant("y"), ChatMessage.as_user("z")],
+    )
+
+    data = {"input": "test_input"}
+    result = generator.generate(data)
+
+    assert result["test_column"] == {"result": "test_output"}
+    assert result["test_column" + TRACE_COLUMN_POSTFIX] == [
+        {"role": "assistant", "content": [{"type": "text", "text": "y"}]},
+    ]
+
+
+def test_generate_method_trace_type_last_message_no_assistant() -> None:
+    generator, _, mock_model, _, _, mock_prompt_renderer, mock_response_recipe = _create_generator_with_mocks()
+
+    # Test with TraceType.LAST_MESSAGE but no assistant message in trace
+    generator.resource_provider.run_config.debug_trace_override = TraceType.LAST_MESSAGE
+    mock_prompt_renderer.render.side_effect = ["rendered_user_prompt", "rendered_system_prompt"]
+    mock_response_recipe.serialize_output.return_value = {"result": "test_output"}
+    mock_model.generate.return_value = (
+        {"result": "test_output"},
+        [ChatMessage.as_user("x")],
+    )
+
+    data = {"input": "test_input"}
+    result = generator.generate(data)
+
+    assert result["test_column"] == {"result": "test_output"}
+    assert result["test_column" + TRACE_COLUMN_POSTFIX] == []
+
+
+def test_generate_method_column_with_trace_setting() -> None:
+    # Test column-level with_trace setting (without override)
+    generator, _, mock_model, _, _, mock_prompt_renderer, mock_response_recipe = _create_generator_with_mocks(
+        with_trace=TraceType.ALL_MESSAGES
+    )
+
+    mock_prompt_renderer.render.side_effect = ["rendered_user_prompt", "rendered_system_prompt"]
+    mock_response_recipe.serialize_output.return_value = {"result": "test_output"}
+    mock_model.generate.return_value = (
+        {"result": "test_output"},
+        [ChatMessage.as_user("x"), ChatMessage.as_assistant("y")],
+    )
+
+    data = {"input": "test_input"}
+    result = generator.generate(data)
+
+    assert result["test_column" + TRACE_COLUMN_POSTFIX] == [
+        {"role": "user", "content": [{"type": "text", "text": "x"}]},
+        {"role": "assistant", "content": [{"type": "text", "text": "y"}]},
+    ]
+
+
+def test_generate_method_override_takes_precedence() -> None:
+    # Test that debug_trace_override takes precedence over column with_trace
+    generator, _, mock_model, _, _, mock_prompt_renderer, mock_response_recipe = _create_generator_with_mocks(
+        with_trace=TraceType.ALL_MESSAGES
+    )
+
+    # Override with NONE should disable tracing even though column has ALL_MESSAGES
+    generator.resource_provider.run_config.debug_trace_override = TraceType.NONE
+
+    mock_prompt_renderer.render.side_effect = ["rendered_user_prompt", "rendered_system_prompt"]
+    mock_response_recipe.serialize_output.return_value = {"result": "test_output"}
+    mock_model.generate.return_value = (
+        {"result": "test_output"},
+        [ChatMessage.as_user("x"), ChatMessage.as_assistant("y")],
+    )
+
+    data = {"input": "test_input"}
+    result = generator.generate(data)
+
+    assert "test_column" + TRACE_COLUMN_POSTFIX not in result
+
+
 def test_generate_method_normalizes_trace_content_blocks() -> None:
     generator, _, mock_model, _, _, mock_prompt_renderer, mock_response_recipe = _create_generator_with_mocks()
 
-    generator.resource_provider.run_config.debug_override_save_all_column_traces = True
+    generator.resource_provider.run_config.debug_trace_override = TraceType.ALL_MESSAGES
     mock_prompt_renderer.render.side_effect = ["rendered_user_prompt", "rendered_system_prompt"]
     mock_response_recipe.serialize_output.return_value = {"result": "test_output"}
 

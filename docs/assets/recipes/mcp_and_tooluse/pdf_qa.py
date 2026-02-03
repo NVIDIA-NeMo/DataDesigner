@@ -312,7 +312,7 @@ def build_config(model_alias: str, provider_name: str) -> dd.DataDesignerConfigB
             ),
             output_format=TopicList,
             tool_alias="doc-search",
-            with_trace=True,  # Enable trace to capture tool call history
+            with_trace=dd.TraceType.ALL_MESSAGES,  # Enable trace to capture tool call history
         )
     )
 
@@ -341,7 +341,7 @@ why the answer is correct.
             ),
             output_format=QAPair,
             tool_alias="doc-search",
-            with_trace=True,  # Enable trace to capture tool call history
+            with_trace=dd.TraceType.ALL_MESSAGES,  # Enable trace to capture tool call history
         )
     )
 
