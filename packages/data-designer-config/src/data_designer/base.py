@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
+
 # IMPORTANT: This module must NOT import from any data_designer submodules (e.g., data_designer.config).
 # These base abstractions are foundational and should only depend on pydantic and Python builtins.
 
