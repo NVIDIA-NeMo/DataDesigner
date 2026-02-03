@@ -1,6 +1,12 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "data-designer",
+#     "mcp",
+# ]
+# ///
 """Basic MCP Recipe: Simple Tool Use Example
 
 This recipe demonstrates the minimal MCP tool-calling workflow with Data Designer:
@@ -10,17 +16,15 @@ This recipe demonstrates the minimal MCP tool-calling workflow with Data Designe
 3) Generate data that requires tool calls to complete
 
 Prerequisites:
-- `NVIDIA_API_KEY` if using `--model-alias nvidia-text` (default)
+    - OPENAI_API_KEY environment variable for OpenAI provider model aliases.
+    - NVIDIA_API_KEY environment variable for NVIDIA provider model aliases (default model alias is "nvidia-text").
 
 Run:
-    # Run the recipe
-    uv run docs/assets/recipes/mcp_and_tooluse/basic_mcp.py
+    # Basic usage (generates 2 records by default)
+    uv run basic_mcp.py
 
-    # With a different model
-    uv run docs/assets/recipes/mcp_and_tooluse/basic_mcp.py --model-alias gpt-4o
-
-Server mode (used internally by Data Designer):
-    python docs/assets/recipes/mcp_and_tooluse/basic_mcp.py serve
+    # For help message and available options
+    uv run basic_mcp.py --help
 """
 
 from __future__ import annotations

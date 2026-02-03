@@ -1,6 +1,15 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "data-designer",
+#     "mcp",
+#     "bm25s",
+#     "pymupdf",
+#     "rich",
+# ]
+# ///
 """MCP + Tool Use Recipe: Document Q&A with BM25S Lexical Search
 
 This recipe demonstrates an end-to-end MCP tool-calling workflow:
@@ -10,37 +19,15 @@ This recipe demonstrates an end-to-end MCP tool-calling workflow:
 3) Use Data Designer tool calls (`search_docs`) to generate grounded Q&A pairs.
 
 Prerequisites:
-- `NVIDIA_API_KEY` if using `--model-alias nvidia-text` (default)
-- Recipe dependencies: Install with `make install-dev-recipes`
+    - OPENAI_API_KEY environment variable for OpenAI provider model aliases.
+    - NVIDIA_API_KEY environment variable for NVIDIA provider model aliases (default model alias is "nvidia-text").
 
 Run:
-    # Install recipe dependencies (preserves workspace packages)
-    make install-dev-recipes
+    # Basic usage with default sample PDF (generates 4 Q&A pairs)
+    uv run pdf_qa.py
 
-    # Then run the recipe (uses default sample PDF)
-    uv run docs/assets/recipes/mcp_and_tooluse/pdf_qa.py
-
-    # With custom PDFs (can specify multiple)
-    uv run docs/assets/recipes/mcp_and_tooluse/pdf_qa.py --pdf /path/to/doc.pdf
-    uv run docs/assets/recipes/mcp_and_tooluse/pdf_qa.py --pdf https://example.com/doc.pdf --pdf ./local.pdf
-
-    # Or run all recipes via Makefile
-    make test-run-recipes
-
-Common flags:
-    # Generate a few Q&A pairs
-    uv run docs/assets/recipes/mcp_and_tooluse/pdf_qa.py --num-records 3
-
-    # Use a different model
-    uv run docs/assets/recipes/mcp_and_tooluse/pdf_qa.py --model-alias gpt-4o
-
-Server mode (used internally by Data Designer):
-    python docs/assets/recipes/mcp_and_tooluse/pdf_qa.py serve
-
-Notes:
-- URLs are streamed directly into memory (no local download required).
-- Local file paths are read directly from disk.
-- The BM25S index is built at server startup from all provided PDFs.
+    # For help message and available options
+    uv run pdf_qa.py --help
 """
 
 from __future__ import annotations
