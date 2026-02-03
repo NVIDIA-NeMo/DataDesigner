@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import logging
 
-from pydantic import BaseModel, computed_field
+from pydantic import BaseModel, PrivateAttr, computed_field
 
 logger = logging.getLogger(__name__)
 
@@ -44,22 +44,79 @@ class RequestUsageStats(BaseModel):
         self.failed_requests += failed_requests
 
 
+class ToolUsageStats(BaseModel):
+    total_tool_calls: int = 0
+    total_tool_call_turns: int = 0
+    generations_with_tools: int = 0
+    _sum_of_squares_turns: float = PrivateAttr(default=0.0)
+    _sum_of_squares_calls: float = PrivateAttr(default=0.0)
+
+    @computed_field
+    def turns_per_generation_mean(self) -> float:
+        if self.generations_with_tools == 0:
+            return 0.0
+        return self.total_tool_call_turns / self.generations_with_tools
+
+    @computed_field
+    def turns_per_generation_stddev(self) -> float:
+        if self.generations_with_tools == 0:
+            return 0.0
+        mean_squared = self.turns_per_generation_mean**2
+        variance = (self._sum_of_squares_turns / self.generations_with_tools) - mean_squared
+        return variance**0.5 if variance > 0 else 0.0
+
+    @computed_field
+    def calls_per_generation_mean(self) -> float:
+        if self.generations_with_tools == 0:
+            return 0.0
+        return self.total_tool_calls / self.generations_with_tools
+
+    @computed_field
+    def calls_per_generation_stddev(self) -> float:
+        if self.generations_with_tools == 0:
+            return 0.0
+        mean_squared = self.calls_per_generation_mean**2
+        variance = (self._sum_of_squares_calls / self.generations_with_tools) - mean_squared
+        return variance**0.5 if variance > 0 else 0.0
+
+    @property
+    def has_usage(self) -> bool:
+        return self.total_tool_calls > 0
+
+    def extend(self, *, tool_calls: int, tool_call_turns: int) -> None:
+        self.total_tool_calls += tool_calls
+        self.total_tool_call_turns += tool_call_turns
+        if tool_call_turns > 0:
+            self.generations_with_tools += 1
+            self._sum_of_squares_turns += tool_call_turns**2
+            self._sum_of_squares_calls += tool_calls**2
+
+
 class ModelUsageStats(BaseModel):
     token_usage: TokenUsageStats = TokenUsageStats()
     request_usage: RequestUsageStats = RequestUsageStats()
+    tool_usage: ToolUsageStats = ToolUsageStats()
 
     @property
     def has_usage(self) -> bool:
         return self.token_usage.has_usage and self.request_usage.has_usage
 
     def extend(
-        self, *, token_usage: TokenUsageStats | None = None, request_usage: RequestUsageStats | None = None
+        self,
+        *,
+        token_usage: TokenUsageStats | None = None,
+        request_usage: RequestUsageStats | None = None,
+        tool_usage: ToolUsageStats | None = None,
     ) -> None:
         if token_usage is not None:
             self.token_usage.extend(input_tokens=token_usage.input_tokens, output_tokens=token_usage.output_tokens)
         if request_usage is not None:
             self.request_usage.extend(
                 successful_requests=request_usage.successful_requests, failed_requests=request_usage.failed_requests
+            )
+        if tool_usage is not None:
+            self.tool_usage.extend(
+                tool_calls=tool_usage.total_tool_calls, tool_call_turns=tool_usage.total_tool_call_turns
             )
 
     def get_usage_stats(self, *, total_time_elapsed: float) -> dict:

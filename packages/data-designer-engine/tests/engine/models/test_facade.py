@@ -419,6 +419,10 @@ def test_generate_with_tool_alias_multiple_turns(
         def get_tool_schemas(self) -> list[dict[str, Any]]:
             return [{"type": "function", "function": {"name": "lookup", "parameters": {}}}]
 
+        def tool_call_count(self, completion_response: Any) -> int:
+            tool_calls = getattr(completion_response.choices[0].message, "tool_calls", None)
+            return len(tool_calls) if tool_calls else 0
+
         def has_tool_calls(self, completion_response: Any) -> bool:
             return completion_response.choices[0].message.tool_calls is not None
 
@@ -481,6 +485,10 @@ def test_generate_tool_turn_limit_triggers_refusal(
 
         def get_tool_schemas(self) -> list[dict[str, Any]]:
             return [{"type": "function", "function": {"name": "lookup", "parameters": {}}}]
+
+        def tool_call_count(self, completion_response: Any) -> int:
+            tool_calls = getattr(completion_response.choices[0].message, "tool_calls", None)
+            return len(tool_calls) if tool_calls else 0
 
         def has_tool_calls(self, completion_response: Any) -> bool:
             return completion_response.choices[0].message.tool_calls is not None
@@ -550,6 +558,10 @@ def test_generate_tool_turn_limit_model_responds_after_refusal(
 
         def get_tool_schemas(self) -> list[dict[str, Any]]:
             return [{"type": "function", "function": {"name": "lookup", "parameters": {}}}]
+
+        def tool_call_count(self, completion_response: Any) -> int:
+            tool_calls = getattr(completion_response.choices[0].message, "tool_calls", None)
+            return len(tool_calls) if tool_calls else 0
 
         def has_tool_calls(self, completion_response: Any) -> bool:
             return completion_response.choices[0].message.tool_calls is not None
@@ -670,6 +682,10 @@ def test_generate_tool_calls_with_parser_corrections(
         def get_tool_schemas(self) -> list[dict[str, Any]]:
             return [{"type": "function", "function": {"name": "lookup", "parameters": {}}}]
 
+        def tool_call_count(self, completion_response: Any) -> int:
+            tool_calls = getattr(completion_response.choices[0].message, "tool_calls", None)
+            return len(tool_calls) if tool_calls else 0
+
         def has_tool_calls(self, completion_response: Any) -> bool:
             return completion_response.choices[0].message.tool_calls is not None
 
@@ -741,6 +757,10 @@ def test_generate_tool_calls_with_conversation_restarts(
 
         def get_tool_schemas(self) -> list[dict[str, Any]]:
             return [{"type": "function", "function": {"name": "lookup", "parameters": {}}}]
+
+        def tool_call_count(self, completion_response: Any) -> int:
+            tool_calls = getattr(completion_response.choices[0].message, "tool_calls", None)
+            return len(tool_calls) if tool_calls else 0
 
         def has_tool_calls(self, completion_response: Any) -> bool:
             return completion_response.choices[0].message.tool_calls is not None
@@ -816,6 +836,10 @@ def test_generate_trace_includes_tool_calls(
         def get_tool_schemas(self) -> list[dict[str, Any]]:
             return [{"type": "function", "function": {"name": "lookup", "parameters": {}}}]
 
+        def tool_call_count(self, completion_response: Any) -> int:
+            tool_calls = getattr(completion_response.choices[0].message, "tool_calls", None)
+            return len(tool_calls) if tool_calls else 0
+
         def has_tool_calls(self, completion_response: Any) -> bool:
             return completion_response.choices[0].message.tool_calls is not None
 
@@ -878,6 +902,10 @@ def test_generate_trace_includes_tool_responses(
         def get_tool_schemas(self) -> list[dict[str, Any]]:
             return [{"type": "function", "function": {"name": "lookup", "parameters": {}}}]
 
+        def tool_call_count(self, completion_response: Any) -> int:
+            tool_calls = getattr(completion_response.choices[0].message, "tool_calls", None)
+            return len(tool_calls) if tool_calls else 0
+
         def has_tool_calls(self, completion_response: Any) -> bool:
             return completion_response.choices[0].message.tool_calls is not None
 
@@ -938,6 +966,10 @@ def test_generate_trace_includes_refusal_messages(
 
         def get_tool_schemas(self) -> list[dict[str, Any]]:
             return [{"type": "function", "function": {"name": "lookup", "parameters": {}}}]
+
+        def tool_call_count(self, completion_response: Any) -> int:
+            tool_calls = getattr(completion_response.choices[0].message, "tool_calls", None)
+            return len(tool_calls) if tool_calls else 0
 
         def has_tool_calls(self, completion_response: Any) -> bool:
             return completion_response.choices[0].message.tool_calls is not None
@@ -1034,6 +1066,10 @@ def test_generate_tool_execution_error(
         def get_tool_schemas(self) -> list[dict[str, Any]]:
             return [{"type": "function", "function": {"name": "lookup", "parameters": {}}}]
 
+        def tool_call_count(self, completion_response: Any) -> int:
+            tool_calls = getattr(completion_response.choices[0].message, "tool_calls", None)
+            return len(tool_calls) if tool_calls else 0
+
         def has_tool_calls(self, completion_response: Any) -> bool:
             return completion_response.choices[0].message.tool_calls is not None
 
@@ -1087,6 +1123,10 @@ def test_generate_tool_invalid_arguments(
 
         def get_tool_schemas(self) -> list[dict[str, Any]]:
             return [{"type": "function", "function": {"name": "lookup", "parameters": {}}}]
+
+        def tool_call_count(self, completion_response: Any) -> int:
+            tool_calls = getattr(completion_response.choices[0].message, "tool_calls", None)
+            return len(tool_calls) if tool_calls else 0
 
         def has_tool_calls(self, completion_response: Any) -> bool:
             return completion_response.choices[0].message.tool_calls is not None

@@ -18,7 +18,7 @@ from data_designer.engine.models.errors import (
 )
 from data_designer.engine.models.litellm_overrides import CustomRouter, LiteLLMRouterDefaultKwargs
 from data_designer.engine.models.parsers.errors import ParserException
-from data_designer.engine.models.usage import ModelUsageStats, RequestUsageStats, TokenUsageStats
+from data_designer.engine.models.usage import ModelUsageStats, RequestUsageStats, TokenUsageStats, ToolUsageStats
 from data_designer.engine.models.utils import ChatMessage, prompt_to_messages
 from data_designer.engine.secret_resolver import SecretResolver
 from data_designer.lazy_heavy_imports import litellm
@@ -226,6 +226,7 @@ class ModelFacade:
         output_obj = None
         tool_schemas = None
         tool_call_turns = 0
+        total_tool_calls = 0
         curr_num_correction_steps = 0
         curr_num_restarts = 0
 
@@ -255,6 +256,7 @@ class ModelFacade:
             # Process any tool calls in the response (handles parallel tool calling)
             if mcp_facade is not None and mcp_facade.has_tool_calls(completion_response):
                 tool_call_turns += 1
+                total_tool_calls += mcp_facade.tool_call_count(completion_response)
 
                 if tool_call_turns > mcp_facade.max_tool_call_turns:
                     # Gracefully refuse tool calls when budget is exhausted
@@ -298,6 +300,11 @@ class ModelFacade:
                         f"Unsuccessful generation despite {max_correction_steps} correction steps "
                         f"and {max_conversation_restarts} conversation restarts."
                     ) from exc
+
+        if not skip_usage_tracking and total_tool_calls > 0:
+            self._usage_stats.extend(
+                tool_usage=ToolUsageStats(total_tool_calls=total_tool_calls, total_tool_call_turns=tool_call_turns)
+            )
 
         return output_obj, messages
 
