@@ -244,7 +244,8 @@ class ColumnWiseDatasetBuilder:
             total_records=self.batch_manager.num_records_batch,
             label=f"{generator.config.column_type} column '{generator.config.name}'",
         )
-        progress_tracker.log_start(max_workers)
+        extra_info = "  |-- 🛠️ Tool calling enabled" if getattr(generator.config, "tool_alias", None) else None
+        progress_tracker.log_start(max_workers, extra_info=extra_info)
 
         settings = self._resource_provider.run_config
         with ConcurrentThreadExecutor(
