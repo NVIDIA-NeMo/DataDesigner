@@ -133,4 +133,4 @@ The CLI will show which configuration files exist and ask for confirmation befor
 - **[Custom Model Settings](custom-model-settings.md)**: Learn how to create custom providers and model configurations
 - **[Model Providers](model-providers.md)**: Learn about the `ModelProvider` class and provider configuration
 - **[Model Configurations](model-configs.md)**: Learn about `ModelConfig`
-- **[Quick Start Guide](../../quick-start.md)**: Get started with a simple example
+- **[Getting Started](../../index.md)**: Installation and basic usage example
