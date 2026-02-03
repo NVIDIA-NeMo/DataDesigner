@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
 from data_designer.config.config_builder import DataDesignerConfigBuilder
@@ -63,6 +63,8 @@ from data_designer.plugins.registry import PluginRegistry
 
 if TYPE_CHECKING:
     import pandas as pd
+
+    from data_designer.engine.models.facade import ModelFacade
 
 logger = logging.getLogger(__name__)
 
@@ -331,7 +333,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         """
         self._run_config = run_config
 
-    def get_models(self, model_aliases: list[str]) -> dict[str, Any]:
+    def get_models(self, model_aliases: list[str]) -> dict[str, ModelFacade]:
         """Get a dict of ModelFacade instances for custom column development.
 
         Use this to experiment with custom column generator functions outside of
