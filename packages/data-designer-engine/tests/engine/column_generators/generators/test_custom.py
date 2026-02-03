@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 from unittest.mock import Mock
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from data_designer.lazy_heavy_imports import pd
 
@@ -18,7 +18,6 @@ if TYPE_CHECKING:
 
 from data_designer.config.column_configs import CustomColumnConfig, GenerationStrategy
 from data_designer.config.custom_column import custom_column_generator
-from data_designer.config.errors import InvalidConfigError
 from data_designer.engine.column_generators.generators.custom import CustomColumnGenerator
 from data_designer.engine.column_generators.utils.errors import CustomColumnGenerationError
 from data_designer.engine.resources.resource_provider import ResourceProvider
@@ -110,7 +109,7 @@ def test_config_and_decorator_integration() -> None:
 
 def test_config_validation_non_callable() -> None:
     """Test that non-callable generator_function raises an error."""
-    with pytest.raises(InvalidConfigError, match="must be a callable"):
+    with pytest.raises(ValidationError, match="must be callable"):
         CustomColumnConfig(name="test", generator_function="not_a_function")
 
 
@@ -281,52 +280,57 @@ def test_full_column_with_params() -> None:
 # Parameter name validation tests
 
 
-def test_invalid_param_names() -> None:
-    """Test parameter name validation errors."""
+def test_invalid_param_names_at_decoration_time() -> None:
+    """Test parameter name validation at decoration time."""
 
-    # Wrong first param (cell_by_cell)
-    @custom_column_generator()
-    def bad_row(data: dict) -> dict:
-        return data
+    # Wrong first param
+    with pytest.raises(TypeError, match="param 1 must be 'df' or 'row'"):
 
-    gen = _create_test_generator(name="result", generator_function=bad_row)
-    with pytest.raises(CustomColumnGenerationError, match="parameter 1 must be 'row'"):
-        gen.generate({"input": 1})
-
-    # Wrong first param (full_column)
-    @custom_column_generator()
-    def bad_df(dataframe: pd.DataFrame) -> pd.DataFrame:
-        return dataframe
-
-    gen = _create_test_generator(
-        name="result", generator_function=bad_df, generation_strategy=GenerationStrategy.FULL_COLUMN
-    )
-    with pytest.raises(CustomColumnGenerationError, match="parameter 1 must be 'df'"):
-        gen.generate(pd.DataFrame({"input": [1]}))
+        @custom_column_generator()
+        def bad_first(data: dict) -> dict:
+            return data
 
     # Wrong second param
-    @custom_column_generator()
-    def bad_params(row: dict, params: None) -> dict:
-        return row
+    with pytest.raises(TypeError, match="param 2 must be 'generator_params'"):
 
-    gen = _create_test_generator(name="result", generator_function=bad_params)
-    with pytest.raises(CustomColumnGenerationError, match="parameter 2 must be 'generator_params'"):
-        gen.generate({"input": 1})
+        @custom_column_generator()
+        def bad_second(row: dict, params: None) -> dict:
+            return row
 
     # Wrong third param
-    @custom_column_generator()
-    def bad_models(row: dict, generator_params: None, llm: dict) -> dict:
-        return row
+    with pytest.raises(TypeError, match="param 3 must be 'models'"):
 
-    gen = _create_test_generator(name="result", generator_function=bad_models)
-    with pytest.raises(CustomColumnGenerationError, match="parameter 3 must be 'models'"):
-        gen.generate({"input": 1})
+        @custom_column_generator()
+        def bad_third(row: dict, generator_params: None, llm: dict) -> dict:
+            return row
 
     # Too many params
+    with pytest.raises(TypeError, match="must have 1-3 parameters, got 4"):
+
+        @custom_column_generator()
+        def too_many(row: dict, generator_params: None, models: dict, extra: str) -> dict:
+            return row
+
+
+def test_strategy_mismatch_at_runtime() -> None:
+    """Test that first param must match generation strategy at runtime."""
+
+    # row function used with full_column strategy
     @custom_column_generator()
-    def too_many_params(row: dict, generator_params: None, models: dict, extra: str) -> dict:
+    def row_func(row: dict) -> dict:
         return row
 
-    gen = _create_test_generator(name="result", generator_function=too_many_params)
-    with pytest.raises(CustomColumnGenerationError, match="max 3 positional parameters allowed, got 4"):
+    gen = _create_test_generator(
+        name="result", generator_function=row_func, generation_strategy=GenerationStrategy.FULL_COLUMN
+    )
+    with pytest.raises(CustomColumnGenerationError, match="first parameter must be 'df', got 'row'"):
+        gen.generate(pd.DataFrame({"input": [1]}))
+
+    # df function used with cell_by_cell strategy
+    @custom_column_generator()
+    def df_func(df: pd.DataFrame) -> pd.DataFrame:
+        return df
+
+    gen = _create_test_generator(name="result", generator_function=df_func)
+    with pytest.raises(CustomColumnGenerationError, match="first parameter must be 'row', got 'df'"):
         gen.generate({"input": 1})
