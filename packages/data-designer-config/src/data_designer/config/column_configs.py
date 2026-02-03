@@ -199,7 +199,7 @@ class LLMCodeColumnConfig(LLMTextColumnConfig):
 
     Extends LLMTextColumnConfig to generate code snippets in specific programming languages
     or SQL dialects. The generated code is automatically extracted from markdown code blocks
-    for the specified language. Inherits all prompt templating capabilities.
+    for the specified language. Inherits all prompt templating capabilities from LLMTextColumnConfig.
 
     Attributes:
         code_lang: Programming language or SQL dialect for code generation. Supported
@@ -207,6 +207,16 @@ class LLMCodeColumnConfig(LLMTextColumnConfig):
             "rust", "ruby", "scala", "swift", "sql:sqlite", "sql:postgres", "sql:mysql",
             "sql:tsql", "sql:bigquery", "sql:ansi". See CodeLang enum for complete list.
         column_type: Discriminator field, always "llm-code" for this configuration type.
+
+    Inherited Attributes:
+        prompt: Prompt template for code generation (supports Jinja2).
+        model_alias: Alias of the model configuration to use.
+        system_prompt: Optional system prompt (supports Jinja2).
+        multi_modal_context: Optional image contexts for multi-modal generation.
+        tool_alias: Optional tool configuration alias for MCP tool calls.
+        with_trace: If True, creates a `{column_name}__trace` column with message history.
+        extract_reasoning_content: If True, creates a `{column_name}__reasoning_content`
+            column containing the reasoning content from the final assistant response.
     """
 
     code_lang: CodeLang
@@ -222,13 +232,24 @@ class LLMStructuredColumnConfig(LLMTextColumnConfig):
 
     Extends LLMTextColumnConfig to generate structured data conforming to a specified schema.
     Uses JSON schema or Pydantic models to define the expected output structure, enabling
-    type-safe and validated structured output generation. Inherits prompt templating capabilities.
+    type-safe and validated structured output generation. Inherits prompt templating capabilities
+    from LLMTextColumnConfig.
 
     Attributes:
         output_format: The schema defining the expected output structure. Can be either:
             - A Pydantic BaseModel class (recommended)
             - A JSON schema dictionary
         column_type: Discriminator field, always "llm-structured" for this configuration type.
+
+    Inherited Attributes:
+        prompt: Prompt template for structured generation (supports Jinja2).
+        model_alias: Alias of the model configuration to use.
+        system_prompt: Optional system prompt (supports Jinja2).
+        multi_modal_context: Optional image contexts for multi-modal generation.
+        tool_alias: Optional tool configuration alias for MCP tool calls.
+        with_trace: If True, creates a `{column_name}__trace` column with message history.
+        extract_reasoning_content: If True, creates a `{column_name}__reasoning_content`
+            column containing the reasoning content from the final assistant response.
     """
 
     output_format: dict | type[BaseModel]
@@ -276,13 +297,24 @@ class LLMJudgeColumnConfig(LLMTextColumnConfig):
 
     Extends LLMTextColumnConfig to create judge columns that evaluate and score other
     generated content based on the defined criteria. Useful for quality assessment, preference
-    ranking, and multi-dimensional evaluation of generated data.
+    ranking, and multi-dimensional evaluation of generated data. Inherits prompt templating
+    capabilities from LLMTextColumnConfig.
 
     Attributes:
         scores: List of Score objects defining the evaluation dimensions. Each score
             represents a different aspect to evaluate (e.g., accuracy, relevance, fluency).
             Must contain at least one score.
         column_type: Discriminator field, always "llm-judge" for this configuration type.
+
+    Inherited Attributes:
+        prompt: Prompt template for the judge evaluation (supports Jinja2).
+        model_alias: Alias of the model configuration to use.
+        system_prompt: Optional system prompt (supports Jinja2).
+        multi_modal_context: Optional image contexts for multi-modal generation.
+        tool_alias: Optional tool configuration alias for MCP tool calls.
+        with_trace: If True, creates a `{column_name}__trace` column with message history.
+        extract_reasoning_content: If True, creates a `{column_name}__reasoning_content`
+            column containing the reasoning content from the final assistant response.
     """
 
     scores: list[Score] = Field(..., min_length=1)
