@@ -7,7 +7,10 @@ from __future__ import annotations
 
 import functools
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any, Callable, TypeVar
+
+from data_designer.config.config_builder import DataDesignerConfigBuilder
 
 if TYPE_CHECKING:
     from data_designer.config.interface import DataDesignerInterface
@@ -69,12 +72,8 @@ class CustomColumnContext:
         column_name: str = "dev_column",
     ) -> CustomColumnContext:
         """Create a context from a DataDesigner instance for development/testing."""
-        # Access the resource provider from DataDesigner
-        # We need to create a minimal resource provider for development
-        from data_designer.config.config_builder import DataDesignerConfigBuilder
-
-        # Create a minimal config builder to get a resource provider
         config_builder = DataDesignerConfigBuilder()
+        # Note: uses internal API for dev/testing convenience
         resource_provider = data_designer._create_resource_provider("dev", config_builder)
 
         return cls(
@@ -128,8 +127,6 @@ class CustomColumnContext:
         return_trace: bool = False,
     ) -> list[str] | list[tuple[str, list[Any]]]:
         """Generate text for multiple prompts in parallel. Use in full_column strategy."""
-        from concurrent.futures import ThreadPoolExecutor
-
         model = self.get_model(model_alias)
 
         def generate_single(prompt: str) -> str | tuple[str, list[Any]]:
