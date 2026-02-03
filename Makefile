@@ -42,6 +42,7 @@ help:
 	@echo "  install                   - Install all packages (config → engine → interface)"
 	@echo "  install-dev               - Install all packages + dev tools (pytest, etc.)"
 	@echo "  install-dev-notebooks     - Install all packages + dev + notebook tools"
+	@echo "  install-dev-recipes       - Install all packages + dev + recipe dependencies"
 	@echo ""
 	@echo "🧪 Testing (all packages):"
 	@echo "  test                      - Run all unit tests"
@@ -147,6 +148,16 @@ install-dev-notebooks:
 	@echo "✅ Dev + notebooks installation complete!"
 	@echo ""
 	@echo "💡 Run 'make test-run-tutorials' to test notebook tutorials"
+
+install-dev-recipes:
+	@echo "📦 Installing DataDesigner workspace with recipe dependencies..."
+	@echo "   Packages: data-designer-config → data-designer-engine → data-designer"
+	@echo "   Groups: dev + recipes (bm25s, pymupdf, etc.)"
+	uv sync --all-packages --group dev --group recipes
+	$(call install-pre-commit-hooks)
+	@echo "✅ Dev + recipes installation complete!"
+	@echo ""
+	@echo "💡 Run 'make test-run-recipes' to test recipe scripts"
 
 # ==============================================================================
 # TESTING
@@ -280,7 +291,7 @@ test-run-recipes:
 	trap "rm -rf $$RECIPE_WORKDIR" EXIT; \
 	for f in docs/assets/recipes/**/*.py; do \
 		echo "  📜 Running $$f..."; \
-		(cd "$$RECIPE_WORKDIR" && uv run --project "$(REPO_PATH)" --group notebooks python "$(REPO_PATH)/$$f" --model-alias nvidia-text --artifact-path "$$RECIPE_WORKDIR" --num-records 5) || exit 1; \
+		(cd "$$RECIPE_WORKDIR" && uv run --project "$(REPO_PATH)" --group notebooks --group recipes python "$(REPO_PATH)/$$f" --model-alias nvidia-text --artifact-path "$$RECIPE_WORKDIR" --num-records 5) || exit 1; \
 	done; \
 	echo "🧹 Cleaning up recipe artifacts..."; \
 	rm -rf "$$RECIPE_WORKDIR"; \
@@ -568,7 +579,7 @@ clean-test-coverage:
         format format-check format-check-config format-check-engine format-check-interface \
         format-config format-engine format-interface \
         generate-colab-notebooks help \
-        install install-dev install-dev-notebooks \
+        install install-dev install-dev-notebooks install-dev-recipes \
         lint lint-config lint-engine lint-fix lint-fix-config lint-fix-engine lint-fix-interface lint-interface \
         perf-import publish serve-docs-locally show-versions \
         test test-config test-config-isolated test-e2e test-engine test-engine-isolated \

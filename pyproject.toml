@@ -62,13 +62,12 @@ notebooks = [
     "jupyter>=1.0.0,<2",
     "pillow>=12.0.0,<13",
 ]
+recipes = [
+    "bm25s>=0.2.0,<1",
+    "pymupdf>=1.24.0,<2",
+]
 
 [tool.pytest.ini_options]
-testpaths = [
-    "packages/data-designer-config/tests",
-    "packages/data-designer-engine/tests",
-    "packages/data-designer/tests",
-]
 asyncio_default_fixture_loop_scope = "session"
 env = ["DISABLE_DATA_DESIGNER_PLUGINS=true"]
 

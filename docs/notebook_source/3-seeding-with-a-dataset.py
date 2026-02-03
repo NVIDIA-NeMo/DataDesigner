@@ -37,7 +37,7 @@ from data_designer.interface import DataDesigner
 # %% [markdown]
 # ### ⚙️ Initialize the Data Designer interface
 #
-# - `DataDesigner` is the main object is responsible for managing the data generation process.
+# - `DataDesigner` is the main object responsible for managing the data generation process.
 #
 # - When initialized without arguments, the [default model providers](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/) are used.
 #
@@ -129,82 +129,68 @@ config_builder.with_seed_dataset(seed_source)
 # %% [markdown]
 # ## 🎨 Designing our synthetic patient notes dataset
 #
-# - Here we use `add_column` with keyword arguments (rather than imported config objects).
-#
-# - Generally, we recommend using concrete objects, but this is a convenient shorthand.
-#
-# - **Note**: The prompt template can reference fields from our seed dataset:
+# - The prompt template can reference fields from our seed dataset:
 #   - `{{ diagnosis }}` - the medical diagnosis from the seed data
 #   - `{{ patient_summary }}` - the symptom description from the seed data
 #
 
 # %%
 config_builder.add_column(
-    name="patient_sampler",
-    column_type="sampler",
-    sampler_type="person_from_faker",
+    dd.SamplerColumnConfig(
+        name="patient_sampler",
+        sampler_type=dd.SamplerType.PERSON_FROM_FAKER,
+        params=dd.PersonFromFakerSamplerParams(),
+    )
 )
 
 config_builder.add_column(
-    name="doctor_sampler",
-    column_type="sampler",
-    sampler_type="person_from_faker",
+    dd.SamplerColumnConfig(
+        name="doctor_sampler",
+        sampler_type=dd.SamplerType.PERSON_FROM_FAKER,
+        params=dd.PersonFromFakerSamplerParams(),
+    )
 )
 
 config_builder.add_column(
-    name="patient_id",
-    column_type="sampler",
-    sampler_type="uuid",
-    params={
-        "prefix": "PT-",
-        "short_form": True,
-        "uppercase": True,
-    },
+    dd.SamplerColumnConfig(
+        name="patient_id",
+        sampler_type=dd.SamplerType.UUID,
+        params=dd.UUIDSamplerParams(
+            prefix="PT-",
+            short_form=True,
+            uppercase=True,
+        ),
+    )
+)
+
+config_builder.add_column(dd.ExpressionColumnConfig(name="first_name", expr="{{ patient_sampler.first_name }}"))
+
+config_builder.add_column(dd.ExpressionColumnConfig(name="last_name", expr="{{ patient_sampler.last_name }}"))
+
+config_builder.add_column(dd.ExpressionColumnConfig(name="dob", expr="{{ patient_sampler.birth_date }}"))
+
+config_builder.add_column(
+    dd.SamplerColumnConfig(
+        name="symptom_onset_date",
+        sampler_type=dd.SamplerType.DATETIME,
+        params=dd.DatetimeSamplerParams(start="2024-01-01", end="2024-12-31"),
+    )
 )
 
 config_builder.add_column(
-    name="first_name",
-    column_type="expression",
-    expr="{{ patient_sampler.first_name}}",
+    dd.SamplerColumnConfig(
+        name="date_of_visit",
+        sampler_type=dd.SamplerType.TIMEDELTA,
+        params=dd.TimeDeltaSamplerParams(dt_min=1, dt_max=30, reference_column_name="symptom_onset_date"),
+    )
 )
 
-config_builder.add_column(
-    name="last_name",
-    column_type="expression",
-    expr="{{ patient_sampler.last_name }}",
-)
-
+config_builder.add_column(dd.ExpressionColumnConfig(name="physician", expr="Dr. {{ doctor_sampler.last_name }}"))
 
 config_builder.add_column(
-    name="dob",
-    column_type="expression",
-    expr="{{ patient_sampler.birth_date }}",
-)
-
-config_builder.add_column(
-    name="symptom_onset_date",
-    column_type="sampler",
-    sampler_type="datetime",
-    params={"start": "2024-01-01", "end": "2024-12-31"},
-)
-
-config_builder.add_column(
-    name="date_of_visit",
-    column_type="sampler",
-    sampler_type="timedelta",
-    params={"dt_min": 1, "dt_max": 30, "reference_column_name": "symptom_onset_date"},
-)
-
-config_builder.add_column(
-    name="physician",
-    column_type="expression",
-    expr="Dr. {{ doctor_sampler.last_name }}",
-)
-
-config_builder.add_column(
-    name="physician_notes",
-    column_type="llm-text",
-    prompt="""\
+    dd.LLMTextColumnConfig(
+        name="physician_notes",
+        prompt="""\
 You are a primary-care physician who just had an appointment with {{ first_name }} {{ last_name }},
 who has been struggling with symptoms from {{ diagnosis }} since {{ symptom_onset_date }}.
 The date of today's visit is {{ date_of_visit }}.
@@ -217,7 +203,8 @@ as Dr. {{ doctor_sampler.first_name }} {{ doctor_sampler.last_name }}.
 Format the notes as a busy doctor might.
 Respond with only the notes, no other text.
 """,
-    model_alias=MODEL_ALIAS,
+        model_alias=MODEL_ALIAS,
+    )
 )
 
 data_designer.validate(config_builder)

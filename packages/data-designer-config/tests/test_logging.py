@@ -208,3 +208,54 @@ def test_random_emoji_randomness():
     emojis = [RandomEmoji.magic() for _ in range(100)]
     # If we get 100 samples, we should get at least 2 different emojis
     assert len(set(emojis)) > 1
+
+
+def test_random_emoji_progress_returns_valid_emoji() -> None:
+    emoji_gen = RandomEmoji()
+    emoji = emoji_gen.progress(50.0)
+    assert emoji is not None
+    assert len(emoji) > 0
+
+
+def test_random_emoji_progress_is_deterministic() -> None:
+    emoji_gen = RandomEmoji()
+    # Same percentage should always return the same emoji for a given instance
+    assert emoji_gen.progress(0.0) == emoji_gen.progress(0.0)
+    assert emoji_gen.progress(50.0) == emoji_gen.progress(50.0)
+    assert emoji_gen.progress(100.0) == emoji_gen.progress(100.0)
+
+
+def test_random_emoji_progress_phases_are_distinct() -> None:
+    emoji_gen = RandomEmoji()
+    # Each 25% phase should return a different emoji
+    phase_emojis = [
+        emoji_gen.progress(0.0),  # phase 0
+        emoji_gen.progress(25.0),  # phase 1
+        emoji_gen.progress(50.0),  # phase 2
+        emoji_gen.progress(75.0),  # phase 3
+        emoji_gen.progress(100.0),  # phase 4
+    ]
+    # All 5 phases should have distinct emojis
+    assert len(set(phase_emojis)) == 5
+
+
+def test_random_emoji_progress_phase_boundaries() -> None:
+    emoji_gen = RandomEmoji()
+    # Values within the same phase should return the same emoji
+    assert emoji_gen.progress(0.0) == emoji_gen.progress(24.9)
+    assert emoji_gen.progress(25.0) == emoji_gen.progress(49.9)
+    assert emoji_gen.progress(50.0) == emoji_gen.progress(74.9)
+    assert emoji_gen.progress(75.0) == emoji_gen.progress(99.9)
+    # Phase transitions should return different emojis
+    assert emoji_gen.progress(24.9) != emoji_gen.progress(25.0)
+    assert emoji_gen.progress(49.9) != emoji_gen.progress(50.0)
+    assert emoji_gen.progress(74.9) != emoji_gen.progress(75.0)
+    assert emoji_gen.progress(99.9) != emoji_gen.progress(100.0)
+
+
+def test_random_emoji_progress_clamps_over_100() -> None:
+    emoji_gen = RandomEmoji()
+    emoji_100 = emoji_gen.progress(100.0)
+    emoji_over = emoji_gen.progress(150.0)
+    # Both should return the same final emoji
+    assert emoji_100 == emoji_over

@@ -31,22 +31,27 @@ dependencies = [
 ]
 
 [build-system]
-requires = ["hatchling", "hatch-vcs"]
+requires = ["hatchling", "uv-dynamic-versioning>=0.7.0"]
 build-backend = "hatchling.build"
 
 [tool.hatch.version]
-source = "vcs"
-fallback-version = "0.1.0.dev0"
-raw-options = { root = "../.." }
+source = "uv-dynamic-versioning"
 
-[tool.hatch.build.hooks.vcs]
-version-file = "src/data_designer/config/_version.py"
+[tool.uv-dynamic-versioning]
+vcs = "git"
+style = "pep440"
+bump = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/data_designer"]
 
 [tool.ruff]
 extend = "../../pyproject.toml"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_default_fixture_loop_scope = "session"
+env = ["DISABLE_DATA_DESIGNER_PLUGINS=true"]
 
 [tool.uv]
 package = true

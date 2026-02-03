@@ -740,3 +740,144 @@ def test_cannot_write_config_with_dataframe_seed(stub_model_configs):
         builder.write_config("./config.json")
 
     assert "DataFrame seed dataset" in str(excinfo.value)
+
+
+class TestToolConfigDuplicateValidation:
+    """Tests for duplicate tool name validation at config build time."""
+
+    @staticmethod
+    def _add_dummy_column(builder: DataDesignerConfigBuilder) -> None:
+        """Add a dummy column to satisfy DataDesignerConfig's requirement for at least 1 column."""
+        builder.add_column(
+            SamplerColumnConfig(
+                name="dummy_id",
+                sampler_type=SamplerType.UUID,
+                params=UUIDSamplerParams(),
+            )
+        )
+
+    def test_build_with_duplicate_allow_tools_raises_error(self, stub_model_configs: list[ModelConfig]) -> None:
+        """build() raises BuilderConfigurationError when allow_tools has duplicates."""
+        from data_designer.config.mcp import ToolConfig
+
+        builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+        self._add_dummy_column(builder)
+        builder.add_tool_config(
+            ToolConfig(
+                tool_alias="test-tools",
+                providers=["test-provider"],
+                allow_tools=["lookup", "search", "lookup"],  # duplicate
+            )
+        )
+
+        with pytest.raises(BuilderConfigurationError, match="duplicate tool names"):
+            builder.build()
+
+    def test_build_with_multiple_duplicates_reports_all(self, stub_model_configs: list[ModelConfig]) -> None:
+        """build() error message reports all duplicate tool names."""
+        from data_designer.config.mcp import ToolConfig
+
+        builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+        self._add_dummy_column(builder)
+        builder.add_tool_config(
+            ToolConfig(
+                tool_alias="test-tools",
+                providers=["test-provider"],
+                allow_tools=["lookup", "search", "lookup", "search", "fetch"],  # multiple duplicates
+            )
+        )
+
+        with pytest.raises(BuilderConfigurationError) as exc_info:
+            builder.build()
+
+        assert "lookup" in str(exc_info.value)
+        assert "search" in str(exc_info.value)
+
+    def test_build_with_no_duplicates_passes(self, stub_model_configs: list[ModelConfig]) -> None:
+        """build() succeeds when allow_tools has no duplicates."""
+        from data_designer.config.mcp import ToolConfig
+
+        builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+        self._add_dummy_column(builder)
+        builder.add_tool_config(
+            ToolConfig(
+                tool_alias="test-tools",
+                providers=["test-provider"],
+                allow_tools=["lookup", "search", "fetch"],  # no duplicates
+            )
+        )
+
+        # Should not raise
+        config = builder.build()
+        assert config.tool_configs is not None
+        assert len(config.tool_configs) == 1
+
+    def test_build_with_no_allow_tools_passes(self, stub_model_configs: list[ModelConfig]) -> None:
+        """build() succeeds when allow_tools is None."""
+        from data_designer.config.mcp import ToolConfig
+
+        builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+        self._add_dummy_column(builder)
+        builder.add_tool_config(
+            ToolConfig(
+                tool_alias="test-tools",
+                providers=["test-provider"],
+                allow_tools=None,  # no allowlist
+            )
+        )
+
+        # Should not raise
+        config = builder.build()
+        assert config.tool_configs is not None
+
+    def test_build_validates_each_tool_config_independently(self, stub_model_configs: list[ModelConfig]) -> None:
+        """build() validates each ToolConfig for duplicates independently."""
+        from data_designer.config.mcp import ToolConfig
+
+        builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+        self._add_dummy_column(builder)
+        # First tool config has no duplicates
+        builder.add_tool_config(
+            ToolConfig(
+                tool_alias="tools-1",
+                providers=["provider-1"],
+                allow_tools=["lookup"],
+            )
+        )
+        # Second tool config has duplicates
+        builder.add_tool_config(
+            ToolConfig(
+                tool_alias="tools-2",
+                providers=["provider-2"],
+                allow_tools=["search", "search"],  # duplicate
+            )
+        )
+
+        with pytest.raises(BuilderConfigurationError, match="tools-2"):
+            builder.build()
+
+    def test_same_tool_in_different_tool_configs_is_allowed(self, stub_model_configs: list[ModelConfig]) -> None:
+        """Same tool name in different ToolConfigs is allowed (not a duplicate)."""
+        from data_designer.config.mcp import ToolConfig
+
+        builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+        self._add_dummy_column(builder)
+        # Both tool configs use "lookup" but in different configs - this is allowed
+        builder.add_tool_config(
+            ToolConfig(
+                tool_alias="tools-1",
+                providers=["provider-1"],
+                allow_tools=["lookup"],
+            )
+        )
+        builder.add_tool_config(
+            ToolConfig(
+                tool_alias="tools-2",
+                providers=["provider-2"],
+                allow_tools=["lookup"],  # same as tools-1, but different ToolConfig
+            )
+        )
+
+        # Should not raise
+        config = builder.build()
+        assert len(config.tool_configs) == 2

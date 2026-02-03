@@ -7,6 +7,8 @@ import logging
 import time
 from threading import Lock
 
+from data_designer.logging import RandomEmoji
+
 logger = logging.getLogger(__name__)
 
 
@@ -51,6 +53,7 @@ class ProgressTracker:
 
         self.start_time = time.perf_counter()
         self.lock = Lock()
+        self._random_emoji = RandomEmoji()
 
     def log_start(self, max_workers: int) -> None:
         """Log the start of processing with worker count and interval information."""
@@ -74,13 +77,9 @@ class ProgressTracker:
         self._record_completion(success=False)
 
     def log_final(self) -> None:
-        """Log final progress if not already logged at completion."""
+        """Log final progress summary."""
         with self.lock:
-            if self.total_records > 0 and self.completed < self.total_records:
-                self._log_progress_unlocked()
-            elif self.completed > 0 and self.completed >= self.next_log_at - self.log_interval:
-                pass  # Already logged at the last interval
-            elif self.completed > 0:
+            if self.completed > 0:
                 self._log_progress_unlocked()
 
     def _record_completion(self, *, success: bool) -> None:
@@ -92,7 +91,7 @@ class ProgressTracker:
             else:
                 self.failed += 1
 
-            if self.completed >= self.next_log_at:
+            if self.completed >= self.next_log_at and self.completed < self.total_records:
                 should_log = True
                 while self.next_log_at <= self.completed:
                     self.next_log_at += self.log_interval
@@ -110,7 +109,8 @@ class ProgressTracker:
         percent = (self.completed / self.total_records) * 100 if self.total_records else 100.0
 
         logger.info(
-            "  |-- 📈 %s progress: %d/%d (%.0f%%) complete, %d ok, %d failed, %.2f rec/s, eta %s",
+            "  |-- %s %s progress: %d/%d (%.0f%%) complete, %d ok, %d failed, %.2f rec/s, eta %s",
+            self._random_emoji.progress(percent),
             self.label,
             self.completed,
             self.total_records,

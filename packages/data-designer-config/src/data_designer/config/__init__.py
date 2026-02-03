@@ -20,6 +20,7 @@ from data_designer.config.column_types import DataDesignerColumnType
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.dataset_builders import BuildStage
+from data_designer.config.mcp import LocalStdioMCPProvider, MCPProvider, ToolConfig
 from data_designer.config.models import (
     ChatCompletionInferenceParams,
     EmbeddingInferenceParams,
@@ -73,6 +74,7 @@ from data_designer.config.seed_source import (
 )
 from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.utils.info import InfoType
+from data_designer.config.utils.trace_type import TraceType
 from data_designer.config.validator_params import (
     CodeValidatorParams,
     LocalCallableValidatorParams,
@@ -118,6 +120,9 @@ def get_config_exports() -> list[str]:
         LocalFileSeedSource.__name__,
         ManualDistribution.__name__,
         ManualDistributionParams.__name__,
+        LocalStdioMCPProvider.__name__,
+        MCPProvider.__name__,
+        ToolConfig.__name__,
         Modality.__name__,
         ModalityContext.__name__,
         ModalityDataType.__name__,
@@ -140,6 +145,7 @@ def get_config_exports() -> list[str]:
         SeedDatasetColumnConfig.__name__,
         SubcategorySamplerParams.__name__,
         TimeDeltaSamplerParams.__name__,
+        TraceType.__name__,
         UniformDistribution.__name__,
         UniformDistributionParams.__name__,
         UniformSamplerParams.__name__,

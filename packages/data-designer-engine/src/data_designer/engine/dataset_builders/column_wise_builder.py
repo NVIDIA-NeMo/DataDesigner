@@ -97,6 +97,7 @@ class ColumnWiseDatasetBuilder:
         on_batch_complete: Callable[[Path], None] | None = None,
     ) -> Path:
         self._run_model_health_check_if_needed()
+        self._run_mcp_tool_check_if_needed()
         self._write_builder_config()
         generators = self._initialize_generators()
         start_time = time.perf_counter()
@@ -125,6 +126,7 @@ class ColumnWiseDatasetBuilder:
 
     def build_preview(self, *, num_records: int) -> pd.DataFrame:
         self._run_model_health_check_if_needed()
+        self._run_mcp_tool_check_if_needed()
 
         generators = self._initialize_generators()
         group_id = uuid.uuid4().hex
@@ -209,11 +211,21 @@ class ColumnWiseDatasetBuilder:
         df = generator.generate(self.batch_manager.get_current_batch(as_dataframe=True))
         self.batch_manager.update_records(df.to_dict(orient="records"))
 
-    def _run_model_health_check_if_needed(self) -> bool:
+    def _run_model_health_check_if_needed(self) -> None:
         if any(column_type_is_model_generated(config.column_type) for config in self.single_column_configs):
             self._resource_provider.model_registry.run_health_check(
                 list(set(config.model_alias for config in self.llm_generated_column_configs))
             )
+
+    def _run_mcp_tool_check_if_needed(self) -> None:
+        tool_aliases = sorted(
+            {config.tool_alias for config in self.llm_generated_column_configs if getattr(config, "tool_alias", None)}
+        )
+        if not tool_aliases:
+            return
+        if self._resource_provider.mcp_registry is None:
+            raise DatasetGenerationError(f"Tool alias(es) {tool_aliases!r} specified but no MCPRegistry configured.")
+        self._resource_provider.mcp_registry.run_health_check(tool_aliases)
 
     def _fan_out_with_threads(self, generator: ColumnGeneratorWithModelRegistry, max_workers: int) -> None:
         if generator.get_generation_strategy() != GenerationStrategy.CELL_BY_CELL:

@@ -17,6 +17,7 @@ from data_designer.config.default_model_settings import (
     get_providers_with_missing_api_keys,
 )
 from data_designer.config.interface import DataDesignerInterface
+from data_designer.config.mcp import MCPProviderT
 from data_designer.config.models import (
     ModelConfig,
     ModelProvider,
@@ -98,6 +99,9 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             If not provided, will check for an environment variable called DATA_DESIGNER_MANAGED_ASSETS_PATH.
             If the environment variable is not set, will use the default managed assets directory, which
             is defined in `data_designer.config.utils.constants`.
+        mcp_providers: Optional list of MCP provider configurations to enable tool-calling for
+            LLM generation columns. Supports both MCPProvider (remote/SSE) and
+            LocalStdioMCPProvider (local subprocess).
     """
 
     def __init__(
@@ -108,12 +112,14 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         secret_resolver: SecretResolver | None = None,
         seed_readers: list[SeedReader] | None = None,
         managed_assets_path: Path | str | None = None,
+        mcp_providers: list[MCPProviderT] | None = None,
     ):
         self._secret_resolver = secret_resolver or DEFAULT_SECRET_RESOLVER
         self._artifact_path = Path(artifact_path) if artifact_path is not None else Path.cwd() / "artifacts"
         self._run_config = RunConfig()
         self._managed_assets_path = Path(managed_assets_path or MANAGED_ASSETS_PATH)
         self._model_providers = self._resolve_model_providers(model_providers)
+        self._mcp_providers = mcp_providers or []
         self._model_provider_registry = resolve_model_provider_registry(
             self._model_providers, get_default_provider_name()
         )
@@ -382,6 +388,8 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             seed_dataset_source=seed_dataset_source,
             seed_reader_registry=self._seed_reader_registry,
             run_config=self._run_config,
+            mcp_providers=self._mcp_providers,
+            tool_configs=config_builder.tool_configs,
         )
 
     def _get_interface_info(self, model_providers: list[ModelProvider]) -> InterfaceInfo:

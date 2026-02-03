@@ -17,7 +17,7 @@ The `ChatCompletionInferenceParams` class controls how models generate text comp
 | `temperature` | `float` or `Distribution` | No | Controls randomness in generation (0.0 to 2.0). Higher values = more creative/random |
 | `top_p` | `float` or `Distribution` | No | Nucleus sampling parameter (0.0 to 1.0). Controls diversity by filtering low-probability tokens |
 | `max_tokens` | `int` | No | Maximum number of tokens to generate in the response (≥ 1) |
-| `max_parallel_requests` | `int` | No | Maximum concurrent API requests (default: 4, ≥ 1) |
+| `max_parallel_requests` | `int` | No | Maximum concurrent API requests to this model (default: 4, ≥ 1). See [Concurrency Control](#concurrency-control) below. |
 | `timeout` | `int` | No | API request timeout in seconds (≥ 1) |
 | `extra_body` | `dict[str, Any]` | No | Additional parameters to include in the API request body |
 
@@ -114,6 +114,13 @@ inference_params = dd.ChatCompletionInferenceParams(
 )
 ```
 
+## Concurrency Control
+
+The `max_parallel_requests` parameter controls how many concurrent API calls Data Designer makes to a specific model. This directly impacts throughput and should be tuned to match your inference server's capacity.
+
+!!! tip "Performance Tuning"
+    For recommended values by deployment type (NVIDIA API Catalog, vLLM, OpenAI, NIMs) and detailed optimization strategies, see the [Architecture & Performance](../architecture-and-performance.md) guide.
+
 ## Embedding Inference Parameters
 
 The `EmbeddingInferenceParams` class controls how models generate embeddings. This is used when working with embedding models for tasks like semantic search or similarity analysis.
@@ -135,3 +142,4 @@ The `EmbeddingInferenceParams` class controls how models generate embeddings. Th
 - **[Custom Model Settings](custom-model-settings.md)**: Learn how to create custom providers and model configurations
 - **[Model Configurations](model-configs.md)**: Learn about configuring model settings
 - **[Model Providers](model-providers.md)**: Learn about configuring model providers
+- **[Architecture & Performance](../architecture-and-performance.md)**: Understanding separation of concerns and optimizing concurrency
