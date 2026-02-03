@@ -269,7 +269,7 @@ from typing import TYPE_CHECKING
 
 # Runtime imports
 from pathlib import Path
-from data_designer.base import ConfigBase
+from data_designer.config.base import ConfigBase
 
 if TYPE_CHECKING:
     # Type-only imports - only visible to type checkers
