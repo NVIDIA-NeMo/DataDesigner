@@ -39,7 +39,7 @@ LLM-Text columns generate natural language text: product descriptions, customer 
 Use **Jinja2 templating** in prompts to reference other columns. Data Designer automatically manages dependencies and injects the referenced column values into the prompt.
 
 !!! note "Generation Traces"
-    LLM columns can optionally capture a full message trace in a separate `{column_name}__trace` column. Enable traces per-column via `with_trace=True` on the column config, or globally for all columns via `RunConfig(debug_override_save_all_column_traces=True)`. The trace includes the ordered message history for the final generation attempt (system/user/assistant/tool calls/tool results), and may include model reasoning fields when the provider exposes them.
+    LLM columns can optionally capture message traces in a separate `{column_name}__trace` column. Set `with_trace` on the column config to control what's captured: `TraceType.NONE` (default, no trace), `TraceType.LAST_MESSAGE` (final assistant message only), or `TraceType.ALL_MESSAGES` (full conversation history). Override globally via `RunConfig(debug_trace_override=TraceType.ALL_MESSAGES)`. The trace includes the ordered message history for the final generation attempt (system/user/assistant/tool calls/tool results), and may include model reasoning fields when the provider exposes them.
 
 !!! tip "Tool Use in LLM Columns"
     LLM columns can invoke external tools during generation via MCP (Model Context Protocol). Enable tools by setting `tool_alias` to reference a configured `ToolConfig`:
@@ -50,7 +50,7 @@ Use **Jinja2 templating** in prompts to reference other columns. Data Designer a
         model_alias="nvidia-text",
         prompt="Search for information and answer: {{ question }}",
         tool_alias="search-tools",  # References a ToolConfig
-        with_trace=True,  # Capture tool call history
+        with_trace=dd.TraceType.ALL_MESSAGES,  # Capture tool call history
     )
     ```
 
@@ -165,6 +165,6 @@ You read this property for introspection but never set it—always computed from
 
 ### `side_effect_columns`
 
-Computed property listing columns created implicitly alongside the primary column. Currently, only LLM columns produce side effects (trace columns like `{name}__trace` when `with_trace=True` is set on the column or `debug_override_save_all_column_traces` is enabled globally).
+Computed property listing columns created implicitly alongside the primary column. Currently, only LLM columns produce side effects (trace columns like `{name}__trace` when `with_trace` is not `TraceType.NONE` on the column or `debug_trace_override` is set globally).
 
 For detailed information on each column type, refer to the [column configuration code reference](../code_reference/column_configs.md).

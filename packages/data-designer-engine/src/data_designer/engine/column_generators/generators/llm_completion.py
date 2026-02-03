@@ -13,6 +13,7 @@ from data_designer.config.column_configs import (
     LLMTextColumnConfig,
 )
 from data_designer.config.utils.constants import TRACE_COLUMN_POSTFIX
+from data_designer.config.utils.trace_type import TraceType
 from data_designer.engine.column_generators.generators.base import ColumnGeneratorWithModel, GenerationStrategy
 from data_designer.engine.column_generators.utils.prompt_renderer import (
     PromptType,
@@ -88,11 +89,17 @@ class ColumnGeneratorWithModelChatCompletion(ColumnGeneratorWithModel[TaskConfig
         serialized_output = self.response_recipe.serialize_output(response)
         data[self.config.name] = self._process_serialized_output(serialized_output)
 
-        should_save_trace = (
-            self.config.with_trace or self.resource_provider.run_config.debug_override_save_all_column_traces
+        effective_trace_type = (
+            self.resource_provider.run_config.debug_trace_override
+            if self.resource_provider.run_config.debug_trace_override is not None
+            else self.config.with_trace
         )
-        if should_save_trace:
+
+        if effective_trace_type == TraceType.ALL_MESSAGES:
             data[self.config.name + TRACE_COLUMN_POSTFIX] = [message.to_dict() for message in trace]
+        elif effective_trace_type == TraceType.LAST_MESSAGE:
+            last_assistant = next((m for m in reversed(trace) if m.role == "assistant"), None)
+            data[self.config.name + TRACE_COLUMN_POSTFIX] = [last_assistant.to_dict()] if last_assistant else []
 
         return data
 

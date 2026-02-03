@@ -36,11 +36,14 @@ class ChatMessage:
     def to_dict(self) -> dict[str, Any]:
         """Convert the message to a dictionary format for API calls.
 
+        Content is normalized to a list of ChatML-style blocks to keep a
+        consistent schema across traces and API payloads.
+
         Returns:
             A dictionary containing the message fields. Only includes non-empty
             optional fields to keep the output clean.
         """
-        result: dict[str, Any] = {"role": self.role, "content": self.content}
+        result: dict[str, Any] = {"role": self.role, "content": _normalize_content_blocks(self.content)}
         if self.reasoning_content:
             result["reasoning_content"] = self.reasoning_content
         if self.tool_calls:
@@ -99,3 +102,27 @@ def prompt_to_messages(
     if system_prompt:
         return [ChatMessage.as_system(system_prompt), ChatMessage.as_user(user_content)]
     return [ChatMessage.as_user(user_content)]
+
+
+def _normalize_content_blocks(content: Any) -> list[dict[str, Any]]:
+    if isinstance(content, list):
+        return [_normalize_content_block(block) for block in content]
+    if content is None:
+        return []
+    return [_text_block(content)]
+
+
+def _normalize_content_block(block: Any) -> dict[str, Any]:
+    if isinstance(block, dict) and "type" in block:
+        return block
+    return _text_block(block)
+
+
+def _text_block(value: Any) -> dict[str, Any]:
+    if value is None:
+        text_value = ""
+    elif isinstance(value, str):
+        text_value = value
+    else:
+        text_value = str(value)
+    return {"type": "text", "text": text_value}

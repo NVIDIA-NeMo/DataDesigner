@@ -16,6 +16,7 @@ from data_designer.config.sampler_params import SamplerParamsT, SamplerType
 from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.utils.constants import TRACE_COLUMN_POSTFIX
 from data_designer.config.utils.misc import assert_valid_jinja2_template, extract_keywords_from_jinja2_template
+from data_designer.config.utils.trace_type import TraceType
 from data_designer.config.validator_params import ValidatorParamsT, ValidatorType
 
 
@@ -162,10 +163,12 @@ class LLMTextColumnConfig(SingleColumnConfig):
         tool_alias: Optional alias of the tool configuration to use for MCP tool calls.
             Must match a tool alias defined when initializing the DataDesignerConfigBuilder.
             When provided, the model may call permitted tools during generation.
-        with_trace: If True, creates a `{column_name}__trace` column containing the full
-            ordered message history (system/user/assistant/tool) for the generation.
-            Can be overridden globally via `RunConfig.debug_override_save_all_column_traces`.
-            Defaults to False.
+        with_trace: Specifies what trace information to capture in a `{column_name}__trace`
+            column. Options are:
+            - `TraceType.NONE` (default): No trace is captured.
+            - `TraceType.LAST_MESSAGE`: Only the final assistant message is captured.
+            - `TraceType.ALL_MESSAGES`: Full conversation history (system/user/assistant/tool).
+            Can be overridden globally via `RunConfig.debug_trace_override`.
         column_type: Discriminator field, always "llm-text" for this configuration type.
     """
 
@@ -174,7 +177,7 @@ class LLMTextColumnConfig(SingleColumnConfig):
     system_prompt: str | None = None
     multi_modal_context: list[ImageContext] | None = None
     tool_alias: str | None = None
-    with_trace: bool = False
+    with_trace: TraceType = TraceType.NONE
     column_type: Literal["llm-text"] = "llm-text"
 
     @staticmethod
@@ -197,8 +200,8 @@ class LLMTextColumnConfig(SingleColumnConfig):
     def side_effect_columns(self) -> list[str]:
         """Returns the trace column, which may be generated alongside the main column.
 
-        Traces are generated when `with_trace=True` on the column config or
-        when `RunConfig.debug_override_save_all_column_traces=True` globally.
+        Traces are generated when `with_trace` is not `TraceType.NONE` on the column config
+        or when `RunConfig.debug_trace_override` is set globally.
 
         Returns:
             List containing the trace column name.

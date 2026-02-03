@@ -132,7 +132,7 @@ def build_config(model_alias: str, provider_name: str) -> dd.DataDesignerConfigB
             ),
             system_prompt="You must call the get_fact tool before answering. Only use information from tool results.",
             tool_alias="basic-tools",
-            with_trace=True,
+            with_trace=dd.TraceType.ALL_MESSAGES,
         )
     )
 
@@ -163,7 +163,7 @@ def build_config(model_alias: str, provider_name: str) -> dd.DataDesignerConfigB
             ),
             system_prompt="You must call the add_numbers tool to perform the calculation. Report the exact result.",
             tool_alias="basic-tools",
-            with_trace=True,
+            with_trace=dd.TraceType.ALL_MESSAGES,
         )
     )
 
