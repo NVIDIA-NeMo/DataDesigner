@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import functools
 import importlib.metadata
-import json
 import logging
 import time
 import uuid
@@ -118,10 +117,7 @@ class ColumnWiseDatasetBuilder:
             self.batch_manager.finish_batch(on_batch_complete)
         self.batch_manager.finish()
 
-        model_usage_stats = self._resource_provider.model_registry.get_model_usage_stats(
-            time.perf_counter() - start_time
-        )
-        logger.info(f"📊 Model usage summary:\n{json.dumps(model_usage_stats, indent=4)}")
+        self._resource_provider.model_registry.log_model_usage(time.perf_counter() - start_time)
 
         return self.artifact_storage.final_dataset_path
 
@@ -137,10 +133,7 @@ class ColumnWiseDatasetBuilder:
         dataset = self.batch_manager.get_current_batch(as_dataframe=True)
         self.batch_manager.reset()
 
-        model_usage_stats = self._resource_provider.model_registry.get_model_usage_stats(
-            time.perf_counter() - start_time
-        )
-        logger.info(f"📊 Model usage summary:\n{json.dumps(model_usage_stats, indent=4)}")
+        self._resource_provider.model_registry.log_model_usage(time.perf_counter() - start_time)
 
         return dataset
 
@@ -251,7 +244,7 @@ class ColumnWiseDatasetBuilder:
             tool_usage_snapshot = self._resource_provider.model_registry.get_tool_usage_snapshot(
                 model_alias=generator.config.model_alias
             )
-            logger.info("  |---- 🛠️ Tool calling enabled")
+            logger.info("  |-------- 🛠️ Tool calling enabled")
 
         settings = self._resource_provider.run_config
         with ConcurrentThreadExecutor(
@@ -274,7 +267,7 @@ class ColumnWiseDatasetBuilder:
             )
             if tool_usage_delta.generations_with_tools > 0:
                 logger.info(
-                    f"  |---- 🛠️ Mean tool calls per generation: {tool_usage_delta.calls_per_generation_mean:.1f}"
+                    f"  |-------- 🛠️ Mean tool calls per generation: {tool_usage_delta.calls_per_generation_mean:.1f}"
                 )
 
         if len(self._records_to_drop) > 0:

@@ -75,6 +75,55 @@ class ModelRegistry:
             if model.usage_stats.has_usage
         }
 
+    def log_model_usage(self, total_time_elapsed: float) -> None:
+        """Log a formatted summary of model usage statistics."""
+        model_usage_stats = self.get_model_usage_stats(total_time_elapsed)
+
+        logger.info("📊 Model usage summary:")
+        if not model_usage_stats:
+            logger.info("  |-- no model usage recorded")
+            return
+
+        for model_name in sorted(model_usage_stats):
+            stats = model_usage_stats[model_name]
+            logger.info(f"  |-------- {model_name}")
+
+            token_usage = stats.get("token_usage", {})
+            input_tokens = int(token_usage.get("input_tokens", 0))
+            output_tokens = int(token_usage.get("output_tokens", 0))
+            total_tokens = int(token_usage.get("total_tokens", input_tokens + output_tokens))
+            tokens_per_second = int(stats.get("tokens_per_second", 0))
+            logger.info(
+                f"  |-- tokens: input={input_tokens}, output={output_tokens}, total={total_tokens}, tps={tokens_per_second}"
+            )
+
+            request_usage = stats.get("request_usage", {})
+            successful_requests = int(request_usage.get("successful_requests", 0))
+            failed_requests = int(request_usage.get("failed_requests", 0))
+            total_requests = int(request_usage.get("total_requests", successful_requests + failed_requests))
+            requests_per_minute = int(stats.get("requests_per_minute", 0))
+            logger.info(
+                "  |-- requests: "
+                f"success={successful_requests}, failed={failed_requests}, total={total_requests}, "
+                f"rpm={requests_per_minute}"
+            )
+
+            tool_usage = stats.get("tool_usage")
+            if tool_usage:
+                total_tool_calls = int(tool_usage.get("total_tool_calls", 0))
+                total_tool_call_turns = int(tool_usage.get("total_tool_call_turns", 0))
+                generations_with_tools = int(tool_usage.get("generations_with_tools", 0))
+                calls_mean = float(tool_usage.get("calls_per_generation_mean", 0.0))
+                calls_stddev = float(tool_usage.get("calls_per_generation_stddev", 0.0))
+                turns_mean = float(tool_usage.get("turns_per_generation_mean", 0.0))
+                turns_stddev = float(tool_usage.get("turns_per_generation_stddev", 0.0))
+                logger.info(
+                    "  |-- tools: "
+                    f"calls={total_tool_calls}, turns={total_tool_call_turns}, generations={generations_with_tools}, "
+                    f"calls/gen={calls_mean:.1f} +/- {calls_stddev:.1f}, "
+                    f"turns/gen={turns_mean:.1f} +/- {turns_stddev:.1f}"
+                )
+
     def get_model_usage_snapshot(self) -> dict[str, ModelUsageStats]:
         return {
             model.model_name: model.usage_stats.model_copy(deep=True)
