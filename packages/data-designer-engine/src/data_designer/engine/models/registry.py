@@ -110,8 +110,7 @@ class ModelRegistry:
                 f"rpm={requests_per_minute}"
             )
 
-            tool_usage = stats.get("tool_usage")
-            if tool_usage:
+            if tool_usage := stats.get("tool_usage"):
                 total_tool_calls = tool_usage["total_tool_calls"]
                 total_tool_call_turns = tool_usage["total_tool_call_turns"]
                 generations_with_tools = tool_usage["generations_with_tools"]
