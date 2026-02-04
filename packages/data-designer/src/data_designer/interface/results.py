@@ -12,6 +12,7 @@ from data_designer.config.dataset_metadata import DatasetMetadata
 from data_designer.config.utils.visualization import WithRecordSamplerMixin
 from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
+from data_designer.integrations.huggingface.client import HuggingFaceHubClient
 from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
@@ -96,3 +97,49 @@ class DatasetCreationResults(WithRecordSamplerMixin):
         if not self.artifact_storage.processors_outputs_path.exists():
             raise ArtifactStorageError(f"Processor {processor_name} has no artifacts.")
         return self.artifact_storage.processors_outputs_path / processor_name
+
+    def push_to_hub(
+        self,
+        repo_id: str,
+        description: str,
+        *,
+        token: str | None = None,
+        private: bool = False,
+        tags: list[str] | None = None,
+    ) -> str:
+        """Push dataset to HuggingFace Hub.
+
+        Uploads all artifacts including:
+        - Main parquet batch files (data subset)
+        - Processor output batch files ({processor_name} subsets)
+        - Configuration (builder_config.json)
+        - Metadata (metadata.json)
+        - Auto-generated dataset card (README.md)
+
+        Args:
+            repo_id: HuggingFace repo ID (e.g., "username/my-dataset")
+            description: Custom description text for the dataset card.
+                Appears after the title.
+            token: HuggingFace API token. If None, the token is automatically
+                resolved from HF_TOKEN environment variable or cached credentials
+                from `hf auth login`.
+            private: Create private repo
+            tags: Additional custom tags for the dataset.
+
+        Returns:
+            URL to the uploaded dataset
+
+        Example:
+            >>> results = data_designer.create(config, num_records=1000)
+            >>> description = "This dataset contains synthetic conversations for training chatbots."
+            >>> results.push_to_hub("username/my-synthetic-dataset", description, tags=["chatbot", "conversation"])
+            'https://huggingface.co/datasets/username/my-synthetic-dataset'
+        """
+        client = HuggingFaceHubClient(token=token)
+        return client.upload_dataset(
+            repo_id=repo_id,
+            base_dataset_path=self.artifact_storage.base_dataset_path,
+            private=private,
+            description=description,
+            tags=tags,
+        )
