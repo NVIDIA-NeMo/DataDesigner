@@ -303,7 +303,11 @@ class ModelFacade:
 
         if not skip_usage_tracking and total_tool_calls > 0:
             self._usage_stats.extend(
-                tool_usage=ToolUsageStats(total_tool_calls=total_tool_calls, total_tool_call_turns=tool_call_turns)
+                tool_usage=ToolUsageStats(
+                    total_tool_calls=total_tool_calls,
+                    total_tool_call_turns=tool_call_turns,
+                    generations_with_tools=1,
+                )
             )
 
         return output_obj, messages

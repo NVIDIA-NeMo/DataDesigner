@@ -366,6 +366,54 @@ def test_generate_with_tool_alias_multiple_turns(
     assert call_count == 3  # 2 tool turns + 1 final
 
 
+def test_generate_with_tools_tracks_usage_stats(
+    stub_model_configs: Any,
+    stub_secrets_resolver: Any,
+    stub_model_provider_registry: Any,
+) -> None:
+    """Tool usage stats are properly tracked with generations_with_tools incremented."""
+    tool_call_1 = {"id": "call-1", "type": "function", "function": {"name": "lookup", "arguments": '{"query": "foo"}'}}
+    tool_call_2 = {"id": "call-2", "type": "function", "function": {"name": "search", "arguments": '{"term": "bar"}'}}
+
+    responses = [
+        StubResponse(StubMessage(content="First lookup", tool_calls=[tool_call_1])),
+        StubResponse(StubMessage(content="Second search", tool_calls=[tool_call_2])),
+        StubResponse(StubMessage(content="final result")),
+    ]
+
+    facade = StubMCPFacade(max_tool_call_turns=5)
+    registry = StubMCPRegistry(facade)
+
+    def _completion(self: Any, messages: list[ChatMessage], **kwargs: Any) -> StubResponse:
+        return responses.pop(0)
+
+    model = ModelFacade(
+        model_config=stub_model_configs[0],
+        secret_resolver=stub_secrets_resolver,
+        model_provider_registry=stub_model_provider_registry,
+        mcp_registry=registry,
+    )
+
+    # Verify initial state
+    assert model.usage_stats.tool_usage.total_tool_calls == 0
+    assert model.usage_stats.tool_usage.total_tool_call_turns == 0
+    assert model.usage_stats.tool_usage.generations_with_tools == 0
+
+    with patch.object(ModelFacade, "completion", new=_completion):
+        result, _ = model.generate(prompt="question", parser=lambda x: x, tool_alias="tools")
+
+    assert result == "final result"
+
+    # Verify tool usage stats are tracked correctly
+    assert model.usage_stats.tool_usage.total_tool_calls == 2  # 2 tool calls total
+    assert model.usage_stats.tool_usage.total_tool_call_turns == 2  # 2 turns with tool calls
+    assert model.usage_stats.tool_usage.generations_with_tools == 1  # 1 generation
+
+    # Verify computed fields work correctly (no division by zero)
+    assert model.usage_stats.tool_usage.calls_per_generation_mean == 2.0
+    assert model.usage_stats.tool_usage.turns_per_generation_mean == 2.0
+
+
 def test_generate_tool_turn_limit_triggers_refusal(
     stub_model_configs: Any,
     stub_secrets_resolver: Any,
