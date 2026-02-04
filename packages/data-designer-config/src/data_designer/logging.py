@@ -172,6 +172,7 @@ def _make_stream_formatter() -> logging.Formatter:
 
 _DEFAULT_NOISY_LOGGERS = ["httpx", "matplotlib", "mcp"]
 
+LOG_INDENT = "  |-- "
 
 _PROGRESS_STYLES: list[list[str]] = [
     ["🌑", "🌘", "🌗", "🌖", "🌕"],  # Moon phases

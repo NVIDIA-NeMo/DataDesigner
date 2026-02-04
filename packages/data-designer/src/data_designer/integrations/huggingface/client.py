@@ -21,7 +21,7 @@ from data_designer.engine.dataset_builders.artifact_storage import (
 )
 from data_designer.errors import DataDesignerError
 from data_designer.integrations.huggingface.dataset_card import DataDesignerDatasetCard
-from data_designer.logging import RandomEmoji
+from data_designer.logging import LOG_INDENT, RandomEmoji
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +89,7 @@ class HuggingFaceHubClient:
         self._validate_dataset_path(base_dataset_path=base_dataset_path)
         self._create_or_get_repo(repo_id=repo_id, private=private)
 
-        logger.info(f"  |-- {RandomEmoji.data()} Uploading dataset card...")
+        logger.info(f"{LOG_INDENT}{RandomEmoji.data()} Uploading dataset card...")
         try:
             self._upload_dataset_card(
                 repo_id=repo_id,
@@ -112,7 +112,7 @@ class HuggingFaceHubClient:
         )
 
         url = f"{HUGGINGFACE_HUB_DATASET_URL_PREFIX}{repo_id}"
-        logger.info(f"  |-- {RandomEmoji.success()} Dataset uploaded successfully! View at: {url}")
+        logger.info(f"{LOG_INDENT}{RandomEmoji.success()} Dataset uploaded successfully! View at: {url}")
         return url
 
     def _create_or_get_repo(self, repo_id: str, *, private: bool = False) -> None:
@@ -125,13 +125,13 @@ class HuggingFaceHubClient:
         Raises:
             HuggingFaceUploadError: If repository creation fails
         """
-        logger.info(f"  |-- {RandomEmoji.working()} Checking if repository exists...")
+        logger.info(f"{LOG_INDENT}{RandomEmoji.working()} Checking if repository exists...")
         try:
             repo_exists = self._api.repo_exists(repo_id=repo_id, repo_type="dataset")
             if repo_exists:
-                logger.info(f"  |-- {RandomEmoji.success()} Repository already exists, updating content...")
+                logger.info(f"{LOG_INDENT}{RandomEmoji.success()} Repository already exists, updating content...")
             else:
-                logger.info(f"  |-- {RandomEmoji.working()} Creating new repository...")
+                logger.info(f"{LOG_INDENT}{RandomEmoji.working()} Creating new repository...")
 
             self._api.create_repo(
                 repo_id=repo_id,
@@ -166,7 +166,7 @@ class HuggingFaceHubClient:
         Raises:
             HuggingFaceUploadError: If upload fails
         """
-        logger.info(f"  |-- {RandomEmoji.loading()} Uploading main dataset files...")
+        logger.info(f"{LOG_INDENT}{RandomEmoji.loading()} Uploading main dataset files...")
         try:
             self._api.upload_folder(
                 repo_id=repo_id,
@@ -195,7 +195,9 @@ class HuggingFaceHubClient:
         if not processor_dirs:
             return
 
-        logger.info(f"  |-- {RandomEmoji.loading()} Uploading processor outputs ({len(processor_dirs)} processors)...")
+        logger.info(
+            f"{LOG_INDENT}{RandomEmoji.loading()} Uploading processor outputs ({len(processor_dirs)} processors)..."
+        )
         for processor_dir in processor_dirs:
             try:
                 self._api.upload_folder(
@@ -221,7 +223,7 @@ class HuggingFaceHubClient:
         Raises:
             HuggingFaceUploadError: If upload fails
         """
-        logger.info(f"  |-- {RandomEmoji.loading()} Uploading configuration files...")
+        logger.info(f"{LOG_INDENT}{RandomEmoji.loading()} Uploading configuration files...")
 
         if builder_config_path.exists():
             try:

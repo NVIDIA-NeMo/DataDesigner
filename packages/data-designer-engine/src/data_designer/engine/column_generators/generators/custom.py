@@ -13,6 +13,7 @@ from data_designer.config.column_configs import CustomColumnConfig, GenerationSt
 from data_designer.engine.column_generators.generators.base import ColumnGenerator
 from data_designer.engine.column_generators.utils.errors import CustomColumnGenerationError
 from data_designer.lazy_heavy_imports import pd
+from data_designer.logging import LOG_INDENT
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -184,12 +185,12 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
 
     def log_pre_generation(self) -> None:
         logger.info(f"{self.config.get_column_emoji()} Custom column config for column '{self.config.name}'")
-        logger.info(f"  |-- generator_function: {self.config.generator_function.__name__!r}")
-        logger.info(f"  |-- generation_strategy: {self.config.generation_strategy!r}")
-        logger.info(f"  |-- required_columns: {self.config.required_columns}")
+        logger.info(f"{LOG_INDENT}generator_function: {self.config.generator_function.__name__!r}")
+        logger.info(f"{LOG_INDENT}generation_strategy: {self.config.generation_strategy!r}")
+        logger.info(f"{LOG_INDENT}required_columns: {self.config.required_columns}")
         if self.config.side_effect_columns:
-            logger.info(f"  |-- side_effect_columns: {self.config.side_effect_columns}")
+            logger.info(f"{LOG_INDENT}side_effect_columns: {self.config.side_effect_columns}")
         if self.config.model_aliases:
-            logger.info(f"  |-- model_aliases: {self.config.model_aliases}")
+            logger.info(f"{LOG_INDENT}model_aliases: {self.config.model_aliases}")
         if self.config.generator_params:
-            logger.info(f"  |-- generator_params: {self.config.generator_params}")
+            logger.info(f"{LOG_INDENT}generator_params: {self.config.generator_params}")

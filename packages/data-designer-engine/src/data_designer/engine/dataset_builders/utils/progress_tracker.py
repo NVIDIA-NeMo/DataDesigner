@@ -7,7 +7,7 @@ import logging
 import time
 from threading import Lock
 
-from data_designer.logging import RandomEmoji
+from data_designer.logging import LOG_INDENT, RandomEmoji
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +110,8 @@ class ProgressTracker:
         percent = (self.completed / self.total_records) * 100 if self.total_records else 100.0
 
         logger.info(
-            "  |-- %s %s progress: %d/%d (%.0f%%) complete, %d ok, %d failed, %.2f rec/s, eta %s",
+            "%s%s %s progress: %d/%d (%.0f%%) complete, %d ok, %d failed, %.2f rec/s, eta %s",
+            LOG_INDENT,
             self._random_emoji.progress(percent),
             self.label,
             self.completed,

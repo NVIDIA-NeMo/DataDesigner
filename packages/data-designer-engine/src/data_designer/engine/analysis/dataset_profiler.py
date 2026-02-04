@@ -22,6 +22,7 @@ from data_designer.engine.dataset_builders.multi_column_configs import DatasetBu
 from data_designer.engine.registry.data_designer_registry import DataDesignerRegistry
 from data_designer.engine.resources.resource_provider import ResourceProvider
 from data_designer.lazy_heavy_imports import pa, pd
+from data_designer.logging import LOG_INDENT
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -73,7 +74,7 @@ class DataDesignerDatasetProfiler:
 
         column_statistics = []
         for c in self.config.column_configs:
-            logger.info(f"  |-- {c.get_column_emoji()} column: '{c.name}'")
+            logger.info(f"{LOG_INDENT}{c.get_column_emoji()} column: '{c.name}'")
             column_statistics.append(
                 get_column_statistics_calculator(c.column_type)(
                     column_config_with_df=ColumnConfigWithDataFrame(column_config=c, df=dataset)
@@ -116,10 +117,10 @@ class DataDesignerDatasetProfiler:
                     # Make sure column names are clear in the error message
                     error_msg = error_msg.replace(col, f"'{col}'")
                 logger.warning("⚠️ Unable to convert the dataset to a PyArrow backend")
-                logger.warning(f"  |-- Conversion Error Message: {error_msg}")
-                logger.warning("  |-- This is often due to at least one column having mixed data types")
+                logger.warning(f"{LOG_INDENT}Conversion Error Message: {error_msg}")
+                logger.warning(f"{LOG_INDENT}This is often due to at least one column having mixed data types")
                 logger.warning(
-                    "  |-- Note: Reported data types will be inferred from the first non-null value of each column"
+                    f"{LOG_INDENT}Note: Reported data types will be inferred from the first non-null value of each column"
                 )
         return dataset
 

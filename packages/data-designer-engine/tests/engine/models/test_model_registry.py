@@ -401,7 +401,7 @@ def test_log_model_usage_single_model(stub_model_registry: ModelRegistry) -> Non
 
         calls = [call[0][0] for call in mock_logger.info.call_args_list]
         assert calls[0] == "📊 Model usage summary:"
-        assert calls[1] == "  |-------- stub-model-text"
+        assert calls[1] == "  |-- model: stub-model-text"
         assert calls[2] == "  |-- tokens: input=1000, output=500, total=1500, tps=150"
         assert calls[3] == "  |-- requests: success=10, failed=2, total=12, rpm=72"
 
@@ -429,13 +429,14 @@ def test_log_model_usage_multiple_models(stub_model_registry: ModelRegistry) -> 
         assert calls[0] == "📊 Model usage summary:"
 
         # Models should be sorted alphabetically: stub-model-reasoning before stub-model-text
-        assert calls[1] == "  |-------- stub-model-reasoning"
+        assert calls[1] == "  |-- model: stub-model-reasoning"
         assert calls[2] == "  |-- tokens: input=2000, output=1000, total=3000, tps=300"
         assert calls[3] == "  |-- requests: success=20, failed=5, total=25, rpm=150"
+        assert calls[4] == "  |--"
 
-        assert calls[4] == "  |-------- stub-model-text"
-        assert calls[5] == "  |-- tokens: input=1000, output=500, total=1500, tps=150"
-        assert calls[6] == "  |-- requests: success=10, failed=0, total=10, rpm=60"
+        assert calls[5] == "  |-- model: stub-model-text"
+        assert calls[6] == "  |-- tokens: input=1000, output=500, total=1500, tps=150"
+        assert calls[7] == "  |-- requests: success=10, failed=0, total=10, rpm=60"
 
 
 def test_log_model_usage_with_tool_usage(stub_model_registry: ModelRegistry) -> None:
@@ -454,7 +455,7 @@ def test_log_model_usage_with_tool_usage(stub_model_registry: ModelRegistry) -> 
 
         calls = [call[0][0] for call in mock_logger.info.call_args_list]
         assert calls[0] == "📊 Model usage summary:"
-        assert calls[1] == "  |-------- stub-model-text"
+        assert calls[1] == "  |-- model: stub-model-text"
         assert calls[2] == "  |-- tokens: input=1000, output=500, total=1500, tps=150"
         assert calls[3] == "  |-- requests: success=10, failed=0, total=10, rpm=60"
         assert calls[4] == (
@@ -481,7 +482,7 @@ def test_log_model_usage_models_without_usage_excluded(stub_model_registry: Mode
         # Only reasoning model should appear
         assert len(calls) == 4
         assert calls[0] == "📊 Model usage summary:"
-        assert calls[1] == "  |-------- stub-model-reasoning"
+        assert calls[1] == "  |-- model: stub-model-reasoning"
         assert "stub-model-text" not in str(calls)
 
 

@@ -17,6 +17,7 @@ from data_designer.cli.ui import (
     print_text,
 )
 from data_designer.config.utils.constants import DATA_DESIGNER_HOME
+from data_designer.logging import LOG_INDENT
 
 
 def reset_command() -> None:
@@ -45,10 +46,10 @@ def reset_command() -> None:
     console.print()
 
     if provider_exists:
-        print_text(f"  |-- ⚙️  Model providers: {provider_repo.config_file}")
+        print_text(f"{LOG_INDENT}⚙️  Model providers: {provider_repo.config_file}")
 
     if model_exists:
-        print_text(f"  |-- 🤖 Model configs: {model_repo.config_file}")
+        print_text(f"{LOG_INDENT}🤖 Model configs: {model_repo.config_file}")
 
     console.print()
     console.print()
@@ -73,7 +74,7 @@ def reset_command() -> None:
                 print_error(f"Failed to delete model providers configuration: {e}")
                 failed_count += 1
         else:
-            print_text("  |-- Skipped model providers configuration")
+            print_text(f"{LOG_INDENT}Skipped model providers configuration")
             skipped_count += 1
         console.print()
 
