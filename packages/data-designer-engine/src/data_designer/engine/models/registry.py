@@ -90,20 +90,20 @@ class ModelRegistry:
             stats = model_usage_stats[model_name]
             logger.info(f"{LOG_INDENT}model: {model_name}")
 
-            token_usage = stats.get("token_usage", {})
-            input_tokens = int(token_usage.get("input_tokens", 0))
-            output_tokens = int(token_usage.get("output_tokens", 0))
-            total_tokens = int(token_usage.get("total_tokens", input_tokens + output_tokens))
-            tokens_per_second = int(stats.get("tokens_per_second", 0))
+            token_usage = stats["token_usage"]
+            input_tokens = token_usage["input_tokens"]
+            output_tokens = token_usage["output_tokens"]
+            total_tokens = token_usage["total_tokens"]
+            tokens_per_second = stats["tokens_per_second"]
             logger.info(
                 f"{LOG_INDENT}tokens: input={input_tokens}, output={output_tokens}, total={total_tokens}, tps={tokens_per_second}"
             )
 
-            request_usage = stats.get("request_usage", {})
-            successful_requests = int(request_usage.get("successful_requests", 0))
-            failed_requests = int(request_usage.get("failed_requests", 0))
-            total_requests = int(request_usage.get("total_requests", successful_requests + failed_requests))
-            requests_per_minute = int(stats.get("requests_per_minute", 0))
+            request_usage = stats["request_usage"]
+            successful_requests = request_usage["successful_requests"]
+            failed_requests = request_usage["failed_requests"]
+            total_requests = request_usage["total_requests"]
+            requests_per_minute = stats["requests_per_minute"]
             logger.info(
                 f"{LOG_INDENT}requests: "
                 f"success={successful_requests}, failed={failed_requests}, total={total_requests}, "
@@ -112,13 +112,13 @@ class ModelRegistry:
 
             tool_usage = stats.get("tool_usage")
             if tool_usage:
-                total_tool_calls = int(tool_usage.get("total_tool_calls", 0))
-                total_tool_call_turns = int(tool_usage.get("total_tool_call_turns", 0))
-                generations_with_tools = int(tool_usage.get("generations_with_tools", 0))
-                calls_mean = float(tool_usage.get("calls_per_generation_mean", 0.0))
-                calls_stddev = float(tool_usage.get("calls_per_generation_stddev", 0.0))
-                turns_mean = float(tool_usage.get("turns_per_generation_mean", 0.0))
-                turns_stddev = float(tool_usage.get("turns_per_generation_stddev", 0.0))
+                total_tool_calls = tool_usage["total_tool_calls"]
+                total_tool_call_turns = tool_usage["total_tool_call_turns"]
+                generations_with_tools = tool_usage["generations_with_tools"]
+                calls_mean = tool_usage["calls_per_generation_mean"]
+                calls_stddev = tool_usage["calls_per_generation_stddev"]
+                turns_mean = tool_usage["turns_per_generation_mean"]
+                turns_stddev = tool_usage["turns_per_generation_stddev"]
                 logger.info(
                     f"{LOG_INDENT}tools: "
                     f"calls={total_tool_calls}, turns={total_tool_call_turns}, generations={generations_with_tools}, "
