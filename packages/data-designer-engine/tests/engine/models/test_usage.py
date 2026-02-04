@@ -141,6 +141,49 @@ def test_tool_usage_stats_mixed_zero_and_nonzero_generations() -> None:
     assert tool_usage.turns_per_generation_stddev == 1.0
 
 
+def test_tool_usage_stats_merge() -> None:
+    """Test that merging two ToolUsageStats objects preserves stddev accuracy."""
+    # Create first stats with varying values
+    stats1 = ToolUsageStats()
+    stats1.extend(tool_calls=2, tool_call_turns=1)
+    stats1.extend(tool_calls=4, tool_call_turns=3)
+
+    # Create second stats with varying values
+    stats2 = ToolUsageStats()
+    stats2.extend(tool_calls=6, tool_call_turns=2)
+
+    # Merge stats2 into stats1
+    stats1.merge(stats2)
+
+    # Should have same values as if all three extends were on one object
+    assert stats1.total_tool_calls == 12
+    assert stats1.total_tool_call_turns == 6
+    assert stats1.generations_with_tools == 3
+
+    # Mean calculations should be same as test_tool_usage_stats_multiple_generations_varying_values
+    assert stats1.calls_per_generation_mean == 4.0
+    assert stats1.turns_per_generation_mean == 2.0
+
+    # Stddev should be same as test_tool_usage_stats_multiple_generations_varying_values
+    assert stats1.calls_per_generation_stddev == pytest.approx(1.6329931618554521, rel=1e-6)
+    assert stats1.turns_per_generation_stddev == pytest.approx(0.816496580927726, rel=1e-6)
+
+
+def test_tool_usage_stats_merge_empty() -> None:
+    """Test merging an empty ToolUsageStats doesn't change values."""
+    stats1 = ToolUsageStats()
+    stats1.extend(tool_calls=4, tool_call_turns=2)
+
+    stats2 = ToolUsageStats()
+    stats1.merge(stats2)
+
+    assert stats1.total_tool_calls == 4
+    assert stats1.total_tool_call_turns == 2
+    assert stats1.generations_with_tools == 1
+    assert stats1.calls_per_generation_mean == 4.0
+    assert stats1.turns_per_generation_mean == 2.0
+
+
 def test_model_usage_stats() -> None:
     model_usage_stats = ModelUsageStats()
     assert model_usage_stats.token_usage.input_tokens == 0
@@ -174,3 +217,27 @@ def test_model_usage_stats() -> None:
         "tokens_per_second": 15,
         "requests_per_minute": 90,
     }
+
+
+def test_model_usage_stats_extend_preserves_tool_usage_stddev() -> None:
+    """Test that ModelUsageStats.extend properly preserves tool usage stddev accuracy."""
+    # Create first model stats with tool usage
+    stats1 = ModelUsageStats()
+    stats1.tool_usage.extend(tool_calls=2, tool_call_turns=1)
+    stats1.tool_usage.extend(tool_calls=4, tool_call_turns=3)
+
+    # Create second model stats with tool usage
+    stats2 = ModelUsageStats()
+    stats2.tool_usage.extend(tool_calls=6, tool_call_turns=2)
+
+    # Extend stats1 with stats2
+    stats1.extend(tool_usage=stats2.tool_usage)
+
+    # Should have same results as merging directly
+    assert stats1.tool_usage.total_tool_calls == 12
+    assert stats1.tool_usage.total_tool_call_turns == 6
+    assert stats1.tool_usage.generations_with_tools == 3
+    assert stats1.tool_usage.calls_per_generation_mean == 4.0
+    assert stats1.tool_usage.turns_per_generation_mean == 2.0
+    assert stats1.tool_usage.calls_per_generation_stddev == pytest.approx(1.6329931618554521, rel=1e-6)
+    assert stats1.tool_usage.turns_per_generation_stddev == pytest.approx(0.816496580927726, rel=1e-6)

@@ -84,12 +84,22 @@ class ToolUsageStats(BaseModel):
         return self.total_tool_calls > 0
 
     def extend(self, *, tool_calls: int, tool_call_turns: int) -> None:
+        """Extend stats with a single generation's tool usage."""
         self.total_tool_calls += tool_calls
         self.total_tool_call_turns += tool_call_turns
         if tool_call_turns > 0:
             self.generations_with_tools += 1
             self._sum_of_squares_turns += tool_call_turns**2
             self._sum_of_squares_calls += tool_calls**2
+
+    def merge(self, other: ToolUsageStats) -> ToolUsageStats:
+        """Merge another ToolUsageStats object, preserving stddev accuracy."""
+        self.total_tool_calls += other.total_tool_calls
+        self.total_tool_call_turns += other.total_tool_call_turns
+        self.generations_with_tools += other.generations_with_tools
+        self._sum_of_squares_turns += other._sum_of_squares_turns
+        self._sum_of_squares_calls += other._sum_of_squares_calls
+        return self
 
 
 class ModelUsageStats(BaseModel):
@@ -115,9 +125,7 @@ class ModelUsageStats(BaseModel):
                 successful_requests=request_usage.successful_requests, failed_requests=request_usage.failed_requests
             )
         if tool_usage is not None:
-            self.tool_usage.extend(
-                tool_calls=tool_usage.total_tool_calls, tool_call_turns=tool_usage.total_tool_call_turns
-            )
+            self.tool_usage.merge(tool_usage)
 
     def get_usage_stats(self, *, total_time_elapsed: float) -> dict:
         exclude = {"tool_usage"} if not self.tool_usage.has_usage else None
