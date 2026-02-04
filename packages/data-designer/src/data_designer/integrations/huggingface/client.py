@@ -141,7 +141,7 @@ class HuggingFaceHubClient:
                 raise HuggingFaceHubClientUploadError(
                     "Authentication failed. Please provide a valid Hugging Face token. "
                     "You can set it via the token parameter or HF_TOKEN environment variable, "
-                    "or run 'huggingface-cli login'."
+                    "or run 'hf auth login'."
                 ) from e
             elif e.response.status_code == 403:
                 raise HuggingFaceHubClientUploadError(
