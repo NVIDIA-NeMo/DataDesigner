@@ -480,7 +480,14 @@ class EmbeddingColumnConfig(SingleColumnConfig):
 class ImageGenerationColumnConfig(SingleColumnConfig):
     """Configuration for image generation columns.
 
-    Image columns generate images using a specified model.
+    Image columns generate images using either autoregressive or diffusion models.
+    The API used is automatically determined by the model's inference parameters:
+
+    - **Autoregressive models** (ChatCompletionImageInferenceParams):
+      GPT-5, gpt-image-*, Gemini image generation models via chat completions API
+
+    - **Diffusion models** (DiffusionImageInferenceParams):
+      DALL-E, Imagen, Stable Diffusion via image_generation API
 
     Attributes:
         column_type: Discriminator field, always "image-generation" for this configuration type.
@@ -505,7 +512,7 @@ class ImageGenerationColumnConfig(SingleColumnConfig):
         Returns:
             List of unique column names referenced in Jinja2 templates.
         """
-        return list(extract_keywords_from_jinja2_template(self.expr))
+        return list(extract_keywords_from_jinja2_template(self.prompt))
 
     @model_validator(mode="after")
     def assert_prompt_valid_jinja(self) -> Self:

@@ -156,27 +156,113 @@ class ModelFacade:
                 self._track_usage_from_embedding(response)
 
     @catch_llm_exceptions
-    def generate_image(
-        self, prompt: str, skip_usage_tracking: bool = False, **kwargs
-    ) -> litellm.types.utils.ImageResponse:
+    def generate_image(self, prompt: str, skip_usage_tracking: bool = False, **kwargs) -> str:
+        """Generate image using either autoregressive or diffusion models.
+
+        Automatically detects the appropriate API based on the model's generation_type:
+        - CHAT_COMPLETION_IMAGE → chat/completions API (GPT-5, gpt-image-*, Gemini)
+        - DIFFUSION_IMAGE → image_generation API (DALL-E, Imagen, Stable Diffusion)
+
+        Args:
+            prompt: The prompt for image generation.
+            skip_usage_tracking: Whether to skip usage tracking. Default: False.
+            **kwargs: Additional arguments to pass to the model.
+
+        Returns:
+            Base64-encoded image data (without data URI prefix for autoregressive models).
+            For diffusion models: URL string or base64 data depending on output_format.
+        """
+        from data_designer.config.models import GenerationType
+
         logger.debug(
             f"Generating image with model {self.model_name!r}...",
             extra={"model": self.model_name, "prompt": prompt},
         )
+
+        # Determine which API to use based on generation_type
+        gen_type = self.model_generation_type
+
+        if gen_type == GenerationType.DIFFUSION_IMAGE:
+            return self._generate_image_diffusion(prompt, skip_usage_tracking, **kwargs)
+        else:
+            # Default to chat-completion (CHAT_COMPLETION_IMAGE or backward compatibility)
+            return self._generate_image_chat_completion(prompt, skip_usage_tracking, **kwargs)
+
+    def _generate_image_chat_completion(self, prompt: str, skip_usage_tracking: bool = False, **kwargs) -> str:
+        """Generate image using autoregressive model via chat completions API."""
+        kwargs = self.consolidate_kwargs(**kwargs)
+
+        # Build messages for image generation
+        messages = [ChatMessage.as_user(content=prompt)]
+
+        response = None
+        try:
+            response = self.completion(
+                messages=messages,
+                skip_usage_tracking=skip_usage_tracking,
+                **kwargs,
+            )
+            logger.debug(
+                f"Received image from autoregressive model {self.model_name!r}",
+                extra={"model": self.model_name, "response": response},
+            )
+
+            # Check if response has images attribute (some models return images here)
+            if hasattr(response.choices[0].message, "images") and response.choices[0].message.images:
+                # Extract base64 from first image
+                first_image = response.choices[0].message.images[0]
+                if isinstance(first_image, dict) and "image_url" in first_image:
+                    image_url = first_image["image_url"]
+                    if isinstance(image_url, dict) and "url" in image_url:
+                        # Extract base64 data from data URL
+                        url = image_url["url"]
+                        if url.startswith("data:image/"):
+                            # Remove data URI prefix to get pure base64
+                            return url.split(",", 1)[1] if "," in url else url
+                        return url
+                    elif isinstance(image_url, str):
+                        if image_url.startswith("data:image/"):
+                            return image_url.split(",", 1)[1] if "," in image_url else image_url
+                        return image_url
+                return str(first_image)
+
+            # If no images attribute, check content for base64 or image data
+            content = response.choices[0].message.content or ""
+            if content.startswith("data:image/"):
+                # Remove data URI prefix
+                return content.split(",", 1)[1] if "," in content else content
+
+            # Return content as-is (might be base64 or other format)
+            return content
+
+        except Exception as e:
+            raise e
+
+    def _generate_image_diffusion(self, prompt: str, skip_usage_tracking: bool = False, **kwargs) -> str:
+        """Generate image using diffusion model via image_generation API."""
+        from data_designer.config.models import ModalityDataType
+
         kwargs = self.consolidate_kwargs(**kwargs)
         response = None
         try:
             response = self._router.image_generation(prompt=prompt, model=self.model_name, **kwargs)
             logger.debug(
-                f"Received image from model {self.model_name!r}",
+                f"Received image from diffusion model {self.model_name!r}",
                 extra={"model": self.model_name, "response": response},
             )
-            return response
+
+            # Return URL or base64 based on output_format
+            output_format = getattr(self._model_config.inference_parameters, "output_format", ModalityDataType.BASE64)
+            if output_format == ModalityDataType.URL:
+                return response.data[0].url
+            else:
+                return response.data[0].b64_json
+
         except Exception as e:
             raise e
         finally:
             if not skip_usage_tracking and response is not None:
-                self._track_usage_from_image(response)
+                self._track_usage_from_image_diffusion(response)
 
     @catch_llm_exceptions
     def generate(
@@ -365,28 +451,32 @@ class ModelFacade:
                 request_usage=RequestUsageStats(successful_requests=1, failed_requests=0),
             )
 
-    def _track_usage_from_embedding(self, response: litellm.types.utils.EmbeddingResponse | None) -> None:
+    def _track_usage_from_response(self, response: litellm.types.utils.ResponseResponse | None) -> None:
+        """Track usage from Responses API response."""
         if response is None:
             self._usage_stats.extend(request_usage=RequestUsageStats(successful_requests=0, failed_requests=1))
             return
-        if response.usage is not None and response.usage.prompt_tokens is not None:
+        if response.usage is not None:
+            input_tokens = getattr(response.usage, "input_tokens", 0) or 0
+            output_tokens = getattr(response.usage, "output_tokens", 0) or 0
             self._usage_stats.extend(
                 token_usage=TokenUsageStats(
-                    prompt_tokens=response.usage.prompt_tokens,
-                    completion_tokens=0,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
                 ),
                 request_usage=RequestUsageStats(successful_requests=1, failed_requests=0),
             )
 
-    def _track_usage_from_image(self, response: litellm.types.utils.ImageResponse | None) -> None:
+    def _track_usage_from_image_diffusion(self, response: litellm.types.utils.ImageResponse | None) -> None:
+        """Track usage from image_generation API response."""
         if response is None:
             self._usage_stats.extend(request_usage=RequestUsageStats(successful_requests=0, failed_requests=1))
             return
         if response.usage is not None and isinstance(response.usage, litellm.types.utils.ImageUsage):
             self._usage_stats.extend(
                 token_usage=TokenUsageStats(
-                    prompt_tokens=response.usage.input_tokens,
-                    completion_tokens=response.usage.output_tokens,
+                    input_tokens=response.usage.input_tokens,
+                    output_tokens=response.usage.output_tokens,
                 ),
                 request_usage=RequestUsageStats(successful_requests=1, failed_requests=0),
             )

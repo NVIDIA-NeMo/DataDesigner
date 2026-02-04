@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import base64
+import io
 import json
 import os
 from collections import OrderedDict
@@ -37,6 +39,93 @@ if TYPE_CHECKING:
 
 
 console = Console()
+
+
+def _is_base64_image(value: str) -> bool:
+    """Check if a string is base64-encoded image data."""
+    if not isinstance(value, str):
+        return False
+    # Check if it starts with data URI scheme
+    if value.startswith("data:image/"):
+        return True
+    # Check if it looks like base64 (at least 100 chars, contains only base64 chars)
+    if len(value) > 100 and all(
+        c in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=" for c in value[:100]
+    ):
+        try:
+            # Try to decode a small portion to verify it's valid base64
+            base64.b64decode(value[:100])
+            return True
+        except Exception:
+            return False
+    return False
+
+
+def _is_image_url(value: str) -> bool:
+    """Check if a string is an image URL."""
+    if not isinstance(value, str):
+        return False
+    return value.startswith(("http://", "https://")) and any(
+        ext in value.lower() for ext in [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"]
+    )
+
+
+def _display_image_if_in_notebook(image_data: str, col_name: str, max_width: int = 512) -> bool:
+    """Display image with caption in Jupyter notebook if available.
+
+    Args:
+        image_data: Base64-encoded image data or data URI.
+        col_name: Name of the column (used for caption).
+        max_width: Maximum width for the displayed image in pixels.
+
+    Returns:
+        True if image was displayed, False otherwise.
+    """
+    try:
+        # Check if we're in a Jupyter environment
+        from IPython.display import HTML, display
+        from PIL import Image as PILImage
+
+        get_ipython()  # This will raise NameError if not in IPython/Jupyter
+
+        # Decode the image
+        if image_data.startswith("data:image/"):
+            # Extract base64 from data URI
+            base64_data = image_data.split(",", 1)[1] if "," in image_data else image_data
+        else:
+            base64_data = image_data
+
+        image_bytes = base64.b64decode(base64_data)
+
+        # Open image with PIL and resize if needed
+        img = PILImage.open(io.BytesIO(image_bytes))
+
+        # Resize if image is too large
+        if img.width > max_width:
+            ratio = max_width / img.width
+            new_height = int(img.height * ratio)
+            img = img.resize((max_width, new_height), PILImage.Resampling.LANCZOS)
+
+        # Convert back to base64 for HTML display
+        buffered = io.BytesIO()
+        img.save(buffered, format=img.format or "PNG")
+        img_base64 = base64.b64encode(buffered.getvalue()).decode()
+
+        # Create HTML with caption and image in left-aligned container
+        html = f"""
+        <div style='display: flex; flex-direction: column; align-items: flex-start; margin-top: 20px; margin-bottom: 20px;'>
+            <div style='margin-bottom: 10px;'><strong>🖼️ {col_name}</strong></div>
+            <img src='data:image/png;base64,{img_base64}' style='max-width: {max_width}px;'/>
+        </div>
+        """
+        display(HTML(html))
+        return True
+    except (ImportError, NameError):
+        # Not in a notebook environment
+        return False
+    except Exception as e:
+        console.print(f"[yellow]⚠️ Could not display image for column '{col_name}': {e}[/yellow]")
+        return False
 
 
 def get_nvidia_api_key() -> str | None:
@@ -217,6 +306,40 @@ def display_sample_record(
                 table.add_row(col.name, convert_to_row_element(record[col.name]))
         render_list.append(pad_console_element(table))
 
+    # Collect image generation columns (will be displayed at the end)
+    image_columns = config_builder.get_columns_of_type(DataDesignerColumnType.IMAGE_GENERATION)
+    images_to_display_later = []
+    if len(image_columns) > 0:
+        # Check if we're in a notebook to decide display style
+        try:
+            get_ipython()
+            in_notebook = True
+        except NameError:
+            in_notebook = False
+
+        # Create table for image columns
+        table = Table(title="Images", **table_kws)
+        table.add_column("Name")
+        table.add_column("Preview")
+
+        for col in image_columns:
+            if col.drop:
+                continue
+            image_data = record[col.name]
+            if _is_base64_image(image_data):
+                preview = f"<base64 encoded, {len(image_data)} chars>"
+                if in_notebook:
+                    images_to_display_later.append((col.name, image_data))
+            elif _is_image_url(image_data):
+                preview = f"<URL: {image_data[:50]}...>"
+                if in_notebook:
+                    images_to_display_later.append((col.name, image_data))
+            else:
+                preview = str(image_data)[:100] + "..." if len(str(image_data)) > 100 else str(image_data)
+            table.add_row(col.name, preview)
+
+        render_list.append(pad_console_element(table))
+
     for col in config_builder.get_columns_of_type(DataDesignerColumnType.LLM_CODE):
         panel = Panel(
             Syntax(
@@ -280,6 +403,11 @@ def display_sample_record(
         render_list.append(index_label)
 
     console.print(Group(*render_list), markup=False)
+
+    # Display images at the bottom with captions (only in notebook)
+    if len(images_to_display_later) > 0:
+        for col_name, image_data in images_to_display_later:
+            _display_image_if_in_notebook(image_data, col_name)
 
 
 def get_truncated_list_as_string(long_list: list[Any], max_items: int = 2) -> str:

@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from data_designer.config.column_configs import (  # noqa: F401
         EmbeddingColumnConfig,
         ExpressionColumnConfig,
+        ImageGenerationColumnConfig,
         LLMCodeColumnConfig,
         LLMJudgeColumnConfig,
         LLMStructuredColumnConfig,
@@ -34,7 +35,9 @@ if TYPE_CHECKING:
         ToolConfig,
     )
     from data_designer.config.models import (  # noqa: F401
+        ChatCompletionImageInferenceParams,
         ChatCompletionInferenceParams,
+        DiffusionImageInferenceParams,
         EmbeddingInferenceParams,
         GenerationType,
         ImageContext,
@@ -117,6 +120,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     # column_configs
     "EmbeddingColumnConfig": (_MOD_COLUMN_CONFIGS, "EmbeddingColumnConfig"),
     "ExpressionColumnConfig": (_MOD_COLUMN_CONFIGS, "ExpressionColumnConfig"),
+    "ImageGenerationColumnConfig": (_MOD_COLUMN_CONFIGS, "ImageGenerationColumnConfig"),
     "LLMCodeColumnConfig": (_MOD_COLUMN_CONFIGS, "LLMCodeColumnConfig"),
     "LLMJudgeColumnConfig": (_MOD_COLUMN_CONFIGS, "LLMJudgeColumnConfig"),
     "LLMStructuredColumnConfig": (_MOD_COLUMN_CONFIGS, "LLMStructuredColumnConfig"),
@@ -138,7 +142,9 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "MCPProvider": (_MOD_MCP, "MCPProvider"),
     "ToolConfig": (_MOD_MCP, "ToolConfig"),
     # models
+    "ChatCompletionImageInferenceParams": (_MOD_MODELS, "ChatCompletionImageInferenceParams"),
     "ChatCompletionInferenceParams": (_MOD_MODELS, "ChatCompletionInferenceParams"),
+    "DiffusionImageInferenceParams": (_MOD_MODELS, "DiffusionImageInferenceParams"),
     "EmbeddingInferenceParams": (_MOD_MODELS, "EmbeddingInferenceParams"),
     "GenerationType": (_MOD_MODELS, "GenerationType"),
     "ImageContext": (_MOD_MODELS, "ImageContext"),
