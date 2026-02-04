@@ -2,6 +2,38 @@
 
 Data Designer is available as both an **open-source library** and a **NeMo Microservice**. This guide helps you choose the right deployment option for your use case.
 
+## Deployment Architectures at a Glance
+
+Data Designer supports three main deployment patterns:
+
+<div class="grid cards" markdown>
+
+-   **Library + Your LLM Provider**
+
+    ---
+
+    Each user runs the library locally and connects to their choice of LLM provider.
+
+    ![Library with Decentralized Providers](../images/deployment-library-decentralized.png)
+
+-   **Library + Enterprise Gateway**
+
+    ---
+
+    Users run the library locally but share a centralized enterprise LLM gateway with RBAC and governance.
+
+    ![Library with Enterprise Gateway](../images/deployment-enterprise-gateway.png)
+
+-   **SDG as a Service (Microservice)**
+
+    ---
+
+    A centralized SDG service that multiple users access via REST API.
+
+    ![SDG Microservice](../images/deployment-microservice.png)
+
+</div>
+
 ## Quick Comparison
 
 | Aspect | Open-Source Library | NeMo Microservice |
@@ -20,6 +52,8 @@ Data Designer is available as both an **open-source library** and a **NeMo Micro
 The library is the right choice for most users. Choose it if you:
 
 ### You Have Access to LLMs
+
+![Library with Decentralized Providers](../images/deployment-library-decentralized.png){ align=right width="350" }
 
 You have API keys or endpoints for LLM inference:
 
@@ -50,6 +84,8 @@ dd = DataDesigner()
 - **Experimentation**: Research workflows with custom models or configurations
 
 ### You Already Have Enterprise LLM Infrastructure
+
+![Library with Enterprise Gateway](../images/deployment-enterprise-gateway.png){ align=right width="350" }
 
 !!! tip "Library + Enterprise LLM Gateway"
     Many enterprises already have centralized LLM access through API gateways with:
@@ -82,6 +118,8 @@ model = ModelConfig(
 ---
 
 ## ☁️ When to Use the Microservice
+
+![SDG Microservice](../images/deployment-microservice.png){ align=right width="350" }
 
 The NeMo Microservice exposes Data Designer's `preview` and `create` methods as REST API endpoints. Choose it if you:
 
