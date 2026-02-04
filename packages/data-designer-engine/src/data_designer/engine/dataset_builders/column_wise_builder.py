@@ -267,7 +267,7 @@ class ColumnWiseDatasetBuilder:
             )
             if tool_usage_delta.generations_with_tools > 0:
                 logger.info(
-                    f"  |-------- 🛠️ Mean tool calls per generation: {tool_usage_delta.calls_per_generation_mean:.1f}"
+                    f"  |-------- 🛠️ Average tool calls per generation: {tool_usage_delta.calls_per_generation_mean:.1f}"
                 )
 
         if len(self._records_to_drop) > 0:
