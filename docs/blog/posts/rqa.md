@@ -43,7 +43,7 @@ Essential-AI also labelled the documents according to the [Free Decimal Correspo
 
 To arrive at a smaller set of seed documents balanced by topic, we used a hierarchical round-robin approach. First, we rotated between selecting seed documents across 8 major domains (Biology, Chemistry, Computer Science, Engineering, Math, Medicine/Health, Physics, and Other). Within each high-level domain, we further rotated between seed documents based on their 3-digit FDC codes; for instance, given a Physics sample with code 535 (*Light*), the next Physics sample might be from code 536 (*Heat*), then 537 (*Electricity*) and so on, ensuring that no single subdomain dominates. We continued the round robin selection at the first and second decimal place of the FDC code, where they existed.
 
-We tested approaches using both the first 4.5 million and the first 9 million seeds according to the round-robin approach below.
+We tested approaches using both the first 4.5 million and the first 9 million seeds according to the round-robin approach described above.
 ---
 
 ## **Step 2: Generating Challenging Questions**
