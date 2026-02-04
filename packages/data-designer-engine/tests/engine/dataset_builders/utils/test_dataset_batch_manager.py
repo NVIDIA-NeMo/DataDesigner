@@ -153,61 +153,41 @@ def test_update_record_invalid_index(stub_batch_manager_with_data):
         stub_batch_manager_with_data.update_record(-1, {"id": -1, "name": "test"})
 
 
-def test_update_records(stub_batch_manager_with_data):
+def test_replace_buffer(stub_batch_manager_with_data):
     records = [{"id": i, "name": f"test{i}"} for i in range(3)]
     stub_batch_manager_with_data.add_records(records)
 
     new_records = [{"id": i, "name": f"updated{i}"} for i in range(3)]
-    stub_batch_manager_with_data.update_records(new_records)
+    stub_batch_manager_with_data.replace_buffer(new_records)
 
     assert stub_batch_manager_with_data._buffer == new_records
 
 
-def test_update_records_wrong_length(stub_batch_manager_with_data):
+def test_replace_buffer_wrong_length(stub_batch_manager_with_data):
     records = [{"id": i, "name": f"test{i}"} for i in range(3)]
     stub_batch_manager_with_data.add_records(records)
 
     wrong_length_records = [{"id": i, "name": f"test{i}"} for i in range(2)]
 
-    with pytest.raises(DatasetBatchManagementError, match="Number of records to update.*must match"):
-        stub_batch_manager_with_data.update_records(wrong_length_records)
+    with pytest.raises(DatasetBatchManagementError, match="Number of records.*must match"):
+        stub_batch_manager_with_data.replace_buffer(wrong_length_records)
 
 
-def test_update_records_allow_resize_expansion(stub_batch_manager_with_data):
-    """Test that allow_resize=True permits expanding the record count (1:N)."""
-    records = [{"id": i, "name": f"test{i}"} for i in range(3)]
-    stub_batch_manager_with_data.add_records(records)
+@pytest.mark.parametrize(
+    "new_size",
+    [6, 1, 0],
+    ids=["expansion", "retraction", "empty"],
+)
+def test_replace_buffer_allow_resize(stub_batch_manager_with_data, new_size):
+    """allow_resize=True permits any record count change and updates bookkeeping."""
+    stub_batch_manager_with_data.add_records([{"id": i} for i in range(3)])
 
-    # Expand from 3 to 6 records
-    expanded_records = [{"id": i, "name": f"expanded{i}"} for i in range(6)]
-    stub_batch_manager_with_data.update_records(expanded_records, allow_resize=True)
+    new_records = [{"id": i} for i in range(new_size)]
+    stub_batch_manager_with_data.replace_buffer(new_records, allow_resize=True)
 
-    assert stub_batch_manager_with_data.num_records_in_buffer == 6
-    assert stub_batch_manager_with_data._buffer == expanded_records
-
-
-def test_update_records_allow_resize_retraction(stub_batch_manager_with_data):
-    """Test that allow_resize=True permits reducing the record count (N:1)."""
-    records = [{"id": i, "name": f"test{i}"} for i in range(3)]
-    stub_batch_manager_with_data.add_records(records)
-
-    # Retract from 3 to 1 record
-    retracted_records = [{"id": 0, "name": "aggregated"}]
-    stub_batch_manager_with_data.update_records(retracted_records, allow_resize=True)
-
-    assert stub_batch_manager_with_data.num_records_in_buffer == 1
-    assert stub_batch_manager_with_data._buffer == retracted_records
-
-
-def test_update_records_allow_resize_to_empty(stub_batch_manager_with_data):
-    """Test that allow_resize=True permits reducing to zero records."""
-    records = [{"id": i, "name": f"test{i}"} for i in range(3)]
-    stub_batch_manager_with_data.add_records(records)
-
-    stub_batch_manager_with_data.update_records([], allow_resize=True)
-
-    assert stub_batch_manager_with_data.num_records_in_buffer == 0
-    assert stub_batch_manager_with_data.buffer_is_empty
+    assert stub_batch_manager_with_data.num_records_in_buffer == new_size
+    assert stub_batch_manager_with_data._buffer == new_records
+    assert stub_batch_manager_with_data.num_records_batch == new_size
 
 
 def test_actual_num_records_tracks_expansion(stub_batch_manager_with_data):
@@ -216,7 +196,7 @@ def test_actual_num_records_tracks_expansion(stub_batch_manager_with_data):
     records = [{"id": i} for i in range(3)]
     stub_batch_manager_with_data.add_records(records)
     expanded = [{"id": i} for i in range(6)]
-    stub_batch_manager_with_data.update_records(expanded, allow_resize=True)
+    stub_batch_manager_with_data.replace_buffer(expanded, allow_resize=True)
 
     # Finish batch and check metadata
     stub_batch_manager_with_data.finish_batch()
@@ -224,7 +204,7 @@ def test_actual_num_records_tracks_expansion(stub_batch_manager_with_data):
     with open(stub_batch_manager_with_data.artifact_storage.metadata_file_path) as f:
         metadata = json.load(f)
 
-    assert metadata["target_num_records"] == 10  # original target
+    assert metadata["target_num_records"] == 13  # [6, 3, 3, 1] after resize from [3, 3, 3, 1]
     assert metadata["actual_num_records"] == 6  # actual expanded count
 
 

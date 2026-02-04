@@ -246,7 +246,7 @@ class ColumnWiseDatasetBuilder:
                     f"Subsequent columns will operate on the new record count."
                 )
 
-        self.batch_manager.update_records(df.to_dict(orient="records"), allow_resize=allow_resize)
+        self.batch_manager.replace_buffer(df.to_dict(orient="records"), allow_resize=allow_resize)
 
     def _run_model_health_check_if_needed(self) -> None:
         model_aliases: set[str] = set()
@@ -319,7 +319,7 @@ class ColumnWiseDatasetBuilder:
         return callback
 
     def _write_processed_batch(self, dataframe: pd.DataFrame) -> None:
-        self.batch_manager.update_records(dataframe.to_dict(orient="records"))
+        self.batch_manager.replace_buffer(dataframe.to_dict(orient="records"))
         self.batch_manager.write()
 
     def _validate_column_configs(self) -> None:

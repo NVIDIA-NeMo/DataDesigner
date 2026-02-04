@@ -509,14 +509,6 @@ class CustomColumnConfig(SingleColumnConfig):
         default=None,
         description="Optional typed configuration object passed as second argument to generator function",
     )
-    allow_resize: bool = Field(
-        default=False,
-        description=(
-            "If True, allows the generator to produce a different number of records than the input. "
-            "Use for 1:N (expansion) or N:1 (retraction) generation patterns. "
-            "Only applicable when generation_strategy is 'full_column'."
-        ),
-    )
     column_type: Literal["custom"] = "custom"
 
     @field_validator("generator_function")

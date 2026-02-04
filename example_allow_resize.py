@@ -11,7 +11,7 @@ from data_designer.lazy_heavy_imports import pd
 
 
 @dd.custom_column_generator(required_columns=["topic"], side_effect_columns=["variation_id"])
-def expand_to_questions(df: pd.DataFrame, params: None, ctx: dd.CustomColumnContext) -> pd.DataFrame:
+def expand_to_questions(df: pd.DataFrame) -> pd.DataFrame:
     """Generate 3 questions per topic (1:N expansion)."""
     rows = []
     for _, row in df.iterrows():
@@ -19,7 +19,7 @@ def expand_to_questions(df: pd.DataFrame, params: None, ctx: dd.CustomColumnCont
             rows.append(
                 {
                     "topic": row["topic"],
-                    ctx.column_name: f"Question {i + 1} about {row['topic']}?",
+                    "question": f"Question {i + 1} about {row['topic']}?",
                     "variation_id": i,
                 }
             )
@@ -27,10 +27,10 @@ def expand_to_questions(df: pd.DataFrame, params: None, ctx: dd.CustomColumnCont
 
 
 @dd.custom_column_generator(required_columns=["topic", "score"])
-def filter_high_scores(df: pd.DataFrame, params: None, ctx: dd.CustomColumnContext) -> pd.DataFrame:
+def filter_high_scores(df: pd.DataFrame) -> pd.DataFrame:
     """Keep only records with score > 0.5 (N:1 retraction)."""
     filtered = df[df["score"] > 0.5].copy()
-    filtered[ctx.column_name] = "passed"
+    filtered["status"] = "passed"
     return filtered
 
 

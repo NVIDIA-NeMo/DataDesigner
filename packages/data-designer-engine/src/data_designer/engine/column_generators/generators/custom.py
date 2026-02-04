@@ -199,3 +199,5 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
             logger.info(f"{LOG_INDENT}model_aliases: {self.config.model_aliases}")
         if self.config.generator_params:
             logger.info(f"{LOG_INDENT}generator_params: {self.config.generator_params}")
+        if self.config.allow_resize:
+            logger.info(f"{LOG_INDENT}allow_resize: {self.config.allow_resize}")

@@ -64,7 +64,7 @@ def stub_batch_manager():
     mock_batch_manager.finish = Mock()
     mock_batch_manager.write = Mock()
     mock_batch_manager.add_records = Mock()
-    mock_batch_manager.update_records = Mock()
+    mock_batch_manager.replace_buffer = Mock()
     mock_batch_manager.update_record = Mock()
     mock_batch_manager.get_current_batch = Mock()
     mock_batch_manager.get_current_batch.side_effect = [

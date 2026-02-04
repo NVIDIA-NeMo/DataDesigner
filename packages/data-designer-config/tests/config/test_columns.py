@@ -516,19 +516,26 @@ def test_sampler_column_config_discriminated_union_wrong_params_type():
         )
 
 
+class _StubPluginConfig(SingleColumnConfig):
+    """Minimal plugin config for testing base class behavior."""
+
+    column_type: Literal["stub-plugin"] = "stub-plugin"
+
+    @property
+    def required_columns(self) -> list[str]:
+        return []
+
+    @property
+    def side_effect_columns(self) -> list[str]:
+        return []
+
+
 def test_default_column_emoji_for_custom_column_type() -> None:
     """Ensure the base get_column_emoji implementation is used when not overridden."""
+    assert _StubPluginConfig.get_column_emoji() == "🎨"
 
-    class StubColumnConfigWithoutEmoji(SingleColumnConfig):
-        column_type: Literal["stub-without-emoji"] = "stub-without-emoji"
-        value: str
 
-        @property
-        def required_columns(self) -> list[str]:
-            return []
-
-        @property
-        def side_effect_columns(self) -> list[str]:
-            return []
-
-    assert StubColumnConfigWithoutEmoji.get_column_emoji() == "🎨"
+def test_allow_resize_inherited_by_plugin_configs() -> None:
+    """Plugin configs inherit allow_resize from SingleColumnConfig."""
+    assert _StubPluginConfig(name="test").allow_resize is False
+    assert _StubPluginConfig(name="test", allow_resize=True).allow_resize is True
