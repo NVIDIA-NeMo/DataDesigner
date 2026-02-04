@@ -13,7 +13,13 @@ Each processor:
 - Applies its transformation
 - Passes the result to the next processor (or to output)
 
-Currently, processors run only at the `POST_BATCH` stage, i.e., after column generation completes for each batch.
+Processors can run at three stages:
+
+| Stage | When it runs | Use cases |
+|-------|--------------|-----------|
+| `PRE_GENERATION` | Once, on full seed data before batching | Filter seed data, validate inputs, normalize data |
+| `POST_BATCH` | After each batch completes (default) | Drop columns, transform schema per batch |
+| `POST_GENERATION` | Once, on final dataset after all batches | Deduplicate, aggregate statistics, final cleanup |
 
 ## Processor Types
 

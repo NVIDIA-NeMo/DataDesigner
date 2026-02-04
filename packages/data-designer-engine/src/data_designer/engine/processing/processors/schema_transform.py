@@ -41,11 +41,23 @@ def _json_escape_record(record: dict[str, Any]) -> dict[str, Any]:
 
 
 class SchemaTransformProcessor(WithJinja2UserTemplateRendering, Processor[SchemaTransformProcessorConfig]):
+    """Transforms dataset schema using Jinja2 templates after each batch."""
+
     @property
     def template_as_str(self) -> str:
         return json.dumps(self.config.template)
 
-    def process(self, data: pd.DataFrame, *, current_batch_number: int | None = None) -> pd.DataFrame:
+    def process_after_batch(self, data: pd.DataFrame, *, batch_number: int) -> pd.DataFrame:
+        formatted_data = self._transform(data)
+        self.artifact_storage.write_batch_to_parquet_file(
+            batch_number=batch_number,
+            dataframe=formatted_data,
+            batch_stage=BatchStage.PROCESSORS_OUTPUTS,
+            subfolder=self.config.name,
+        )
+        return data
+
+    def _transform(self, data: pd.DataFrame) -> pd.DataFrame:
         self.prepare_jinja2_template_renderer(self.template_as_str, data.columns.to_list())
         formatted_records = []
         for record in data.to_dict(orient="records"):
@@ -53,19 +65,4 @@ class SchemaTransformProcessor(WithJinja2UserTemplateRendering, Processor[Schema
             escaped = _json_escape_record(deserialized)
             rendered = self.render_template(escaped)
             formatted_records.append(json.loads(rendered))
-        formatted_data = pd.DataFrame(formatted_records)
-        if current_batch_number is not None:
-            self.artifact_storage.write_batch_to_parquet_file(
-                batch_number=current_batch_number,
-                dataframe=formatted_data,
-                batch_stage=BatchStage.PROCESSORS_OUTPUTS,
-                subfolder=self.config.name,
-            )
-        else:
-            self.artifact_storage.write_parquet_file(
-                parquet_file_name=f"{self.config.name}.parquet",
-                dataframe=formatted_data,
-                batch_stage=BatchStage.PROCESSORS_OUTPUTS,
-            )
-
-        return data
+        return pd.DataFrame(formatted_records)

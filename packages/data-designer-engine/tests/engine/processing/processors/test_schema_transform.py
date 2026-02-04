@@ -9,7 +9,6 @@ from unittest.mock import Mock
 
 import pytest
 
-from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.processors import SchemaTransformProcessorConfig
 from data_designer.engine.dataset_builders.artifact_storage import BatchStage
 from data_designer.engine.processing.processors.schema_transform import SchemaTransformProcessor
@@ -23,7 +22,6 @@ if TYPE_CHECKING:
 @pytest.fixture
 def stub_processor_config() -> SchemaTransformProcessorConfig:
     return SchemaTransformProcessorConfig(
-        build_stage=BuildStage.POST_BATCH,
         template={"text": "{{ col1 }}", "value": "{{ col2 }}"},
         name="test_schema_transform",
     )
@@ -53,18 +51,18 @@ def stub_simple_dataframe() -> pd.DataFrame:
     )
 
 
-def test_process_returns_original_dataframe(
+def test_process_after_batch_returns_original_dataframe(
     stub_processor: SchemaTransformProcessor, stub_sample_dataframe: pd.DataFrame
 ) -> None:
-    result = stub_processor.process(stub_sample_dataframe, current_batch_number=0)
+    result = stub_processor.process_after_batch(stub_sample_dataframe, batch_number=0)
     pd.testing.assert_frame_equal(result, stub_sample_dataframe)
 
 
-def test_process_writes_formatted_output_to_parquet(
+def test_process_after_batch_writes_formatted_output_to_parquet(
     stub_processor: SchemaTransformProcessor, stub_sample_dataframe: pd.DataFrame
 ) -> None:
     # Process the dataframe
-    result = stub_processor.process(stub_sample_dataframe, current_batch_number=0)
+    result = stub_processor.process_after_batch(stub_sample_dataframe, batch_number=0)
 
     # Verify the original dataframe is returned
     pd.testing.assert_frame_equal(result, stub_sample_dataframe)
@@ -97,20 +95,7 @@ def test_process_writes_formatted_output_to_parquet(
         assert json.loads(actual) == json.loads(expected), f"Row {i} mismatch: {actual} != {expected}"
 
 
-def test_process_without_batch_number_does_not_write(
-    stub_processor: SchemaTransformProcessor, stub_sample_dataframe: pd.DataFrame
-) -> None:
-    # Process without batch number (preview mode)
-    result = stub_processor.process(stub_sample_dataframe, current_batch_number=None)
-
-    # Verify the original dataframe is returned
-    pd.testing.assert_frame_equal(result, stub_sample_dataframe)
-
-    # Verify write_batch_to_parquet_file was NOT called
-    stub_processor.artifact_storage.write_batch_to_parquet_file.assert_not_called()
-
-
-def test_process_with_json_serialized_values(stub_processor: SchemaTransformProcessor) -> None:
+def test_process_after_batch_with_json_serialized_values(stub_processor: SchemaTransformProcessor) -> None:
     # Test with JSON-serialized values in dataframe
     df_with_json = pd.DataFrame(
         {
@@ -120,7 +105,7 @@ def test_process_with_json_serialized_values(stub_processor: SchemaTransformProc
     )
 
     # Process the dataframe
-    stub_processor.process(df_with_json, current_batch_number=0)
+    stub_processor.process_after_batch(df_with_json, batch_number=0)
     written_dataframe: pd.DataFrame = stub_processor.artifact_storage.write_batch_to_parquet_file.call_args.kwargs[
         "dataframe"
     ]
@@ -136,7 +121,7 @@ def test_process_with_json_serialized_values(stub_processor: SchemaTransformProc
     assert first_output["value"] == '{"nested": "value1"}'
 
 
-def test_process_with_special_characters_in_llm_output(stub_processor: SchemaTransformProcessor) -> None:
+def test_process_after_batch_with_special_characters_in_llm_output(stub_processor: SchemaTransformProcessor) -> None:
     """Test that LLM outputs with special characters are properly escaped for JSON.
 
     This addresses GitHub issue #227 where SchemaTransformProcessor fails with JSONDecodeError
@@ -155,7 +140,7 @@ def test_process_with_special_characters_in_llm_output(stub_processor: SchemaTra
     )
 
     # Process should not raise JSONDecodeError
-    stub_processor.process(df_with_special_chars, current_batch_number=0)
+    stub_processor.process_after_batch(df_with_special_chars, batch_number=0)
     written_dataframe: pd.DataFrame = stub_processor.artifact_storage.write_batch_to_parquet_file.call_args.kwargs[
         "dataframe"
     ]
@@ -172,7 +157,7 @@ def test_process_with_special_characters_in_llm_output(stub_processor: SchemaTra
     assert outputs[3]["text"] == "Tab\there"
 
 
-def test_process_with_mixed_special_characters(stub_processor: SchemaTransformProcessor) -> None:
+def test_process_after_batch_with_mixed_special_characters(stub_processor: SchemaTransformProcessor) -> None:
     """Test complex LLM output with multiple types of special characters."""
     df_complex = pd.DataFrame(
         {
@@ -183,7 +168,7 @@ def test_process_with_mixed_special_characters(stub_processor: SchemaTransformPr
         }
     )
 
-    stub_processor.process(df_complex, current_batch_number=0)
+    stub_processor.process_after_batch(df_complex, batch_number=0)
     written_dataframe: pd.DataFrame = stub_processor.artifact_storage.write_batch_to_parquet_file.call_args.kwargs[
         "dataframe"
     ]
