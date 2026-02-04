@@ -61,6 +61,9 @@ class ToolUsageStats(BaseModel):
     def turns_per_generation_stddev(self) -> float:
         if self.generations_with_tools == 0:
             return 0.0
+        # Return NaN if sum of squares wasn't tracked (e.g., delta objects)
+        if self._sum_of_squares_turns == 0.0 and self.total_tool_call_turns > 0:
+            return float("nan")
         mean_squared = self.turns_per_generation_mean**2
         variance = (self._sum_of_squares_turns / self.generations_with_tools) - mean_squared
         return variance**0.5 if variance > 0 else 0.0
@@ -75,6 +78,9 @@ class ToolUsageStats(BaseModel):
     def calls_per_generation_stddev(self) -> float:
         if self.generations_with_tools == 0:
             return 0.0
+        # Return NaN if sum of squares wasn't tracked (e.g., delta objects)
+        if self._sum_of_squares_calls == 0.0 and self.total_tool_calls > 0:
+            return float("nan")
         mean_squared = self.calls_per_generation_mean**2
         variance = (self._sum_of_squares_calls / self.generations_with_tools) - mean_squared
         return variance**0.5 if variance > 0 else 0.0

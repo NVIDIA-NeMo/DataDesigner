@@ -414,6 +414,81 @@ def test_generate_with_tools_tracks_usage_stats(
     assert model.usage_stats.tool_usage.turns_per_generation_mean == 2.0
 
 
+def test_generate_with_tools_tracks_stddev_with_variance(
+    stub_model_configs: Any,
+    stub_secrets_resolver: Any,
+    stub_model_provider_registry: Any,
+) -> None:
+    """Tool usage stddev is correctly computed when there's variance across generations."""
+    facade = StubMCPFacade(max_tool_call_turns=10)
+    registry = StubMCPRegistry(facade)
+
+    model = ModelFacade(
+        model_config=stub_model_configs[0],
+        secret_resolver=stub_secrets_resolver,
+        model_provider_registry=stub_model_provider_registry,
+        mcp_registry=registry,
+    )
+
+    # Generation 1: 2 tool calls across 1 turn
+    tool_call_a = {"id": "call-a", "type": "function", "function": {"name": "lookup", "arguments": '{"q": "1"}'}}
+    tool_call_b = {"id": "call-b", "type": "function", "function": {"name": "lookup", "arguments": '{"q": "2"}'}}
+    responses_gen1 = [
+        StubResponse(StubMessage(content="", tool_calls=[tool_call_a, tool_call_b])),
+        StubResponse(StubMessage(content="result 1")),
+    ]
+
+    def _completion_gen1(self: Any, messages: list[ChatMessage], **kwargs: Any) -> StubResponse:
+        return responses_gen1.pop(0)
+
+    with patch.object(ModelFacade, "completion", new=_completion_gen1):
+        model.generate(prompt="q1", parser=lambda x: x, tool_alias="tools")
+
+    # Generation 2: 4 tool calls across 2 turns
+    tool_call_c = {"id": "call-c", "type": "function", "function": {"name": "search", "arguments": '{"q": "3"}'}}
+    tool_call_d = {"id": "call-d", "type": "function", "function": {"name": "search", "arguments": '{"q": "4"}'}}
+    responses_gen2 = [
+        StubResponse(StubMessage(content="", tool_calls=[tool_call_a, tool_call_b])),
+        StubResponse(StubMessage(content="", tool_calls=[tool_call_c, tool_call_d])),
+        StubResponse(StubMessage(content="result 2")),
+    ]
+
+    def _completion_gen2(self: Any, messages: list[ChatMessage], **kwargs: Any) -> StubResponse:
+        return responses_gen2.pop(0)
+
+    with patch.object(ModelFacade, "completion", new=_completion_gen2):
+        model.generate(prompt="q2", parser=lambda x: x, tool_alias="tools")
+
+    # Generation 3: 6 tool calls across 3 turns
+    responses_gen3 = [
+        StubResponse(StubMessage(content="", tool_calls=[tool_call_a, tool_call_b])),
+        StubResponse(StubMessage(content="", tool_calls=[tool_call_c, tool_call_d])),
+        StubResponse(StubMessage(content="", tool_calls=[tool_call_a, tool_call_b])),
+        StubResponse(StubMessage(content="result 3")),
+    ]
+
+    def _completion_gen3(self: Any, messages: list[ChatMessage], **kwargs: Any) -> StubResponse:
+        return responses_gen3.pop(0)
+
+    with patch.object(ModelFacade, "completion", new=_completion_gen3):
+        model.generate(prompt="q3", parser=lambda x: x, tool_alias="tools")
+
+    # Verify totals: 2 + 4 + 6 = 12 calls, 1 + 2 + 3 = 6 turns, 3 generations
+    assert model.usage_stats.tool_usage.total_tool_calls == 12
+    assert model.usage_stats.tool_usage.total_tool_call_turns == 6
+    assert model.usage_stats.tool_usage.generations_with_tools == 3
+
+    # Verify means: calls = 12/3 = 4.0, turns = 6/3 = 2.0
+    assert model.usage_stats.tool_usage.calls_per_generation_mean == 4.0
+    assert model.usage_stats.tool_usage.turns_per_generation_mean == 2.0
+
+    # Verify stddev is non-zero (there's variance: calls are 2, 4, 6; turns are 1, 2, 3)
+    # Population stddev for calls [2,4,6]: variance = (4+16+36)/3 - 16 = 56/3 - 16 = 2.667, stddev ≈ 1.633
+    # Population stddev for turns [1,2,3]: variance = (1+4+9)/3 - 4 = 14/3 - 4 = 0.667, stddev ≈ 0.816
+    assert model.usage_stats.tool_usage.calls_per_generation_stddev == pytest.approx(1.6329931618554521, rel=1e-6)
+    assert model.usage_stats.tool_usage.turns_per_generation_stddev == pytest.approx(0.816496580927726, rel=1e-6)
+
+
 def test_generate_tool_turn_limit_triggers_refusal(
     stub_model_configs: Any,
     stub_secrets_resolver: Any,

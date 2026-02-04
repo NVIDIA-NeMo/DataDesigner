@@ -18,7 +18,7 @@ from data_designer.engine.models.errors import (
 )
 from data_designer.engine.models.litellm_overrides import CustomRouter, LiteLLMRouterDefaultKwargs
 from data_designer.engine.models.parsers.errors import ParserException
-from data_designer.engine.models.usage import ModelUsageStats, RequestUsageStats, TokenUsageStats, ToolUsageStats
+from data_designer.engine.models.usage import ModelUsageStats, RequestUsageStats, TokenUsageStats
 from data_designer.engine.models.utils import ChatMessage, prompt_to_messages
 from data_designer.engine.secret_resolver import SecretResolver
 from data_designer.lazy_heavy_imports import litellm
@@ -302,12 +302,9 @@ class ModelFacade:
                     ) from exc
 
         if not skip_usage_tracking and total_tool_calls > 0:
-            self._usage_stats.extend(
-                tool_usage=ToolUsageStats(
-                    total_tool_calls=total_tool_calls,
-                    total_tool_call_turns=tool_call_turns,
-                    generations_with_tools=1,
-                )
+            self._usage_stats.tool_usage.extend(
+                tool_calls=total_tool_calls,
+                tool_call_turns=tool_call_turns,
             )
 
         return output_obj, messages

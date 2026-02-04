@@ -10,7 +10,7 @@ from data_designer.engine.models.errors import ModelAuthenticationError
 from data_designer.engine.models.facade import ModelFacade
 from data_designer.engine.models.factory import create_model_registry
 from data_designer.engine.models.registry import ModelRegistry
-from data_designer.engine.models.usage import ModelUsageStats, RequestUsageStats, TokenUsageStats
+from data_designer.engine.models.usage import ModelUsageStats, RequestUsageStats, TokenUsageStats, ToolUsageStats
 
 
 @pytest.fixture
@@ -483,3 +483,41 @@ def test_log_model_usage_models_without_usage_excluded(stub_model_registry: Mode
         assert calls[0] == "📊 Model usage summary:"
         assert calls[1] == "  |-------- stub-model-reasoning"
         assert "stub-model-text" not in str(calls)
+
+
+def test_get_tool_usage_delta(stub_model_registry: ModelRegistry) -> None:
+    """Test that get_tool_usage_delta returns correct delta with NaN stddev."""
+    import math
+
+    text_model = stub_model_registry.get_model(model_alias="stub-text")
+
+    # Add some initial tool usage
+    text_model.usage_stats.tool_usage.extend(tool_calls=4, tool_call_turns=2)
+    text_model.usage_stats.tool_usage.extend(tool_calls=6, tool_call_turns=3)
+
+    # Take a snapshot
+    snapshot = ToolUsageStats(
+        total_tool_calls=text_model.usage_stats.tool_usage.total_tool_calls,
+        total_tool_call_turns=text_model.usage_stats.tool_usage.total_tool_call_turns,
+        generations_with_tools=text_model.usage_stats.tool_usage.generations_with_tools,
+    )
+
+    # Add more tool usage after snapshot
+    text_model.usage_stats.tool_usage.extend(tool_calls=8, tool_call_turns=4)
+    text_model.usage_stats.tool_usage.extend(tool_calls=2, tool_call_turns=1)
+
+    # Get delta
+    delta = stub_model_registry.get_tool_usage_delta(model_alias="stub-text", snapshot=snapshot)
+
+    # Delta should have the difference
+    assert delta.total_tool_calls == 10  # (8+2) - 0 from snapshot
+    assert delta.total_tool_call_turns == 5  # (4+1) - 0 from snapshot
+    assert delta.generations_with_tools == 2  # 2 new generations
+
+    # Mean should be computable
+    assert delta.calls_per_generation_mean == 5.0  # 10 / 2
+    assert delta.turns_per_generation_mean == 2.5  # 5 / 2
+
+    # Stddev should be NaN since sum of squares wasn't tracked for delta
+    assert math.isnan(delta.calls_per_generation_stddev)
+    assert math.isnan(delta.turns_per_generation_stddev)

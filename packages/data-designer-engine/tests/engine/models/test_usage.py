@@ -241,3 +241,36 @@ def test_model_usage_stats_extend_preserves_tool_usage_stddev() -> None:
     assert stats1.tool_usage.turns_per_generation_mean == 2.0
     assert stats1.tool_usage.calls_per_generation_stddev == pytest.approx(1.6329931618554521, rel=1e-6)
     assert stats1.tool_usage.turns_per_generation_stddev == pytest.approx(0.816496580927726, rel=1e-6)
+
+
+def test_tool_usage_stats_delta_returns_nan_for_stddev() -> None:
+    """Test that delta objects (created without sum of squares) return NaN for stddev."""
+    import math
+
+    # Create a delta object directly from counts (simulating get_tool_usage_delta)
+    delta = ToolUsageStats(
+        total_tool_calls=10,
+        total_tool_call_turns=5,
+        generations_with_tools=3,
+    )
+
+    # Mean should still be computable
+    assert delta.calls_per_generation_mean == pytest.approx(10 / 3)
+    assert delta.turns_per_generation_mean == pytest.approx(5 / 3)
+
+    # Stddev should be NaN since sum of squares wasn't tracked
+    assert math.isnan(delta.calls_per_generation_stddev)
+    assert math.isnan(delta.turns_per_generation_stddev)
+
+
+def test_tool_usage_stats_empty_delta_returns_zero_for_stddev() -> None:
+    """Test that empty delta objects return 0 for stddev (not NaN)."""
+    # Empty delta has no generations, so 0.0 is appropriate
+    delta = ToolUsageStats(
+        total_tool_calls=0,
+        total_tool_call_turns=0,
+        generations_with_tools=0,
+    )
+
+    assert delta.calls_per_generation_stddev == 0.0
+    assert delta.turns_per_generation_stddev == 0.0
