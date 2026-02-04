@@ -121,7 +121,7 @@ class DatasetCreationResults(WithRecordSamplerMixin):
                 Appears after the title.
             token: HuggingFace API token. If None, the token is automatically
                 resolved from HF_TOKEN environment variable or cached credentials
-                from `huggingface-cli login`.
+                from `hf auth login`.
             private: Create private repo
 
         Returns:
