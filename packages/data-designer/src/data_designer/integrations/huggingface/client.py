@@ -60,6 +60,7 @@ class HuggingFaceHubClient:
         description: str,
         *,
         private: bool = False,
+        tags: list[str] | None = None,
     ) -> str:
         """Upload dataset to Hugging Face Hub.
 
@@ -74,6 +75,7 @@ class HuggingFaceHubClient:
             base_dataset_path: Path to base_dataset_path (contains parquet-files/, sdg.json, etc.)
             description: Custom description text for dataset card
             private: Whether to create private repo
+            tags: Additional custom tags for the dataset
 
         Returns:
             URL to the uploaded dataset
@@ -94,6 +96,7 @@ class HuggingFaceHubClient:
                 metadata_path=base_dataset_path / METADATA_FILENAME,
                 sdg_path=base_dataset_path / SDG_CONFIG_FILENAME,
                 description=description,
+                tags=tags,
             )
         except Exception as e:
             raise HuggingFaceHubClientUploadError(f"Failed to upload dataset card: {e}") from e
@@ -253,7 +256,9 @@ class HuggingFaceHubClient:
                 if tmp_path and Path(tmp_path).exists():
                     Path(tmp_path).unlink()
 
-    def _upload_dataset_card(self, repo_id: str, metadata_path: Path, sdg_path: Path, description: str) -> None:
+    def _upload_dataset_card(
+        self, repo_id: str, metadata_path: Path, sdg_path: Path, description: str, tags: list[str] | None = None
+    ) -> None:
         """Generate and upload dataset card from metadata.json.
 
         Args:
@@ -261,6 +266,7 @@ class HuggingFaceHubClient:
             metadata_path: Path to metadata.json file
             sdg_path: Path to sdg.json file
             description: Custom description text for dataset card
+            tags: Additional custom tags for the dataset
 
         Raises:
             HuggingFaceUploadError: If dataset card generation or upload fails
@@ -289,6 +295,7 @@ class HuggingFaceHubClient:
                 sdg_config=sdg_config,
                 repo_id=repo_id,
                 description=description,
+                tags=tags,
             )
         except Exception as e:
             raise HuggingFaceHubClientUploadError(f"Failed to generate dataset card: {e}") from e

@@ -9,6 +9,7 @@ from pathlib import Path
 from huggingface_hub import CardData, DatasetCard
 
 TEMPLATE_DATA_DESIGNER_DATASET_CARD_PATH = Path(__file__).parent / "dataset_card_template.md"
+DEFAULT_DATASET_CARD_TAGS = ["synthetic", "datadesigner"]
 
 
 class DataDesignerDatasetCard(DatasetCard):
@@ -28,6 +29,7 @@ class DataDesignerDatasetCard(DatasetCard):
         sdg_config: dict | None,
         repo_id: str,
         description: str,
+        tags: list[str] | None = None,
     ) -> DataDesignerDatasetCard:
         """Create dataset card from metadata.json and sdg.json.
 
@@ -36,6 +38,7 @@ class DataDesignerDatasetCard(DatasetCard):
             sdg_config: Contents of sdg.json (optional)
             repo_id: Hugging Face dataset repo ID
             description: Custom description text
+            tags: Additional custom tags for the dataset.
 
         Returns:
             DataDesignerDatasetCard instance ready to upload
@@ -71,13 +74,13 @@ class DataDesignerDatasetCard(DatasetCard):
         if "file_paths" in metadata and "processor-files" in metadata["file_paths"]:
             processor_names = list(metadata["file_paths"]["processor-files"].keys())
 
-        # Prepare tags
-        tags = ["synthetic", "datadesigner"]
+        # Prepare tags: default tags + custom tags
+        all_tags = DEFAULT_DATASET_CARD_TAGS + (tags or [])
 
         # Prepare CardData (metadata for YAML frontmatter)
         card_data = CardData(
             size_categories=size_categories,
-            tags=tags,
+            tags=all_tags,
         )
 
         # Prepare template variables
@@ -95,7 +98,7 @@ class DataDesignerDatasetCard(DatasetCard):
             "current_year": datetime.now().year,
             "has_processors": len(processor_names) > 0,
             "processor_names": processor_names,
-            "tags": tags,
+            "tags": all_tags,
             "custom_description": description,
         }
 

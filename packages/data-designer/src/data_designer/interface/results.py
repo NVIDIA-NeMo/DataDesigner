@@ -105,6 +105,7 @@ class DatasetCreationResults(WithRecordSamplerMixin):
         *,
         token: str | None = None,
         private: bool = False,
+        tags: list[str] | None = None,
     ) -> str:
         """Push dataset to HuggingFace Hub.
 
@@ -123,6 +124,7 @@ class DatasetCreationResults(WithRecordSamplerMixin):
                 resolved from HF_TOKEN environment variable or cached credentials
                 from `hf auth login`.
             private: Create private repo
+            tags: Additional custom tags for the dataset.
 
         Returns:
             URL to the uploaded dataset
@@ -130,7 +132,7 @@ class DatasetCreationResults(WithRecordSamplerMixin):
         Example:
             >>> results = data_designer.create(config, num_records=1000)
             >>> description = "This dataset contains synthetic conversations for training chatbots."
-            >>> results.push_to_hub("username/my-synthetic-dataset", description)
+            >>> results.push_to_hub("username/my-synthetic-dataset", description, tags=["chatbot", "conversation"])
             'https://huggingface.co/datasets/username/my-synthetic-dataset'
         """
         client = HuggingFaceHubClient(token=token)
@@ -139,4 +141,5 @@ class DatasetCreationResults(WithRecordSamplerMixin):
             base_dataset_path=self.artifact_storage.base_dataset_path,
             private=private,
             description=description,
+            tags=tags,
         )
