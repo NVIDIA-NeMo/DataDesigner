@@ -1,3 +1,32 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "data-designer",
+#     "pydantic",
+# ]
+# ///
+"""Product Info Q&A Recipe
+
+Generate synthetic product Q&A pairs with controlled hallucination for training
+and evaluating AI assistants. Each record includes a generated product (with name,
+features, description, price), a user question, and an AI answer. Half of the
+answers are generated without product context (hallucinated). Includes LLM judge
+evaluation for completeness and accuracy.
+
+Prerequisites:
+    - OPENAI_API_KEY environment variable for OpenAI provider model aliases (default model alias is "openai-text").
+    - NVIDIA_API_KEY environment variable for NVIDIA provider model aliases.
+
+Run:
+    # Basic usage (generates 5 records by default)
+    uv run product_info_qa.py
+
+    # For help message and available options
+    uv run product_info_qa.py --help
+"""
+
 import string
 from pathlib import Path
 

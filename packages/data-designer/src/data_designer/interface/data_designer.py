@@ -64,6 +64,8 @@ from data_designer.plugins.registry import PluginRegistry
 if TYPE_CHECKING:
     import pandas as pd
 
+    from data_designer.engine.models.facade import ModelFacade
+
 logger = logging.getLogger(__name__)
 
 
@@ -330,6 +332,23 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             due to error-rate thresholds. Errors are still tracked for reporting.
         """
         self._run_config = run_config
+
+    def get_models(self, model_aliases: list[str]) -> dict[str, ModelFacade]:
+        """Get a dict of ModelFacade instances for custom column development.
+
+        Use this to experiment with custom column generator functions outside of
+        the full pipeline. The returned dict matches the `models` argument passed
+        to 3-arg custom column functions.
+
+        Args:
+            model_aliases: List of model aliases to include in the dict.
+
+        Returns:
+            Dict mapping alias to ModelFacade instance.
+        """
+        config_builder = DataDesignerConfigBuilder()
+        resource_provider = self._create_resource_provider("dev", config_builder)
+        return {alias: resource_provider.model_registry.get_model(model_alias=alias) for alias in model_aliases}
 
     def _resolve_model_providers(self, model_providers: list[ModelProvider] | None) -> list[ModelProvider]:
         if model_providers is None:
