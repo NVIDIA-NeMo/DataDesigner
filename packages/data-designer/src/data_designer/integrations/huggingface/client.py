@@ -39,7 +39,7 @@ class HuggingFaceHubClient:
         Args:
             token: Hugging Face API token. If None, the token is automatically
                 resolved from HF_TOKEN environment variable or cached credentials
-                from `huggingface-cli login`.
+                from `hf auth login`.
         """
         self._token = token
         self._api = HfApi(token=token)
