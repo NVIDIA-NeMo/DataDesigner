@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import logging
 
-from pydantic import BaseModel, PrivateAttr, computed_field
+from pydantic import BaseModel, computed_field
 
 logger = logging.getLogger(__name__)
 
@@ -48,8 +48,8 @@ class ToolUsageStats(BaseModel):
     total_tool_calls: int = 0
     total_tool_call_turns: int = 0
     generations_with_tools: int = 0
-    _sum_of_squares_turns: float = PrivateAttr(default=0.0)
-    _sum_of_squares_calls: float = PrivateAttr(default=0.0)
+    sum_of_squares_turns: float = 0.0
+    sum_of_squares_calls: float = 0.0
 
     @computed_field
     def turns_per_generation_mean(self) -> float:
@@ -61,11 +61,8 @@ class ToolUsageStats(BaseModel):
     def turns_per_generation_stddev(self) -> float:
         if self.generations_with_tools == 0:
             return 0.0
-        # Return NaN if sum of squares wasn't tracked (e.g., delta objects)
-        if self._sum_of_squares_turns == 0.0 and self.total_tool_call_turns > 0:
-            return float("nan")
         mean_squared = self.turns_per_generation_mean**2
-        variance = (self._sum_of_squares_turns / self.generations_with_tools) - mean_squared
+        variance = (self.sum_of_squares_turns / self.generations_with_tools) - mean_squared
         return variance**0.5 if variance > 0 else 0.0
 
     @computed_field
@@ -78,11 +75,8 @@ class ToolUsageStats(BaseModel):
     def calls_per_generation_stddev(self) -> float:
         if self.generations_with_tools == 0:
             return 0.0
-        # Return NaN if sum of squares wasn't tracked (e.g., delta objects)
-        if self._sum_of_squares_calls == 0.0 and self.total_tool_calls > 0:
-            return float("nan")
         mean_squared = self.calls_per_generation_mean**2
-        variance = (self._sum_of_squares_calls / self.generations_with_tools) - mean_squared
+        variance = (self.sum_of_squares_calls / self.generations_with_tools) - mean_squared
         return variance**0.5 if variance > 0 else 0.0
 
     @property
@@ -95,16 +89,16 @@ class ToolUsageStats(BaseModel):
         self.total_tool_call_turns += tool_call_turns
         if tool_call_turns > 0:
             self.generations_with_tools += 1
-            self._sum_of_squares_turns += tool_call_turns**2
-            self._sum_of_squares_calls += tool_calls**2
+            self.sum_of_squares_turns += tool_call_turns**2
+            self.sum_of_squares_calls += tool_calls**2
 
     def merge(self, other: ToolUsageStats) -> ToolUsageStats:
         """Merge another ToolUsageStats object, preserving stddev accuracy."""
         self.total_tool_calls += other.total_tool_calls
         self.total_tool_call_turns += other.total_tool_call_turns
         self.generations_with_tools += other.generations_with_tools
-        self._sum_of_squares_turns += other._sum_of_squares_turns
-        self._sum_of_squares_calls += other._sum_of_squares_calls
+        self.sum_of_squares_turns += other.sum_of_squares_turns
+        self.sum_of_squares_calls += other.sum_of_squares_calls
         return self
 
 

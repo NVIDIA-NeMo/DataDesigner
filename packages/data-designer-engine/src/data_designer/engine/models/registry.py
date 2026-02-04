@@ -153,16 +153,14 @@ class ModelRegistry:
         return self.get_model(model_alias=model_alias).usage_stats.tool_usage.model_copy(deep=True)
 
     def get_tool_usage_delta(self, *, model_alias: str, snapshot: ToolUsageStats) -> ToolUsageStats:
-        """Get the change in tool usage stats since a snapshot.
-
-        Note: The returned delta object supports mean calculations but stddev values
-        will be NaN since sum of squares cannot be computed from deltas alone.
-        """
+        """Get the change in tool usage stats since a snapshot."""
         current = self.get_model(model_alias=model_alias).usage_stats.tool_usage
         return ToolUsageStats(
             total_tool_calls=current.total_tool_calls - snapshot.total_tool_calls,
             total_tool_call_turns=current.total_tool_call_turns - snapshot.total_tool_call_turns,
             generations_with_tools=current.generations_with_tools - snapshot.generations_with_tools,
+            sum_of_squares_turns=current.sum_of_squares_turns - snapshot.sum_of_squares_turns,
+            sum_of_squares_calls=current.sum_of_squares_calls - snapshot.sum_of_squares_calls,
         )
 
     def get_model_provider(self, *, model_alias: str) -> ModelProvider:

@@ -243,24 +243,39 @@ def test_model_usage_stats_extend_preserves_tool_usage_stddev() -> None:
     assert stats1.tool_usage.turns_per_generation_stddev == pytest.approx(0.816496580927726, rel=1e-6)
 
 
-def test_tool_usage_stats_delta_returns_nan_for_stddev() -> None:
-    """Test that delta objects (created without sum of squares) return NaN for stddev."""
-    import math
+def test_tool_usage_stats_delta_with_sum_of_squares() -> None:
+    """Test that delta objects with sum of squares compute stddev correctly."""
+    # Create two stats objects to simulate a snapshot and current state
+    snapshot = ToolUsageStats()
+    snapshot.extend(tool_calls=2, tool_call_turns=1)
 
-    # Create a delta object directly from counts (simulating get_tool_usage_delta)
+    current = ToolUsageStats()
+    current.extend(tool_calls=2, tool_call_turns=1)  # Same as snapshot
+    current.extend(tool_calls=4, tool_call_turns=3)  # New generation
+    current.extend(tool_calls=6, tool_call_turns=2)  # New generation
+
+    # Create delta by subtracting snapshot from current
     delta = ToolUsageStats(
-        total_tool_calls=10,
-        total_tool_call_turns=5,
-        generations_with_tools=3,
+        total_tool_calls=current.total_tool_calls - snapshot.total_tool_calls,
+        total_tool_call_turns=current.total_tool_call_turns - snapshot.total_tool_call_turns,
+        generations_with_tools=current.generations_with_tools - snapshot.generations_with_tools,
+        sum_of_squares_calls=current.sum_of_squares_calls - snapshot.sum_of_squares_calls,
+        sum_of_squares_turns=current.sum_of_squares_turns - snapshot.sum_of_squares_turns,
     )
 
-    # Mean should still be computable
-    assert delta.calls_per_generation_mean == pytest.approx(10 / 3)
-    assert delta.turns_per_generation_mean == pytest.approx(5 / 3)
+    # Delta should represent the 2 new generations: (4, 3) and (6, 2)
+    assert delta.total_tool_calls == 10  # 4 + 6
+    assert delta.total_tool_call_turns == 5  # 3 + 2
+    assert delta.generations_with_tools == 2
 
-    # Stddev should be NaN since sum of squares wasn't tracked
-    assert math.isnan(delta.calls_per_generation_stddev)
-    assert math.isnan(delta.turns_per_generation_stddev)
+    # Mean: calls = (4+6)/2 = 5.0, turns = (3+2)/2 = 2.5
+    assert delta.calls_per_generation_mean == 5.0
+    assert delta.turns_per_generation_mean == 2.5
+
+    # Stddev: calls variance = (16+36)/2 - 25 = 26 - 25 = 1, stddev = 1.0
+    # Stddev: turns variance = (9+4)/2 - 6.25 = 6.5 - 6.25 = 0.25, stddev = 0.5
+    assert delta.calls_per_generation_stddev == 1.0
+    assert delta.turns_per_generation_stddev == 0.5
 
 
 def test_tool_usage_stats_empty_delta_returns_zero_for_stddev() -> None:
