@@ -80,7 +80,7 @@ Generated with {{ num_columns_configured }} column configuration(s):
 {% endfor %}
 
 {% endif %}
-📄 Full configuration available in [`sdg.json`](sdg.json) and detailed metadata in [`metadata.json`](metadata.json).
+📄 Full configuration available in [`builder_config.json`](builder_config.json) and detailed metadata in [`metadata.json`](metadata.json).
 
 ---
 

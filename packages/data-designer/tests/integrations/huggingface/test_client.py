@@ -39,7 +39,7 @@ def sample_dataset_path(tmp_path: Path) -> Path:
     - parquet-files/: Main dataset batch files
     - processors-files/{processor_name}/: Processor output batch files (same structure)
     - metadata.json: Dataset metadata
-    - sdg.json: Configuration
+    - builder_config.json: Configuration
     """
     base_path = tmp_path / "dataset"
     base_path.mkdir()
@@ -92,8 +92,8 @@ def sample_dataset_path(tmp_path: Path) -> Path:
     }
     (base_path / "metadata.json").write_text(json.dumps(metadata))
 
-    # Create sdg.json with realistic BuilderConfig structure
-    sdg_config = {
+    # Create builder_config.json with realistic BuilderConfig structure
+    builder_config = {
         "data_designer": {
             "columns": [
                 {
@@ -109,7 +109,7 @@ def sample_dataset_path(tmp_path: Path) -> Path:
             "profilers": None,
         }
     }
-    (base_path / "sdg.json").write_text(json.dumps(sdg_config))
+    (base_path / "builder_config.json").write_text(json.dumps(builder_config))
 
     return base_path
 
@@ -182,7 +182,7 @@ def test_upload_dataset_uploads_processor_outputs(
 def test_upload_dataset_uploads_config_files(
     mock_hf_api: MagicMock, mock_dataset_card: MagicMock, sample_dataset_path: Path
 ) -> None:
-    """Test that upload_dataset uploads sdg.json and metadata.json."""
+    """Test that upload_dataset uploads builder_config.json and metadata.json."""
     client = HuggingFaceHubClient(token="test-token")
 
     client.upload_dataset(
@@ -194,7 +194,7 @@ def test_upload_dataset_uploads_config_files(
     # Check that upload_file was called for config files
     upload_file_calls = mock_hf_api.upload_file.call_args_list
     uploaded_files = [call.kwargs["path_in_repo"] for call in upload_file_calls]
-    assert "sdg.json" in uploaded_files
+    assert "builder_config.json" in uploaded_files
     assert "metadata.json" in uploaded_files
 
 
@@ -301,10 +301,10 @@ def test_upload_dataset_without_processors(
     assert len(processor_calls) == 0  # No processor files
 
 
-def test_upload_dataset_without_sdg_config(
+def test_upload_dataset_without_builder_config(
     mock_hf_api: MagicMock, mock_dataset_card: MagicMock, tmp_path: Path
 ) -> None:
-    """Test upload_dataset when sdg.json doesn't exist."""
+    """Test upload_dataset when builder_config.json doesn't exist."""
     base_path = tmp_path / "dataset"
     base_path.mkdir()
 
@@ -315,7 +315,7 @@ def test_upload_dataset_without_sdg_config(
     metadata = {"target_num_records": 10, "schema": {"col1": "string"}, "column_statistics": []}
     (base_path / "metadata.json").write_text(json.dumps(metadata))
 
-    # No sdg.json file
+    # No builder_config.json file
 
     client = HuggingFaceHubClient(token="test-token")
 
@@ -325,13 +325,13 @@ def test_upload_dataset_without_sdg_config(
         description="Test dataset",
     )
 
-    # Should only upload metadata.json, not sdg.json
+    # Should only upload metadata.json, not builder_config.json
     file_calls = mock_hf_api.upload_file.call_args_list
     uploaded_files = [call.kwargs["path_in_repo"] for call in file_calls]
 
     assert len(uploaded_files) == 1  # Only metadata.json
     assert "metadata.json" in uploaded_files
-    assert "sdg.json" not in uploaded_files
+    assert "builder_config.json" not in uploaded_files
 
 
 def test_upload_dataset_multiple_processors(
@@ -447,13 +447,13 @@ def test_validate_dataset_path_invalid_metadata_json(tmp_path: Path) -> None:
         client.upload_dataset("test/dataset", base_path, "Test")
 
 
-def test_validate_dataset_path_invalid_sdg_json(tmp_path: Path) -> None:
-    """Test upload fails when sdg.json contains invalid JSON."""
+def test_validate_dataset_path_invalid_builder_config_json(tmp_path: Path) -> None:
+    """Test upload fails when builder_config.json contains invalid JSON."""
     client = HuggingFaceHubClient(token="test-token")
     base_path = tmp_path / "dataset"
     base_path.mkdir()
     (base_path / "metadata.json").write_text('{"target_num_records": 10}')
-    (base_path / "sdg.json").write_text("invalid json {{{")
+    (base_path / "builder_config.json").write_text("invalid json {{{")
     parquet_dir = base_path / "parquet-files"
     parquet_dir.mkdir()
     (parquet_dir / "batch_00000.parquet").write_text("data")

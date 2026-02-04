@@ -44,7 +44,7 @@ def test_from_metadata_minimal(stub_metadata: dict) -> None:
 
     card = DataDesignerDatasetCard.from_metadata(
         metadata=stub_metadata,
-        sdg_config=None,
+        builder_config=None,
         repo_id="test/dataset",
         description="Test dataset for unit testing.",
     )
@@ -57,8 +57,8 @@ def test_from_metadata_minimal(stub_metadata: dict) -> None:
     assert "2" in str(card)  # Number of columns
 
 
-def test_from_metadata_with_sdg_config(stub_metadata: dict) -> None:
-    """Test creating dataset card with sdg config."""
+def test_from_metadata_with_builder_config(stub_metadata: dict) -> None:
+    """Test creating dataset card with builder config."""
     # Customize for this test
     stub_metadata["target_num_records"] = 50
     stub_metadata["schema"] = {"name": "string", "age": "int64"}
@@ -83,7 +83,7 @@ def test_from_metadata_with_sdg_config(stub_metadata: dict) -> None:
         },
     ]
 
-    sdg_config = {
+    builder_config = {
         "data_designer": {
             "columns": [
                 {"name": "name", "column_type": "sampler"},
@@ -94,9 +94,9 @@ def test_from_metadata_with_sdg_config(stub_metadata: dict) -> None:
 
     card = DataDesignerDatasetCard.from_metadata(
         metadata=stub_metadata,
-        sdg_config=sdg_config,
+        builder_config=builder_config,
         repo_id="test/dataset-with-config",
-        description="Test dataset with SDG config.",
+        description="Test dataset with builder config.",
     )
 
     # Verify card includes config info
@@ -125,7 +125,7 @@ def test_from_metadata_with_llm_columns(stub_metadata: dict) -> None:
 
     card = DataDesignerDatasetCard.from_metadata(
         metadata=stub_metadata,
-        sdg_config=None,
+        builder_config=None,
         repo_id="test/llm-dataset",
         description="Test dataset with LLM columns.",
     )
@@ -148,7 +148,7 @@ def test_from_metadata_with_processors(stub_metadata: dict) -> None:
 
     card = DataDesignerDatasetCard.from_metadata(
         metadata=stub_metadata,
-        sdg_config=None,
+        builder_config=None,
         repo_id="test/dataset-with-processors",
         description="Test dataset with processor outputs.",
     )
@@ -171,7 +171,7 @@ def test_from_metadata_with_custom_description(stub_metadata: dict) -> None:
 
     card = DataDesignerDatasetCard.from_metadata(
         metadata=stub_metadata,
-        sdg_config=None,
+        builder_config=None,
         repo_id="test/dataset-with-description",
         description=description,
     )
@@ -189,7 +189,7 @@ def test_from_metadata_description_placement(stub_metadata: dict) -> None:
 
     card = DataDesignerDatasetCard.from_metadata(
         metadata=stub_metadata,
-        sdg_config=None,
+        builder_config=None,
         repo_id="test/dataset-description-placement",
         description="Test description placement.",
     )
@@ -208,7 +208,7 @@ def test_from_metadata_default_tags(stub_metadata: dict) -> None:
     """Test that default tags are included when no custom tags are provided."""
     card = DataDesignerDatasetCard.from_metadata(
         metadata=stub_metadata,
-        sdg_config=None,
+        builder_config=None,
         repo_id="test/dataset-default-tags",
         description="Test dataset with default tags.",
     )
@@ -226,7 +226,7 @@ def test_from_metadata_with_custom_tags(stub_metadata: dict) -> None:
 
     card = DataDesignerDatasetCard.from_metadata(
         metadata=stub_metadata,
-        sdg_config=None,
+        builder_config=None,
         repo_id="test/dataset-custom-tags",
         description="Test dataset with custom tags.",
         tags=custom_tags,
@@ -250,7 +250,7 @@ def test_from_metadata_tags_in_yaml_frontmatter(stub_metadata: dict) -> None:
 
     card = DataDesignerDatasetCard.from_metadata(
         metadata=stub_metadata,
-        sdg_config=None,
+        builder_config=None,
         repo_id="test/dataset-tags-frontmatter",
         description="Test dataset.",
         tags=["custom-tag"],

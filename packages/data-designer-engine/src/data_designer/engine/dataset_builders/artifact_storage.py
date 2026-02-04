@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 BATCH_FILE_NAME_FORMAT = "batch_{batch_number:05d}.parquet"
-SDG_CONFIG_FILENAME = "sdg.json"
+SDG_CONFIG_FILENAME = "builder_config.json"
 METADATA_FILENAME = "metadata.json"
 FINAL_DATASET_FOLDER_NAME = "parquet-files"
 PROCESSORS_OUTPUTS_FOLDER_NAME = "processors-files"

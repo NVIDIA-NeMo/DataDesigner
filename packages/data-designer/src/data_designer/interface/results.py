@@ -112,7 +112,7 @@ class DatasetCreationResults(WithRecordSamplerMixin):
         Uploads all artifacts including:
         - Main parquet batch files (data subset)
         - Processor output batch files ({processor_name} subsets)
-        - Configuration (sdg.json)
+        - Configuration (builder_config.json)
         - Metadata (metadata.json)
         - Auto-generated dataset card (README.md)
 

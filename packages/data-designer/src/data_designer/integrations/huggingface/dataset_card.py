@@ -26,16 +26,16 @@ class DataDesignerDatasetCard(DatasetCard):
     def from_metadata(
         cls,
         metadata: dict,
-        sdg_config: dict | None,
+        builder_config: dict | None,
         repo_id: str,
         description: str,
         tags: list[str] | None = None,
     ) -> DataDesignerDatasetCard:
-        """Create dataset card from metadata.json and sdg.json.
+        """Create dataset card from metadata.json and builder_config.json.
 
         Args:
             metadata: Contents of metadata.json
-            sdg_config: Contents of sdg.json (optional)
+            builder_config: Contents of builder_config.json (optional)
             repo_id: Hugging Face dataset repo ID
             description: Custom description text
             tags: Additional custom tags for the dataset.
@@ -57,11 +57,11 @@ class DataDesignerDatasetCard(DatasetCard):
         # Compute size category
         size_categories = cls._compute_size_category(actual_num_records)
 
-        # Extract column types from sdg.json if available
+        # Extract column types from builder_config.json if available
         config_types: dict[str, int] = {}
         num_columns_configured = 0
-        if sdg_config:
-            columns = sdg_config.get("data_designer", {}).get("columns", [])
+        if builder_config:
+            columns = builder_config.get("data_designer", {}).get("columns", [])
             num_columns_configured = len(columns)
             for col in columns:
                 col_type = col.get("column_type", "unknown")

@@ -67,12 +67,12 @@ class HuggingFaceHubClient:
         Uploads the complete dataset including:
         - Main parquet batch files from parquet-files/ → data/
         - Processor output batch files from processors-files/{name}/ → {name}/
-        - Existing sdg.json and metadata.json files
+        - Existing builder_config.json and metadata.json files
         - Auto-generated README.md (dataset card)
 
         Args:
             repo_id: Hugging Face dataset repo ID (e.g., "username/dataset-name")
-            base_dataset_path: Path to base_dataset_path (contains parquet-files/, sdg.json, etc.)
+            base_dataset_path: Path to base_dataset_path (contains parquet-files/, builder_config.json, etc.)
             description: Custom description text for dataset card
             private: Whether to create private repo
             tags: Additional custom tags for the dataset
@@ -94,7 +94,7 @@ class HuggingFaceHubClient:
             self._upload_dataset_card(
                 repo_id=repo_id,
                 metadata_path=base_dataset_path / METADATA_FILENAME,
-                sdg_path=base_dataset_path / SDG_CONFIG_FILENAME,
+                builder_config_path=base_dataset_path / SDG_CONFIG_FILENAME,
                 description=description,
                 tags=tags,
             )
@@ -108,7 +108,7 @@ class HuggingFaceHubClient:
         self._upload_config_files(
             repo_id=repo_id,
             metadata_path=base_dataset_path / METADATA_FILENAME,
-            sdg_path=base_dataset_path / SDG_CONFIG_FILENAME,
+            builder_config_path=base_dataset_path / SDG_CONFIG_FILENAME,
         )
 
         url = f"{HUGGINGFACE_HUB_DATASET_URL_PREFIX}{repo_id}"
@@ -210,30 +210,30 @@ class HuggingFaceHubClient:
                     f"Failed to upload processor outputs for '{processor_dir.name}': {e}"
                 ) from e
 
-    def _upload_config_files(self, repo_id: str, metadata_path: Path, sdg_path: Path) -> None:
-        """Upload configuration files (sdg.json and metadata.json).
+    def _upload_config_files(self, repo_id: str, metadata_path: Path, builder_config_path: Path) -> None:
+        """Upload configuration files (builder_config.json and metadata.json).
 
         Args:
             repo_id: Hugging Face dataset repo ID
             metadata_path: Path to metadata.json file
-            sdg_path: Path to sdg.json file
+            builder_config_path: Path to builder_config.json file
 
         Raises:
             HuggingFaceUploadError: If upload fails
         """
         logger.info(f"  |-- {RandomEmoji.loading()} Uploading configuration files...")
 
-        if sdg_path.exists():
+        if builder_config_path.exists():
             try:
                 self._api.upload_file(
                     repo_id=repo_id,
-                    path_or_fileobj=str(sdg_path),
+                    path_or_fileobj=str(builder_config_path),
                     path_in_repo=SDG_CONFIG_FILENAME,
                     repo_type="dataset",
-                    commit_message="Upload sdg.json",
+                    commit_message="Upload builder_config.json",
                 )
             except Exception as e:
-                raise HuggingFaceHubClientUploadError(f"Failed to upload sdg.json: {e}") from e
+                raise HuggingFaceHubClientUploadError(f"Failed to upload builder_config.json: {e}") from e
 
         if metadata_path.exists():
             tmp_path = None
@@ -257,14 +257,19 @@ class HuggingFaceHubClient:
                     Path(tmp_path).unlink()
 
     def _upload_dataset_card(
-        self, repo_id: str, metadata_path: Path, sdg_path: Path, description: str, tags: list[str] | None = None
+        self,
+        repo_id: str,
+        metadata_path: Path,
+        builder_config_path: Path,
+        description: str,
+        tags: list[str] | None = None,
     ) -> None:
         """Generate and upload dataset card from metadata.json.
 
         Args:
             repo_id: Hugging Face dataset repo ID
             metadata_path: Path to metadata.json file
-            sdg_path: Path to sdg.json file
+            builder_config_path: Path to builder_config.json file
             description: Custom description text for dataset card
             tags: Additional custom tags for the dataset
 
@@ -279,20 +284,20 @@ class HuggingFaceHubClient:
         except Exception as e:
             raise HuggingFaceHubClientUploadError(f"Failed to read {METADATA_FILENAME}: {e}") from e
 
-        sdg_config = None
-        if sdg_path.exists():
+        builder_config = None
+        if builder_config_path.exists():
             try:
-                with open(sdg_path) as f:
-                    sdg_config = json.load(f)
+                with open(builder_config_path) as f:
+                    builder_config = json.load(f)
             except json.JSONDecodeError as e:
-                raise HuggingFaceHubClientUploadError(f"Failed to parse sdg.json: {e}") from e
+                raise HuggingFaceHubClientUploadError(f"Failed to parse builder_config.json: {e}") from e
             except Exception as e:
-                raise HuggingFaceHubClientUploadError(f"Failed to read sdg.json: {e}") from e
+                raise HuggingFaceHubClientUploadError(f"Failed to read builder_config.json: {e}") from e
 
         try:
             card = DataDesignerDatasetCard.from_metadata(
                 metadata=metadata,
-                sdg_config=sdg_config,
+                builder_config=builder_config,
                 repo_id=repo_id,
                 description=description,
                 tags=tags,
@@ -415,12 +420,12 @@ class HuggingFaceHubClient:
         except json.JSONDecodeError as e:
             raise HuggingFaceHubClientUploadError(f"Invalid JSON in {METADATA_FILENAME}: {e}")
 
-        sdg_path = base_dataset_path / SDG_CONFIG_FILENAME
-        if sdg_path.exists():
-            if not sdg_path.is_file():
-                raise HuggingFaceHubClientUploadError(f"{SDG_CONFIG_FILENAME} is not a file: {sdg_path}")
+        builder_config_path = base_dataset_path / SDG_CONFIG_FILENAME
+        if builder_config_path.exists():
+            if not builder_config_path.is_file():
+                raise HuggingFaceHubClientUploadError(f"{SDG_CONFIG_FILENAME} is not a file: {builder_config_path}")
             try:
-                with open(sdg_path) as f:
+                with open(builder_config_path) as f:
                     json.load(f)
             except json.JSONDecodeError as e:
                 raise HuggingFaceHubClientUploadError(f"Invalid JSON in {SDG_CONFIG_FILENAME}: {e}")
