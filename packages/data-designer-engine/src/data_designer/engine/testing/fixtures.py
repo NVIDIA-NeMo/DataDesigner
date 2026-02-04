@@ -17,40 +17,7 @@ from data_designer.config.mcp import LocalStdioMCPProvider, MCPProvider, ToolCon
 from data_designer.engine.mcp.facade import MCPFacade
 from data_designer.engine.model_provider import MCPProviderRegistry
 from data_designer.engine.secret_resolver import SecretResolver
-from data_designer.engine.testing.stubs import StubHuggingFaceSeedReader
-
-# =============================================================================
-# Fake LLM response classes (used by completion response fixtures)
-# =============================================================================
-
-
-class _FakeMessage:
-    """Fake message class for mocking LLM completion responses."""
-
-    def __init__(
-        self,
-        content: str | None,
-        tool_calls: list[dict] | None = None,
-        reasoning_content: str | None = None,
-    ) -> None:
-        self.content = content
-        self.tool_calls = tool_calls
-        self.reasoning_content = reasoning_content
-
-
-class _FakeChoice:
-    """Fake choice class for mocking LLM completion responses."""
-
-    def __init__(self, message: _FakeMessage) -> None:
-        self.message = message
-
-
-class _FakeResponse:
-    """Fake response class for mocking LLM completion responses."""
-
-    def __init__(self, message: _FakeMessage) -> None:
-        self.choices = [_FakeChoice(message)]
-
+from data_designer.engine.testing.stubs import StubHuggingFaceSeedReader, StubMessage, StubResponse
 
 # =============================================================================
 # Seed reader fixtures
@@ -178,38 +145,38 @@ def stub_mcp_facade_factory() -> Any:
 
 
 @pytest.fixture
-def mock_completion_response_no_tools() -> _FakeResponse:
+def mock_completion_response_no_tools() -> StubResponse:
     """Mock LLM response with no tool calls."""
-    return _FakeResponse(_FakeMessage(content="Hello, I can help with that."))
+    return StubResponse(StubMessage(content="Hello, I can help with that."))
 
 
 @pytest.fixture
-def mock_completion_response_single_tool() -> _FakeResponse:
+def mock_completion_response_single_tool() -> StubResponse:
     """Mock LLM response with single tool call."""
     tool_call = {
         "id": "call-1",
         "type": "function",
         "function": {"name": "lookup", "arguments": '{"query": "test"}'},
     }
-    return _FakeResponse(_FakeMessage(content="Let me look that up.", tool_calls=[tool_call]))
+    return StubResponse(StubMessage(content="Let me look that up.", tool_calls=[tool_call]))
 
 
 @pytest.fixture
-def mock_completion_response_parallel_tools() -> _FakeResponse:
+def mock_completion_response_parallel_tools() -> StubResponse:
     """Mock LLM response with multiple parallel tool calls."""
     tool_calls = [
         {"id": "call-1", "type": "function", "function": {"name": "lookup", "arguments": '{"query": "first"}'}},
         {"id": "call-2", "type": "function", "function": {"name": "search", "arguments": '{"term": "second"}'}},
         {"id": "call-3", "type": "function", "function": {"name": "fetch", "arguments": '{"url": "example.com"}'}},
     ]
-    return _FakeResponse(_FakeMessage(content="Executing multiple tools.", tool_calls=tool_calls))
+    return StubResponse(StubMessage(content="Executing multiple tools.", tool_calls=tool_calls))
 
 
 @pytest.fixture
-def mock_completion_response_with_reasoning() -> _FakeResponse:
+def mock_completion_response_with_reasoning() -> StubResponse:
     """Mock LLM response with reasoning_content."""
-    return _FakeResponse(
-        _FakeMessage(
+    return StubResponse(
+        StubMessage(
             content="  Final answer with extra spaces.  ",
             reasoning_content="  Thinking about the problem...  ",
         )
@@ -217,15 +184,15 @@ def mock_completion_response_with_reasoning() -> _FakeResponse:
 
 
 @pytest.fixture
-def mock_completion_response_tool_with_reasoning() -> _FakeResponse:
+def mock_completion_response_tool_with_reasoning() -> StubResponse:
     """Mock LLM response with tool calls and reasoning_content."""
     tool_call = {
         "id": "call-1",
         "type": "function",
         "function": {"name": "lookup", "arguments": '{"query": "test"}'},
     }
-    return _FakeResponse(
-        _FakeMessage(
+    return StubResponse(
+        StubMessage(
             content="  Looking it up...  ",
             tool_calls=[tool_call],
             reasoning_content="  I should use the lookup tool.  ",
