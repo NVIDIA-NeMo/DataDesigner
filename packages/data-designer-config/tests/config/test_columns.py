@@ -55,6 +55,7 @@ def test_data_designer_column_type_get_display_order():
         DataDesignerColumnType.EMBEDDING,
         DataDesignerColumnType.VALIDATION,
         DataDesignerColumnType.EXPRESSION,
+        DataDesignerColumnType.CUSTOM,
     ]
 
 

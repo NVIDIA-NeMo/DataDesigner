@@ -7,7 +7,7 @@ Columns are the fundamental building blocks in Data Designer. Each column repres
 
 ## Column Types
 
-Data Designer provides nine built-in column types, each optimized for different generation scenarios.
+Data Designer provides ten built-in column types, each optimized for different generation scenarios.
 
 ### 🎲 Sampler Columns
 
@@ -140,6 +140,17 @@ Built-in validation types:
 Seed dataset columns bootstrap generation from existing data. Provide a real dataset, and those columns become available as context for generating new synthetic data.
 
 Typical pattern: use seed data for one part of your schema (real product names and categories), then generate synthetic fields around it (customer reviews, purchase histories, ratings). The seed data provides realism and constraints; generated columns add volume and variation.
+
+### 🔧 Custom Columns
+
+Custom columns let you implement your own generation logic using Python functions. Use the `@custom_column_generator` decorator to declare dependencies, and the framework handles DAG ordering and parallelization.
+
+Two generation strategies:
+
+- **`cell_by_cell`** (default): Function receives one row, framework parallelizes
+- **`full_column`**: Function receives entire DataFrame for vectorized operations
+
+For LLM access, declare `model_aliases` in the decorator and receive a `models` dict as the third argument. See [Custom Columns](custom_columns.md) for details.
 
 ## Shared Column Properties
 
