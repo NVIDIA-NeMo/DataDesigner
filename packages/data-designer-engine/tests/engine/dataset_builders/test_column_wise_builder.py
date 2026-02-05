@@ -567,3 +567,66 @@ def test_process_preview_runs_both_callbacks(stub_resource_provider, stub_model_
     # Result should have both columns added
     assert "post_batch_applied" in result.columns
     assert "post_gen_applied" in result.columns
+
+
+@pytest.mark.parametrize("mode", ["preview", "build"])
+def test_all_processor_stages_run_in_order(stub_resource_provider, stub_model_configs, tmp_path, mode):
+    """Test that all 4 processor stages run in correct order for both preview and build modes."""
+    from data_designer.config.seed_source import DataFrameSeedSource, LocalFileSeedSource
+    from data_designer.engine.processing.processors.base import Processor
+    from data_designer.engine.resources.seed_reader import DataFrameSeedReader
+
+    # Set up seed reader with test data
+    seed_df = pd.DataFrame({"seed_id": [1, 2, 3], "text": ["a", "b", "c"]})
+    seed_source = DataFrameSeedSource(df=seed_df)
+    seed_reader = DataFrameSeedReader()
+    seed_reader.attach(seed_source, Mock())
+    stub_resource_provider.seed_reader = seed_reader
+
+    # Write seed file to tmp_path
+    seed_path = tmp_path / "seed.parquet"
+    seed_df.to_parquet(seed_path, index=False)
+
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config_builder.with_seed_dataset(LocalFileSeedSource(path=str(seed_path)))
+    config_builder.add_column(SamplerColumnConfig(name="extra", sampler_type="uuid", params=UUIDSamplerParams()))
+
+    builder = ColumnWiseDatasetBuilder(
+        data_designer_config=config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+
+    # Create a processor that implements all 4 stages to track calls
+    call_order = []
+
+    mock_processor = Mock(spec=Processor)
+    mock_processor.name = "all_stages_processor"
+    mock_processor.implements.side_effect = lambda m: m in (
+        "preprocess",
+        "process_before_batch",
+        "process_after_batch",
+        "postprocess",
+    )
+    mock_processor.preprocess.side_effect = lambda df: (call_order.append("preprocess"), df)[1]
+    mock_processor.process_before_batch.side_effect = lambda df: (call_order.append("process_before_batch"), df)[1]
+    mock_processor.process_after_batch.side_effect = lambda df, **kw: (call_order.append("process_after_batch"), df)[1]
+    mock_processor.postprocess.side_effect = lambda df: (call_order.append("postprocess"), df)[1]
+
+    builder._processors = [mock_processor]
+
+    if mode == "preview":
+        # Preview flow: build_preview() + process_preview()
+        raw_dataset = builder.build_preview(num_records=3)
+        builder.process_preview(raw_dataset)
+    else:
+        # Build flow: build() runs all stages internally
+        builder.build(num_records=3)
+
+    # Verify all 4 stages were called
+    mock_processor.preprocess.assert_called_once()
+    mock_processor.process_before_batch.assert_called_once()
+    mock_processor.process_after_batch.assert_called_once()
+    mock_processor.postprocess.assert_called_once()
+
+    # Verify call order matches the pipeline stages
+    assert call_order == ["preprocess", "process_before_batch", "process_after_batch", "postprocess"]

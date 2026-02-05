@@ -131,8 +131,8 @@ class ColumnWiseDatasetBuilder:
         dataset = self.batch_manager.get_current_batch(as_dataframe=True)
         self.batch_manager.reset()
 
-        # Reset preprocessed_seed_uri to avoid affecting subsequent build() calls
-        self._resource_provider.preprocessed_seed_uri = None
+        # Clean up preprocessed seed file and reset URI to avoid affecting subsequent build() calls
+        self._cleanup_preprocessed_seed()
 
         self._resource_provider.model_registry.log_model_usage(time.perf_counter() - start_time)
 
@@ -345,10 +345,7 @@ class ColumnWiseDatasetBuilder:
         """Load full seed dataset as DataFrame."""
         seed_reader = self._resource_provider.seed_reader
         conn = seed_reader.create_duckdb_connection()
-        try:
-            return conn.execute(f"SELECT * FROM '{seed_reader.get_dataset_uri()}'").fetchdf()
-        finally:
-            conn.close()
+        return conn.execute(f"SELECT * FROM '{seed_reader.get_dataset_uri()}'").fetchdf()
 
     def _run_preprocess_on_df(self, df: pd.DataFrame, processors: list[Processor]) -> pd.DataFrame:
         """Run preprocess() on given processors."""
@@ -366,6 +363,14 @@ class ColumnWiseDatasetBuilder:
         df.to_parquet(preprocessed_path, index=False)
         self._resource_provider.preprocessed_seed_uri = str(preprocessed_path)
 
+    def _cleanup_preprocessed_seed(self) -> None:
+        """Remove preprocessed seed file and reset URI."""
+        if self._resource_provider.preprocessed_seed_uri is not None:
+            preprocessed_path = Path(self._resource_provider.preprocessed_seed_uri)
+            if preprocessed_path.exists():
+                preprocessed_path.unlink()
+            self._resource_provider.preprocessed_seed_uri = None
+
     def _apply_pre_batch_processors(self) -> None:
         """Get batch, run PRE_BATCH processors, update batch manager."""
         processors = [p for p in self._processors if p.implements("process_before_batch")]
@@ -373,6 +378,7 @@ class ColumnWiseDatasetBuilder:
             return
 
         df = self.batch_manager.get_current_batch(as_dataframe=True)
+        original_len = len(df)
         for processor in processors:
             try:
                 df = processor.process_before_batch(df)
@@ -380,6 +386,11 @@ class ColumnWiseDatasetBuilder:
                 raise DatasetProcessingError(
                     f"🛑 Failed in process_before_batch for processor {processor.name}: {e}"
                 ) from e
+        if len(df) != original_len:
+            logger.warning(
+                f"⚠️ PRE_BATCH processors changed row count from {original_len} to {len(df)}. "
+                "This may cause unexpected behavior in downstream generators."
+            )
         self.batch_manager.update_records(df.to_dict(orient="records"))
 
     def _run_post_batch_processors(self, dataframe: pd.DataFrame, current_batch_number: int | None) -> pd.DataFrame:
