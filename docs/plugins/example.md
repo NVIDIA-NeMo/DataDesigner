@@ -249,7 +249,7 @@ Data Designer provides a testing utility to validate that your plugin is structu
 from data_designer.engine.testing.utils import assert_valid_plugin
 from data_designer_index_multiplier.plugin import plugin
 
-# Raises AssertionError with a descriptive message if anything is wrong
+# Raises AssertionError with a descriptive message if anything is wrong with the general plugin structure
 assert_valid_plugin(plugin)
 ```
 
