@@ -433,7 +433,7 @@ def test_run_pre_generation_processors_filters_seed_data(stub_resource_provider,
     mock_processor.preprocess.side_effect = lambda df: df[df["seed_id"] > 2].reset_index(drop=True)
 
     builder_with_seed._processors = [mock_processor]
-    builder_with_seed._run_pre_generation_processors()
+    builder_with_seed._processor_runner.run_preprocess()
 
     mock_processor.preprocess.assert_called_once()
 
@@ -464,7 +464,7 @@ def test_run_post_generation_processors_modifies_final_dataset(stub_resource_pro
     )
     builder._processors = [mock_processor]
 
-    builder._run_post_generation_processors()
+    builder._processor_runner.run_postprocess()
 
     mock_processor.postprocess.assert_called_once()
 
@@ -487,7 +487,7 @@ def test_run_pre_generation_processors_skips_when_no_seed_reader(stub_resource_p
     )
     builder._processors = [mock_processor]
 
-    builder._run_pre_generation_processors()
+    builder._processor_runner.run_preprocess()
 
     mock_processor.preprocess.assert_not_called()
 
@@ -531,7 +531,7 @@ def test_processor_exception_in_preprocess_raises_error(builder_with_seed):
     builder_with_seed._processors = [mock_processor]
 
     with pytest.raises(DatasetProcessingError, match="Failed in preprocess"):
-        builder_with_seed._run_pre_generation_processors()
+        builder_with_seed._processor_runner.run_preprocess()
 
 
 def test_processor_exception_in_process_after_batch_raises_error(stub_resource_provider, stub_model_configs):
@@ -549,7 +549,7 @@ def test_processor_exception_in_process_after_batch_raises_error(stub_resource_p
     builder._processors = [mock_processor]
 
     with pytest.raises(DatasetProcessingError, match="Failed in process_after_batch"):
-        builder._run_post_batch_processors(pd.DataFrame({"id": [1, 2, 3]}), current_batch_number=0)
+        builder._processor_runner.run_post_batch(pd.DataFrame({"id": [1, 2, 3]}), current_batch_number=0)
 
 
 def test_processor_with_no_implemented_stages_is_skipped(builder_with_seed):
@@ -582,7 +582,7 @@ def test_multiple_processors_run_in_definition_order(builder_with_seed):
     processor_c.preprocess.side_effect = lambda df: (call_order.append("c"), df)[1]
 
     builder_with_seed._processors = [processor_a, processor_b, processor_c]
-    builder_with_seed._run_pre_generation_processors()
+    builder_with_seed._processor_runner.run_preprocess()
 
     assert call_order == ["a", "b", "c"]
 
