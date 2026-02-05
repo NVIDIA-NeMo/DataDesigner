@@ -47,58 +47,27 @@ class RequestUsageStats(BaseModel):
 class ToolUsageStats(BaseModel):
     total_tool_calls: int = 0
     total_tool_call_turns: int = 0
+    total_generations: int = 0
     generations_with_tools: int = 0
-    sum_of_squares_turns: float = 0.0
-    sum_of_squares_calls: float = 0.0
-
-    @computed_field
-    def turns_per_generation_mean(self) -> float:
-        if self.generations_with_tools == 0:
-            return 0.0
-        return self.total_tool_call_turns / self.generations_with_tools
-
-    @computed_field
-    def turns_per_generation_stddev(self) -> float:
-        if self.generations_with_tools == 0:
-            return 0.0
-        mean_squared = self.turns_per_generation_mean**2
-        variance = (self.sum_of_squares_turns / self.generations_with_tools) - mean_squared
-        return variance**0.5 if variance > 0 else 0.0
-
-    @computed_field
-    def calls_per_generation_mean(self) -> float:
-        if self.generations_with_tools == 0:
-            return 0.0
-        return self.total_tool_calls / self.generations_with_tools
-
-    @computed_field
-    def calls_per_generation_stddev(self) -> float:
-        if self.generations_with_tools == 0:
-            return 0.0
-        mean_squared = self.calls_per_generation_mean**2
-        variance = (self.sum_of_squares_calls / self.generations_with_tools) - mean_squared
-        return variance**0.5 if variance > 0 else 0.0
 
     @property
     def has_usage(self) -> bool:
-        return self.total_tool_calls > 0
+        return self.total_generations > 0
 
     def extend(self, *, tool_calls: int, tool_call_turns: int) -> None:
         """Extend stats with a single generation's tool usage."""
+        self.total_generations += 1
         self.total_tool_calls += tool_calls
         self.total_tool_call_turns += tool_call_turns
-        if tool_call_turns > 0:
+        if tool_calls > 0:
             self.generations_with_tools += 1
-            self.sum_of_squares_turns += tool_call_turns**2
-            self.sum_of_squares_calls += tool_calls**2
 
     def merge(self, other: ToolUsageStats) -> ToolUsageStats:
-        """Merge another ToolUsageStats object, preserving stddev accuracy."""
+        """Merge another ToolUsageStats object."""
         self.total_tool_calls += other.total_tool_calls
         self.total_tool_call_turns += other.total_tool_call_turns
+        self.total_generations += other.total_generations
         self.generations_with_tools += other.generations_with_tools
-        self.sum_of_squares_turns += other.sum_of_squares_turns
-        self.sum_of_squares_calls += other.sum_of_squares_calls
         return self
 
 

@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 from data_designer.config.models import GenerationType, ModelConfig
 from data_designer.engine.model_provider import ModelProvider, ModelProviderRegistry
-from data_designer.engine.models.usage import ModelUsageStats, RequestUsageStats, TokenUsageStats, ToolUsageStats
+from data_designer.engine.models.usage import ModelUsageStats, RequestUsageStats, TokenUsageStats
 from data_designer.engine.secret_resolver import SecretResolver
 from data_designer.logging import LOG_INDENT
 
@@ -111,18 +111,13 @@ class ModelRegistry:
             )
 
             if tool_usage := stats.get("tool_usage"):
-                total_tool_calls = tool_usage["total_tool_calls"]
-                total_tool_call_turns = tool_usage["total_tool_call_turns"]
-                generations_with_tools = tool_usage["generations_with_tools"]
-                calls_mean = tool_usage["calls_per_generation_mean"]
-                calls_stddev = tool_usage["calls_per_generation_stddev"]
-                turns_mean = tool_usage["turns_per_generation_mean"]
-                turns_stddev = tool_usage["turns_per_generation_stddev"]
+                total_gens = tool_usage["total_generations"]
+                gens_with_tools = tool_usage["generations_with_tools"]
                 logger.info(
                     f"{LOG_INDENT}tools: "
-                    f"calls={total_tool_calls}, turns={total_tool_call_turns}, generations={generations_with_tools}, "
-                    f"calls/gen={calls_mean:.1f} +/- {calls_stddev:.1f}, "
-                    f"turns/gen={turns_mean:.1f} +/- {turns_stddev:.1f}"
+                    f"generations={gens_with_tools}/{total_gens}, "
+                    f"calls={tool_usage['total_tool_calls']}, "
+                    f"turns={tool_usage['total_tool_call_turns']}"
                 )
 
             if model_index < len(sorted_model_names) - 1:
@@ -152,20 +147,6 @@ class ModelRegistry:
                     request_usage=RequestUsageStats(successful_requests=delta_successful, failed_requests=delta_failed),
                 )
         return deltas
-
-    def get_tool_usage_snapshot(self, *, model_alias: str) -> ToolUsageStats:
-        return self.get_model(model_alias=model_alias).usage_stats.tool_usage.model_copy(deep=True)
-
-    def get_tool_usage_delta(self, *, model_alias: str, snapshot: ToolUsageStats) -> ToolUsageStats:
-        """Get the change in tool usage stats since a snapshot."""
-        current = self.get_model(model_alias=model_alias).usage_stats.tool_usage
-        return ToolUsageStats(
-            total_tool_calls=current.total_tool_calls - snapshot.total_tool_calls,
-            total_tool_call_turns=current.total_tool_call_turns - snapshot.total_tool_call_turns,
-            generations_with_tools=current.generations_with_tools - snapshot.generations_with_tools,
-            sum_of_squares_turns=current.sum_of_squares_turns - snapshot.sum_of_squares_turns,
-            sum_of_squares_calls=current.sum_of_squares_calls - snapshot.sum_of_squares_calls,
-        )
 
     def get_model_provider(self, *, model_alias: str) -> ModelProvider:
         model_config = self.get_model_config(model_alias=model_alias)

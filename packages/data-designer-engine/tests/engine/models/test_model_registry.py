@@ -446,9 +446,10 @@ def test_log_model_usage_with_tool_usage(stub_model_registry: ModelRegistry) -> 
         token_usage=TokenUsageStats(input_tokens=1000, output_tokens=500),
         request_usage=RequestUsageStats(successful_requests=10, failed_requests=0),
     )
-    # Add tool usage
+    # Add tool usage - 3 generations, 2 with tools
     text_model.usage_stats.tool_usage.extend(tool_calls=4, tool_call_turns=2)
     text_model.usage_stats.tool_usage.extend(tool_calls=6, tool_call_turns=3)
+    text_model.usage_stats.tool_usage.extend(tool_calls=0, tool_call_turns=0)  # No tools used
 
     with patch("data_designer.engine.models.registry.logger") as mock_logger:
         stub_model_registry.log_model_usage(total_time_elapsed=10.0)
@@ -458,9 +459,7 @@ def test_log_model_usage_with_tool_usage(stub_model_registry: ModelRegistry) -> 
         assert calls[1] == "  |-- model: stub-model-text"
         assert calls[2] == "  |-- tokens: input=1000, output=500, total=1500, tps=150"
         assert calls[3] == "  |-- requests: success=10, failed=0, total=10, rpm=60"
-        assert calls[4] == (
-            "  |-- tools: calls=10, turns=5, generations=2, calls/gen=5.0 +/- 1.0, turns/gen=2.5 +/- 0.5"
-        )
+        assert calls[4] == "  |-- tools: generations=2/3, calls=10, turns=5"
 
 
 def test_log_model_usage_models_without_usage_excluded(stub_model_registry: ModelRegistry) -> None:
@@ -484,37 +483,3 @@ def test_log_model_usage_models_without_usage_excluded(stub_model_registry: Mode
         assert calls[0] == "📊 Model usage summary:"
         assert calls[1] == "  |-- model: stub-model-reasoning"
         assert "stub-model-text" not in str(calls)
-
-
-def test_get_tool_usage_delta(stub_model_registry: ModelRegistry) -> None:
-    """Test that get_tool_usage_delta returns correct delta with proper stddev."""
-    text_model = stub_model_registry.get_model(model_alias="stub-text")
-
-    # Add some initial tool usage
-    text_model.usage_stats.tool_usage.extend(tool_calls=4, tool_call_turns=2)
-    text_model.usage_stats.tool_usage.extend(tool_calls=6, tool_call_turns=3)
-
-    # Take a snapshot using get_tool_usage_snapshot (includes sum_of_squares_* fields)
-    snapshot = stub_model_registry.get_tool_usage_snapshot(model_alias="stub-text")
-
-    # Add more tool usage after snapshot
-    text_model.usage_stats.tool_usage.extend(tool_calls=8, tool_call_turns=4)
-    text_model.usage_stats.tool_usage.extend(tool_calls=2, tool_call_turns=1)
-
-    # Get delta
-    delta = stub_model_registry.get_tool_usage_delta(model_alias="stub-text", snapshot=snapshot)
-
-    # Delta should have the difference
-    assert delta.total_tool_calls == 10  # (8+2)
-    assert delta.total_tool_call_turns == 5  # (4+1)
-    assert delta.generations_with_tools == 2  # 2 new generations
-
-    # Mean should be computable
-    assert delta.calls_per_generation_mean == 5.0  # 10 / 2
-    assert delta.turns_per_generation_mean == 2.5  # 5 / 2
-
-    # Stddev should be computable with proper sum_of_squares tracking
-    # sum_of_squares_calls delta = (64 + 4) = 68, variance = 68/2 - 25 = 9, stddev = 3.0
-    assert delta.calls_per_generation_stddev == 3.0
-    # sum_of_squares_turns delta = (16 + 1) = 17, variance = 17/2 - 6.25 = 2.25, stddev = 1.5
-    assert delta.turns_per_generation_stddev == 1.5

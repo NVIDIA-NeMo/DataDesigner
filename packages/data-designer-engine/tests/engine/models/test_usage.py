@@ -1,8 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-import pytest
-
 from data_designer.engine.models.usage import ModelUsageStats, RequestUsageStats, TokenUsageStats, ToolUsageStats
 
 
@@ -39,134 +37,79 @@ def test_tool_usage_stats_empty_state() -> None:
     tool_usage = ToolUsageStats()
     assert tool_usage.total_tool_calls == 0
     assert tool_usage.total_tool_call_turns == 0
+    assert tool_usage.total_generations == 0
     assert tool_usage.generations_with_tools == 0
     assert tool_usage.has_usage is False
-    assert tool_usage.turns_per_generation_mean == 0.0
-    assert tool_usage.turns_per_generation_stddev == 0.0
-    assert tool_usage.calls_per_generation_mean == 0.0
-    assert tool_usage.calls_per_generation_stddev == 0.0
 
 
-def test_tool_usage_stats_single_generation() -> None:
-    """Test ToolUsageStats with a single generation - stddev should be 0."""
+def test_tool_usage_stats_single_generation_with_tools() -> None:
+    """Test ToolUsageStats with a single generation that uses tools."""
     tool_usage = ToolUsageStats()
     tool_usage.extend(tool_calls=5, tool_call_turns=2)
 
     assert tool_usage.total_tool_calls == 5
     assert tool_usage.total_tool_call_turns == 2
+    assert tool_usage.total_generations == 1
     assert tool_usage.generations_with_tools == 1
     assert tool_usage.has_usage is True
-    assert tool_usage.calls_per_generation_mean == 5.0
-    assert tool_usage.turns_per_generation_mean == 2.0
-    # With single sample, stddev should be 0
-    assert tool_usage.calls_per_generation_stddev == 0.0
-    assert tool_usage.turns_per_generation_stddev == 0.0
 
 
-def test_tool_usage_stats_multiple_generations_identical_values() -> None:
-    """Test ToolUsageStats with multiple identical generations - stddev should be 0."""
+def test_tool_usage_stats_multiple_generations() -> None:
+    """Test ToolUsageStats with multiple generations."""
     tool_usage = ToolUsageStats()
     for _ in range(3):
         tool_usage.extend(tool_calls=4, tool_call_turns=3)
 
     assert tool_usage.total_tool_calls == 12
     assert tool_usage.total_tool_call_turns == 9
-    assert tool_usage.generations_with_tools == 3
-    assert tool_usage.has_usage is True
-    assert tool_usage.calls_per_generation_mean == 4.0
-    assert tool_usage.turns_per_generation_mean == 3.0
-    # With identical values, stddev should be 0
-    assert tool_usage.calls_per_generation_stddev == 0.0
-    assert tool_usage.turns_per_generation_stddev == 0.0
-
-
-def test_tool_usage_stats_multiple_generations_varying_values() -> None:
-    """Test ToolUsageStats with varying values - verify mean and stddev calculations."""
-    tool_usage = ToolUsageStats()
-    tool_usage.extend(tool_calls=2, tool_call_turns=1)
-    tool_usage.extend(tool_calls=4, tool_call_turns=3)
-    tool_usage.extend(tool_calls=6, tool_call_turns=2)
-
-    assert tool_usage.total_tool_calls == 12
-    assert tool_usage.total_tool_call_turns == 6
+    assert tool_usage.total_generations == 3
     assert tool_usage.generations_with_tools == 3
     assert tool_usage.has_usage is True
 
-    # Mean calculations: calls = (2+4+6)/3 = 4.0, turns = (1+3+2)/3 = 2.0
-    assert tool_usage.calls_per_generation_mean == 4.0
-    assert tool_usage.turns_per_generation_mean == 2.0
 
-    # Stddev calculations (population stddev):
-    # calls: variance = (4+16+36)/3 - 16 = 56/3 - 16 = 2.667, stddev = sqrt(2.667) ≈ 1.633
-    # turns: variance = (1+9+4)/3 - 4 = 14/3 - 4 = 0.667, stddev = sqrt(0.667) ≈ 0.816
-    assert tool_usage.calls_per_generation_stddev == pytest.approx(1.6329931618554521, rel=1e-6)
-    assert tool_usage.turns_per_generation_stddev == pytest.approx(0.816496580927726, rel=1e-6)
-
-
-def test_tool_usage_stats_zero_tool_calls_not_counted() -> None:
-    """Test that extend with zero tool_call_turns does not increment generations_with_tools."""
+def test_tool_usage_stats_generation_without_tool_calls() -> None:
+    """Test that extend with zero tool_calls still increments total_generations but not generations_with_tools."""
     tool_usage = ToolUsageStats()
     tool_usage.extend(tool_calls=0, tool_call_turns=0)
 
     assert tool_usage.total_tool_calls == 0
     assert tool_usage.total_tool_call_turns == 0
+    assert tool_usage.total_generations == 1
     assert tool_usage.generations_with_tools == 0
-    assert tool_usage.has_usage is False
-    assert tool_usage.turns_per_generation_mean == 0.0
-    assert tool_usage.turns_per_generation_stddev == 0.0
-    assert tool_usage.calls_per_generation_mean == 0.0
-    assert tool_usage.calls_per_generation_stddev == 0.0
+    assert tool_usage.has_usage is True
 
 
-def test_tool_usage_stats_mixed_zero_and_nonzero_generations() -> None:
-    """Test that only generations with tool_call_turns > 0 are counted."""
+def test_tool_usage_stats_mixed_generations() -> None:
+    """Test ratio tracking with mix of generations with and without tools."""
     tool_usage = ToolUsageStats()
-    tool_usage.extend(tool_calls=0, tool_call_turns=0)  # Should not count
-    tool_usage.extend(tool_calls=4, tool_call_turns=2)  # Should count
-    tool_usage.extend(tool_calls=0, tool_call_turns=0)  # Should not count
-    tool_usage.extend(tool_calls=6, tool_call_turns=4)  # Should count
+    tool_usage.extend(tool_calls=0, tool_call_turns=0)  # No tools used
+    tool_usage.extend(tool_calls=4, tool_call_turns=2)  # Tools used
+    tool_usage.extend(tool_calls=0, tool_call_turns=0)  # No tools used
+    tool_usage.extend(tool_calls=6, tool_call_turns=4)  # Tools used
 
     assert tool_usage.total_tool_calls == 10
     assert tool_usage.total_tool_call_turns == 6
+    assert tool_usage.total_generations == 4
     assert tool_usage.generations_with_tools == 2
     assert tool_usage.has_usage is True
 
-    # Mean: calls = (4+6)/2 = 5.0, turns = (2+4)/2 = 3.0
-    assert tool_usage.calls_per_generation_mean == 5.0
-    assert tool_usage.turns_per_generation_mean == 3.0
-
-    # Stddev: calls variance = (16+36)/2 - 25 = 26 - 25 = 1, stddev = 1.0
-    # Stddev: turns variance = (4+16)/2 - 9 = 10 - 9 = 1, stddev = 1.0
-    assert tool_usage.calls_per_generation_stddev == 1.0
-    assert tool_usage.turns_per_generation_stddev == 1.0
-
 
 def test_tool_usage_stats_merge() -> None:
-    """Test that merging two ToolUsageStats objects preserves stddev accuracy."""
-    # Create first stats with varying values
+    """Test that merging two ToolUsageStats objects works correctly."""
     stats1 = ToolUsageStats()
     stats1.extend(tool_calls=2, tool_call_turns=1)
     stats1.extend(tool_calls=4, tool_call_turns=3)
 
-    # Create second stats with varying values
     stats2 = ToolUsageStats()
     stats2.extend(tool_calls=6, tool_call_turns=2)
+    stats2.extend(tool_calls=0, tool_call_turns=0)  # No tools
 
-    # Merge stats2 into stats1
     stats1.merge(stats2)
 
-    # Should have same values as if all three extends were on one object
     assert stats1.total_tool_calls == 12
     assert stats1.total_tool_call_turns == 6
+    assert stats1.total_generations == 4
     assert stats1.generations_with_tools == 3
-
-    # Mean calculations should be same as test_tool_usage_stats_multiple_generations_varying_values
-    assert stats1.calls_per_generation_mean == 4.0
-    assert stats1.turns_per_generation_mean == 2.0
-
-    # Stddev should be same as test_tool_usage_stats_multiple_generations_varying_values
-    assert stats1.calls_per_generation_stddev == pytest.approx(1.6329931618554521, rel=1e-6)
-    assert stats1.turns_per_generation_stddev == pytest.approx(0.816496580927726, rel=1e-6)
 
 
 def test_tool_usage_stats_merge_empty() -> None:
@@ -179,9 +122,8 @@ def test_tool_usage_stats_merge_empty() -> None:
 
     assert stats1.total_tool_calls == 4
     assert stats1.total_tool_call_turns == 2
+    assert stats1.total_generations == 1
     assert stats1.generations_with_tools == 1
-    assert stats1.calls_per_generation_mean == 4.0
-    assert stats1.turns_per_generation_mean == 2.0
 
 
 def test_model_usage_stats() -> None:
@@ -219,73 +161,19 @@ def test_model_usage_stats() -> None:
     }
 
 
-def test_model_usage_stats_extend_preserves_tool_usage_stddev() -> None:
-    """Test that ModelUsageStats.extend properly preserves tool usage stddev accuracy."""
-    # Create first model stats with tool usage
+def test_model_usage_stats_extend_with_tool_usage() -> None:
+    """Test that ModelUsageStats.extend properly merges tool usage."""
     stats1 = ModelUsageStats()
     stats1.tool_usage.extend(tool_calls=2, tool_call_turns=1)
     stats1.tool_usage.extend(tool_calls=4, tool_call_turns=3)
 
-    # Create second model stats with tool usage
     stats2 = ModelUsageStats()
     stats2.tool_usage.extend(tool_calls=6, tool_call_turns=2)
+    stats2.tool_usage.extend(tool_calls=0, tool_call_turns=0)  # No tools used
 
-    # Extend stats1 with stats2
     stats1.extend(tool_usage=stats2.tool_usage)
 
-    # Should have same results as merging directly
     assert stats1.tool_usage.total_tool_calls == 12
     assert stats1.tool_usage.total_tool_call_turns == 6
+    assert stats1.tool_usage.total_generations == 4
     assert stats1.tool_usage.generations_with_tools == 3
-    assert stats1.tool_usage.calls_per_generation_mean == 4.0
-    assert stats1.tool_usage.turns_per_generation_mean == 2.0
-    assert stats1.tool_usage.calls_per_generation_stddev == pytest.approx(1.6329931618554521, rel=1e-6)
-    assert stats1.tool_usage.turns_per_generation_stddev == pytest.approx(0.816496580927726, rel=1e-6)
-
-
-def test_tool_usage_stats_delta_with_sum_of_squares() -> None:
-    """Test that delta objects with sum of squares compute stddev correctly."""
-    # Create two stats objects to simulate a snapshot and current state
-    snapshot = ToolUsageStats()
-    snapshot.extend(tool_calls=2, tool_call_turns=1)
-
-    current = ToolUsageStats()
-    current.extend(tool_calls=2, tool_call_turns=1)  # Same as snapshot
-    current.extend(tool_calls=4, tool_call_turns=3)  # New generation
-    current.extend(tool_calls=6, tool_call_turns=2)  # New generation
-
-    # Create delta by subtracting snapshot from current
-    delta = ToolUsageStats(
-        total_tool_calls=current.total_tool_calls - snapshot.total_tool_calls,
-        total_tool_call_turns=current.total_tool_call_turns - snapshot.total_tool_call_turns,
-        generations_with_tools=current.generations_with_tools - snapshot.generations_with_tools,
-        sum_of_squares_calls=current.sum_of_squares_calls - snapshot.sum_of_squares_calls,
-        sum_of_squares_turns=current.sum_of_squares_turns - snapshot.sum_of_squares_turns,
-    )
-
-    # Delta should represent the 2 new generations: (4, 3) and (6, 2)
-    assert delta.total_tool_calls == 10  # 4 + 6
-    assert delta.total_tool_call_turns == 5  # 3 + 2
-    assert delta.generations_with_tools == 2
-
-    # Mean: calls = (4+6)/2 = 5.0, turns = (3+2)/2 = 2.5
-    assert delta.calls_per_generation_mean == 5.0
-    assert delta.turns_per_generation_mean == 2.5
-
-    # Stddev: calls variance = (16+36)/2 - 25 = 26 - 25 = 1, stddev = 1.0
-    # Stddev: turns variance = (9+4)/2 - 6.25 = 6.5 - 6.25 = 0.25, stddev = 0.5
-    assert delta.calls_per_generation_stddev == 1.0
-    assert delta.turns_per_generation_stddev == 0.5
-
-
-def test_tool_usage_stats_empty_delta_returns_zero_for_stddev() -> None:
-    """Test that empty delta objects return 0 for stddev (not NaN)."""
-    # Empty delta has no generations, so 0.0 is appropriate
-    delta = ToolUsageStats(
-        total_tool_calls=0,
-        total_tool_call_turns=0,
-        generations_with_tools=0,
-    )
-
-    assert delta.calls_per_generation_stddev == 0.0
-    assert delta.turns_per_generation_stddev == 0.0

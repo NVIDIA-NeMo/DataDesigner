@@ -301,7 +301,7 @@ class ModelFacade:
                         f"and {max_conversation_restarts} conversation restarts."
                     ) from exc
 
-        if not skip_usage_tracking and total_tool_calls > 0:
+        if not skip_usage_tracking and mcp_facade is not None:
             self._usage_stats.tool_usage.extend(
                 tool_calls=total_tool_calls,
                 tool_call_turns=tool_call_turns,

@@ -233,11 +233,7 @@ class ColumnWiseDatasetBuilder:
                 "generator so concurrency through threads is not supported."
             )
 
-        tool_usage_snapshot = None
         if getattr(generator.config, "tool_alias", None):
-            tool_usage_snapshot = self._resource_provider.model_registry.get_tool_usage_snapshot(
-                model_alias=generator.config.model_alias
-            )
             logger.info("🛠️ Tool calling enabled")
 
         progress_tracker = ProgressTracker(
@@ -260,13 +256,6 @@ class ColumnWiseDatasetBuilder:
                 executor.submit(lambda record: generator.generate(record), record, context={"index": i})
 
         progress_tracker.log_final()
-
-        if tool_usage_snapshot is not None:
-            tool_usage_delta = self._resource_provider.model_registry.get_tool_usage_delta(
-                model_alias=generator.config.model_alias, snapshot=tool_usage_snapshot
-            )
-            if tool_usage_delta.generations_with_tools > 0:
-                logger.info(f"🛠️ Average tool calls per generation: {tool_usage_delta.calls_per_generation_mean:.1f}")
 
         if len(self._records_to_drop) > 0:
             self.batch_manager.drop_records(self._records_to_drop)
