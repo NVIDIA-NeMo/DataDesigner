@@ -176,40 +176,6 @@ config_builder.with_seed_dataset(
 )
 ```
 
-## Referencing Seed Columns
-
-Once attached, seed columns are available anywhere you use Jinja2 templating:
-
-### In LLM Prompts
-
-```python
-dd.LLMTextColumnConfig(
-    name="summary",
-    prompt="Summarize this article: {{ article_text }}",
-    model_alias="my-model",
-)
-```
-
-### In Expressions
-
-```python
-dd.ExpressionColumnConfig(
-    name="full_name",
-    expr="{{ first_name }} {{ last_name }}",
-)
-```
-
-### In Structured Outputs
-
-```python
-dd.LLMStructuredColumnConfig(
-    name="analysis",
-    prompt="Analyze {{ product_name }} in the {{ category }} market.",
-    model_alias="my-model",
-    output_format=ProductAnalysis,
-)
-```
-
 ## Complete Example
 
 Here's a complete example generating physician notes from a symptom-to-diagnosis seed dataset:
@@ -218,8 +184,7 @@ Here's a complete example generating physician notes from a symptom-to-diagnosis
 import data_designer.config as dd
 from data_designer.interface import DataDesigner
 
-# Initialize the designer
-designer = DataDesigner()
+data_designer = DataDesigner()
 
 model_configs = [
     dd.ModelConfig(
