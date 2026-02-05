@@ -51,7 +51,6 @@ Every column in your seed dataset becomes available as a Jinja2 variable in prom
 
 - Reads rows from the seed dataset
 - Injects seed column values into templates
-- Manages the generation pipeline
 
 ## Seed Sources
 
