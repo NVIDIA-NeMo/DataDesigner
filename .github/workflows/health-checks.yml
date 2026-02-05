@@ -1,0 +1,36 @@
+name: Health Checks
+
+on:
+  # TODO: remove push trigger before merging
+  push:
+    branches: [andreatgretel/test/e2e-health-checks]
+  schedule:
+    # Every Monday at 08:00 UTC
+    - cron: "0 8 * * 1"
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  health-checks:
+    name: Provider Health Checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          python-version: "3.11"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: make install-dev
+
+      - name: Run health checks
+        env:
+          OPENAI_API_KEY: ${{ secrets.TEST_OPENAI_API_KEY }}
+        run: make health-checks

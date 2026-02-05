@@ -1,9 +1,18 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-import os
+"""Health checks for all predefined model providers.
 
-import pytest
+Verifies that each model in each provider can respond to a basic request.
+Providers without an API key set in the environment are skipped.
+
+Usage:
+    uv run python scripts/health_checks.py
+"""
+
+import os
+import sys
+import traceback
 
 from data_designer.config.models import (
     ChatCompletionInferenceParams,
@@ -33,33 +42,12 @@ PROVIDER_API_KEY_ENV_VARS = {
 
 
 def _get_provider_registry(provider_name: str) -> ModelProviderRegistry:
-    """Create a registry with just the specified provider."""
     provider_data = next(p for p in PREDEFINED_PROVIDERS if p["name"] == provider_name)
     provider = ModelProvider(**provider_data)
     return ModelProviderRegistry(providers=[provider])
 
 
-def _skip_if_no_api_key(provider_name: str) -> None:
-    """Skip the test if the API key for the provider is not set."""
-    env_var = PROVIDER_API_KEY_ENV_VARS[provider_name]
-    if not os.environ.get(env_var):
-        pytest.skip(f"{env_var} not set")
-
-
-def _build_test_cases() -> list[tuple[str, str]]:
-    """Build parametrized test cases: (provider_name, model_type)."""
-    cases = []
-    for provider_name in PROVIDER_API_KEY_ENV_VARS:
-        for model_type in PREDEFINED_PROVIDERS_MODEL_MAP[provider_name]:
-            cases.append((provider_name, model_type))
-    return cases
-
-
-@pytest.mark.parametrize("provider_name,model_type", _build_test_cases())
-def test_health_check(provider_name: str, model_type: str) -> None:
-    """Health check for each model in each default provider."""
-    _skip_if_no_api_key(provider_name)
-
+def _check_model(provider_name: str, model_type: str) -> None:
     provider_registry = _get_provider_registry(provider_name)
     secret_resolver = EnvironmentResolver()
 
@@ -86,8 +74,7 @@ def test_health_check(provider_name: str, model_type: str) -> None:
             input_texts=["Hello!"],
             skip_usage_tracking=True,
         )
-        assert len(result) == 1
-        assert len(result[0]) > 0
+        assert len(result) == 1 and len(result[0]) > 0
     else:
         result, _ = facade.generate(
             prompt="Say 'OK' and nothing else.",
@@ -97,5 +84,33 @@ def test_health_check(provider_name: str, model_type: str) -> None:
             max_conversation_restarts=0,
             skip_usage_tracking=True,
         )
-        assert isinstance(result, str)
-        assert len(result) > 0
+        assert isinstance(result, str) and len(result) > 0
+
+
+def main() -> int:
+    passed, failed, skipped = 0, 0, 0
+
+    for provider_name, env_var in PROVIDER_API_KEY_ENV_VARS.items():
+        if not os.environ.get(env_var):
+            models = list(PREDEFINED_PROVIDERS_MODEL_MAP[provider_name])
+            skipped += len(models)
+            print(f"SKIP  {provider_name} ({env_var} not set)")
+            continue
+
+        for model_type in PREDEFINED_PROVIDERS_MODEL_MAP[provider_name]:
+            label = f"{provider_name}/{model_type}"
+            try:
+                _check_model(provider_name, model_type)
+                passed += 1
+                print(f"PASS  {label}")
+            except Exception:
+                failed += 1
+                print(f"FAIL  {label}")
+                traceback.print_exc()
+
+    print(f"\n{passed} passed, {failed} failed, {skipped} skipped")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
