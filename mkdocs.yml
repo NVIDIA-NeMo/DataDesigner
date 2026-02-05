@@ -15,6 +15,7 @@ nav:
           - Model Providers: concepts/models/model-providers.md
           - Model Configs: concepts/models/model-configs.md
           - Inference Parameters: concepts/models/inference-parameters.md
+      - Custom Columns: concepts/custom_columns.md
       - Validators: concepts/validators.md
       - Processors: concepts/processors.md
       - Person Sampling: concepts/person_sampling.md
@@ -59,7 +60,10 @@ nav:
       - validator_params: code_reference/validator_params.md
       - processors: code_reference/processors.md
       - analysis: code_reference/analysis.md
-  - Dev Notes: blog/
+  - Dev Notes:
+      - blog/index.md
+      - RQA Dataset: blog/posts/rqa.md
+      - Welcome: blog/posts/welcome.md
 
 theme:
   name: material
@@ -89,6 +93,7 @@ theme:
       - navigation.expand
       - navigation.path
       - navigation.footer
+      - navigation.indexes
       - content.code.copy
       - content.code.select
       - content.code.annotate
@@ -113,6 +118,8 @@ plugins:
       post_date_format: long
       post_url_format: "{slug}"
       categories: false
+      archive: true
+      archive_toc: true
   - mike:
       alias_type: symlink
       canonical_version: latest

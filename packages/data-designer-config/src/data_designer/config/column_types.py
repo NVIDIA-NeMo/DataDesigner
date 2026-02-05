@@ -6,6 +6,7 @@ from __future__ import annotations
 from typing_extensions import TypeAlias
 
 from data_designer.config.column_configs import (
+    CustomColumnConfig,
     EmbeddingColumnConfig,
     ExpressionColumnConfig,
     ImageGenerationColumnConfig,
@@ -29,7 +30,8 @@ from data_designer.plugin_manager import PluginManager
 plugin_manager = PluginManager()
 
 ColumnConfigT: TypeAlias = (
-    ExpressionColumnConfig
+    CustomColumnConfig
+    | ExpressionColumnConfig
     | LLMCodeColumnConfig
     | LLMJudgeColumnConfig
     | LLMStructuredColumnConfig
@@ -90,6 +92,7 @@ def get_column_display_order() -> list[DataDesignerColumnType]:
         DataDesignerColumnType.IMAGE_GENERATION,
         DataDesignerColumnType.VALIDATION,
         DataDesignerColumnType.EXPRESSION,
+        DataDesignerColumnType.CUSTOM,
     ]
     display_order.extend(plugin_manager.get_plugin_column_types(DataDesignerColumnType))
     return display_order
@@ -132,6 +135,7 @@ def _resolve_sampler_kwargs(name: str, kwargs: dict) -> dict:
 
 
 _COLUMN_TYPE_CONFIG_CLS_MAP = {
+    DataDesignerColumnType.CUSTOM: CustomColumnConfig,
     DataDesignerColumnType.LLM_TEXT: LLMTextColumnConfig,
     DataDesignerColumnType.LLM_CODE: LLMCodeColumnConfig,
     DataDesignerColumnType.LLM_STRUCTURED: LLMStructuredColumnConfig,

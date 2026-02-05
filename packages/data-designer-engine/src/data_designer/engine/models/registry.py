@@ -11,6 +11,7 @@ from data_designer.config.models import GenerationType, ModelConfig
 from data_designer.engine.model_provider import ModelProvider, ModelProviderRegistry
 from data_designer.engine.models.usage import ModelUsageStats, RequestUsageStats, TokenUsageStats
 from data_designer.engine.secret_resolver import SecretResolver
+from data_designer.logging import LOG_INDENT
 
 if TYPE_CHECKING:
     from data_designer.engine.models.facade import ModelFacade
@@ -75,6 +76,53 @@ class ModelRegistry:
             if model.usage_stats.has_usage
         }
 
+    def log_model_usage(self, total_time_elapsed: float) -> None:
+        """Log a formatted summary of model usage statistics."""
+        model_usage_stats = self.get_model_usage_stats(total_time_elapsed)
+
+        logger.info("📊 Model usage summary:")
+        if not model_usage_stats:
+            logger.info(f"{LOG_INDENT}no model usage recorded")
+            return
+
+        sorted_model_names = sorted(model_usage_stats)
+        for model_index, model_name in enumerate(sorted_model_names):
+            stats = model_usage_stats[model_name]
+            logger.info(f"{LOG_INDENT}model: {model_name}")
+
+            token_usage = stats["token_usage"]
+            input_tokens = token_usage["input_tokens"]
+            output_tokens = token_usage["output_tokens"]
+            total_tokens = token_usage["total_tokens"]
+            tokens_per_second = stats["tokens_per_second"]
+            logger.info(
+                f"{LOG_INDENT}tokens: input={input_tokens}, output={output_tokens}, total={total_tokens}, tps={tokens_per_second}"
+            )
+
+            request_usage = stats["request_usage"]
+            successful_requests = request_usage["successful_requests"]
+            failed_requests = request_usage["failed_requests"]
+            total_requests = request_usage["total_requests"]
+            requests_per_minute = stats["requests_per_minute"]
+            logger.info(
+                f"{LOG_INDENT}requests: "
+                f"success={successful_requests}, failed={failed_requests}, total={total_requests}, "
+                f"rpm={requests_per_minute}"
+            )
+
+            if tool_usage := stats.get("tool_usage"):
+                total_gens = tool_usage["total_generations"]
+                gens_with_tools = tool_usage["generations_with_tools"]
+                logger.info(
+                    f"{LOG_INDENT}tools: "
+                    f"generations={gens_with_tools}/{total_gens}, "
+                    f"calls={tool_usage['total_tool_calls']}, "
+                    f"turns={tool_usage['total_tool_call_turns']}"
+                )
+
+            if model_index < len(sorted_model_names) - 1:
+                logger.info(LOG_INDENT.rstrip())
+
     def get_model_usage_snapshot(self) -> dict[str, ModelUsageStats]:
         return {
             model.model_name: model.usage_stats.model_copy(deep=True)
@@ -109,12 +157,14 @@ class ModelRegistry:
         for model_alias in model_aliases:
             model_config = self.get_model_config(model_alias=model_alias)
             if model_config.skip_health_check:
-                logger.info(f"  |-- ⏭️  Skipping health check for model alias {model_alias!r} (skip_health_check=True)")
+                logger.info(
+                    f"{LOG_INDENT}⏭️  Skipping health check for model alias {model_alias!r} (skip_health_check=True)"
+                )
                 continue
 
             model = self.get_model(model_alias=model_alias)
             logger.info(
-                f"  |-- 👀 Checking {model.model_name!r} in provider named {model.model_provider_name!r} for model alias {model.model_alias!r}..."
+                f"{LOG_INDENT}👀 Checking {model.model_name!r} in provider named {model.model_provider_name!r} for model alias {model.model_alias!r}..."
             )
             try:
                 if model.model_generation_type == GenerationType.EMBEDDING:
@@ -141,9 +191,9 @@ class ModelRegistry:
                     )
                 else:
                     raise ValueError(f"Unsupported generation type: {model.model_generation_type}")
-                logger.info("  |-- ✅ Passed!")
+                logger.info(f"{LOG_INDENT}✅ Passed!")
             except Exception as e:
-                logger.error("  |-- ❌ Failed!")
+                logger.error(f"{LOG_INDENT}❌ Failed!")
                 raise e
 
     def _set_model_configs(self, model_configs: list[ModelConfig]) -> None:

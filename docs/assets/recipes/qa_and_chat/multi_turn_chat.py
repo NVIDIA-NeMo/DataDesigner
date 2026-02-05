@@ -1,3 +1,31 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "data-designer",
+#     "pydantic",
+# ]
+# ///
+"""Multi-Turn Chat Generation Recipe
+
+Generate synthetic multi-turn conversations between users and AI assistants across
+different domains (Tech Support, Personal Finances, Educational Guidance). Each
+conversation varies in length, complexity, and user mood. Includes toxicity
+evaluation of user messages using an LLM judge.
+
+Prerequisites:
+    - OPENAI_API_KEY environment variable for OpenAI provider model aliases (default model alias is "openai-text").
+    - NVIDIA_API_KEY environment variable for NVIDIA provider model aliases.
+
+Run:
+    # Basic usage (generates 5 records by default)
+    uv run multi_turn_chat.py
+
+    # For help message and available options
+    uv run multi_turn_chat.py --help
+"""
+
 from pathlib import Path
 from typing import Literal
 

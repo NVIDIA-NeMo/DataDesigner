@@ -1,3 +1,30 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "data-designer",
+# ]
+# ///
+"""Text-to-SQL Code Generation Recipe
+
+Generate synthetic instruction-SQL pairs for database tasks across different
+industries, complexity levels, and SQL concepts. Each record includes an
+instruction, database context (CREATE TABLE + sample data), generated SQL query,
+code validation, and judge evaluation.
+
+Prerequisites:
+    - OPENAI_API_KEY environment variable for OpenAI provider model aliases (default model alias is "openai-text").
+    - NVIDIA_API_KEY environment variable for NVIDIA provider model aliases.
+
+Run:
+    # Basic usage (generates 5 records by default)
+    uv run text_to_sql.py
+
+    # For help message and available options
+    uv run text_to_sql.py --help
+"""
+
 from pathlib import Path
 
 import data_designer.config as dd

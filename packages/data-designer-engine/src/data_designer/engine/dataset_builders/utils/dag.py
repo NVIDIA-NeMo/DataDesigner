@@ -10,6 +10,7 @@ from data_designer.config.column_types import ColumnConfigT
 from data_designer.engine.column_generators.utils.generator_classification import column_type_used_in_execution_dag
 from data_designer.engine.dataset_builders.utils.errors import DAGCircularDependencyError
 from data_designer.lazy_heavy_imports import nx
+from data_designer.logging import LOG_INDENT
 
 if TYPE_CHECKING:
     import networkx as nx
@@ -37,7 +38,7 @@ def topologically_sort_column_configs(column_configs: list[ColumnConfigT]) -> li
         dag.add_node(name)
         for req_col_name in col.required_columns:
             if req_col_name in list(dag_column_config_dict.keys()):
-                logger.debug(f"  |-- 🔗 `{name}` depends on `{req_col_name}`")
+                logger.debug(f"{LOG_INDENT}🔗 `{name}` depends on `{req_col_name}`")
                 dag.add_edge(req_col_name, name)
 
             # If the required column is a side effect of another column,
@@ -45,7 +46,7 @@ def topologically_sort_column_configs(column_configs: list[ColumnConfigT]) -> li
             elif req_col_name in sum(side_effect_dict.values(), []):
                 for parent, cols in side_effect_dict.items():
                     if req_col_name in cols:
-                        logger.debug(f"  |-- 🔗 `{name}` depends on `{parent}` via `{req_col_name}`")
+                        logger.debug(f"{LOG_INDENT}🔗 `{name}` depends on `{parent}` via `{req_col_name}`")
                         dag.add_edge(parent, name)
                         break
 

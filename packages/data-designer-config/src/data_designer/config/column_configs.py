@@ -3,9 +3,10 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from enum import Enum
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Discriminator, Field, model_validator
+from pydantic import BaseModel, Discriminator, Field, field_serializer, field_validator, model_validator
 from typing_extensions import Self
 
 from data_designer.config.base import ConfigBase, SingleColumnConfig
@@ -17,6 +18,13 @@ from data_designer.config.utils.constants import REASONING_CONTENT_COLUMN_POSTFI
 from data_designer.config.utils.misc import assert_valid_jinja2_template, extract_keywords_from_jinja2_template
 from data_designer.config.utils.trace_type import TraceType
 from data_designer.config.validator_params import ValidatorParamsT, ValidatorType
+
+
+class GenerationStrategy(str, Enum):
+    """Strategy for custom column generation."""
+
+    CELL_BY_CELL = "cell_by_cell"
+    FULL_COLUMN = "full_column"
 
 
 class SamplerColumnConfig(SingleColumnConfig):
@@ -530,3 +538,80 @@ class ImageGenerationColumnConfig(SingleColumnConfig):
     @property
     def side_effect_columns(self) -> list[str]:
         return []
+
+
+class CustomColumnConfig(SingleColumnConfig):
+    """Configuration for custom user-defined column generators.
+
+    Custom columns allow users to provide their own generation logic via a callable function
+    decorated with `@custom_column_generator`. Two strategies are supported: cell_by_cell
+    (default, row-based) and full_column (batch-based with DataFrame access).
+
+    Attributes:
+        generator_function: A callable decorated with @custom_column_generator.
+        generation_strategy: "cell_by_cell" (row-based) or "full_column" (batch-based).
+        generator_params: Optional typed configuration object (Pydantic BaseModel) passed
+            as the second argument to the generator function.
+        column_type: Discriminator field, always "custom" for this configuration type.
+    """
+
+    generator_function: Any = Field(description="Function decorated with @custom_column_generator")
+    generation_strategy: GenerationStrategy = Field(
+        default=GenerationStrategy.CELL_BY_CELL,
+        description="Generation strategy: 'cell_by_cell' for row-based or 'full_column' for batch-based",
+    )
+    generator_params: BaseModel | None = Field(
+        default=None,
+        description="Optional typed configuration object passed as second argument to generator function",
+    )
+    column_type: Literal["custom"] = "custom"
+
+    @field_validator("generator_function")
+    @classmethod
+    def _validate_generator_function(cls, v: Any) -> Any:
+        if not callable(v):
+            raise ValueError("generator_function must be callable")
+        if not hasattr(v, "custom_column_metadata"):
+            raise ValueError("generator_function must be decorated with @custom_column_generator")
+        return v
+
+    @staticmethod
+    def get_column_emoji() -> str:
+        return "🔧"
+
+    @property
+    def required_columns(self) -> list[str]:
+        """Returns the columns required for custom generation (from decorator metadata)."""
+        metadata = getattr(self.generator_function, "custom_column_metadata", {})
+        return metadata.get("required_columns", [])
+
+    @property
+    def side_effect_columns(self) -> list[str]:
+        """Returns additional columns created by this generator (from decorator metadata)."""
+        metadata = getattr(self.generator_function, "custom_column_metadata", {})
+        return metadata.get("side_effect_columns", [])
+
+    @property
+    def model_aliases(self) -> list[str]:
+        """Returns model aliases for LLM access and health checks (from decorator metadata)."""
+        metadata = getattr(self.generator_function, "custom_column_metadata", {})
+        return metadata.get("model_aliases", [])
+
+    @field_serializer("generator_function")
+    def serialize_generator_function(self, v: Any) -> str:
+        return getattr(v, "__name__", repr(v))
+
+    @field_serializer("generator_params")
+    def serialize_generator_params(self, v: BaseModel | None) -> dict[str, Any] | None:
+        if v is None:
+            return None
+        return v.model_dump()
+
+    @model_validator(mode="after")
+    def validate_generator_function(self) -> Self:
+        if not callable(self.generator_function):
+            raise InvalidConfigError(
+                f"🛑 `generator_function` must be a callable for custom column '{self.name}'. "
+                f"Expected a function decorated with @custom_column_generator."
+            )
+        return self

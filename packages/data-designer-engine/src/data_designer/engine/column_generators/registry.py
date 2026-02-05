@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from data_designer.config.base import ConfigBase
 from data_designer.config.column_configs import (
+    CustomColumnConfig,
     EmbeddingColumnConfig,
     ExpressionColumnConfig,
     ImageGenerationColumnConfig,
@@ -16,6 +17,7 @@ from data_designer.config.column_configs import (
 )
 from data_designer.config.column_types import DataDesignerColumnType
 from data_designer.engine.column_generators.generators.base import ColumnGenerator
+from data_designer.engine.column_generators.generators.custom import CustomColumnGenerator
 from data_designer.engine.column_generators.generators.embedding import EmbeddingCellGenerator
 from data_designer.engine.column_generators.generators.expression import ExpressionColumnGenerator
 from data_designer.engine.column_generators.generators.image import ImageCellGenerator
@@ -42,6 +44,7 @@ class ColumnGeneratorRegistry(TaskRegistry[DataDesignerColumnType, ColumnGenerat
 
 def create_default_column_generator_registry(with_plugins: bool = True) -> ColumnGeneratorRegistry:
     registry = ColumnGeneratorRegistry()
+    registry.register(DataDesignerColumnType.CUSTOM, CustomColumnGenerator, CustomColumnConfig)
     registry.register(DataDesignerColumnType.LLM_TEXT, LLMTextCellGenerator, LLMTextColumnConfig)
     registry.register(DataDesignerColumnType.LLM_CODE, LLMCodeCellGenerator, LLMCodeColumnConfig)
     registry.register(DataDesignerColumnType.LLM_JUDGE, LLMJudgeCellGenerator, LLMJudgeColumnConfig)

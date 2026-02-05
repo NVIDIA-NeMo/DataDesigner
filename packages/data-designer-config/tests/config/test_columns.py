@@ -56,6 +56,7 @@ def test_data_designer_column_type_get_display_order():
         DataDesignerColumnType.IMAGE_GENERATION,
         DataDesignerColumnType.VALIDATION,
         DataDesignerColumnType.EXPRESSION,
+        DataDesignerColumnType.CUSTOM,
     ]
 
 

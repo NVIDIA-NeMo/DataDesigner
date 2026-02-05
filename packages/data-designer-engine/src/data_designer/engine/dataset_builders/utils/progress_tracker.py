@@ -7,7 +7,7 @@ import logging
 import time
 from threading import Lock
 
-from data_designer.logging import RandomEmoji
+from data_designer.logging import LOG_INDENT, RandomEmoji
 
 logger = logging.getLogger(__name__)
 
@@ -58,14 +58,15 @@ class ProgressTracker:
     def log_start(self, max_workers: int) -> None:
         """Log the start of processing with worker count and interval information."""
         logger.info(
-            "🐙 Processing %s with %d concurrent workers",
+            "⚡️ Processing %s with %d concurrent workers",
             self.label,
             max_workers,
         )
+        interval_str = "after each record" if self.log_interval == 1 else f"every {self.log_interval} records"
         logger.info(
-            "🧭 %s will report progress every %d record(s).",
+            "⏱️ %s will report progress %s",
             self.label,
-            self.log_interval,
+            interval_str,
         )
 
     def record_success(self) -> None:
@@ -109,7 +110,8 @@ class ProgressTracker:
         percent = (self.completed / self.total_records) * 100 if self.total_records else 100.0
 
         logger.info(
-            "  |-- %s %s progress: %d/%d (%.0f%%) complete, %d ok, %d failed, %.2f rec/s, eta %s",
+            "%s%s %s progress: %d/%d (%.0f%%) complete, %d ok, %d failed, %.2f rec/s, eta %s",
+            LOG_INDENT,
             self._random_emoji.progress(percent),
             self.label,
             self.completed,

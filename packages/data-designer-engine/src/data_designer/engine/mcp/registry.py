@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 from data_designer.config.mcp import ToolConfig
 from data_designer.engine.model_provider import MCPProviderRegistry
 from data_designer.engine.secret_resolver import SecretResolver
+from data_designer.logging import LOG_INDENT
 
 if TYPE_CHECKING:
     from data_designer.engine.mcp.facade import MCPFacade
@@ -181,12 +182,12 @@ class MCPRegistry:
             return
         logger.info("🧰 Running health checks for MCP tools...")
         for tool_alias in tool_aliases:
-            logger.info(f"  |-- 👀 Checking tools for tool alias {tool_alias!r}...")
+            logger.info(f"{LOG_INDENT}👀 Checking tools for tool alias {tool_alias!r}...")
             try:
                 self._validate_tool_alias(tool_alias)
-                logger.info("  |-- ✅ Passed!")
+                logger.info(f"{LOG_INDENT}✅ Passed!")
             except Exception:
-                logger.error("  |-- ❌ Failed!")
+                logger.error(f"{LOG_INDENT}❌ Failed!")
                 raise
 
     def validate_no_duplicate_tool_names(self) -> None:

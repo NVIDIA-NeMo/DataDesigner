@@ -22,6 +22,7 @@ from data_designer.engine.column_generators.generators.llm_completion import (
     LLMTextCellGenerator,
 )
 from data_designer.engine.models.utils import ChatMessage
+from data_designer.logging import LOG_DOUBLE_INDENT, LOG_INDENT
 
 
 def _create_generator_with_mocks(config_class=LLMTextColumnConfig, **config_kwargs):
@@ -206,16 +207,19 @@ def test_log_pre_generation(mock_logger: Mock) -> None:
     )
     mock_model_config.model = "meta/llama-3.1-8b-instruct"
     mock_model_config.generation_type.value = "chat-completion"
-    mock_inference_params.format_for_display.return_value = "temperature=0.70, max_tokens=100"
+    mock_inference_params.get_formatted_params.return_value = ["temperature=0.70", "max_tokens=100"]
 
     generator.log_pre_generation()
 
-    assert mock_logger.info.call_count == 5
+    # 5 base calls + 2 inference param calls = 7 total
+    assert mock_logger.info.call_count == 7
     mock_logger.info.assert_any_call("📝 llm-text model config for column 'test_column'")
-    mock_logger.info.assert_any_call("  |-- model: 'meta/llama-3.1-8b-instruct'")
-    mock_logger.info.assert_any_call("  |-- model alias: 'test_model'")
-    mock_logger.info.assert_any_call("  |-- model provider: 'test_provider'")
-    mock_logger.info.assert_any_call("  |-- inference parameters: temperature=0.70, max_tokens=100")
+    mock_logger.info.assert_any_call(f"{LOG_INDENT}model: 'meta/llama-3.1-8b-instruct'")
+    mock_logger.info.assert_any_call(f"{LOG_INDENT}model alias: 'test_model'")
+    mock_logger.info.assert_any_call(f"{LOG_INDENT}model provider: 'test_provider'")
+    mock_logger.info.assert_any_call(f"{LOG_INDENT}inference parameters:")
+    mock_logger.info.assert_any_call(f"{LOG_DOUBLE_INDENT}temperature=0.70")
+    mock_logger.info.assert_any_call(f"{LOG_DOUBLE_INDENT}max_tokens=100")
 
     # Test with different provider
     mock_logger.reset_mock()
@@ -224,7 +228,39 @@ def test_log_pre_generation(mock_logger: Mock) -> None:
     mock_resource_provider.model_registry.get_model_provider.return_value = mock_provider
 
     generator.log_pre_generation()
-    mock_logger.info.assert_any_call("  |-- model provider: 'test_provider_2'")
+    mock_logger.info.assert_any_call(f"{LOG_INDENT}model provider: 'test_provider_2'")
+
+
+@patch("data_designer.engine.column_generators.generators.base.logger", autospec=True)
+def test_log_pre_generation_with_tool_alias(mock_logger: Mock) -> None:
+    generator, mock_resource_provider, _, mock_model_config, mock_inference_params, _, _ = _create_generator_with_mocks(
+        tool_alias="test-tools"
+    )
+    mock_model_config.model = "meta/llama-3.1-8b-instruct"
+    mock_model_config.generation_type.value = "chat-completion"
+    mock_inference_params.get_formatted_params.return_value = ["temperature=0.70", "max_tokens=100"]
+
+    mock_mcp_registry = Mock()
+    mock_tool_config = Mock()
+    mock_tool_config.providers = ["doc-search-mcp", "web-search-mcp"]
+    mock_mcp_registry.get_tool_config.return_value = mock_tool_config
+    mock_resource_provider.mcp_registry = mock_mcp_registry
+
+    generator.log_pre_generation()
+
+    # 5 base calls + 2 inference param calls + 2 tool calls = 9 total
+    assert mock_logger.info.call_count == 9
+    mock_logger.info.assert_any_call("📝 llm-text model config for column 'test_column'")
+    mock_logger.info.assert_any_call(f"{LOG_INDENT}model: 'meta/llama-3.1-8b-instruct'")
+    mock_logger.info.assert_any_call(f"{LOG_INDENT}model alias: 'test_model'")
+    mock_logger.info.assert_any_call(f"{LOG_INDENT}model provider: 'test_provider'")
+    mock_logger.info.assert_any_call(f"{LOG_INDENT}inference parameters:")
+    mock_logger.info.assert_any_call(f"{LOG_DOUBLE_INDENT}temperature=0.70")
+    mock_logger.info.assert_any_call(f"{LOG_DOUBLE_INDENT}max_tokens=100")
+    mock_logger.info.assert_any_call(f"{LOG_INDENT}tool alias: 'test-tools'")
+    mock_logger.info.assert_any_call(f"{LOG_INDENT}mcp providers: ['doc-search-mcp', 'web-search-mcp']")
+
+    mock_mcp_registry.get_tool_config.assert_called_once_with(tool_alias="test-tools")
 
 
 @pytest.mark.parametrize(
