@@ -23,6 +23,7 @@ from data_designer.engine.analysis.utils.judge_score_processing import (
     sample_scores_and_reasoning,
 )
 from data_designer.engine.models.recipes.response_recipes import TextResponseRecipe
+from data_designer.logging import LOG_INDENT
 
 if TYPE_CHECKING:
     from data_designer.config.analysis.column_profilers import JudgeScoreSample
@@ -111,8 +112,8 @@ class JudgeScoreProfiler(ColumnProfiler[JudgeScoreProfilerConfig]):
         if distribution_type == ColumnDistributionType.NUMERICAL:
             distribution_context += f"Mean score: {distribution.mean:.2f}. "
 
-        logger.info(f"  |-- number of score samples: {len(sample)}")
-        logger.info(f"  |-- {distribution_context.lower()}")
+        logger.info(f"{LOG_INDENT}number of score samples: {len(sample)}")
+        logger.info(f"{LOG_INDENT}{distribution_context.lower()}")
 
         combined_reasoning = "\n".join([r.reasoning for r in sample])
         prompt = (

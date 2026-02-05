@@ -274,21 +274,28 @@ class BaseInferenceParams(ConfigBase, ABC):
         return result
 
     def format_for_display(self) -> str:
-        """Format inference parameters for display.
+        """Format inference parameters for display as a single line.
 
         Returns:
             Formatted string of inference parameters
         """
-        params_dict = self.model_dump(exclude_none=True, mode="json")
-
-        if not params_dict:
+        parts = self.get_formatted_params()
+        if not parts:
             return "(none)"
+        return ", ".join(parts)
 
+    def get_formatted_params(self) -> list[str]:
+        """Get a list of formatted parameter strings.
+
+        Returns:
+            List of formatted parameter strings (e.g., ["temperature=0.70", "max_tokens=100"])
+        """
+        params_dict = self.model_dump(exclude_none=True, mode="json")
         parts = []
         for key, value in params_dict.items():
             formatted_value = self._format_value(key, value)
             parts.append(f"{key}={formatted_value}")
-        return ", ".join(parts)
+        return parts
 
     def _format_value(self, key: str, value: Any) -> str:
         """Format a single parameter value. Override in subclasses for custom formatting.

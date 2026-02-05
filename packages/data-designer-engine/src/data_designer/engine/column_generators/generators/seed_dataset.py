@@ -13,6 +13,7 @@ from data_designer.engine.column_generators.utils.errors import SeedDatasetError
 from data_designer.engine.dataset_builders.multi_column_configs import SeedDatasetMultiColumnConfig
 from data_designer.engine.processing.utils import concat_datasets
 from data_designer.lazy_heavy_imports import duckdb, pd
+from data_designer.logging import LOG_INDENT
 
 if TYPE_CHECKING:
     import duckdb
@@ -105,16 +106,18 @@ class SeedDatasetColumnGenerator(FromScratchColumnGenerator[SeedDatasetMultiColu
 
     def _sample_records(self, num_records: int) -> pd.DataFrame:
         logger.info(f"🌱 Sampling {num_records} records from seed dataset")
-        logger.info(f"  |-- seed dataset size: {self._seed_dataset_size} records")
-        logger.info(f"  |-- sampling strategy: {self.config.sampling_strategy}")
+        logger.info(f"{LOG_INDENT}seed dataset size: {self._seed_dataset_size} records")
+        logger.info(f"{LOG_INDENT}sampling strategy: {self.config.sampling_strategy}")
         if self._index_range is not None:
             if isinstance(self.config.selection_strategy, IndexRange):
-                logger.info(f"  |-- selection: rows [{self._index_range.start} to {self._index_range.end}] inclusive")
+                logger.info(
+                    f"{LOG_INDENT}selection: rows [{self._index_range.start} to {self._index_range.end}] inclusive"
+                )
             else:
                 logger.info(
-                    f"  |-- selection: partition {self.config.selection_strategy.index + 1} of {self.config.selection_strategy.num_partitions}"
+                    f"{LOG_INDENT}selection: partition {self.config.selection_strategy.index + 1} of {self.config.selection_strategy.num_partitions}"
                 )
-            logger.info(f"  |-- seed dataset size after selection: {self._index_range.size} records")
+            logger.info(f"{LOG_INDENT}seed dataset size after selection: {self._index_range.size} records")
         df_batch = pd.DataFrame()
         df_sample = pd.DataFrame() if self._df_remaining is None else self._df_remaining
         num_zero_record_responses = 0

@@ -13,6 +13,7 @@ from typing import Any, Protocol
 from pydantic import BaseModel, Field
 
 from data_designer.engine.errors import DataDesignerRuntimeError, ErrorTrap
+from data_designer.logging import LOG_INDENT
 
 logger = logging.getLogger(__name__)
 
@@ -149,8 +150,8 @@ class ConcurrentThreadExecutor:
         raise DataDesignerRuntimeError(
             "\n".join(
                 [
-                    "  |-- Data generation was terminated early due to error rate exceeding threshold.",
-                    f"  |-- The summary of encountered errors is: \n{json.dumps(self._results.summary, indent=4)}",
+                    f"{LOG_INDENT}Data generation was terminated early due to error rate exceeding threshold.",
+                    f"{LOG_INDENT}The summary of encountered errors is: \n{json.dumps(self._results.summary, indent=4)}",
                 ]
             )
         )

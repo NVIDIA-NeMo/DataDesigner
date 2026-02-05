@@ -20,7 +20,7 @@ This recipe demonstrates an end-to-end MCP tool-calling workflow:
 
 Prerequisites:
     - OPENAI_API_KEY environment variable for OpenAI provider model aliases.
-    - NVIDIA_API_KEY environment variable for NVIDIA provider model aliases (default model alias is "nvidia-text").
+    - NVIDIA_API_KEY environment variable for NVIDIA provider model aliases (default model alias is "nvidia-reasoning").
 
 Run:
     # Basic usage with default sample PDF (generates 4 Q&A pairs)
@@ -514,7 +514,7 @@ def parse_args() -> argparse.Namespace:
     subparsers.add_parser("serve", help="Run the MCP server (used by Data Designer)")
 
     # Default command arguments (demo mode)
-    parser.add_argument("--model-alias", type=str, default="nvidia-text", help="Model alias to use for generation")
+    parser.add_argument("--model-alias", type=str, default="nvidia-reasoning", help="Model alias to use for generation")
     parser.add_argument("--num-records", type=int, default=4, help="Number of Q&A pairs to generate")
     parser.add_argument(
         "--pdf",

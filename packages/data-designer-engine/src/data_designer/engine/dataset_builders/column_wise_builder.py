@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import functools
 import importlib.metadata
-import json
 import logging
 import time
 import uuid
@@ -118,10 +117,7 @@ class ColumnWiseDatasetBuilder:
             self.batch_manager.finish_batch(on_batch_complete)
         self.batch_manager.finish()
 
-        model_usage_stats = self._resource_provider.model_registry.get_model_usage_stats(
-            time.perf_counter() - start_time
-        )
-        logger.info(f"📊 Model usage summary:\n{json.dumps(model_usage_stats, indent=4)}")
+        self._resource_provider.model_registry.log_model_usage(time.perf_counter() - start_time)
 
         return self.artifact_storage.final_dataset_path
 
@@ -137,10 +133,7 @@ class ColumnWiseDatasetBuilder:
         dataset = self.batch_manager.get_current_batch(as_dataframe=True)
         self.batch_manager.reset()
 
-        model_usage_stats = self._resource_provider.model_registry.get_model_usage_stats(
-            time.perf_counter() - start_time
-        )
-        logger.info(f"📊 Model usage summary:\n{json.dumps(model_usage_stats, indent=4)}")
+        self._resource_provider.model_registry.log_model_usage(time.perf_counter() - start_time)
 
         return dataset
 
@@ -239,6 +232,9 @@ class ColumnWiseDatasetBuilder:
                 f"Generator {generator.name} is not a {GenerationStrategy.CELL_BY_CELL} "
                 "generator so concurrency through threads is not supported."
             )
+
+        if getattr(generator.config, "tool_alias", None):
+            logger.info("🛠️ Tool calling enabled")
 
         progress_tracker = ProgressTracker(
             total_records=self.batch_manager.num_records_batch,
