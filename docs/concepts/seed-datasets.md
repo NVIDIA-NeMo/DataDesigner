@@ -106,7 +106,7 @@ Control how rows are read from the seed dataset.
 
 ### Ordered (Default)
 
-Rows are read sequentially in their original order. Each generated record corresponds to the next row in the seed dataset. If you generate more records than exist in the seed dataset, it will cycle in order until completion. 
+Rows are read sequentially in their original order. Each generated record corresponds to the next row in the seed dataset. If you generate more records than exist in the seed dataset, it will cycle in order until completion.
 
 ```python
 config_builder.with_seed_dataset(
@@ -256,13 +256,3 @@ If your seed dataset has 1,000 rows and you generate 10,000 records, each seed r
 ### Use Seed Data for Diversity Control
 
 Seed datasets are excellent for controlling the distribution of your synthetic data. Want 30% electronics, 50% clothing, 20% home goods? Curate your seed dataset to match.
-
-### Combine with Samplers
-
-Seed data doesn't have to provide everything. Combine it with sampler columns for the best of both worlds:
-
-```python
-# From seed: product_name, category (real data)
-# From sampler: review_date, reviewer_age (synthetic variation)
-# From LLM: review_text (generated, grounded in seed)
-```
