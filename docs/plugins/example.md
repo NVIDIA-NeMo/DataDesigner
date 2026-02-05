@@ -92,8 +92,8 @@ Create `src/data_designer_index_multiplier/impl.py`:
 import logging
 
 import pandas as pd
-
 from data_designer.engine.column_generators.generators.base import ColumnGeneratorFullColumn
+
 from data_designer_index_multiplier.config import IndexMultiplierColumnConfig
 
 logger = logging.getLogger(__name__)
