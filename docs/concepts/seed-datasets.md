@@ -18,6 +18,15 @@ Seed datasets let you bootstrap synthetic data generation from existing data. In
 import data_designer.config as dd
 from data_designer.interface import DataDesigner
 
+# Define your model configuration
+model_configs = [
+    dd.ModelConfig(
+        alias="my-model",
+        model="nvidia/nemotron-3-nano-30b-a3b",
+        provider="nvidia",
+    )
+]
+
 config_builder = dd.DataDesignerConfigBuilder(model_configs=model_configs)
 
 # 1. Attach a seed dataset
@@ -210,8 +219,8 @@ Here's a complete example generating physician notes from a symptom-to-diagnosis
 import data_designer.config as dd
 from data_designer.interface import DataDesigner
 
-# Initialize
-data_designer = DataDesigner()
+# Initialize the designer
+designer = DataDesigner()
 
 model_configs = [
     dd.ModelConfig(
@@ -261,7 +270,7 @@ Write detailed clinical notes for this visit.
 )
 
 # Preview
-preview = data_designer.preview(config_builder, num_records=5)
+preview = designer.preview(config_builder, num_records=5)
 preview.display_sample_record()
 ```
 
