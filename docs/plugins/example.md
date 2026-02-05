@@ -198,10 +198,10 @@ uv pip install -e .
 Once installed, your plugin works just like built-in column types:
 
 ```python
-from data_designer_index_multiplier.config import IndexMultiplierColumnConfig
-
 import data_designer.config as dd
 from data_designer.interface import DataDesigner
+
+from data_designer_index_multiplier.config import IndexMultiplierColumnConfig
 
 data_designer = DataDesigner()
 builder = dd.DataDesignerConfigBuilder()
