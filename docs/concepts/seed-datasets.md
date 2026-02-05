@@ -106,7 +106,7 @@ Control how rows are read from the seed dataset.
 
 ### Ordered (Default)
 
-Rows are read sequentially in their original order. Each generated record corresponds to the next row in the seed dataset.
+Rows are read sequentially in their original order. Each generated record corresponds to the next row in the seed dataset. If you generate more records than exist in the seed dataset, it will cycle in order until completion. 
 
 ```python
 config_builder.with_seed_dataset(
