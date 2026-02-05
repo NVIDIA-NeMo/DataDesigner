@@ -1,0 +1,25 @@
+[project]
+name = "data-designer-demo-processors"
+version = "0.1.0"
+description = "Demo processor plugins for Data Designer showing PRE_GENERATION and POST_GENERATION stages"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "data-designer-config",
+    "data-designer-engine",
+    "sentence-transformers>=2.2.0",
+]
+
+[project.entry-points."data_designer.plugins"]
+regex-filter = "data_designer_demo_processors.regex_filter.plugin:regex_filter_plugin"
+semantic-dedup = "data_designer_demo_processors.semantic_dedup.plugin:semantic_dedup_plugin"
+
+[project.scripts]
+download-semantic-dedup-model = "data_designer_demo_processors.download_model:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/data_designer_demo_processors"]

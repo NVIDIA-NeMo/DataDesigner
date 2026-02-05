@@ -76,3 +76,40 @@ class PluginManager:
         """
         seed_source_type = self._plugin_registry.add_plugin_types_to_union(seed_source_type, PluginType.SEED_READER)
         return seed_source_type
+
+    def get_processor_plugins(self) -> list[Plugin]:
+        """Get all processor plugins.
+
+        Returns:
+            A list of all processor plugins.
+        """
+        return self._plugin_registry.get_plugins(PluginType.PROCESSOR)
+
+    def get_processor_plugin_if_exists(self, plugin_name: str) -> Plugin | None:
+        """Get a processor plugin by name if it exists.
+
+        Args:
+            plugin_name: The name of the plugin to retrieve.
+
+        Returns:
+            The plugin if found, otherwise None.
+        """
+        if self._plugin_registry.plugin_exists(plugin_name):
+            plugin = self._plugin_registry.get_plugin(plugin_name)
+            if plugin.plugin_type == PluginType.PROCESSOR:
+                return plugin
+        return None
+
+    def inject_into_processor_config_type_union(self, processor_config_type: type[TypeAlias]) -> type[TypeAlias]:
+        """Inject plugins into the processor config type.
+
+        Args:
+            processor_config_type: The processor config type to inject plugins into.
+
+        Returns:
+            The processor config type with plugins injected.
+        """
+        processor_config_type = self._plugin_registry.add_plugin_types_to_union(
+            processor_config_type, PluginType.PROCESSOR
+        )
+        return processor_config_type

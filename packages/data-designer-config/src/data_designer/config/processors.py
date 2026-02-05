@@ -9,7 +9,6 @@ from enum import Enum
 from typing import Any, Literal
 
 from pydantic import Field, field_validator
-from typing_extensions import TypeAlias
 
 from data_designer.config.base import ConfigBase
 from data_designer.config.errors import InvalidConfigError
@@ -129,6 +128,3 @@ class SchemaTransformProcessorConfig(ProcessorConfig):
             if "not JSON serializable" in str(e):
                 raise InvalidConfigError("Template must be JSON serializable")
         return v
-
-
-ProcessorConfigT: TypeAlias = DropColumnsProcessorConfig | SchemaTransformProcessorConfig

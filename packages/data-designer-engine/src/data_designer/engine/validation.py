@@ -15,7 +15,8 @@ from rich.padding import Padding
 from rich.panel import Panel
 
 from data_designer.config.column_types import ColumnConfigT, DataDesignerColumnType
-from data_designer.config.processors import ProcessorConfigT, ProcessorType
+from data_designer.config.processor_types import ProcessorConfigT
+from data_designer.config.processors import ProcessorType
 from data_designer.config.utils.constants import RICH_CONSOLE_THEME
 from data_designer.config.utils.misc import (
     can_run_data_designer_locally,
