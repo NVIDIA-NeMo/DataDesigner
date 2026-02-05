@@ -176,6 +176,7 @@ def test_column_wise_dataset_builder_build_method_basic_flow(
     # Mock the model config to return proper max_parallel_requests
     mock_model_config = Mock()
     mock_model_config.inference_parameters.max_parallel_requests = 4
+    mock_model_config.inference_parameters.get_formatted_params.return_value = []
     stub_resource_provider.model_registry.get_model_config.return_value = mock_model_config
 
     # Mock the batch manager's iter_current_batch method
@@ -376,6 +377,7 @@ def test_fan_out_with_threads_uses_early_shutdown_settings_from_resource_provide
     mock_generator.get_generation_strategy.return_value = GenerationStrategy.CELL_BY_CELL
     mock_generator.config.name = "test"
     mock_generator.config.column_type = "llm_text"
+    mock_generator.config.tool_alias = None  # Avoid triggering tool usage code path
 
     builder.batch_manager = Mock()
     builder.batch_manager.num_records_batch = 10

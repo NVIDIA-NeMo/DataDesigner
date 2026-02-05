@@ -523,3 +523,32 @@ def test_inference_params_format_for_display_minimal_params():
     assert "top_p" not in result
     assert "max_tokens" not in result
     assert "timeout" not in result
+
+
+def test_get_formatted_params():
+    """Test get_formatted_params returns list of formatted param strings."""
+    params = ChatCompletionInferenceParams(
+        temperature=0.7,
+        top_p=0.9,
+        max_tokens=2048,
+    )
+    result = params.get_formatted_params()
+
+    assert isinstance(result, list)
+    assert len(result) == 5  # generation_type, max_parallel_requests, temperature, top_p, max_tokens
+
+    assert any("generation_type=chat-completion" in part for part in result)
+    assert any("temperature=0.70" in part for part in result)
+    assert any("top_p=0.90" in part for part in result)
+    assert any("max_tokens=2048" in part for part in result)
+
+
+def test_get_formatted_params_minimal():
+    """Test get_formatted_params with only default params."""
+    params = ChatCompletionInferenceParams()
+    result = params.get_formatted_params()
+
+    assert isinstance(result, list)
+    # Should have generation_type and max_parallel_requests (defaults)
+    assert any("generation_type=chat-completion" in part for part in result)
+    assert any("max_parallel_requests=4" in part for part in result)

@@ -226,6 +226,7 @@ class ModelFacade:
         output_obj = None
         tool_schemas = None
         tool_call_turns = 0
+        total_tool_calls = 0
         curr_num_correction_steps = 0
         curr_num_restarts = 0
 
@@ -255,6 +256,7 @@ class ModelFacade:
             # Process any tool calls in the response (handles parallel tool calling)
             if mcp_facade is not None and mcp_facade.has_tool_calls(completion_response):
                 tool_call_turns += 1
+                total_tool_calls += mcp_facade.tool_call_count(completion_response)
 
                 if tool_call_turns > mcp_facade.max_tool_call_turns:
                     # Gracefully refuse tool calls when budget is exhausted
@@ -298,6 +300,12 @@ class ModelFacade:
                         f"Unsuccessful generation despite {max_correction_steps} correction steps "
                         f"and {max_conversation_restarts} conversation restarts."
                     ) from exc
+
+        if not skip_usage_tracking and mcp_facade is not None:
+            self._usage_stats.tool_usage.extend(
+                tool_calls=total_tool_calls,
+                tool_call_turns=tool_call_turns,
+            )
 
         return output_obj, messages
 

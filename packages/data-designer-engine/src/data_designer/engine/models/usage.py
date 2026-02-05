@@ -44,16 +44,48 @@ class RequestUsageStats(BaseModel):
         self.failed_requests += failed_requests
 
 
+class ToolUsageStats(BaseModel):
+    total_tool_calls: int = 0
+    total_tool_call_turns: int = 0
+    total_generations: int = 0
+    generations_with_tools: int = 0
+
+    @property
+    def has_usage(self) -> bool:
+        return self.total_generations > 0
+
+    def extend(self, *, tool_calls: int, tool_call_turns: int) -> None:
+        """Extend stats with a single generation's tool usage."""
+        self.total_generations += 1
+        self.total_tool_calls += tool_calls
+        self.total_tool_call_turns += tool_call_turns
+        if tool_calls > 0:
+            self.generations_with_tools += 1
+
+    def merge(self, other: ToolUsageStats) -> ToolUsageStats:
+        """Merge another ToolUsageStats object."""
+        self.total_tool_calls += other.total_tool_calls
+        self.total_tool_call_turns += other.total_tool_call_turns
+        self.total_generations += other.total_generations
+        self.generations_with_tools += other.generations_with_tools
+        return self
+
+
 class ModelUsageStats(BaseModel):
     token_usage: TokenUsageStats = TokenUsageStats()
     request_usage: RequestUsageStats = RequestUsageStats()
+    tool_usage: ToolUsageStats = ToolUsageStats()
 
     @property
     def has_usage(self) -> bool:
         return self.token_usage.has_usage and self.request_usage.has_usage
 
     def extend(
-        self, *, token_usage: TokenUsageStats | None = None, request_usage: RequestUsageStats | None = None
+        self,
+        *,
+        token_usage: TokenUsageStats | None = None,
+        request_usage: RequestUsageStats | None = None,
+        tool_usage: ToolUsageStats | None = None,
     ) -> None:
         if token_usage is not None:
             self.token_usage.extend(input_tokens=token_usage.input_tokens, output_tokens=token_usage.output_tokens)
@@ -61,9 +93,12 @@ class ModelUsageStats(BaseModel):
             self.request_usage.extend(
                 successful_requests=request_usage.successful_requests, failed_requests=request_usage.failed_requests
             )
+        if tool_usage is not None:
+            self.tool_usage.merge(tool_usage)
 
     def get_usage_stats(self, *, total_time_elapsed: float) -> dict:
-        return self.model_dump() | {
+        exclude = {"tool_usage"} if not self.tool_usage.has_usage else None
+        return self.model_dump(exclude=exclude) | {
             "tokens_per_second": int(self.token_usage.total_tokens / total_time_elapsed)
             if total_time_elapsed > 0
             else 0,
