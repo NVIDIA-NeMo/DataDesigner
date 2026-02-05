@@ -10,7 +10,6 @@ import pytest
 
 from data_designer.config.column_configs import LLMTextColumnConfig, SamplerColumnConfig
 from data_designer.config.config_builder import DataDesignerConfigBuilder
-from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.processors import DropColumnsProcessorConfig
 from data_designer.config.run_config import RunConfig
 from data_designer.config.sampler_params import SamplerType, UUIDSamplerParams
@@ -37,11 +36,7 @@ def stub_test_column_configs():
 
 @pytest.fixture
 def stub_test_processor_configs():
-    return [
-        DropColumnsProcessorConfig(
-            name="drop_columns_processor", build_stage=BuildStage.POST_BATCH, column_names=["column_to_drop"]
-        )
-    ]
+    return [DropColumnsProcessorConfig(name="drop_columns_processor", column_names=["column_to_drop"])]
 
 
 @pytest.fixture
@@ -52,7 +47,6 @@ def stub_test_config_builder(stub_test_column_configs, stub_model_configs):
     config_builder.add_processor(
         processor_type="drop_columns",
         name="drop_columns_processor",
-        build_stage=BuildStage.POST_BATCH,
         column_names=["column_to_drop"],
     )
     return config_builder
@@ -169,6 +163,7 @@ def test_column_wise_dataset_builder_build_method_basic_flow(
     stub_resource_provider,
 ):
     stub_resource_provider.run_config = RunConfig(buffer_size=50)
+    stub_resource_provider.seed_reader = None  # No seed data for this basic flow test
     stub_resource_provider.model_registry.run_health_check = Mock()
     stub_resource_provider.model_registry.get_model_usage_stats = Mock(return_value={"test": "stats"})
     stub_resource_provider.model_registry.models = {}
@@ -183,6 +178,7 @@ def test_column_wise_dataset_builder_build_method_basic_flow(
     stub_batch_manager.iter_current_batch.return_value = [(0, {"test": "data"})]
 
     stub_column_wise_builder.batch_manager = stub_batch_manager
+    stub_column_wise_builder._processors = []  # No processors for basic flow test
 
     result_path = stub_column_wise_builder.build(num_records=100)
 
@@ -233,12 +229,9 @@ def test_column_wise_dataset_builder_validate_column_configs(
 
 def test_column_wise_dataset_builder_initialize_processors(stub_column_wise_builder):
     processors = stub_column_wise_builder._processors
-    assert processors.keys() == set(BuildStage)
-    assert len(processors[BuildStage.PRE_BATCH]) == 0
-    assert len(processors[BuildStage.POST_BATCH]) == 1
-    assert len(processors[BuildStage.PRE_GENERATION]) == 0
-    assert len(processors[BuildStage.POST_GENERATION]) == 0
-    assert processors[BuildStage.POST_BATCH][0].config.column_names == ["column_to_drop"]
+    assert isinstance(processors, list)
+    assert len(processors) == 1
+    assert processors[0].config.column_names == ["column_to_drop"]
 
 
 def test_run_config_default_non_inference_max_parallel_workers() -> None:
@@ -390,3 +383,187 @@ def test_fan_out_with_threads_uses_early_shutdown_settings_from_resource_provide
     assert call_kwargs["shutdown_error_rate"] == expected_rate
     assert call_kwargs["shutdown_error_window"] == shutdown_error_window
     assert call_kwargs["disable_early_shutdown"] == disable_early_shutdown
+
+
+def test_run_pre_generation_processors_filters_seed_data(stub_resource_provider, stub_model_configs, tmp_path):
+    """Test that PRE_GENERATION processors are applied to seed data before generation."""
+    from pathlib import Path
+
+    from data_designer.config.seed_source import DataFrameSeedSource, LocalFileSeedSource
+    from data_designer.engine.processing.processors.base import Processor
+    from data_designer.engine.resources.seed_reader import DataFrameSeedReader
+
+    # Set up seed reader with test data
+    seed_df = pd.DataFrame({"seed_id": [1, 2, 3, 4, 5], "value": ["a", "b", "c", "d", "e"]})
+    seed_source = DataFrameSeedSource(df=seed_df)
+    seed_reader = DataFrameSeedReader()
+    seed_reader.attach(seed_source, Mock())
+    stub_resource_provider.seed_reader = seed_reader
+
+    # Create a mock processor that filters rows during preprocess
+    mock_processor = Mock(spec=Processor)
+    mock_processor.name = "filter_processor"
+    mock_processor.implements.side_effect = lambda m: m == "preprocess"
+    mock_processor.preprocess.side_effect = lambda df: df[df["seed_id"] > 2].reset_index(drop=True)
+
+    # Write seed file to tmp_path
+    seed_path = tmp_path / "seed.parquet"
+    seed_df.to_parquet(seed_path, index=False)
+
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config_builder.with_seed_dataset(LocalFileSeedSource(path=str(seed_path)))
+    config_builder.add_column(SamplerColumnConfig(name="uuid", sampler_type="uuid", params=UUIDSamplerParams()))
+
+    builder = ColumnWiseDatasetBuilder(
+        data_designer_config=config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+    builder._processors = [mock_processor]
+
+    builder._run_pre_generation_processors()
+
+    # Verify preprocess was called
+    mock_processor.preprocess.assert_called_once()
+
+    # Verify preprocessed_seed_uri was set and points to a valid file
+    assert stub_resource_provider.preprocessed_seed_uri is not None
+    preprocessed_path = Path(stub_resource_provider.preprocessed_seed_uri)
+    assert preprocessed_path.exists()
+
+    # Verify the preprocessed file contains filtered data (3 rows with seed_id > 2)
+    preprocessed_df = pd.read_parquet(preprocessed_path)
+    assert len(preprocessed_df) == 3
+    assert list(preprocessed_df["seed_id"]) == [3, 4, 5]
+
+
+def test_run_post_generation_processors_modifies_final_dataset(stub_resource_provider, stub_model_configs):
+    """Test that postprocess callbacks are applied to the final dataset."""
+    from data_designer.engine.processing.processors.base import Processor
+
+    # Create test parquet files
+    final_df = pd.DataFrame({"id": [1, 2, 3, 4, 5], "value": ["a", "b", "c", "d", "e"]})
+    stub_resource_provider.artifact_storage.mkdir_if_needed(stub_resource_provider.artifact_storage.final_dataset_path)
+    final_df.to_parquet(stub_resource_provider.artifact_storage.final_dataset_path / "batch_00000.parquet", index=False)
+
+    # Create a mock processor that filters rows during postprocess
+    mock_processor = Mock(spec=Processor)
+    mock_processor.name = "dedup_processor"
+    mock_processor.implements.side_effect = lambda m: m == "postprocess"
+    mock_processor.postprocess.return_value = final_df[final_df["id"] > 2]
+
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config_builder.add_column(SamplerColumnConfig(name="id", sampler_type="uuid", params=UUIDSamplerParams()))
+
+    builder = ColumnWiseDatasetBuilder(
+        data_designer_config=config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+    builder._processors = [mock_processor]
+
+    builder._run_post_generation_processors()
+
+    # Verify postprocess was called
+    mock_processor.postprocess.assert_called_once()
+
+    # Verify final dataset was rewritten with fewer rows
+    result_df = stub_resource_provider.artifact_storage.load_dataset()
+    assert len(result_df) == 3
+
+
+def test_run_pre_generation_processors_skips_when_no_seed_reader(stub_resource_provider, stub_model_configs):
+    """Test that preprocess is skipped when no seed reader is configured."""
+    from data_designer.engine.processing.processors.base import Processor
+
+    stub_resource_provider.seed_reader = None
+
+    mock_processor = Mock(spec=Processor)
+    mock_processor.name = "filter_processor"
+    mock_processor.implements.side_effect = lambda m: m == "preprocess"
+
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config_builder.add_column(SamplerColumnConfig(name="id", sampler_type="uuid", params=UUIDSamplerParams()))
+
+    builder = ColumnWiseDatasetBuilder(
+        data_designer_config=config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+    builder._processors = [mock_processor]
+
+    builder._run_pre_generation_processors()
+
+    # Preprocess should not be called when no seed reader
+    mock_processor.preprocess.assert_not_called()
+
+
+def test_build_preview_runs_pre_generation_processors(stub_resource_provider, stub_model_configs, tmp_path):
+    """Test that build_preview runs PRE_GENERATION processors."""
+    from data_designer.config.seed_source import DataFrameSeedSource, LocalFileSeedSource
+    from data_designer.engine.resources.seed_reader import DataFrameSeedReader
+
+    # Set up seed reader with test data
+    seed_df = pd.DataFrame({"seed_id": [1, 2, 3, 4, 5], "text": ["a", "b", "c", "d", "e"]})
+    seed_source = DataFrameSeedSource(df=seed_df)
+    seed_reader = DataFrameSeedReader()
+    seed_reader.attach(seed_source, Mock())
+    stub_resource_provider.seed_reader = seed_reader
+
+    # Write seed file to tmp_path
+    seed_path = tmp_path / "seed.parquet"
+    seed_df.to_parquet(seed_path, index=False)
+
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config_builder.with_seed_dataset(LocalFileSeedSource(path=str(seed_path)))
+    config_builder.add_column(SamplerColumnConfig(name="uuid", sampler_type="uuid", params=UUIDSamplerParams()))
+
+    builder = ColumnWiseDatasetBuilder(
+        data_designer_config=config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+
+    # Mock everything to isolate the test
+    builder._run_model_health_check_if_needed = Mock()
+    builder._run_mcp_tool_check_if_needed = Mock()
+    builder._run_pre_generation_processors = Mock()
+    builder._initialize_generators = Mock(return_value=[])
+    builder.batch_manager.start = Mock()
+    builder._run_batch = Mock()
+    builder.batch_manager.get_current_batch = Mock(return_value=pd.DataFrame())
+    builder.batch_manager.reset = Mock()
+    builder._resource_provider.model_registry.get_model_usage_stats = Mock(return_value={})
+
+    builder.build_preview(num_records=5)
+
+    builder._run_pre_generation_processors.assert_called_once()
+
+
+def test_process_preview_runs_both_callbacks(stub_resource_provider, stub_model_configs):
+    """Test that process_preview runs process_after_batch and postprocess callbacks."""
+    from data_designer.engine.processing.processors.base import Processor
+
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config_builder.add_column(SamplerColumnConfig(name="id", sampler_type="uuid", params=UUIDSamplerParams()))
+
+    builder = ColumnWiseDatasetBuilder(
+        data_designer_config=config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+
+    # Create a mock processor with both callbacks
+    mock_processor = Mock(spec=Processor)
+    mock_processor.name = "test_processor"
+    mock_processor.implements.side_effect = lambda m: m in ("process_after_batch", "postprocess")
+    mock_processor.process_after_batch.side_effect = lambda df, **kwargs: df.assign(post_batch_applied=True)
+    mock_processor.postprocess.side_effect = lambda df: df.assign(post_gen_applied=True)
+
+    builder._processors = [mock_processor]
+
+    input_df = pd.DataFrame({"id": [1, 2, 3]})
+    result = builder.process_preview(input_df)
+
+    # Both callbacks should have been called
+    mock_processor.process_after_batch.assert_called_once()
+    mock_processor.postprocess.assert_called_once()
+
+    # Result should have both columns added
+    assert "post_batch_applied" in result.columns
+    assert "post_gen_applied" in result.columns

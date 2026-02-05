@@ -12,10 +12,7 @@ from pydantic import Field, field_validator
 from typing_extensions import TypeAlias
 
 from data_designer.config.base import ConfigBase
-from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.errors import InvalidConfigError
-
-SUPPORTED_STAGES = [BuildStage.POST_BATCH]
 
 
 class ProcessorType(str, Enum):
@@ -33,32 +30,21 @@ class ProcessorType(str, Enum):
 class ProcessorConfig(ConfigBase, ABC):
     """Abstract base class for all processor configuration types.
 
-    Processors are transformations that run before or after columns are generated.
-    They can modify, reshape, or augment the dataset before it's saved.
+    Processors are transformations that run at different stages of the generation
+    pipeline. They can modify, reshape, or augment the dataset.
+
+    The processor implementation determines which stages it handles by overriding
+    the appropriate callback methods (preprocess, process_after_batch, postprocess).
 
     Attributes:
         name: Unique name of the processor, used to identify the processor in results
             and to name output artifacts on disk.
-        build_stage: The stage at which the processor runs. Currently only `POST_BATCH`
-            is supported, meaning processors run after each batch of columns is generated.
     """
 
     name: str = Field(
         description="The name of the processor, used to identify the processor in the results and to write the artifacts to disk.",
     )
-    build_stage: BuildStage = Field(
-        default=BuildStage.POST_BATCH,
-        description=f"The stage at which the processor will run. Supported stages: {', '.join(SUPPORTED_STAGES)}",
-    )
     processor_type: str
-
-    @field_validator("build_stage")
-    def validate_build_stage(cls, v: BuildStage) -> BuildStage:
-        if v not in SUPPORTED_STAGES:
-            raise ValueError(
-                f"Invalid dataset builder stage: {v}. Only these stages are supported: {', '.join(SUPPORTED_STAGES)}"
-            )
-        return v
 
 
 def get_processor_config_from_kwargs(processor_type: ProcessorType, **kwargs: Any) -> ProcessorConfig:

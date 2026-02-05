@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import functools
 import logging
+import shutil
 import time
 import uuid
 from pathlib import Path
@@ -14,7 +15,6 @@ from data_designer.config.column_configs import CustomColumnConfig
 from data_designer.config.column_types import ColumnConfigT
 from data_designer.config.config_builder import BuilderConfig
 from data_designer.config.data_designer_config import DataDesignerConfig
-from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.processors import (
     DropColumnsProcessorConfig,
     ProcessorConfig,
@@ -28,7 +28,7 @@ from data_designer.engine.column_generators.generators.base import (
 )
 from data_designer.engine.column_generators.utils.generator_classification import column_type_is_model_generated
 from data_designer.engine.compiler import compile_data_designer_config
-from data_designer.engine.dataset_builders.artifact_storage import SDG_CONFIG_FILENAME, ArtifactStorage
+from data_designer.engine.dataset_builders.artifact_storage import SDG_CONFIG_FILENAME, ArtifactStorage, BatchStage
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError, DatasetProcessingError
 from data_designer.engine.dataset_builders.multi_column_configs import MultiColumnConfig
 from data_designer.engine.dataset_builders.utils.concurrency import ConcurrentThreadExecutor
@@ -67,9 +67,7 @@ class ColumnWiseDatasetBuilder:
 
         self._data_designer_config = compile_data_designer_config(data_designer_config, resource_provider)
         self._column_configs = compile_dataset_builder_column_configs(self._data_designer_config)
-        self._processors: dict[BuildStage, list[Processor]] = self._initialize_processors(
-            self._data_designer_config.processors or []
-        )
+        self._processors: list[Processor] = self._initialize_processors(self._data_designer_config.processors or [])
         self._validate_column_configs()
 
     @property
@@ -98,6 +96,7 @@ class ColumnWiseDatasetBuilder:
     ) -> Path:
         self._run_model_health_check_if_needed()
         self._run_mcp_tool_check_if_needed()
+        self._run_pre_generation_processors()
         self._write_builder_config()
         generators = self._initialize_generators()
         start_time = time.perf_counter()
@@ -108,14 +107,12 @@ class ColumnWiseDatasetBuilder:
         for batch_idx in range(self.batch_manager.num_batches):
             logger.info(f"⏳ Processing batch {batch_idx + 1} of {self.batch_manager.num_batches}")
             self._run_batch(generators, batch_mode="batch", group_id=group_id)
-            df_batch = self._run_processors(
-                stage=BuildStage.POST_BATCH,
-                dataframe=self.batch_manager.get_current_batch(as_dataframe=True),
-                current_batch_number=batch_idx,
-            )
+            df_batch = self.batch_manager.get_current_batch(as_dataframe=True)
+            df_batch = self._run_post_batch_processors(df_batch, current_batch_number=batch_idx)
             self._write_processed_batch(df_batch)
             self.batch_manager.finish_batch(on_batch_complete)
         self.batch_manager.finish()
+        self._run_post_generation_processors()
 
         self._resource_provider.model_registry.log_model_usage(time.perf_counter() - start_time)
 
@@ -124,6 +121,7 @@ class ColumnWiseDatasetBuilder:
     def build_preview(self, *, num_records: int) -> pd.DataFrame:
         self._run_model_health_check_if_needed()
         self._run_mcp_tool_check_if_needed()
+        self._run_pre_generation_processors()
 
         generators = self._initialize_generators()
         group_id = uuid.uuid4().hex
@@ -133,16 +131,16 @@ class ColumnWiseDatasetBuilder:
         dataset = self.batch_manager.get_current_batch(as_dataframe=True)
         self.batch_manager.reset()
 
+        # Reset preprocessed_seed_uri to avoid affecting subsequent build() calls
+        self._resource_provider.preprocessed_seed_uri = None
+
         self._resource_provider.model_registry.log_model_usage(time.perf_counter() - start_time)
 
         return dataset
 
     def process_preview(self, dataset: pd.DataFrame) -> pd.DataFrame:
-        return self._run_processors(
-            stage=BuildStage.POST_BATCH,
-            dataframe=dataset.copy(),
-            current_batch_number=None,  # preview mode does not have a batch number
-        )
+        df = self._run_post_batch_processors(dataset.copy(), current_batch_number=None)
+        return self._run_post_generation_processors_on_df(df)
 
     def _initialize_generators(self) -> list[ColumnGenerator]:
         return [
@@ -162,12 +160,17 @@ class ColumnWiseDatasetBuilder:
         self, generators: list[ColumnGenerator], *, batch_mode: str, save_partial_results: bool = True, group_id: str
     ) -> None:
         pre_batch_snapshot = self._resource_provider.model_registry.get_model_usage_snapshot()
+        ran_pre_batch = False
         for generator in generators:
             generator.log_pre_generation()
             try:
                 generation_strategy = generator.get_generation_strategy()
                 if generator.can_generate_from_scratch and self.batch_manager.buffer_is_empty:
                     self._run_from_scratch_column_generator(generator)
+                    # Run PRE_BATCH after seed generator, before other columns
+                    if not ran_pre_batch:
+                        self._apply_pre_batch_processors()
+                        ran_pre_batch = True
                 elif generation_strategy == GenerationStrategy.CELL_BY_CELL:
                     self._run_cell_by_cell_generator(generator)
                 elif generation_strategy == GenerationStrategy.FULL_COLUMN:
@@ -288,20 +291,20 @@ class ColumnWiseDatasetBuilder:
         ).can_generate_from_scratch:
             raise DatasetGenerationError("🛑 The first column config must be a from-scratch column generator.")
 
-    def _initialize_processors(self, processor_configs: list[ProcessorConfig]) -> dict[BuildStage, list[Processor]]:
+    def _initialize_processors(self, processor_configs: list[ProcessorConfig]) -> list[Processor]:
         # Check columns marked for drop
         columns_to_drop = [config.name for config in self.single_column_configs if config.drop]
 
-        processors: dict[BuildStage, list[Processor]] = {stage: [] for stage in BuildStage}
+        processors: list[Processor] = []
         for config in processor_configs:
-            processors[config.build_stage].append(
+            processors.append(
                 self._registry.processors.get_for_config_type(type(config))(
                     config=config,
                     resource_provider=self._resource_provider,
                 )
             )
 
-            # Manually included "drop columns" processor takes precedence (can e.g., pick stages other than post-batch)
+            # Manually included "drop columns" processor takes precedence
             if config.processor_type == ProcessorType.DROP_COLUMNS:
                 for column in config.column_names:
                     if column in columns_to_drop:
@@ -309,12 +312,11 @@ class ColumnWiseDatasetBuilder:
 
         # If there are still columns marked for drop, add the "drop columns" processor to drop them
         if len(columns_to_drop) > 0:
-            processors[BuildStage.POST_BATCH].append(  # as post-batch by default
+            processors.append(
                 DropColumnsProcessor(
                     config=DropColumnsProcessorConfig(
                         name="default_drop_columns_processor",
                         column_names=columns_to_drop,
-                        build_stage=BuildStage.POST_BATCH,
                     ),
                     resource_provider=self._resource_provider,
                 )
@@ -322,17 +324,108 @@ class ColumnWiseDatasetBuilder:
 
         return processors
 
-    def _run_processors(
-        self, stage: BuildStage, dataframe: pd.DataFrame, current_batch_number: int | None = None
-    ) -> pd.DataFrame:
-        for processor in self._processors[stage]:
+    def _run_pre_generation_processors(self) -> None:
+        """Run preprocess() on processors that implement it."""
+        processors = [p for p in self._processors if p.implements("preprocess")]
+        if not processors:
+            return
+        if self._resource_provider.seed_reader is None:
+            return
+
+        logger.info("⏳ Running preprocess on seed data...")
+        df = self._load_seed_dataframe()
+        original_len = len(df)
+
+        df = self._run_preprocess_on_df(df, processors)
+
+        self._save_preprocessed_seed(df)
+        logger.info(f"✅ Preprocess complete. Seed data has {len(df)} rows (was {original_len}).")
+
+    def _load_seed_dataframe(self) -> pd.DataFrame:
+        """Load full seed dataset as DataFrame."""
+        seed_reader = self._resource_provider.seed_reader
+        conn = seed_reader.create_duckdb_connection()
+        try:
+            return conn.execute(f"SELECT * FROM '{seed_reader.get_dataset_uri()}'").fetchdf()
+        finally:
+            conn.close()
+
+    def _run_preprocess_on_df(self, df: pd.DataFrame, processors: list[Processor]) -> pd.DataFrame:
+        """Run preprocess() on given processors."""
+        for processor in processors:
             try:
-                dataframe = processor.process(dataframe, current_batch_number=current_batch_number)
+                df = processor.preprocess(df)
+            except Exception as e:
+                raise DatasetProcessingError(f"🛑 Failed in preprocess for processor {processor.name}: {e}") from e
+        return df
+
+    def _save_preprocessed_seed(self, df: pd.DataFrame) -> None:
+        """Write preprocessed seed to disk and update URI."""
+        preprocessed_path = self.artifact_storage.base_dataset_path / "preprocessed_seed.parquet"
+        self.artifact_storage.mkdir_if_needed(self.artifact_storage.base_dataset_path)
+        df.to_parquet(preprocessed_path, index=False)
+        self._resource_provider.preprocessed_seed_uri = str(preprocessed_path)
+
+    def _apply_pre_batch_processors(self) -> None:
+        """Get batch, run PRE_BATCH processors, update batch manager."""
+        processors = [p for p in self._processors if p.implements("process_before_batch")]
+        if not processors:
+            return
+
+        df = self.batch_manager.get_current_batch(as_dataframe=True)
+        for processor in processors:
+            try:
+                df = processor.process_before_batch(df)
             except Exception as e:
                 raise DatasetProcessingError(
-                    f"🛑 Failed to process dataset with processor {processor.name} in stage {stage}: {e}"
+                    f"🛑 Failed in process_before_batch for processor {processor.name}: {e}"
+                ) from e
+        self.batch_manager.update_records(df.to_dict(orient="records"))
+
+    def _run_post_batch_processors(self, dataframe: pd.DataFrame, current_batch_number: int | None) -> pd.DataFrame:
+        """Run process_after_batch() on processors that implement it."""
+        for processor in self._processors:
+            if not processor.implements("process_after_batch"):
+                continue
+            try:
+                dataframe = processor.process_after_batch(dataframe, current_batch_number=current_batch_number)
+            except Exception as e:
+                raise DatasetProcessingError(
+                    f"🛑 Failed in process_after_batch for processor {processor.name}: {e}"
                 ) from e
         return dataframe
+
+    def _run_post_generation_processors_on_df(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Run postprocess() on processors that implement it."""
+        for processor in self._processors:
+            if not processor.implements("postprocess"):
+                continue
+            try:
+                df = processor.postprocess(df)
+            except Exception as e:
+                raise DatasetProcessingError(f"🛑 Failed in postprocess for processor {processor.name}: {e}") from e
+        return df
+
+    def _run_post_generation_processors(self) -> None:
+        """Run postprocess() on processors that implement it."""
+        processors = [p for p in self._processors if p.implements("postprocess")]
+        if not processors:
+            return
+
+        logger.info("⏳ Running postprocess on final dataset...")
+        original_df = self.artifact_storage.load_dataset()
+
+        df = self._run_post_generation_processors_on_df(original_df)
+
+        # Always rewrite since processors may modify values
+        if self.artifact_storage.final_dataset_path.exists():
+            shutil.rmtree(self.artifact_storage.final_dataset_path)
+        self.artifact_storage.write_batch_to_parquet_file(
+            batch_number=0,
+            dataframe=df,
+            batch_stage=BatchStage.FINAL_RESULT,
+        )
+        logger.info(f"✅ Postprocess complete. Final dataset has {len(df)} rows.")
 
     def _worker_error_callback(self, exc: Exception, *, context: dict | None = None) -> None:
         """If a worker fails, we can handle the exception here."""
