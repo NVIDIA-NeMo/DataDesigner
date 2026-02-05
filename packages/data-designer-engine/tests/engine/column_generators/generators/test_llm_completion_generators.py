@@ -206,16 +206,19 @@ def test_log_pre_generation(mock_logger: Mock) -> None:
     )
     mock_model_config.model = "meta/llama-3.1-8b-instruct"
     mock_model_config.generation_type.value = "chat-completion"
-    mock_inference_params.format_for_display.return_value = "temperature=0.70, max_tokens=100"
+    mock_inference_params.get_formatted_params.return_value = ["temperature=0.70", "max_tokens=100"]
 
     generator.log_pre_generation()
 
-    assert mock_logger.info.call_count == 5
+    # 5 base calls + 2 inference param calls = 7 total
+    assert mock_logger.info.call_count == 7
     mock_logger.info.assert_any_call("📝 llm-text model config for column 'test_column'")
     mock_logger.info.assert_any_call("  |-- model: 'meta/llama-3.1-8b-instruct'")
     mock_logger.info.assert_any_call("  |-- model alias: 'test_model'")
     mock_logger.info.assert_any_call("  |-- model provider: 'test_provider'")
-    mock_logger.info.assert_any_call("  |-- inference parameters: temperature=0.70, max_tokens=100")
+    mock_logger.info.assert_any_call("  |-- inference parameters:")
+    mock_logger.info.assert_any_call("  |  |-- temperature=0.70")
+    mock_logger.info.assert_any_call("  |  |-- max_tokens=100")
 
     # Test with different provider
     mock_logger.reset_mock()
@@ -234,7 +237,7 @@ def test_log_pre_generation_with_tool_alias(mock_logger: Mock) -> None:
     )
     mock_model_config.model = "meta/llama-3.1-8b-instruct"
     mock_model_config.generation_type.value = "chat-completion"
-    mock_inference_params.format_for_display.return_value = "temperature=0.70, max_tokens=100"
+    mock_inference_params.get_formatted_params.return_value = ["temperature=0.70", "max_tokens=100"]
 
     mock_mcp_registry = Mock()
     mock_tool_config = Mock()
@@ -244,12 +247,15 @@ def test_log_pre_generation_with_tool_alias(mock_logger: Mock) -> None:
 
     generator.log_pre_generation()
 
-    assert mock_logger.info.call_count == 7
+    # 5 base calls + 2 inference param calls + 2 tool calls = 9 total
+    assert mock_logger.info.call_count == 9
     mock_logger.info.assert_any_call("📝 llm-text model config for column 'test_column'")
     mock_logger.info.assert_any_call("  |-- model: 'meta/llama-3.1-8b-instruct'")
     mock_logger.info.assert_any_call("  |-- model alias: 'test_model'")
     mock_logger.info.assert_any_call("  |-- model provider: 'test_provider'")
-    mock_logger.info.assert_any_call("  |-- inference parameters: temperature=0.70, max_tokens=100")
+    mock_logger.info.assert_any_call("  |-- inference parameters:")
+    mock_logger.info.assert_any_call("  |  |-- temperature=0.70")
+    mock_logger.info.assert_any_call("  |  |-- max_tokens=100")
     mock_logger.info.assert_any_call("  |-- tool alias: 'test-tools'")
     mock_logger.info.assert_any_call("  |-- mcp providers: ['doc-search-mcp', 'web-search-mcp']")
 

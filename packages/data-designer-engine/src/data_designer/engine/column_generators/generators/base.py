@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, overload
 from data_designer.config.column_configs import GenerationStrategy
 from data_designer.engine.configurable_task import ConfigurableTask, DataT, TaskConfigT
 from data_designer.lazy_heavy_imports import pd
-from data_designer.logging import LOG_INDENT
+from data_designer.logging import LOG_DOUBLE_INDENT, LOG_INDENT
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -99,7 +99,9 @@ class ColumnGeneratorWithModel(ColumnGeneratorWithModelRegistry[TaskConfigT], AB
         logger.info(
             f"{LOG_INDENT}model provider: {self.get_model_provider_name(model_alias=self.config.model_alias)!r}"
         )
-        logger.info(f"{LOG_INDENT}inference parameters: {self.inference_parameters.format_for_display()}")
+        logger.info(f"{LOG_INDENT}inference parameters:")
+        for param in self.inference_parameters.get_formatted_params():
+            logger.info(f"{LOG_DOUBLE_INDENT}{param}")
 
         tool_alias = getattr(self.config, "tool_alias", None)
         if tool_alias is not None:

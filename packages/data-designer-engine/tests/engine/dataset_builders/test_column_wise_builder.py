@@ -176,6 +176,7 @@ def test_column_wise_dataset_builder_build_method_basic_flow(
     # Mock the model config to return proper max_parallel_requests
     mock_model_config = Mock()
     mock_model_config.inference_parameters.max_parallel_requests = 4
+    mock_model_config.inference_parameters.get_formatted_params.return_value = []
     stub_resource_provider.model_registry.get_model_config.return_value = mock_model_config
 
     # Mock the batch manager's iter_current_batch method
