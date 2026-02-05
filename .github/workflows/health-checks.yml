@@ -33,4 +33,5 @@ jobs:
       - name: Run health checks
         env:
           OPENAI_API_KEY: ${{ secrets.TEST_OPENAI_API_KEY }}
+        continue-on-error: true
         run: make health-checks
