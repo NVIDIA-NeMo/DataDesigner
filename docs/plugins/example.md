@@ -218,7 +218,7 @@ builder.add_column(
 # Add your custom plugin column
 builder.add_column(
     IndexMultiplierColumnConfig(
-        name="v",
+        name="scaled_index",
         multiplier=5,
     )
 )
@@ -230,12 +230,12 @@ print(results.load_dataset())
 
 Output:
 ```
-  category   v
-0        B   0
-1        A   5
-2        C  10
-3        A  15
-4        B  20
+  category  scaled_index
+0        B             0
+1        A             5
+2        C            10
+3        A            15
+4        B            20
 ...
 ```
 
