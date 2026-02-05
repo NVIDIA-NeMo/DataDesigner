@@ -7,7 +7,10 @@
 
 Plugins are Python packages that extend Data Designer's capabilities without modifying the core library. Similar to [VS Code extensions](https://marketplace.visualstudio.com/vscode) and [Pytest plugins](https://docs.pytest.org/en/stable/reference/plugin_list.html), the plugin system empowers you to build specialized extensions for your specific use cases and share them with the community.
 
-**Current capabilities**: Data Designer currently supports plugins for column generators (the column types you pass to the config builder's [add_column](../code_reference/config_builder.md#data_designer.config.config_builder.DataDesignerConfigBuilder.add_column) method).
+**Current capabilities**: Data Designer supports two plugin types:
+
+- **Column Generator Plugins**: Custom column types you pass to the config builder's [add_column](../code_reference/config_builder.md#data_designer.config.config_builder.DataDesignerConfigBuilder.add_column) method.
+- **Seed Reader Plugins**: Custom seed dataset readers that let you load data from new sources (e.g., databases, cloud storage, custom formats).
 
 **Coming soon**: Plugin support for processors, validators, and more!
 
@@ -27,14 +30,20 @@ Creating a plugin involves three main steps:
 
 ### 1. Implement the Plugin Components
 
-- Create a task class inheriting from `ColumnGenerator`
-- Create a config class inheriting from `SingleColumnConfig`
-- Instantiate a `Plugin` object connecting them
+Each plugin has three components, and we recommend organizing them into separate files within a plugin subdirectory:
+
+- **`config.py`** -- Configuration class defining user-facing parameters
+    - Column generator plugins: inherit from `SingleColumnConfig` with a `column_type` discriminator
+    - Seed reader plugins: inherit from `SeedSource` with a `seed_type` discriminator
+- **`impl.py`** -- Implementation class containing the core logic
+    - Column generator plugins: inherit from `ColumnGeneratorFullColumn` or `ColumnGeneratorCellByCell`
+    - Seed reader plugins: inherit from `SeedReader`
+- **`plugin.py`** -- A `Plugin` instance that connects the config and implementation classes
 
 ### 2. Package Your Plugin
 
 - Set up a Python package with `pyproject.toml`
-- Register your plugin using entry points
+- Register your plugin using entry points under `data_designer.plugins`
 - Define dependencies (including `data-designer`)
 
 ### 3. Share Your Plugin
@@ -42,4 +51,4 @@ Creating a plugin involves three main steps:
 - Publish to PyPI or another package index
 - Share with the community!
 
-**Ready to get started?** See the [Example Plugin](example.md) for a complete walkthrough!
+**Ready to get started?** See the [Example Plugin](example.md) for complete walkthroughs of both plugin types!
