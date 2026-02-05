@@ -105,8 +105,8 @@ def main() -> int:
                 print(f"PASS  {label}")
             except Exception:
                 failed += 1
-                print(f"FAIL  {label}")
-                traceback.print_exc()
+                tb = traceback.format_exc()
+                print(f"FAIL  {label}\n{tb}")
 
     print(f"\n{passed} passed, {failed} failed, {skipped} skipped")
     return 1 if failed else 0
