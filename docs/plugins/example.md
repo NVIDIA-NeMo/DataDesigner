@@ -12,7 +12,7 @@ A Data Designer plugin is implemented as a Python package with three main compon
 2. **Implementation Class**: Contains the core logic of the plugin
 3. **Plugin Object**: Connects the config and implementation classes to make the plugin discoverable
 
-We recommend separating these into individual files (`config.py`, `impl.py`, `plugin.py`) within a plugin subdirectory. This keeps the code organized and makes it easy to test each component independently.
+We recommend separating these into individual files (`config.py`, `impl.py`, `plugin.py`) within a plugin subdirectory. This keeps the code organized, makes it easy to test each component independently, and guards against circular dependencies — since the config module can be imported without pulling in the engine-level implementation classes, and the plugin object can be discovered without importing either.
 
 ---
 
