@@ -7,6 +7,7 @@ import functools
 import importlib.metadata
 import json
 import logging
+import os
 import time
 import uuid
 from pathlib import Path
@@ -31,6 +32,7 @@ from data_designer.engine.compiler import compile_data_designer_config
 from data_designer.engine.dataset_builders.artifact_storage import SDG_CONFIG_FILENAME, ArtifactStorage
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError, DatasetProcessingError
 from data_designer.engine.dataset_builders.multi_column_configs import MultiColumnConfig
+from data_designer.engine.dataset_builders.utils.async_concurrency import AsyncConcurrentExecutor
 from data_designer.engine.dataset_builders.utils.concurrency import ConcurrentThreadExecutor
 from data_designer.engine.dataset_builders.utils.config_compiler import compile_dataset_builder_column_configs
 from data_designer.engine.dataset_builders.utils.dataset_batch_manager import DatasetBatchManager
@@ -49,6 +51,11 @@ if TYPE_CHECKING:
     from data_designer.engine.models.usage import ModelUsageStats
 
 logger = logging.getLogger(__name__)
+
+DATA_DESIGNER_ASYNC_ENGINE = os.environ.get("DATA_DESIGNER_ASYNC_ENGINE", "0") == "1"
+
+if DATA_DESIGNER_ASYNC_ENGINE:
+    logger.info("⚡ DATA_DESIGNER_ASYNC_ENGINE is enabled — using async concurrency")
 
 _CLIENT_VERSION: str = importlib.metadata.version("data-designer-engine")
 
@@ -205,7 +212,11 @@ class ColumnWiseDatasetBuilder:
         max_workers = self._resource_provider.run_config.non_inference_max_parallel_workers
         if isinstance(generator, ColumnGeneratorWithModel):
             max_workers = generator.inference_parameters.max_parallel_requests
-        self._fan_out_with_threads(generator, max_workers=max_workers)
+        if DATA_DESIGNER_ASYNC_ENGINE:
+            logger.info("⚡ Using async engine for concurrent execution")
+            self._fan_out_with_async(generator, max_workers=max_workers)
+        else:
+            self._fan_out_with_threads(generator, max_workers=max_workers)
 
     def _run_full_column_generator(self, generator: ColumnGenerator) -> None:
         df = generator.generate(self.batch_manager.get_current_batch(as_dataframe=True))
@@ -226,6 +237,41 @@ class ColumnWiseDatasetBuilder:
         if self._resource_provider.mcp_registry is None:
             raise DatasetGenerationError(f"Tool alias(es) {tool_aliases!r} specified but no MCPRegistry configured.")
         self._resource_provider.mcp_registry.run_health_check(tool_aliases)
+
+    def _fan_out_with_async(self, generator: ColumnGeneratorWithModelRegistry, max_workers: int) -> None:
+        if generator.get_generation_strategy() != GenerationStrategy.CELL_BY_CELL:
+            raise DatasetGenerationError(
+                f"Generator {generator.name} is not a {GenerationStrategy.CELL_BY_CELL} "
+                "generator so concurrency through async is not supported."
+            )
+
+        progress_tracker = ProgressTracker(
+            total_records=self.batch_manager.num_records_batch,
+            label=f"{generator.config.column_type} column '{generator.config.name}'",
+        )
+        progress_tracker.log_start(max_workers)
+
+        settings = self._resource_provider.run_config
+        executor = AsyncConcurrentExecutor(
+            max_workers=max_workers,
+            column_name=generator.config.name,
+            result_callback=self._make_result_callback(progress_tracker),
+            error_callback=self._make_error_callback(progress_tracker),
+            shutdown_error_rate=settings.shutdown_error_rate,
+            shutdown_error_window=settings.shutdown_error_window,
+            disable_early_shutdown=settings.disable_early_shutdown,
+        )
+
+        work_items = [
+            (generator.agenerate(record), {"index": i}) for i, record in self.batch_manager.iter_current_batch()
+        ]
+        executor.run(work_items)
+
+        progress_tracker.log_final()
+
+        if len(self._records_to_drop) > 0:
+            self.batch_manager.drop_records(self._records_to_drop)
+            self._records_to_drop.clear()
 
     def _fan_out_with_threads(self, generator: ColumnGeneratorWithModelRegistry, max_workers: int) -> None:
         if generator.get_generation_strategy() != GenerationStrategy.CELL_BY_CELL:

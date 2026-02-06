@@ -96,6 +96,45 @@ class ColumnGeneratorWithModelChatCompletion(ColumnGeneratorWithModel[TaskConfig
 
         return data
 
+    async def agenerate(self, data: dict) -> dict:
+        deserialized_record = deserialize_json_values(data)
+
+        multi_modal_context = None
+        if self.config.multi_modal_context is not None and len(self.config.multi_modal_context) > 0:
+            multi_modal_context = []
+            for context in self.config.multi_modal_context:
+                multi_modal_context.extend(context.get_contexts(deserialized_record))
+
+        response, trace = await self.model.agenerate(
+            prompt=self.prompt_renderer.render(
+                record=deserialized_record,
+                prompt_template=self.config.prompt,
+                prompt_type=PromptType.USER_PROMPT,
+            ),
+            system_prompt=self.prompt_renderer.render(
+                record=deserialized_record,
+                prompt_template=self.config.system_prompt,
+                prompt_type=PromptType.SYSTEM_PROMPT,
+            ),
+            parser=self.response_recipe.parse,
+            multi_modal_context=multi_modal_context,
+            tool_alias=self.config.tool_alias,
+            max_correction_steps=self.max_conversation_correction_steps,
+            max_conversation_restarts=self.max_conversation_restarts,
+            purpose=f"running generation for column '{self.config.name}'",
+        )
+
+        serialized_output = self.response_recipe.serialize_output(response)
+        data[self.config.name] = self._process_serialized_output(serialized_output)
+
+        should_save_trace = (
+            self.config.with_trace or self.resource_provider.run_config.debug_override_save_all_column_traces
+        )
+        if should_save_trace:
+            data[self.config.name + TRACE_COLUMN_POSTFIX] = [message.to_dict() for message in trace]
+
+        return data
+
     def _process_serialized_output(self, serialized_output: str) -> str | dict | list:
         """Process the serialized output from the model. Subclasses can override to customize deserialization."""
         return serialized_output
