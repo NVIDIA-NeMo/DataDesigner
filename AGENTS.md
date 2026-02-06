@@ -222,8 +222,8 @@ See:
 - `alias`
 - `model`
 - `inference_parameters`
-- `system_prompt`
-- `image_modality`
+- `provider`
+- `skip_health_check`
 
 See:
 - `packages/data-designer-config/src/data_designer/config/models.py`
