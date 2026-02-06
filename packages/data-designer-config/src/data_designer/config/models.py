@@ -435,8 +435,11 @@ class ImageInferenceParams(BaseInferenceParams):
     - Preview mode: Images stored as base64 directly in dataframe
 
     Common parameters like quality and size are provided as optional fields.
-    For model-specific parameters, use the `extra_body` field inherited from
-    BaseInferenceParams.
+    For model-specific parameters (including n for number of images), use the `extra_body`
+    field inherited from BaseInferenceParams.
+
+    If the API returns multiple images (either from prompt or API parameters), all images
+    will be stored as a list in the dataframe.
 
     Attributes:
         generation_type: Type of generation, always "image" for this class.
@@ -449,6 +452,13 @@ class ImageInferenceParams(BaseInferenceParams):
         dd.ImageInferenceParams(
             quality="hd",
             size="1024x1024"
+        )
+
+        # Generate multiple images using extra_body
+        dd.ImageInferenceParams(
+            quality="hd",
+            size="1024x1024",
+            extra_body={"n": 3}  # Request 3 images from API
         )
 
         # With model-specific params via extra_body

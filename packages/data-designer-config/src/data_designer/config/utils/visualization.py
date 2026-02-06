@@ -394,7 +394,28 @@ def display_sample_record(
             if col.drop:
                 continue
             image_data = record[col.name]
-            if _is_base64_image(image_data):
+
+            # Handle list of images
+            if isinstance(image_data, list):
+                previews = []
+                for idx, img in enumerate(image_data):
+                    if _is_base64_image(img):
+                        previews.append(f"[{idx}] <base64, {len(img)} chars>")
+                        if in_notebook:
+                            images_to_display_later.append((f"{col.name}[{idx}]", img))
+                    elif _is_image_url(img):
+                        previews.append(f"[{idx}] <URL: {img[:30]}...>")
+                        if in_notebook:
+                            images_to_display_later.append((f"{col.name}[{idx}]", img))
+                    elif _is_image_path(img):
+                        previews.append(f"[{idx}] <path: {img}>")
+                        if in_notebook:
+                            images_to_display_later.append((f"{col.name}[{idx}]", img))
+                    else:
+                        previews.append(f"[{idx}] {str(img)[:30]}")
+                preview = "\n".join(previews) if previews else "<empty list>"
+            # Handle single image (backwards compatibility)
+            elif _is_base64_image(image_data):
                 preview = f"<base64 encoded, {len(image_data)} chars>"
                 if in_notebook:
                     images_to_display_later.append((col.name, image_data))
@@ -408,6 +429,7 @@ def display_sample_record(
                     images_to_display_later.append((col.name, image_data))
             else:
                 preview = str(image_data)[:100] + "..." if len(str(image_data)) > 100 else str(image_data)
+
             table.add_row(col.name, preview)
 
         render_list.append(pad_console_element(table))

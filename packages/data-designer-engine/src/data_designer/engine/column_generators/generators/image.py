@@ -36,13 +36,13 @@ class ImageCellGenerator(WithJinja2UserTemplateRendering, ColumnGeneratorWithMod
         return GenerationStrategy.CELL_BY_CELL
 
     def generate(self, data: dict) -> dict:
-        """Generate image and optionally save to disk.
+        """Generate image(s) and optionally save to disk.
 
         Args:
             data: Record data
 
         Returns:
-            Record with image path (create mode) or base64 data (preview mode) added
+            Record with image path(s) (create mode) or base64 data (preview mode) added
         """
         deserialized_record = deserialize_json_values(data)
 
@@ -63,16 +63,18 @@ class ImageCellGenerator(WithJinja2UserTemplateRendering, ColumnGeneratorWithMod
         if not prompt or not prompt.strip():
             raise ValueError(f"Rendered prompt for column {self.config.name!r} is empty")
 
-        # Generate image (returns base64 string)
-        base64_image = self.model.generate_image(prompt=prompt)
+        # Generate images (returns list of base64 strings)
+        base64_images = self.model.generate_image(prompt=prompt)
 
         # Store in dataframe based on mode
         if self.image_storage_manager:
-            # Create mode: save to disk and store relative path
-            relative_path = self.image_storage_manager.save_base64_image(base64_image)
-            data[self.config.name] = relative_path
+            # Create mode: save each image to disk and store list of relative paths
+            relative_paths = [
+                self.image_storage_manager.save_base64_image(base64_image) for base64_image in base64_images
+            ]
+            data[self.config.name] = relative_paths
         else:
-            # Preview mode: store base64 directly
-            data[self.config.name] = base64_image
+            # Preview mode: store list of base64 strings directly
+            data[self.config.name] = base64_images
 
         return data

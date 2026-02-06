@@ -163,22 +163,23 @@ class ModelFacade:
                 self._track_usage_from_embedding(response)
 
     @catch_llm_exceptions
-    def generate_image(self, prompt: str, skip_usage_tracking: bool = False, **kwargs) -> str:
-        """Generate image and return base64-encoded data.
+    def generate_image(self, prompt: str, skip_usage_tracking: bool = False, **kwargs) -> list[str]:
+        """Generate image(s) and return base64-encoded data.
 
         Automatically detects the appropriate API based on model name:
         - Diffusion models (DALL-E, Stable Diffusion, Imagen, etc.) → image_generation API
         - All other models → chat/completions API (default)
 
-        Both paths return base64-encoded image data.
+        Both paths return base64-encoded image data. If the API returns multiple images,
+        all are returned in the list.
 
         Args:
             prompt: The prompt for image generation
             skip_usage_tracking: Whether to skip usage tracking
-            **kwargs: Additional arguments to pass to the model
+            **kwargs: Additional arguments to pass to the model (including n=number of images)
 
         Returns:
-            Base64-encoded image string (without data URI prefix)
+            List of base64-encoded image strings (without data URI prefix)
 
         Raises:
             ModelAPIError: If image generation fails or returns invalid data
@@ -214,11 +215,11 @@ class ModelFacade:
         ]
         return any(pattern in model_lower for pattern in diffusion_patterns)
 
-    def _generate_image_chat_completion(self, prompt: str, skip_usage_tracking: bool = False, **kwargs) -> str:
-        """Generate image using autoregressive model via chat completions API.
+    def _generate_image_chat_completion(self, prompt: str, skip_usage_tracking: bool = False, **kwargs) -> list[str]:
+        """Generate image(s) using autoregressive model via chat completions API.
 
         Returns:
-            Base64-encoded image string
+            List of base64-encoded image strings
         """
         kwargs = self.consolidate_kwargs(**kwargs)
         messages = [ChatMessage.as_user(content=prompt)]
@@ -232,7 +233,7 @@ class ModelFacade:
             )
 
             logger.debug(
-                f"Received image from autoregressive model {self.model_name!r}",
+                f"Received image(s) from autoregressive model {self.model_name!r}",
                 extra={"model": self.model_name, "response": response},
             )
 
@@ -241,42 +242,45 @@ class ModelFacade:
                 raise ModelAPIError("Response missing choices")
 
             message = response.choices[0].message
+            images = []
 
             # Extract base64 from images attribute (primary path)
             if hasattr(message, "images") and message.images:
-                first_image = message.images[0]
+                for image in message.images:
+                    # Handle different response formats
+                    if isinstance(image, dict) and "image_url" in image:
+                        image_url = image["image_url"]
 
-                # Handle different response formats
-                if isinstance(first_image, dict) and "image_url" in first_image:
-                    image_url = first_image["image_url"]
-
-                    if isinstance(image_url, dict) and "url" in image_url:
-                        url = image_url["url"]
-                        return self._extract_base64_from_data_uri(url)
-                    elif isinstance(image_url, str):
-                        return self._extract_base64_from_data_uri(image_url)
-
-                # Fallback: treat as base64 string
-                if isinstance(first_image, str):
-                    return self._extract_base64_from_data_uri(first_image)
+                        if isinstance(image_url, dict) and "url" in image_url:
+                            url = image_url["url"]
+                            images.append(self._extract_base64_from_data_uri(url))
+                        elif isinstance(image_url, str):
+                            images.append(self._extract_base64_from_data_uri(image_url))
+                    # Fallback: treat as base64 string
+                    elif isinstance(image, str):
+                        images.append(self._extract_base64_from_data_uri(image))
 
             # Fallback: check content field
-            content = message.content or ""
-            if content:
-                return self._extract_base64_from_data_uri(content)
+            if not images:
+                content = message.content or ""
+                if content:
+                    images.append(self._extract_base64_from_data_uri(content))
 
-            raise ModelAPIError("No image data found in response")
+            if not images:
+                raise ModelAPIError("No image data found in response")
+
+            return images
 
         except Exception:
             raise
 
-    def _generate_image_diffusion(self, prompt: str, skip_usage_tracking: bool = False, **kwargs) -> str:
-        """Generate image using diffusion model via image_generation API.
+    def _generate_image_diffusion(self, prompt: str, skip_usage_tracking: bool = False, **kwargs) -> list[str]:
+        """Generate image(s) using diffusion model via image_generation API.
 
         Always returns base64. The API is configured to return base64 format.
 
         Returns:
-            Base64-encoded image string
+            List of base64-encoded image strings
         """
         kwargs = self.consolidate_kwargs(**kwargs)
 
@@ -289,7 +293,7 @@ class ModelFacade:
             response = self._router.image_generation(prompt=prompt, model=self.model_name, **kwargs)
 
             logger.debug(
-                f"Received image from diffusion model {self.model_name!r}",
+                f"Received {len(response.data)} image(s) from diffusion model {self.model_name!r}",
                 extra={"model": self.model_name, "response": response},
             )
 
@@ -297,8 +301,8 @@ class ModelFacade:
             if not response.data or len(response.data) == 0:
                 raise ModelAPIError("Image generation returned no data")
 
-            # Return base64 data
-            return response.data[0].b64_json
+            # Return all images as list
+            return [img.b64_json for img in response.data]
 
         except Exception:
             raise
