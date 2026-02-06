@@ -152,7 +152,7 @@ This chart represents the breakdown of models used for Data Designer across all 
 
 ![Top models used for synthetic data generation](docs/images/top-models.png)
 
-_Last updated on 1/14/2026_
+_Last updated on 2/05/2026_
 
 ---
 
