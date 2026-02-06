@@ -28,6 +28,12 @@ from data_designer.config.sampler_params import SamplerType
 from data_designer.config.utils.code_lang import code_lang_to_syntax_lexer
 from data_designer.config.utils.constants import NVIDIA_API_KEY_ENV_VAR_NAME, OPENAI_API_KEY_ENV_VAR_NAME
 from data_designer.config.utils.errors import DatasetSampleDisplayError
+from data_designer.config.utils.image_helpers import (
+    is_base64_image,
+    is_image_path,
+    is_image_url,
+    load_image_path_to_base64,
+)
 from data_designer.lazy_heavy_imports import np, pd
 
 if TYPE_CHECKING:
@@ -39,78 +45,6 @@ if TYPE_CHECKING:
 
 
 console = Console()
-
-
-def _is_base64_image(value: str) -> bool:
-    """Check if a string is base64-encoded image data."""
-    if not isinstance(value, str):
-        return False
-    # Check if it starts with data URI scheme
-    if value.startswith("data:image/"):
-        return True
-    # Check if it looks like base64 (at least 100 chars, contains only base64 chars)
-    if len(value) > 100 and all(
-        c in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=" for c in value[:100]
-    ):
-        try:
-            # Try to decode a small portion to verify it's valid base64
-            base64.b64decode(value[:100])
-            return True
-        except Exception:
-            return False
-    return False
-
-
-def _is_image_url(value: str) -> bool:
-    """Check if a string is an image URL."""
-    if not isinstance(value, str):
-        return False
-    return value.startswith(("http://", "https://")) and any(
-        ext in value.lower() for ext in [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"]
-    )
-
-
-def _is_image_path(value: str) -> bool:
-    """Check if a string is an image file path."""
-    if not isinstance(value, str):
-        return False
-    # Check if it looks like a file path with image extension
-    return any(value.lower().endswith(ext) for ext in [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"])
-
-
-def _load_image_path_to_base64(image_path: str, base_path: str | None = None) -> str | None:
-    """Load an image from a file path and return as base64.
-
-    Args:
-        image_path: Relative or absolute path to the image file.
-        base_path: Optional base path to resolve relative paths from.
-
-    Returns:
-        Base64-encoded image data or None if loading fails.
-    """
-    try:
-        from pathlib import Path
-
-        path = Path(image_path)
-
-        # If path is not absolute, try to resolve it
-        if not path.is_absolute():
-            if base_path:
-                path = Path(base_path) / path
-            # If still not found, try current working directory
-            if not path.exists():
-                path = Path.cwd() / image_path
-
-        # Check if file exists
-        if not path.exists():
-            return None
-
-        # Read image file and convert to base64
-        with open(path, "rb") as f:
-            image_bytes = f.read()
-            return base64.b64encode(image_bytes).decode()
-    except Exception:
-        return None
 
 
 def _display_image_if_in_notebook(
@@ -135,8 +69,8 @@ def _display_image_if_in_notebook(
         get_ipython()  # This will raise NameError if not in IPython/Jupyter
 
         # Check if it's a file path and load it
-        if _is_image_path(image_data) and not image_data.startswith("data:image/"):
-            loaded_base64 = _load_image_path_to_base64(image_data, base_path)
+        if is_image_path(image_data) and not image_data.startswith("data:image/"):
+            loaded_base64 = load_image_path_to_base64(image_data, base_path)
             if loaded_base64 is None:
                 console.print(
                     f"[yellow]⚠️ Could not load image from path '{image_data}' for column '{col_name}'[/yellow]"
@@ -399,15 +333,15 @@ def display_sample_record(
             if isinstance(image_data, list):
                 previews = []
                 for idx, img in enumerate(image_data):
-                    if _is_base64_image(img):
+                    if is_base64_image(img):
                         previews.append(f"[{idx}] <base64, {len(img)} chars>")
                         if in_notebook:
                             images_to_display_later.append((f"{col.name}[{idx}]", img))
-                    elif _is_image_url(img):
+                    elif is_image_url(img):
                         previews.append(f"[{idx}] <URL: {img[:30]}...>")
                         if in_notebook:
                             images_to_display_later.append((f"{col.name}[{idx}]", img))
-                    elif _is_image_path(img):
+                    elif is_image_path(img):
                         previews.append(f"[{idx}] <path: {img}>")
                         if in_notebook:
                             images_to_display_later.append((f"{col.name}[{idx}]", img))
@@ -415,15 +349,15 @@ def display_sample_record(
                         previews.append(f"[{idx}] {str(img)[:30]}")
                 preview = "\n".join(previews) if previews else "<empty list>"
             # Handle single image (backwards compatibility)
-            elif _is_base64_image(image_data):
+            elif is_base64_image(image_data):
                 preview = f"<base64 encoded, {len(image_data)} chars>"
                 if in_notebook:
                     images_to_display_later.append((col.name, image_data))
-            elif _is_image_url(image_data):
+            elif is_image_url(image_data):
                 preview = f"<URL: {image_data[:50]}...>"
                 if in_notebook:
                     images_to_display_later.append((col.name, image_data))
-            elif _is_image_path(image_data):
+            elif is_image_path(image_data):
                 preview = f"<path: {image_data}>"
                 if in_notebook:
                     images_to_display_later.append((col.name, image_data))
