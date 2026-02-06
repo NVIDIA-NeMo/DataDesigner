@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import importlib.metadata
 import json
 import tempfile
 from pathlib import Path
@@ -358,6 +359,17 @@ def test_add_profiler(stub_empty_builder):
         BuilderConfigurationError, match="Invalid profiler object. Valid profiler options are: JudgeScoreProfilerConfig"
     ):
         stub_empty_builder.add_profiler("invalid")
+
+
+def test_builder_config_library_version(stub_data_designer_builder):
+    builder_config = stub_data_designer_builder.get_builder_config()
+    assert isinstance(builder_config.library_version, str)
+    assert builder_config.library_version == importlib.metadata.version("data-designer-config")
+
+    # Verify it is included in serialization
+    dumped = builder_config.model_dump()
+    assert "library_version" in dumped
+    assert dumped["library_version"] == builder_config.library_version
 
 
 def test_build(stub_data_designer_builder):

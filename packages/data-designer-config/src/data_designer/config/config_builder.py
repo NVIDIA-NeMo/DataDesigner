@@ -3,10 +3,12 @@
 
 from __future__ import annotations
 
+import importlib.metadata
 import json
 import logging
 from pathlib import Path
 
+from pydantic import computed_field
 from pygments import highlight
 from pygments.formatters import HtmlFormatter
 from pygments.lexers import PythonLexer
@@ -63,6 +65,10 @@ class BuilderConfig(ExportableConfigBase):
     """
 
     data_designer: DataDesignerConfig
+
+    @computed_field
+    def library_version(self) -> str:
+        return importlib.metadata.version("data-designer-config")
 
 
 class DataDesignerConfigBuilder:
