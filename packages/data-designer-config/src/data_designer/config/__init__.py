@@ -60,6 +60,8 @@ if TYPE_CHECKING:
     from data_designer.config.run_config import RunConfig  # noqa: F401
     from data_designer.config.sampler_constraints import (  # noqa: F401
         ColumnInequalityConstraint,
+        ConstraintType,
+        InequalityOperator,
         ScalarInequalityConstraint,
     )
     from data_designer.config.sampler_params import (  # noqa: F401
@@ -168,6 +170,8 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "RunConfig": (f"{_MOD_BASE}.run_config", "RunConfig"),
     # sampler_constraints
     "ColumnInequalityConstraint": (_MOD_SAMPLER_CONSTRAINTS, "ColumnInequalityConstraint"),
+    "ConstraintType": (_MOD_SAMPLER_CONSTRAINTS, "ConstraintType"),
+    "InequalityOperator": (_MOD_SAMPLER_CONSTRAINTS, "InequalityOperator"),
     "ScalarInequalityConstraint": (_MOD_SAMPLER_CONSTRAINTS, "ScalarInequalityConstraint"),
     # sampler_params
     "BernoulliMixtureSamplerParams": (_MOD_SAMPLER_PARAMS, "BernoulliMixtureSamplerParams"),
