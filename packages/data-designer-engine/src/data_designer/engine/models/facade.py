@@ -13,6 +13,7 @@ from data_designer.engine.mcp.errors import MCPConfigurationError
 from data_designer.engine.model_provider import ModelProviderRegistry
 from data_designer.engine.models.errors import (
     GenerationValidationFailureError,
+    ModelAPIError,
     catch_llm_exceptions,
     get_exception_primary_cause,
 )
@@ -163,42 +164,63 @@ class ModelFacade:
 
     @catch_llm_exceptions
     def generate_image(self, prompt: str, skip_usage_tracking: bool = False, **kwargs) -> str:
-        """Generate image using either autoregressive or diffusion models.
+        """Generate image and return base64-encoded data.
 
-        Automatically detects the appropriate API based on the model's generation_type:
-        - CHAT_COMPLETION_IMAGE → chat/completions API (GPT-5, gpt-image-*, Gemini)
-        - DIFFUSION_IMAGE → image_generation API (DALL-E, Imagen, Stable Diffusion)
+        Automatically detects the appropriate API based on model name:
+        - Diffusion models (DALL-E, Stable Diffusion, Imagen, etc.) → image_generation API
+        - All other models → chat/completions API (default)
+
+        Both paths return base64-encoded image data.
 
         Args:
-            prompt: The prompt for image generation.
-            skip_usage_tracking: Whether to skip usage tracking. Default: False.
-            **kwargs: Additional arguments to pass to the model.
+            prompt: The prompt for image generation
+            skip_usage_tracking: Whether to skip usage tracking
+            **kwargs: Additional arguments to pass to the model
 
         Returns:
-            Base64-encoded image data (without data URI prefix for autoregressive models).
-            For diffusion models: URL string or base64 data depending on output_format.
-        """
-        from data_designer.config.models import GenerationType
+            Base64-encoded image string (without data URI prefix)
 
+        Raises:
+            ModelAPIError: If image generation fails or returns invalid data
+        """
         logger.debug(
             f"Generating image with model {self.model_name!r}...",
             extra={"model": self.model_name, "prompt": prompt},
         )
 
-        # Determine which API to use based on generation_type
-        gen_type = self.model_generation_type
-
-        if gen_type == GenerationType.DIFFUSION_IMAGE:
+        # Auto-detect API type based on model name
+        if self._is_diffusion_model():
             return self._generate_image_diffusion(prompt, skip_usage_tracking, **kwargs)
         else:
-            # Default to chat-completion (CHAT_COMPLETION_IMAGE or backward compatibility)
             return self._generate_image_chat_completion(prompt, skip_usage_tracking, **kwargs)
 
-    def _generate_image_chat_completion(self, prompt: str, skip_usage_tracking: bool = False, **kwargs) -> str:
-        """Generate image using autoregressive model via chat completions API."""
-        kwargs = self.consolidate_kwargs(**kwargs)
+    def _is_diffusion_model(self) -> bool:
+        """Detect if model uses diffusion API based on name patterns.
 
-        # Build messages for image generation
+        Diffusion models include DALL-E, Stable Diffusion, and Imagen variants.
+        All other image models are assumed to use chat completions API.
+
+        Returns:
+            True if model is detected as diffusion-based, False otherwise
+        """
+        model_lower = self.model_name.lower()
+        diffusion_patterns = [
+            "dall-e",
+            "dalle",
+            "stable-diffusion",
+            "sd-",
+            "sd_",
+            "imagen",
+        ]
+        return any(pattern in model_lower for pattern in diffusion_patterns)
+
+    def _generate_image_chat_completion(self, prompt: str, skip_usage_tracking: bool = False, **kwargs) -> str:
+        """Generate image using autoregressive model via chat completions API.
+
+        Returns:
+            Base64-encoded image string
+        """
+        kwargs = self.consolidate_kwargs(**kwargs)
         messages = [ChatMessage.as_user(content=prompt)]
 
         response = None
@@ -208,64 +230,78 @@ class ModelFacade:
                 skip_usage_tracking=skip_usage_tracking,
                 **kwargs,
             )
+
             logger.debug(
                 f"Received image from autoregressive model {self.model_name!r}",
                 extra={"model": self.model_name, "response": response},
             )
 
-            # Check if response has images attribute (some models return images here)
-            if hasattr(response.choices[0].message, "images") and response.choices[0].message.images:
-                # Extract base64 from first image
-                first_image = response.choices[0].message.images[0]
+            # Validate response structure
+            if not response.choices or len(response.choices) == 0:
+                raise ModelAPIError("Response missing choices")
+
+            message = response.choices[0].message
+
+            # Extract base64 from images attribute (primary path)
+            if hasattr(message, "images") and message.images:
+                first_image = message.images[0]
+
+                # Handle different response formats
                 if isinstance(first_image, dict) and "image_url" in first_image:
                     image_url = first_image["image_url"]
+
                     if isinstance(image_url, dict) and "url" in image_url:
-                        # Extract base64 data from data URL
                         url = image_url["url"]
-                        if url.startswith("data:image/"):
-                            # Remove data URI prefix to get pure base64
-                            return url.split(",", 1)[1] if "," in url else url
-                        return url
+                        return self._extract_base64_from_data_uri(url)
                     elif isinstance(image_url, str):
-                        if image_url.startswith("data:image/"):
-                            return image_url.split(",", 1)[1] if "," in image_url else image_url
-                        return image_url
-                return str(first_image)
+                        return self._extract_base64_from_data_uri(image_url)
 
-            # If no images attribute, check content for base64 or image data
-            content = response.choices[0].message.content or ""
-            if content.startswith("data:image/"):
-                # Remove data URI prefix
-                return content.split(",", 1)[1] if "," in content else content
+                # Fallback: treat as base64 string
+                if isinstance(first_image, str):
+                    return self._extract_base64_from_data_uri(first_image)
 
-            # Return content as-is (might be base64 or other format)
-            return content
+            # Fallback: check content field
+            content = message.content or ""
+            if content:
+                return self._extract_base64_from_data_uri(content)
 
-        except Exception as e:
-            raise e
+            raise ModelAPIError("No image data found in response")
+
+        except Exception:
+            raise
 
     def _generate_image_diffusion(self, prompt: str, skip_usage_tracking: bool = False, **kwargs) -> str:
-        """Generate image using diffusion model via image_generation API."""
-        from data_designer.config.models import ModalityDataType
+        """Generate image using diffusion model via image_generation API.
 
+        Always returns base64. The API is configured to return base64 format.
+
+        Returns:
+            Base64-encoded image string
+        """
         kwargs = self.consolidate_kwargs(**kwargs)
+
+        # Always request base64 format
+        kwargs["response_format"] = "b64_json"
+
         response = None
+
         try:
             response = self._router.image_generation(prompt=prompt, model=self.model_name, **kwargs)
+
             logger.debug(
                 f"Received image from diffusion model {self.model_name!r}",
                 extra={"model": self.model_name, "response": response},
             )
 
-            # Return URL or base64 based on output_format
-            output_format = getattr(self._model_config.inference_parameters, "output_format", ModalityDataType.BASE64)
-            if output_format == ModalityDataType.URL:
-                return response.data[0].url
-            else:
-                return response.data[0].b64_json
+            # Validate response
+            if not response.data or len(response.data) == 0:
+                raise ModelAPIError("Image generation returned no data")
 
-        except Exception as e:
-            raise e
+            # Return base64 data
+            return response.data[0].b64_json
+
+        except Exception:
+            raise
         finally:
             if not skip_usage_tracking and response is not None:
                 self._track_usage_from_image_diffusion(response)
@@ -494,3 +530,50 @@ class ModelFacade:
                 ),
                 request_usage=RequestUsageStats(successful_requests=1, failed_requests=0),
             )
+
+    def _extract_base64_from_data_uri(self, data: str) -> str:
+        """Extract base64 data from data URI or return as-is.
+
+        Args:
+            data: Data URI (e.g., "data:image/png;base64,iVBORw0...") or plain base64
+
+        Returns:
+            Base64 string without data URI prefix
+
+        Raises:
+            ModelAPIError: If data URI format is invalid
+        """
+        if data.startswith("data:image/"):
+            # Extract base64 portion after comma
+            if "," in data:
+                return data.split(",", 1)[1]
+            else:
+                raise ModelAPIError("Invalid data URI format: missing comma separator")
+
+        # Already plain base64
+        return data
+
+    def _download_url_to_base64(self, url: str) -> str:
+        """Download image from URL and convert to base64.
+
+        Args:
+            url: Image URL
+
+        Returns:
+            Base64-encoded image string
+
+        Raises:
+            ModelAPIError: If download fails
+        """
+        import base64
+
+        from data_designer.lazy_heavy_imports import httpx
+
+        try:
+            with httpx.Client(timeout=30.0) as client:
+                response = client.get(url)
+                response.raise_for_status()
+                image_bytes = response.content
+                return base64.b64encode(image_bytes).decode("utf-8")
+        except Exception as e:
+            raise ModelAPIError(f"Failed to download image from URL {url}: {e}") from e

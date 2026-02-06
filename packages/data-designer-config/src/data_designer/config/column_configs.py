@@ -489,13 +489,15 @@ class ImageGenerationColumnConfig(SingleColumnConfig):
     """Configuration for image generation columns.
 
     Image columns generate images using either autoregressive or diffusion models.
-    The API used is automatically determined by the model's inference parameters:
+    The API used is automatically determined based on the model name:
 
-    - **Autoregressive models** (ChatCompletionImageInferenceParams):
-      GPT-5, gpt-image-*, Gemini image generation models via chat completions API
+    - **Diffusion models** (DALL-E, Stable Diffusion, Imagen, etc.) → image_generation API
+    - **All other models** → chat/completions API (default)
 
-    - **Diffusion models** (DiffusionImageInferenceParams):
-      DALL-E, Imagen, Stable Diffusion via image_generation API
+    Image storage behavior:
+    - **Create mode**: Images saved to disk with UUID filenames in `images/` folder,
+      dataframe stores relative paths (e.g., "images/abc123.png")
+    - **Preview mode**: Images stored as base64 directly in dataframe
 
     Attributes:
         column_type: Discriminator field, always "image-generation" for this configuration type.

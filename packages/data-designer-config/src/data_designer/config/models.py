@@ -242,8 +242,7 @@ DistributionT: TypeAlias = UniformDistribution | ManualDistribution
 class GenerationType(str, Enum):
     CHAT_COMPLETION = "chat-completion"
     EMBEDDING = "embedding"
-    CHAT_COMPLETION_IMAGE = "chat-completion-image"
-    DIFFUSION_IMAGE = "diffusion-image"
+    IMAGE = "image"
 
 
 class BaseInferenceParams(ConfigBase, ABC):
@@ -423,19 +422,52 @@ class EmbeddingInferenceParams(BaseInferenceParams):
         return result
 
 
-class ChatCompletionImageInferenceParams(BaseInferenceParams):
-    """Configuration for image generation using autoregressive models via chat completions API.
+class ImageInferenceParams(BaseInferenceParams):
+    """Configuration for image generation models.
 
-    Uses the standard chat completions API for autoregressive multimodal models
-    that can generate images (GPT-5, gpt-image-*, Gemini image generation, etc.).
+    Works for all image generation models. The API type is automatically detected
+    based on the model name:
+    - Diffusion models (DALL-E, Stable Diffusion, Imagen, etc.) use image_generation API
+    - All other models use chat/completions API (default)
+
+    Image storage behavior:
+    - Create mode: Images saved to disk with UUID filenames, paths stored in dataframe
+    - Preview mode: Images stored as base64 directly in dataframe
+
+    Common parameters like quality and size are provided as optional fields.
+    For model-specific parameters, use the `extra_body` field inherited from
+    BaseInferenceParams.
 
     Attributes:
-        generation_type: Type of generation, always "chat-completion-image" for this class.
-        quality: Optional quality setting for image generation (e.g., "standard", "hd").
-        size: Optional size specification for generated images (e.g., "1024x1024", "1792x1024").
+        generation_type: Type of generation, always "image" for this class.
+        quality: Image quality setting (e.g., "standard", "hd"). Optional and model-specific.
+        size: Image size specification (e.g., "1024x1024", "1792x1024"). Optional and model-specific.
+
+    Example:
+        ```python
+        # Standard usage with common params
+        dd.ImageInferenceParams(
+            quality="hd",
+            size="1024x1024"
+        )
+
+        # With model-specific params via extra_body
+        dd.ImageInferenceParams(
+            quality="hd",
+            size="1024x1024",
+            extra_body={
+                "generationConfig": {
+                    "imageConfig": {
+                        "aspectRatio": "1:1",
+                        "negativePrompt": "blurry, low quality"
+                    }
+                }
+            }
+        )
+        ```
     """
 
-    generation_type: Literal[GenerationType.CHAT_COMPLETION_IMAGE] = GenerationType.CHAT_COMPLETION_IMAGE
+    generation_type: Literal[GenerationType.IMAGE] = GenerationType.IMAGE
     quality: str | None = None
     size: str | None = None
 
@@ -449,38 +481,8 @@ class ChatCompletionImageInferenceParams(BaseInferenceParams):
         return result
 
 
-class DiffusionImageInferenceParams(BaseInferenceParams):
-    """Configuration for image generation using diffusion models via image_generation API.
-
-    Uses the legacy image_generation API for diffusion models like DALL-E, Imagen,
-    and Stable Diffusion.
-
-    Attributes:
-        generation_type: Type of generation, always "diffusion-image" for this class.
-        quality: Quality setting for image generation (e.g., "standard", "hd").
-        size: Size specification for generated images (e.g., "1024x1024", "1792x1024").
-        output_format: Format of the output ("url" or "base64"). Default: "base64".
-    """
-
-    generation_type: Literal[GenerationType.DIFFUSION_IMAGE] = GenerationType.DIFFUSION_IMAGE
-    quality: str
-    size: str
-    output_format: ModalityDataType = ModalityDataType.BASE64
-
-    @property
-    def generate_kwargs(self) -> dict[str, Any]:
-        result = super().generate_kwargs
-        result["size"] = self.size
-        result["quality"] = self.quality
-        result["response_format"] = "b64_json" if self.output_format == ModalityDataType.BASE64 else "url"
-        return result
-
-
 InferenceParamsT: TypeAlias = Annotated[
-    ChatCompletionInferenceParams
-    | EmbeddingInferenceParams
-    | ChatCompletionImageInferenceParams
-    | DiffusionImageInferenceParams,
+    ChatCompletionInferenceParams | EmbeddingInferenceParams | ImageInferenceParams,
     Field(discriminator="generation_type"),
 ]
 
@@ -517,10 +519,8 @@ class ModelConfig(ConfigBase):
             gen_type = value.get("generation_type")
 
             # Infer type from generation_type or field presence
-            if gen_type == "chat-completion-image":
-                return ChatCompletionImageInferenceParams(**value)
-            elif gen_type == "diffusion-image":
-                return DiffusionImageInferenceParams(**value)
+            if gen_type == "image":
+                return ImageInferenceParams(**value)
             elif gen_type == "embedding" or "encoding_format" in value or "dimensions" in value:
                 return EmbeddingInferenceParams(**value)
             else:

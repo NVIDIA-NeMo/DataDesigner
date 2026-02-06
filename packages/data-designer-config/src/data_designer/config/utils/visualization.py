@@ -70,13 +70,59 @@ def _is_image_url(value: str) -> bool:
     )
 
 
-def _display_image_if_in_notebook(image_data: str, col_name: str, max_width: int = 512) -> bool:
+def _is_image_path(value: str) -> bool:
+    """Check if a string is an image file path."""
+    if not isinstance(value, str):
+        return False
+    # Check if it looks like a file path with image extension
+    return any(value.lower().endswith(ext) for ext in [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"])
+
+
+def _load_image_path_to_base64(image_path: str, base_path: str | None = None) -> str | None:
+    """Load an image from a file path and return as base64.
+
+    Args:
+        image_path: Relative or absolute path to the image file.
+        base_path: Optional base path to resolve relative paths from.
+
+    Returns:
+        Base64-encoded image data or None if loading fails.
+    """
+    try:
+        from pathlib import Path
+
+        path = Path(image_path)
+
+        # If path is not absolute, try to resolve it
+        if not path.is_absolute():
+            if base_path:
+                path = Path(base_path) / path
+            # If still not found, try current working directory
+            if not path.exists():
+                path = Path.cwd() / image_path
+
+        # Check if file exists
+        if not path.exists():
+            return None
+
+        # Read image file and convert to base64
+        with open(path, "rb") as f:
+            image_bytes = f.read()
+            return base64.b64encode(image_bytes).decode()
+    except Exception:
+        return None
+
+
+def _display_image_if_in_notebook(
+    image_data: str, col_name: str, max_width: int = 512, base_path: str | None = None
+) -> bool:
     """Display image with caption in Jupyter notebook if available.
 
     Args:
-        image_data: Base64-encoded image data or data URI.
+        image_data: Base64-encoded image data, data URI, or file path.
         col_name: Name of the column (used for caption).
         max_width: Maximum width for the displayed image in pixels.
+        base_path: Optional base path to resolve relative image paths.
 
     Returns:
         True if image was displayed, False otherwise.
@@ -88,8 +134,17 @@ def _display_image_if_in_notebook(image_data: str, col_name: str, max_width: int
 
         get_ipython()  # This will raise NameError if not in IPython/Jupyter
 
+        # Check if it's a file path and load it
+        if _is_image_path(image_data) and not image_data.startswith("data:image/"):
+            loaded_base64 = _load_image_path_to_base64(image_data, base_path)
+            if loaded_base64 is None:
+                console.print(
+                    f"[yellow]⚠️ Could not load image from path '{image_data}' for column '{col_name}'[/yellow]"
+                )
+                return False
+            base64_data = loaded_base64
         # Decode the image
-        if image_data.startswith("data:image/"):
+        elif image_data.startswith("data:image/"):
             # Extract base64 from data URI
             base64_data = image_data.split(",", 1)[1] if "," in image_data else image_data
         else:
@@ -217,6 +272,11 @@ class WithRecordSamplerMixin:
             None if hide_seed_columns or self.dataset_metadata is None else self.dataset_metadata.seed_column_names
         )
 
+        # Try to get base path from artifact storage if available
+        base_path = None
+        if hasattr(self, "artifact_storage") and self.artifact_storage is not None:
+            base_path = str(self.artifact_storage.base_dataset_path)
+
         display_sample_record(
             record=record,
             processor_data_to_display=processor_data_to_display,
@@ -225,6 +285,7 @@ class WithRecordSamplerMixin:
             syntax_highlighting_theme=syntax_highlighting_theme,
             record_index=i,
             seed_column_names=seed_column_names,
+            base_path=base_path,
         )
         if index is None:
             self._display_cycle_index = (self._display_cycle_index + 1) % num_records
@@ -258,6 +319,7 @@ def display_sample_record(
     syntax_highlighting_theme: str = "dracula",
     record_index: int | None = None,
     seed_column_names: list[str] | None = None,
+    base_path: str | None = None,
 ):
     if isinstance(record, (dict, pd.Series)):
         record = pd.DataFrame([record]).iloc[0]
@@ -340,6 +402,10 @@ def display_sample_record(
                 preview = f"<URL: {image_data[:50]}...>"
                 if in_notebook:
                     images_to_display_later.append((col.name, image_data))
+            elif _is_image_path(image_data):
+                preview = f"<path: {image_data}>"
+                if in_notebook:
+                    images_to_display_later.append((col.name, image_data))
             else:
                 preview = str(image_data)[:100] + "..." if len(str(image_data)) > 100 else str(image_data)
             table.add_row(col.name, preview)
@@ -413,7 +479,7 @@ def display_sample_record(
     # Display images at the bottom with captions (only in notebook)
     if len(images_to_display_later) > 0:
         for col_name, image_data in images_to_display_later:
-            _display_image_if_in_notebook(image_data, col_name)
+            _display_image_if_in_notebook(image_data, col_name, base_path=base_path)
 
 
 def get_truncated_list_as_string(long_list: list[Any], max_items: int = 2) -> str:
