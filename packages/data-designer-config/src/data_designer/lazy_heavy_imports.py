@@ -35,6 +35,7 @@ _LAZY_IMPORTS = {
     "nx": "networkx",
     "scipy": "scipy",
     "jsonschema": "jsonschema",
+    "PIL": "PIL",
 }
 
 

@@ -9,6 +9,7 @@ from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
 from data_designer.config.models import GenerationType, ModelConfig, ModelProvider
+from data_designer.config.utils.image_helpers import extract_base64_from_data_uri
 from data_designer.engine.mcp.errors import MCPConfigurationError
 from data_designer.engine.model_provider import ModelProviderRegistry
 from data_designer.engine.models.errors import (
@@ -37,6 +38,16 @@ def _identity(x: Any) -> Any:
 
 
 logger = logging.getLogger(__name__)
+
+# Patterns for detecting diffusion-based image generation models
+DIFFUSION_MODEL_PATTERNS = [
+    "dall-e",
+    "dalle",
+    "stable-diffusion",
+    "sd-",
+    "sd_",
+    "imagen",
+]
 
 
 class ModelFacade:
@@ -205,15 +216,7 @@ class ModelFacade:
             True if model is detected as diffusion-based, False otherwise
         """
         model_lower = self.model_name.lower()
-        diffusion_patterns = [
-            "dall-e",
-            "dalle",
-            "stable-diffusion",
-            "sd-",
-            "sd_",
-            "imagen",
-        ]
-        return any(pattern in model_lower for pattern in diffusion_patterns)
+        return any(pattern in model_lower for pattern in DIFFUSION_MODEL_PATTERNS)
 
     def _generate_image_chat_completion(self, prompt: str, skip_usage_tracking: bool = False, **kwargs) -> list[str]:
         """Generate image(s) using autoregressive model via chat completions API.
@@ -253,18 +256,18 @@ class ModelFacade:
 
                         if isinstance(image_url, dict) and "url" in image_url:
                             url = image_url["url"]
-                            images.append(self._extract_base64_from_data_uri(url))
+                            images.append(extract_base64_from_data_uri(url))
                         elif isinstance(image_url, str):
-                            images.append(self._extract_base64_from_data_uri(image_url))
+                            images.append(extract_base64_from_data_uri(image_url))
                     # Fallback: treat as base64 string
                     elif isinstance(image, str):
-                        images.append(self._extract_base64_from_data_uri(image))
+                        images.append(extract_base64_from_data_uri(image))
 
             # Fallback: check content field
             if not images:
                 content = message.content or ""
                 if content:
-                    images.append(self._extract_base64_from_data_uri(content))
+                    images.append(extract_base64_from_data_uri(content))
 
             if not images:
                 raise ModelAPIError("No image data found in response")
@@ -534,28 +537,6 @@ class ModelFacade:
                 ),
                 request_usage=RequestUsageStats(successful_requests=1, failed_requests=0),
             )
-
-    def _extract_base64_from_data_uri(self, data: str) -> str:
-        """Extract base64 data from data URI or return as-is.
-
-        Args:
-            data: Data URI (e.g., "data:image/png;base64,iVBORw0...") or plain base64
-
-        Returns:
-            Base64 string without data URI prefix
-
-        Raises:
-            ModelAPIError: If data URI format is invalid
-        """
-        if data.startswith("data:image/"):
-            # Extract base64 portion after comma
-            if "," in data:
-                return data.split(",", 1)[1]
-            else:
-                raise ModelAPIError("Invalid data URI format: missing comma separator")
-
-        # Already plain base64
-        return data
 
     def _download_url_to_base64(self, url: str) -> str:
         """Download image from URL and convert to base64.

@@ -3,19 +3,15 @@
 
 from __future__ import annotations
 
-import base64
 import uuid
-from enum import Enum
 from pathlib import Path
+from typing import TYPE_CHECKING
 
+from data_designer.config.utils.image_helpers import decode_base64_image, detect_image_format
+from data_designer.lazy_heavy_imports import PIL
 
-class ImageFormat(str, Enum):
-    """Supported image formats."""
-
-    PNG = "png"
-    JPEG = "jpeg"
-    JPG = "jpg"
-    WEBP = "webp"
+if TYPE_CHECKING:
+    import PIL
 
 
 class ImageStorageManager:
@@ -61,10 +57,10 @@ class ImageStorageManager:
             OSError: If disk write fails
         """
         # Decode base64 to bytes
-        image_bytes = self._decode_base64(base64_data)
+        image_bytes = decode_base64_image(base64_data)
 
         # Detect format
-        image_format = self._detect_format(image_bytes)
+        image_format = detect_image_format(image_bytes)
 
         # Generate unique filename
         image_id = uuid.uuid4()
@@ -82,63 +78,6 @@ class ImageStorageManager:
 
         return relative_path
 
-    def _decode_base64(self, base64_data: str) -> bytes:
-        """Decode base64 string to bytes.
-
-        Args:
-            base64_data: Base64 string (with or without data URI prefix)
-
-        Returns:
-            Decoded bytes
-
-        Raises:
-            ValueError: If base64 data is invalid
-        """
-        # Remove data URI prefix if present (e.g., "data:image/png;base64,")
-        if base64_data.startswith("data:"):
-            if "," in base64_data:
-                base64_data = base64_data.split(",", 1)[1]
-            else:
-                raise ValueError("Invalid data URI format: missing comma separator")
-
-        try:
-            return base64.b64decode(base64_data, validate=True)
-        except Exception as e:
-            raise ValueError(f"Invalid base64 data: {e}") from e
-
-    def _detect_format(self, image_bytes: bytes) -> ImageFormat:
-        """Detect image format from bytes.
-
-        Args:
-            image_bytes: Image data as bytes
-
-        Returns:
-            Detected format (defaults to PNG if unknown)
-        """
-        # Check magic bytes first (fast)
-        if image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
-            return ImageFormat.PNG
-        elif image_bytes.startswith(b"\xff\xd8\xff"):
-            return ImageFormat.JPG
-        elif image_bytes.startswith(b"RIFF") and b"WEBP" in image_bytes[:12]:
-            return ImageFormat.WEBP
-
-        # Fallback to PIL for robust detection
-        try:
-            import io
-
-            from PIL import Image
-
-            img = Image.open(io.BytesIO(image_bytes))
-            format_str = img.format.lower() if img.format else None
-            if format_str in ["png", "jpeg", "jpg", "webp"]:
-                return ImageFormat(format_str if format_str != "jpeg" else "jpg")
-        except Exception:
-            pass
-
-        # Default to PNG
-        return ImageFormat.PNG
-
     def _validate_image(self, image_path: Path) -> None:
         """Validate that saved image is readable.
 
@@ -149,9 +88,7 @@ class ImageStorageManager:
             ValueError: If image is corrupted or unreadable
         """
         try:
-            from PIL import Image
-
-            with Image.open(image_path) as img:
+            with PIL.Image.open(image_path) as img:
                 img.verify()
         except Exception as e:
             # Clean up invalid file

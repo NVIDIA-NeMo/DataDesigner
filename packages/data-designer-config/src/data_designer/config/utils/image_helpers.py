@@ -6,9 +6,99 @@
 from __future__ import annotations
 
 import base64
+import io
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from data_designer.config.models import ImageFormat
+from data_designer.lazy_heavy_imports import PIL
+
+if TYPE_CHECKING:
+    import PIL
+
+# Magic bytes for image format detection
+IMAGE_FORMAT_MAGIC_BYTES = {
+    ImageFormat.PNG: b"\x89PNG\r\n\x1a\n",
+    ImageFormat.JPG: b"\xff\xd8\xff",
+    # WEBP uses RIFF header - handled separately
+}
+
+
+def extract_base64_from_data_uri(data: str) -> str:
+    """Extract base64 from data URI or return as-is.
+
+    Handles data URIs like "data:image/png;base64,iVBORw0..." and returns
+    just the base64 portion.
+
+    Args:
+        data: Data URI (e.g., "data:image/png;base64,XXX") or plain base64
+
+    Returns:
+        Base64 string without data URI prefix
+
+    Raises:
+        ValueError: If data URI format is invalid
+    """
+    if data.startswith("data:"):
+        if "," in data:
+            return data.split(",", 1)[1]
+        raise ValueError("Invalid data URI format: missing comma separator")
+    return data
+
+
+def decode_base64_image(base64_data: str) -> bytes:
+    """Decode base64 string to image bytes.
+
+    Automatically handles data URIs by extracting the base64 portion first.
+
+    Args:
+        base64_data: Base64 string (with or without data URI prefix)
+
+    Returns:
+        Decoded image bytes
+
+    Raises:
+        ValueError: If base64 data is invalid
+    """
+    # Remove data URI prefix if present
+    base64_data = extract_base64_from_data_uri(base64_data)
+
+    try:
+        return base64.b64decode(base64_data, validate=True)
+    except Exception as e:
+        raise ValueError(f"Invalid base64 data: {e}") from e
+
+
+def detect_image_format(image_bytes: bytes) -> ImageFormat:
+    """Detect image format from bytes.
+
+    Uses magic bytes for fast detection, falls back to PIL for robust detection.
+
+    Args:
+        image_bytes: Image data as bytes
+
+    Returns:
+        Detected format (defaults to PNG if unknown)
+    """
+    # Check magic bytes first (fast)
+    if image_bytes.startswith(IMAGE_FORMAT_MAGIC_BYTES[ImageFormat.PNG]):
+        return ImageFormat.PNG
+    elif image_bytes.startswith(IMAGE_FORMAT_MAGIC_BYTES[ImageFormat.JPG]):
+        return ImageFormat.JPG
+    elif image_bytes.startswith(b"RIFF") and b"WEBP" in image_bytes[:12]:
+        return ImageFormat.WEBP
+
+    # Fallback to PIL for robust detection
+    try:
+        img = PIL.Image.open(io.BytesIO(image_bytes))
+        format_str = img.format.lower() if img.format else None
+        if format_str in ["png", "jpeg", "jpg", "webp"]:
+            return ImageFormat(format_str if format_str != "jpeg" else "jpg")
+    except Exception:
+        pass
+
+    # Default to PNG
+    return ImageFormat.PNG
 
 
 def is_image_path(value: str) -> bool:

@@ -29,16 +29,18 @@ from data_designer.config.utils.code_lang import code_lang_to_syntax_lexer
 from data_designer.config.utils.constants import NVIDIA_API_KEY_ENV_VAR_NAME, OPENAI_API_KEY_ENV_VAR_NAME
 from data_designer.config.utils.errors import DatasetSampleDisplayError
 from data_designer.config.utils.image_helpers import (
+    extract_base64_from_data_uri,
     is_base64_image,
     is_image_path,
     is_image_url,
     load_image_path_to_base64,
 )
-from data_designer.lazy_heavy_imports import np, pd
+from data_designer.lazy_heavy_imports import PIL, np, pd
 
 if TYPE_CHECKING:
     import numpy as np
     import pandas as pd
+    import PIL
 
     from data_designer.config.config_builder import DataDesignerConfigBuilder
     from data_designer.config.dataset_metadata import DatasetMetadata
@@ -64,7 +66,6 @@ def _display_image_if_in_notebook(
     try:
         # Check if we're in a Jupyter environment
         from IPython.display import HTML, display
-        from PIL import Image as PILImage
 
         get_ipython()  # This will raise NameError if not in IPython/Jupyter
 
@@ -77,23 +78,21 @@ def _display_image_if_in_notebook(
                 )
                 return False
             base64_data = loaded_base64
-        # Decode the image
-        elif image_data.startswith("data:image/"):
-            # Extract base64 from data URI
-            base64_data = image_data.split(",", 1)[1] if "," in image_data else image_data
         else:
             base64_data = image_data
 
+        # Extract base64 from data URI if present
+        base64_data = extract_base64_from_data_uri(base64_data)
         image_bytes = base64.b64decode(base64_data)
 
         # Open image with PIL and resize if needed
-        img = PILImage.open(io.BytesIO(image_bytes))
+        img = PIL.Image.open(io.BytesIO(image_bytes))
 
         # Resize if image is too large
         if img.width > max_width:
             ratio = max_width / img.width
             new_height = int(img.height * ratio)
-            img = img.resize((max_width, new_height), PILImage.Resampling.LANCZOS)
+            img = img.resize((max_width, new_height), PIL.Image.Resampling.LANCZOS)
 
         # Convert back to base64 for HTML display
         buffered = io.BytesIO()
