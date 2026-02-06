@@ -16,8 +16,9 @@ Optimize for:
 1. Read this file and user request.
 2. Identify impacted layer(s): `config`, `engine`, `interface`, plugin package(s).
 3. Locate the execution path from public API to concrete implementation.
-4. Make minimal code changes with explicit type annotations.
-5. Run focused lint/tests for changed scope, then broaden only if needed.
+4. Pick `make` targets for install/check/test steps before using direct `uv` commands.
+5. Make minimal code changes with explicit type annotations.
+6. Run focused lint/tests for changed scope, then broaden only if needed.
 
 ## Architecture At A Glance
 
@@ -94,6 +95,7 @@ flowchart TD
 - Keep lines `<= 120` chars.
 - Avoid vacuous comments; comment only non-obvious logic.
 - Prefer `make` targets over raw tool commands when a matching `Makefile` target exists.
+- Do not use raw `uv sync` for standard setup/install flows; use the corresponding `make install*` target.
 - Preserve or add NVIDIA SPDX headers in Python files:
 
 ```python
@@ -128,6 +130,21 @@ Rules:
 
 ## Testing and Validation Workflow
 
+Use `make` targets by default. Use direct `uv run ...` only when no equivalent `make` target exists (for example, one
+specific test file during tight iteration).
+
+Quick `make` command map:
+- Install baseline: `make install`
+- Install dev environment: `make install-dev`
+- Install with notebook deps: `make install-dev-notebooks`
+- Install with recipe deps: `make install-dev-recipes`
+- Lint + format checks: `make check-all`
+- Autofix checks: `make check-all-fix`
+- Package tests: `make test-config`, `make test-engine`, `make test-interface`
+- Full tests: `make test`
+- Coverage: `make coverage`
+- License headers: `make update-license-headers`
+
 Preferred local flow:
 
 ```bash
@@ -137,7 +154,12 @@ make install-dev
 # lint + format
 make check-all
 
-# targeted test during iteration
+# targeted package tests during iteration
+make test-config
+# or: make test-engine
+# or: make test-interface
+
+# optional: one specific test file when needed
 uv run pytest path/to/test_file.py -v
 
 # full test pass before large merge-ready change
@@ -153,6 +175,7 @@ make install-dev-recipes
 make check-all-fix
 make coverage
 make update-license-headers
+make verify-imports
 ```
 
 Command preference:
@@ -225,6 +248,7 @@ config_builder.add_column(
 ## Quality Gate Before Hand-Off
 
 - Changed behavior covered by tests or justified if not testable.
-- Ruff checks pass for modified files/scope.
+- If new Python files were added, `make update-license-headers` was run.
+- Ruff checks pass for modified files/scope (prefer `make check-all` or package-scoped checks).
 - No regressions in import style/type annotation rules.
 - User-facing behavior and tradeoffs explained clearly.
