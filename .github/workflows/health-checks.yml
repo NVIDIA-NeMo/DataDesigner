@@ -1,9 +1,6 @@
 name: Health Checks
 
 on:
-  # TODO: remove push trigger before merging
-  push:
-    branches: [andreatgretel/test/e2e-health-checks]
   schedule:
     # Every Monday at 08:00 UTC
     - cron: "0 8 * * 1"
@@ -35,5 +32,4 @@ jobs:
           NVIDIA_API_KEY: ${{ secrets.TEST_NVIDIA_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.TEST_OPENAI_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.TEST_OPENROUTER_API_KEY }}
-        continue-on-error: true
         run: make health-checks
