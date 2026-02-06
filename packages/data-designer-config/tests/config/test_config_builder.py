@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import importlib.metadata
 import json
 import tempfile
 from pathlib import Path
@@ -42,6 +41,7 @@ from data_designer.config.seed_source import DataFrameSeedSource, HuggingFaceSee
 from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.utils.info import ConfigBuilderInfo
 from data_designer.config.validator_params import CodeValidatorParams
+from data_designer.config.version import get_library_version
 from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
@@ -364,7 +364,7 @@ def test_add_profiler(stub_empty_builder):
 def test_builder_config_library_version(stub_data_designer_builder):
     builder_config = stub_data_designer_builder.get_builder_config()
     assert isinstance(builder_config.library_version, str)
-    assert builder_config.library_version == importlib.metadata.version("data-designer-config")
+    assert builder_config.library_version == get_library_version()
 
     # Verify it is included in serialization
     dumped = builder_config.model_dump()

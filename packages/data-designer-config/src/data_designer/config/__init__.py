@@ -99,6 +99,7 @@ if TYPE_CHECKING:
         RemoteValidatorParams,
         ValidatorType,
     )
+    from data_designer.config.version import get_library_version  # noqa: F401
 
 # Base module path and submodule paths for lazy imports
 _MOD_BASE = "data_designer.config"
@@ -202,6 +203,8 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "LocalCallableValidatorParams": (_MOD_VALIDATOR_PARAMS, "LocalCallableValidatorParams"),
     "RemoteValidatorParams": (_MOD_VALIDATOR_PARAMS, "RemoteValidatorParams"),
     "ValidatorType": (_MOD_VALIDATOR_PARAMS, "ValidatorType"),
+    # version
+    "get_library_version": (f"{_MOD_BASE}.version", "get_library_version"),
 }
 
 __all__ = list(_LAZY_IMPORTS.keys())
