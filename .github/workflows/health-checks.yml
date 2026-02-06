@@ -32,6 +32,8 @@ jobs:
 
       - name: Run health checks
         env:
+          NVIDIA_API_KEY: ${{ secrets.TEST_NVIDIA_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.TEST_OPENAI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.TEST_OPENROUTER_API_KEY }}
         continue-on-error: true
         run: make health-checks
