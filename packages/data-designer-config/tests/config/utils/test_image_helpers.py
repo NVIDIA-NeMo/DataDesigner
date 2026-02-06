@@ -4,7 +4,14 @@
 from __future__ import annotations
 
 import base64
+import io
+from typing import TYPE_CHECKING
+from unittest.mock import Mock, patch
 
+# Explicitly import PIL.Image submodule to make it accessible as PIL.Image
+# Python doesn't automatically import submodules when you import a package,
+# so `import PIL` alone doesn't give you access to PIL.Image
+import PIL.Image  # noqa: E402
 import pytest
 
 from data_designer.config.models import ImageFormat
@@ -16,7 +23,13 @@ from data_designer.config.utils.image_helpers import (
     is_base64_image,
     is_image_path,
     is_image_url,
+    load_image_path_to_base64,
+    validate_image,
 )
+from data_designer.lazy_heavy_imports import PIL
+
+if TYPE_CHECKING:
+    import PIL
 
 # Tests for extract_base64_from_data_uri
 
@@ -139,6 +152,39 @@ def test_is_image_url_non_http():
     assert is_image_url("ftp://example.com/image.png") is False
 
 
+# Tests for validate_image
+
+
+def test_validate_image_valid_png(tmp_path):
+    # Create a valid 1x1 PNG using PIL
+    img = PIL.Image.new("RGB", (1, 1), color="red")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    png_bytes = buf.getvalue()
+
+    image_path = tmp_path / "test.png"
+    image_path.write_bytes(png_bytes)
+
+    # Should not raise
+    validate_image(image_path)
+
+
+def test_validate_image_corrupted_raises_error(tmp_path):
+    # Create an invalid image file
+    image_path = tmp_path / "corrupted.png"
+    image_path.write_bytes(b"not a valid image")
+
+    with pytest.raises(ValueError, match="Image validation failed"):
+        validate_image(image_path)
+
+
+def test_validate_image_nonexistent_raises_error(tmp_path):
+    image_path = tmp_path / "nonexistent.png"
+
+    with pytest.raises(ValueError, match="Image validation failed"):
+        validate_image(image_path)
+
+
 # Tests for get_supported_image_extensions
 
 
@@ -146,3 +192,139 @@ def test_get_supported_image_extensions_matches_enum():
     result = get_supported_image_extensions()
     enum_values = [f".{fmt.value}" for fmt in ImageFormat]
     assert set(result) == set(enum_values)
+
+
+# Additional tests for uncovered lines
+
+
+def test_detect_image_format_with_pil_fallback_unsupported_format(tmp_path):
+    # Create a real GIF image that will trigger PIL fallback
+    # (GIF has different magic bytes not in our fast-path detection)
+    img = PIL.Image.new("RGB", (1, 1), color="red")
+    gif_path = tmp_path / "test.gif"
+    img.save(gif_path, format="GIF")
+
+    gif_bytes = gif_path.read_bytes()
+    # Should use PIL fallback and default to PNG (GIF not in ImageFormat enum)
+    result = detect_image_format(gif_bytes)
+    assert result == ImageFormat.PNG
+
+
+def test_detect_image_format_with_pil_fallback_jpeg():
+    # Test PIL fallback path that converts "jpeg" format string to JPG enum
+    # Use mock since we can't easily create valid JPEG bytes without magic bytes
+    mock_img = Mock()
+    mock_img.format = "JPEG"
+
+    # Use bytes that don't match our magic bytes to trigger PIL fallback
+    test_bytes = b"\x00\x00\x00\x00"
+
+    with patch.object(PIL.Image, "open", return_value=mock_img):
+        result = detect_image_format(test_bytes)
+        # Should convert JPEG -> JPG via line 96
+        assert result == ImageFormat.JPG
+
+
+def test_is_image_path_non_string_input():
+    assert is_image_path(123) is False
+    assert is_image_path(None) is False
+    assert is_image_path([]) is False
+
+
+def test_is_base64_image_non_string_input():
+    assert is_base64_image(123) is False
+    assert is_base64_image(None) is False
+    assert is_base64_image([]) is False
+
+
+def test_is_base64_image_invalid_base64_decode():
+    # String with valid base64 characters but incorrect padding that causes decode to fail
+    # Single '=' in middle of string is invalid base64 (padding only allowed at end)
+    invalid_base64 = "A" * 50 + "=" + "A" * 49 + "more text"
+    assert is_base64_image(invalid_base64) is False
+
+
+def test_is_image_url_non_string_input():
+    assert is_image_url(123) is False
+    assert is_image_url(None) is False
+    assert is_image_url([]) is False
+
+
+# Tests for load_image_path_to_base64
+
+
+def test_load_image_path_to_base64_absolute_path(tmp_path):
+    # Create a test image file
+    img = PIL.Image.new("RGB", (1, 1), color="blue")
+    image_path = tmp_path / "test.png"
+    img.save(image_path)
+
+    # Load with absolute path
+    result = load_image_path_to_base64(str(image_path))
+    assert result is not None
+    assert len(result) > 0
+    # Verify it's valid base64
+    decoded = base64.b64decode(result)
+    assert len(decoded) > 0
+
+
+def test_load_image_path_to_base64_relative_with_base_path(tmp_path):
+    # Create a test image file
+    img = PIL.Image.new("RGB", (1, 1), color="green")
+    image_path = tmp_path / "subdir" / "test.png"
+    image_path.parent.mkdir(exist_ok=True)
+    img.save(image_path)
+
+    # Load with relative path and base_path
+    result = load_image_path_to_base64("subdir/test.png", base_path=str(tmp_path))
+    assert result is not None
+    assert len(result) > 0
+
+
+def test_load_image_path_to_base64_nonexistent_file():
+    result = load_image_path_to_base64("/nonexistent/path/to/image.png")
+    assert result is None
+
+
+def test_load_image_path_to_base64_relative_with_cwd_fallback(tmp_path, monkeypatch):
+    # Create test image in current working directory
+
+    # Change to tmp_path as cwd
+    monkeypatch.chdir(tmp_path)
+
+    img = PIL.Image.new("RGB", (1, 1), color="yellow")
+    image_path = tmp_path / "test_cwd.png"
+    img.save(image_path)
+
+    # Use relative path without base_path - should fall back to cwd
+    result = load_image_path_to_base64("test_cwd.png")
+    assert result is not None
+    assert len(result) > 0
+
+
+def test_load_image_path_to_base64_base_path_fallback_to_cwd(tmp_path, monkeypatch):
+    # Test the case where base_path is provided but file isn't there, falls back to cwd
+    monkeypatch.chdir(tmp_path)
+
+    # Create image in cwd
+    img = PIL.Image.new("RGB", (1, 1), color="red")
+    image_path = tmp_path / "test.png"
+    img.save(image_path)
+
+    # Create a different base_path that doesn't have the image
+    wrong_base = tmp_path / "wrong"
+    wrong_base.mkdir()
+
+    # Use relative path with wrong base_path - should fall back to cwd
+    result = load_image_path_to_base64("test.png", base_path=str(wrong_base))
+    assert result is not None
+    assert len(result) > 0
+
+
+def test_load_image_path_to_base64_exception_handling(tmp_path):
+    # Create a directory (not a file) to trigger exception
+    dir_path = tmp_path / "directory"
+    dir_path.mkdir()
+
+    result = load_image_path_to_base64(str(dir_path))
+    assert result is None

@@ -11,11 +11,12 @@ from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from data_designer.config.utils.io_helpers import read_parquet_dataset
 from data_designer.config.utils.type_helpers import StrEnum, resolve_string_enum
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
+from data_designer.engine.storage.multimedia_storage import MultimediaStorage
 from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
@@ -38,12 +39,15 @@ class BatchStage(StrEnum):
 
 
 class ArtifactStorage(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     artifact_path: Path | str
     dataset_name: str = "dataset"
     final_dataset_folder_name: str = FINAL_DATASET_FOLDER_NAME
     partial_results_folder_name: str = "tmp-partial-parquet-files"
     dropped_columns_folder_name: str = "dropped-columns-parquet-files"
     processors_outputs_folder_name: str = PROCESSORS_OUTPUTS_FOLDER_NAME
+    multimedia_storage: MultimediaStorage | None = Field(default=None, exclude=True)
 
     @property
     def artifact_path_exists(self) -> bool:
@@ -115,6 +119,22 @@ class ArtifactStorage(BaseModel):
                 raise ArtifactStorageError(f"🛑 Directory name '{name}' contains invalid characters.")
 
         return self
+
+    def ensure_multimedia_storage(self) -> MultimediaStorage:
+        """Lazily create multimedia storage if not already present.
+
+        Returns:
+            MultimediaStorage instance
+
+        Note:
+            Creates storage with default settings (images_subdir="images", validate_images=True)
+        """
+        if self.multimedia_storage is None:
+            self.multimedia_storage = MultimediaStorage(
+                base_path=self.base_dataset_path,
+                validate_images=True,
+            )
+        return self.multimedia_storage
 
     @staticmethod
     def mkdir_if_needed(path: Path | str) -> Path:

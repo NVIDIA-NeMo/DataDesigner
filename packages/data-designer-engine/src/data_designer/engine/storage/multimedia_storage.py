@@ -5,28 +5,32 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING
 
-from data_designer.config.utils.image_helpers import decode_base64_image, detect_image_format
-from data_designer.lazy_heavy_imports import PIL
+from data_designer.config.utils.image_helpers import decode_base64_image, detect_image_format, validate_image
 
-if TYPE_CHECKING:
-    import PIL
+IMAGES_SUBDIR = "images"
 
 
-class ImageStorageManager:
-    """Manages disk storage of generated images.
+class MultimediaStorage:
+    """Manages disk storage of generated multimedia content.
+
+    Currently supports:
+    - Images (PNG, JPG, WEBP)
+
+    Future support planned for:
+    - Audio
+    - Video
 
     Handles:
-    - Creating images directory
+    - Creating storage directories
     - Decoding base64 to bytes
-    - Detecting image format
+    - Detecting media format
     - Saving with UUID filenames
     - Returning relative paths
     """
 
-    def __init__(self, base_path: Path, images_subdir: str = "images", validate_images: bool = True) -> None:
-        """Initialize image storage manager.
+    def __init__(self, base_path: Path, images_subdir: str = IMAGES_SUBDIR, validate_images: bool = True) -> None:
+        """Initialize multimedia storage manager.
 
         Args:
             base_path: Base directory for dataset
@@ -88,12 +92,11 @@ class ImageStorageManager:
             ValueError: If image is corrupted or unreadable
         """
         try:
-            with PIL.Image.open(image_path) as img:
-                img.verify()
-        except Exception as e:
+            validate_image(image_path)
+        except ValueError:
             # Clean up invalid file
             image_path.unlink(missing_ok=True)
-            raise ValueError(f"Saved image is invalid or corrupted: {e}") from e
+            raise
 
     def cleanup(self) -> None:
         """Clean up image directory (for preview mode)."""

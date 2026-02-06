@@ -92,8 +92,8 @@ def detect_image_format(image_bytes: bytes) -> ImageFormat:
     try:
         img = PIL.Image.open(io.BytesIO(image_bytes))
         format_str = img.format.lower() if img.format else None
-        if format_str in ["png", "jpeg", "jpg", "webp"]:
-            return ImageFormat(format_str if format_str != "jpeg" else "jpg")
+        if format_str in [ImageFormat.PNG, ImageFormat.JPG, ImageFormat.JPEG, ImageFormat.WEBP]:
+            return ImageFormat(format_str if format_str != ImageFormat.JPEG else ImageFormat.JPG)
     except Exception:
         pass
 
@@ -189,6 +189,22 @@ def load_image_path_to_base64(image_path: str, base_path: str | None = None) -> 
             return base64.b64encode(image_bytes).decode()
     except Exception:
         return None
+
+
+def validate_image(image_path: Path) -> None:
+    """Validate that an image file is readable and not corrupted.
+
+    Args:
+        image_path: Path to image file
+
+    Raises:
+        ValueError: If image is corrupted or unreadable
+    """
+    try:
+        with PIL.Image.open(image_path) as img:
+            img.verify()
+    except Exception as e:
+        raise ValueError(f"Image validation failed: {e}") from e
 
 
 def get_supported_image_extensions() -> list[str]:

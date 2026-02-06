@@ -26,7 +26,6 @@ from data_designer.engine.column_generators.generators.base import (
     ColumnGeneratorWithModel,
     GenerationStrategy,
 )
-from data_designer.engine.column_generators.generators.image import ImageCellGenerator
 from data_designer.engine.column_generators.utils.generator_classification import column_type_is_model_generated
 from data_designer.engine.compiler import compile_data_designer_config
 from data_designer.engine.dataset_builders.artifact_storage import SDG_CONFIG_FILENAME, ArtifactStorage
@@ -41,7 +40,6 @@ from data_designer.engine.processing.processors.base import Processor
 from data_designer.engine.processing.processors.drop_columns import DropColumnsProcessor
 from data_designer.engine.registry.data_designer_registry import DataDesignerRegistry
 from data_designer.engine.resources.resource_provider import ResourceProvider
-from data_designer.engine.storage.image_storage import ImageStorageManager
 from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
@@ -66,7 +64,6 @@ class ColumnWiseDatasetBuilder:
         self._resource_provider = resource_provider
         self._records_to_drop: set[int] = set()
         self._registry = registry or DataDesignerRegistry()
-        self._image_storage_manager: ImageStorageManager | None = None
 
         self._data_designer_config = compile_data_designer_config(data_designer_config, resource_provider)
         self._column_configs = compile_dataset_builder_column_configs(self._data_designer_config)
@@ -98,11 +95,31 @@ class ColumnWiseDatasetBuilder:
         *,
         num_records: int,
         on_batch_complete: Callable[[Path], None] | None = None,
+        save_multimedia_to_disk: bool = True,
     ) -> Path:
+        """Build the dataset.
+
+        Args:
+            num_records: Number of records to generate.
+            on_batch_complete: Optional callback function called when each batch completes.
+            save_multimedia_to_disk: Whether to save generated multimedia (images, audio, video) to disk.
+                If False, multimedia is stored directly in the DataFrame (e.g., images as base64).
+                Default is True.
+
+        Returns:
+            Path to the generated dataset directory.
+        """
         self._run_model_health_check_if_needed()
         self._run_mcp_tool_check_if_needed()
         self._write_builder_config()
-        self._initialize_image_storage_if_needed()
+
+        # Ensure multimedia storage exists if needed
+        if save_multimedia_to_disk and self._has_image_columns():
+            self.artifact_storage.ensure_multimedia_storage()
+        else:
+            # Disable storage for preview or when explicitly disabled
+            self.artifact_storage.multimedia_storage = None
+
         generators = self._initialize_generators()
         start_time = time.perf_counter()
         group_id = uuid.uuid4().hex
@@ -128,7 +145,7 @@ class ColumnWiseDatasetBuilder:
     def build_preview(self, *, num_records: int) -> pd.DataFrame:
         self._run_model_health_check_if_needed()
         self._run_mcp_tool_check_if_needed()
-        # Skip image storage initialization for preview - base64 will be stored directly in DataFrame
+        # Skip multimedia storage initialization for preview - base64 will be stored directly in DataFrame
 
         generators = self._initialize_generators()
         group_id = uuid.uuid4().hex
@@ -155,26 +172,16 @@ class ColumnWiseDatasetBuilder:
 
         return any(col.column_type == DataDesignerColumnType.IMAGE_GENERATION for col in self.single_column_configs)
 
-    def _initialize_image_storage_if_needed(self) -> None:
-        """Initialize image storage manager if dataset has image columns."""
-        if self._has_image_columns():
-            self._image_storage_manager = ImageStorageManager(
-                base_path=self.artifact_storage.base_dataset_path, images_subdir="images", validate_images=True
-            )
-
     def _initialize_generators(self) -> list[ColumnGenerator]:
+        """Initialize column generators.
+
+        Generators access multimedia storage via ResourceProvider.artifact_storage.multimedia_storage
+        """
         generators = []
         for config in self._column_configs:
             generator_cls = self._registry.column_generators.get_for_config_type(type(config))
             generator = generator_cls(config=config, resource_provider=self._resource_provider)
-
-            # Inject image storage manager for image generators (if available)
-            # For preview mode, storage manager is None and base64 is stored directly
-            if isinstance(generator, ImageCellGenerator):
-                generator.image_storage_manager = self._image_storage_manager
-
             generators.append(generator)
-
         return generators
 
     def _write_builder_config(self) -> None:

@@ -11,25 +11,27 @@ from data_designer.engine.processing.ginja.environment import WithJinja2UserTemp
 from data_designer.engine.processing.utils import deserialize_json_values
 
 if TYPE_CHECKING:
-    from data_designer.engine.storage.image_storage import ImageStorageManager
+    from data_designer.engine.storage.multimedia_storage import MultimediaStorage
 
 
 class ImageCellGenerator(WithJinja2UserTemplateRendering, ColumnGeneratorWithModel[ImageGenerationColumnConfig]):
     """Generator for image columns with optional disk persistence.
 
-    Behavior depends on whether image_storage_manager is set:
-    - If set (create mode): Saves images to disk and stores relative paths in dataframe
+    Behavior depends on whether multimedia storage is available via ResourceProvider:
+    - If available (create mode): Saves images to disk and stores relative paths in dataframe
     - If None (preview mode): Stores base64 directly in dataframe
 
     API is automatically detected based on the model name:
     - Diffusion models (DALL-E, Stable Diffusion, Imagen, etc.) → image_generation API
     - All other models → chat/completions API (default)
 
-    Attributes:
-        image_storage_manager: Optional image storage manager instance (set by dataset builder)
+    Storage is accessed via ResourceProvider.artifact_storage.multimedia_storage
     """
 
-    image_storage_manager: ImageStorageManager | None = None
+    @property
+    def multimedia_storage(self) -> MultimediaStorage | None:
+        """Get multimedia storage from resource provider if available."""
+        return self._resource_provider.artifact_storage.multimedia_storage
 
     @staticmethod
     def get_generation_strategy() -> GenerationStrategy:
@@ -67,11 +69,9 @@ class ImageCellGenerator(WithJinja2UserTemplateRendering, ColumnGeneratorWithMod
         base64_images = self.model.generate_image(prompt=prompt)
 
         # Store in dataframe based on mode
-        if self.image_storage_manager:
+        if self.multimedia_storage:
             # Create mode: save each image to disk and store list of relative paths
-            relative_paths = [
-                self.image_storage_manager.save_base64_image(base64_image) for base64_image in base64_images
-            ]
+            relative_paths = [self.multimedia_storage.save_base64_image(base64_image) for base64_image in base64_images]
             data[self.config.name] = relative_paths
         else:
             # Preview mode: store list of base64 strings directly
