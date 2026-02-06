@@ -86,6 +86,8 @@ Generated with {{ num_columns_configured }} column configuration(s):
 
 ## 📚 Citation
 
+If you use Data Designer in your work, please cite the project as follows:
+
 ```bibtex
 @misc{nemo-data-designer,
   author = {The NeMo Data Designer Team, NVIDIA},

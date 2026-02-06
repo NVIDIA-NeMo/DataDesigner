@@ -48,6 +48,7 @@ help:
 	@echo "  test                      - Run all unit tests"
 	@echo "  coverage                  - Run tests with coverage report"
 	@echo "  test-e2e                  - Run e2e plugin tests"
+	@echo "  health-checks             - Run provider health checks"
 	@echo "  test-run-tutorials        - Run tutorial notebooks as e2e tests"
 	@echo "  test-run-recipes          - Run recipe scripts as e2e tests"
 	@echo "  test-run-all-examples     - Run all tutorials and recipes as e2e tests"
@@ -272,6 +273,10 @@ test-e2e:
 	rm -rf tests_e2e/uv.lock tests_e2e/__pycache__ tests_e2e/.venv
 	@echo "🧪 Running e2e tests..."
 	uv run --no-cache --refresh --directory tests_e2e pytest -s
+
+health-checks:
+	@echo "🏥 Running provider health checks..."
+	uv run --group dev python scripts/health_checks.py
 
 test-run-tutorials:
 	@echo "🧪 Running tutorials as e2e tests..."
@@ -582,6 +587,7 @@ clean-test-coverage:
         install install-dev install-dev-notebooks install-dev-recipes \
         lint lint-config lint-engine lint-fix lint-fix-config lint-fix-engine lint-fix-interface lint-interface \
         perf-import publish serve-docs-locally show-versions \
+        health-checks \
         test test-config test-config-isolated test-e2e test-engine test-engine-isolated \
         test-interface test-interface-isolated test-isolated \
         test-run-all-examples test-run-recipes test-run-tutorials \
