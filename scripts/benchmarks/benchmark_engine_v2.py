@@ -382,29 +382,46 @@ def _mock_tool_result(tool_name: str, arguments: dict[str, Any], provider_name: 
     return MCPToolResult(content=json.dumps(payload))
 
 
+def _fake_response(model: str, messages: list[dict[str, Any]], **kwargs: Any) -> FakeResponse:
+    if kwargs.get("tools") and _should_request_tool(messages):
+        tool_call = _build_tool_call(model, messages)
+        return FakeResponse(
+            choices=[FakeChoice(message=FakeMessage(content="Using tool.", tool_calls=[tool_call]))],
+            model=model,
+        )
+    response_text = _mock_response_text(model, messages)
+    return FakeResponse(choices=[FakeChoice(message=FakeMessage(content=response_text))], model=model)
+
+
 @contextlib.contextmanager
 def _patch_llm_responses() -> Iterator[None]:
     # Imports are deferred so engine selection respects DATA_DESIGNER_ASYNC_ENGINE.
     from data_designer.engine.models.litellm_overrides import CustomRouter
 
     original_completion = CustomRouter.completion
+    original_acompletion = getattr(CustomRouter, "acompletion", None)
 
     def fake_completion(self: Any, model: str, messages: list[dict[str, Any]], **kwargs: Any) -> FakeResponse:
         _ = self
-        if kwargs.get("tools") and _should_request_tool(messages):
-            tool_call = _build_tool_call(model, messages)
-            return FakeResponse(
-                choices=[FakeChoice(message=FakeMessage(content="Using tool.", tool_calls=[tool_call]))],
-                model=model,
-            )
-        response_text = _mock_response_text(model, messages)
-        return FakeResponse(choices=[FakeChoice(message=FakeMessage(content=response_text))], model=model)
+        return _fake_response(model, messages, **kwargs)
+
+    async def fake_acompletion(self: Any, model: str, messages: list[dict[str, Any]], **kwargs: Any) -> FakeResponse:
+        _ = self
+        return _fake_response(model, messages, **kwargs)
 
     CustomRouter.completion = fake_completion
+    CustomRouter.acompletion = fake_acompletion
     try:
         yield
     finally:
         CustomRouter.completion = original_completion
+        if original_acompletion is not None:
+            CustomRouter.acompletion = original_acompletion
+        else:
+            try:
+                delattr(CustomRouter, "acompletion")
+            except AttributeError:
+                pass
 
 
 @contextlib.contextmanager

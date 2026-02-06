@@ -102,6 +102,50 @@ class ColumnGeneratorWithModelChatCompletion(ColumnGeneratorWithModel[TaskConfig
 
         return data
 
+    async def agenerate(self, data: dict) -> dict:
+        deserialized_record = deserialize_json_values(data)
+
+        multi_modal_context = None
+        if self.config.multi_modal_context is not None and len(self.config.multi_modal_context) > 0:
+            multi_modal_context = []
+            for context in self.config.multi_modal_context:
+                multi_modal_context.extend(context.get_contexts(deserialized_record))
+
+        response, trace = await self.model.agenerate(
+            prompt=self.prompt_renderer.render(
+                record=deserialized_record,
+                prompt_template=self.config.prompt,
+                prompt_type=PromptType.USER_PROMPT,
+            ),
+            system_prompt=self.prompt_renderer.render(
+                record=deserialized_record,
+                prompt_template=self.config.system_prompt,
+                prompt_type=PromptType.SYSTEM_PROMPT,
+            ),
+            parser=self.response_recipe.parse,
+            multi_modal_context=multi_modal_context,
+            tool_alias=self.config.tool_alias,
+            max_correction_steps=self.max_conversation_correction_steps,
+            max_conversation_restarts=self.max_conversation_restarts,
+            purpose=f"running generation for column '{self.config.name}'",
+        )
+
+        serialized_output = self.response_recipe.serialize_output(response)
+        data[self.config.name] = self._process_serialized_output(serialized_output)
+
+        effective_trace_type = self.config.with_trace
+
+        if effective_trace_type == TraceType.ALL_MESSAGES:
+            data[self.config.name + TRACE_COLUMN_POSTFIX] = [message.to_dict() for message in trace]
+        elif effective_trace_type == TraceType.LAST_MESSAGE:
+            last_assistant = next((m for m in reversed(trace) if m.role == "assistant"), None)
+            data[self.config.name + TRACE_COLUMN_POSTFIX] = [last_assistant.to_dict()] if last_assistant else []
+
+        if self.config.extract_reasoning_content:
+            data[self.config.name + REASONING_CONTENT_COLUMN_POSTFIX] = self._extract_reasoning_content(trace)
+
+        return data
+
     def _extract_reasoning_content(self, trace: list) -> str | None:
         """Extract reasoning_content from the final assistant message in the trace.
 
