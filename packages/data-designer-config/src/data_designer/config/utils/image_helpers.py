@@ -11,10 +11,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from data_designer.config.models import ImageFormat
-from data_designer.lazy_heavy_imports import PIL
+from data_designer.lazy_heavy_imports import Image
 
 if TYPE_CHECKING:
-    import PIL
+    from PIL import Image
 
 # Magic bytes for image format detection
 IMAGE_FORMAT_MAGIC_BYTES = {
@@ -90,7 +90,7 @@ def detect_image_format(image_bytes: bytes) -> ImageFormat:
 
     # Fallback to PIL for robust detection
     try:
-        img = PIL.Image.open(io.BytesIO(image_bytes))
+        img = Image.open(io.BytesIO(image_bytes))
         format_str = img.format.lower() if img.format else None
         if format_str in [ImageFormat.PNG, ImageFormat.JPG, ImageFormat.JPEG, ImageFormat.WEBP]:
             return ImageFormat(format_str if format_str != ImageFormat.JPEG else ImageFormat.JPG)
@@ -201,7 +201,7 @@ def validate_image(image_path: Path) -> None:
         ValueError: If image is corrupted or unreadable
     """
     try:
-        with PIL.Image.open(image_path) as img:
+        with Image.open(image_path) as img:
             img.verify()
     except Exception as e:
         raise ValueError(f"Image validation failed: {e}") from e

@@ -36,6 +36,7 @@ _LAZY_IMPORTS = {
     "scipy": "scipy",
     "jsonschema": "jsonschema",
     "PIL": "PIL",
+    "Image": "PIL.Image",
 }
 
 

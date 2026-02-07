@@ -30,22 +30,22 @@ def test_image_cell_generator_generation_strategy(
     assert generator.get_generation_strategy() == GenerationStrategy.CELL_BY_CELL
 
 
-def test_image_cell_generator_multimedia_storage_property(
+def test_image_cell_generator_media_storage_property(
     stub_image_column_config: ImageGenerationColumnConfig, stub_resource_provider: None
 ) -> None:
     generator = ImageCellGenerator(config=stub_image_column_config, resource_provider=stub_resource_provider)
-    # Should return multimedia_storage from artifact_storage (None by default in stub)
-    assert generator.multimedia_storage is None
+    # Should return media_storage from artifact_storage (always exists)
+    assert generator.media_storage is not None
 
 
 def test_image_cell_generator_generate_with_storage(
     stub_image_column_config, stub_resource_provider, stub_base64_images
 ):
-    """Test generate with multimedia storage (create mode) - saves to disk."""
-    # Setup mock multimedia storage
+    """Test generate with media storage (create mode) - saves to disk."""
+    # Setup mock media storage
     mock_storage = Mock()
     mock_storage.save_base64_image.side_effect = ["images/uuid1.png", "images/uuid2.png"]
-    stub_resource_provider.artifact_storage.multimedia_storage = mock_storage
+    stub_resource_provider.artifact_storage.media_storage = mock_storage
 
     with patch.object(
         stub_resource_provider.model_registry.get_model.return_value,
@@ -68,12 +68,14 @@ def test_image_cell_generator_generate_with_storage(
         mock_storage.save_base64_image.assert_any_call("base64_image_2")
 
 
-def test_image_cell_generator_generate_without_storage(
+def test_image_cell_generator_generate_in_dataframe_mode(
     stub_image_column_config, stub_resource_provider, stub_base64_images
 ):
-    """Test generate without multimedia storage (preview mode) - stores base64 directly."""
-    # Ensure multimedia_storage is None (preview mode)
-    stub_resource_provider.artifact_storage.multimedia_storage = None
+    """Test generate with media storage in DATAFRAME mode - stores base64 directly."""
+    # Mock save_base64_image to return base64 directly (simulating DATAFRAME mode)
+    mock_storage = Mock()
+    mock_storage.save_base64_image.side_effect = stub_base64_images
+    stub_resource_provider.artifact_storage.media_storage = mock_storage
 
     with patch.object(
         stub_resource_provider.model_registry.get_model.return_value,
@@ -83,7 +85,7 @@ def test_image_cell_generator_generate_without_storage(
         generator = ImageCellGenerator(config=stub_image_column_config, resource_provider=stub_resource_provider)
         data = generator.generate(data={"style": "watercolor", "subject": "dog"})
 
-        # Check that column was added with base64 data
+        # Check that column was added with base64 data (simulating DATAFRAME mode)
         assert stub_image_column_config.name in data
         assert data[stub_image_column_config.name] == stub_base64_images
 

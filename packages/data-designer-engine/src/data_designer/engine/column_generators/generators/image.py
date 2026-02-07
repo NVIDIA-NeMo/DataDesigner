@@ -11,27 +11,27 @@ from data_designer.engine.processing.ginja.environment import WithJinja2UserTemp
 from data_designer.engine.processing.utils import deserialize_json_values
 
 if TYPE_CHECKING:
-    from data_designer.engine.storage.multimedia_storage import MultimediaStorage
+    from data_designer.engine.storage.media_storage import MediaStorage
 
 
 class ImageCellGenerator(WithJinja2UserTemplateRendering, ColumnGeneratorWithModel[ImageGenerationColumnConfig]):
-    """Generator for image columns with optional disk persistence.
+    """Generator for image columns with disk or dataframe persistence.
 
-    Behavior depends on whether multimedia storage is available via ResourceProvider:
-    - If available (create mode): Saves images to disk and stores relative paths in dataframe
-    - If None (preview mode): Stores base64 directly in dataframe
+    Media storage always exists and determines behavior via its mode:
+    - DISK mode (create): Saves images to disk and stores relative paths in dataframe
+    - DATAFRAME mode (preview): Stores base64 directly in dataframe
 
     API is automatically detected based on the model name:
     - Diffusion models (DALL-E, Stable Diffusion, Imagen, etc.) → image_generation API
     - All other models → chat/completions API (default)
 
-    Storage is accessed via ResourceProvider.artifact_storage.multimedia_storage
+    Storage is accessed via ResourceProvider.artifact_storage.media_storage
     """
 
     @property
-    def multimedia_storage(self) -> MultimediaStorage | None:
-        """Get multimedia storage from resource provider if available."""
-        return self._resource_provider.artifact_storage.multimedia_storage
+    def media_storage(self) -> MediaStorage:
+        """Get media storage from resource provider."""
+        return self._resource_provider.artifact_storage.media_storage
 
     @staticmethod
     def get_generation_strategy() -> GenerationStrategy:
@@ -68,13 +68,10 @@ class ImageCellGenerator(WithJinja2UserTemplateRendering, ColumnGeneratorWithMod
         # Generate images (returns list of base64 strings)
         base64_images = self.model.generate_image(prompt=prompt)
 
-        # Store in dataframe based on mode
-        if self.multimedia_storage:
-            # Create mode: save each image to disk and store list of relative paths
-            relative_paths = [self.multimedia_storage.save_base64_image(base64_image) for base64_image in base64_images]
-            data[self.config.name] = relative_paths
-        else:
-            # Preview mode: store list of base64 strings directly
-            data[self.config.name] = base64_images
+        # Store via media storage (mode determines disk vs dataframe storage)
+        # TODO: MediaStorage will check its mode (DISK/DATAFRAME) and act accordingly
+        # For now, always saves to disk - need to implement mode system
+        results = [self.media_storage.save_base64_image(base64_image) for base64_image in base64_images]
+        data[self.config.name] = results
 
         return data

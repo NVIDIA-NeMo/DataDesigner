@@ -5,13 +5,8 @@ from __future__ import annotations
 
 import base64
 import io
-from typing import TYPE_CHECKING
 from unittest.mock import Mock, patch
 
-# Explicitly import PIL.Image submodule to make it accessible as PIL.Image
-# Python doesn't automatically import submodules when you import a package,
-# so `import PIL` alone doesn't give you access to PIL.Image
-import PIL.Image  # noqa: E402
 import pytest
 
 from data_designer.config.models import ImageFormat
@@ -26,10 +21,7 @@ from data_designer.config.utils.image_helpers import (
     load_image_path_to_base64,
     validate_image,
 )
-from data_designer.lazy_heavy_imports import PIL
-
-if TYPE_CHECKING:
-    import PIL
+from data_designer.lazy_heavy_imports import Image
 
 # Tests for extract_base64_from_data_uri
 
@@ -157,7 +149,7 @@ def test_is_image_url_non_http():
 
 def test_validate_image_valid_png(tmp_path):
     # Create a valid 1x1 PNG using PIL
-    img = PIL.Image.new("RGB", (1, 1), color="red")
+    img = Image.new("RGB", (1, 1), color="red")
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     png_bytes = buf.getvalue()
@@ -200,7 +192,7 @@ def test_get_supported_image_extensions_matches_enum():
 def test_detect_image_format_with_pil_fallback_unsupported_format(tmp_path):
     # Create a real GIF image that will trigger PIL fallback
     # (GIF has different magic bytes not in our fast-path detection)
-    img = PIL.Image.new("RGB", (1, 1), color="red")
+    img = Image.new("RGB", (1, 1), color="red")
     gif_path = tmp_path / "test.gif"
     img.save(gif_path, format="GIF")
 
@@ -219,7 +211,7 @@ def test_detect_image_format_with_pil_fallback_jpeg():
     # Use bytes that don't match our magic bytes to trigger PIL fallback
     test_bytes = b"\x00\x00\x00\x00"
 
-    with patch.object(PIL.Image, "open", return_value=mock_img):
+    with patch.object(Image, "open", return_value=mock_img):
         result = detect_image_format(test_bytes)
         # Should convert JPEG -> JPG via line 96
         assert result == ImageFormat.JPG
@@ -255,7 +247,7 @@ def test_is_image_url_non_string_input():
 
 def test_load_image_path_to_base64_absolute_path(tmp_path):
     # Create a test image file
-    img = PIL.Image.new("RGB", (1, 1), color="blue")
+    img = Image.new("RGB", (1, 1), color="blue")
     image_path = tmp_path / "test.png"
     img.save(image_path)
 
@@ -270,7 +262,7 @@ def test_load_image_path_to_base64_absolute_path(tmp_path):
 
 def test_load_image_path_to_base64_relative_with_base_path(tmp_path):
     # Create a test image file
-    img = PIL.Image.new("RGB", (1, 1), color="green")
+    img = Image.new("RGB", (1, 1), color="green")
     image_path = tmp_path / "subdir" / "test.png"
     image_path.parent.mkdir(exist_ok=True)
     img.save(image_path)
@@ -292,7 +284,7 @@ def test_load_image_path_to_base64_relative_with_cwd_fallback(tmp_path, monkeypa
     # Change to tmp_path as cwd
     monkeypatch.chdir(tmp_path)
 
-    img = PIL.Image.new("RGB", (1, 1), color="yellow")
+    img = Image.new("RGB", (1, 1), color="yellow")
     image_path = tmp_path / "test_cwd.png"
     img.save(image_path)
 
@@ -307,7 +299,7 @@ def test_load_image_path_to_base64_base_path_fallback_to_cwd(tmp_path, monkeypat
     monkeypatch.chdir(tmp_path)
 
     # Create image in cwd
-    img = PIL.Image.new("RGB", (1, 1), color="red")
+    img = Image.new("RGB", (1, 1), color="red")
     image_path = tmp_path / "test.png"
     img.save(image_path)
 

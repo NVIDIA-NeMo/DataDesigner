@@ -3,8 +3,6 @@
 
 from __future__ import annotations
 
-import base64
-import io
 import json
 import os
 from collections import OrderedDict
@@ -35,12 +33,11 @@ from data_designer.config.utils.image_helpers import (
     is_image_url,
     load_image_path_to_base64,
 )
-from data_designer.lazy_heavy_imports import PIL, np, pd
+from data_designer.lazy_heavy_imports import np, pd
 
 if TYPE_CHECKING:
     import numpy as np
     import pandas as pd
-    import PIL
 
     from data_designer.config.config_builder import DataDesignerConfigBuilder
     from data_designer.config.dataset_metadata import DatasetMetadata
@@ -49,15 +46,12 @@ if TYPE_CHECKING:
 console = Console()
 
 
-def _display_image_if_in_notebook(
-    image_data: str, col_name: str, max_width: int = 512, base_path: str | None = None
-) -> bool:
+def _display_image_if_in_notebook(image_data: str, col_name: str, base_path: str | None = None) -> bool:
     """Display image with caption in Jupyter notebook if available.
 
     Args:
         image_data: Base64-encoded image data, data URI, or file path.
         col_name: Name of the column (used for caption).
-        max_width: Maximum width for the displayed image in pixels.
         base_path: Optional base path to resolve relative image paths.
 
     Returns:
@@ -83,27 +77,15 @@ def _display_image_if_in_notebook(
 
         # Extract base64 from data URI if present
         base64_data = extract_base64_from_data_uri(base64_data)
-        image_bytes = base64.b64decode(base64_data)
 
-        # Open image with PIL and resize if needed
-        img = PIL.Image.open(io.BytesIO(image_bytes))
-
-        # Resize if image is too large
-        if img.width > max_width:
-            ratio = max_width / img.width
-            new_height = int(img.height * ratio)
-            img = img.resize((max_width, new_height), PIL.Image.Resampling.LANCZOS)
-
-        # Convert back to base64 for HTML display
-        buffered = io.BytesIO()
-        img.save(buffered, format=img.format or "PNG")
-        img_base64 = base64.b64encode(buffered.getvalue()).decode()
+        # Use the base64 data directly without resizing
+        img_base64 = base64_data
 
         # Create HTML with caption and image in left-aligned container
         html = f"""
         <div style='display: flex; flex-direction: column; align-items: flex-start; margin-top: 20px; margin-bottom: 20px;'>
             <div style='margin-bottom: 10px;'><strong>🖼️ {col_name}</strong></div>
-            <img src='data:image/png;base64,{img_base64}' style='max-width: {max_width}px;'/>
+            <img src='data:image/png;base64,{img_base64}'/>
         </div>
         """
         display(HTML(html))

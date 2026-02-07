@@ -40,6 +40,7 @@ from data_designer.engine.processing.processors.base import Processor
 from data_designer.engine.processing.processors.drop_columns import DropColumnsProcessor
 from data_designer.engine.registry.data_designer_registry import DataDesignerRegistry
 from data_designer.engine.resources.resource_provider import ResourceProvider
+from data_designer.engine.storage.media_storage import StorageMode
 from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
@@ -113,12 +114,10 @@ class ColumnWiseDatasetBuilder:
         self._run_mcp_tool_check_if_needed()
         self._write_builder_config()
 
-        # Ensure multimedia storage exists if needed
-        if save_multimedia_to_disk and self._has_image_columns():
-            self.artifact_storage.ensure_multimedia_storage()
-        else:
-            # Disable storage for preview or when explicitly disabled
-            self.artifact_storage.multimedia_storage = None
+        # Set media storage mode based on parameters
+        if self._has_image_columns():
+            mode = StorageMode.DISK if save_multimedia_to_disk else StorageMode.DATAFRAME
+            self.artifact_storage.set_media_storage_mode(mode)
 
         generators = self._initialize_generators()
         start_time = time.perf_counter()
@@ -145,7 +144,10 @@ class ColumnWiseDatasetBuilder:
     def build_preview(self, *, num_records: int) -> pd.DataFrame:
         self._run_model_health_check_if_needed()
         self._run_mcp_tool_check_if_needed()
-        # Skip multimedia storage initialization for preview - base64 will be stored directly in DataFrame
+
+        # Set media storage to DATAFRAME mode for preview - base64 stored directly in DataFrame
+        if self._has_image_columns():
+            self.artifact_storage.set_media_storage_mode(StorageMode.DATAFRAME)
 
         generators = self._initialize_generators()
         group_id = uuid.uuid4().hex
@@ -175,7 +177,7 @@ class ColumnWiseDatasetBuilder:
     def _initialize_generators(self) -> list[ColumnGenerator]:
         """Initialize column generators.
 
-        Generators access multimedia storage via ResourceProvider.artifact_storage.multimedia_storage
+        Generators access media storage via ResourceProvider.artifact_storage.media_storage
         """
         generators = []
         for config in self._column_configs:

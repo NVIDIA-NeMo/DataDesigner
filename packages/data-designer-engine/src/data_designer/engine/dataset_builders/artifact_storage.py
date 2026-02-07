@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from data_designer.config.utils.io_helpers import read_parquet_dataset
 from data_designer.config.utils.type_helpers import StrEnum, resolve_string_enum
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
-from data_designer.engine.storage.multimedia_storage import MultimediaStorage
+from data_designer.engine.storage.media_storage import MediaStorage, StorageMode
 from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
@@ -47,7 +47,7 @@ class ArtifactStorage(BaseModel):
     partial_results_folder_name: str = "tmp-partial-parquet-files"
     dropped_columns_folder_name: str = "dropped-columns-parquet-files"
     processors_outputs_folder_name: str = PROCESSORS_OUTPUTS_FOLDER_NAME
-    multimedia_storage: MultimediaStorage | None = Field(default=None, exclude=True)
+    media_storage: MediaStorage = Field(default=None, exclude=True)
 
     @property
     def artifact_path_exists(self) -> bool:
@@ -118,23 +118,21 @@ class ArtifactStorage(BaseModel):
             if any(char in invalid_chars for char in name):
                 raise ArtifactStorageError(f"🛑 Directory name '{name}' contains invalid characters.")
 
+        # Initialize media storage with DISK mode by default
+        self.media_storage = MediaStorage(
+            base_path=self.base_dataset_path,
+            mode=StorageMode.DISK,
+        )
+
         return self
 
-    def ensure_multimedia_storage(self) -> MultimediaStorage:
-        """Lazily create multimedia storage if not already present.
+    def set_media_storage_mode(self, mode: StorageMode) -> None:
+        """Set media storage mode.
 
-        Returns:
-            MultimediaStorage instance
-
-        Note:
-            Creates storage with default settings (images_subdir="images", validate_images=True)
+        Args:
+            mode: StorageMode.DISK (save to disk) or StorageMode.DATAFRAME (store in memory)
         """
-        if self.multimedia_storage is None:
-            self.multimedia_storage = MultimediaStorage(
-                base_path=self.base_dataset_path,
-                validate_images=True,
-            )
-        return self.multimedia_storage
+        self.media_storage.mode = mode
 
     @staticmethod
     def mkdir_if_needed(path: Path | str) -> Path:

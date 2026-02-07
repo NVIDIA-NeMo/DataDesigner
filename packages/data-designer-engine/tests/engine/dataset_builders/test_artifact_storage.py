@@ -213,10 +213,11 @@ def test_artifact_storage_resolved_dataset_name(mock_datetime, tmp_path):
     (af_storage.artifact_path / af_storage.dataset_name).mkdir()
     assert af_storage.resolved_dataset_name == "dataset"
 
-    # dataset path exists and is not empty
+    # dataset path exists and is not empty (create file BEFORE constructing ArtifactStorage)
+    dataset_dir = tmp_path / "dataset"
+    dataset_dir.mkdir(exist_ok=True)
+    (dataset_dir / "stub_file.txt").touch()
     af_storage = ArtifactStorage(artifact_path=tmp_path)
-    (af_storage.artifact_path / af_storage.dataset_name / "stub_file.txt").touch()
-    print(af_storage.resolved_dataset_name)
     assert af_storage.resolved_dataset_name == "dataset_01-01-2025_120304"
 
 
