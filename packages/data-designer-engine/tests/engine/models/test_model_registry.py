@@ -12,6 +12,7 @@ from data_designer.engine.models.facade import ModelFacade
 from data_designer.engine.models.factory import create_model_registry
 from data_designer.engine.models.registry import ModelRegistry
 from data_designer.engine.models.usage import ModelUsageStats, RequestUsageStats, TokenUsageStats
+from data_designer.logging import LOG_INDENT
 
 
 @pytest.fixture
@@ -387,3 +388,111 @@ def test_get_model_provider(stub_model_registry, alias, expected_result, expecte
     else:
         provider = stub_model_registry.get_model_provider(model_alias=alias)
         assert provider is not None
+
+
+def test_log_model_usage_no_models(stub_empty_model_registry: ModelRegistry) -> None:
+    """Test log_model_usage with no models registered."""
+    with patch("data_designer.engine.models.registry.logger") as mock_logger:
+        stub_empty_model_registry.log_model_usage(total_time_elapsed=10.0)
+
+        assert mock_logger.info.call_count == 2
+        calls = [call[0][0] for call in mock_logger.info.call_args_list]
+        assert calls[0] == "📊 Model usage summary:"
+        assert calls[1] == f"{LOG_INDENT}no model usage recorded"
+
+
+def test_log_model_usage_single_model(stub_model_registry: ModelRegistry) -> None:
+    """Test log_model_usage with a single model that has usage."""
+    text_model = stub_model_registry.get_model(model_alias="stub-text")
+    text_model.usage_stats.extend(
+        token_usage=TokenUsageStats(input_tokens=1000, output_tokens=500),
+        request_usage=RequestUsageStats(successful_requests=10, failed_requests=2),
+    )
+
+    with patch("data_designer.engine.models.registry.logger") as mock_logger:
+        stub_model_registry.log_model_usage(total_time_elapsed=10.0)
+
+        calls = [call[0][0] for call in mock_logger.info.call_args_list]
+        assert calls[0] == "📊 Model usage summary:"
+        assert calls[1] == f"{LOG_INDENT}model: stub-model-text"
+        assert calls[2] == f"{LOG_INDENT}tokens: input=1000, output=500, total=1500, tps=150"
+        assert calls[3] == f"{LOG_INDENT}requests: success=10, failed=2, total=12, rpm=72"
+
+
+def test_log_model_usage_multiple_models(stub_model_registry: ModelRegistry) -> None:
+    """Test log_model_usage with multiple models - verifies models are sorted by name."""
+    text_model = stub_model_registry.get_model(model_alias="stub-text")
+    reasoning_model = stub_model_registry.get_model(model_alias="stub-reasoning")
+
+    text_model.usage_stats.extend(
+        token_usage=TokenUsageStats(input_tokens=1000, output_tokens=500),
+        request_usage=RequestUsageStats(successful_requests=10, failed_requests=0),
+    )
+    reasoning_model.usage_stats.extend(
+        token_usage=TokenUsageStats(input_tokens=2000, output_tokens=1000),
+        request_usage=RequestUsageStats(successful_requests=20, failed_requests=5),
+    )
+
+    with patch("data_designer.engine.models.registry.logger") as mock_logger:
+        stub_model_registry.log_model_usage(total_time_elapsed=10.0)
+
+        calls = [call[0][0] for call in mock_logger.info.call_args_list]
+
+        # Header
+        assert calls[0] == "📊 Model usage summary:"
+
+        # Models should be sorted alphabetically: stub-model-reasoning before stub-model-text
+        assert calls[1] == f"{LOG_INDENT}model: stub-model-reasoning"
+        assert calls[2] == f"{LOG_INDENT}tokens: input=2000, output=1000, total=3000, tps=300"
+        assert calls[3] == f"{LOG_INDENT}requests: success=20, failed=5, total=25, rpm=150"
+        assert calls[4] == f"{LOG_INDENT.rstrip()}"
+
+        assert calls[5] == f"{LOG_INDENT}model: stub-model-text"
+        assert calls[6] == f"{LOG_INDENT}tokens: input=1000, output=500, total=1500, tps=150"
+        assert calls[7] == f"{LOG_INDENT}requests: success=10, failed=0, total=10, rpm=60"
+
+
+def test_log_model_usage_with_tool_usage(stub_model_registry: ModelRegistry) -> None:
+    """Test log_model_usage includes tool usage stats when present."""
+    text_model = stub_model_registry.get_model(model_alias="stub-text")
+    text_model.usage_stats.extend(
+        token_usage=TokenUsageStats(input_tokens=1000, output_tokens=500),
+        request_usage=RequestUsageStats(successful_requests=10, failed_requests=0),
+    )
+    # Add tool usage - 3 generations, 2 with tools
+    text_model.usage_stats.tool_usage.extend(tool_calls=4, tool_call_turns=2)
+    text_model.usage_stats.tool_usage.extend(tool_calls=6, tool_call_turns=3)
+    text_model.usage_stats.tool_usage.extend(tool_calls=0, tool_call_turns=0)  # No tools used
+
+    with patch("data_designer.engine.models.registry.logger") as mock_logger:
+        stub_model_registry.log_model_usage(total_time_elapsed=10.0)
+
+        calls = [call[0][0] for call in mock_logger.info.call_args_list]
+        assert calls[0] == "📊 Model usage summary:"
+        assert calls[1] == f"{LOG_INDENT}model: stub-model-text"
+        assert calls[2] == f"{LOG_INDENT}tokens: input=1000, output=500, total=1500, tps=150"
+        assert calls[3] == f"{LOG_INDENT}requests: success=10, failed=0, total=10, rpm=60"
+        assert calls[4] == f"{LOG_INDENT}tools: generations=2/3, calls=10, turns=5"
+
+
+def test_log_model_usage_models_without_usage_excluded(stub_model_registry: ModelRegistry) -> None:
+    """Test that models without usage are not included in the log."""
+    # Initialize both models but only add usage to one
+    stub_model_registry.get_model(model_alias="stub-text")
+    reasoning_model = stub_model_registry.get_model(model_alias="stub-reasoning")
+
+    reasoning_model.usage_stats.extend(
+        token_usage=TokenUsageStats(input_tokens=500, output_tokens=250),
+        request_usage=RequestUsageStats(successful_requests=5, failed_requests=1),
+    )
+
+    with patch("data_designer.engine.models.registry.logger") as mock_logger:
+        stub_model_registry.log_model_usage(total_time_elapsed=10.0)
+
+        calls = [call[0][0] for call in mock_logger.info.call_args_list]
+
+        # Only reasoning model should appear
+        assert len(calls) == 4
+        assert calls[0] == "📊 Model usage summary:"
+        assert calls[1] == f"{LOG_INDENT}model: stub-model-reasoning"
+        assert "stub-model-text" not in str(calls)

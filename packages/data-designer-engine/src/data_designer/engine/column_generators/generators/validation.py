@@ -22,6 +22,7 @@ from data_designer.engine.validators import (
     ValidationResult,
 )
 from data_designer.lazy_heavy_imports import pd
+from data_designer.logging import LOG_INDENT
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -44,10 +45,10 @@ def get_validator_from_params(validator_type: ValidatorType, validator_params: V
 class ValidationColumnGenerator(ColumnGeneratorFullColumn[ValidationColumnConfig]):
     def generate(self, data: pd.DataFrame) -> pd.DataFrame:
         logger.info(f"🔍 Validating column {self.config.name!r} with {len(data)} records")
-        logger.info(f"  |-- target columns: {self.config.target_columns}")
-        logger.info(f"  |-- validator type: {self.config.validator_type}")
-        logger.info(f"  |-- validator params: {self.config.validator_params}")
-        logger.info(f"  |-- batch size: {self.config.batch_size}")
+        logger.info(f"{LOG_INDENT}target columns: {self.config.target_columns}")
+        logger.info(f"{LOG_INDENT}validator type: {self.config.validator_type}")
+        logger.info(f"{LOG_INDENT}validator params: {self.config.validator_params}")
+        logger.info(f"{LOG_INDENT}batch size: {self.config.batch_size}")
 
         validator = get_validator_from_params(self.config.validator_type, self.config.validator_params)
 

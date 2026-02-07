@@ -12,7 +12,8 @@ from data_designer.config.column_configs import (
     LLMStructuredColumnConfig,
     LLMTextColumnConfig,
 )
-from data_designer.config.utils.constants import TRACE_COLUMN_POSTFIX
+from data_designer.config.utils.constants import REASONING_CONTENT_COLUMN_POSTFIX, TRACE_COLUMN_POSTFIX
+from data_designer.config.utils.trace_type import TraceType
 from data_designer.engine.column_generators.generators.base import ColumnGeneratorWithModel, GenerationStrategy
 from data_designer.engine.column_generators.utils.prompt_renderer import (
     PromptType,
@@ -88,11 +89,16 @@ class ColumnGeneratorWithModelChatCompletion(ColumnGeneratorWithModel[TaskConfig
         serialized_output = self.response_recipe.serialize_output(response)
         data[self.config.name] = self._process_serialized_output(serialized_output)
 
-        should_save_trace = (
-            self.config.with_trace or self.resource_provider.run_config.debug_override_save_all_column_traces
-        )
-        if should_save_trace:
+        effective_trace_type = self.config.with_trace
+
+        if effective_trace_type == TraceType.ALL_MESSAGES:
             data[self.config.name + TRACE_COLUMN_POSTFIX] = [message.to_dict() for message in trace]
+        elif effective_trace_type == TraceType.LAST_MESSAGE:
+            last_assistant = next((m for m in reversed(trace) if m.role == "assistant"), None)
+            data[self.config.name + TRACE_COLUMN_POSTFIX] = [last_assistant.to_dict()] if last_assistant else []
+
+        if self.config.extract_reasoning_content:
+            data[self.config.name + REASONING_CONTENT_COLUMN_POSTFIX] = self._extract_reasoning_content(trace)
 
         return data
 
@@ -127,13 +133,38 @@ class ColumnGeneratorWithModelChatCompletion(ColumnGeneratorWithModel[TaskConfig
         serialized_output = self.response_recipe.serialize_output(response)
         data[self.config.name] = self._process_serialized_output(serialized_output)
 
-        should_save_trace = (
-            self.config.with_trace or self.resource_provider.run_config.debug_override_save_all_column_traces
-        )
-        if should_save_trace:
+        effective_trace_type = self.config.with_trace
+
+        if effective_trace_type == TraceType.ALL_MESSAGES:
             data[self.config.name + TRACE_COLUMN_POSTFIX] = [message.to_dict() for message in trace]
+        elif effective_trace_type == TraceType.LAST_MESSAGE:
+            last_assistant = next((m for m in reversed(trace) if m.role == "assistant"), None)
+            data[self.config.name + TRACE_COLUMN_POSTFIX] = [last_assistant.to_dict()] if last_assistant else []
+
+        if self.config.extract_reasoning_content:
+            data[self.config.name + REASONING_CONTENT_COLUMN_POSTFIX] = self._extract_reasoning_content(trace)
 
         return data
+
+    def _extract_reasoning_content(self, trace: list) -> str | None:
+        """Extract reasoning_content from the final assistant message in the trace.
+
+        Args:
+            trace: List of ChatMessage objects from the generation.
+
+        Returns:
+            The stripped reasoning_content from the final assistant message, or None if not present.
+        """
+        reasoning_value: str | None = None
+        for message in reversed(trace):
+            if message.role == "assistant":
+                reasoning_value = message.reasoning_content
+                break
+
+        if reasoning_value is not None:
+            reasoning_value = reasoning_value.strip() or None
+
+        return reasoning_value
 
     def _process_serialized_output(self, serialized_output: str) -> str | dict | list:
         """Process the serialized output from the model. Subclasses can override to customize deserialization."""

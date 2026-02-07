@@ -1,6 +1,15 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "data-designer",
+#     "mcp",
+#     "bm25s",
+#     "pymupdf",
+#     "rich",
+# ]
+# ///
 """MCP + Tool Use Recipe: Document Q&A with BM25S Lexical Search
 
 This recipe demonstrates an end-to-end MCP tool-calling workflow:
@@ -10,37 +19,15 @@ This recipe demonstrates an end-to-end MCP tool-calling workflow:
 3) Use Data Designer tool calls (`search_docs`) to generate grounded Q&A pairs.
 
 Prerequisites:
-- `NVIDIA_API_KEY` if using `--model-alias nvidia-text` (default)
-- Recipe dependencies: Install with `make install-dev-recipes`
+    - OPENAI_API_KEY environment variable for OpenAI provider model aliases.
+    - NVIDIA_API_KEY environment variable for NVIDIA provider model aliases (default model alias is "nvidia-reasoning").
 
 Run:
-    # Install recipe dependencies (preserves workspace packages)
-    make install-dev-recipes
+    # Basic usage with default sample PDF (generates 4 Q&A pairs)
+    uv run pdf_qa.py
 
-    # Then run the recipe (uses default sample PDF)
-    uv run docs/assets/recipes/mcp_and_tooluse/pdf_qa.py
-
-    # With custom PDFs (can specify multiple)
-    uv run docs/assets/recipes/mcp_and_tooluse/pdf_qa.py --pdf /path/to/doc.pdf
-    uv run docs/assets/recipes/mcp_and_tooluse/pdf_qa.py --pdf https://example.com/doc.pdf --pdf ./local.pdf
-
-    # Or run all recipes via Makefile
-    make test-run-recipes
-
-Common flags:
-    # Generate a few Q&A pairs
-    uv run docs/assets/recipes/mcp_and_tooluse/pdf_qa.py --num-records 3
-
-    # Use a different model
-    uv run docs/assets/recipes/mcp_and_tooluse/pdf_qa.py --model-alias gpt-4o
-
-Server mode (used internally by Data Designer):
-    python docs/assets/recipes/mcp_and_tooluse/pdf_qa.py serve
-
-Notes:
-- URLs are streamed directly into memory (no local download required).
-- Local file paths are read directly from disk.
-- The BM25S index is built at server startup from all provided PDFs.
+    # For help message and available options
+    uv run pdf_qa.py --help
 """
 
 from __future__ import annotations
@@ -312,7 +299,7 @@ def build_config(model_alias: str, provider_name: str) -> dd.DataDesignerConfigB
             ),
             output_format=TopicList,
             tool_alias="doc-search",
-            with_trace=True,  # Enable trace to capture tool call history
+            with_trace=dd.TraceType.ALL_MESSAGES,  # Enable trace to capture tool call history
         )
     )
 
@@ -341,7 +328,8 @@ why the answer is correct.
             ),
             output_format=QAPair,
             tool_alias="doc-search",
-            with_trace=True,  # Enable trace to capture tool call history
+            with_trace=dd.TraceType.ALL_MESSAGES,  # Enable trace to capture tool call history
+            extract_reasoning_content=True,
         )
     )
 
@@ -391,10 +379,31 @@ def _truncate(text: str, max_length: int = 100) -> str:
     return text[: max_length - 3] + "..."
 
 
+def _summarize_content(content: object) -> str:
+    """Summarize ChatML-style content blocks for display."""
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, dict):
+                block_type = block.get("type", "block")
+                if block_type == "text":
+                    text = str(block.get("text", ""))
+                    if text:
+                        parts.append(text)
+                elif block_type == "image_url":
+                    parts.append("[image]")
+                else:
+                    parts.append(f"[{block_type}]")
+            else:
+                parts.append(str(block))
+        return " ".join(parts)
+    return str(content)
+
+
 def _format_trace_step(msg: dict[str, object]) -> str:
     """Format a single trace message as a concise one-liner."""
     role = msg.get("role", "unknown")
-    content = msg.get("content", "")
+    content = _summarize_content(msg.get("content", ""))
     reasoning = msg.get("reasoning_content")
     tool_calls = msg.get("tool_calls")
     tool_call_id = msg.get("tool_call_id")
@@ -505,7 +514,7 @@ def parse_args() -> argparse.Namespace:
     subparsers.add_parser("serve", help="Run the MCP server (used by Data Designer)")
 
     # Default command arguments (demo mode)
-    parser.add_argument("--model-alias", type=str, default="nvidia-text", help="Model alias to use for generation")
+    parser.add_argument("--model-alias", type=str, default="nvidia-reasoning", help="Model alias to use for generation")
     parser.add_argument("--num-records", type=int, default=4, help="Number of Q&A pairs to generate")
     parser.add_argument(
         "--pdf",

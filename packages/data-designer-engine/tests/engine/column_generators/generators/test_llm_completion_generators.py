@@ -12,7 +12,8 @@ from data_designer.config.column_configs import (
     LLMTextColumnConfig,
 )
 from data_designer.config.run_config import RunConfig
-from data_designer.config.utils.constants import TRACE_COLUMN_POSTFIX
+from data_designer.config.utils.constants import REASONING_CONTENT_COLUMN_POSTFIX, TRACE_COLUMN_POSTFIX
+from data_designer.config.utils.trace_type import TraceType
 from data_designer.engine.column_generators.generators.base import GenerationStrategy
 from data_designer.engine.column_generators.generators.llm_completion import (
     LLMCodeCellGenerator,
@@ -21,6 +22,7 @@ from data_designer.engine.column_generators.generators.llm_completion import (
     LLMTextCellGenerator,
 )
 from data_designer.engine.models.utils import ChatMessage
+from data_designer.logging import LOG_DOUBLE_INDENT, LOG_INDENT
 
 
 def _create_generator_with_mocks(config_class=LLMTextColumnConfig, **config_kwargs):
@@ -78,7 +80,7 @@ def _setup_generate_mocks(mock_prompt_renderer, mock_response_recipe, mock_model
 def test_generate_method() -> None:
     generator, _, mock_model, _, _, mock_prompt_renderer, mock_response_recipe = _create_generator_with_mocks()
 
-    # Test basic generation
+    # Test basic generation (no trace)
     _setup_generate_mocks(mock_prompt_renderer, mock_response_recipe, mock_model)
     data = {"input": "test_input"}
     result = generator.generate(data)
@@ -90,21 +92,112 @@ def test_generate_method() -> None:
     assert result["test_column"] == {"result": "test_output"}
     assert "test_column" + TRACE_COLUMN_POSTFIX not in result
 
-    # Test with full trace enabled
-    mock_model.reset_mock()
-    mock_prompt_renderer.reset_mock()
-    generator.resource_provider.run_config.debug_override_save_all_column_traces = True
+    # Test with TraceType.ALL_MESSAGES enabled
+    generator_with_trace, _, mock_model, _, _, mock_prompt_renderer, mock_response_recipe = (
+        _create_generator_with_mocks(with_trace=TraceType.ALL_MESSAGES)
+    )
     mock_prompt_renderer.render.side_effect = ["rendered_user_prompt", "rendered_system_prompt"]
     mock_response_recipe.serialize_output.return_value = {"result": "test_output"}
-    mock_model.generate.return_value = ({"result": "test_output"}, [ChatMessage.as_user("x")])
-    result = generator.generate(data)
+    mock_model.generate.return_value = (
+        {"result": "test_output"},
+        [ChatMessage.as_user("x"), ChatMessage.as_assistant("y")],
+    )
+    result = generator_with_trace.generate(data)
 
     assert result["test_column"] == {"result": "test_output"}
-    assert result["test_column" + TRACE_COLUMN_POSTFIX] == [{"role": "user", "content": "x"}]
+    assert result["test_column" + TRACE_COLUMN_POSTFIX] == [
+        {"role": "user", "content": [{"type": "text", "text": "x"}]},
+        {"role": "assistant", "content": [{"type": "text", "text": "y"}]},
+    ]
 
     # Test multi-modal context is None
     call_args = mock_model.generate.call_args
     assert call_args[1]["multi_modal_context"] is None
+
+
+def test_generate_method_trace_type_last_message() -> None:
+    generator, _, mock_model, _, _, mock_prompt_renderer, mock_response_recipe = _create_generator_with_mocks(
+        with_trace=TraceType.LAST_MESSAGE
+    )
+
+    # Test with TraceType.LAST_MESSAGE
+    mock_prompt_renderer.render.side_effect = ["rendered_user_prompt", "rendered_system_prompt"]
+    mock_response_recipe.serialize_output.return_value = {"result": "test_output"}
+    mock_model.generate.return_value = (
+        {"result": "test_output"},
+        [ChatMessage.as_user("x"), ChatMessage.as_assistant("y"), ChatMessage.as_user("z")],
+    )
+
+    data = {"input": "test_input"}
+    result = generator.generate(data)
+
+    assert result["test_column"] == {"result": "test_output"}
+    assert result["test_column" + TRACE_COLUMN_POSTFIX] == [
+        {"role": "assistant", "content": [{"type": "text", "text": "y"}]},
+    ]
+
+
+def test_generate_method_trace_type_last_message_no_assistant() -> None:
+    generator, _, mock_model, _, _, mock_prompt_renderer, mock_response_recipe = _create_generator_with_mocks(
+        with_trace=TraceType.LAST_MESSAGE
+    )
+
+    # Test with TraceType.LAST_MESSAGE but no assistant message in trace
+    mock_prompt_renderer.render.side_effect = ["rendered_user_prompt", "rendered_system_prompt"]
+    mock_response_recipe.serialize_output.return_value = {"result": "test_output"}
+    mock_model.generate.return_value = (
+        {"result": "test_output"},
+        [ChatMessage.as_user("x")],
+    )
+
+    data = {"input": "test_input"}
+    result = generator.generate(data)
+
+    assert result["test_column"] == {"result": "test_output"}
+    assert result["test_column" + TRACE_COLUMN_POSTFIX] == []
+
+
+def test_generate_method_column_with_trace_setting() -> None:
+    # Test column-level with_trace setting
+    generator, _, mock_model, _, _, mock_prompt_renderer, mock_response_recipe = _create_generator_with_mocks(
+        with_trace=TraceType.ALL_MESSAGES
+    )
+
+    mock_prompt_renderer.render.side_effect = ["rendered_user_prompt", "rendered_system_prompt"]
+    mock_response_recipe.serialize_output.return_value = {"result": "test_output"}
+    mock_model.generate.return_value = (
+        {"result": "test_output"},
+        [ChatMessage.as_user("x"), ChatMessage.as_assistant("y")],
+    )
+
+    data = {"input": "test_input"}
+    result = generator.generate(data)
+
+    assert result["test_column" + TRACE_COLUMN_POSTFIX] == [
+        {"role": "user", "content": [{"type": "text", "text": "x"}]},
+        {"role": "assistant", "content": [{"type": "text", "text": "y"}]},
+    ]
+
+
+def test_generate_method_normalizes_trace_content_blocks() -> None:
+    generator, _, mock_model, _, _, mock_prompt_renderer, mock_response_recipe = _create_generator_with_mocks(
+        with_trace=TraceType.ALL_MESSAGES
+    )
+
+    mock_prompt_renderer.render.side_effect = ["rendered_user_prompt", "rendered_system_prompt"]
+    mock_response_recipe.serialize_output.return_value = {"result": "test_output"}
+
+    multi_modal_content = [
+        {"type": "image_url", "image_url": {"url": "https://example.com/image.png"}},
+        {"type": "text", "text": "describe the image"},
+    ]
+    mock_model.generate.return_value = ({"result": "test_output"}, [ChatMessage.as_user(multi_modal_content)])
+
+    result = generator.generate({"input": "test_input"})
+
+    trace = result["test_column" + TRACE_COLUMN_POSTFIX]
+    assert trace[0]["role"] == "user"
+    assert trace[0]["content"] == multi_modal_content
 
 
 @patch("data_designer.engine.column_generators.generators.base.logger", autospec=True)
@@ -114,16 +207,19 @@ def test_log_pre_generation(mock_logger: Mock) -> None:
     )
     mock_model_config.model = "meta/llama-3.1-8b-instruct"
     mock_model_config.generation_type.value = "chat-completion"
-    mock_inference_params.format_for_display.return_value = "temperature=0.70, max_tokens=100"
+    mock_inference_params.get_formatted_params.return_value = ["temperature=0.70", "max_tokens=100"]
 
     generator.log_pre_generation()
 
-    assert mock_logger.info.call_count == 5
+    # 5 base calls + 2 inference param calls = 7 total
+    assert mock_logger.info.call_count == 7
     mock_logger.info.assert_any_call("📝 llm-text model config for column 'test_column'")
-    mock_logger.info.assert_any_call("  |-- model: 'meta/llama-3.1-8b-instruct'")
-    mock_logger.info.assert_any_call("  |-- model alias: 'test_model'")
-    mock_logger.info.assert_any_call("  |-- model provider: 'test_provider'")
-    mock_logger.info.assert_any_call("  |-- inference parameters: temperature=0.70, max_tokens=100")
+    mock_logger.info.assert_any_call(f"{LOG_INDENT}model: 'meta/llama-3.1-8b-instruct'")
+    mock_logger.info.assert_any_call(f"{LOG_INDENT}model alias: 'test_model'")
+    mock_logger.info.assert_any_call(f"{LOG_INDENT}model provider: 'test_provider'")
+    mock_logger.info.assert_any_call(f"{LOG_INDENT}inference parameters:")
+    mock_logger.info.assert_any_call(f"{LOG_DOUBLE_INDENT}temperature=0.70")
+    mock_logger.info.assert_any_call(f"{LOG_DOUBLE_INDENT}max_tokens=100")
 
     # Test with different provider
     mock_logger.reset_mock()
@@ -132,7 +228,39 @@ def test_log_pre_generation(mock_logger: Mock) -> None:
     mock_resource_provider.model_registry.get_model_provider.return_value = mock_provider
 
     generator.log_pre_generation()
-    mock_logger.info.assert_any_call("  |-- model provider: 'test_provider_2'")
+    mock_logger.info.assert_any_call(f"{LOG_INDENT}model provider: 'test_provider_2'")
+
+
+@patch("data_designer.engine.column_generators.generators.base.logger", autospec=True)
+def test_log_pre_generation_with_tool_alias(mock_logger: Mock) -> None:
+    generator, mock_resource_provider, _, mock_model_config, mock_inference_params, _, _ = _create_generator_with_mocks(
+        tool_alias="test-tools"
+    )
+    mock_model_config.model = "meta/llama-3.1-8b-instruct"
+    mock_model_config.generation_type.value = "chat-completion"
+    mock_inference_params.get_formatted_params.return_value = ["temperature=0.70", "max_tokens=100"]
+
+    mock_mcp_registry = Mock()
+    mock_tool_config = Mock()
+    mock_tool_config.providers = ["doc-search-mcp", "web-search-mcp"]
+    mock_mcp_registry.get_tool_config.return_value = mock_tool_config
+    mock_resource_provider.mcp_registry = mock_mcp_registry
+
+    generator.log_pre_generation()
+
+    # 5 base calls + 2 inference param calls + 2 tool calls = 9 total
+    assert mock_logger.info.call_count == 9
+    mock_logger.info.assert_any_call("📝 llm-text model config for column 'test_column'")
+    mock_logger.info.assert_any_call(f"{LOG_INDENT}model: 'meta/llama-3.1-8b-instruct'")
+    mock_logger.info.assert_any_call(f"{LOG_INDENT}model alias: 'test_model'")
+    mock_logger.info.assert_any_call(f"{LOG_INDENT}model provider: 'test_provider'")
+    mock_logger.info.assert_any_call(f"{LOG_INDENT}inference parameters:")
+    mock_logger.info.assert_any_call(f"{LOG_DOUBLE_INDENT}temperature=0.70")
+    mock_logger.info.assert_any_call(f"{LOG_DOUBLE_INDENT}max_tokens=100")
+    mock_logger.info.assert_any_call(f"{LOG_INDENT}tool alias: 'test-tools'")
+    mock_logger.info.assert_any_call(f"{LOG_INDENT}mcp providers: ['doc-search-mcp', 'web-search-mcp']")
+
+    mock_mcp_registry.get_tool_config.assert_called_once_with(tool_alias="test-tools")
 
 
 @pytest.mark.parametrize(
@@ -364,3 +492,131 @@ def test_generator_output_type_handling(
     result = generator.generate(data)
 
     assert result[config.name] == expected_output
+
+
+def test_generate_extracts_reasoning_content_when_enabled() -> None:
+    """Test that reasoning_content is extracted when extract_reasoning_content=True."""
+    generator, _, mock_model, _, _, mock_prompt_renderer, mock_response_recipe = _create_generator_with_mocks(
+        extract_reasoning_content=True
+    )
+
+    mock_prompt_renderer.render.side_effect = ["rendered_user_prompt", "rendered_system_prompt"]
+    mock_response_recipe.serialize_output.return_value = "test_output"
+
+    # Model returns a trace with reasoning_content in the assistant message
+    mock_model.generate.return_value = (
+        "test_output",
+        [
+            ChatMessage.as_user("test prompt"),
+            ChatMessage.as_assistant(content="response", reasoning_content="  Thinking about this...  "),
+        ],
+    )
+
+    data = {"input": "test_input"}
+    result = generator.generate(data)
+
+    # Reasoning content should be extracted and stripped
+    assert result["test_column" + REASONING_CONTENT_COLUMN_POSTFIX] == "Thinking about this..."
+
+
+def test_generate_extracts_reasoning_content_none_when_not_present() -> None:
+    """Test that reasoning_content is None when assistant message has no reasoning."""
+    generator, _, mock_model, _, _, mock_prompt_renderer, mock_response_recipe = _create_generator_with_mocks(
+        extract_reasoning_content=True
+    )
+
+    mock_prompt_renderer.render.side_effect = ["rendered_user_prompt", "rendered_system_prompt"]
+    mock_response_recipe.serialize_output.return_value = "test_output"
+
+    # Model returns a trace without reasoning_content
+    mock_model.generate.return_value = (
+        "test_output",
+        [
+            ChatMessage.as_user("test prompt"),
+            ChatMessage.as_assistant(content="response"),
+        ],
+    )
+
+    data = {"input": "test_input"}
+    result = generator.generate(data)
+
+    # Reasoning content should be None
+    assert result["test_column" + REASONING_CONTENT_COLUMN_POSTFIX] is None
+
+
+def test_generate_extracts_reasoning_content_from_final_assistant_in_tool_use_trace() -> None:
+    """Test that reasoning_content is extracted from the final assistant message in tool-use traces."""
+    generator, _, mock_model, _, _, mock_prompt_renderer, mock_response_recipe = _create_generator_with_mocks(
+        extract_reasoning_content=True
+    )
+
+    mock_prompt_renderer.render.side_effect = ["rendered_user_prompt", "rendered_system_prompt"]
+    mock_response_recipe.serialize_output.return_value = "test_output"
+
+    # Simulate a tool-use trace with multiple assistant messages
+    # The final assistant message has the reasoning we want
+    mock_model.generate.return_value = (
+        "test_output",
+        [
+            ChatMessage.as_user("test prompt"),
+            ChatMessage.as_assistant(
+                content="",
+                reasoning_content="Initial thinking...",
+                tool_calls=[{"id": "call_1", "type": "function", "function": {"name": "search", "arguments": "{}"}}],
+            ),
+            ChatMessage.as_tool(content="search result", tool_call_id="call_1"),
+            ChatMessage.as_assistant(content="Final answer", reasoning_content="Final reasoning after tool use"),
+        ],
+    )
+
+    data = {"input": "test_input"}
+    result = generator.generate(data)
+
+    # Should extract reasoning from the LAST assistant message
+    assert result["test_column" + REASONING_CONTENT_COLUMN_POSTFIX] == "Final reasoning after tool use"
+
+
+def test_generate_does_not_extract_reasoning_content_when_disabled() -> None:
+    """Test that reasoning_content is not extracted when extract_reasoning_content=False (default)."""
+    generator, _, mock_model, _, _, mock_prompt_renderer, mock_response_recipe = _create_generator_with_mocks()
+
+    mock_prompt_renderer.render.side_effect = ["rendered_user_prompt", "rendered_system_prompt"]
+    mock_response_recipe.serialize_output.return_value = "test_output"
+
+    mock_model.generate.return_value = (
+        "test_output",
+        [
+            ChatMessage.as_user("test prompt"),
+            ChatMessage.as_assistant(content="response", reasoning_content="Some reasoning"),
+        ],
+    )
+
+    data = {"input": "test_input"}
+    result = generator.generate(data)
+
+    # Reasoning content column should not be present
+    assert "test_column" + REASONING_CONTENT_COLUMN_POSTFIX not in result
+
+
+def test_generate_extracts_reasoning_content_as_none_when_only_whitespace() -> None:
+    """Test that whitespace-only reasoning_content is normalized to None."""
+    generator, _, mock_model, _, _, mock_prompt_renderer, mock_response_recipe = _create_generator_with_mocks(
+        extract_reasoning_content=True
+    )
+
+    mock_prompt_renderer.render.side_effect = ["rendered_user_prompt", "rendered_system_prompt"]
+    mock_response_recipe.serialize_output.return_value = "test_output"
+
+    mock_model.generate.return_value = (
+        "test_output",
+        [
+            ChatMessage.as_user("test prompt"),
+            ChatMessage.as_assistant(content="response", reasoning_content="   \n\t  "),
+        ],
+    )
+
+    data = {"input": "test_input"}
+    result = generator.generate(data)
+
+    # Whitespace-only reasoning should be normalized to None
+    assert result["test_column" + REASONING_CONTENT_COLUMN_POSTFIX] is None

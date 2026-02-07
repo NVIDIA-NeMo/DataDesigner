@@ -29,6 +29,12 @@ if TYPE_CHECKING:
     from data_designer.engine.mcp.facade import MCPFacade
     from data_designer.engine.mcp.registry import MCPRegistry
 
+
+def _identity(x: Any) -> Any:
+    """Identity function for default parser. Module-level for pickling compatibility."""
+    return x
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -160,7 +166,7 @@ class ModelFacade:
         self,
         prompt: str,
         *,
-        parser: Callable[[str], Any],
+        parser: Callable[[str], Any] = _identity,
         system_prompt: str | None = None,
         multi_modal_context: list[dict[str, Any]] | None = None,
         tool_alias: str | None = None,
@@ -189,7 +195,7 @@ class ModelFacade:
                 no system message is provided and the model should use its default system
                 prompt.
             parser (func(str) -> Any): A function applied to the LLM response which processes
-                an LLM response into some output object.
+                an LLM response into some output object. Default: identity function.
             tool_alias (str | None): Optional tool configuration alias. When provided,
                 the model may call permitted tools from the configured MCP providers.
                 The alias must reference a ToolConfig registered in the MCPRegistry.
@@ -220,6 +226,7 @@ class ModelFacade:
         output_obj = None
         tool_schemas = None
         tool_call_turns = 0
+        total_tool_calls = 0
         curr_num_correction_steps = 0
         curr_num_restarts = 0
 
@@ -249,6 +256,7 @@ class ModelFacade:
             # Process any tool calls in the response (handles parallel tool calling)
             if mcp_facade is not None and mcp_facade.has_tool_calls(completion_response):
                 tool_call_turns += 1
+                total_tool_calls += mcp_facade.tool_call_count(completion_response)
 
                 if tool_call_turns > mcp_facade.max_tool_call_turns:
                     # Gracefully refuse tool calls when budget is exhausted
@@ -292,6 +300,12 @@ class ModelFacade:
                         f"Unsuccessful generation despite {max_correction_steps} correction steps "
                         f"and {max_conversation_restarts} conversation restarts."
                     ) from exc
+
+        if not skip_usage_tracking and mcp_facade is not None:
+            self._usage_stats.tool_usage.extend(
+                tool_calls=total_tool_calls,
+                tool_call_turns=tool_call_turns,
+            )
 
         return output_obj, messages
 

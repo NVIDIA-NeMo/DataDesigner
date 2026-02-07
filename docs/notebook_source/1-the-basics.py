@@ -35,7 +35,7 @@ from data_designer.interface import DataDesigner
 # %% [markdown]
 # ### ⚙️ Initialize the Data Designer interface
 #
-# - `DataDesigner` is the main object is responsible for managing the data generation process.
+# - `DataDesigner` is the main object responsible for managing the data generation process.
 #
 # - When initialized without arguments, the [default model providers](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/) are used.
 #

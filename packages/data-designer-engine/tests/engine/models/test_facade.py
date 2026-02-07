@@ -7,39 +7,16 @@ from unittest.mock import patch
 import pytest
 from litellm.types.utils import Choices, EmbeddingResponse, Message, ModelResponse
 
-from data_designer.engine.mcp.errors import MCPConfigurationError
+from data_designer.engine.mcp.errors import MCPConfigurationError, MCPToolError
 from data_designer.engine.models.errors import ModelGenerationValidationFailureError
 from data_designer.engine.models.facade import CustomRouter, ModelFacade
 from data_designer.engine.models.parsers.errors import ParserException
 from data_designer.engine.models.utils import ChatMessage
+from data_designer.engine.testing import StubMCPFacade, StubMCPRegistry, StubMessage, StubResponse
 
 
-class FakeMessage:
-    """Unified fake message class for mocking LLM completion responses."""
-
-    def __init__(
-        self,
-        content: str | None,
-        tool_calls: list[dict] | None = None,
-        reasoning_content: str | None = None,
-    ) -> None:
-        self.content = content
-        self.tool_calls = tool_calls
-        self.reasoning_content = reasoning_content
-
-
-class FakeChoice:
-    def __init__(self, message: FakeMessage) -> None:
-        self.message = message
-
-
-class FakeResponse:
-    def __init__(self, message: FakeMessage) -> None:
-        self.choices = [FakeChoice(message)]
-
-
-def mock_oai_response_object(response_text: str) -> FakeResponse:
-    return FakeResponse(FakeMessage(content=response_text))
+def mock_oai_response_object(response_text: str) -> StubResponse:
+    return StubResponse(StubMessage(content=response_text))
 
 
 @pytest.fixture
@@ -290,82 +267,42 @@ def test_generate_with_mcp_tools(
         "function": {"name": "lookup", "arguments": '{"query": "foo"}'},
     }
     responses = [
-        FakeResponse(FakeMessage(content=None, tool_calls=[tool_call])),
-        FakeResponse(FakeMessage(content="final result")),
+        StubResponse(StubMessage(content=None, tool_calls=[tool_call])),
+        StubResponse(StubMessage(content="final result")),
     ]
     captured_calls: list[tuple[list[ChatMessage], dict[str, Any]]] = []
+    registry_calls: list[tuple[str, str, dict[str, str], None]] = []
 
-    class FakeMCPRegistry:
-        def __init__(self) -> None:
-            self.calls: list[tuple[str, str, dict]] = []
+    def process_with_tracking(completion_response: Any) -> list[ChatMessage]:
+        message = completion_response.choices[0].message
+        if not message.tool_calls:
+            return [ChatMessage.as_assistant(content=message.content or "")]
+        registry_calls.append(("tools", "lookup", {"query": "foo"}, None))
+        return [
+            ChatMessage.as_assistant(content="", tool_calls=[tool_call]),
+            ChatMessage.as_tool(content="tool-output", tool_call_id="call-1"),
+        ]
 
-        def get_mcp(self, *, tool_alias: str) -> Any:
-            return FakeMCPFacade(self)
+    facade = StubMCPFacade(
+        tool_schemas=[
+            {
+                "type": "function",
+                "function": {"name": "lookup", "description": "Lookup", "parameters": {"type": "object"}},
+            }
+        ],
+        process_fn=process_with_tracking,
+    )
+    registry = StubMCPRegistry(facade)
 
-    class FakeMCPFacade:
-        def __init__(self, registry: FakeMCPRegistry) -> None:
-            self._registry = registry
-            self.tool_alias = "tools"
-            self.providers = ["tools"]
-            self.max_tool_call_turns = 3
-
-        def get_tool_schemas(self) -> list[dict]:
-            return [
-                {
-                    "type": "function",
-                    "function": {"name": "lookup", "description": "Lookup", "parameters": {"type": "object"}},
-                }
-            ]
-
-        def tool_call_count(self, completion_response: Any) -> int:
-            message = completion_response.choices[0].message
-            tool_calls = getattr(message, "tool_calls", None)
-            if tool_calls is None:
-                return 0
-            return len(tool_calls)
-
-        def has_tool_calls(self, completion_response: Any) -> bool:
-            return self.tool_call_count(completion_response) > 0
-
-        def refuse_completion_response(self, completion_response: Any) -> list[ChatMessage]:
-            message = completion_response.choices[0].message
-            tool_calls = getattr(message, "tool_calls", None) or []
-            refusal_message = "Tool call refused: maximum tool-calling turns reached."
-            return [
-                ChatMessage.as_assistant(content="", tool_calls=tool_calls),
-                *[ChatMessage.as_tool(content=refusal_message, tool_call_id=tc["id"]) for tc in tool_calls],
-            ]
-
-        def process_completion_response(self, completion_response: Any) -> list[ChatMessage]:
-            message = completion_response.choices[0].message
-            if not message.tool_calls:
-                return [ChatMessage.as_assistant(content=message.content or "")]
-
-            self._registry.calls.append(("tools", "lookup", {"query": "foo"}, None))
-            return [
-                ChatMessage.as_assistant(
-                    content="",
-                    tool_calls=[
-                        {
-                            "id": "call-1",
-                            "type": "function",
-                            "function": {"name": "lookup", "arguments": '{"query": "foo"}'},
-                        }
-                    ],
-                ),
-                ChatMessage.as_tool(content="tool-output", tool_call_id="call-1"),
-            ]
-
-    def _completion(self: Any, messages: list[ChatMessage], **kwargs: Any) -> FakeResponse:
+    def _completion(self: Any, messages: list[ChatMessage], **kwargs: Any) -> StubResponse:
         captured_calls.append((messages, kwargs))
         return responses.pop(0)
 
-    fake_registry = FakeMCPRegistry()
     model = ModelFacade(
         model_config=stub_model_configs[0],
         secret_resolver=stub_secrets_resolver,
         model_provider_registry=stub_model_provider_registry,
-        mcp_registry=fake_registry,
+        mcp_registry=registry,
     )
 
     with patch.object(ModelFacade, "completion", new=_completion):
@@ -376,7 +313,7 @@ def test_generate_with_mcp_tools(
     assert "tools" in captured_calls[0][1]
     assert captured_calls[0][1]["tools"][0]["function"]["name"] == "lookup"
     assert any(message.role == "tool" for message in captured_calls[1][0])
-    assert fake_registry.calls == [("tools", "lookup", {"query": "foo"}, None)]
+    assert registry_calls == [("tools", "lookup", {"query": "foo"}, None)]
 
 
 def test_generate_with_tools_missing_registry(
@@ -408,39 +345,16 @@ def test_generate_with_tool_alias_multiple_turns(
     tool_call_2 = {"id": "call-2", "type": "function", "function": {"name": "search", "arguments": '{"term": "bar"}'}}
 
     responses = [
-        FakeResponse(FakeMessage(content="First lookup", tool_calls=[tool_call_1])),
-        FakeResponse(FakeMessage(content="Second search", tool_calls=[tool_call_2])),
-        FakeResponse(FakeMessage(content="final result after two tool turns")),
+        StubResponse(StubMessage(content="First lookup", tool_calls=[tool_call_1])),
+        StubResponse(StubMessage(content="Second search", tool_calls=[tool_call_2])),
+        StubResponse(StubMessage(content="final result after two tool turns")),
     ]
     call_count = 0
 
-    class FakeMCPRegistry:
-        def get_mcp(self, *, tool_alias: str) -> Any:
-            return FakeMCPFacade()
+    facade = StubMCPFacade(max_tool_call_turns=5)
+    registry = StubMCPRegistry(facade)
 
-    class FakeMCPFacade:
-        tool_alias = "tools"
-        providers = ["tools"]
-        max_tool_call_turns = 5
-
-        def get_tool_schemas(self) -> list[dict[str, Any]]:
-            return [{"type": "function", "function": {"name": "lookup", "parameters": {}}}]
-
-        def has_tool_calls(self, completion_response: Any) -> bool:
-            return completion_response.choices[0].message.tool_calls is not None
-
-        def process_completion_response(self, completion_response: Any) -> list[ChatMessage]:
-            message = completion_response.choices[0].message
-            tool_calls = message.tool_calls or []
-            return [
-                ChatMessage.as_assistant(content=message.content or "", tool_calls=tool_calls),
-                *[ChatMessage.as_tool(content="tool-result", tool_call_id=tc["id"]) for tc in tool_calls],
-            ]
-
-        def refuse_completion_response(self, completion_response: Any) -> list[ChatMessage]:
-            return []
-
-    def _completion(self: Any, messages: list[ChatMessage], **kwargs: Any) -> FakeResponse:
+    def _completion(self: Any, messages: list[ChatMessage], **kwargs: Any) -> StubResponse:
         nonlocal call_count
         call_count += 1
         return responses.pop(0)
@@ -449,7 +363,7 @@ def test_generate_with_tool_alias_multiple_turns(
         model_config=stub_model_configs[0],
         secret_resolver=stub_secrets_resolver,
         model_provider_registry=stub_model_provider_registry,
-        mcp_registry=FakeMCPRegistry(),
+        mcp_registry=registry,
     )
 
     with patch.object(ModelFacade, "completion", new=_completion):
@@ -457,6 +371,115 @@ def test_generate_with_tool_alias_multiple_turns(
 
     assert result == "final result after two tool turns"
     assert call_count == 3  # 2 tool turns + 1 final
+
+
+def test_generate_with_tools_tracks_usage_stats(
+    stub_model_configs: Any,
+    stub_secrets_resolver: Any,
+    stub_model_provider_registry: Any,
+) -> None:
+    """Tool usage stats are properly tracked with generations_with_tools incremented."""
+    tool_call_1 = {"id": "call-1", "type": "function", "function": {"name": "lookup", "arguments": '{"query": "foo"}'}}
+    tool_call_2 = {"id": "call-2", "type": "function", "function": {"name": "search", "arguments": '{"term": "bar"}'}}
+
+    responses = [
+        StubResponse(StubMessage(content="First lookup", tool_calls=[tool_call_1])),
+        StubResponse(StubMessage(content="Second search", tool_calls=[tool_call_2])),
+        StubResponse(StubMessage(content="final result")),
+    ]
+
+    facade = StubMCPFacade(max_tool_call_turns=5)
+    registry = StubMCPRegistry(facade)
+
+    def _completion(self: Any, messages: list[ChatMessage], **kwargs: Any) -> StubResponse:
+        return responses.pop(0)
+
+    model = ModelFacade(
+        model_config=stub_model_configs[0],
+        secret_resolver=stub_secrets_resolver,
+        model_provider_registry=stub_model_provider_registry,
+        mcp_registry=registry,
+    )
+
+    # Verify initial state
+    assert model.usage_stats.tool_usage.total_tool_calls == 0
+    assert model.usage_stats.tool_usage.total_tool_call_turns == 0
+    assert model.usage_stats.tool_usage.total_generations == 0
+    assert model.usage_stats.tool_usage.generations_with_tools == 0
+
+    with patch.object(ModelFacade, "completion", new=_completion):
+        result, _ = model.generate(prompt="question", parser=lambda x: x, tool_alias="tools")
+
+    assert result == "final result"
+
+    # Verify tool usage stats are tracked correctly
+    assert model.usage_stats.tool_usage.total_tool_calls == 2  # 2 tool calls total
+    assert model.usage_stats.tool_usage.total_tool_call_turns == 2  # 2 turns with tool calls
+    assert model.usage_stats.tool_usage.total_generations == 1  # 1 generation
+    assert model.usage_stats.tool_usage.generations_with_tools == 1  # 1 generation with tools
+
+
+def test_generate_with_tools_tracks_multiple_generations(
+    stub_model_configs: Any,
+    stub_secrets_resolver: Any,
+    stub_model_provider_registry: Any,
+) -> None:
+    """Tool usage is correctly tracked across multiple generations."""
+    facade = StubMCPFacade(max_tool_call_turns=10)
+    registry = StubMCPRegistry(facade)
+
+    model = ModelFacade(
+        model_config=stub_model_configs[0],
+        secret_resolver=stub_secrets_resolver,
+        model_provider_registry=stub_model_provider_registry,
+        mcp_registry=registry,
+    )
+
+    # Generation 1: 2 tool calls across 1 turn
+    tool_call_a = {"id": "call-a", "type": "function", "function": {"name": "lookup", "arguments": '{"q": "1"}'}}
+    tool_call_b = {"id": "call-b", "type": "function", "function": {"name": "lookup", "arguments": '{"q": "2"}'}}
+    responses_gen1 = [
+        StubResponse(StubMessage(content="", tool_calls=[tool_call_a, tool_call_b])),
+        StubResponse(StubMessage(content="result 1")),
+    ]
+
+    def _completion_gen1(self: Any, messages: list[ChatMessage], **kwargs: Any) -> StubResponse:
+        return responses_gen1.pop(0)
+
+    with patch.object(ModelFacade, "completion", new=_completion_gen1):
+        model.generate(prompt="q1", parser=lambda x: x, tool_alias="tools")
+
+    # Generation 2: 4 tool calls across 2 turns
+    tool_call_c = {"id": "call-c", "type": "function", "function": {"name": "search", "arguments": '{"q": "3"}'}}
+    tool_call_d = {"id": "call-d", "type": "function", "function": {"name": "search", "arguments": '{"q": "4"}'}}
+    responses_gen2 = [
+        StubResponse(StubMessage(content="", tool_calls=[tool_call_a, tool_call_b])),
+        StubResponse(StubMessage(content="", tool_calls=[tool_call_c, tool_call_d])),
+        StubResponse(StubMessage(content="result 2")),
+    ]
+
+    def _completion_gen2(self: Any, messages: list[ChatMessage], **kwargs: Any) -> StubResponse:
+        return responses_gen2.pop(0)
+
+    with patch.object(ModelFacade, "completion", new=_completion_gen2):
+        model.generate(prompt="q2", parser=lambda x: x, tool_alias="tools")
+
+    # Generation 3: No tool calls
+    responses_gen3 = [
+        StubResponse(StubMessage(content="result 3")),
+    ]
+
+    def _completion_gen3(self: Any, messages: list[ChatMessage], **kwargs: Any) -> StubResponse:
+        return responses_gen3.pop(0)
+
+    with patch.object(ModelFacade, "completion", new=_completion_gen3):
+        model.generate(prompt="q3", parser=lambda x: x, tool_alias="tools")
+
+    # Verify totals: 2 + 4 + 0 = 6 calls, 1 + 2 + 0 = 3 turns, 3 total generations, 2 with tools
+    assert model.usage_stats.tool_usage.total_tool_calls == 6
+    assert model.usage_stats.tool_usage.total_tool_call_turns == 3
+    assert model.usage_stats.tool_usage.total_generations == 3
+    assert model.usage_stats.tool_usage.generations_with_tools == 2
 
 
 def test_generate_tool_turn_limit_triggers_refusal(
@@ -469,50 +492,38 @@ def test_generate_tool_turn_limit_triggers_refusal(
 
     # Keep returning tool calls to exceed the limit
     responses = [
-        FakeResponse(FakeMessage(content="", tool_calls=[tool_call])),  # Turn 1
-        FakeResponse(FakeMessage(content="", tool_calls=[tool_call])),  # Turn 2 (max)
-        FakeResponse(FakeMessage(content="", tool_calls=[tool_call])),  # Turn 3 (exceeds, should refuse)
-        FakeResponse(FakeMessage(content="final answer after refusal")),
+        StubResponse(StubMessage(content="", tool_calls=[tool_call])),  # Turn 1
+        StubResponse(StubMessage(content="", tool_calls=[tool_call])),  # Turn 2 (max)
+        StubResponse(StubMessage(content="", tool_calls=[tool_call])),  # Turn 3 (exceeds, should refuse)
+        StubResponse(StubMessage(content="final answer after refusal")),
     ]
     process_calls = 0
     refuse_calls = 0
 
-    class FakeMCPRegistry:
-        def get_mcp(self, *, tool_alias: str) -> Any:
-            return FakeMCPFacade()
+    def custom_process_fn(completion_response: Any) -> list[ChatMessage]:
+        nonlocal process_calls
+        process_calls += 1
+        message = completion_response.choices[0].message
+        return [
+            ChatMessage.as_assistant(content="", tool_calls=message.tool_calls or []),
+            ChatMessage.as_tool(content="tool-result", tool_call_id="call-1"),
+        ]
 
-    class FakeMCPFacade:
-        tool_alias = "tools"
-        providers = ["tools"]
-        max_tool_call_turns = 2  # Set limit to 2
+    def custom_refuse_fn(completion_response: Any) -> list[ChatMessage]:
+        nonlocal refuse_calls
+        refuse_calls += 1
+        message = completion_response.choices[0].message
+        return [
+            ChatMessage.as_assistant(content="", tool_calls=message.tool_calls or []),
+            ChatMessage.as_tool(content="REFUSED: Budget exceeded", tool_call_id="call-1"),
+        ]
 
-        def get_tool_schemas(self) -> list[dict[str, Any]]:
-            return [{"type": "function", "function": {"name": "lookup", "parameters": {}}}]
-
-        def has_tool_calls(self, completion_response: Any) -> bool:
-            return completion_response.choices[0].message.tool_calls is not None
-
-        def process_completion_response(self, completion_response: Any) -> list[ChatMessage]:
-            nonlocal process_calls
-            process_calls += 1
-            message = completion_response.choices[0].message
-            return [
-                ChatMessage.as_assistant(content="", tool_calls=message.tool_calls or []),
-                ChatMessage.as_tool(content="tool-result", tool_call_id="call-1"),
-            ]
-
-        def refuse_completion_response(self, completion_response: Any) -> list[ChatMessage]:
-            nonlocal refuse_calls
-            refuse_calls += 1
-            message = completion_response.choices[0].message
-            return [
-                ChatMessage.as_assistant(content="", tool_calls=message.tool_calls or []),
-                ChatMessage.as_tool(content="REFUSED: Budget exceeded", tool_call_id="call-1"),
-            ]
+    facade = StubMCPFacade(max_tool_call_turns=2, process_fn=custom_process_fn, refuse_fn=custom_refuse_fn)
+    registry = StubMCPRegistry(facade)
 
     response_idx = 0
 
-    def _completion(self: Any, messages: list[ChatMessage], **kwargs: Any) -> FakeResponse:
+    def _completion(self: Any, messages: list[ChatMessage], **kwargs: Any) -> StubResponse:
         nonlocal response_idx
         resp = responses[response_idx]
         response_idx += 1
@@ -522,7 +533,7 @@ def test_generate_tool_turn_limit_triggers_refusal(
         model_config=stub_model_configs[0],
         secret_resolver=stub_secrets_resolver,
         model_provider_registry=stub_model_provider_registry,
-        mcp_registry=FakeMCPRegistry(),
+        mcp_registry=registry,
     )
 
     with patch.object(ModelFacade, "completion", new=_completion):
@@ -542,40 +553,29 @@ def test_generate_tool_turn_limit_model_responds_after_refusal(
     tool_call = {"id": "call-1", "type": "function", "function": {"name": "lookup", "arguments": "{}"}}
 
     responses = [
-        FakeResponse(FakeMessage(content="", tool_calls=[tool_call])),  # Exceeds on first turn
-        FakeResponse(FakeMessage(content="I understand, here is the answer without tools")),
+        StubResponse(StubMessage(content="", tool_calls=[tool_call])),  # Exceeds on first turn
+        StubResponse(StubMessage(content="I understand, here is the answer without tools")),
     ]
 
-    class FakeMCPRegistry:
-        def get_mcp(self, *, tool_alias: str) -> Any:
-            return FakeMCPFacade()
+    def custom_refuse_fn(completion_response: Any) -> list[ChatMessage]:
+        return [
+            ChatMessage.as_assistant(content="", tool_calls=[tool_call]),
+            ChatMessage.as_tool(
+                content="Tool call refused: You have reached the maximum number of tool-calling turns.",
+                tool_call_id="call-1",
+            ),
+        ]
 
-    class FakeMCPFacade:
-        tool_alias = "tools"
-        providers = ["tools"]
-        max_tool_call_turns = 0  # No tool turns allowed
-
-        def get_tool_schemas(self) -> list[dict[str, Any]]:
-            return [{"type": "function", "function": {"name": "lookup", "parameters": {}}}]
-
-        def has_tool_calls(self, completion_response: Any) -> bool:
-            return completion_response.choices[0].message.tool_calls is not None
-
-        def process_completion_response(self, completion_response: Any) -> list[ChatMessage]:
-            return []  # Should not be called
-
-        def refuse_completion_response(self, completion_response: Any) -> list[ChatMessage]:
-            return [
-                ChatMessage.as_assistant(content="", tool_calls=[tool_call]),
-                ChatMessage.as_tool(
-                    content="Tool call refused: You have reached the maximum number of tool-calling turns.",
-                    tool_call_id="call-1",
-                ),
-            ]
+    facade = StubMCPFacade(
+        max_tool_call_turns=0,
+        process_fn=lambda _: [],  # Should not be called
+        refuse_fn=custom_refuse_fn,
+    )
+    registry = StubMCPRegistry(facade)
 
     response_idx = 0
 
-    def _completion(self: Any, messages: list[ChatMessage], **kwargs: Any) -> FakeResponse:
+    def _completion(self: Any, messages: list[ChatMessage], **kwargs: Any) -> StubResponse:
         nonlocal response_idx
         resp = responses[response_idx]
         response_idx += 1
@@ -585,7 +585,7 @@ def test_generate_tool_turn_limit_model_responds_after_refusal(
         model_config=stub_model_configs[0],
         secret_resolver=stub_secrets_resolver,
         model_provider_registry=stub_model_provider_registry,
-        mcp_registry=FakeMCPRegistry(),
+        mcp_registry=registry,
     )
 
     with patch.object(ModelFacade, "completion", new=_completion):
@@ -603,7 +603,7 @@ def test_generate_tool_alias_not_in_registry(
 ) -> None:
     """Raises error when tool_alias not found in MCPRegistry."""
 
-    class FakeMCPRegistry:
+    class StubMCPRegistry:
         def get_mcp(self, *, tool_alias: str) -> Any:
             raise ValueError(f"No tool config with alias {tool_alias!r} found!")
 
@@ -611,7 +611,7 @@ def test_generate_tool_alias_not_in_registry(
         model_config=stub_model_configs[0],
         secret_resolver=stub_secrets_resolver,
         model_provider_registry=stub_model_provider_registry,
-        mcp_registry=FakeMCPRegistry(),
+        mcp_registry=StubMCPRegistry(),
     )
 
     with pytest.raises(MCPConfigurationError, match="not registered"):
@@ -626,21 +626,21 @@ def test_generate_no_tool_alias_ignores_mcp(
     """When tool_alias is None, no MCP operations occur."""
     get_mcp_called = False
 
-    class FakeMCPRegistry:
+    class StubMCPRegistry:
         def get_mcp(self, *, tool_alias: str) -> Any:
             nonlocal get_mcp_called
             get_mcp_called = True
             raise RuntimeError("Should not be called")
 
-    def _completion(self: Any, messages: list[ChatMessage], **kwargs: Any) -> FakeResponse:
+    def _completion(self: Any, messages: list[ChatMessage], **kwargs: Any) -> StubResponse:
         assert "tools" not in kwargs  # No tools should be passed
-        return FakeResponse(FakeMessage(content="response without tools"))
+        return StubResponse(StubMessage(content="response without tools"))
 
     model = ModelFacade(
         model_config=stub_model_configs[0],
         secret_resolver=stub_secrets_resolver,
         model_provider_registry=stub_model_provider_registry,
-        mcp_registry=FakeMCPRegistry(),
+        mcp_registry=StubMCPRegistry(),
     )
 
     with patch.object(ModelFacade, "completion", new=_completion):
@@ -660,39 +660,17 @@ def test_generate_tool_calls_with_parser_corrections(
     parse_count = 0
 
     responses = [
-        FakeResponse(FakeMessage(content="", tool_calls=[tool_call])),  # Tool call
-        FakeResponse(FakeMessage(content="bad format")),  # Parser will fail
-        FakeResponse(FakeMessage(content="correct format")),  # Parser will succeed
+        StubResponse(StubMessage(content="", tool_calls=[tool_call])),  # Tool call
+        StubResponse(StubMessage(content="bad format")),  # Parser will fail
+        StubResponse(StubMessage(content="correct format")),  # Parser will succeed
     ]
 
-    class FakeMCPRegistry:
-        def get_mcp(self, *, tool_alias: str) -> Any:
-            return FakeMCPFacade()
-
-    class FakeMCPFacade:
-        tool_alias = "tools"
-        providers = ["tools"]
-        max_tool_call_turns = 3
-
-        def get_tool_schemas(self) -> list[dict[str, Any]]:
-            return [{"type": "function", "function": {"name": "lookup", "parameters": {}}}]
-
-        def has_tool_calls(self, completion_response: Any) -> bool:
-            return completion_response.choices[0].message.tool_calls is not None
-
-        def process_completion_response(self, completion_response: Any) -> list[ChatMessage]:
-            message = completion_response.choices[0].message
-            return [
-                ChatMessage.as_assistant(content="", tool_calls=message.tool_calls or []),
-                ChatMessage.as_tool(content="tool-result", tool_call_id="call-1"),
-            ]
-
-        def refuse_completion_response(self, completion_response: Any) -> list[ChatMessage]:
-            return []
+    facade = StubMCPFacade()
+    registry = StubMCPRegistry(facade)
 
     response_idx = 0
 
-    def _completion(self: Any, messages: list[ChatMessage], **kwargs: Any) -> FakeResponse:
+    def _completion(self: Any, messages: list[ChatMessage], **kwargs: Any) -> StubResponse:
         nonlocal response_idx
         resp = responses[response_idx]
         response_idx += 1
@@ -709,7 +687,7 @@ def test_generate_tool_calls_with_parser_corrections(
         model_config=stub_model_configs[0],
         secret_resolver=stub_secrets_resolver,
         model_provider_registry=stub_model_provider_registry,
-        mcp_registry=FakeMCPRegistry(),
+        mcp_registry=registry,
     )
 
     with patch.object(ModelFacade, "completion", new=_completion):
@@ -731,40 +709,18 @@ def test_generate_tool_calls_with_conversation_restarts(
     # First conversation: tool call + bad response
     # After restart: tool call + good response
     responses = [
-        FakeResponse(FakeMessage(content="", tool_calls=[tool_call])),
-        FakeResponse(FakeMessage(content="still bad")),  # Fails parser, triggers restart
-        FakeResponse(FakeMessage(content="", tool_calls=[tool_call])),  # After restart
-        FakeResponse(FakeMessage(content="good result")),
+        StubResponse(StubMessage(content="", tool_calls=[tool_call])),
+        StubResponse(StubMessage(content="still bad")),  # Fails parser, triggers restart
+        StubResponse(StubMessage(content="", tool_calls=[tool_call])),  # After restart
+        StubResponse(StubMessage(content="good result")),
     ]
 
-    class FakeMCPRegistry:
-        def get_mcp(self, *, tool_alias: str) -> Any:
-            return FakeMCPFacade()
-
-    class FakeMCPFacade:
-        tool_alias = "tools"
-        providers = ["tools"]
-        max_tool_call_turns = 3
-
-        def get_tool_schemas(self) -> list[dict[str, Any]]:
-            return [{"type": "function", "function": {"name": "lookup", "parameters": {}}}]
-
-        def has_tool_calls(self, completion_response: Any) -> bool:
-            return completion_response.choices[0].message.tool_calls is not None
-
-        def process_completion_response(self, completion_response: Any) -> list[ChatMessage]:
-            message = completion_response.choices[0].message
-            return [
-                ChatMessage.as_assistant(content="", tool_calls=message.tool_calls or []),
-                ChatMessage.as_tool(content="tool-result", tool_call_id="call-1"),
-            ]
-
-        def refuse_completion_response(self, completion_response: Any) -> list[ChatMessage]:
-            return []
+    facade = StubMCPFacade()
+    registry = StubMCPRegistry(facade)
 
     response_idx = 0
 
-    def _completion(self: Any, messages: list[ChatMessage], **kwargs: Any) -> FakeResponse:
+    def _completion(self: Any, messages: list[ChatMessage], **kwargs: Any) -> StubResponse:
         nonlocal response_idx
         messages_at_call.append(len(messages))
         resp = responses[response_idx]
@@ -780,7 +736,7 @@ def test_generate_tool_calls_with_conversation_restarts(
         model_config=stub_model_configs[0],
         secret_resolver=stub_secrets_resolver,
         model_provider_registry=stub_model_provider_registry,
-        mcp_registry=FakeMCPRegistry(),
+        mcp_registry=registry,
     )
 
     with patch.object(ModelFacade, "completion", new=_completion):
@@ -807,38 +763,16 @@ def test_generate_trace_includes_tool_calls(
     tool_call = {"id": "call-1", "type": "function", "function": {"name": "lookup", "arguments": '{"q": "test"}'}}
 
     responses = [
-        FakeResponse(FakeMessage(content="Let me look that up", tool_calls=[tool_call])),
-        FakeResponse(FakeMessage(content="Here is the answer")),
+        StubResponse(StubMessage(content="Let me look that up", tool_calls=[tool_call])),
+        StubResponse(StubMessage(content="Here is the answer")),
     ]
 
-    class FakeMCPRegistry:
-        def get_mcp(self, *, tool_alias: str) -> Any:
-            return FakeMCPFacade()
-
-    class FakeMCPFacade:
-        tool_alias = "tools"
-        providers = ["tools"]
-        max_tool_call_turns = 3
-
-        def get_tool_schemas(self) -> list[dict[str, Any]]:
-            return [{"type": "function", "function": {"name": "lookup", "parameters": {}}}]
-
-        def has_tool_calls(self, completion_response: Any) -> bool:
-            return completion_response.choices[0].message.tool_calls is not None
-
-        def process_completion_response(self, completion_response: Any) -> list[ChatMessage]:
-            message = completion_response.choices[0].message
-            return [
-                ChatMessage.as_assistant(content=message.content or "", tool_calls=message.tool_calls or []),
-                ChatMessage.as_tool(content="tool-output", tool_call_id="call-1"),
-            ]
-
-        def refuse_completion_response(self, completion_response: Any) -> list[ChatMessage]:
-            return []
+    facade = StubMCPFacade()
+    registry = StubMCPRegistry(facade)
 
     response_idx = 0
 
-    def _completion(self: Any, messages: list[ChatMessage], **kwargs: Any) -> FakeResponse:
+    def _completion(self: Any, messages: list[ChatMessage], **kwargs: Any) -> StubResponse:
         nonlocal response_idx
         resp = responses[response_idx]
         response_idx += 1
@@ -848,7 +782,7 @@ def test_generate_trace_includes_tool_calls(
         model_config=stub_model_configs[0],
         secret_resolver=stub_secrets_resolver,
         model_provider_registry=stub_model_provider_registry,
-        mcp_registry=FakeMCPRegistry(),
+        mcp_registry=registry,
     )
 
     with patch.object(ModelFacade, "completion", new=_completion):
@@ -869,37 +803,22 @@ def test_generate_trace_includes_tool_responses(
     tool_call = {"id": "call-1", "type": "function", "function": {"name": "lookup", "arguments": "{}"}}
 
     responses = [
-        FakeResponse(FakeMessage(content="", tool_calls=[tool_call])),
-        FakeResponse(FakeMessage(content="final")),
+        StubResponse(StubMessage(content="", tool_calls=[tool_call])),
+        StubResponse(StubMessage(content="final")),
     ]
 
-    class FakeMCPRegistry:
-        def get_mcp(self, *, tool_alias: str) -> Any:
-            return FakeMCPFacade()
+    def custom_process_fn(completion_response: Any) -> list[ChatMessage]:
+        return [
+            ChatMessage.as_assistant(content="", tool_calls=[tool_call]),
+            ChatMessage.as_tool(content="THE TOOL RESPONSE CONTENT", tool_call_id="call-1"),
+        ]
 
-    class FakeMCPFacade:
-        tool_alias = "tools"
-        providers = ["tools"]
-        max_tool_call_turns = 3
-
-        def get_tool_schemas(self) -> list[dict[str, Any]]:
-            return [{"type": "function", "function": {"name": "lookup", "parameters": {}}}]
-
-        def has_tool_calls(self, completion_response: Any) -> bool:
-            return completion_response.choices[0].message.tool_calls is not None
-
-        def process_completion_response(self, completion_response: Any) -> list[ChatMessage]:
-            return [
-                ChatMessage.as_assistant(content="", tool_calls=[tool_call]),
-                ChatMessage.as_tool(content="THE TOOL RESPONSE CONTENT", tool_call_id="call-1"),
-            ]
-
-        def refuse_completion_response(self, completion_response: Any) -> list[ChatMessage]:
-            return []
+    facade = StubMCPFacade(process_fn=custom_process_fn)
+    registry = StubMCPRegistry(facade)
 
     response_idx = 0
 
-    def _completion(self: Any, messages: list[ChatMessage], **kwargs: Any) -> FakeResponse:
+    def _completion(self: Any, messages: list[ChatMessage], **kwargs: Any) -> StubResponse:
         nonlocal response_idx
         resp = responses[response_idx]
         response_idx += 1
@@ -909,7 +828,7 @@ def test_generate_trace_includes_tool_responses(
         model_config=stub_model_configs[0],
         secret_resolver=stub_secrets_resolver,
         model_provider_registry=stub_model_provider_registry,
-        mcp_registry=FakeMCPRegistry(),
+        mcp_registry=registry,
     )
 
     with patch.object(ModelFacade, "completion", new=_completion):
@@ -930,37 +849,26 @@ def test_generate_trace_includes_refusal_messages(
     tool_call = {"id": "call-1", "type": "function", "function": {"name": "lookup", "arguments": "{}"}}
 
     responses = [
-        FakeResponse(FakeMessage(content="", tool_calls=[tool_call])),  # Will be refused (max_turns=0)
-        FakeResponse(FakeMessage(content="answer without tools")),
+        StubResponse(StubMessage(content="", tool_calls=[tool_call])),  # Will be refused (max_turns=0)
+        StubResponse(StubMessage(content="answer without tools")),
     ]
 
-    class FakeMCPRegistry:
-        def get_mcp(self, *, tool_alias: str) -> Any:
-            return FakeMCPFacade()
+    def custom_refuse_fn(completion_response: Any) -> list[ChatMessage]:
+        return [
+            ChatMessage.as_assistant(content="", tool_calls=[tool_call]),
+            ChatMessage.as_tool(content="BUDGET_EXCEEDED_REFUSAL", tool_call_id="call-1"),
+        ]
 
-    class FakeMCPFacade:
-        tool_alias = "tools"
-        providers = ["tools"]
-        max_tool_call_turns = 0  # All tool calls refused
-
-        def get_tool_schemas(self) -> list[dict[str, Any]]:
-            return [{"type": "function", "function": {"name": "lookup", "parameters": {}}}]
-
-        def has_tool_calls(self, completion_response: Any) -> bool:
-            return completion_response.choices[0].message.tool_calls is not None
-
-        def process_completion_response(self, completion_response: Any) -> list[ChatMessage]:
-            return []
-
-        def refuse_completion_response(self, completion_response: Any) -> list[ChatMessage]:
-            return [
-                ChatMessage.as_assistant(content="", tool_calls=[tool_call]),
-                ChatMessage.as_tool(content="BUDGET_EXCEEDED_REFUSAL", tool_call_id="call-1"),
-            ]
+    facade = StubMCPFacade(
+        max_tool_call_turns=0,
+        process_fn=lambda _: [],
+        refuse_fn=custom_refuse_fn,
+    )
+    registry = StubMCPRegistry(facade)
 
     response_idx = 0
 
-    def _completion(self: Any, messages: list[ChatMessage], **kwargs: Any) -> FakeResponse:
+    def _completion(self: Any, messages: list[ChatMessage], **kwargs: Any) -> StubResponse:
         nonlocal response_idx
         resp = responses[response_idx]
         response_idx += 1
@@ -970,7 +878,7 @@ def test_generate_trace_includes_refusal_messages(
         model_config=stub_model_configs[0],
         secret_resolver=stub_secrets_resolver,
         model_provider_registry=stub_model_provider_registry,
-        mcp_registry=FakeMCPRegistry(),
+        mcp_registry=registry,
     )
 
     with patch.object(ModelFacade, "completion", new=_completion):
@@ -987,14 +895,14 @@ def test_generate_trace_preserves_reasoning_content(
     stub_model_provider_registry: Any,
 ) -> None:
     """Trace messages preserve reasoning_content field."""
-    response = FakeResponse(
-        FakeMessage(
+    response = StubResponse(
+        StubMessage(
             content="The answer is 42",
             reasoning_content="Let me think about this carefully...",
         )
     )
 
-    def _completion(self: Any, messages: list[ChatMessage], **kwargs: Any) -> FakeResponse:
+    def _completion(self: Any, messages: list[ChatMessage], **kwargs: Any) -> StubResponse:
         return response
 
     model = ModelFacade(
@@ -1023,36 +931,19 @@ def test_generate_tool_execution_error(
     stub_model_provider_registry: Any,
 ) -> None:
     """Handles MCP tool execution errors appropriately."""
-    from data_designer.engine.mcp.errors import MCPToolError
-
     tool_call = {"id": "call-1", "type": "function", "function": {"name": "lookup", "arguments": "{}"}}
 
-    responses = [FakeResponse(FakeMessage(content="", tool_calls=[tool_call]))]
+    responses = [StubResponse(StubMessage(content="", tool_calls=[tool_call]))]
 
-    class FakeMCPRegistry:
-        def get_mcp(self, *, tool_alias: str) -> Any:
-            return FakeMCPFacade()
+    def error_process_fn(completion_response: Any) -> list[ChatMessage]:
+        raise MCPToolError("Tool execution failed: Connection refused")
 
-    class FakeMCPFacade:
-        tool_alias = "tools"
-        providers = ["tools"]
-        max_tool_call_turns = 3
-
-        def get_tool_schemas(self) -> list[dict[str, Any]]:
-            return [{"type": "function", "function": {"name": "lookup", "parameters": {}}}]
-
-        def has_tool_calls(self, completion_response: Any) -> bool:
-            return completion_response.choices[0].message.tool_calls is not None
-
-        def process_completion_response(self, completion_response: Any) -> list[ChatMessage]:
-            raise MCPToolError("Tool execution failed: Connection refused")
-
-        def refuse_completion_response(self, completion_response: Any) -> list[ChatMessage]:
-            return []
+    facade = StubMCPFacade(process_fn=error_process_fn)
+    registry = StubMCPRegistry(facade)
 
     response_idx = 0
 
-    def _completion(self: Any, messages: list[ChatMessage], **kwargs: Any) -> FakeResponse:
+    def _completion(self: Any, messages: list[ChatMessage], **kwargs: Any) -> StubResponse:
         nonlocal response_idx
         resp = responses[response_idx]
         response_idx += 1
@@ -1062,7 +953,7 @@ def test_generate_tool_execution_error(
         model_config=stub_model_configs[0],
         secret_resolver=stub_secrets_resolver,
         model_provider_registry=stub_model_provider_registry,
-        mcp_registry=FakeMCPRegistry(),
+        mcp_registry=registry,
     )
 
     with patch.object(ModelFacade, "completion", new=_completion):
@@ -1076,37 +967,20 @@ def test_generate_tool_invalid_arguments(
     stub_model_provider_registry: Any,
 ) -> None:
     """Handles invalid tool arguments from LLM."""
-    from data_designer.engine.mcp.errors import MCPToolError
-
     # Tool call with invalid JSON arguments
     tool_call = {"id": "call-1", "type": "function", "function": {"name": "lookup", "arguments": "not valid json"}}
 
-    responses = [FakeResponse(FakeMessage(content="", tool_calls=[tool_call]))]
+    responses = [StubResponse(StubMessage(content="", tool_calls=[tool_call]))]
 
-    class FakeMCPRegistry:
-        def get_mcp(self, *, tool_alias: str) -> Any:
-            return FakeMCPFacade()
+    def error_process_fn(completion_response: Any) -> list[ChatMessage]:
+        raise MCPToolError("Invalid tool arguments for 'lookup': not valid json")
 
-    class FakeMCPFacade:
-        tool_alias = "tools"
-        providers = ["tools"]
-        max_tool_call_turns = 3
-
-        def get_tool_schemas(self) -> list[dict[str, Any]]:
-            return [{"type": "function", "function": {"name": "lookup", "parameters": {}}}]
-
-        def has_tool_calls(self, completion_response: Any) -> bool:
-            return completion_response.choices[0].message.tool_calls is not None
-
-        def process_completion_response(self, completion_response: Any) -> list[ChatMessage]:
-            raise MCPToolError("Invalid tool arguments for 'lookup': not valid json")
-
-        def refuse_completion_response(self, completion_response: Any) -> list[ChatMessage]:
-            return []
+    facade = StubMCPFacade(process_fn=error_process_fn)
+    registry = StubMCPRegistry(facade)
 
     response_idx = 0
 
-    def _completion(self: Any, messages: list[ChatMessage], **kwargs: Any) -> FakeResponse:
+    def _completion(self: Any, messages: list[ChatMessage], **kwargs: Any) -> StubResponse:
         nonlocal response_idx
         resp = responses[response_idx]
         response_idx += 1
@@ -1116,7 +990,7 @@ def test_generate_tool_invalid_arguments(
         model_config=stub_model_configs[0],
         secret_resolver=stub_secrets_resolver,
         model_provider_registry=stub_model_provider_registry,
-        mcp_registry=FakeMCPRegistry(),
+        mcp_registry=registry,
     )
 
     with patch.object(ModelFacade, "completion", new=_completion):

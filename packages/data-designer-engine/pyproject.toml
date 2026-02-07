@@ -1,6 +1,6 @@
 [project]
 name = "data-designer-engine"
-dynamic = ["version"]
+dynamic = ["version", "dependencies"]
 description = "Generation engine for DataDesigner synthetic data generation"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -18,9 +18,22 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 
+[build-system]
+requires = ["hatchling", "uv-dynamic-versioning>=0.7.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "uv-dynamic-versioning"
+
+[tool.uv-dynamic-versioning]
+vcs = "git"
+style = "pep440"
+bump = true
+
+[tool.hatch.metadata.hooks.uv-dynamic-versioning]
 dependencies = [
     "anyascii>=0.3.3,<1",
-    "data-designer-config",
+    "data-designer-config=={{ version }}",
     "duckdb>=1.1.3,<2",
     "faker>=20.1.0,<21",
     "httpx>=0.27.2,<1",
@@ -39,18 +52,6 @@ dependencies = [
     "sqlfluff>=3.2.0,<4",
     "tiktoken>=0.8.0,<1",
 ]
-
-[build-system]
-requires = ["hatchling", "hatch-vcs"]
-build-backend = "hatchling.build"
-
-[tool.hatch.version]
-source = "vcs"
-fallback-version = "0.1.0.dev0"
-raw-options = { root = "../.." }
-
-[tool.hatch.build.hooks.vcs]
-version-file = "src/data_designer/engine/_version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/data_designer"]

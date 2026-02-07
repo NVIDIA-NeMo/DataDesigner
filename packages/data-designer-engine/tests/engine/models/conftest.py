@@ -14,6 +14,7 @@ from data_designer.engine.model_provider import ModelProvider, ModelProviderRegi
 from data_designer.engine.models.factory import create_model_registry
 from data_designer.engine.models.registry import ModelRegistry
 from data_designer.engine.secret_resolver import SecretsFileResolver
+from data_designer.engine.testing import StubMCPFacade, StubMCPRegistry
 
 
 @pytest.fixture
@@ -73,3 +74,15 @@ def stub_model_registry(stub_model_configs, stub_secrets_resolver, stub_model_pr
         secret_resolver=stub_secrets_resolver,
         model_provider_registry=stub_model_provider_registry,
     )
+
+
+@pytest.fixture
+def stub_mcp_facade_for_model() -> StubMCPFacade:
+    """Default stub MCP facade with max_tool_call_turns=3."""
+    return StubMCPFacade()
+
+
+@pytest.fixture
+def stub_mcp_registry_for_model(stub_mcp_facade_for_model: StubMCPFacade) -> StubMCPRegistry:
+    """Default stub MCP registry."""
+    return StubMCPRegistry(stub_mcp_facade_for_model)

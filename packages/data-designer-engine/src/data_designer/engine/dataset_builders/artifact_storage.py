@@ -24,7 +24,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 BATCH_FILE_NAME_FORMAT = "batch_{batch_number:05d}.parquet"
-SDG_CONFIG_FILENAME = "sdg.json"
+SDG_CONFIG_FILENAME = "builder_config.json"
+METADATA_FILENAME = "metadata.json"
+FINAL_DATASET_FOLDER_NAME = "parquet-files"
+PROCESSORS_OUTPUTS_FOLDER_NAME = "processors-files"
 
 
 class BatchStage(StrEnum):
@@ -37,10 +40,10 @@ class BatchStage(StrEnum):
 class ArtifactStorage(BaseModel):
     artifact_path: Path | str
     dataset_name: str = "dataset"
-    final_dataset_folder_name: str = "parquet-files"
+    final_dataset_folder_name: str = FINAL_DATASET_FOLDER_NAME
     partial_results_folder_name: str = "tmp-partial-parquet-files"
     dropped_columns_folder_name: str = "dropped-columns-parquet-files"
-    processors_outputs_folder_name: str = "processors-files"
+    processors_outputs_folder_name: str = PROCESSORS_OUTPUTS_FOLDER_NAME
 
     @property
     def artifact_path_exists(self) -> bool:
@@ -72,7 +75,7 @@ class ArtifactStorage(BaseModel):
 
     @property
     def metadata_file_path(self) -> Path:
-        return self.base_dataset_path / "metadata.json"
+        return self.base_dataset_path / METADATA_FILENAME
 
     @property
     def partial_results_path(self) -> Path:
@@ -259,7 +262,7 @@ class ArtifactStorage(BaseModel):
         """
         self.mkdir_if_needed(self.base_dataset_path)
         with open(self.metadata_file_path, "w") as file:
-            json.dump(metadata, file, indent=4, sort_keys=True)
+            json.dump(metadata, file, indent=2, sort_keys=True)
         return self.metadata_file_path
 
     def update_metadata(self, updates: dict) -> Path:

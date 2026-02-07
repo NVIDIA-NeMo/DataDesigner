@@ -8,8 +8,8 @@ from typing import Annotated
 from pydantic import Field
 
 from data_designer.config.analysis.column_profilers import ColumnProfilerConfigT
-from data_designer.config.base import ExportableConfigBase
 from data_designer.config.column_types import ColumnConfigT
+from data_designer.config.exportable_config import ExportableConfigBase
 from data_designer.config.mcp import ToolConfig
 from data_designer.config.models import ModelConfig
 from data_designer.config.processors import ProcessorConfigT

@@ -4,8 +4,6 @@
 from __future__ import annotations
 
 import functools
-import importlib.metadata
-import json
 import logging
 import os
 import time
@@ -13,6 +11,7 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
+from data_designer.config.column_configs import CustomColumnConfig
 from data_designer.config.column_types import ColumnConfigT
 from data_designer.config.config_builder import BuilderConfig
 from data_designer.config.data_designer_config import DataDesignerConfig
@@ -22,6 +21,7 @@ from data_designer.config.processors import (
     ProcessorConfig,
     ProcessorType,
 )
+from data_designer.config.version import get_library_version
 from data_designer.engine.column_generators.generators.base import (
     ColumnGenerator,
     ColumnGeneratorWithModel,
@@ -57,7 +57,7 @@ DATA_DESIGNER_ASYNC_ENGINE = os.environ.get("DATA_DESIGNER_ASYNC_ENGINE", "0") =
 if DATA_DESIGNER_ASYNC_ENGINE:
     logger.info("⚡ DATA_DESIGNER_ASYNC_ENGINE is enabled — using async concurrency")
 
-_CLIENT_VERSION: str = importlib.metadata.version("data-designer-engine")
+_CLIENT_VERSION: str = get_library_version()
 
 
 class ColumnWiseDatasetBuilder:
@@ -124,10 +124,7 @@ class ColumnWiseDatasetBuilder:
             self.batch_manager.finish_batch(on_batch_complete)
         self.batch_manager.finish()
 
-        model_usage_stats = self._resource_provider.model_registry.get_model_usage_stats(
-            time.perf_counter() - start_time
-        )
-        logger.info(f"📊 Model usage summary:\n{json.dumps(model_usage_stats, indent=4)}")
+        self._resource_provider.model_registry.log_model_usage(time.perf_counter() - start_time)
 
         return self.artifact_storage.final_dataset_path
 
@@ -143,10 +140,7 @@ class ColumnWiseDatasetBuilder:
         dataset = self.batch_manager.get_current_batch(as_dataframe=True)
         self.batch_manager.reset()
 
-        model_usage_stats = self._resource_provider.model_registry.get_model_usage_stats(
-            time.perf_counter() - start_time
-        )
-        logger.info(f"📊 Model usage summary:\n{json.dumps(model_usage_stats, indent=4)}")
+        self._resource_provider.model_registry.log_model_usage(time.perf_counter() - start_time)
 
         return dataset
 
@@ -223,10 +217,15 @@ class ColumnWiseDatasetBuilder:
         self.batch_manager.update_records(df.to_dict(orient="records"))
 
     def _run_model_health_check_if_needed(self) -> None:
-        if any(column_type_is_model_generated(config.column_type) for config in self.single_column_configs):
-            self._resource_provider.model_registry.run_health_check(
-                list(set(config.model_alias for config in self.llm_generated_column_configs))
-            )
+        model_aliases: set[str] = set()
+        for config in self.single_column_configs:
+            if column_type_is_model_generated(config.column_type):
+                model_aliases.add(config.model_alias)
+            if isinstance(config, CustomColumnConfig) and config.model_aliases:
+                model_aliases.update(config.model_aliases)
+
+        if model_aliases:
+            self._resource_provider.model_registry.run_health_check(list(model_aliases))
 
     def _run_mcp_tool_check_if_needed(self) -> None:
         tool_aliases = sorted(
@@ -279,6 +278,9 @@ class ColumnWiseDatasetBuilder:
                 f"Generator {generator.name} is not a {GenerationStrategy.CELL_BY_CELL} "
                 "generator so concurrency through threads is not supported."
             )
+
+        if getattr(generator.config, "tool_alias", None):
+            logger.info("🛠️ Tool calling enabled")
 
         progress_tracker = ProgressTracker(
             total_records=self.batch_manager.num_records_batch,

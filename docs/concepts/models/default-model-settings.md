@@ -76,7 +76,7 @@ The following model configurations are automatically available when `OPENROUTER_
 
 Default settings work out of the box - no configuration needed! Simply create `DataDesigner` and `DataDesignerConfigBuilder` instances without any arguments, and reference the default model aliases in your column configurations.
 
-For a complete example showing how to use default model settings, see the **[Quick Start Guide](../../quick-start.md)**.
+For a complete example showing how to use default model settings, see the **[Getting Started](../../index.md)** page.
 
 ### How Default Model Providers and Configurations Work
 
