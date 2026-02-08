@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from prompt_toolkit import Application, prompt
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
@@ -20,6 +21,9 @@ from rich.padding import Padding
 from rich.panel import Panel
 
 from data_designer.config.utils.constants import RICH_CONSOLE_THEME, NordColor
+
+if TYPE_CHECKING:
+    from prompt_toolkit.key_binding import KeyPressEvent
 
 # Global padding configuration
 LEFT_PADDING = 2
@@ -126,24 +130,24 @@ def select_with_arrows(
 
     @kb.add("up")
     @kb.add("c-p")  # Ctrl+P
-    def _move_up(event) -> None:
+    def _move_up(event: KeyPressEvent) -> None:
         nonlocal selected_index
         selected_index = (selected_index - 1) % len(keys)
 
     @kb.add("down")
     @kb.add("c-n")  # Ctrl+N
-    def _move_down(event) -> None:
+    def _move_down(event: KeyPressEvent) -> None:
         nonlocal selected_index
         selected_index = (selected_index + 1) % len(keys)
 
     @kb.add("enter")
-    def _select(event) -> None:
+    def _select(event: KeyPressEvent) -> None:
         result["value"] = keys[selected_index]
         event.app.exit()
 
     @kb.add("escape")
     @kb.add("c-c")  # Ctrl+C
-    def _cancel(event) -> None:
+    def _cancel(event: KeyPressEvent) -> None:
         result["cancelled"] = True
         event.app.exit()
 
@@ -248,19 +252,19 @@ def select_multiple_with_arrows(
 
     @kb.add("up")
     @kb.add("c-p")  # Ctrl+P
-    def _move_up(event) -> None:
+    def _move_up(event: KeyPressEvent) -> None:
         nonlocal current_index
         current_index = (current_index - 1) % len(keys)
 
     @kb.add("down")
     @kb.add("c-n")  # Ctrl+N
-    def _move_down(event) -> None:
+    def _move_down(event: KeyPressEvent) -> None:
         nonlocal current_index
         current_index = (current_index + 1) % len(keys)
 
     @kb.add("c-h")  # Ctrl+H as alternative
     @kb.add(" ", eager=True)  # Space key - eager to capture immediately
-    def _toggle(event) -> None:
+    def _toggle(event: KeyPressEvent) -> None:
         key = keys[current_index]
         if key in selected_set:
             selected_set.remove(key)
@@ -268,7 +272,7 @@ def select_multiple_with_arrows(
             selected_set.add(key)
 
     @kb.add("enter")
-    def _confirm(event) -> None:
+    def _confirm(event: KeyPressEvent) -> None:
         if not allow_empty and not selected_set:
             # Don't allow empty selection if not permitted
             return
@@ -277,7 +281,7 @@ def select_multiple_with_arrows(
 
     @kb.add("escape")
     @kb.add("c-c")  # Ctrl+C
-    def _cancel(event) -> None:
+    def _cancel(event: KeyPressEvent) -> None:
         result["cancelled"] = True
         event.app.exit()
 
@@ -313,6 +317,61 @@ def select_multiple_with_arrows(
     except (KeyboardInterrupt, EOFError):
         print_warning("Cancelled")
         return None
+
+
+def wait_for_navigation_key() -> str:
+    """Wait for a single navigation keypress and return the action.
+
+    Uses prompt_toolkit Application for immediate keypress detection.
+    Returns: "n" for next, "p" for previous, "q" for quit.
+    """
+    result: dict[str, str] = {"action": "q"}
+
+    kb = KeyBindings()
+
+    @kb.add("n", eager=True)
+    @kb.add("enter", eager=True)
+    def _next(event: KeyPressEvent) -> None:
+        result["action"] = "n"
+        event.app.exit()
+
+    @kb.add("p", eager=True)
+    def _previous(event: KeyPressEvent) -> None:
+        result["action"] = "p"
+        event.app.exit()
+
+    @kb.add("q", eager=True)
+    @kb.add("escape", eager=True)
+    @kb.add("c-c", eager=True)
+    def _quit(event: KeyPressEvent) -> None:
+        result["action"] = "q"
+        event.app.exit()
+
+    hint_text = [("fg:#666666", "  n/Enter: next  |  p: previous  |  q: quit\n")]
+
+    app: Application[None] = Application(
+        layout=Layout(
+            HSplit(
+                [
+                    Window(
+                        content=FormattedTextControl(hint_text),
+                        dont_extend_height=True,
+                        always_hide_cursor=True,
+                    )
+                ]
+            )
+        ),
+        key_bindings=kb,
+        full_screen=False,
+        mouse_support=False,
+    )
+
+    try:
+        app.run()
+    except (KeyboardInterrupt, EOFError):
+        return "q"
+
+    return result["action"]
 
 
 def prompt_text_input(
