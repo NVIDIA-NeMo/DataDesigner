@@ -56,6 +56,12 @@ class SchemaTransformProcessor(WithJinja2UserTemplateRendering, Processor[Schema
                 batch_stage=BatchStage.PROCESSORS_OUTPUTS,
                 subfolder=self.config.name,
             )
+        else:
+            self.artifact_storage.write_parquet_file(
+                parquet_file_name=f"{self.config.name}.parquet",
+                dataframe=formatted_data,
+                batch_stage=BatchStage.PROCESSORS_OUTPUTS,
+            )
         return data
 
     def _transform(self, data: pd.DataFrame) -> pd.DataFrame:

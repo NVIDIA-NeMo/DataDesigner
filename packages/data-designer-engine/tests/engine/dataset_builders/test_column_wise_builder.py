@@ -273,7 +273,7 @@ def test_column_wise_dataset_builder_validate_column_configs(
 
 def test_column_wise_dataset_builder_initialize_processors(stub_column_wise_builder):
     processors = stub_column_wise_builder.processors
-    assert isinstance(processors, list)
+    assert isinstance(processors, tuple)
     assert len(processors) == 1
     assert processors[0].config.column_names == ["column_to_drop"]
 

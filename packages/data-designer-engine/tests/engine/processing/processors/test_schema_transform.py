@@ -178,14 +178,17 @@ def test_process_after_batch_with_mixed_special_characters(stub_processor: Schem
     assert output["text"] == 'She replied: "I\'m not sure about that\\nLet me think..."'
 
 
-def test_process_after_batch_preview_mode_does_not_write(
+def test_process_after_batch_preview_mode_writes_single_file(
     stub_processor: SchemaTransformProcessor, stub_sample_dataframe: pd.DataFrame
 ) -> None:
-    """In preview mode (current_batch_number=None), no parquet file is written."""
+    """In preview mode (current_batch_number=None), transformed output is written as a single file."""
+    stub_processor.artifact_storage.write_parquet_file = Mock()
     result = stub_processor.process_after_batch(stub_sample_dataframe, current_batch_number=None)
 
-    # Original dataframe should be returned (formatted data is artifact-only)
     pd.testing.assert_frame_equal(result, stub_sample_dataframe)
 
-    # No file should be written
     stub_processor.artifact_storage.write_batch_to_parquet_file.assert_not_called()
+    stub_processor.artifact_storage.write_parquet_file.assert_called_once()
+    call_args = stub_processor.artifact_storage.write_parquet_file.call_args
+    assert call_args.kwargs["parquet_file_name"] == "test_schema_transform.parquet"
+    assert call_args.kwargs["batch_stage"] == BatchStage.PROCESSORS_OUTPUTS
