@@ -22,6 +22,9 @@ Processors can run at four stages, determined by which callback methods they imp
 | Post-batch | After each batch completes | `process_after_batch()` | Drop columns, transform schema per batch |
 | Post-generation | Once, on final dataset after all batches | `postprocess()` | Deduplicate, aggregate statistics, final cleanup |
 
+!!! info "Full Schema Available in Every Batch"
+    Each batch carries the full dataset schema throughout generation. Column dropping and other schema changes happen post-generation, so all columns remain accessible to processors and generators during the build.
+
 A processor can implement any combination of these callbacks. The built-in processors use `process_after_batch()` by default.
 
 ## Processor Types

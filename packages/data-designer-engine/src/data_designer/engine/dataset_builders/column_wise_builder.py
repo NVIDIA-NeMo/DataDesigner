@@ -80,13 +80,11 @@ class ColumnWiseDatasetBuilder:
         return self._resource_provider.artifact_storage
 
     @property
-    def _processors(self) -> list[Processor]:
-        """Expose processors for test compatibility."""
+    def processors(self) -> list[Processor]:
         return self._processor_runner._processors
 
-    @_processors.setter
-    def _processors(self, processors: list[Processor]) -> None:
-        """Allow setting processors for test compatibility."""
+    def set_processor_runner(self, processors: list[Processor]) -> None:
+        """Replace the processor runner with a new one using the given processors."""
         self._processor_runner = ProcessorRunner(
             processors=processors,
             resource_provider=self._resource_provider,
@@ -125,6 +123,7 @@ class ColumnWiseDatasetBuilder:
         self.batch_manager.start(num_records=num_records, buffer_size=buffer_size)
         for batch_idx in range(self.batch_manager.num_batches):
             logger.info(f"⏳ Processing batch {batch_idx + 1} of {self.batch_manager.num_batches}")
+            # Note: pre-batch processing runs inside _run_batch, after seed columns are populated
             self._run_batch(generators, batch_mode="batch", group_id=group_id)
             df_batch = self.batch_manager.get_current_batch(as_dataframe=True)
             df_batch = self._processor_runner.run_post_batch(df_batch, current_batch_number=batch_idx)

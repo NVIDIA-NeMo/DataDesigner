@@ -222,7 +222,7 @@ def test_column_wise_dataset_builder_build_method_basic_flow(
     stub_batch_manager.iter_current_batch.return_value = [(0, {"test": "data"})]
 
     stub_column_wise_builder.batch_manager = stub_batch_manager
-    stub_column_wise_builder._processors = []  # No processors for basic flow test
+    stub_column_wise_builder.set_processor_runner([])  # No processors for basic flow test
 
     result_path = stub_column_wise_builder.build(num_records=100)
 
@@ -272,7 +272,7 @@ def test_column_wise_dataset_builder_validate_column_configs(
 
 
 def test_column_wise_dataset_builder_initialize_processors(stub_column_wise_builder):
-    processors = stub_column_wise_builder._processors
+    processors = stub_column_wise_builder.processors
     assert isinstance(processors, list)
     assert len(processors) == 1
     assert processors[0].config.column_names == ["column_to_drop"]
@@ -432,7 +432,7 @@ def test_run_pre_generation_processors_filters_seed_data(stub_resource_provider,
     mock_processor = create_mock_processor("filter_processor", ["preprocess"])
     mock_processor.preprocess.side_effect = lambda df: df[df["seed_id"] > 2].reset_index(drop=True)
 
-    builder_with_seed._processors = [mock_processor]
+    builder_with_seed.set_processor_runner([mock_processor])
     builder_with_seed._processor_runner.run_preprocess()
 
     mock_processor.preprocess.assert_called_once()
@@ -462,7 +462,7 @@ def test_run_post_generation_processors_modifies_final_dataset(stub_resource_pro
         data_designer_config=config_builder.build(),
         resource_provider=stub_resource_provider,
     )
-    builder._processors = [mock_processor]
+    builder.set_processor_runner([mock_processor])
 
     builder._processor_runner.run_postprocess()
 
@@ -485,7 +485,7 @@ def test_run_pre_generation_processors_skips_when_no_seed_reader(stub_resource_p
         data_designer_config=config_builder.build(),
         resource_provider=stub_resource_provider,
     )
-    builder._processors = [mock_processor]
+    builder.set_processor_runner([mock_processor])
 
     builder._processor_runner.run_preprocess()
 
@@ -504,7 +504,7 @@ def test_all_processor_stages_run_in_order(builder_with_seed, mode):
     mock_processor.process_after_batch.side_effect = lambda df, **kw: (call_order.append("process_after_batch"), df)[1]
     mock_processor.postprocess.side_effect = lambda df: (call_order.append("postprocess"), df)[1]
 
-    builder_with_seed._processors = [mock_processor]
+    builder_with_seed.set_processor_runner([mock_processor])
 
     if mode == "preview":
         raw_dataset = builder_with_seed.build_preview(num_records=3)
@@ -528,7 +528,7 @@ def test_processor_exception_in_preprocess_raises_error(builder_with_seed):
     mock_processor = create_mock_processor("failing_processor", ["preprocess"])
     mock_processor.preprocess.side_effect = ValueError("Preprocessing failed")
 
-    builder_with_seed._processors = [mock_processor]
+    builder_with_seed.set_processor_runner([mock_processor])
 
     with pytest.raises(DatasetProcessingError, match="Failed in preprocess"):
         builder_with_seed._processor_runner.run_preprocess()
@@ -546,7 +546,7 @@ def test_processor_exception_in_process_after_batch_raises_error(stub_resource_p
         data_designer_config=config_builder.build(),
         resource_provider=stub_resource_provider,
     )
-    builder._processors = [mock_processor]
+    builder.set_processor_runner([mock_processor])
 
     with pytest.raises(DatasetProcessingError, match="Failed in process_after_batch"):
         builder._processor_runner.run_post_batch(pd.DataFrame({"id": [1, 2, 3]}), current_batch_number=0)
@@ -556,7 +556,7 @@ def test_processor_with_no_implemented_stages_is_skipped(builder_with_seed):
     """Test that a processor implementing no stages doesn't cause errors."""
     mock_processor = create_mock_processor("noop_processor", [])
 
-    builder_with_seed._processors = [mock_processor]
+    builder_with_seed.set_processor_runner([mock_processor])
 
     # Should complete without errors
     result = builder_with_seed.build_preview(num_records=3)
@@ -581,7 +581,7 @@ def test_multiple_processors_run_in_definition_order(builder_with_seed):
     processor_c = create_mock_processor("processor_c", ["preprocess"])
     processor_c.preprocess.side_effect = lambda df: (call_order.append("c"), df)[1]
 
-    builder_with_seed._processors = [processor_a, processor_b, processor_c]
+    builder_with_seed.set_processor_runner([processor_a, processor_b, processor_c])
     builder_with_seed._processor_runner.run_preprocess()
 
     assert call_order == ["a", "b", "c"]
@@ -598,7 +598,7 @@ def test_process_preview_with_empty_dataframe(stub_resource_provider, stub_model
         data_designer_config=config_builder.build(),
         resource_provider=stub_resource_provider,
     )
-    builder._processors = [mock_processor]
+    builder.set_processor_runner([mock_processor])
 
     empty_df = pd.DataFrame()
     result = builder.process_preview(empty_df)
