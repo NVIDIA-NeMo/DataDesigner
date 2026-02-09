@@ -120,6 +120,10 @@ class ModelRegistry:
                     f"turns={tool_usage['total_tool_call_turns']}"
                 )
 
+            if image_usage := stats.get("image_usage"):
+                total_images = image_usage["total_images"]
+                logger.info(f"{LOG_INDENT}images: total={total_images}")
+
             if model_index < len(sorted_model_names) - 1:
                 logger.info(LOG_INDENT.rstrip())
 

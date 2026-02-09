@@ -16,6 +16,7 @@ from data_designer.config.utils.image_helpers import (
     extract_base64_from_data_uri,
     get_supported_image_extensions,
     is_base64_image,
+    is_image_diffusion_model,
     is_image_path,
     is_image_url,
     load_image_path_to_base64,
@@ -142,6 +143,32 @@ def test_is_image_url_without_image_extension():
 
 def test_is_image_url_non_http():
     assert is_image_url("ftp://example.com/image.png") is False
+
+
+# Tests for is_image_diffusion_model
+
+
+def test_is_image_diffusion_model_dall_e():
+    assert is_image_diffusion_model("dall-e-3") is True
+    assert is_image_diffusion_model("DALL-E-2") is True
+    assert is_image_diffusion_model("openai/dalle-2") is True
+
+
+def test_is_image_diffusion_model_stable_diffusion():
+    assert is_image_diffusion_model("stable-diffusion-xl") is True
+    assert is_image_diffusion_model("sd-2.1") is True
+    assert is_image_diffusion_model("sd_1.5") is True
+
+
+def test_is_image_diffusion_model_imagen():
+    assert is_image_diffusion_model("imagen-3") is True
+    assert is_image_diffusion_model("google/imagen") is True
+
+
+def test_is_image_diffusion_model_chat_completion_image_models():
+    assert is_image_diffusion_model("gemini-3-pro-image-preview") is False
+    assert is_image_diffusion_model("gpt-5-image") is False
+    assert is_image_diffusion_model("flux.2-pro") is False
 
 
 # Tests for validate_image

@@ -989,3 +989,150 @@ def test_generate_tool_invalid_arguments(
     with patch.object(ModelFacade, "completion", new=_completion):
         with pytest.raises(MCPToolError, match="Invalid tool arguments"):
             model.generate(prompt="question", parser=lambda x: x, tool_alias="tools")
+
+
+# =============================================================================
+# Image generation tests
+# =============================================================================
+
+
+@patch("data_designer.engine.models.facade.CustomRouter.image_generation", autospec=True)
+def test_generate_image_diffusion_tracks_image_usage(
+    mock_image_generation: Any,
+    stub_model_facade: ModelFacade,
+) -> None:
+    """Test that generate_image tracks image usage for diffusion models."""
+    from litellm.types.utils import ImageObject, ImageResponse
+
+    # Mock response with 3 images
+    mock_response = ImageResponse(
+        data=[
+            ImageObject(b64_json="image1_base64"),
+            ImageObject(b64_json="image2_base64"),
+            ImageObject(b64_json="image3_base64"),
+        ]
+    )
+    mock_image_generation.return_value = mock_response
+
+    # Verify initial state
+    assert stub_model_facade.usage_stats.image_usage.total_images == 0
+
+    # Generate images
+    with patch("data_designer.engine.models.facade.is_image_diffusion_model", return_value=True):
+        images = stub_model_facade.generate_image(prompt="test prompt", n=3)
+
+    # Verify results
+    assert len(images) == 3
+    assert images == ["image1_base64", "image2_base64", "image3_base64"]
+
+    # Verify image usage was tracked
+    assert stub_model_facade.usage_stats.image_usage.total_images == 3
+    assert stub_model_facade.usage_stats.image_usage.has_usage is True
+
+
+@patch("data_designer.engine.models.facade.ModelFacade.completion", autospec=True)
+def test_generate_image_chat_completion_tracks_image_usage(
+    mock_completion: Any,
+    stub_model_facade: ModelFacade,
+) -> None:
+    """Test that generate_image tracks image usage for chat completion models."""
+    from litellm.types.utils import Choices, ImageURLListItem, Message, ModelResponse
+
+    # Mock response with images attribute (Message requires type and index per ImageURLListItem)
+    mock_message = Message(
+        role="assistant",
+        content="",
+        images=[
+            ImageURLListItem(type="image_url", image_url={"url": "data:image/png;base64,image1"}, index=0),
+            ImageURLListItem(type="image_url", image_url={"url": "data:image/png;base64,image2"}, index=1),
+        ],
+    )
+    mock_response = ModelResponse(choices=[Choices(message=mock_message)])
+    mock_completion.return_value = mock_response
+
+    # Verify initial state
+    assert stub_model_facade.usage_stats.image_usage.total_images == 0
+
+    # Generate images
+    with patch("data_designer.engine.models.facade.is_image_diffusion_model", return_value=False):
+        images = stub_model_facade.generate_image(prompt="test prompt")
+
+    # Verify results
+    assert len(images) == 2
+    assert images == ["image1", "image2"]
+
+    # Verify image usage was tracked
+    assert stub_model_facade.usage_stats.image_usage.total_images == 2
+    assert stub_model_facade.usage_stats.image_usage.has_usage is True
+
+
+@patch("data_designer.engine.models.facade.CustomRouter.image_generation", autospec=True)
+def test_generate_image_skip_usage_tracking(
+    mock_image_generation: Any,
+    stub_model_facade: ModelFacade,
+) -> None:
+    """Test that generate_image respects skip_usage_tracking flag."""
+    from litellm.types.utils import ImageObject, ImageResponse
+
+    mock_response = ImageResponse(
+        data=[
+            ImageObject(b64_json="image1_base64"),
+            ImageObject(b64_json="image2_base64"),
+        ]
+    )
+    mock_image_generation.return_value = mock_response
+
+    # Verify initial state
+    assert stub_model_facade.usage_stats.image_usage.total_images == 0
+
+    # Generate images with skip_usage_tracking=True
+    with patch("data_designer.engine.models.facade.is_image_diffusion_model", return_value=True):
+        images = stub_model_facade.generate_image(prompt="test prompt", skip_usage_tracking=True)
+
+    # Verify results
+    assert len(images) == 2
+
+    # Verify image usage was NOT tracked
+    assert stub_model_facade.usage_stats.image_usage.total_images == 0
+    assert stub_model_facade.usage_stats.image_usage.has_usage is False
+
+
+@patch("data_designer.engine.models.facade.CustomRouter.image_generation", autospec=True)
+def test_generate_image_accumulates_usage(
+    mock_image_generation: Any,
+    stub_model_facade: ModelFacade,
+) -> None:
+    """Test that generate_image accumulates image usage across multiple calls."""
+    from litellm.types.utils import ImageObject, ImageResponse
+
+    # First call - 2 images
+    mock_response1 = ImageResponse(
+        data=[
+            ImageObject(b64_json="image1"),
+            ImageObject(b64_json="image2"),
+        ]
+    )
+    # Second call - 3 images
+    mock_response2 = ImageResponse(
+        data=[
+            ImageObject(b64_json="image3"),
+            ImageObject(b64_json="image4"),
+            ImageObject(b64_json="image5"),
+        ]
+    )
+    mock_image_generation.side_effect = [mock_response1, mock_response2]
+
+    # Verify initial state
+    assert stub_model_facade.usage_stats.image_usage.total_images == 0
+
+    # First generation
+    with patch("data_designer.engine.models.facade.is_image_diffusion_model", return_value=True):
+        images1 = stub_model_facade.generate_image(prompt="test1")
+        assert len(images1) == 2
+        assert stub_model_facade.usage_stats.image_usage.total_images == 2
+
+        # Second generation
+        images2 = stub_model_facade.generate_image(prompt="test2")
+        assert len(images2) == 3
+        # Usage should accumulate
+        assert stub_model_facade.usage_stats.image_usage.total_images == 5
