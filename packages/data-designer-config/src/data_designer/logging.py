@@ -179,4 +179,5 @@ _PROGRESS_STYLES: list[list[str]] = [
     ["🌑", "🌘", "🌗", "🌖", "🌕"],  # Moon phases
     ["🌧️", "🌦️", "⛅", "🌤️", "☀️"],  # Weather (storm to sun)
     ["🥚", "🐣", "🐥", "🐤", "🐔"],  # Hatching (egg to chicken)
+    ["🐱", "😺", "😸", "😼", "🦁"],  # Kitten to lion
 ]
