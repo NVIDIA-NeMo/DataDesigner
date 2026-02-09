@@ -93,7 +93,7 @@ def _load_from_python_module(path: Path) -> DataDesignerConfigBuilder:
         ConfigLoadError: If the module cannot be loaded, doesn't define the
             expected function, or the function returns an invalid type.
     """
-    module_name = path.stem
+    module_name = f"_dd_config_{path.resolve().as_posix().replace('/', '_').replace('.', '_')}"
 
     spec = importlib.util.spec_from_file_location(module_name, path)
     if spec is None or spec.loader is None:
@@ -102,11 +102,20 @@ def _load_from_python_module(path: Path) -> DataDesignerConfigBuilder:
     module = importlib.util.module_from_spec(spec)
     sys.modules[module_name] = module
 
+    # Add the config's parent directory to sys.path so sibling imports work
+    parent_dir = str(path.resolve().parent)
+    prepended_path = parent_dir not in sys.path
+    if prepended_path:
+        sys.path.insert(0, parent_dir)
+
     try:
         spec.loader.exec_module(module)
     except Exception as e:
         sys.modules.pop(module_name, None)
         raise ConfigLoadError(f"Failed to execute Python module '{path}': {e}") from e
+    finally:
+        if prepended_path and parent_dir in sys.path:
+            sys.path.remove(parent_dir)
 
     if not hasattr(module, LOAD_CONFIG_BUILDER_FUNC_NAME):
         sys.modules.pop(module_name, None)

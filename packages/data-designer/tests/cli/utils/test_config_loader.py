@@ -141,6 +141,48 @@ def test_load_config_builder_python_module_not_callable(tmp_path: Path) -> None:
         load_config_builder(str(py_file))
 
 
+def test_load_config_builder_python_module_sibling_import(tmp_path: Path) -> None:
+    """Test that a Python config can import sibling modules in the same directory."""
+    helper_file = tmp_path / "helpers.py"
+    helper_file.write_text("DATASET_NAME = 'my_dataset'\n")
+
+    py_file = tmp_path / "my_config.py"
+    py_file.write_text(
+        "from unittest.mock import MagicMock\n"
+        "from data_designer.config.config_builder import DataDesignerConfigBuilder\n"
+        "from helpers import DATASET_NAME\n\n"
+        "def load_config_builder():\n"
+        "    builder = MagicMock(spec=DataDesignerConfigBuilder)\n"
+        "    builder._dataset_name = DATASET_NAME\n"
+        "    return builder\n"
+    )
+
+    result = load_config_builder(str(py_file))
+
+    assert isinstance(result, DataDesignerConfigBuilder)  # MagicMock with spec passes this
+    assert result._dataset_name == "my_dataset"
+
+
+def test_load_config_builder_python_module_cleans_sys_path(tmp_path: Path) -> None:
+    """Test that the config's parent directory is removed from sys.path after loading."""
+    import sys
+
+    py_file = tmp_path / "clean_path_config.py"
+    py_file.write_text(
+        "from unittest.mock import MagicMock\n"
+        "from data_designer.config.config_builder import DataDesignerConfigBuilder\n\n"
+        "def load_config_builder():\n"
+        "    return MagicMock(spec=DataDesignerConfigBuilder)\n"
+    )
+
+    parent_dir = str(tmp_path.resolve())
+    assert parent_dir not in sys.path
+
+    load_config_builder(str(py_file))
+
+    assert parent_dir not in sys.path
+
+
 @patch("data_designer.cli.utils.config_loader.DataDesignerConfigBuilder.from_config")
 def test_load_config_builder_invalid_yaml(mock_from_config: MagicMock, tmp_path: Path) -> None:
     """Test that a malformed YAML file raises ConfigLoadError."""
