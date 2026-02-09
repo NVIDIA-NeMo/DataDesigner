@@ -507,6 +507,8 @@ When working with column configurations, understand these key types:
 - **`ExpressionColumnConfig`**: Expression-based derived columns (Python eval or Jinja2)
 - **`ValidationColumnConfig`**: Validation results (Python, SQL, Code, Remote validators)
 - **`SeedDatasetColumnConfig`**: Data from seed datasets
+- **`EmbeddingColumnConfig`**: Embedding generation for text columns using a specified model
+- **`CustomColumnConfig`**: Custom user-defined column generators via `@custom_column_generator` decorator
 
 See [packages/data-designer-config/src/data_designer/config/column_configs.py](packages/data-designer-config/src/data_designer/config/column_configs.py) for detailed schemas.
 
