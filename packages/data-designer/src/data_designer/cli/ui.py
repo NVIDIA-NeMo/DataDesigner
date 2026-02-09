@@ -347,7 +347,7 @@ def wait_for_navigation_key() -> str:
         result["action"] = "q"
         event.app.exit()
 
-    hint_text = [("fg:#666666", "  n/Enter: next  |  p: previous  |  q: quit\n")]
+    hint_text = [("fg:#666666", "  n/enter: next  |  p: previous  |  q: quit\n")]
 
     app: Application[None] = Application(
         layout=Layout(

@@ -255,7 +255,7 @@ def test_preview_command_tty_multiple_records_uses_interactive(
 
 @patch("data_designer.cli.commands.preview.wait_for_navigation_key", side_effect=["n", "n", "q"])
 def test_browse_interactively_enter_advances(mock_wait: MagicMock) -> None:
-    """Test pressing n/Enter advances to the next record."""
+    """Test pressing n/enter advances to the next record."""
     mock_results = _make_mock_results(5)
 
     _browse_records_interactively(mock_results, 5)

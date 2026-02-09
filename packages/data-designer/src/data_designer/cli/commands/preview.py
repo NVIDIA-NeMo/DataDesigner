@@ -26,7 +26,7 @@ def _browse_records_interactively(results: PreviewResults, total: int) -> None:
     """Interactively browse records with single-keypress navigation.
 
     Shows the first record immediately, then waits for navigation keys.
-    Controls: n/Enter=next, p=previous, q/Escape/Ctrl+C=quit.
+    Controls: n/enter=next, p=previous, q/Escape/Ctrl+C=quit.
     Navigation wraps around at both ends.
     """
     current_index = 0
