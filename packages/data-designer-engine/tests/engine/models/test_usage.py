@@ -218,6 +218,28 @@ def test_model_usage_stats_with_image_usage() -> None:
     assert usage_stats["image_usage"] == {"total_images": 5}
 
 
+def test_model_usage_stats_has_usage_any_of() -> None:
+    """Test that has_usage is True when any of token, request, or image usage is present."""
+    # Only token usage
+    stats = ModelUsageStats()
+    stats.extend(token_usage=TokenUsageStats(input_tokens=1, output_tokens=0))
+    assert stats.has_usage is True
+
+    # Only request usage (e.g. diffusion API without token counts)
+    stats = ModelUsageStats()
+    stats.extend(request_usage=RequestUsageStats(successful_requests=1, failed_requests=0))
+    assert stats.has_usage is True
+
+    # Only image usage
+    stats = ModelUsageStats()
+    stats.extend(image_usage=ImageUsageStats(total_images=2))
+    assert stats.has_usage is True
+
+    # None of the three
+    stats = ModelUsageStats()
+    assert stats.has_usage is False
+
+
 def test_model_usage_stats_exclude_unused_stats() -> None:
     """Test that ModelUsageStats excludes tool_usage and image_usage when they have no usage."""
     model_usage_stats = ModelUsageStats()

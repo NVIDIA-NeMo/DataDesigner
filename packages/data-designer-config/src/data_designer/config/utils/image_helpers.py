@@ -23,8 +23,8 @@ IMAGE_FORMAT_MAGIC_BYTES = {
     # WEBP uses RIFF header - handled separately
 }
 
-# Patterns for detecting diffusion-based image generation models (DALL-E, Stable Diffusion, Imagen, etc.)
-_IMAGE_DIFFUSION_MODEL_PATTERNS = (
+# Patterns for diffusion-based image models only (use image_generation API).
+IMAGE_DIFFUSION_MODEL_PATTERNS = (
     "dall-e",
     "dalle",
     "stable-diffusion",
@@ -37,8 +37,7 @@ _IMAGE_DIFFUSION_MODEL_PATTERNS = (
 def is_image_diffusion_model(model_name: str) -> bool:
     """Return True if the model is a diffusion-based image generation model.
 
-    Diffusion models use the image_generation API (e.g. DALL-E, Stable Diffusion, Imagen).
-    All other image models are assumed to use the chat/completions API.
+
 
     Args:
         model_name: Model name or identifier (e.g. from provider).
@@ -46,7 +45,7 @@ def is_image_diffusion_model(model_name: str) -> bool:
     Returns:
         True if the model is detected as diffusion-based, False otherwise.
     """
-    return any(pattern in model_name.lower() for pattern in _IMAGE_DIFFUSION_MODEL_PATTERNS)
+    return any(pattern in model_name.lower() for pattern in IMAGE_DIFFUSION_MODEL_PATTERNS)
 
 
 def extract_base64_from_data_uri(data: str) -> str:

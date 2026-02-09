@@ -91,7 +91,7 @@ class ModelUsageStats(BaseModel):
 
     @property
     def has_usage(self) -> bool:
-        return self.token_usage.has_usage and self.request_usage.has_usage
+        return self.token_usage.has_usage or self.request_usage.has_usage or self.image_usage.has_usage
 
     def extend(
         self,
