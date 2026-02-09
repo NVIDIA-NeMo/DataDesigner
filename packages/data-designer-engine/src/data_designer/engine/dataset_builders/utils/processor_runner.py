@@ -98,11 +98,8 @@ class ProcessorRunner:
         original_len = len(df)
         df = self._run_stage(df, ProcessorStage.PRE_BATCH)
         if len(df) != original_len:
-            logger.warning(
-                f"⚠️ PRE_BATCH processors changed row count from {original_len} to {len(df)}. "
-                "This may cause unexpected behavior in downstream generators."
-            )
-        batch_manager.update_records(df.to_dict(orient="records"))
+            logger.info(f"ℹ️ PRE_BATCH processors changed row count from {original_len} to {len(df)}.")
+        batch_manager.replace_records(df.to_dict(orient="records"))
 
     def run_post_batch(self, df: pd.DataFrame, current_batch_number: int | None) -> pd.DataFrame:
         """Run process_after_batch() on processors that implement it."""
