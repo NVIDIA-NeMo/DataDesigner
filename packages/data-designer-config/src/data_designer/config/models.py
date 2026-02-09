@@ -425,21 +425,7 @@ class EmbeddingInferenceParams(BaseInferenceParams):
 class ImageInferenceParams(BaseInferenceParams):
     """Configuration for image generation models.
 
-    Works for all image generation models. The API type is automatically detected
-    based on the model name:
-    - Diffusion models (DALL-E, Stable Diffusion, Imagen, etc.) use image_generation API
-    - All other models use chat/completions API (default)
-
-    Image storage behavior:
-    - Create mode: Images saved to disk with UUID filenames, paths stored in dataframe
-    - Preview mode: Images stored as base64 directly in dataframe
-
-    Common parameters like quality and size are provided as optional fields.
-    For model-specific parameters (including n for number of images), use the `extra_body`
-    field inherited from BaseInferenceParams.
-
-    If the API returns multiple images (either from prompt or API parameters), all images
-    will be stored as a list in the dataframe.
+    Works for both diffusion and autoregressive image generation models. Use extra_body for model-specific parameters.
 
     Attributes:
         generation_type: Type of generation, always "image" for this class.
@@ -454,22 +440,14 @@ class ImageInferenceParams(BaseInferenceParams):
             size="1024x1024"
         )
 
-        # Generate multiple images using extra_body
-        dd.ImageInferenceParams(
-            quality="hd",
-            size="1024x1024",
-            extra_body={"n": 3}  # Request 3 images from API
-        )
-
         # With model-specific params via extra_body
         dd.ImageInferenceParams(
-            quality="hd",
-            size="1024x1024",
+            quality="auto",
             extra_body={
                 "generationConfig": {
                     "imageConfig": {
                         "aspectRatio": "1:1",
-                        "negativePrompt": "blurry, low quality"
+                        "imageSize": "1024"
                     }
                 }
             }

@@ -37,8 +37,6 @@ IMAGE_DIFFUSION_MODEL_PATTERNS = (
 def is_image_diffusion_model(model_name: str) -> bool:
     """Return True if the model is a diffusion-based image generation model.
 
-
-
     Args:
         model_name: Model name or identifier (e.g. from provider).
 

@@ -1,11 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from typing import Any
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
 
 import pytest
-from litellm.types.utils import Choices, EmbeddingResponse, Message, ModelResponse
 
 from data_designer.engine.mcp.errors import MCPConfigurationError, MCPToolError
 from data_designer.engine.models.errors import ModelGenerationValidationFailureError
@@ -13,6 +14,10 @@ from data_designer.engine.models.facade import ModelFacade
 from data_designer.engine.models.parsers.errors import ParserException
 from data_designer.engine.models.utils import ChatMessage
 from data_designer.engine.testing import StubMCPFacade, StubMCPRegistry, StubMessage, StubResponse
+from data_designer.lazy_heavy_imports import litellm
+
+if TYPE_CHECKING:
+    import litellm
 
 
 def mock_oai_response_object(response_text: str) -> StubResponse:
@@ -35,12 +40,14 @@ def stub_completion_messages() -> list[ChatMessage]:
 
 @pytest.fixture
 def stub_expected_completion_response():
-    return ModelResponse(choices=Choices(message=Message(content="Test response")))
+    return litellm.types.utils.ModelResponse(
+        choices=litellm.types.utils.Choices(message=litellm.types.utils.Message(content="Test response"))
+    )
 
 
 @pytest.fixture
 def stub_expected_embedding_response():
-    return EmbeddingResponse(data=[{"embedding": [0.1, 0.2, 0.3]}] * 2)
+    return litellm.types.utils.EmbeddingResponse(data=[{"embedding": [0.1, 0.2, 0.3]}] * 2)
 
 
 @pytest.mark.parametrize(
@@ -106,9 +113,11 @@ def test_generate_with_system_prompt(
     # Capture messages at call time since they get mutated after the call
     captured_messages = []
 
-    def capture_and_return(*args: Any, **kwargs: Any) -> ModelResponse:
+    def capture_and_return(*args: Any, **kwargs: Any) -> litellm.types.utils.ModelResponse:
         captured_messages.append(list(args[1]))  # Copy the messages list
-        return ModelResponse(choices=Choices(message=Message(content="Hello!")))
+        return litellm.types.utils.ModelResponse(
+            choices=litellm.types.utils.Choices(message=litellm.types.utils.Message(content="Hello!"))
+        )
 
     mock_completion.side_effect = capture_and_return
 
@@ -166,7 +175,7 @@ def test_completion_success(
     stub_completion_messages: list[ChatMessage],
     stub_model_configs: Any,
     stub_model_facade: ModelFacade,
-    stub_expected_completion_response: ModelResponse,
+    stub_expected_completion_response: litellm.types.utils.ModelResponse,
     skip_usage_tracking: bool,
 ) -> None:
     mock_router_completion.side_effect = lambda self, model, messages, **kwargs: stub_expected_completion_response
@@ -199,11 +208,13 @@ def test_completion_with_kwargs(
     stub_completion_messages: list[ChatMessage],
     stub_model_configs: Any,
     stub_model_facade: ModelFacade,
-    stub_expected_completion_response: ModelResponse,
+    stub_expected_completion_response: litellm.types.utils.ModelResponse,
 ) -> None:
     captured_kwargs = {}
 
-    def mock_completion(self: Any, model: str, messages: list[dict[str, Any]], **kwargs: Any) -> ModelResponse:
+    def mock_completion(
+        self: Any, model: str, messages: list[dict[str, Any]], **kwargs: Any
+    ) -> litellm.types.utils.ModelResponse:
         captured_kwargs.update(kwargs)
         return stub_expected_completion_response
 
@@ -1002,14 +1013,12 @@ def test_generate_image_diffusion_tracks_image_usage(
     stub_model_facade: ModelFacade,
 ) -> None:
     """Test that generate_image tracks image usage for diffusion models."""
-    from litellm.types.utils import ImageObject, ImageResponse
-
     # Mock response with 3 images
-    mock_response = ImageResponse(
+    mock_response = litellm.types.utils.ImageResponse(
         data=[
-            ImageObject(b64_json="image1_base64"),
-            ImageObject(b64_json="image2_base64"),
-            ImageObject(b64_json="image3_base64"),
+            litellm.types.utils.ImageObject(b64_json="image1_base64"),
+            litellm.types.utils.ImageObject(b64_json="image2_base64"),
+            litellm.types.utils.ImageObject(b64_json="image3_base64"),
         ]
     )
     mock_image_generation.return_value = mock_response
@@ -1036,18 +1045,20 @@ def test_generate_image_chat_completion_tracks_image_usage(
     stub_model_facade: ModelFacade,
 ) -> None:
     """Test that generate_image tracks image usage for chat completion models."""
-    from litellm.types.utils import Choices, ImageURLListItem, Message, ModelResponse
-
     # Mock response with images attribute (Message requires type and index per ImageURLListItem)
-    mock_message = Message(
+    mock_message = litellm.types.utils.Message(
         role="assistant",
         content="",
         images=[
-            ImageURLListItem(type="image_url", image_url={"url": "data:image/png;base64,image1"}, index=0),
-            ImageURLListItem(type="image_url", image_url={"url": "data:image/png;base64,image2"}, index=1),
+            litellm.types.utils.ImageURLListItem(
+                type="image_url", image_url={"url": "data:image/png;base64,image1"}, index=0
+            ),
+            litellm.types.utils.ImageURLListItem(
+                type="image_url", image_url={"url": "data:image/png;base64,image2"}, index=1
+            ),
         ],
     )
-    mock_response = ModelResponse(choices=[Choices(message=mock_message)])
+    mock_response = litellm.types.utils.ModelResponse(choices=[litellm.types.utils.Choices(message=mock_message)])
     mock_completion.return_value = mock_response
 
     # Verify initial state
@@ -1072,12 +1083,10 @@ def test_generate_image_skip_usage_tracking(
     stub_model_facade: ModelFacade,
 ) -> None:
     """Test that generate_image respects skip_usage_tracking flag."""
-    from litellm.types.utils import ImageObject, ImageResponse
-
-    mock_response = ImageResponse(
+    mock_response = litellm.types.utils.ImageResponse(
         data=[
-            ImageObject(b64_json="image1_base64"),
-            ImageObject(b64_json="image2_base64"),
+            litellm.types.utils.ImageObject(b64_json="image1_base64"),
+            litellm.types.utils.ImageObject(b64_json="image2_base64"),
         ]
     )
     mock_image_generation.return_value = mock_response
@@ -1103,21 +1112,19 @@ def test_generate_image_accumulates_usage(
     stub_model_facade: ModelFacade,
 ) -> None:
     """Test that generate_image accumulates image usage across multiple calls."""
-    from litellm.types.utils import ImageObject, ImageResponse
-
     # First call - 2 images
-    mock_response1 = ImageResponse(
+    mock_response1 = litellm.types.utils.ImageResponse(
         data=[
-            ImageObject(b64_json="image1"),
-            ImageObject(b64_json="image2"),
+            litellm.types.utils.ImageObject(b64_json="image1"),
+            litellm.types.utils.ImageObject(b64_json="image2"),
         ]
     )
     # Second call - 3 images
-    mock_response2 = ImageResponse(
+    mock_response2 = litellm.types.utils.ImageResponse(
         data=[
-            ImageObject(b64_json="image3"),
-            ImageObject(b64_json="image4"),
-            ImageObject(b64_json="image5"),
+            litellm.types.utils.ImageObject(b64_json="image3"),
+            litellm.types.utils.ImageObject(b64_json="image4"),
+            litellm.types.utils.ImageObject(b64_json="image5"),
         ]
     )
     mock_image_generation.side_effect = [mock_response1, mock_response2]

@@ -187,7 +187,7 @@ class ModelRegistry:
                         skip_usage_tracking=True,
                         purpose="running health checks",
                     )
-                elif model.model_generation_type == GenerationType.IMAGE_GENERATION:
+                elif model.model_generation_type == GenerationType.IMAGE:
                     model.generate_image(
                         prompt="Generate a simple pixel",
                         skip_usage_tracking=True,
