@@ -63,12 +63,7 @@ def test_load_config_builder_from_json(mock_from_config: MagicMock, tmp_path: Pa
 def test_load_config_builder_from_python_module(tmp_path: Path) -> None:
     """Test loading a config builder from a Python module with load_config_builder()."""
     py_file = tmp_path / "my_config.py"
-    py_file.write_text(
-        "from unittest.mock import MagicMock\n"
-        "from data_designer.config.config_builder import DataDesignerConfigBuilder\n\n"
-        "def load_config_builder():\n"
-        "    return MagicMock(spec=DataDesignerConfigBuilder)\n"
-    )
+    py_file.write_text("def load_config_builder(): pass\n")
 
     with patch("data_designer.cli.utils.config_loader._load_from_python_module") as mock_load_py:
         mock_builder = MagicMock(spec=DataDesignerConfigBuilder)
@@ -153,19 +148,18 @@ def test_load_config_builder_python_module_sibling_import(tmp_path: Path) -> Non
 
     py_file = tmp_path / "my_config.py"
     py_file.write_text(
-        "from unittest.mock import MagicMock\n"
         "from data_designer.config.config_builder import DataDesignerConfigBuilder\n"
         "from helpers import DATASET_NAME\n\n"
         "def load_config_builder():\n"
-        "    builder = MagicMock(spec=DataDesignerConfigBuilder)\n"
-        "    builder._dataset_name = DATASET_NAME\n"
+        "    builder = DataDesignerConfigBuilder()\n"
+        "    builder._test_marker = DATASET_NAME\n"
         "    return builder\n"
     )
 
     result = load_config_builder(str(py_file))
 
-    assert isinstance(result, DataDesignerConfigBuilder)  # MagicMock with spec passes this
-    assert result._dataset_name == "my_dataset"
+    assert isinstance(result, DataDesignerConfigBuilder)
+    assert result._test_marker == "my_dataset"
 
 
 def test_load_config_builder_python_module_cleans_sys_path(tmp_path: Path) -> None:
@@ -174,10 +168,9 @@ def test_load_config_builder_python_module_cleans_sys_path(tmp_path: Path) -> No
 
     py_file = tmp_path / "clean_path_config.py"
     py_file.write_text(
-        "from unittest.mock import MagicMock\n"
         "from data_designer.config.config_builder import DataDesignerConfigBuilder\n\n"
         "def load_config_builder():\n"
-        "    return MagicMock(spec=DataDesignerConfigBuilder)\n"
+        "    return DataDesignerConfigBuilder()\n"
     )
 
     parent_dir = str(tmp_path.resolve())

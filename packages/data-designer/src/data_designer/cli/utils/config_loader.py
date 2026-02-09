@@ -198,5 +198,5 @@ def _load_from_python_module(path: Path) -> DataDesignerConfigBuilder:
         raise ConfigLoadError(f"Failed to execute Python module '{path}': {e}") from e
     finally:
         sys.modules.pop(module_name, None)
-        if prepended_path and parent_dir in sys.path:
-            sys.path.remove(parent_dir)
+        if prepended_path and len(sys.path) > 0 and sys.path[0] == parent_dir:
+            sys.path.pop(0)
