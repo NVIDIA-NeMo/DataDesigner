@@ -186,14 +186,16 @@ packages = ["src/data_designer_index_multiplier"]
     <entry-point-name> = "<module.path>:<plugin-instance-name>"
     ```
 
-### Step 6: Use your plugin
+### Step 6: Install and use your plugin locally
 
-Install your plugin in editable mode for testing:
+Install your plugin in editable mode — this is all you need to start using it. No PyPI publishing required:
 
 ```bash
 # From the plugin directory
 uv pip install -e .
 ```
+
+That's it. The editable install registers the entry point so Data Designer discovers your plugin automatically. Any changes you make to the plugin source code are picked up immediately without reinstalling.
 
 Once installed, your plugin works just like built-in column types:
 
@@ -273,4 +275,4 @@ my-seed-reader = "my_package.plugins.seed_reader.plugin:seed_reader_plugin"
 
 For an example of this pattern, see the end-to-end test plugins in the [tests_e2e/](https://github.com/NVIDIA-NeMo/DataDesigner/tree/main/tests_e2e) directory.
 
-That's it! You now know how to create a Data Designer plugin. Package your plugin and share it with the community!
+That's it! You now know how to create a Data Designer plugin. A local editable install (`uv pip install -e .`) is all you need to develop, test, and use your plugin. If you want to make it available for others to install via `pip install`, publish it to PyPI or your organization's package index.

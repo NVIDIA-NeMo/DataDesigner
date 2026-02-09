@@ -19,10 +19,14 @@ Plugins are Python packages that extend Data Designer's capabilities without mod
 A Data Designer plugin is just a Python package configured with an [entry point](https://packaging.python.org/en/latest/guides/creating-and-discovering-plugins/#using-package-metadata) that points to a Data Designer `Plugin` object. Using a plugin is as simple as installing the package:
 
 ```bash
+# Install a local plugin (for development and testing)
+uv pip install -e /path/to/your/plugin
+
+# Or install a published plugin from PyPI
 pip install data-designer-{plugin-name}
 ```
 
-Once installed, plugins are automatically discovered and ready to use. See the [example plugin](example.md) for a complete walkthrough.
+Once installed, plugins are automatically discovered and ready to use — no additional registration or configuration needed. See the [example plugin](example.md) for a complete walkthrough.
 
 ## How do you create plugins?
 
@@ -46,9 +50,15 @@ Each plugin has three components, and we recommend organizing them into separate
 - Register your plugin using entry points under `data_designer.plugins`
 - Define dependencies (including `data-designer`)
 
-### 3. Share Your Plugin
+### 3. Install and Test Locally
 
-- Publish to PyPI or another package index
-- Share with the community!
+- Install your plugin locally with `uv pip install -e .` (editable mode)
+- No publishing required — your plugin is usable immediately after a local install
+- Iterate on your plugin code with fast feedback
+
+### 4. Share Your Plugin (Optional)
+
+- Publish to PyPI or another package index to make it installable by anyone via `pip install`
+- This step is only needed if you want others outside your environment to use the plugin
 
 **Ready to get started?** See the [Example Plugin](example.md) for complete walkthroughs of both plugin types!
