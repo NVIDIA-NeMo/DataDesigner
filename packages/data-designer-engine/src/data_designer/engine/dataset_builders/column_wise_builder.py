@@ -172,7 +172,7 @@ class ColumnWiseDatasetBuilder:
         """Check if config has any image generation columns."""
         from data_designer.config.column_types import DataDesignerColumnType
 
-        return any(col.column_type == DataDesignerColumnType.IMAGE_GENERATION for col in self.single_column_configs)
+        return any(col.column_type == DataDesignerColumnType.IMAGE for col in self.single_column_configs)
 
     def _initialize_generators(self) -> list[ColumnGenerator]:
         """Initialize column generators.

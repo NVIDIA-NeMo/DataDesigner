@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from data_designer.config.column_configs import ImageGenerationColumnConfig
+from data_designer.config.column_configs import ImageColumnConfig
 from data_designer.engine.column_generators.generators.base import GenerationStrategy
 from data_designer.engine.column_generators.generators.image import ImageCellGenerator
 from data_designer.engine.processing.ginja.exceptions import UserTemplateError
@@ -13,9 +13,7 @@ from data_designer.engine.processing.ginja.exceptions import UserTemplateError
 
 @pytest.fixture
 def stub_image_column_config():
-    return ImageGenerationColumnConfig(
-        name="test_image", prompt="A {{ style }} image of {{ subject }}", model_alias="test_model"
-    )
+    return ImageColumnConfig(name="test_image", prompt="A {{ style }} image of {{ subject }}", model_alias="test_model")
 
 
 @pytest.fixture
@@ -24,14 +22,14 @@ def stub_base64_images() -> list[str]:
 
 
 def test_image_cell_generator_generation_strategy(
-    stub_image_column_config: ImageGenerationColumnConfig, stub_resource_provider: None
+    stub_image_column_config: ImageColumnConfig, stub_resource_provider: None
 ) -> None:
     generator = ImageCellGenerator(config=stub_image_column_config, resource_provider=stub_resource_provider)
     assert generator.get_generation_strategy() == GenerationStrategy.CELL_BY_CELL
 
 
 def test_image_cell_generator_media_storage_property(
-    stub_image_column_config: ImageGenerationColumnConfig, stub_resource_provider: None
+    stub_image_column_config: ImageColumnConfig, stub_resource_provider: None
 ) -> None:
     generator = ImageCellGenerator(config=stub_image_column_config, resource_provider=stub_resource_provider)
     # Should return media_storage from artifact_storage (always exists)
@@ -105,7 +103,7 @@ def test_image_cell_generator_missing_columns_error(stub_image_column_config, st
 def test_image_cell_generator_empty_prompt_error(stub_resource_provider):
     """Test that empty rendered prompt raises UserTemplateError."""
     # Create config with template that renders to empty string
-    config = ImageGenerationColumnConfig(name="test_image", prompt="{{ empty }}", model_alias="test_model")
+    config = ImageColumnConfig(name="test_image", prompt="{{ empty }}", model_alias="test_model")
 
     generator = ImageCellGenerator(config=config, resource_provider=stub_resource_provider)
 
@@ -115,7 +113,7 @@ def test_image_cell_generator_empty_prompt_error(stub_resource_provider):
 
 def test_image_cell_generator_whitespace_only_prompt_error(stub_resource_provider):
     """Test that whitespace-only rendered prompt raises ValueError."""
-    config = ImageGenerationColumnConfig(name="test_image", prompt="{{ spaces }}", model_alias="test_model")
+    config = ImageColumnConfig(name="test_image", prompt="{{ spaces }}", model_alias="test_model")
 
     generator = ImageCellGenerator(config=config, resource_provider=stub_resource_provider)
 

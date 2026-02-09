@@ -8,7 +8,7 @@ from data_designer.config.column_configs import (
     CustomColumnConfig,
     EmbeddingColumnConfig,
     ExpressionColumnConfig,
-    ImageGenerationColumnConfig,
+    ImageColumnConfig,
     LLMCodeColumnConfig,
     LLMJudgeColumnConfig,
     LLMStructuredColumnConfig,
@@ -54,7 +54,7 @@ def create_default_column_generator_registry(with_plugins: bool = True) -> Colum
     registry.register(DataDesignerColumnType.SEED_DATASET, SeedDatasetColumnGenerator, SeedDatasetMultiColumnConfig)
     registry.register(DataDesignerColumnType.VALIDATION, ValidationColumnGenerator, ValidationColumnConfig)
     registry.register(DataDesignerColumnType.LLM_STRUCTURED, LLMStructuredCellGenerator, LLMStructuredColumnConfig)
-    registry.register(DataDesignerColumnType.IMAGE_GENERATION, ImageCellGenerator, ImageGenerationColumnConfig)
+    registry.register(DataDesignerColumnType.IMAGE, ImageCellGenerator, ImageColumnConfig)
     if with_plugins:
         for plugin in PluginRegistry().get_plugins(PluginType.COLUMN_GENERATOR):
             registry.register(

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from data_designer.config.column_configs import ImageGenerationColumnConfig
+from data_designer.config.column_configs import ImageColumnConfig
 from data_designer.engine.column_generators.generators.base import ColumnGeneratorWithModel, GenerationStrategy
 from data_designer.engine.processing.ginja.environment import WithJinja2UserTemplateRendering
 from data_designer.engine.processing.utils import deserialize_json_values
@@ -14,18 +14,12 @@ if TYPE_CHECKING:
     from data_designer.engine.storage.media_storage import MediaStorage
 
 
-class ImageCellGenerator(WithJinja2UserTemplateRendering, ColumnGeneratorWithModel[ImageGenerationColumnConfig]):
+class ImageCellGenerator(WithJinja2UserTemplateRendering, ColumnGeneratorWithModel[ImageColumnConfig]):
     """Generator for image columns with disk or dataframe persistence.
 
     Media storage always exists and determines behavior via its mode:
-    - DISK mode (create): Saves images to disk and stores relative paths in dataframe
-    - DATAFRAME mode (preview): Stores base64 directly in dataframe
-
-    API is automatically detected based on the model name:
-    - Diffusion models (DALL-E, Stable Diffusion, Imagen, etc.) → image_generation API
-    - All other models → chat/completions API (default)
-
-    Storage is accessed via ResourceProvider.artifact_storage.media_storage
+    - DISK mode: Saves images to disk and stores relative paths in dataframe
+    - DATAFRAME mode: Stores base64 directly in dataframe
     """
 
     @property
@@ -69,8 +63,6 @@ class ImageCellGenerator(WithJinja2UserTemplateRendering, ColumnGeneratorWithMod
         base64_images = self.model.generate_image(prompt=prompt)
 
         # Store via media storage (mode determines disk vs dataframe storage)
-        # TODO: MediaStorage will check its mode (DISK/DATAFRAME) and act accordingly
-        # For now, always saves to disk - need to implement mode system
         results = [self.media_storage.save_base64_image(base64_image) for base64_image in base64_images]
         data[self.config.name] = results
 

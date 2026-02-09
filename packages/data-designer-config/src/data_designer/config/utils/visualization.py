@@ -290,7 +290,7 @@ def display_sample_record(
         render_list.append(pad_console_element(table))
 
     # Collect image generation columns (will be displayed at the end)
-    image_columns = config_builder.get_columns_of_type(DataDesignerColumnType.IMAGE_GENERATION)
+    image_columns = config_builder.get_columns_of_type(DataDesignerColumnType.IMAGE)
     images_to_display_later = []
     if len(image_columns) > 0:
         # Check if we're in a notebook to decide display style

@@ -9,7 +9,7 @@ from data_designer.config.column_configs import (
     CustomColumnConfig,
     EmbeddingColumnConfig,
     ExpressionColumnConfig,
-    ImageGenerationColumnConfig,
+    ImageColumnConfig,
     LLMCodeColumnConfig,
     LLMJudgeColumnConfig,
     LLMStructuredColumnConfig,
@@ -40,7 +40,7 @@ ColumnConfigT: TypeAlias = (
     | SeedDatasetColumnConfig
     | ValidationColumnConfig
     | EmbeddingColumnConfig
-    | ImageGenerationColumnConfig
+    | ImageColumnConfig
 )
 ColumnConfigT = plugin_manager.inject_into_column_config_type_union(ColumnConfigT)
 
@@ -89,7 +89,7 @@ def get_column_display_order() -> list[DataDesignerColumnType]:
         DataDesignerColumnType.LLM_STRUCTURED,
         DataDesignerColumnType.LLM_JUDGE,
         DataDesignerColumnType.EMBEDDING,
-        DataDesignerColumnType.IMAGE_GENERATION,
+        DataDesignerColumnType.IMAGE,
         DataDesignerColumnType.VALIDATION,
         DataDesignerColumnType.EXPRESSION,
         DataDesignerColumnType.CUSTOM,
@@ -145,5 +145,5 @@ _COLUMN_TYPE_CONFIG_CLS_MAP = {
     DataDesignerColumnType.SAMPLER: SamplerColumnConfig,
     DataDesignerColumnType.SEED_DATASET: SeedDatasetColumnConfig,
     DataDesignerColumnType.EMBEDDING: EmbeddingColumnConfig,
-    DataDesignerColumnType.IMAGE_GENERATION: ImageGenerationColumnConfig,
+    DataDesignerColumnType.IMAGE: ImageColumnConfig,
 }

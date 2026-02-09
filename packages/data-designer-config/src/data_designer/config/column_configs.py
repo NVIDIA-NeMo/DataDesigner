@@ -485,22 +485,14 @@ class EmbeddingColumnConfig(SingleColumnConfig):
         return []
 
 
-class ImageGenerationColumnConfig(SingleColumnConfig):
+class ImageColumnConfig(SingleColumnConfig):
     """Configuration for image generation columns.
 
     Image columns generate images using either autoregressive or diffusion models.
     The API used is automatically determined based on the model name:
 
-    - **Diffusion models** (DALL-E, Stable Diffusion, Imagen, etc.) → image_generation API
-    - **All other models** → chat/completions API (default)
-
-    Image storage behavior:
-    - **Create mode**: Images saved to disk with UUID filenames in `images/` folder,
-      dataframe stores relative paths (e.g., "images/abc123.png")
-    - **Preview mode**: Images stored as base64 directly in dataframe
-
     Attributes:
-        column_type: Discriminator field, always "image-generation" for this configuration type.
+        column_type: Discriminator field, always "image" for this configuration type.
         prompt: Prompt template for image generation. Supports Jinja2 templating to
             reference other columns (e.g., "Generate an image of a {{ character_name }}").
             Must be a valid Jinja2 template.
@@ -509,7 +501,7 @@ class ImageGenerationColumnConfig(SingleColumnConfig):
 
     prompt: str
     model_alias: str
-    column_type: Literal["image-generation"] = "image-generation"
+    column_type: Literal["image"] = "image"
 
     @staticmethod
     def get_column_emoji() -> str:
