@@ -1,57 +1,62 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from data_designer.cli.utils.config_loader import ConfigLoadError, load_config_builder
+from data_designer.cli.utils.config_loader import (
+    ConfigLoadError,
+    _maybe_wrap_data_designer_config,
+    load_config_builder,
+)
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 
 
 @patch("data_designer.cli.utils.config_loader.DataDesignerConfigBuilder.from_config")
 def test_load_config_builder_from_yaml(mock_from_config: MagicMock, tmp_path: Path) -> None:
-    """Test loading a config builder from a YAML file."""
+    """Test loading a config builder from a YAML file in BuilderConfig format."""
     yaml_file = tmp_path / "config.yaml"
-    yaml_file.write_text("columns: []\n")
+    yaml_file.write_text("data_designer:\n  columns: []\n")
 
     mock_builder = MagicMock(spec=DataDesignerConfigBuilder)
     mock_from_config.return_value = mock_builder
 
     result = load_config_builder(str(yaml_file))
 
-    mock_from_config.assert_called_once_with(yaml_file)
+    mock_from_config.assert_called_once_with({"data_designer": {"columns": []}})
     assert result is mock_builder
 
 
 @patch("data_designer.cli.utils.config_loader.DataDesignerConfigBuilder.from_config")
 def test_load_config_builder_from_yml(mock_from_config: MagicMock, tmp_path: Path) -> None:
-    """Test loading a config builder from a .yml file."""
+    """Test loading a config builder from a .yml file in BuilderConfig format."""
     yml_file = tmp_path / "config.yml"
-    yml_file.write_text("columns: []\n")
+    yml_file.write_text("data_designer:\n  columns: []\n")
 
     mock_builder = MagicMock(spec=DataDesignerConfigBuilder)
     mock_from_config.return_value = mock_builder
 
     result = load_config_builder(str(yml_file))
 
-    mock_from_config.assert_called_once_with(yml_file)
+    mock_from_config.assert_called_once_with({"data_designer": {"columns": []}})
     assert result is mock_builder
 
 
 @patch("data_designer.cli.utils.config_loader.DataDesignerConfigBuilder.from_config")
 def test_load_config_builder_from_json(mock_from_config: MagicMock, tmp_path: Path) -> None:
-    """Test loading a config builder from a JSON file."""
+    """Test loading a config builder from a JSON file in BuilderConfig format."""
     json_file = tmp_path / "config.json"
-    json_file.write_text('{"columns": []}\n')
+    json_file.write_text(json.dumps({"data_designer": {"columns": []}}))
 
     mock_builder = MagicMock(spec=DataDesignerConfigBuilder)
     mock_from_config.return_value = mock_builder
 
     result = load_config_builder(str(json_file))
 
-    mock_from_config.assert_called_once_with(json_file)
+    mock_from_config.assert_called_once_with({"data_designer": {"columns": []}})
     assert result is mock_builder
 
 
@@ -183,25 +188,124 @@ def test_load_config_builder_python_module_cleans_sys_path(tmp_path: Path) -> No
     assert parent_dir not in sys.path
 
 
-@patch("data_designer.cli.utils.config_loader.DataDesignerConfigBuilder.from_config")
-def test_load_config_builder_invalid_yaml(mock_from_config: MagicMock, tmp_path: Path) -> None:
-    """Test that a malformed YAML file raises ConfigLoadError."""
+def test_load_config_builder_invalid_yaml(tmp_path: Path) -> None:
+    """Test that a YAML file that fails to parse raises ConfigLoadError."""
     yaml_file = tmp_path / "bad.yaml"
-    yaml_file.write_text(": :\n  - invalid:: yaml::\n")
+    yaml_file.write_text(":\n  - [\n")
 
-    mock_from_config.side_effect = Exception("YAML parse error")
-
-    with pytest.raises(ConfigLoadError, match="Failed to load config from"):
+    with pytest.raises(ConfigLoadError, match="Failed to parse config file"):
         load_config_builder(str(yaml_file))
 
 
-@patch("data_designer.cli.utils.config_loader.DataDesignerConfigBuilder.from_config")
-def test_load_config_builder_invalid_json(mock_from_config: MagicMock, tmp_path: Path) -> None:
-    """Test that a malformed JSON file raises ConfigLoadError."""
+def test_load_config_builder_invalid_json(tmp_path: Path) -> None:
+    """Test that a malformed JSON file raises ConfigLoadError with a JSON-specific message."""
     json_file = tmp_path / "bad.json"
     json_file.write_text("{not valid json}")
 
-    mock_from_config.side_effect = Exception("JSON decode error")
-
-    with pytest.raises(ConfigLoadError, match="Failed to load config from"):
+    with pytest.raises(ConfigLoadError, match="Failed to parse config file"):
         load_config_builder(str(json_file))
+
+
+@patch("data_designer.cli.utils.config_loader.DataDesignerConfigBuilder.from_config")
+def test_load_config_builder_from_config_validation_error(mock_from_config: MagicMock, tmp_path: Path) -> None:
+    """Test that a valid YAML file with invalid config structure raises ConfigLoadError."""
+    yaml_file = tmp_path / "bad_structure.yaml"
+    yaml_file.write_text("data_designer:\n  not_a_valid_field: true\n")
+
+    mock_from_config.side_effect = Exception("Validation error")
+
+    with pytest.raises(ConfigLoadError, match="Invalid config structure in"):
+        load_config_builder(str(yaml_file))
+
+
+def test_load_config_builder_non_dict_yaml(tmp_path: Path) -> None:
+    """Test that a YAML file that parses to a non-dict raises ConfigLoadError."""
+    yaml_file = tmp_path / "list.yaml"
+    yaml_file.write_text("- item1\n- item2\n")
+
+    with pytest.raises(ConfigLoadError, match="Failed to parse config file"):
+        load_config_builder(str(yaml_file))
+
+
+def test_load_config_builder_non_dict_json(tmp_path: Path) -> None:
+    """Test that a JSON file containing an array (not an object) raises ConfigLoadError."""
+    json_file = tmp_path / "list.json"
+    json_file.write_text('[{"name": "col1"}, {"name": "col2"}]')
+
+    with pytest.raises(ConfigLoadError, match="Expected a JSON object"):
+        load_config_builder(str(json_file))
+
+
+def test_load_config_builder_empty_json(tmp_path: Path) -> None:
+    """Test that an empty JSON file raises ConfigLoadError."""
+    json_file = tmp_path / "empty.json"
+    json_file.write_text("")
+
+    with pytest.raises(ConfigLoadError, match="Failed to parse config file"):
+        load_config_builder(str(json_file))
+
+
+def test_load_config_builder_empty_yaml(tmp_path: Path) -> None:
+    """Test that an empty YAML file raises ConfigLoadError."""
+    yaml_file = tmp_path / "empty.yaml"
+    yaml_file.write_text("")
+
+    with pytest.raises(ConfigLoadError, match="Failed to parse config file"):
+        load_config_builder(str(yaml_file))
+
+
+# --- Auto-detection of DataDesignerConfig format ---
+
+
+def test_maybe_wrap_data_designer_config_wraps_when_columns_present() -> None:
+    """Test that a dict with 'columns' but no 'data_designer' is wrapped."""
+    config_dict = {"columns": [{"name": "col1"}], "model_configs": None}
+    result = _maybe_wrap_data_designer_config(config_dict)
+    # Wrapping creates a new dict, so we use equality (==) rather than identity (is)
+    assert result == {"data_designer": config_dict}
+
+
+def test_maybe_wrap_data_designer_config_passthrough_when_builder_config() -> None:
+    """Test that a dict with 'data_designer' key is returned as-is."""
+    config_dict = {"data_designer": {"columns": [{"name": "col1"}]}, "library_version": "1.0.0"}
+    result = _maybe_wrap_data_designer_config(config_dict)
+    assert result is config_dict
+
+
+def test_maybe_wrap_data_designer_config_passthrough_when_no_columns() -> None:
+    """Test that a dict without 'columns' or 'data_designer' is returned as-is."""
+    config_dict = {"some_other_key": "value"}
+    result = _maybe_wrap_data_designer_config(config_dict)
+    assert result is config_dict
+
+
+@patch("data_designer.cli.utils.config_loader.DataDesignerConfigBuilder.from_config")
+def test_load_config_builder_auto_wraps_data_designer_config_yaml(mock_from_config: MagicMock, tmp_path: Path) -> None:
+    """Test that a YAML file in DataDesignerConfig format is auto-wrapped."""
+    yaml_file = tmp_path / "config.yaml"
+    yaml_file.write_text("columns:\n  - name: col1\nmodel_configs: null\n")
+
+    mock_builder = MagicMock(spec=DataDesignerConfigBuilder)
+    mock_from_config.return_value = mock_builder
+
+    result = load_config_builder(str(yaml_file))
+
+    expected_dict = {"data_designer": {"columns": [{"name": "col1"}], "model_configs": None}}
+    mock_from_config.assert_called_once_with(expected_dict)
+    assert result is mock_builder
+
+
+@patch("data_designer.cli.utils.config_loader.DataDesignerConfigBuilder.from_config")
+def test_load_config_builder_auto_wraps_data_designer_config_json(mock_from_config: MagicMock, tmp_path: Path) -> None:
+    """Test that a JSON file in DataDesignerConfig format is auto-wrapped."""
+    json_file = tmp_path / "config.json"
+    json_file.write_text(json.dumps({"columns": [{"name": "col1"}]}))
+
+    mock_builder = MagicMock(spec=DataDesignerConfigBuilder)
+    mock_from_config.return_value = mock_builder
+
+    result = load_config_builder(str(json_file))
+
+    expected_dict = {"data_designer": {"columns": [{"name": "col1"}]}}
+    mock_from_config.assert_called_once_with(expected_dict)
+    assert result is mock_builder
