@@ -61,4 +61,4 @@ Each plugin has three components, and we recommend organizing them into separate
 - Publish to PyPI or another package index to make it installable by anyone via `pip install`
 - This step is only needed if you want others outside your environment to use the plugin
 
-**Ready to get started?** See the [Example Plugin](example.md) for complete walkthroughs of both plugin types!
+**Ready to get started?** See the [Example Plugin](example.md) for a complete walkthrough of creating a column generator plugin.
