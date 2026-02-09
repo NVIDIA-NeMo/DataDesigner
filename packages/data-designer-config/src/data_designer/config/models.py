@@ -425,24 +425,20 @@ class EmbeddingInferenceParams(BaseInferenceParams):
 class ImageInferenceParams(BaseInferenceParams):
     """Configuration for image generation models.
 
-    Works for both diffusion and autoregressive image generation models. Use extra_body for model-specific parameters.
+    Works for both diffusion and autoregressive image generation models. Pass all model-specific image options via `extra_body`.
 
     Attributes:
         generation_type: Type of generation, always "image" for this class.
-        quality: Image quality setting (e.g., "standard", "hd"). Optional and model-specific.
-        size: Image size specification (e.g., "1024x1024", "1792x1024"). Optional and model-specific.
 
     Example:
         ```python
-        # Standard usage with common params
+        # OpenAI-style (DALL·E): quality and size in extra_body or as top-level kwargs
         dd.ImageInferenceParams(
-            quality="hd",
-            size="1024x1024"
+            extra_body={"size": "1024x1024", "quality": "hd"}
         )
 
-        # With model-specific params via extra_body
+        # Gemini-style: generationConfig.imageConfig
         dd.ImageInferenceParams(
-            quality="auto",
             extra_body={
                 "generationConfig": {
                     "imageConfig": {
@@ -456,17 +452,10 @@ class ImageInferenceParams(BaseInferenceParams):
     """
 
     generation_type: Literal[GenerationType.IMAGE] = GenerationType.IMAGE
-    quality: str | None = None
-    size: str | None = None
 
     @property
     def generate_kwargs(self) -> dict[str, Any]:
-        result = super().generate_kwargs
-        if self.quality is not None:
-            result["quality"] = self.quality
-        if self.size is not None:
-            result["size"] = self.size
-        return result
+        return super().generate_kwargs
 
 
 InferenceParamsT: TypeAlias = Annotated[

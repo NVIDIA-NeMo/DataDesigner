@@ -414,7 +414,7 @@ def test_model_config_construction():
     assert model_config.generation_type == GenerationType.EMBEDDING
 
     # test construction with image inference parameters
-    image_params = ImageInferenceParams(quality="hd", size="1024x1024")
+    image_params = ImageInferenceParams(extra_body={"size": "1024x1024", "quality": "hd"})
     model_config = ModelConfig(alias="test", model="test", inference_parameters=image_params)
     assert model_config.inference_parameters == image_params
     assert model_config.generation_type == GenerationType.IMAGE
@@ -446,24 +446,25 @@ def test_model_config_generation_type_from_dict():
         {
             "alias": "test",
             "model": "image-model",
-            "inference_parameters": {"generation_type": "image", "quality": "hd", "size": "1024x1024"},
+            "inference_parameters": {
+                "generation_type": "image",
+                "extra_body": {"size": "1024x1024", "quality": "hd"},
+            },
         }
     )
     assert isinstance(model_config.inference_parameters, ImageInferenceParams)
-    assert model_config.inference_parameters.quality == "hd"
-    assert model_config.inference_parameters.size == "1024x1024"
+    assert model_config.inference_parameters.extra_body == {"size": "1024x1024", "quality": "hd"}
     assert model_config.generation_type == GenerationType.IMAGE
 
 
 def test_image_inference_params_generate_kwargs() -> None:
-    """ImageInferenceParams.generate_kwargs includes quality and size when set."""
+    """ImageInferenceParams.generate_kwargs delegates to base; image params go via extra_body."""
     params = ImageInferenceParams()
-    assert params.generate_kwargs.get("quality") is None
-    assert params.generate_kwargs.get("size") is None
+    assert "quality" not in params.generate_kwargs
+    assert "size" not in params.generate_kwargs
 
-    params = ImageInferenceParams(quality="hd", size="1024x1024")
-    assert params.generate_kwargs["quality"] == "hd"
-    assert params.generate_kwargs["size"] == "1024x1024"
+    params = ImageInferenceParams(extra_body={"size": "1024x1024", "quality": "hd"})
+    assert params.generate_kwargs.get("extra_body") == {"size": "1024x1024", "quality": "hd"}
 
 
 def test_chat_completion_params_format_for_display_all_params():
