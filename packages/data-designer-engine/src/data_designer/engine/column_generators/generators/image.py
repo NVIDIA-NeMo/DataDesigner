@@ -70,7 +70,11 @@ class ImageCellGenerator(WithJinja2UserTemplateRendering, ColumnGeneratorWithMod
         base64_images = self.model.generate_image(prompt=prompt, multi_modal_context=multi_modal_context)
 
         # Store via media storage (mode determines disk vs dataframe storage)
-        results = [self.media_storage.save_base64_image(base64_image) for base64_image in base64_images]
+        # Use column name as subfolder to organize images
+        results = [
+            self.media_storage.save_base64_image(base64_image, subfolder_name=self.config.name)
+            for base64_image in base64_images
+        ]
         data[self.config.name] = results
 
         return data

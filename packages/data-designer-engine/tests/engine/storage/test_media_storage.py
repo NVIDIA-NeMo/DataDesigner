@@ -62,10 +62,10 @@ def test_media_storage_init_custom_subdir(tmp_path):
 
 def test_save_base64_image_png(media_storage, sample_base64_png):
     """Test saving a PNG image from base64."""
-    relative_path = media_storage.save_base64_image(sample_base64_png)
+    relative_path = media_storage.save_base64_image(sample_base64_png, subfolder_name="test_column")
 
-    # Check return value format
-    assert relative_path.startswith(f"{IMAGES_SUBDIR}/")
+    # Check return value format (organized by column name)
+    assert relative_path.startswith(f"{IMAGES_SUBDIR}/test_column/")
     assert relative_path.endswith(".png")
 
     # Check file exists on disk
@@ -80,10 +80,10 @@ def test_save_base64_image_png(media_storage, sample_base64_png):
 
 def test_save_base64_image_jpg(media_storage, sample_base64_jpg):
     """Test saving a JPEG image from base64."""
-    relative_path = media_storage.save_base64_image(sample_base64_jpg)
+    relative_path = media_storage.save_base64_image(sample_base64_jpg, subfolder_name="test_column")
 
-    # Check return value format
-    assert relative_path.startswith(f"{IMAGES_SUBDIR}/")
+    # Check return value format (organized by column name)
+    assert relative_path.startswith(f"{IMAGES_SUBDIR}/test_column/")
     assert relative_path.endswith(".jpg")
 
     # Check file exists on disk
@@ -94,10 +94,10 @@ def test_save_base64_image_jpg(media_storage, sample_base64_jpg):
 def test_save_base64_image_with_data_uri(media_storage, sample_base64_png):
     """Test saving image from data URI format."""
     data_uri = f"data:image/png;base64,{sample_base64_png}"
-    relative_path = media_storage.save_base64_image(data_uri)
+    relative_path = media_storage.save_base64_image(data_uri, subfolder_name="test_column")
 
-    # Should successfully extract base64 and save
-    assert relative_path.startswith(f"{IMAGES_SUBDIR}/")
+    # Should successfully extract base64 and save (organized by column name)
+    assert relative_path.startswith(f"{IMAGES_SUBDIR}/test_column/")
     assert relative_path.endswith(".png")
 
     # Verify file exists and content is correct
@@ -111,13 +111,13 @@ def test_save_base64_image_with_data_uri(media_storage, sample_base64_png):
 def test_save_base64_image_invalid_base64_raises_error(media_storage):
     """Test that invalid base64 data raises ValueError."""
     with pytest.raises(ValueError, match="Invalid base64"):
-        media_storage.save_base64_image("not-valid-base64!!!")
+        media_storage.save_base64_image("not-valid-base64!!!", subfolder_name="test_column")
 
 
 def test_save_base64_image_multiple_images_unique_filenames(media_storage, sample_base64_png):
     """Test that multiple images get unique filenames."""
-    path1 = media_storage.save_base64_image(sample_base64_png)
-    path2 = media_storage.save_base64_image(sample_base64_png)
+    path1 = media_storage.save_base64_image(sample_base64_png, subfolder_name="test_column")
+    path2 = media_storage.save_base64_image(sample_base64_png, subfolder_name="test_column")
 
     # Paths should be different (different UUIDs)
     assert path1 != path2
@@ -131,8 +131,8 @@ def test_save_base64_image_disk_mode_validates(tmp_path, sample_base64_png):
     """Test that DISK mode validates images."""
     storage = MediaStorage(base_path=tmp_path, mode=StorageMode.DISK)
     # Should succeed with valid image
-    relative_path = storage.save_base64_image(sample_base64_png)
-    assert relative_path.startswith(f"{IMAGES_SUBDIR}/")
+    relative_path = storage.save_base64_image(sample_base64_png, subfolder_name="test_column")
+    assert relative_path.startswith(f"{IMAGES_SUBDIR}/test_column/")
 
 
 def test_save_base64_image_disk_mode_corrupted_image_raises_error(tmp_path):
@@ -144,18 +144,20 @@ def test_save_base64_image_disk_mode_corrupted_image_raises_error(tmp_path):
     corrupted_base64 = base64.b64encode(corrupted_bytes).decode()
 
     with pytest.raises(ValueError, match="Image validation failed"):
-        storage.save_base64_image(corrupted_base64)
+        storage.save_base64_image(corrupted_base64, subfolder_name="test_column")
 
     # Check that no files were left behind (cleanup on validation failure)
-    assert len(list(storage.images_dir.iterdir())) == 0
+    column_dir = storage.images_dir / "test_column"
+    if column_dir.exists():
+        assert len(list(column_dir.iterdir())) == 0
 
 
 def test_save_base64_image_dataframe_mode_returns_base64(tmp_path, sample_base64_png):
     """Test that DATAFRAME mode returns base64 directly without disk operations."""
     storage = MediaStorage(base_path=tmp_path, mode=StorageMode.DATAFRAME)
 
-    # Should return the same base64 data
-    result = storage.save_base64_image(sample_base64_png)
+    # Should return the same base64 data (column_name is ignored in DATAFRAME mode)
+    result = storage.save_base64_image(sample_base64_png, subfolder_name="test_column")
     assert result == sample_base64_png
 
     # Directory should not be created in DATAFRAME mode (lazy initialization)
@@ -165,10 +167,62 @@ def test_save_base64_image_dataframe_mode_returns_base64(tmp_path, sample_base64
 def test_cleanup(media_storage, sample_base64_png):
     """Test cleanup removes images directory."""
     # Save an image first
-    media_storage.save_base64_image(sample_base64_png)
+    media_storage.save_base64_image(sample_base64_png, subfolder_name="test_column")
     assert media_storage.images_dir.exists()
     assert len(list(media_storage.images_dir.iterdir())) > 0
 
     # Cleanup should remove directory
     media_storage.cleanup()
     assert not media_storage.images_dir.exists()
+
+
+def test_save_base64_image_with_subfolder_name(media_storage, sample_base64_png):
+    """Test saving image with subfolder name organizes into subdirectory."""
+    subfolder = "test_subfolder"
+    relative_path = media_storage.save_base64_image(sample_base64_png, subfolder_name=subfolder)
+
+    # Check return value format includes subfolder
+    assert relative_path.startswith(f"{IMAGES_SUBDIR}/{subfolder}/")
+    assert relative_path.endswith(".png")
+
+    # Check file exists in correct subdirectory
+    full_path = media_storage.base_path / relative_path
+    assert full_path.exists()
+    assert full_path.parent.name == subfolder
+
+    # Verify file content
+    saved_bytes = full_path.read_bytes()
+    expected_bytes = base64.b64decode(sample_base64_png)
+    assert saved_bytes == expected_bytes
+
+
+def test_save_base64_image_with_different_subfolder_names(media_storage, sample_base64_png, sample_base64_jpg):
+    """Test that images with different subfolder names are stored in separate subdirectories."""
+    path1 = media_storage.save_base64_image(sample_base64_png, subfolder_name="subfolder_a")
+    path2 = media_storage.save_base64_image(sample_base64_jpg, subfolder_name="subfolder_b")
+
+    # Check paths are in different subdirectories
+    assert "subfolder_a" in path1
+    assert "subfolder_b" in path2
+
+    # Check both directories exist
+    subfolder_a_dir = media_storage.images_dir / "subfolder_a"
+    subfolder_b_dir = media_storage.images_dir / "subfolder_b"
+    assert subfolder_a_dir.exists()
+    assert subfolder_b_dir.exists()
+
+    # Check files exist in their respective directories
+    assert (media_storage.base_path / path1).exists()
+    assert (media_storage.base_path / path2).exists()
+
+
+def test_save_base64_image_dataframe_mode_with_subfolder_name(tmp_path, sample_base64_png):
+    """Test that DATAFRAME mode returns base64 directly even with subfolder name."""
+    storage = MediaStorage(base_path=tmp_path, mode=StorageMode.DATAFRAME)
+
+    # Should return the same base64 data regardless of subfolder name
+    result = storage.save_base64_image(sample_base64_png, subfolder_name="test_subfolder")
+    assert result == sample_base64_png
+
+    # Directory should not be created in DATAFRAME mode
+    assert not storage.images_dir.exists()

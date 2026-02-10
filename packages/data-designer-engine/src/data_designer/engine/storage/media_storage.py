@@ -66,14 +66,15 @@ class MediaStorage:
         """Create images directory if it doesn't exist (lazy initialization)."""
         self.images_dir.mkdir(parents=True, exist_ok=True)
 
-    def save_base64_image(self, base64_data: str) -> str:
+    def save_base64_image(self, base64_data: str, subfolder_name: str) -> str:
         """Save or return base64 image based on storage mode.
 
         Args:
             base64_data: Base64 encoded image string (with or without data URI prefix)
+            subfolder_name: Subfolder name to organize images (e.g., "images/<subfolder_name>/")
 
         Returns:
-            DISK mode: Relative path to saved image (e.g., "images/f47ac10b-58cc.png")
+            DISK mode: Relative path to saved image (e.g., "images/subfolder_name/f47ac10b-58cc.png")
             DATAFRAME mode: Original base64 data string
 
         Raises:
@@ -85,8 +86,11 @@ class MediaStorage:
             return base64_data
 
         # DISK mode: save to disk, validate, and return relative path
-        # Ensure images directory exists (lazy initialization)
-        self._ensure_images_directory()
+        # Determine the target directory (organized by subfolder)
+        target_dir = self.images_dir / subfolder_name
+
+        # Ensure target directory exists (lazy initialization)
+        target_dir.mkdir(parents=True, exist_ok=True)
 
         # Decode base64 to bytes
         image_bytes = decode_base64_image(base64_data)
@@ -97,8 +101,10 @@ class MediaStorage:
         # Generate unique filename
         image_id = uuid.uuid4()
         filename = f"{image_id}.{image_format.value}"
-        full_path = self.images_dir / filename
-        relative_path = f"{self.images_subdir}/{filename}"
+        full_path = target_dir / filename
+
+        # Build relative path
+        relative_path = f"{self.images_subdir}/{subfolder_name}/{filename}"
 
         # Write to disk
         with open(full_path, "wb") as f:

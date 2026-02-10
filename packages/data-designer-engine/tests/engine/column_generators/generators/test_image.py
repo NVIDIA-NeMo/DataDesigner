@@ -43,7 +43,10 @@ def test_image_cell_generator_generate_with_storage(
     """Test generate with media storage (create mode) - saves to disk."""
     # Setup mock media storage
     mock_storage = Mock()
-    mock_storage.save_base64_image.side_effect = ["images/uuid1.png", "images/uuid2.png"]
+    mock_storage.save_base64_image.side_effect = [
+        "images/test_image/uuid1.png",
+        "images/test_image/uuid2.png",
+    ]
     stub_resource_provider.artifact_storage.media_storage = mock_storage
 
     with patch.object(
@@ -54,17 +57,20 @@ def test_image_cell_generator_generate_with_storage(
         generator = ImageCellGenerator(config=stub_image_column_config, resource_provider=stub_resource_provider)
         data = generator.generate(data={"style": "photorealistic", "subject": "cat"})
 
-        # Check that column was added with relative paths
+        # Check that column was added with relative paths (organized in subfolder)
         assert stub_image_column_config.name in data
-        assert data[stub_image_column_config.name] == ["images/uuid1.png", "images/uuid2.png"]
+        assert data[stub_image_column_config.name] == [
+            "images/test_image/uuid1.png",
+            "images/test_image/uuid2.png",
+        ]
 
         # Verify model was called with rendered prompt
         mock_generate.assert_called_once_with(prompt="A photorealistic image of cat", multi_modal_context=None)
 
-        # Verify storage was called for each image
+        # Verify storage was called for each image with subfolder name
         assert mock_storage.save_base64_image.call_count == 2
-        mock_storage.save_base64_image.assert_any_call("base64_image_1")
-        mock_storage.save_base64_image.assert_any_call("base64_image_2")
+        mock_storage.save_base64_image.assert_any_call("base64_image_1", subfolder_name="test_image")
+        mock_storage.save_base64_image.assert_any_call("base64_image_2", subfolder_name="test_image")
 
 
 def test_image_cell_generator_generate_in_dataframe_mode(
@@ -90,6 +96,11 @@ def test_image_cell_generator_generate_in_dataframe_mode(
 
         # Verify model was called with rendered prompt
         mock_generate.assert_called_once_with(prompt="A watercolor image of dog", multi_modal_context=None)
+
+        # Verify storage was called for each image with subfolder name (even in DATAFRAME mode)
+        assert mock_storage.save_base64_image.call_count == 2
+        mock_storage.save_base64_image.assert_any_call("base64_image_1", subfolder_name="test_image")
+        mock_storage.save_base64_image.assert_any_call("base64_image_2", subfolder_name="test_image")
 
 
 def test_image_cell_generator_missing_columns_error(stub_image_column_config, stub_resource_provider):
