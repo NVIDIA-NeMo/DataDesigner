@@ -453,10 +453,6 @@ class ImageInferenceParams(BaseInferenceParams):
 
     generation_type: Literal[GenerationType.IMAGE] = GenerationType.IMAGE
 
-    @property
-    def generate_kwargs(self) -> dict[str, Any]:
-        return super().generate_kwargs
-
 
 InferenceParamsT: TypeAlias = Annotated[
     ChatCompletionInferenceParams | EmbeddingInferenceParams | ImageInferenceParams,
