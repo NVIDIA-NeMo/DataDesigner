@@ -44,7 +44,7 @@ The shift in thinking is straightforward: instead of asking one model to do ever
 
 Regardless of what you're generating \- QA pairs for retrieval training, reasoning traces for pretraining, multi-turn conversations for alignment, product reviews for testing, or labeled examples for classification \- a well-decomposed SDG pipeline typically has four kinds of stages:
 
-1. **Seed curation.** Control what goes in. Whether you're sampling from an existing corpus, selecting subsets of your data, or bootstrapping from a small set of hand-curated examples, the seed data defines the distribution your synthetic data will cover. This is where you control diversity and domain coverage \- before any LLM is involved.
+1. **Seed curation.** Control what goes in. Whether you're sampling from an existing corpus, selecting subsets of your data, or generating realistic persona profiles with demographic and personality attributes, the seed data defines the distribution your synthetic data will cover. This is where you control diversity and domain coverage \- before any LLM is involved \- so that downstream generation stages inherit that diversity naturally through their prompts.
 
 2. **Staged generation.** Each generation step has a focused job. One stage might extract structured metadata from a document. Another might generate content grounded in that metadata. A third might transform or enrich that content further. Because each stage has a narrow scope, its prompt is simple, its output is predictable, and it's easy to iterate on independently.
 
