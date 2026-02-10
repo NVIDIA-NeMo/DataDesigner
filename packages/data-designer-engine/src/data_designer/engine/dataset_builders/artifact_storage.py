@@ -47,7 +47,7 @@ class ArtifactStorage(BaseModel):
     partial_results_folder_name: str = "tmp-partial-parquet-files"
     dropped_columns_folder_name: str = "dropped-columns-parquet-files"
     processors_outputs_folder_name: str = PROCESSORS_OUTPUTS_FOLDER_NAME
-    media_storage: MediaStorage = Field(default=None, exclude=True)
+    media_storage: MediaStorage = Field(default=None, init=False, exclude=True)
 
     @property
     def artifact_path_exists(self) -> bool:
