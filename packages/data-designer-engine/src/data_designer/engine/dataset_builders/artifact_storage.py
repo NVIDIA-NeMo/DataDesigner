@@ -11,7 +11,7 @@ from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, PrivateAttr, field_validator, model_validator
 
 from data_designer.config.utils.io_helpers import read_parquet_dataset
 from data_designer.config.utils.type_helpers import StrEnum, resolve_string_enum
@@ -47,7 +47,17 @@ class ArtifactStorage(BaseModel):
     partial_results_folder_name: str = "tmp-partial-parquet-files"
     dropped_columns_folder_name: str = "dropped-columns-parquet-files"
     processors_outputs_folder_name: str = PROCESSORS_OUTPUTS_FOLDER_NAME
-    media_storage: MediaStorage = Field(default=None, init=False, exclude=True)
+    _media_storage: MediaStorage = PrivateAttr(default=None)
+
+    @property
+    def media_storage(self) -> MediaStorage:
+        """Access media storage instance."""
+        return self._media_storage
+
+    @media_storage.setter
+    def media_storage(self, value: MediaStorage) -> None:
+        """Set media storage instance."""
+        self._media_storage = value
 
     @property
     def artifact_path_exists(self) -> bool:
@@ -119,7 +129,7 @@ class ArtifactStorage(BaseModel):
                 raise ArtifactStorageError(f"🛑 Directory name '{name}' contains invalid characters.")
 
         # Initialize media storage with DISK mode by default
-        self.media_storage = MediaStorage(
+        self._media_storage = MediaStorage(
             base_path=self.base_dataset_path,
             mode=StorageMode.DISK,
         )
@@ -132,7 +142,7 @@ class ArtifactStorage(BaseModel):
         Args:
             mode: StorageMode.DISK (save to disk) or StorageMode.DATAFRAME (store in memory)
         """
-        self.media_storage.mode = mode
+        self._media_storage.mode = mode
 
     @staticmethod
     def mkdir_if_needed(path: Path | str) -> Path:
