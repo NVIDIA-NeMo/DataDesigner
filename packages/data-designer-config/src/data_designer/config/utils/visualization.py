@@ -51,7 +51,7 @@ def _display_image_if_in_notebook(image_data: str, col_name: str) -> bool:
     """Display image with caption in Jupyter notebook if available.
 
     Args:
-        image_data: Base64-encoded image data, data URI, or file path.
+        image_data: Base64-encoded image data, data URI, file path, or URL.
         col_name: Name of the column (used for caption).
 
     Returns:
@@ -63,7 +63,22 @@ def _display_image_if_in_notebook(image_data: str, col_name: str) -> bool:
 
         get_ipython()  # This will raise NameError if not in IPython/Jupyter
 
-        # Check if it's a file path and load it
+        # Escape column name to prevent HTML injection
+        escaped_col_name = html.escape(col_name)
+
+        # URLs: render directly as <img src='url'>
+        if is_image_url(image_data):
+            escaped_url = html.escape(image_data)
+            html_content = f"""
+            <div style='display: flex; flex-direction: column; align-items: flex-start; margin-top: 20px; margin-bottom: 20px;'>
+                <div style='margin-bottom: 10px;'><strong>🖼️ {escaped_col_name}</strong></div>
+                <img src='{escaped_url}'/>
+            </div>
+            """
+            display(HTML(html_content))
+            return True
+
+        # File paths: load from disk and convert to base64
         if is_image_path(image_data) and not image_data.startswith("data:image/"):
             loaded_base64 = load_image_path_to_base64(image_data)
             if loaded_base64 is None:
@@ -76,13 +91,7 @@ def _display_image_if_in_notebook(image_data: str, col_name: str) -> bool:
             base64_data = image_data
 
         # Extract base64 from data URI if present
-        base64_data = extract_base64_from_data_uri(base64_data)
-
-        # Use the base64 data directly without resizing
-        img_base64 = base64_data
-
-        # Escape column name to prevent HTML injection
-        escaped_col_name = html.escape(col_name)
+        img_base64 = extract_base64_from_data_uri(base64_data)
 
         # Create HTML with caption and image in left-aligned container
         html_content = f"""
