@@ -277,14 +277,14 @@ dataset = results.load_dataset()
 dataset.head()
 
 # %%
-# Display all image from the created dataset. Paths are relative to the artifact output directory.
+# Display all images from the created dataset. Paths are relative to the artifact output directory.
 for index, row in dataset.iterrows():
     path_or_list = row.get("generated_image")
     if path_or_list is not None:
-        for path in path_or_list:
-            base = results.artifact_storage.base_dataset_path
-            full_path = base / path
-            display(IPImage(data=full_path))
+        paths = path_or_list if not isinstance(path_or_list, str) else [path_or_list]
+        for path in paths:
+            full_path = results.artifact_storage.base_dataset_path / path
+            display(IPImage(filename=str(full_path)))
 
 # %% [markdown]
 # ## ⏭️ Next steps
@@ -293,4 +293,5 @@ for index, row in dataset.iterrows():
 # - [Structured outputs and Jinja](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/2-structured-outputs-and-jinja-expressions/)
 # - [Seeding with a dataset](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/3-seeding-with-a-dataset/)
 # - [Providing images as context](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/4-providing-images-as-context/)
+# - [Image-to-image editing](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/6-editing-images-with-image-context/): edit existing images with seed datasets
 #
