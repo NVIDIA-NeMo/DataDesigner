@@ -4,11 +4,8 @@
 from __future__ import annotations
 
 import importlib.util
-import json
 import sys
 from pathlib import Path
-
-import yaml
 
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 
@@ -17,10 +14,8 @@ class ConfigLoadError(Exception):
     """Raised when a configuration source cannot be loaded."""
 
 
-YAML_EXTENSIONS = {".yaml", ".yml"}
-JSON_EXTENSIONS = {".json"}
+CONFIG_FILE_EXTENSIONS = {".yaml", ".yml", ".json"}
 PYTHON_EXTENSIONS = {".py"}
-CONFIG_FILE_EXTENSIONS = YAML_EXTENSIONS | JSON_EXTENSIONS
 ALL_SUPPORTED_EXTENSIONS = CONFIG_FILE_EXTENSIONS | PYTHON_EXTENSIONS
 
 USER_MODULE_FUNC_NAME = "load_config_builder"
@@ -65,9 +60,9 @@ def load_config_builder(config_source: str) -> DataDesignerConfigBuilder:
 def _load_from_config_file(path: Path) -> DataDesignerConfigBuilder:
     """Load a DataDesignerConfigBuilder from a YAML or JSON config file.
 
-    Automatically detects if the file contains a DataDesignerConfig (without
-    the ``data_designer`` wrapper) and wraps it into a BuilderConfig so that
-    users can provide either format.
+    Delegates to ``DataDesignerConfigBuilder.from_config`` which handles file
+    parsing and accepts both the full ``BuilderConfig`` format and the
+    shorthand ``DataDesignerConfig`` format.
 
     Args:
         path: Path to the config file.
@@ -78,61 +73,10 @@ def _load_from_config_file(path: Path) -> DataDesignerConfigBuilder:
     Raises:
         ConfigLoadError: If the file cannot be parsed or validated.
     """
-    config_dict = _parse_config_file(path)
-    config_dict = _maybe_wrap_data_designer_config(config_dict)
-
     try:
-        return DataDesignerConfigBuilder.from_config(config_dict)
+        return DataDesignerConfigBuilder.from_config(path)
     except Exception as e:
-        raise ConfigLoadError(f"Invalid config structure in '{path}': {e}") from e
-
-
-def _parse_config_file(path: Path) -> dict:
-    """Parse a YAML or JSON config file into a dictionary.
-
-    Dispatches to the appropriate parser based on file extension so that
-    error messages are specific to the file format the user provided.
-
-    Args:
-        path: Path to the config file.
-
-    Returns:
-        The parsed config as a dictionary.
-
-    Raises:
-        ConfigLoadError: If the file cannot be parsed or is not a dict.
-    """
-    suffix = path.suffix.lower()
-
-    try:
-        with open(path) as f:
-            config = json.load(f) if suffix in JSON_EXTENSIONS else yaml.safe_load(f)
-        if not isinstance(config, dict):
-            file_type = "JSON object" if suffix in JSON_EXTENSIONS else "YAML mapping"
-            raise ValueError(f"Expected a {file_type} (dict), got {type(config).__name__}")
-        return config
-    except Exception as e:
-        raise ConfigLoadError(f"Failed to parse config file '{path}': {e}") from e
-
-
-def _maybe_wrap_data_designer_config(config_dict: dict) -> dict:
-    """Detect if a config dict is a DataDesignerConfig and wrap it as a BuilderConfig.
-
-    A DataDesignerConfig has ``columns`` at the top level but no ``data_designer``
-    key, whereas a BuilderConfig nests everything under ``data_designer``. This
-    function detects the unwrapped format and wraps it so that
-    ``DataDesignerConfigBuilder.from_config`` can process it.
-
-    Args:
-        config_dict: The parsed config dictionary.
-
-    Returns:
-        The original dict if it is already a BuilderConfig, or a new dict with
-        the original nested under a ``data_designer`` key.
-    """
-    if "columns" in config_dict and "data_designer" not in config_dict:
-        return {"data_designer": config_dict}
-    return config_dict
+        raise ConfigLoadError(f"Failed to load config from '{path}': {e}") from e
 
 
 def _load_from_python_module(path: Path) -> DataDesignerConfigBuilder:
