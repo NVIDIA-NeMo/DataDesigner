@@ -69,7 +69,7 @@ model_configs = [
         model=MODEL_ID,
         provider=MODEL_PROVIDER,
         inference_parameters=dd.ImageInferenceParams(
-            extra_body={"size": "1024x1024"},
+            extra_body={"height": 512, "width": 512},
         ),
     )
 ]
@@ -82,36 +82,6 @@ model_configs = [
 
 # %%
 config_builder = dd.DataDesignerConfigBuilder(model_configs=model_configs)
-
-config_builder.add_column(
-    dd.SamplerColumnConfig(
-        name="subject",
-        sampler_type=dd.SamplerType.CATEGORY,
-        params=dd.CategorySamplerParams(
-            values=[
-                "a Golden Retriever",
-                "a German Shepherd",
-                "a Labrador Retriever",
-                "a Bulldog",
-                "a Beagle",
-                "a Poodle",
-                "a Corgi",
-                "a Siberian Husky",
-                "a Dalmatian",
-            ],
-        ),
-    )
-)
-
-config_builder.add_column(
-    dd.SamplerColumnConfig(
-        name="age",
-        sampler_type=dd.SamplerType.CATEGORY,
-        params=dd.CategorySamplerParams(
-            values=["1-3", "3-6", "6-9", "9-12", "12-15"],
-        ),
-    )
-)
 
 config_builder.add_column(
     dd.SamplerColumnConfig(
@@ -132,7 +102,99 @@ config_builder.add_column(
 
 config_builder.add_column(
     dd.SamplerColumnConfig(
-        name="look_direction",
+        name="dog_breed",
+        sampler_type=dd.SamplerType.CATEGORY,
+        params=dd.CategorySamplerParams(
+            values=[
+                "a Golden Retriever",
+                "a German Shepherd",
+                "a Labrador Retriever",
+                "a Bulldog",
+                "a Beagle",
+                "a Poodle",
+                "a Corgi",
+                "a Siberian Husky",
+                "a Dalmatian",
+                "a Yorkshire Terrier",
+                "a Boxer",
+                "a Dachshund",
+                "a Doberman Pinscher",
+                "a Shih Tzu",
+                "a Chihuahua",
+                "a Border Collie",
+                "an Australian Shepherd",
+                "a Cocker Spaniel",
+                "a Maltese",
+                "a Pomeranian",
+                "a Saint Bernard",
+                "a Great Dane",
+                "an Akita",
+                "a Samoyed",
+                "a Boston Terrier",
+            ],
+        ),
+    )
+)
+
+config_builder.add_column(
+    dd.SamplerColumnConfig(
+        name="cat_breed",
+        sampler_type=dd.SamplerType.CATEGORY,
+        params=dd.CategorySamplerParams(
+            values=[
+                "a Persian",
+                "a Maine Coon",
+                "a Siamese",
+                "a Ragdoll",
+                "a Bengal",
+                "an Abyssinian",
+                "a British Shorthair",
+                "a Sphynx",
+                "a Scottish Fold",
+                "a Russian Blue",
+                "a Birman",
+                "an Oriental Shorthair",
+                "a Norwegian Forest Cat",
+                "a Devon Rex",
+                "a Burmese",
+                "an Egyptian Mau",
+                "a Tonkinese",
+                "a Himalayan",
+                "a Savannah",
+                "a Chartreux",
+                "a Somali",
+                "a Manx",
+                "a Turkish Angora",
+                "a Balinese",
+                "an American Shorthair",
+            ],
+        ),
+    )
+)
+
+config_builder.add_column(
+    dd.SamplerColumnConfig(
+        name="dog_age",
+        sampler_type=dd.SamplerType.CATEGORY,
+        params=dd.CategorySamplerParams(
+            values=["1-3", "3-6", "6-9", "9-12", "12-15"],
+        ),
+    )
+)
+
+config_builder.add_column(
+    dd.SamplerColumnConfig(
+        name="cat_age",
+        sampler_type=dd.SamplerType.CATEGORY,
+        params=dd.CategorySamplerParams(
+            values=["1-3", "3-6", "6-9", "9-12", "12-18"],
+        ),
+    )
+)
+
+config_builder.add_column(
+    dd.SamplerColumnConfig(
+        name="dog_look_direction",
         sampler_type=dd.SamplerType.CATEGORY,
         params=dd.CategorySamplerParams(
             values=["left", "right", "front", "up", "down"],
@@ -142,7 +204,17 @@ config_builder.add_column(
 
 config_builder.add_column(
     dd.SamplerColumnConfig(
-        name="emotion",
+        name="cat_look_direction",
+        sampler_type=dd.SamplerType.CATEGORY,
+        params=dd.CategorySamplerParams(
+            values=["left", "right", "front", "up", "down"],
+        ),
+    )
+)
+
+config_builder.add_column(
+    dd.SamplerColumnConfig(
+        name="dog_emotion",
         sampler_type=dd.SamplerType.CATEGORY,
         params=dd.CategorySamplerParams(
             values=["happy", "curious", "serious", "sleepy", "excited"],
@@ -151,11 +223,23 @@ config_builder.add_column(
 )
 
 config_builder.add_column(
+    dd.SamplerColumnConfig(
+        name="cat_emotion",
+        sampler_type=dd.SamplerType.CATEGORY,
+        params=dd.CategorySamplerParams(
+            values=["aloof", "curious", "content", "sleepy", "playful"],
+        ),
+    )
+)
+
+config_builder.add_column(
     dd.ImageColumnConfig(
         name="generated_image",
         prompt=(
-            "A {{ style }} portrait of {{ subject }} {{ age }} years old looking {{ look_direction }} "
-            "towards a crowd of the same kind with an {{ emotion }} expression."
+            """
+A {{ style }} family pet portrait of a {{ dog_breed }} dog of {{ dog_age }} years old looking {{dog_look_direction}} with an {{ dog_emotion }} expression and
+{{ cat_breed }} cat of {{ cat_age }} years old looking {{ cat_look_direction }} with an {{ cat_emotion }} expression in the background. Both subjects should be in focus.
+        """
         ),
         model_alias=MODEL_ALIAS,
     )
