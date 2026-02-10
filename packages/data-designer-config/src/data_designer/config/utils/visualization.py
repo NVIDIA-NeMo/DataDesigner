@@ -47,13 +47,12 @@ if TYPE_CHECKING:
 console = Console()
 
 
-def _display_image_if_in_notebook(image_data: str, col_name: str, base_path: str | None = None) -> bool:
+def _display_image_if_in_notebook(image_data: str, col_name: str) -> bool:
     """Display image with caption in Jupyter notebook if available.
 
     Args:
         image_data: Base64-encoded image data, data URI, or file path.
         col_name: Name of the column (used for caption).
-        base_path: Optional base path to resolve relative image paths.
 
     Returns:
         True if image was displayed, False otherwise.
@@ -66,7 +65,7 @@ def _display_image_if_in_notebook(image_data: str, col_name: str, base_path: str
 
         # Check if it's a file path and load it
         if is_image_path(image_data) and not image_data.startswith("data:image/"):
-            loaded_base64 = load_image_path_to_base64(image_data, base_path)
+            loaded_base64 = load_image_path_to_base64(image_data)
             if loaded_base64 is None:
                 console.print(
                     f"[yellow]⚠️ Could not load image from path '{image_data}' for column '{col_name}'[/yellow]"
@@ -191,11 +190,6 @@ class WithRecordSamplerMixin:
             None if hide_seed_columns or self.dataset_metadata is None else self.dataset_metadata.seed_column_names
         )
 
-        # Try to get base path from artifact storage if available
-        base_path = None
-        if hasattr(self, "artifact_storage") and self.artifact_storage is not None:
-            base_path = str(self.artifact_storage.base_dataset_path)
-
         display_sample_record(
             record=record,
             processor_data_to_display=processor_data_to_display,
@@ -204,7 +198,6 @@ class WithRecordSamplerMixin:
             syntax_highlighting_theme=syntax_highlighting_theme,
             record_index=i,
             seed_column_names=seed_column_names,
-            base_path=base_path,
         )
         if index is None:
             self._display_cycle_index = (self._display_cycle_index + 1) % num_records
@@ -238,7 +231,6 @@ def display_sample_record(
     syntax_highlighting_theme: str = "dracula",
     record_index: int | None = None,
     seed_column_names: list[str] | None = None,
-    base_path: str | None = None,
 ):
     if isinstance(record, (dict, pd.Series)):
         record = pd.DataFrame([record]).iloc[0]
@@ -420,7 +412,7 @@ def display_sample_record(
     # Display images at the bottom with captions (only in notebook)
     if len(images_to_display_later) > 0:
         for col_name, image_data in images_to_display_later:
-            _display_image_if_in_notebook(image_data, col_name, base_path=base_path)
+            _display_image_if_in_notebook(image_data, col_name)
 
 
 def get_truncated_list_as_string(long_list: list[Any], max_items: int = 2) -> str:
