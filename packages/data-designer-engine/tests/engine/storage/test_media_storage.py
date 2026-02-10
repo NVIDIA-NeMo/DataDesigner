@@ -60,13 +60,23 @@ def test_media_storage_init_custom_subdir(tmp_path):
     assert not storage.images_dir.exists()
 
 
-def test_save_base64_image_png(media_storage, sample_base64_png):
-    """Test saving a PNG image from base64."""
-    relative_path = media_storage.save_base64_image(sample_base64_png, subfolder_name="test_column")
+@pytest.mark.parametrize(
+    "image_fixture,expected_extension",
+    [
+        ("sample_base64_png", ".png"),
+        ("sample_base64_jpg", ".jpg"),
+    ],
+)
+def test_save_base64_image_format(media_storage, image_fixture, expected_extension, request):
+    """Test saving images from base64 in different formats."""
+    # Get the actual fixture value using request.getfixturevalue
+    sample_base64 = request.getfixturevalue(image_fixture)
+
+    relative_path = media_storage.save_base64_image(sample_base64, subfolder_name="test_column")
 
     # Check return value format (organized by column name)
     assert relative_path.startswith(f"{IMAGES_SUBDIR}/test_column/")
-    assert relative_path.endswith(".png")
+    assert relative_path.endswith(expected_extension)
 
     # Check file exists on disk
     full_path = media_storage.base_path / relative_path
@@ -74,21 +84,8 @@ def test_save_base64_image_png(media_storage, sample_base64_png):
 
     # Verify file content
     saved_bytes = full_path.read_bytes()
-    expected_bytes = base64.b64decode(sample_base64_png)
+    expected_bytes = base64.b64decode(sample_base64)
     assert saved_bytes == expected_bytes
-
-
-def test_save_base64_image_jpg(media_storage, sample_base64_jpg):
-    """Test saving a JPEG image from base64."""
-    relative_path = media_storage.save_base64_image(sample_base64_jpg, subfolder_name="test_column")
-
-    # Check return value format (organized by column name)
-    assert relative_path.startswith(f"{IMAGES_SUBDIR}/test_column/")
-    assert relative_path.endswith(".jpg")
-
-    # Check file exists on disk
-    full_path = media_storage.base_path / relative_path
-    assert full_path.exists()
 
 
 def test_save_base64_image_with_data_uri(media_storage, sample_base64_png):
