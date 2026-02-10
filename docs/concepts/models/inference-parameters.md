@@ -1,6 +1,6 @@
 # Inference Parameters
 
-Inference parameters control how models generate responses during synthetic data generation. Data Designer provides two types of inference parameters: `ChatCompletionInferenceParams` for text/code/structured generation and `EmbeddingInferenceParams` for embedding generation.
+Inference parameters control how models generate responses during synthetic data generation. Data Designer provides three types of inference parameters: `ChatCompletionInferenceParams` for text/code/structured generation, `EmbeddingInferenceParams` for embedding generation, and `ImageInferenceParams` for image generation.
 
 ## Overview
 
@@ -134,6 +134,44 @@ The `EmbeddingInferenceParams` class controls how models generate embeddings. Th
 | `max_parallel_requests` | `int` | No | Maximum concurrent API requests (default: 4, ≥ 1) |
 | `timeout` | `int` | No | API request timeout in seconds (≥ 1) |
 | `extra_body` | `dict[str, Any]` | No | Additional parameters to include in the API request body |
+
+
+## Image Inference Parameters
+
+The `ImageInferenceParams` class is used for image generation models, including both diffusion models (DALL·E, Stable Diffusion, Imagen) and autoregressive models (Gemini image, GPT image). Unlike text models, image-specific options are passed entirely via `extra_body`, since they vary significantly between providers.
+
+### Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `max_parallel_requests` | `int` | No | Maximum concurrent API requests (default: 4, ≥ 1) |
+| `timeout` | `int` | No | API request timeout in seconds (≥ 1) |
+| `extra_body` | `dict[str, Any]` | No | Model-specific image options (size, quality, aspect ratio, etc.) |
+
+### Examples
+
+```python
+import data_designer.config as dd
+
+# Diffusion model (e.g., DALL·E, Stable Diffusion)
+dd.ModelConfig(
+    alias="image-model",
+    model="black-forest-labs/flux.2-pro",
+    provider="openrouter",
+    inference_parameters=dd.ImageInferenceParams(
+        extra_body={"height": 512, "width": 512}
+    ),
+)
+
+# OpenAI DALL·E style
+dd.ModelConfig(
+    alias="dalle",
+    model="dall-e-3",
+    inference_parameters=dd.ImageInferenceParams(
+        extra_body={"size": "1024x1024", "quality": "hd"}
+    ),
+)
+```
 
 
 ## See Also

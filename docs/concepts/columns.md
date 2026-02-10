@@ -7,7 +7,7 @@ Columns are the fundamental building blocks in Data Designer. Each column repres
 
 ## Column Types
 
-Data Designer provides ten built-in column types, each optimized for different generation scenarios.
+Data Designer provides eleven built-in column types, each optimized for different generation scenarios.
 
 ### 🎲 Sampler Columns
 
@@ -95,6 +95,24 @@ LLM-Judge columns score generated content across multiple quality dimensions usi
 Define scoring rubrics (relevance, accuracy, fluency, helpfulness) and the judge model evaluates each record. Score rubrics specify criteria and scoring options (1-5 scales, categorical grades, etc.), producing quantified quality metrics for every data point.
 
 Use judge columns for data quality filtering (e.g., keep only 4+ rated responses), A/B testing generation strategies, and quality monitoring over time.
+
+### 🖼️ Image Columns
+
+Image columns generate images from text prompts using either **diffusion** models (DALL·E, Stable Diffusion, Imagen) or **autoregressive** models (Gemini image, GPT image).
+
+Use **Jinja2 templating** in the prompt to reference other columns, driving diversity across generated images. For example, reference sampled attributes like style, subject, and composition to produce varied images without manually writing different prompts.
+
+Image columns require a model configured with `ImageInferenceParams`. Model-specific options (size, quality, aspect ratio) are passed via `extra_body` in the inference parameters.
+
+**Output modes:**
+
+- **Preview** (`data_designer.preview()`): Images are stored as base64-encoded strings directly in the DataFrame for quick iteration
+- **Create** (`data_designer.create()`): Images are saved to disk in an `images/<column_name>/` folder with UUID filenames; the DataFrame stores relative paths
+
+Image columns also support `multi_modal_context` for autoregressive models that accept image inputs, enabling image-to-image generation workflows.
+
+!!! tip "Tutorial"
+    See the [Generating Images](../notebooks/5-generating-images.ipynb) tutorial for a complete walkthrough, and [Providing Images as Context](../notebooks/4-providing-images-as-context.ipynb) for using images as input to other columns.
 
 ### 🧬 Embedding Columns
 

@@ -23,7 +23,7 @@
 # - 📝 **Jinja2 prompts**: Drive diversity by referencing other columns in your prompt template
 # - 💾 **Preview vs create**: Preview stores base64 in the dataframe; create saves images to disk and stores paths
 #
-# Data Designer supports both **diffusion** (e.g. DALL·E, Stable Diffusion, Imagen) and **autoregressive** (e.g. Gemini image, GPT image) models; the API is chosen automatically from the model name.
+# Data Designer supports both **diffusion** (e.g. DALL·E, Stable Diffusion, Imagen) and **autoregressive** (e.g. Gemini image, GPT image) models.
 #
 # If this is your first time using Data Designer, we recommend starting with the [first notebook](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/1-the-basics/) in this tutorial series.
 #
