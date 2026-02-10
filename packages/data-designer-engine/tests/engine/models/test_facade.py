@@ -1131,7 +1131,7 @@ def test_generate_image_chat_completion_no_image_data(
     mock_completion.return_value = mock_response
 
     with patch("data_designer.engine.models.facade.is_image_diffusion_model", return_value=False):
-        with pytest.raises(ImageGenerationError, match="No image data found in response"):
+        with pytest.raises(ImageGenerationError, match="No image data found in image generation response"):
             stub_model_facade.generate_image(prompt="test prompt")
 
 

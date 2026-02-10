@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import shutil
 import uuid
 from pathlib import Path
 
@@ -29,10 +28,6 @@ class MediaStorage:
 
     Currently supports:
     - Images (PNG, JPG, WEBP)
-
-    Future support planned for:
-    - Audio
-    - Video
 
     Storage modes:
     - DISK: Save media to disk and return relative paths (for dataset creation)
@@ -130,8 +125,3 @@ class MediaStorage:
             # Clean up invalid file
             image_path.unlink(missing_ok=True)
             raise
-
-    def cleanup(self) -> None:
-        """Clean up image directory (for preview mode)."""
-        if self.images_dir.exists():
-            shutil.rmtree(self.images_dir)

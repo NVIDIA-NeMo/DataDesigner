@@ -14,9 +14,6 @@ name = "data-designer-workspace"
 version = "0.0.0"  # Placeholder, never used since package = false
 description = "DataDesigner monorepo workspace"
 requires-python = ">=3.10"
-dependencies = [
-    "matplotlib>=3.10.8",
-]
 
 [build-system]
 requires = ["hatchling"]

@@ -437,7 +437,7 @@ class ModelFacade:
                         images.append(b64)
 
             if not images:
-                raise ImageGenerationError("No image data found in response")
+                raise ImageGenerationError("No image data found in image generation response")
 
             return images
 

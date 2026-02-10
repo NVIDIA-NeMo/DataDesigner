@@ -193,11 +193,11 @@ class HuggingFaceHubClient:
         if not images_folder.exists():
             return
 
-        image_files = list(images_folder.glob("*"))
+        image_files = list(images_folder.rglob("*.*"))
         if not image_files:
             return
 
-        logger.info(f"  |-- {RandomEmoji.loading()} Uploading {len(image_files)} images...")
+        logger.info(f"  |-- {RandomEmoji.loading()} Uploading {len(image_files)} image files...")
 
         try:
             self._api.upload_folder(

@@ -164,18 +164,6 @@ def test_save_base64_image_dataframe_mode_returns_base64(tmp_path, sample_base64
     assert not storage.images_dir.exists()
 
 
-def test_cleanup(media_storage, sample_base64_png):
-    """Test cleanup removes images directory."""
-    # Save an image first
-    media_storage.save_base64_image(sample_base64_png, subfolder_name="test_column")
-    assert media_storage.images_dir.exists()
-    assert len(list(media_storage.images_dir.iterdir())) > 0
-
-    # Cleanup should remove directory
-    media_storage.cleanup()
-    assert not media_storage.images_dir.exists()
-
-
 def test_save_base64_image_with_subfolder_name(media_storage, sample_base64_png):
     """Test saving image with subfolder name organizes into subdirectory."""
     subfolder = "test_subfolder"
