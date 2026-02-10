@@ -7,7 +7,7 @@ import json
 import logging
 from pathlib import Path
 
-from pydantic import computed_field
+from pydantic import model_validator
 from pygments import highlight
 from pygments.formatters import HtmlFormatter
 from pygments.lexers import PythonLexer
@@ -65,10 +65,20 @@ class BuilderConfig(ExportableConfigBase):
     """
 
     data_designer: DataDesignerConfig
+    library_version: str | None = None
 
-    @computed_field
-    def library_version(self) -> str:
-        return get_library_version()
+    @model_validator(mode="after")
+    def _set_library_version(self) -> BuilderConfig:
+        current_version = get_library_version()
+        if self.library_version is None:
+            self.library_version = current_version
+        elif self.library_version != current_version:
+            logger.warning(
+                f"⚠️ Config was created with Data Designer v{self.library_version}, "
+                f"but you are running v{current_version}. "
+                f"If you encounter issues, consider re-generating this config."
+            )
+        return self
 
 
 class DataDesignerConfigBuilder:

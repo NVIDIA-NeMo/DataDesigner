@@ -451,6 +451,21 @@ def test_write_config(stub_data_designer_builder):
             stub_data_designer_builder.write_config(temp_path.with_suffix(".txt"))
 
 
+def test_write_config_round_trip(stub_data_designer_builder):
+    """Verify that configs written with write_config can be loaded back via from_config."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        for suffix in [".yaml", ".json"]:
+            temp_path = Path(temp_dir) / f"round_trip{suffix}"
+            stub_data_designer_builder.write_config(temp_path)
+            loaded_builder = DataDesignerConfigBuilder.from_config(temp_path)
+            assert len(loaded_builder.get_column_configs()) == len(stub_data_designer_builder.get_column_configs())
+            for original, loaded in zip(
+                stub_data_designer_builder.get_column_configs(), loaded_builder.get_column_configs()
+            ):
+                assert original.name == loaded.name
+                assert original.column_type == loaded.column_type
+
+
 def test_get_column_config_from_kwargs():
     # Test column creation and serialization
 

@@ -2,23 +2,27 @@
     The plugin system is currently **experimental** and under active development. The documentation, examples, and plugin interface are subject to significant changes in future releases. If you encounter any issues, have questions, or have ideas for improvement, please consider starting [a discussion on GitHub](https://github.com/NVIDIA-NeMo/DataDesigner/discussions).
 
 
-# Example Plugin: Index Multiplier
+# Example Plugin: Column Generator
 
-In this guide, we will build a simple plugin that generates values by multiplying the row index by a user-specified multiplier. Admittedly, not the most useful plugin, but it demonstrates the required steps 😜.
+Data Designer supports two plugin types: **column generators** and **seed readers**. This page walks through a complete column generator example.
 
 A Data Designer plugin is implemented as a Python package with three main components:
 
 1. **Configuration Class**: Defines the parameters users can configure
-2. **Task Class**: Contains the core implementation of the plugin
-3. **Plugin Object**: Connects the config and task classes to make the plugin discoverable
+2. **Implementation Class**: Contains the core logic of the plugin
+3. **Plugin Object**: Connects the config and implementation classes to make the plugin discoverable
 
-Let's build the `data-designer-index-multiplier` plugin step by step.
+We recommend separating these into individual files (`config.py`, `impl.py`, `plugin.py`) within a plugin subdirectory. This keeps the code organized, makes it easy to test each component independently, and guards against circular dependencies — since the config module can be imported without pulling in the engine-level implementation classes, and the plugin object can be discovered without importing either.
 
-## Step 1: Create a Python package
+---
 
-Data Designer plugins are implemented as Python packages. We recommend using a standard structure for your plugin package.
+## Column Generator Plugin: Index Multiplier
 
-For example, here is the structure of a `data-designer-index-multiplier` plugin:
+In this section, we will build a simple column generator plugin that generates values by multiplying the row index by a user-specified multiplier.
+
+### Step 1: Create a Python package
+
+We recommend the following structure for column generator plugins:
 
 ```
 data-designer-index-multiplier/
@@ -26,26 +30,46 @@ data-designer-index-multiplier/
 └── src/
     └── data_designer_index_multiplier/
         ├── __init__.py
+        ├── config.py
+        ├── impl.py
         └── plugin.py
 ```
 
-## Step 2: Create the config class
+### Step 2: Create the config class
 
 The configuration class defines what parameters users can set when using your plugin. For column generator plugins, it must inherit from [SingleColumnConfig](../code_reference/column_configs.md#data_designer.config.column_configs.SingleColumnConfig) and include a [discriminator field](https://docs.pydantic.dev/latest/concepts/unions/#discriminated-unions).
 
+Create `src/data_designer_index_multiplier/config.py`:
+
 ```python
 from typing import Literal
+
 from data_designer.config.base import SingleColumnConfig
+
 
 class IndexMultiplierColumnConfig(SingleColumnConfig):
     """Configuration for the index multiplier column generator."""
 
-    # Configurable parameter for this plugin
-    multiplier: int = 2
-
     # Required: discriminator field with a unique Literal type
     # This value identifies your plugin and becomes its column_type
     column_type: Literal["index-multiplier"] = "index-multiplier"
+
+    # Configurable parameter for this plugin
+    multiplier: int = 2
+
+    @staticmethod
+    def get_column_emoji() -> str:
+        return "✖️"
+
+    @property
+    def required_columns(self) -> list[str]:
+        """Columns that must exist before this generator runs."""
+        return []
+
+    @property
+    def side_effect_columns(self) -> list[str]:
+        """Additional columns produced beyond the primary column."""
+        return []
 ```
 
 **Key points:**
@@ -54,20 +78,26 @@ class IndexMultiplierColumnConfig(SingleColumnConfig):
 - This value uniquely identifies your plugin (use kebab-case)
 - Add any custom parameters your plugin needs (here: `multiplier`)
 - `SingleColumnConfig` is a Pydantic model, so you can leverage all of Pydantic's validation features
+- `get_column_emoji()` returns the emoji displayed in logs for this column type
+- `required_columns` lists any columns this generator depends on (empty if none)
+- `side_effect_columns` lists any additional columns this generator produces beyond the primary column (empty if none)
 
-## Step 3: Create the implementation class
+### Step 3: Create the implementation class
 
-The implementation class defines the actual business logic of the plugin. For column generator plugins, it inherits from [ColumnGenerator](../code_reference/column_generators.md#data_designer.engine.column_generators.generators.base.ColumnGenerator) and must implement a `metadata` static method and `generate` method:
+The implementation class defines the actual business logic of the plugin. For column generator plugins, inherit from `ColumnGeneratorFullColumn` or `ColumnGeneratorCellByCell` and implement the `generate` method.
 
+Create `src/data_designer_index_multiplier/impl.py`:
 
 ```python
 import logging
+
 import pandas as pd
+from data_designer.engine.column_generators.generators.base import ColumnGeneratorFullColumn
 
-from data_designer.engine.column_generators.generators.base import ColumnGeneratorFullColumn, GenerationStrategy
+from data_designer_index_multiplier.config import IndexMultiplierColumnConfig
 
-# Data Designer uses the standard Python logging module for logging
 logger = logging.getLogger(__name__)
+
 
 class IndexMultiplierColumnGenerator(ColumnGeneratorFullColumn[IndexMultiplierColumnConfig]):
 
@@ -85,7 +115,6 @@ class IndexMultiplierColumnGenerator(ColumnGeneratorFullColumn[IndexMultiplierCo
             f"with multiplier {self.config.multiplier}"
         )
 
-        # Access config via self.config
         data[self.config.name] = data.index * self.config.multiplier
 
         return data
@@ -93,99 +122,36 @@ class IndexMultiplierColumnGenerator(ColumnGeneratorFullColumn[IndexMultiplierCo
 
 **Key points:**
 
-- Generic type `ColumnGeneratorFullColumn[IndexMultiplierColumnConfig]` connects the task to its config
+- Generic type `ColumnGeneratorFullColumn[IndexMultiplierColumnConfig]` connects the implementation to its config
 - You have access to the configuration parameters via `self.config`
 
 !!! info "Understanding generation_strategy"
-    The `generation_strategy` specifies how the column generator will generate data.
+    The `generation_strategy` specifies how the column generator will generate data. You choose a strategy by inheriting from the corresponding base class:
 
-    - **`FULL_COLUMN`**: Generates the full column (at the batch level) in a single call to `generate`
+    - **`ColumnGeneratorFullColumn`**: Generates the full column (at the batch level) in a single call to `generate`
         - `generate` must take as input a `pd.DataFrame` with all previous columns and return a `pd.DataFrame` with the generated column appended.
-        - Inherit from `ColumnGeneratorFullColumn` for this strategy, as we do in the example above.
 
-    - **`CELL_BY_CELL`**: Generates one cell at a time
+    - **`ColumnGeneratorCellByCell`**: Generates one cell at a time
         - `generate` must take as input a `dict` with key/value pairs for all previous columns and return a `dict` with an additional key/value for the generated cell
         - Supports concurrent workers via a `max_parallel_requests` parameter on the configuration
-        - Inherit from `ColumnGeneratorCellByCell` for this strategy.
 
-## Step 4: Create the plugin object
+### Step 4: Create the plugin object
 
-Create a `Plugin` object that makes the plugin discoverable and connects the task and config classes.
+Create a `Plugin` object that makes the plugin discoverable and connects the implementation and config classes.
+
+Create `src/data_designer_index_multiplier/plugin.py`:
 
 ```python
 from data_designer.plugins import Plugin, PluginType
 
-# Plugin instance - this is what gets loaded via entry point
 plugin = Plugin(
-    impl_qualified_name="data_designer_index_multiplier.plugin.IndexMultiplierColumnGenerator",
-    config_qualified_name="data_designer_index_multiplier.plugin.IndexMultiplierColumnConfig",
+    config_qualified_name="data_designer_index_multiplier.config.IndexMultiplierColumnConfig",
+    impl_qualified_name="data_designer_index_multiplier.impl.IndexMultiplierColumnGenerator",
     plugin_type=PluginType.COLUMN_GENERATOR,
-    emoji="🔌",
 )
 ```
 
-### Complete plugin code
-
-Pulling it all together, here is the complete plugin code for `src/data_designer_index_multiplier/plugin.py`:
-
-```python
-import logging
-from typing import Literal
-
-import pandas as pd
-
-from data_designer.config.base import SingleColumnConfig
-from data_designer.engine.column_generators.generators.base import ColumnGeneratorFullColumn
-
-from data_designer.plugins import Plugin, PluginType
-
-# Data Designer uses the standard Python logging module for logging
-logger = logging.getLogger(__name__)
-
-
-class IndexMultiplierColumnConfig(SingleColumnConfig):
-    """Configuration for the index multiplier column generator."""
-
-    # Configurable parameter for this plugin
-    multiplier: int = 2
-
-    # Required: discriminator field with a unique Literal type
-    # This value identifies your plugin and becomes its column_type
-    column_type: Literal["index-multiplier"] = "index-multiplier"
-
-
-class IndexMultiplierColumnGenerator(ColumnGeneratorFullColumn[IndexMultiplierColumnConfig]):
-
-    def generate(self, data: pd.DataFrame) -> pd.DataFrame:
-        """Generate the column data.
-
-        Args:
-            data: The current DataFrame being built
-
-        Returns:
-            The DataFrame with the new column added
-        """
-        logger.info(
-            f"Generating column {self.config.name} "
-            f"with multiplier {self.config.multiplier}"
-        )
-
-        # Access config via self.config
-        data[self.config.name] = data.index * self.config.multiplier
-
-        return data
-
-
-# Plugin instance - this is what gets loaded via entry point
-plugin = Plugin(
-    impl_qualified_name="data_designer_index_multiplier.plugin.IndexMultiplierColumnGenerator",
-    config_qualified_name="data_designer_index_multiplier.plugin.IndexMultiplierColumnConfig",
-    plugin_type=PluginType.COLUMN_GENERATOR,
-    emoji="🔌",
-)
-```
-
-## Step 5: Package your plugin
+### Step 5: Package your plugin
 
 Create a `pyproject.toml` file to define your package and register the entry point:
 
@@ -220,22 +186,24 @@ packages = ["src/data_designer_index_multiplier"]
     <entry-point-name> = "<module.path>:<plugin-instance-name>"
     ```
 
-## Step 6: Use your plugin
+### Step 6: Install and use your plugin locally
 
-Install your plugin in editable mode for testing:
+Install your plugin in editable mode — this is all you need to start using it. No PyPI publishing required:
 
 ```bash
 # From the plugin directory
 uv pip install -e .
 ```
 
+That's it. The editable install registers the entry point so Data Designer discovers your plugin automatically. Any changes you make to the plugin source code are picked up immediately without reinstalling.
+
 Once installed, your plugin works just like built-in column types:
 
 ```python
-from data_designer_index_multiplier.plugin import IndexMultiplierColumnConfig
-
 import data_designer.config as dd
 from data_designer.interface import DataDesigner
+
+from data_designer_index_multiplier.config import IndexMultiplierColumnConfig
 
 data_designer = DataDesigner()
 builder = dd.DataDesignerConfigBuilder()
@@ -252,7 +220,7 @@ builder.add_column(
 # Add your custom plugin column
 builder.add_column(
     IndexMultiplierColumnConfig(
-        name="v",
+        name="scaled_index",
         multiplier=5,
     )
 )
@@ -264,13 +232,47 @@ print(results.load_dataset())
 
 Output:
 ```
-  category  multiplied-index
-0        B                 0
-1        A                 5
-2        C                10
-3        A                15
-4        B                20
+  category  scaled_index
+0        B             0
+1        A             5
+2        C            10
+3        A            15
+4        B            20
 ...
 ```
 
-That's it! You have now created and used your first Data Designer plugin. The last step is to package your plugin and share it with the community 🚀
+---
+
+## Validating Your Plugin
+
+Data Designer provides a testing utility to validate that your plugin is structured correctly. Use `assert_valid_plugin` to check that your config and implementation classes are properly defined:
+
+```python
+from data_designer.engine.testing.utils import assert_valid_plugin
+from data_designer_index_multiplier.plugin import plugin
+
+# Raises AssertionError with a descriptive message if anything is wrong with the general plugin structure
+assert_valid_plugin(plugin)
+```
+
+This validates that:
+
+- The config class is a subclass of `ConfigBase`
+- For column generator plugins: the implementation class is a subclass of `ConfigurableTask`
+- For seed reader plugins: the implementation class is a subclass of `SeedReader`
+
+---
+
+## Multiple Plugins in One Package
+
+A single Python package can register multiple plugins. Simply define multiple `Plugin` instances and register each one as a separate entry point:
+
+```toml
+[project.entry-points."data_designer.plugins"]
+my-column-generator = "my_package.plugins.column_generator.plugin:column_generator_plugin"
+my-seed-reader = "my_package.plugins.seed_reader.plugin:seed_reader_plugin"
+```
+
+For an example of this pattern, see the end-to-end test plugins in the [tests_e2e/](https://github.com/NVIDIA-NeMo/DataDesigner/tree/main/tests_e2e) directory.
+
+That's it! You now know how to create a Data Designer plugin. A local editable install (`uv pip install -e .`) is all you need to develop, test, and use your plugin. If you want to make it available for others to install via `pip install`, publish it to PyPI or your organization's package index.
