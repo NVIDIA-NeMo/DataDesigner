@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
 from data_designer.config.column_configs import CustomColumnConfig
-from data_designer.config.column_types import ColumnConfigT
+from data_designer.config.column_types import ColumnConfigT, DataDesignerColumnType
 from data_designer.config.config_builder import BuilderConfig
 from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.dataset_builders import BuildStage
@@ -170,21 +170,15 @@ class ColumnWiseDatasetBuilder:
 
     def _has_image_columns(self) -> bool:
         """Check if config has any image generation columns."""
-        from data_designer.config.column_types import DataDesignerColumnType
-
         return any(col.column_type == DataDesignerColumnType.IMAGE for col in self.single_column_configs)
 
     def _initialize_generators(self) -> list[ColumnGenerator]:
-        """Initialize column generators.
-
-        Generators access media storage via ResourceProvider.artifact_storage.media_storage
-        """
-        generators = []
-        for config in self._column_configs:
-            generator_cls = self._registry.column_generators.get_for_config_type(type(config))
-            generator = generator_cls(config=config, resource_provider=self._resource_provider)
-            generators.append(generator)
-        return generators
+        return [
+            self._registry.column_generators.get_for_config_type(type(config))(
+                config=config, resource_provider=self._resource_provider
+            )
+            for config in self._column_configs
+        ]
 
     def _write_builder_config(self) -> None:
         self.artifact_storage.mkdir_if_needed(self.artifact_storage.base_dataset_path)
