@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pytest
 
 from data_designer.engine.mcp.errors import MCPConfigurationError, MCPToolError
-from data_designer.engine.models.errors import ModelGenerationValidationFailureError
+from data_designer.engine.models.errors import ImageGenerationError, ModelGenerationValidationFailureError
 from data_designer.engine.models.facade import ModelFacade
 from data_designer.engine.models.parsers.errors import ParserException
 from data_designer.engine.models.utils import ChatMessage
@@ -1104,6 +1104,49 @@ def test_generate_image_skip_usage_tracking(
     # Verify image usage was NOT tracked
     assert stub_model_facade.usage_stats.image_usage.total_images == 0
     assert stub_model_facade.usage_stats.image_usage.has_usage is False
+
+
+@patch("data_designer.engine.models.facade.ModelFacade.completion", autospec=True)
+def test_generate_image_chat_completion_no_choices(
+    mock_completion: Any,
+    stub_model_facade: ModelFacade,
+) -> None:
+    """Test that generate_image raises ImageGenerationError when response has no choices."""
+    mock_response = litellm.types.utils.ModelResponse(choices=[])
+    mock_completion.return_value = mock_response
+
+    with patch("data_designer.engine.models.facade.is_image_diffusion_model", return_value=False):
+        with pytest.raises(ImageGenerationError, match="Image generation response missing choices"):
+            stub_model_facade.generate_image(prompt="test prompt")
+
+
+@patch("data_designer.engine.models.facade.ModelFacade.completion", autospec=True)
+def test_generate_image_chat_completion_no_image_data(
+    mock_completion: Any,
+    stub_model_facade: ModelFacade,
+) -> None:
+    """Test that generate_image raises ImageGenerationError when no image data in response."""
+    mock_message = litellm.types.utils.Message(role="assistant", content="just text, no image")
+    mock_response = litellm.types.utils.ModelResponse(choices=[litellm.types.utils.Choices(message=mock_message)])
+    mock_completion.return_value = mock_response
+
+    with patch("data_designer.engine.models.facade.is_image_diffusion_model", return_value=False):
+        with pytest.raises(ImageGenerationError, match="No image data found in response"):
+            stub_model_facade.generate_image(prompt="test prompt")
+
+
+@patch("data_designer.engine.models.facade.CustomRouter.image_generation", autospec=True)
+def test_generate_image_diffusion_no_data(
+    mock_image_generation: Any,
+    stub_model_facade: ModelFacade,
+) -> None:
+    """Test that generate_image raises ImageGenerationError when diffusion API returns no data."""
+    mock_response = litellm.types.utils.ImageResponse(data=[])
+    mock_image_generation.return_value = mock_response
+
+    with patch("data_designer.engine.models.facade.is_image_diffusion_model", return_value=True):
+        with pytest.raises(ImageGenerationError, match="Image generation returned no data"):
+            stub_model_facade.generate_image(prompt="test prompt")
 
 
 @patch("data_designer.engine.models.facade.CustomRouter.image_generation", autospec=True)

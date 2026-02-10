@@ -18,7 +18,7 @@ from data_designer.engine.mcp.errors import MCPConfigurationError
 from data_designer.engine.model_provider import ModelProviderRegistry
 from data_designer.engine.models.errors import (
     GenerationValidationFailureError,
-    ModelAPIError,
+    ImageGenerationError,
     catch_llm_exceptions,
     get_exception_primary_cause,
 )
@@ -340,7 +340,7 @@ class ModelFacade:
             List of base64-encoded image strings (without data URI prefix)
 
         Raises:
-            ModelAPIError: If image generation fails or returns invalid data
+            ImageGenerationError: If image generation fails or returns invalid data
         """
         logger.debug(
             f"Generating image with model {self.model_name!r}...",
@@ -406,7 +406,7 @@ class ModelFacade:
 
             # Validate response structure
             if not response.choices or len(response.choices) == 0:
-                raise ModelAPIError("Response missing choices")
+                raise ImageGenerationError("Image generation response missing choices")
 
             message = response.choices[0].message
             images = []
@@ -437,7 +437,7 @@ class ModelFacade:
                         images.append(b64)
 
             if not images:
-                raise ModelAPIError("No image data found in response")
+                raise ImageGenerationError("No image data found in response")
 
             return images
 
@@ -469,7 +469,7 @@ class ModelFacade:
 
             # Validate response
             if not response.data or len(response.data) == 0:
-                raise ModelAPIError("Image generation returned no data")
+                raise ImageGenerationError("Image generation returned no data")
 
             # Return all images as list
             return [img.b64_json for img in response.data]
