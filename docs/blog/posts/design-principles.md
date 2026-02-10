@@ -10,6 +10,8 @@ Synthetic data generation is more than a single prompt to a large language model
 
 <!-- more -->
 
+![Designing Data Designer: from monolithic prompts to composable pipelines](images/design-principles-hero.png)
+
 ---
 
 When people first encounter synthetic data generation, the instinct is natural: write a detailed prompt, call a powerful LLM, and collect the output. For quick experiments and small datasets, this works fine. But as you push toward production-quality data at scale \- millions of records, multiple interrelated fields, strict quality requirements \- the cracks start to show. We built Data Designer around the conviction that SDG is fundamentally a *systems* problem, and the framework's architecture reflects that belief at every level.
@@ -118,7 +120,7 @@ With Data Designer, the same task decomposes into a pipeline of focused stages:
             │
             ▼
 ┌─────────────────────────┐
-│  QA Generation          │  LLM generates questions grounded
+│  QA Generation          │  LLMs generate questions & answers grounded
 │                         │  in the extracted artifacts
 └───────────┬─────────────┘
             │
