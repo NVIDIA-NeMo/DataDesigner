@@ -11,8 +11,8 @@ from unittest.mock import patch
 import pytest
 from pyarrow import ArrowNotImplementedError
 
-from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage, BatchStage
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
+from data_designer.engine.storage.artifact_storage import ArtifactStorage, BatchStage
 from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
@@ -201,7 +201,7 @@ def test_artifact_storage_batch_numbering(stub_artifact_storage, batch_number):
     assert path.name == expected_name
 
 
-@patch("data_designer.engine.dataset_builders.artifact_storage.datetime")
+@patch("data_designer.engine.storage.artifact_storage.datetime")
 def test_artifact_storage_resolved_dataset_name(mock_datetime, tmp_path):
     mock_datetime.now.return_value = datetime(2025, 1, 1, 12, 3, 4)
 

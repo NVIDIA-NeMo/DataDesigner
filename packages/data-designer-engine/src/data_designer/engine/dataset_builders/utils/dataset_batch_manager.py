@@ -8,8 +8,8 @@ import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Container, Iterator
 
-from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage, BatchStage
 from data_designer.engine.dataset_builders.utils.errors import DatasetBatchManagementError
+from data_designer.engine.storage.artifact_storage import ArtifactStorage, BatchStage
 from data_designer.lazy_heavy_imports import pd, pq
 
 if TYPE_CHECKING:

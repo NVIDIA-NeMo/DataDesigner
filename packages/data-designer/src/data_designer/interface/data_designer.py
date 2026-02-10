@@ -33,7 +33,6 @@ from data_designer.config.utils.constants import (
 from data_designer.config.utils.info import InfoType, InterfaceInfo
 from data_designer.engine.analysis.dataset_profiler import DataDesignerDatasetProfiler, DatasetProfilerConfig
 from data_designer.engine.compiler import compile_data_designer_config
-from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.engine.dataset_builders.column_wise_builder import ColumnWiseDatasetBuilder
 from data_designer.engine.model_provider import resolve_model_provider_registry
 from data_designer.engine.resources.managed_storage import init_managed_blob_storage
@@ -51,6 +50,7 @@ from data_designer.engine.secret_resolver import (
     PlaintextResolver,
     SecretResolver,
 )
+from data_designer.engine.storage.artifact_storage import ArtifactStorage
 from data_designer.interface.errors import (
     DataDesignerGenerationError,
     DataDesignerProfilingError,

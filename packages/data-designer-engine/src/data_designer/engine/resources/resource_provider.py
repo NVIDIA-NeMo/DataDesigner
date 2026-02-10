@@ -10,7 +10,6 @@ from data_designer.config.models import ModelConfig
 from data_designer.config.run_config import RunConfig
 from data_designer.config.seed_source import SeedSource
 from data_designer.config.utils.type_helpers import StrEnum
-from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.engine.mcp.factory import create_mcp_registry
 from data_designer.engine.mcp.registry import MCPRegistry
 from data_designer.engine.model_provider import (
@@ -22,6 +21,7 @@ from data_designer.engine.models.registry import ModelRegistry
 from data_designer.engine.resources.managed_storage import ManagedBlobStorage
 from data_designer.engine.resources.seed_reader import SeedReader, SeedReaderRegistry
 from data_designer.engine.secret_resolver import SecretResolver
+from data_designer.engine.storage.artifact_storage import ArtifactStorage
 
 
 class ResourceType(StrEnum):

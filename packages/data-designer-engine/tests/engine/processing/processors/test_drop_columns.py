@@ -10,8 +10,8 @@ import pytest
 
 from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.processors import DropColumnsProcessorConfig
-from data_designer.engine.dataset_builders.artifact_storage import BatchStage
 from data_designer.engine.processing.processors.drop_columns import DropColumnsProcessor
+from data_designer.engine.storage.artifact_storage import BatchStage
 from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
