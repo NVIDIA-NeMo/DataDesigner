@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Callable
 from copy import deepcopy
@@ -20,6 +21,7 @@ from data_designer.engine.model_provider import ModelProviderRegistry
 from data_designer.engine.models.errors import (
     GenerationValidationFailureError,
     ImageGenerationError,
+    acatch_llm_exceptions,
     catch_llm_exceptions,
     get_exception_primary_cause,
 )
@@ -564,3 +566,161 @@ class ModelFacade:
         else:
             # Successful response but no token usage data (some providers don't report it)
             self._usage_stats.extend(request_usage=RequestUsageStats(successful_requests=1, failed_requests=0))
+
+    async def acompletion(
+        self, messages: list[ChatMessage], skip_usage_tracking: bool = False, **kwargs: Any
+    ) -> litellm.ModelResponse:
+        message_payloads = [message.to_dict() for message in messages]
+        logger.debug(
+            f"Prompting model {self.model_name!r}...",
+            extra={"model": self.model_name, "messages": message_payloads},
+        )
+        response = None
+        kwargs = self.consolidate_kwargs(**kwargs)
+        try:
+            response = await self._router.acompletion(model=self.model_name, messages=message_payloads, **kwargs)
+            logger.debug(
+                f"Received completion from model {self.model_name!r}",
+                extra={
+                    "model": self.model_name,
+                    "response": response,
+                    "text": response.choices[0].message.content,
+                    "usage": self._usage_stats.model_dump(),
+                },
+            )
+            return response
+        except Exception as e:
+            raise e
+        finally:
+            if not skip_usage_tracking and response is not None:
+                self._track_token_usage_from_completion(response)
+
+    @acatch_llm_exceptions
+    async def agenerate_text_embeddings(
+        self, input_texts: list[str], skip_usage_tracking: bool = False, **kwargs: Any
+    ) -> list[list[float]]:
+        logger.debug(
+            f"Generating embeddings with model {self.model_name!r}...",
+            extra={
+                "model": self.model_name,
+                "input_count": len(input_texts),
+            },
+        )
+        kwargs = self.consolidate_kwargs(**kwargs)
+        response = None
+        try:
+            response = await self._router.aembedding(model=self.model_name, input=input_texts, **kwargs)
+            logger.debug(
+                f"Received embeddings from model {self.model_name!r}",
+                extra={
+                    "model": self.model_name,
+                    "embedding_count": len(response.data) if response.data else 0,
+                    "usage": self._usage_stats.model_dump(),
+                },
+            )
+            if response.data and len(response.data) == len(input_texts):
+                return [data["embedding"] for data in response.data]
+            else:
+                raise ValueError(f"Expected {len(input_texts)} embeddings, but received {len(response.data)}")
+        except Exception as e:
+            raise e
+        finally:
+            if not skip_usage_tracking and response is not None:
+                self._track_token_usage_from_embedding(response)
+
+    @acatch_llm_exceptions
+    async def agenerate(
+        self,
+        prompt: str,
+        *,
+        parser: Callable[[str], Any] = _identity,
+        system_prompt: str | None = None,
+        multi_modal_context: list[dict[str, Any]] | None = None,
+        tool_alias: str | None = None,
+        max_correction_steps: int = 0,
+        max_conversation_restarts: int = 0,
+        skip_usage_tracking: bool = False,
+        purpose: str | None = None,
+        **kwargs: Any,
+    ) -> tuple[Any, list[ChatMessage]]:
+        output_obj = None
+        tool_schemas = None
+        tool_call_turns = 0
+        total_tool_calls = 0
+        curr_num_correction_steps = 0
+        curr_num_restarts = 0
+
+        mcp_facade = self._get_mcp_facade(tool_alias)
+
+        restart_checkpoint = prompt_to_messages(
+            user_prompt=prompt, system_prompt=system_prompt, multi_modal_context=multi_modal_context
+        )
+        checkpoint_tool_call_turns = 0
+        messages: list[ChatMessage] = deepcopy(restart_checkpoint)
+
+        if mcp_facade is not None:
+            tool_schemas = await asyncio.to_thread(mcp_facade.get_tool_schemas)
+
+        while True:
+            completion_kwargs = dict(kwargs)
+            if tool_schemas is not None:
+                completion_kwargs["tools"] = tool_schemas
+
+            completion_response = await self.acompletion(
+                messages,
+                skip_usage_tracking=skip_usage_tracking,
+                **completion_kwargs,
+            )
+
+            if mcp_facade is not None and mcp_facade.has_tool_calls(completion_response):
+                tool_call_turns += 1
+                total_tool_calls += mcp_facade.tool_call_count(completion_response)
+
+                if tool_call_turns > mcp_facade.max_tool_call_turns:
+                    messages.extend(mcp_facade.refuse_completion_response(completion_response))
+                else:
+                    messages.extend(
+                        await asyncio.to_thread(mcp_facade.process_completion_response, completion_response)
+                    )
+
+                restart_checkpoint = deepcopy(messages)
+                checkpoint_tool_call_turns = tool_call_turns
+
+                continue
+
+            response = completion_response.choices[0].message.content or ""
+            reasoning_trace = getattr(completion_response.choices[0].message, "reasoning_content", None)
+            messages.append(ChatMessage.as_assistant(content=response, reasoning_content=reasoning_trace or None))
+            curr_num_correction_steps += 1
+
+            try:
+                output_obj = parser(response)
+                break
+            except ParserException as exc:
+                if max_correction_steps == 0 and max_conversation_restarts == 0:
+                    raise GenerationValidationFailureError(
+                        "Unsuccessful generation attempt. No retries were attempted."
+                    ) from exc
+
+                if curr_num_correction_steps <= max_correction_steps:
+                    messages.append(ChatMessage.as_user(content=str(get_exception_primary_cause(exc))))
+
+                elif curr_num_restarts < max_conversation_restarts:
+                    curr_num_correction_steps = 0
+                    curr_num_restarts += 1
+                    messages = deepcopy(restart_checkpoint)
+                    tool_call_turns = checkpoint_tool_call_turns
+
+                else:
+                    raise GenerationValidationFailureError(
+                        f"Unsuccessful generation despite {max_correction_steps} correction steps "
+                        f"and {max_conversation_restarts} conversation restarts."
+                    ) from exc
+
+        if not skip_usage_tracking and mcp_facade is not None:
+            self._usage_stats.tool_usage.extend(
+                tool_calls=total_tool_calls,
+                tool_call_turns=tool_call_turns,
+            )
+
+        return output_obj, messages
