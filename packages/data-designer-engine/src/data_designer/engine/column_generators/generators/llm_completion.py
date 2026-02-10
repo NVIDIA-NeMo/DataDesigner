@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import functools
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from data_designer.config.column_configs import (
     LLMCodeColumnConfig,
@@ -24,6 +24,9 @@ from data_designer.engine.column_generators.utils.prompt_renderer import (
 from data_designer.engine.configurable_task import TaskConfigT
 from data_designer.engine.models.recipes.base import ResponseRecipe
 from data_designer.engine.processing.utils import deserialize_json_values
+
+if TYPE_CHECKING:
+    from data_designer.engine.models.utils import ChatMessage
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +79,7 @@ class ColumnGeneratorWithModelChatCompletion(ColumnGeneratorWithModel[TaskConfig
         # Note: This creates a new dict and doesn't mutate the original `data` argument
         deserialized_record = deserialize_json_values(data)
 
-        multi_modal_context: list | None = None
+        multi_modal_context: list[dict[str, Any]] | None = None
         if self.config.multi_modal_context is not None and len(self.config.multi_modal_context) > 0:
             multi_modal_context = []
             for context in self.config.multi_modal_context:
@@ -101,7 +104,7 @@ class ColumnGeneratorWithModelChatCompletion(ColumnGeneratorWithModel[TaskConfig
             "purpose": f"running generation for column '{self.config.name}'",
         }
 
-    def _process_generation_result(self, data: dict, response: Any, trace: list) -> dict:
+    def _process_generation_result(self, data: dict, response: Any, trace: list[ChatMessage]) -> dict:
         """Process model response and trace into the output data dict.
 
         Serializes the response, applies trace column logic, and extracts reasoning content.
@@ -122,7 +125,7 @@ class ColumnGeneratorWithModelChatCompletion(ColumnGeneratorWithModel[TaskConfig
 
         return data
 
-    def _extract_reasoning_content(self, trace: list) -> str | None:
+    def _extract_reasoning_content(self, trace: list[ChatMessage]) -> str | None:
         """Extract reasoning_content from the final assistant message in the trace.
 
         Args:

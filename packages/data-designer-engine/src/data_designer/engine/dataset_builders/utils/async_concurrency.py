@@ -133,10 +133,12 @@ class AsyncConcurrentExecutor:
 
     async def _run_task(self, index: int, coro: Coroutine[Any, Any, Any], context: dict | None) -> None:
         if self._shutdown_event.is_set():
+            coro.close()
             return
 
         async with self._semaphore:
             if self._shutdown_event.is_set():
+                coro.close()
                 return
 
             try:

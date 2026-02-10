@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import functools
 import logging
 from abc import ABC, abstractmethod
@@ -42,6 +43,14 @@ class ColumnGenerator(ConfigurableTask[TaskConfigT], ABC):
 
     @abstractmethod
     def generate(self, data: DataT) -> DataT: ...
+
+    async def agenerate(self, data: dict) -> dict:
+        """Async fallback — delegates to sync generate via thread pool.
+
+        Subclasses with native async support (e.g. ColumnGeneratorWithModelChatCompletion)
+        should override this with a direct async implementation.
+        """
+        return await asyncio.to_thread(self.generate, data)
 
     def log_pre_generation(self) -> None:
         """A shared method to log info before the generator's `generate` method is called.
