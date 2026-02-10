@@ -289,7 +289,7 @@ for index, row in preview.dataset.iterrows():
 #
 
 # %%
-results = data_designer.create(config_builder, num_records=10, dataset_name="tutorial-6-edited-images")
+results = data_designer.create(config_builder, num_records=5, dataset_name="tutorial-6-edited-images")
 
 # %%
 dataset = results.load_dataset()

@@ -153,7 +153,7 @@ The `ImageInferenceParams` class is used for image generation models, including 
 ```python
 import data_designer.config as dd
 
-# Diffusion model (e.g., DALL·E, Stable Diffusion)
+# Autoregressive model (chat completions API, supports image context)
 dd.ModelConfig(
     alias="image-model",
     model="black-forest-labs/flux.2-pro",
@@ -163,7 +163,7 @@ dd.ModelConfig(
     ),
 )
 
-# OpenAI DALL·E style
+# Diffusion model (e.g., DALL·E, Stable Diffusion)
 dd.ModelConfig(
     alias="dalle",
     model="dall-e-3",
