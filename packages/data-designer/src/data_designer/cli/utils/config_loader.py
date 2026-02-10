@@ -104,6 +104,10 @@ def _load_from_python_module(path: Path) -> DataDesignerConfigBuilder:
     module = importlib.util.module_from_spec(spec)
     sys.modules[module_name] = module
 
+    # Temporarily add the module's parent directory to sys.path so the user's
+    # config script can import sibling modules (e.g. helpers in the same folder).
+    # We only insert if the directory isn't already on the path, and track
+    # whether we did so we can clean it up in the finally block.
     parent_dir = str(path.resolve().parent)
     prepended_path = parent_dir not in sys.path
     if prepended_path:
@@ -142,5 +146,13 @@ def _load_from_python_module(path: Path) -> DataDesignerConfigBuilder:
         raise ConfigLoadError(f"Failed to execute Python module '{path}': {e}") from e
     finally:
         sys.modules.pop(module_name, None)
-        if prepended_path and len(sys.path) > 0 and sys.path[0] == parent_dir:
-            sys.path.pop(0)
+        # Remove the parent directory we added to sys.path. We use remove()
+        # instead of checking sys.path[0] because exec_module could have
+        # caused other entries to be inserted at index 0, pushing ours deeper.
+        # remove() finds the first occurrence by value, which is ours since we
+        # confirmed parent_dir was absent before inserting it.
+        if prepended_path:
+            try:
+                sys.path.remove(parent_dir)
+            except ValueError:
+                pass

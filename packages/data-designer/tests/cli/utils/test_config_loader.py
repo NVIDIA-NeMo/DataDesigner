@@ -19,7 +19,7 @@ def test_load_config_builder_from_yaml(mock_from_config: MagicMock, tmp_path: Pa
     yaml_file = tmp_path / "config.yaml"
     yaml_file.write_text("data_designer:\n  columns: []\n")
 
-    mock_builder = MagicMock(spec=DataDesignerConfigBuilder)
+    mock_builder = MagicMock()
     mock_from_config.return_value = mock_builder
 
     result = load_config_builder(str(yaml_file))
@@ -34,7 +34,7 @@ def test_load_config_builder_from_yml(mock_from_config: MagicMock, tmp_path: Pat
     yml_file = tmp_path / "config.yml"
     yml_file.write_text("data_designer:\n  columns: []\n")
 
-    mock_builder = MagicMock(spec=DataDesignerConfigBuilder)
+    mock_builder = MagicMock()
     mock_from_config.return_value = mock_builder
 
     result = load_config_builder(str(yml_file))
@@ -49,7 +49,7 @@ def test_load_config_builder_from_json(mock_from_config: MagicMock, tmp_path: Pa
     json_file = tmp_path / "config.json"
     json_file.write_text('{"data_designer": {"columns": []}}')
 
-    mock_builder = MagicMock(spec=DataDesignerConfigBuilder)
+    mock_builder = MagicMock()
     mock_from_config.return_value = mock_builder
 
     result = load_config_builder(str(json_file))
@@ -64,7 +64,7 @@ def test_load_config_builder_from_python_module(tmp_path: Path) -> None:
     py_file.write_text("def load_config_builder(): pass\n")
 
     with patch("data_designer.cli.utils.config_loader._load_from_python_module") as mock_load_py:
-        mock_builder = MagicMock(spec=DataDesignerConfigBuilder)
+        mock_builder = MagicMock()
         mock_load_py.return_value = mock_builder
 
         result = load_config_builder(str(py_file))
