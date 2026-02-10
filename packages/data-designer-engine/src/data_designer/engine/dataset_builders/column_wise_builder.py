@@ -237,11 +237,13 @@ class ColumnWiseDatasetBuilder:
             raise DatasetGenerationError(f"Tool alias(es) {tool_aliases!r} specified but no MCPRegistry configured.")
         self._resource_provider.mcp_registry.run_health_check(tool_aliases)
 
-    def _fan_out_with_async(self, generator: ColumnGeneratorWithModelRegistry, max_workers: int) -> None:
+    def _setup_fan_out(
+        self, generator: ColumnGeneratorWithModelRegistry, max_workers: int
+    ) -> tuple[ProgressTracker, dict]:
         if generator.get_generation_strategy() != GenerationStrategy.CELL_BY_CELL:
             raise DatasetGenerationError(
                 f"Generator {generator.name} is not a {GenerationStrategy.CELL_BY_CELL} "
-                "generator so concurrency through async is not supported."
+                "generator so concurrent fan-out is not supported."
             )
 
         progress_tracker = ProgressTracker(
@@ -251,61 +253,40 @@ class ColumnWiseDatasetBuilder:
         progress_tracker.log_start(max_workers)
 
         settings = self._resource_provider.run_config
-        executor = AsyncConcurrentExecutor(
-            max_workers=max_workers,
-            column_name=generator.config.name,
-            result_callback=self._make_result_callback(progress_tracker),
-            error_callback=self._make_error_callback(progress_tracker),
-            shutdown_error_rate=settings.shutdown_error_rate,
-            shutdown_error_window=settings.shutdown_error_window,
-            disable_early_shutdown=settings.disable_early_shutdown,
-        )
+        executor_kwargs: dict = {
+            "column_name": generator.config.name,
+            "result_callback": self._make_result_callback(progress_tracker),
+            "error_callback": self._make_error_callback(progress_tracker),
+            "shutdown_error_rate": settings.shutdown_error_rate,
+            "shutdown_error_window": settings.shutdown_error_window,
+            "disable_early_shutdown": settings.disable_early_shutdown,
+        }
 
+        return progress_tracker, executor_kwargs
+
+    def _finalize_fan_out(self, progress_tracker: ProgressTracker) -> None:
+        progress_tracker.log_final()
+        if len(self._records_to_drop) > 0:
+            self.batch_manager.drop_records(self._records_to_drop)
+            self._records_to_drop.clear()
+
+    def _fan_out_with_async(self, generator: ColumnGeneratorWithModelRegistry, max_workers: int) -> None:
+        progress_tracker, executor_kwargs = self._setup_fan_out(generator, max_workers)
+        executor = AsyncConcurrentExecutor(max_workers=max_workers, **executor_kwargs)
         work_items = [
             (generator.agenerate(record), {"index": i}) for i, record in self.batch_manager.iter_current_batch()
         ]
         executor.run(work_items)
-
-        progress_tracker.log_final()
-
-        if len(self._records_to_drop) > 0:
-            self.batch_manager.drop_records(self._records_to_drop)
-            self._records_to_drop.clear()
+        self._finalize_fan_out(progress_tracker)
 
     def _fan_out_with_threads(self, generator: ColumnGeneratorWithModelRegistry, max_workers: int) -> None:
-        if generator.get_generation_strategy() != GenerationStrategy.CELL_BY_CELL:
-            raise DatasetGenerationError(
-                f"Generator {generator.name} is not a {GenerationStrategy.CELL_BY_CELL} "
-                "generator so concurrency through threads is not supported."
-            )
-
         if getattr(generator.config, "tool_alias", None):
             logger.info("🛠️ Tool calling enabled")
-
-        progress_tracker = ProgressTracker(
-            total_records=self.batch_manager.num_records_batch,
-            label=f"{generator.config.column_type} column '{generator.config.name}'",
-        )
-        progress_tracker.log_start(max_workers)
-
-        settings = self._resource_provider.run_config
-        with ConcurrentThreadExecutor(
-            max_workers=max_workers,
-            column_name=generator.config.name,
-            result_callback=self._make_result_callback(progress_tracker),
-            error_callback=self._make_error_callback(progress_tracker),
-            shutdown_error_rate=settings.shutdown_error_rate,
-            shutdown_error_window=settings.shutdown_error_window,
-            disable_early_shutdown=settings.disable_early_shutdown,
-        ) as executor:
+        progress_tracker, executor_kwargs = self._setup_fan_out(generator, max_workers)
+        with ConcurrentThreadExecutor(max_workers=max_workers, **executor_kwargs) as executor:
             for i, record in self.batch_manager.iter_current_batch():
                 executor.submit(lambda record: generator.generate(record), record, context={"index": i})
-
-        progress_tracker.log_final()
-
-        if len(self._records_to_drop) > 0:
-            self.batch_manager.drop_records(self._records_to_drop)
-            self._records_to_drop.clear()
+        self._finalize_fan_out(progress_tracker)
 
     def _make_result_callback(self, progress_tracker: ProgressTracker) -> Callable[[dict], None]:
         def callback(result: dict, *, context: dict | None = None) -> None:
