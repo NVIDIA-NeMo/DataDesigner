@@ -521,12 +521,9 @@ def test_upload_dataset_images_upload_failure(
     (col_dir / "img.png").write_bytes(b"fake")
 
     # Make upload_folder fail only for images
-    original_upload_folder = mock_hf_api.upload_folder
-
     def failing_upload_folder(**kwargs):
         if kwargs.get("path_in_repo") == "images":
             raise Exception("Network error")
-        return original_upload_folder(**kwargs)
 
     mock_hf_api.upload_folder.side_effect = failing_upload_folder
 
