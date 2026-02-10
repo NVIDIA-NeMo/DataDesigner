@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import html
 import json
 import os
 from collections import OrderedDict
@@ -81,14 +82,17 @@ def _display_image_if_in_notebook(image_data: str, col_name: str, base_path: str
         # Use the base64 data directly without resizing
         img_base64 = base64_data
 
+        # Escape column name to prevent HTML injection
+        escaped_col_name = html.escape(col_name)
+
         # Create HTML with caption and image in left-aligned container
-        html = f"""
+        html_content = f"""
         <div style='display: flex; flex-direction: column; align-items: flex-start; margin-top: 20px; margin-bottom: 20px;'>
-            <div style='margin-bottom: 10px;'><strong>🖼️ {col_name}</strong></div>
+            <div style='margin-bottom: 10px;'><strong>🖼️ {escaped_col_name}</strong></div>
             <img src='data:image/png;base64,{img_base64}'/>
         </div>
         """
-        display(HTML(html))
+        display(HTML(html_content))
         return True
     except (ImportError, NameError):
         # Not in a notebook environment

@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 from data_designer.config.models import GenerationType, ModelConfig, ModelProvider
 from data_designer.config.utils.image_helpers import (
     extract_base64_from_data_uri,
+    is_base64_image,
     is_image_diffusion_model,
 )
 from data_designer.engine.mcp.errors import MCPConfigurationError
@@ -38,6 +39,14 @@ if TYPE_CHECKING:
 def _identity(x: Any) -> Any:
     """Identity function for default parser. Module-level for pickling compatibility."""
     return x
+
+
+def _try_extract_base64(data: str) -> str | None:
+    """Try to extract base64 image data from a data URI, returning None on failure."""
+    try:
+        return extract_base64_from_data_uri(data)
+    except ValueError:
+        return None
 
 
 logger = logging.getLogger(__name__)
@@ -410,19 +419,22 @@ class ModelFacade:
                         image_url = image["image_url"]
 
                         if isinstance(image_url, dict) and "url" in image_url:
-                            url = image_url["url"]
-                            images.append(extract_base64_from_data_uri(url))
+                            if (b64 := _try_extract_base64(image_url["url"])) is not None:
+                                images.append(b64)
                         elif isinstance(image_url, str):
-                            images.append(extract_base64_from_data_uri(image_url))
+                            if (b64 := _try_extract_base64(image_url)) is not None:
+                                images.append(b64)
                     # Fallback: treat as base64 string
                     elif isinstance(image, str):
-                        images.append(extract_base64_from_data_uri(image))
+                        if (b64 := _try_extract_base64(image)) is not None:
+                            images.append(b64)
 
-            # Fallback: check content field
+            # Fallback: check content field if it looks like image data
             if not images:
                 content = message.content or ""
-                if content:
-                    images.append(extract_base64_from_data_uri(content))
+                if content and (content.startswith("data:image/") or is_base64_image(content)):
+                    if (b64 := _try_extract_base64(content)) is not None:
+                        images.append(b64)
 
             if not images:
                 raise ModelAPIError("No image data found in response")
