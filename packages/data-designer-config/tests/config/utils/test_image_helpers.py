@@ -14,7 +14,6 @@ from data_designer.config.utils.image_helpers import (
     decode_base64_image,
     detect_image_format,
     extract_base64_from_data_uri,
-    get_supported_image_extensions,
     is_base64_image,
     is_image_diffusion_model,
     is_image_path,
@@ -202,15 +201,6 @@ def test_validate_image_nonexistent_raises_error(tmp_path):
 
     with pytest.raises(ValueError, match="Image validation failed"):
         validate_image(image_path)
-
-
-# Tests for get_supported_image_extensions
-
-
-def test_get_supported_image_extensions_matches_enum():
-    result = get_supported_image_extensions()
-    enum_values = [f".{fmt.value}" for fmt in ImageFormat]
-    assert set(result) == set(enum_values)
 
 
 # Additional tests for uncovered lines
