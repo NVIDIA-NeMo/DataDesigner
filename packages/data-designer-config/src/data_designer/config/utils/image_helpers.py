@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import base64
 import io
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -22,6 +23,8 @@ IMAGE_FORMAT_MAGIC_BYTES = {
     ImageFormat.JPG: b"\xff\xd8\xff",
     # WEBP uses RIFF header - handled separately
 }
+
+_BASE64_PATTERN = re.compile(r"^[A-Za-z0-9+/=]+$")
 
 # Patterns for diffusion-based image models only (use image_generation API).
 IMAGE_DIFFUSION_MODEL_PATTERNS = (
@@ -152,9 +155,7 @@ def is_base64_image(value: str) -> bool:
     if value.startswith("data:image/"):
         return True
     # Check if it looks like base64 (at least 100 chars, contains only base64 chars)
-    if len(value) > 100 and all(
-        c in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=" for c in value[:100]
-    ):
+    if len(value) > 100 and _BASE64_PATTERN.match(value[:100]):
         try:
             # Try to decode a small portion to verify it's valid base64
             base64.b64decode(value[:100])
