@@ -63,8 +63,8 @@ nav:
       - analysis: code_reference/analysis.md
   - Dev Notes:
       - blog/index.md
+      - Design Principles: blog/posts/design-principles.md
       - RQA Dataset: blog/posts/rqa.md
-      - Welcome: blog/posts/welcome.md
 
 theme:
   name: material
