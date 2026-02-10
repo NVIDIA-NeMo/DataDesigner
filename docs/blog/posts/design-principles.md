@@ -44,13 +44,13 @@ The shift in thinking is straightforward: instead of asking one model to do ever
 
 Regardless of what you're generating \- QA pairs for retrieval training, reasoning traces for pretraining, multi-turn conversations for alignment, product reviews for testing, or labeled examples for classification \- a well-decomposed SDG pipeline typically has four kinds of stages:
 
-1. **Seed curation.** Control what goes in. Whether you're sampling from an existing corpus, filtering by metadata, or bootstrapping from a small set of hand-curated examples, the seed data defines the distribution your synthetic data will cover. This is where you control diversity and domain coverage \- before any LLM is involved.
+1. **Seed curation.** Control what goes in. Whether you're sampling from an existing corpus, selecting subsets of your data, or bootstrapping from a small set of hand-curated examples, the seed data defines the distribution your synthetic data will cover. This is where you control diversity and domain coverage \- before any LLM is involved.
 
 2. **Staged generation.** Each generation step has a focused job. One stage might extract structured metadata from a document. Another might generate content grounded in that metadata. A third might transform or enrich that content further. Because each stage has a narrow scope, its prompt is simple, its output is predictable, and it's easy to iterate on independently.
 
 3. **Dependency management.** Later stages build on earlier outputs. A content generation stage needs access to extracted metadata. A formatting stage needs the generated content. These dependencies form a directed acyclic graph (DAG), and the system needs to resolve that graph automatically \- so you can focus on defining the stages, not orchestrating them.
 
-4. **Quality control.** Validation and scoring aren't afterthoughts \- they're explicit stages in the pipeline. An LLM judge can evaluate the output of a generation stage and a validator can check structural constraints. Because these run as part of the generation pipeline, you catch problems early and avoid wasting compute on records that were doomed from the start.
+4. **Quality control.** Validation and scoring aren't afterthoughts \- they're explicit stages in the pipeline. An LLM judge can evaluate the output of a generation stage and a validator can check structural constraints. Because these run as part of the generation pipeline, you can identify quality issues early and make informed decisions about which records to keep before investing in further downstream processing.
 
 This decomposition buys you something that a single prompt never can: the ability to reason about, test, and improve each stage independently.
 
@@ -76,21 +76,21 @@ This composability is what makes it possible to go from a simple two-column work
 
 ### **Multi-model by design**
 
-Not every stage in a pipeline needs the same model. Extracting structured metadata from a document is a different task than generating creative long-form content, which is a different task than scoring quality, which is a different task than computing embeddings for deduplication.
+Not every stage in a pipeline needs the same model. Extracting structured metadata from a document is a different task than generating creative long-form content, which is a different task than scoring quality, which is a different task than computing embeddings.
 
-Data Designer treats multi-model orchestration as a first-class concern. Each column can specify its own model alias, and the framework manages model routing, per-model parallelism limits, and usage tracking independently. In practice, this means you can use a large reasoning model for your hardest generation stage, a smaller and faster model for evaluation and scoring, and a dedicated embedding model for deduplication \- all within the same workflow, without writing any routing logic yourself.
+Data Designer treats multi-model orchestration as a first-class concern. Each column can specify its own model alias, and the framework manages model routing, per-model parallelism limits, and usage tracking independently. In practice, this means you can use a large reasoning model for your hardest generation stage, a smaller and faster model for evaluation and scoring, and a dedicated embedding model for semantic representations \- all within the same workflow, without writing any routing logic yourself.
 
 ### **Quality as a first-class stage**
 
 In Data Designer, quality control isn't a post-processing step you bolt on after generation. Validators and LLM-as-judge evaluations are column types, just like generation columns. They participate in the same dependency graph, run in the same execution engine, and their outputs are available to downstream stages.
 
-This means you can define a pipeline where a judge evaluates generated records immediately after they're created, and a downstream expression column filters out records below a quality threshold \- all within a single workflow definition. Quality gates are part of the pipeline, not something you remember to run afterwards.
+This means you can define a pipeline where a judge evaluates generated records immediately after they're created, and a downstream expression column flags records below a quality threshold \- all within a single workflow definition. Quality scores are part of the pipeline, not something you remember to compute afterwards.
 
 ### **Extensibility via plugins**
 
 No framework can anticipate every use case. Data Designer's plugin system lets you define custom column generators that work alongside the built-in types. A plugin is a Python class that inherits from the base column generator, packages with a configuration schema, and registers itself through a standard entry point. Once installed, it's indistinguishable from a built-in column type \- it participates in dependency resolution, batching, and parallel execution like everything else.
 
-This is how domain-specific functionality gets added without forking the framework. For example, an embedding-based deduplication step that uses FAISS indices and cosine similarity thresholds can be packaged as a plugin and dropped into any pipeline that needs it.
+This is how domain-specific functionality gets added without forking the framework. If your use case requires embedding-based deduplication with FAISS indices and cosine similarity thresholds, for instance, you can build it as a plugin and drop it into any pipeline that needs it.
 
 ---
 
@@ -98,20 +98,15 @@ This is how domain-specific functionality gets added without forking the framewo
 
 These principles apply to any SDG use case. Whether you're generating reasoning traces for pretraining (as in our [RQA dev note](rqa.md)), multi-turn conversations for alignment tuning, labeled examples for text classification, product reviews for testing a recommendation system, or code-repair pairs for training a coding assistant \- the same decomposition applies. You identify the stages, define the columns, declare the dependencies, and let the framework handle execution.
 
-To make one example concrete, consider a pipeline for generating training data for a retrieval model. The goal is to produce high-quality question-answer pairs grounded in a corpus of documents, with deduplication and quality scoring. We choose this example because it exercises several stages and model types in a single workflow, but the pattern generalizes to any domain.
+To make one example concrete, consider a pipeline for generating training data for a retrieval model. The goal is to produce high-quality question-answer pairs grounded in a corpus of documents, with quality scoring. We choose this example because it exercises several stages and model types in a single workflow, but the pattern generalizes to any domain.
 
-In a single-prompt approach, you'd try to pack all of this into one call: "Given this document, generate diverse QA pairs of varying complexity, make sure they're not too similar to each other, and only include high-quality ones." The model would do its best, but you'd have limited control over any individual aspect.
+In a single-prompt approach, you'd try to pack all of this into one call: "Given this document, generate diverse QA pairs of varying complexity and only include high-quality ones." The model would do its best, but you'd have limited control over any individual aspect.
 
 With Data Designer, the same task decomposes into a pipeline of focused stages:
 
 ```
-      Seed Documents
-            │
-            ▼
-┌─────────────────────────┐
-│  Chunking & Structuring │  deterministic text processing
-└───────────┬─────────────┘
-            │
+      Seed Documents         Seed dataset column ingests documents
+            │                 from local files or HuggingFace
             ▼
 ┌─────────────────────────┐
 │  Artifact Extraction    │  LLM extracts key concepts, entities,
@@ -120,14 +115,8 @@ With Data Designer, the same task decomposes into a pipeline of focused stages:
             │
             ▼
 ┌─────────────────────────┐
-│  QA Generation          │  LLMs generate questions & answers grounded
+│  QA Generation          │  LLM generates questions & answers grounded
 │                         │  in the extracted artifacts
-└───────────┬─────────────┘
-            │
-            ▼
-┌─────────────────────────┐
-│  Deduplication          │  Embedding model removes
-│                         │  near-duplicate questions
 └───────────┬─────────────┘
             │
             ▼
@@ -142,7 +131,7 @@ With Data Designer, the same task decomposes into a pipeline of focused stages:
 
 Each box is a column. Each one can use a different model. Each one has a focused prompt or algorithm. And because they're declared as columns with explicit dependencies, the framework handles the execution order, the batching, and the parallelism.
 
-The critical insight \- and the one that applies regardless of your use case \- is that every stage is independently *configurable*, *testable*, and *replaceable*. Want to try a different embedding model for deduplication? Swap the model alias on that column. Want to tighten quality thresholds? Adjust the judge column's parameters. Want to add a new stage that generates hard negatives for contrastive learning? Add a column and declare its dependencies. The rest of the pipeline doesn't change.
+The critical insight \- and the one that applies regardless of your use case \- is that every stage is independently *configurable*, *testable*, and *replaceable*. Want to try a different model for quality evaluation? Swap the model alias on that column. Want to tighten quality thresholds? Adjust the judge column's scoring rubric. Want to add a new stage that generates hard negatives for contrastive learning? Add a column and declare its dependencies. The rest of the pipeline doesn't change.
 
 ---
 
