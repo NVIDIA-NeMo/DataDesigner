@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -1279,3 +1279,127 @@ def test_generate_image_accumulates_usage(
         assert len(images2) == 3
         # Usage should accumulate
         assert stub_model_facade.usage_stats.image_usage.total_images == 5
+
+
+# =============================================================================
+# Async behavior tests
+# =============================================================================
+
+
+@pytest.mark.parametrize(
+    "skip_usage_tracking",
+    [
+        False,
+        True,
+    ],
+)
+@patch.object(CustomRouter, "acompletion", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_acompletion_success(
+    mock_router_acompletion: AsyncMock,
+    stub_completion_messages: list[ChatMessage],
+    stub_model_configs: Any,
+    stub_model_facade: ModelFacade,
+    stub_expected_completion_response: ModelResponse,
+    skip_usage_tracking: bool,
+) -> None:
+    mock_router_acompletion.return_value = stub_expected_completion_response
+    result = await stub_model_facade.acompletion(stub_completion_messages, skip_usage_tracking=skip_usage_tracking)
+    expected_messages = [message.to_dict() for message in stub_completion_messages]
+    assert result == stub_expected_completion_response
+    assert mock_router_acompletion.call_count == 1
+    assert mock_router_acompletion.call_args[1] == {
+        "model": "stub-model-text",
+        "messages": expected_messages,
+        **stub_model_configs[0].inference_parameters.generate_kwargs,
+    }
+
+
+@patch.object(CustomRouter, "acompletion", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_acompletion_with_exception(
+    mock_router_acompletion: AsyncMock,
+    stub_completion_messages: list[ChatMessage],
+    stub_model_facade: ModelFacade,
+) -> None:
+    mock_router_acompletion.side_effect = Exception("Router error")
+
+    with pytest.raises(Exception, match="Router error"):
+        await stub_model_facade.acompletion(stub_completion_messages)
+
+
+@patch.object(CustomRouter, "aembedding", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_agenerate_text_embeddings_success(
+    mock_router_aembedding: AsyncMock,
+    stub_model_facade: ModelFacade,
+    stub_expected_embedding_response: EmbeddingResponse,
+) -> None:
+    mock_router_aembedding.return_value = stub_expected_embedding_response
+    input_texts = ["test1", "test2"]
+    result = await stub_model_facade.agenerate_text_embeddings(input_texts)
+    assert result == [data["embedding"] for data in stub_expected_embedding_response.data]
+
+
+@pytest.mark.parametrize(
+    "max_correction_steps,max_conversation_restarts,total_calls",
+    [
+        (0, 0, 1),
+        (1, 1, 4),
+        (1, 2, 6),
+        (5, 0, 6),
+        (0, 5, 6),
+        (3, 3, 16),
+    ],
+)
+@patch.object(ModelFacade, "acompletion", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_agenerate_correction_retries(
+    mock_acompletion: AsyncMock,
+    stub_model_facade: ModelFacade,
+    max_correction_steps: int,
+    max_conversation_restarts: int,
+    total_calls: int,
+) -> None:
+    bad_response = mock_oai_response_object("bad response")
+    mock_acompletion.return_value = bad_response
+
+    def _failing_parser(response: str) -> str:
+        raise ParserException("parser exception")
+
+    with pytest.raises(ModelGenerationValidationFailureError):
+        await stub_model_facade.agenerate(
+            prompt="foo",
+            system_prompt="bar",
+            parser=_failing_parser,
+            max_correction_steps=max_correction_steps,
+            max_conversation_restarts=max_conversation_restarts,
+        )
+    assert mock_acompletion.call_count == total_calls
+
+    with pytest.raises(ModelGenerationValidationFailureError):
+        await stub_model_facade.agenerate(
+            prompt="foo",
+            parser=_failing_parser,
+            system_prompt="bar",
+            max_correction_steps=max_correction_steps,
+            max_conversation_restarts=max_conversation_restarts,
+        )
+    assert mock_acompletion.call_count == 2 * total_calls
+
+
+@patch.object(ModelFacade, "acompletion", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_agenerate_success(
+    mock_acompletion: AsyncMock,
+    stub_model_facade: ModelFacade,
+) -> None:
+    good_response = mock_oai_response_object("parsed output")
+    mock_acompletion.return_value = good_response
+
+    result, trace = await stub_model_facade.agenerate(prompt="test", parser=lambda x: x)
+    assert result == "parsed output"
+    assert mock_acompletion.call_count == 1
+    # Trace should contain at least the user prompt and the assistant response
+    assert any(msg.role == "user" for msg in trace)
+    assert any(msg.role == "assistant" and msg.content == "parsed output" for msg in trace)

@@ -9,7 +9,7 @@ import os
 import time
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from data_designer.config.column_configs import CustomColumnConfig
 from data_designer.config.column_types import ColumnConfigT, DataDesignerColumnType
@@ -295,7 +295,7 @@ class ColumnWiseDatasetBuilder:
 
     def _setup_fan_out(
         self, generator: ColumnGeneratorWithModelRegistry, max_workers: int
-    ) -> tuple[ProgressTracker, dict]:
+    ) -> tuple[ProgressTracker, dict[str, Any]]:
         if generator.get_generation_strategy() != GenerationStrategy.CELL_BY_CELL:
             raise DatasetGenerationError(
                 f"Generator {generator.name} is not a {GenerationStrategy.CELL_BY_CELL} "
