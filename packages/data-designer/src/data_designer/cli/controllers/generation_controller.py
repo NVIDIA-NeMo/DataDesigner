@@ -49,7 +49,7 @@ class GenerationController:
             raise typer.Exit(code=1)
 
         total = len(results.dataset)
-        use_interactive = not non_interactive and sys.stdin.isatty() and total > 1
+        use_interactive = not non_interactive and sys.stdin.isatty() and sys.stdout.isatty() and total > 1
 
         if use_interactive:
             self._browse_records_interactively(results, total)

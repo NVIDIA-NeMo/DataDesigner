@@ -163,13 +163,37 @@ def test_run_preview_non_interactive_displays_all(mock_load_config: MagicMock, m
 @patch(f"{_CTRL}.sys")
 @patch("data_designer.interface.DataDesigner")
 @patch(f"{_CTRL}.load_config_builder")
-def test_run_preview_non_tty_falls_back_to_non_interactive(
+def test_run_preview_non_tty_stdin_falls_back_to_non_interactive(
     mock_load_config: MagicMock,
     mock_dd_cls: MagicMock,
     mock_sys: MagicMock,
 ) -> None:
     """Test non-TTY stdin auto-detects and falls back to non-interactive mode."""
     mock_sys.stdin.isatty.return_value = False
+    mock_sys.stdout.isatty.return_value = True
+    mock_load_config.return_value = MagicMock(spec=DataDesignerConfigBuilder)
+    mock_dd = MagicMock()
+    mock_dd_cls.return_value = mock_dd
+    mock_results = _make_mock_preview_results(3)
+    mock_dd.preview.return_value = mock_results
+
+    controller = GenerationController()
+    controller.run_preview(config_source="config.yaml", num_records=3, non_interactive=False)
+
+    assert mock_results.display_sample_record.call_count == 3
+
+
+@patch(f"{_CTRL}.sys")
+@patch("data_designer.interface.DataDesigner")
+@patch(f"{_CTRL}.load_config_builder")
+def test_run_preview_piped_stdout_falls_back_to_non_interactive(
+    mock_load_config: MagicMock,
+    mock_dd_cls: MagicMock,
+    mock_sys: MagicMock,
+) -> None:
+    """Test piped stdout (e.g. `preview cfg.yaml | head`) falls back to non-interactive."""
+    mock_sys.stdin.isatty.return_value = True
+    mock_sys.stdout.isatty.return_value = False
     mock_load_config.return_value = MagicMock(spec=DataDesignerConfigBuilder)
     mock_dd = MagicMock()
     mock_dd_cls.return_value = mock_dd
@@ -192,6 +216,7 @@ def test_run_preview_single_record_no_interactive(
 ) -> None:
     """Test single record is displayed directly without interactive prompt."""
     mock_sys.stdin.isatty.return_value = True
+    mock_sys.stdout.isatty.return_value = True
     mock_load_config.return_value = MagicMock(spec=DataDesignerConfigBuilder)
     mock_dd = MagicMock()
     mock_dd_cls.return_value = mock_dd
@@ -216,6 +241,7 @@ def test_run_preview_tty_multiple_records_uses_interactive(
 ) -> None:
     """Test TTY with multiple records triggers interactive mode."""
     mock_sys.stdin.isatty.return_value = True
+    mock_sys.stdout.isatty.return_value = True
     mock_load_config.return_value = MagicMock(spec=DataDesignerConfigBuilder)
     mock_dd = MagicMock()
     mock_dd_cls.return_value = mock_dd
