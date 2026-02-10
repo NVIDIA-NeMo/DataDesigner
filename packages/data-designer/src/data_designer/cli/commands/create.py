@@ -3,12 +3,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import typer
 
-from data_designer.cli.ui import console, print_error, print_header, print_success
-from data_designer.cli.utils.config_loader import ConfigLoadError, load_config_builder
+from data_designer.cli.controllers.generation_controller import GenerationController
 from data_designer.config.utils.constants import DEFAULT_NUM_RECORDS
 
 
@@ -54,42 +51,10 @@ def create_command(
         # Create from a Python module with custom output path
         data-designer create my_config.py --artifact-path /path/to/output
     """
-    from data_designer.interface import DataDesigner
-
-    try:
-        config_builder = load_config_builder(config_source)
-    except ConfigLoadError as e:
-        print_error(str(e))
-        raise typer.Exit(code=1)
-
-    resolved_artifact_path = Path(artifact_path) if artifact_path else Path.cwd() / "artifacts"
-
-    print_header("Data Designer Create")
-    console.print(f"  Config: [bold]{config_source}[/bold]")
-    console.print(f"  Records: [bold]{num_records}[/bold]")
-    console.print(f"  Dataset name: [bold]{dataset_name}[/bold]")
-    console.print(f"  Artifact path: [bold]{resolved_artifact_path}[/bold]")
-    console.print()
-
-    try:
-        data_designer = DataDesigner(artifact_path=resolved_artifact_path)
-        results = data_designer.create(
-            config_builder,
-            num_records=num_records,
-            dataset_name=dataset_name,
-        )
-    except Exception as e:
-        print_error(f"Dataset creation failed: {e}")
-        raise typer.Exit(code=1)
-
-    dataset = results.load_dataset()
-
-    analysis = results.load_analysis()
-    if analysis is not None:
-        console.print()
-        analysis.to_report()
-
-    console.print()
-    print_success(f"Dataset created — {len(dataset)} record(s) generated")
-    console.print(f"  Artifacts saved to: [bold]{results.artifact_storage.base_dataset_path}[/bold]")
-    console.print()
+    controller = GenerationController()
+    controller.run_create(
+        config_source=config_source,
+        num_records=num_records,
+        dataset_name=dataset_name,
+        artifact_path=artifact_path,
+    )
