@@ -304,7 +304,13 @@ class ModelFacade:
                 self._track_token_usage_from_embedding(response)
 
     @catch_llm_exceptions
-    def generate_image(self, prompt: str, skip_usage_tracking: bool = False, **kwargs) -> list[str]:
+    def generate_image(
+        self,
+        prompt: str,
+        multi_modal_context: list[dict[str, Any]] | None = None,
+        skip_usage_tracking: bool = False,
+        **kwargs,
+    ) -> list[str]:
         """Generate image(s) and return base64-encoded data.
 
         Automatically detects the appropriate API based on model name:
@@ -316,6 +322,8 @@ class ModelFacade:
 
         Args:
             prompt: The prompt for image generation
+            multi_modal_context: Optional list of image contexts for multi-modal generation.
+                Only used with autoregressive models via chat completions API.
             skip_usage_tracking: Whether to skip usage tracking
             **kwargs: Additional arguments to pass to the model (including n=number of images)
 
@@ -334,7 +342,7 @@ class ModelFacade:
         if is_image_diffusion_model(self.model_name):
             images = self._generate_image_diffusion(prompt, skip_usage_tracking, **kwargs)
         else:
-            images = self._generate_image_chat_completion(prompt, skip_usage_tracking, **kwargs)
+            images = self._generate_image_chat_completion(prompt, multi_modal_context, skip_usage_tracking, **kwargs)
 
         # Track image usage
         if not skip_usage_tracking and len(images) > 0:
@@ -353,14 +361,26 @@ class ModelFacade:
         except ValueError as exc:
             raise MCPConfigurationError(f"Tool alias {tool_alias!r} is not registered.") from exc
 
-    def _generate_image_chat_completion(self, prompt: str, skip_usage_tracking: bool = False, **kwargs) -> list[str]:
+    def _generate_image_chat_completion(
+        self,
+        prompt: str,
+        multi_modal_context: list[dict[str, Any]] | None = None,
+        skip_usage_tracking: bool = False,
+        **kwargs,
+    ) -> list[str]:
         """Generate image(s) using autoregressive model via chat completions API.
+
+        Args:
+            prompt: The prompt for image generation
+            multi_modal_context: Optional list of image contexts for multi-modal generation
+            skip_usage_tracking: Whether to skip usage tracking
+            **kwargs: Additional arguments to pass to the model
 
         Returns:
             List of base64-encoded image strings
         """
         kwargs = self.consolidate_kwargs(**kwargs)
-        messages = [ChatMessage.as_user(content=prompt)]
+        messages = prompt_to_messages(user_prompt=prompt, multi_modal_context=multi_modal_context)
 
         response = None
         try:

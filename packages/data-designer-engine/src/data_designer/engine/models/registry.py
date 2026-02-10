@@ -189,7 +189,7 @@ class ModelRegistry:
                     )
                 elif model.model_generation_type == GenerationType.IMAGE:
                     model.generate_image(
-                        prompt="Generate a simple pixel",
+                        prompt="Generate a simple illustration of a thumbs up sign.",
                         skip_usage_tracking=True,
                         purpose="running health checks",
                     )

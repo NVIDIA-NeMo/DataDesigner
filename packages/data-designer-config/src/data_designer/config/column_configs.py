@@ -497,10 +497,14 @@ class ImageColumnConfig(SingleColumnConfig):
             reference other columns (e.g., "Generate an image of a {{ character_name }}").
             Must be a valid Jinja2 template.
         model_alias: The model to use for image generation.
+        multi_modal_context: Optional list of image contexts for multi-modal generation.
+            Enables autoregressive multi-modal models to generate images based on image inputs.
+            Only works with autoregressive models that support image-to-image generation.
     """
 
     prompt: str
     model_alias: str
+    multi_modal_context: list[ImageContext] | None = None
     column_type: Literal["image"] = "image"
 
     @staticmethod
