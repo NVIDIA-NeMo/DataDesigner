@@ -324,6 +324,7 @@ DEFAULT_REASONING_INFERENCE_PARAMS = {"temperature": 0.35, "top_p": 0.95}
 DEFAULT_VISION_INFERENCE_PARAMS = {"temperature": 0.85, "top_p": 0.95}
 DEFAULT_EMBEDDING_INFERENCE_PARAMS = {"encoding_format": "float"}
 NEMOTRON_3_NANO_30B_A3B_INFERENCE_PARAMS = {"temperature": 1.0, "top_p": 1.0}
+GPT5_INFERENCE_PARAMS = {"extra_body": {"reasoning_effort": "medium"}}
 
 PREDEFINED_PROVIDERS_MODEL_MAP = {
     NVIDIA_PROVIDER_NAME: {
@@ -340,8 +341,8 @@ PREDEFINED_PROVIDERS_MODEL_MAP = {
     },
     OPENAI_PROVIDER_NAME: {
         "text": {"model": "gpt-4.1", "inference_parameters": DEFAULT_TEXT_INFERENCE_PARAMS},
-        "reasoning": {"model": "gpt-5", "inference_parameters": DEFAULT_REASONING_INFERENCE_PARAMS},
-        "vision": {"model": "gpt-5", "inference_parameters": DEFAULT_VISION_INFERENCE_PARAMS},
+        "reasoning": {"model": "gpt-5", "inference_parameters": GPT5_INFERENCE_PARAMS},
+        "vision": {"model": "gpt-5", "inference_parameters": GPT5_INFERENCE_PARAMS},
         "embedding": {"model": "text-embedding-3-large", "inference_parameters": DEFAULT_EMBEDDING_INFERENCE_PARAMS},
     },
     OPENROUTER_PROVIDER_NAME: {
