@@ -30,7 +30,7 @@ This approach has a ceiling, and you hit it faster than you'd expect.
 
 **There are no quality gates.** In a single-call setup, validation happens *after* you've already spent the compute. If 30% of your records are malformed or low-quality, you find out at the end and either filter them out (wasting the tokens) or re-generate (wasting even more). There's no mechanism to catch problems between stages, because there *are* no stages.
 
-**Scaling is limited.** A single model call is a single point of serialization. You can parallelize across records, but you can't parallelize across *stages* of generation, and you can't route different parts of the task to models that are better suited for them.
+**Scaling is limited.** A single model call is a single point of failure. You can parallelize across records, but you can't parallelize across *stages* of generation, and you can't route different parts of the task to models that are better suited for them.
 
 None of these are problems with LLMs themselves \- they're problems with treating SDG as a single-step task. The fix isn't a better model. It's a better architecture.
 
@@ -40,8 +40,6 @@ None of these are problems with LLMs themselves \- they're problems with treatin
 
 The shift in thinking is straightforward: instead of asking one model to do everything, decompose the generation task into a pipeline of focused stages, each responsible for one well-defined job.
 
-This is the same principle that makes compilers, data pipelines, and modern software architectures work. A compiler doesn't parse, optimize, and emit machine code in a single pass \- it separates those concerns into distinct phases, each building on the output of the previous one. The same logic applies to generating synthetic data.
-
 Regardless of what you're generating \- QA pairs for retrieval training, reasoning traces for pretraining, multi-turn conversations for alignment, product reviews for testing, or labeled examples for classification \- a well-decomposed SDG pipeline typically has four kinds of stages:
 
 1. **Seed curation.** Control what goes in. Whether you're sampling from an existing corpus, filtering by metadata, or bootstrapping from a small set of hand-curated examples, the seed data defines the distribution your synthetic data will cover. This is where you control diversity and domain coverage \- before any LLM is involved.
@@ -50,7 +48,7 @@ Regardless of what you're generating \- QA pairs for retrieval training, reasoni
 
 3. **Dependency management.** Later stages build on earlier outputs. A content generation stage needs access to extracted metadata. A formatting stage needs the generated content. These dependencies form a directed acyclic graph (DAG), and the system needs to resolve that graph automatically \- so you can focus on defining the stages, not orchestrating them.
 
-4. **Quality control.** Validation and scoring aren't afterthoughts \- they're explicit stages in the pipeline. An LLM judge can evaluate the output of a generation stage, a validator can check structural constraints, and a deduplication step can remove near-duplicates using embeddings. Because these run *between* generation stages, you catch problems early and avoid wasting compute on records that were doomed from the start.
+4. **Quality control.** Validation and scoring aren't afterthoughts \- they're explicit stages in the pipeline. An LLM judge can evaluate the output of a generation stage and a validator can check structural constraints. Because these run as part of the generation pipeline, you catch problems early and avoid wasting compute on records that were doomed from the start.
 
 This decomposition buys you something that a single prompt never can: the ability to reason about, test, and improve each stage independently.
 
@@ -79,8 +77,6 @@ This composability is what makes it possible to go from a simple two-column work
 Not every stage in a pipeline needs the same model. Extracting structured metadata from a document is a different task than generating creative long-form content, which is a different task than scoring quality, which is a different task than computing embeddings for deduplication.
 
 Data Designer treats multi-model orchestration as a first-class concern. Each column can specify its own model alias, and the framework manages model routing, per-model parallelism limits, and usage tracking independently. In practice, this means you can use a large reasoning model for your hardest generation stage, a smaller and faster model for evaluation and scoring, and a dedicated embedding model for deduplication \- all within the same workflow, without writing any routing logic yourself.
-
-This isn't just an optimization. It's a design principle: **match the model to the task, not the other way around.**
 
 ### **Quality as a first-class stage**
 
