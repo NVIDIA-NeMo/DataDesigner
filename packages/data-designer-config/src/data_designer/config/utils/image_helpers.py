@@ -36,6 +36,8 @@ IMAGE_DIFFUSION_MODEL_PATTERNS = (
     "imagen",
 )
 
+SUPPORTED_IMAGE_EXTENSIONS = [f".{fmt.value.lower()}" for fmt in ImageFormat]
+
 
 def is_image_diffusion_model(model_name: str) -> bool:
     """Return True if the model is a diffusion-based image generation model.
@@ -137,7 +139,7 @@ def is_image_path(value: str) -> bool:
     """
     if not isinstance(value, str):
         return False
-    return any(value.lower().endswith(ext) for ext in get_supported_image_extensions())
+    return any(value.lower().endswith(ext) for ext in SUPPORTED_IMAGE_EXTENSIONS)
 
 
 def is_base64_image(value: str) -> bool:
@@ -176,9 +178,7 @@ def is_image_url(value: str) -> bool:
     """
     if not isinstance(value, str):
         return False
-    return value.startswith(("http://", "https://")) and any(
-        ext in value.lower() for ext in get_supported_image_extensions()
-    )
+    return value.startswith(("http://", "https://")) and any(ext in value.lower() for ext in SUPPORTED_IMAGE_EXTENSIONS)
 
 
 def load_image_path_to_base64(image_path: str, base_path: str | None = None) -> str | None:
@@ -228,12 +228,3 @@ def validate_image(image_path: Path) -> None:
             img.verify()
     except Exception as e:
         raise ValueError(f"Image validation failed: {e}") from e
-
-
-def get_supported_image_extensions() -> list[str]:
-    """Get list of supported image extensions from ImageFormat enum.
-
-    Returns:
-        List of extensions with leading dot (e.g., [".png", ".jpg", ...])
-    """
-    return [f".{fmt.value}" for fmt in ImageFormat]
