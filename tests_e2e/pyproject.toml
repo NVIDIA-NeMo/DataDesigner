@@ -12,7 +12,7 @@ data-designer = { path = "../packages/data-designer" }
 
 [dependency-groups]
 dev = [
-  "pytest>=8.3.3,<9",
+  "pytest>=9.0.2,<10",
 ]
 
 [project.entry-points."data_designer.plugins"]

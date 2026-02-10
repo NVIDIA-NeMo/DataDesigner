@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import functools
-import importlib.metadata
 import logging
 import time
 import uuid
@@ -21,6 +20,7 @@ from data_designer.config.processors import (
     ProcessorConfig,
     ProcessorType,
 )
+from data_designer.config.version import get_library_version
 from data_designer.engine.column_generators.generators.base import (
     ColumnGenerator,
     ColumnGeneratorWithModel,
@@ -51,7 +51,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_CLIENT_VERSION: str = importlib.metadata.version("data-designer-engine")
+_CLIENT_VERSION: str = get_library_version()
 
 
 class ColumnWiseDatasetBuilder:

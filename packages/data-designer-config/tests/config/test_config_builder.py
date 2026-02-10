@@ -41,6 +41,7 @@ from data_designer.config.seed_source import DataFrameSeedSource, HuggingFaceSee
 from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.utils.info import ConfigBuilderInfo
 from data_designer.config.validator_params import CodeValidatorParams
+from data_designer.config.version import get_library_version
 from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
@@ -360,6 +361,17 @@ def test_add_profiler(stub_empty_builder):
         stub_empty_builder.add_profiler("invalid")
 
 
+def test_builder_config_library_version(stub_data_designer_builder):
+    builder_config = stub_data_designer_builder.get_builder_config()
+    assert isinstance(builder_config.library_version, str)
+    assert builder_config.library_version == get_library_version()
+
+    # Verify it is included in serialization
+    dumped = builder_config.model_dump()
+    assert "library_version" in dumped
+    assert dumped["library_version"] == builder_config.library_version
+
+
 def test_build(stub_data_designer_builder):
     # verify transformation to config object
     ndd_config = stub_data_designer_builder.build()
@@ -437,6 +449,21 @@ def test_write_config(stub_data_designer_builder):
 
         with pytest.raises(BuilderConfigurationError, match="Unsupported file type"):
             stub_data_designer_builder.write_config(temp_path.with_suffix(".txt"))
+
+
+def test_write_config_round_trip(stub_data_designer_builder):
+    """Verify that configs written with write_config can be loaded back via from_config."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        for suffix in [".yaml", ".json"]:
+            temp_path = Path(temp_dir) / f"round_trip{suffix}"
+            stub_data_designer_builder.write_config(temp_path)
+            loaded_builder = DataDesignerConfigBuilder.from_config(temp_path)
+            assert len(loaded_builder.get_column_configs()) == len(stub_data_designer_builder.get_column_configs())
+            for original, loaded in zip(
+                stub_data_designer_builder.get_column_configs(), loaded_builder.get_column_configs()
+            ):
+                assert original.name == loaded.name
+                assert original.column_type == loaded.column_type
 
 
 def test_get_column_config_from_kwargs():

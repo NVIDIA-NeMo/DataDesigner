@@ -7,6 +7,7 @@ import json
 import logging
 from pathlib import Path
 
+from pydantic import model_validator
 from pygments import highlight
 from pygments.formatters import HtmlFormatter
 from pygments.lexers import PythonLexer
@@ -47,6 +48,7 @@ from data_designer.config.utils.info import ConfigBuilderInfo
 from data_designer.config.utils.io_helpers import serialize_data, smart_load_yaml
 from data_designer.config.utils.misc import can_run_data_designer_locally, json_indent_list_of_strings, kebab_to_snake
 from data_designer.config.utils.type_helpers import resolve_string_enum
+from data_designer.config.version import get_library_version
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +65,20 @@ class BuilderConfig(ExportableConfigBase):
     """
 
     data_designer: DataDesignerConfig
+    library_version: str | None = None
+
+    @model_validator(mode="after")
+    def _set_library_version(self) -> BuilderConfig:
+        current_version = get_library_version()
+        if self.library_version is None:
+            self.library_version = current_version
+        elif self.library_version != current_version:
+            logger.warning(
+                f"⚠️ Config was created with Data Designer v{self.library_version}, "
+                f"but you are running v{current_version}. "
+                f"If you encounter issues, consider re-generating this config."
+            )
+        return self
 
 
 class DataDesignerConfigBuilder:

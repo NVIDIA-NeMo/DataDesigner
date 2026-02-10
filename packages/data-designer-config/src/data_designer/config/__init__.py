@@ -62,6 +62,8 @@ if TYPE_CHECKING:
     from data_designer.config.run_config import RunConfig  # noqa: F401
     from data_designer.config.sampler_constraints import (  # noqa: F401
         ColumnInequalityConstraint,
+        ConstraintType,
+        InequalityOperator,
         ScalarInequalityConstraint,
     )
     from data_designer.config.sampler_params import (  # noqa: F401
@@ -101,6 +103,7 @@ if TYPE_CHECKING:
         RemoteValidatorParams,
         ValidatorType,
     )
+    from data_designer.config.version import get_library_version  # noqa: F401
 
 # Base module path and submodule paths for lazy imports
 _MOD_BASE = "data_designer.config"
@@ -171,6 +174,8 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "RunConfig": (f"{_MOD_BASE}.run_config", "RunConfig"),
     # sampler_constraints
     "ColumnInequalityConstraint": (_MOD_SAMPLER_CONSTRAINTS, "ColumnInequalityConstraint"),
+    "ConstraintType": (_MOD_SAMPLER_CONSTRAINTS, "ConstraintType"),
+    "InequalityOperator": (_MOD_SAMPLER_CONSTRAINTS, "InequalityOperator"),
     "ScalarInequalityConstraint": (_MOD_SAMPLER_CONSTRAINTS, "ScalarInequalityConstraint"),
     # sampler_params
     "BernoulliMixtureSamplerParams": (_MOD_SAMPLER_PARAMS, "BernoulliMixtureSamplerParams"),
@@ -206,6 +211,8 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "LocalCallableValidatorParams": (_MOD_VALIDATOR_PARAMS, "LocalCallableValidatorParams"),
     "RemoteValidatorParams": (_MOD_VALIDATOR_PARAMS, "RemoteValidatorParams"),
     "ValidatorType": (_MOD_VALIDATOR_PARAMS, "ValidatorType"),
+    # version
+    "get_library_version": (f"{_MOD_BASE}.version", "get_library_version"),
 }
 
 __all__ = list(_LAZY_IMPORTS.keys())

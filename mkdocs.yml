@@ -8,6 +8,7 @@ nav:
       - Contributing: CONTRIBUTING.md
   - Concepts:
       - Columns: concepts/columns.md
+      - Seed Datasets: concepts/seed-datasets.md
       - Models:
           - Default Model Settings: concepts/models/default-model-settings.md
           - Configure with the CLI: concepts/models/configure-model-settings-with-the-cli.md
