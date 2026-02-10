@@ -214,3 +214,28 @@ def test_save_base64_image_dataframe_mode_with_subfolder_name(tmp_path, sample_b
 
     # Directory should not be created in DATAFRAME mode
     assert not storage.images_dir.exists()
+
+
+@pytest.mark.parametrize(
+    "unsafe_name,expected_sanitized",
+    [
+        ("../evil", "__evil"),  # Parent directory traversal: .. -> _, / -> _
+        ("foo/bar", "foo_bar"),  # Path separator (forward slash)
+        ("foo\\bar", "foo_bar"),  # Path separator (backslash)
+        ("test..name", "test_name"),  # Double dots in middle: .. -> _
+    ],
+)
+def test_save_base64_image_sanitizes_subfolder_name(media_storage, sample_base64_png, unsafe_name, expected_sanitized):
+    """Test that subfolder names are sanitized to prevent path traversal."""
+    relative_path = media_storage.save_base64_image(sample_base64_png, subfolder_name=unsafe_name)
+
+    # Check that path contains sanitized subfolder name
+    assert expected_sanitized in relative_path
+    assert "/" not in expected_sanitized  # No path separators
+    assert "\\" not in expected_sanitized  # No backslashes
+    assert ".." not in expected_sanitized  # No parent references
+
+    # Verify file is inside images directory (not escaped via path traversal)
+    full_path = media_storage.base_path / relative_path
+    assert full_path.exists()
+    assert media_storage.images_dir in full_path.parents

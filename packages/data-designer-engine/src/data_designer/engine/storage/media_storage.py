@@ -61,6 +61,11 @@ class MediaStorage:
         """Create images directory if it doesn't exist (lazy initialization)."""
         self.images_dir.mkdir(parents=True, exist_ok=True)
 
+    def _sanitize_subfolder_name(self, name: str) -> str:
+        """Sanitize subfolder name to prevent path traversal and filesystem issues."""
+        # Replace path separators and parent directory references with underscores
+        return name.replace("/", "_").replace("\\", "_").replace("..", "_")
+
     def save_base64_image(self, base64_data: str, subfolder_name: str) -> str:
         """Save or return base64 image based on storage mode.
 
@@ -81,8 +86,11 @@ class MediaStorage:
             return base64_data
 
         # DISK mode: save to disk, validate, and return relative path
+        # Sanitize subfolder name to prevent path traversal
+        sanitized_subfolder = self._sanitize_subfolder_name(subfolder_name)
+
         # Determine the target directory (organized by subfolder)
-        target_dir = self.images_dir / subfolder_name
+        target_dir = self.images_dir / sanitized_subfolder
 
         # Ensure target directory exists (lazy initialization)
         target_dir.mkdir(parents=True, exist_ok=True)
@@ -99,7 +107,7 @@ class MediaStorage:
         full_path = target_dir / filename
 
         # Build relative path
-        relative_path = f"{self.images_subdir}/{subfolder_name}/{filename}"
+        relative_path = f"{self.images_subdir}/{sanitized_subfolder}/{filename}"
 
         # Write to disk
         with open(full_path, "wb") as f:
