@@ -114,8 +114,8 @@ def detect_image_format(image_bytes: bytes) -> ImageFormat:
     try:
         img = Image.open(io.BytesIO(image_bytes))
         format_str = img.format.lower() if img.format else None
-        if format_str in [ImageFormat.PNG, ImageFormat.JPG, ImageFormat.JPEG, ImageFormat.WEBP]:
-            return ImageFormat(format_str if format_str != ImageFormat.JPEG else ImageFormat.JPG)
+        if format_str in [fmt.value for fmt in ImageFormat]:
+            return ImageFormat(format_str if format_str != ImageFormat.JPEG.value else ImageFormat.JPG.value)
     except Exception:
         pass
 

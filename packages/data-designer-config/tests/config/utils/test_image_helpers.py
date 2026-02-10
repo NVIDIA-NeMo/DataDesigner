@@ -224,9 +224,9 @@ def test_detect_image_format_with_pil_fallback_unsupported_format(tmp_path):
     img.save(gif_path, format="GIF")
 
     gif_bytes = gif_path.read_bytes()
-    # Should use PIL fallback and default to PNG (GIF not in ImageFormat enum)
+    # Should use PIL fallback and correctly detect GIF format
     result = detect_image_format(gif_bytes)
-    assert result == ImageFormat.PNG
+    assert result == ImageFormat.GIF
 
 
 def test_detect_image_format_with_pil_fallback_jpeg():
