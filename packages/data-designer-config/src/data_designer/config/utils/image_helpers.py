@@ -21,7 +21,18 @@ if TYPE_CHECKING:
 IMAGE_FORMAT_MAGIC_BYTES = {
     ImageFormat.PNG: b"\x89PNG\r\n\x1a\n",
     ImageFormat.JPG: b"\xff\xd8\xff",
+    ImageFormat.GIF: b"GIF8",
     # WEBP uses RIFF header - handled separately
+}
+
+# Maps PIL format name (lowercase) to our ImageFormat enum.
+# PIL reports "JPEG" (not "JPG"), so we normalize it here.
+_PIL_FORMAT_TO_IMAGE_FORMAT: dict[str, ImageFormat] = {
+    "png": ImageFormat.PNG,
+    "jpeg": ImageFormat.JPG,
+    "jpg": ImageFormat.JPG,
+    "gif": ImageFormat.GIF,
+    "webp": ImageFormat.WEBP,
 }
 
 _BASE64_PATTERN = re.compile(r"^[A-Za-z0-9+/=]+$")
@@ -105,13 +116,18 @@ def detect_image_format(image_bytes: bytes) -> ImageFormat:
         image_bytes: Image data as bytes
 
     Returns:
-        Detected format (defaults to PNG if unknown)
+        Detected ImageFormat
+
+    Raises:
+        ValueError: If the image format cannot be determined
     """
     # Check magic bytes first (fast)
     if image_bytes.startswith(IMAGE_FORMAT_MAGIC_BYTES[ImageFormat.PNG]):
         return ImageFormat.PNG
     elif image_bytes.startswith(IMAGE_FORMAT_MAGIC_BYTES[ImageFormat.JPG]):
         return ImageFormat.JPG
+    elif image_bytes.startswith(IMAGE_FORMAT_MAGIC_BYTES[ImageFormat.GIF]):
+        return ImageFormat.GIF
     elif image_bytes.startswith(b"RIFF") and b"WEBP" in image_bytes[:12]:
         return ImageFormat.WEBP
 
@@ -119,13 +135,15 @@ def detect_image_format(image_bytes: bytes) -> ImageFormat:
     try:
         img = Image.open(io.BytesIO(image_bytes))
         format_str = img.format.lower() if img.format else None
-        if format_str in [fmt.value for fmt in ImageFormat]:
-            return ImageFormat(format_str if format_str != ImageFormat.JPEG.value else ImageFormat.JPG.value)
+        if format_str in _PIL_FORMAT_TO_IMAGE_FORMAT:
+            return _PIL_FORMAT_TO_IMAGE_FORMAT[format_str]
     except Exception:
         pass
 
-    # Default to PNG
-    return ImageFormat.PNG
+    raise ValueError(
+        f"Unable to detect image format (first 8 bytes: {image_bytes[:8]!r}). "
+        f"Supported formats: {', '.join(SUPPORTED_IMAGE_EXTENSIONS)}."
+    )
 
 
 def is_image_path(value: str) -> bool:

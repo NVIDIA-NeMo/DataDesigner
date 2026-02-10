@@ -140,7 +140,7 @@ def test_save_base64_image_disk_mode_corrupted_image_raises_error(tmp_path):
     corrupted_bytes = b"not a valid image"
     corrupted_base64 = base64.b64encode(corrupted_bytes).decode()
 
-    with pytest.raises(ValueError, match="Image validation failed"):
+    with pytest.raises(ValueError, match="Unable to detect image format"):
         storage.save_base64_image(corrupted_base64, subfolder_name="test_column")
 
     # Check that no files were left behind (cleanup on validation failure)
