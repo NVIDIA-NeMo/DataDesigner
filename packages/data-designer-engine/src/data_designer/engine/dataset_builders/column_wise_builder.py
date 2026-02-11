@@ -120,12 +120,13 @@ class ColumnWiseDatasetBuilder:
         self.batch_manager.start(num_records=num_records, buffer_size=buffer_size)
         for batch_idx in range(self.batch_manager.num_batches):
             logger.info(f"⏳ Processing batch {batch_idx + 1} of {self.batch_manager.num_batches}")
-            # Note: pre-batch processing runs inside _run_batch, after seed columns are populated
-            self._run_batch(generators, batch_mode="batch", group_id=group_id)
-            df_batch = self.batch_manager.get_current_batch(as_dataframe=True)
-            df_batch = self._processor_runner.run_post_batch(df_batch, current_batch_number=batch_idx)
-            self._write_processed_batch(df_batch)
-            self.batch_manager.finish_batch(on_batch_complete)
+            self._run_batch(
+                generators,
+                batch_mode="batch",
+                group_id=group_id,
+                current_batch_number=batch_idx,
+                on_batch_complete=on_batch_complete,
+            )
         self.batch_manager.finish()
         self._processor_runner.run_after_generation(buffer_size)
 
@@ -168,7 +169,14 @@ class ColumnWiseDatasetBuilder:
         )
 
     def _run_batch(
-        self, generators: list[ColumnGenerator], *, batch_mode: str, save_partial_results: bool = True, group_id: str
+        self,
+        generators: list[ColumnGenerator],
+        *,
+        batch_mode: str,
+        save_partial_results: bool = True,
+        group_id: str,
+        current_batch_number: int | None = None,
+        on_batch_complete: Callable[[Path], None] | None = None,
     ) -> None:
         pre_batch_snapshot = self._resource_provider.model_registry.get_model_usage_snapshot()
         ran_pre_batch = False
@@ -204,6 +212,12 @@ class ColumnWiseDatasetBuilder:
             self._emit_batch_inference_events(batch_mode, usage_deltas, group_id)
         except Exception:
             pass
+
+        if current_batch_number is not None:
+            df_batch = self.batch_manager.get_current_batch(as_dataframe=True)
+            df_batch = self._processor_runner.run_post_batch(df_batch, current_batch_number=current_batch_number)
+            self._write_processed_batch(df_batch)
+            self.batch_manager.finish_batch(on_batch_complete)
 
     def _run_from_scratch_column_generator(self, generator: ColumnGenerator) -> None:
         df = generator.generate_from_scratch(self.batch_manager.num_records_batch)
