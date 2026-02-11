@@ -7,7 +7,7 @@ import json
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 import yaml
@@ -97,6 +97,126 @@ def test_from_config(stub_data_designer_builder_config_str):
         config=builder_config_object,
     )
     assert isinstance(builder_from_object.get_column_config(name="code_id"), SamplerColumnConfig)
+
+
+def test_from_config_auto_wraps_bare_data_designer_config(stub_data_designer_config_str: str) -> None:
+    """Test that from_config auto-wraps a bare DataDesignerConfig (no 'data_designer' wrapper)."""
+    builder = DataDesignerConfigBuilder.from_config(config=stub_data_designer_config_str)
+
+    assert isinstance(builder.get_column_config(name="code_id"), SamplerColumnConfig)
+    assert isinstance(builder.get_column_config(name="text"), LLMTextColumnConfig)
+    assert isinstance(builder.get_column_config(name="code"), LLMCodeColumnConfig)
+    assert builder.build().model_configs[0].alias == "my_own_code_model"
+
+
+def test_from_config_auto_wraps_bare_dict() -> None:
+    """Test that from_config auto-wraps a dict with 'columns' but no 'data_designer' key."""
+    bare_config: dict = {
+        "model_configs": [
+            {
+                "alias": "test-model",
+                "model": "openai/meta/llama-3.3-70b-instruct",
+            }
+        ],
+        "columns": [
+            {
+                "name": "test_id",
+                "column_type": "sampler",
+                "sampler_type": "uuid",
+                "params": {"prefix": "id_", "short_form": True},
+            }
+        ],
+    }
+    builder = DataDesignerConfigBuilder.from_config(config=bare_config)
+    assert isinstance(builder.get_column_config(name="test_id"), SamplerColumnConfig)
+
+
+def test_from_config_passthrough_when_already_wrapped() -> None:
+    """Test that from_config passes through a dict that already has a 'data_designer' key."""
+    wrapped_config: dict = {
+        "data_designer": {
+            "model_configs": [
+                {
+                    "alias": "test-model",
+                    "model": "openai/meta/llama-3.3-70b-instruct",
+                }
+            ],
+            "columns": [
+                {
+                    "name": "test_id",
+                    "column_type": "sampler",
+                    "sampler_type": "uuid",
+                    "params": {"prefix": "id_", "short_form": True},
+                }
+            ],
+        }
+    }
+    builder = DataDesignerConfigBuilder.from_config(config=wrapped_config)
+    assert isinstance(builder.get_column_config(name="test_id"), SamplerColumnConfig)
+
+
+def test_from_config_auto_wraps_bare_yaml_file(stub_data_designer_config_str: str) -> None:
+    """Test that from_config auto-wraps a bare DataDesignerConfig loaded from a YAML file."""
+    with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
+        f.write(stub_data_designer_config_str)
+        f.flush()
+        builder = DataDesignerConfigBuilder.from_config(config=Path(f.name))
+
+    assert isinstance(builder.get_column_config(name="code_id"), SamplerColumnConfig)
+    assert isinstance(builder.get_column_config(name="text"), LLMTextColumnConfig)
+
+
+def test_from_config_auto_wraps_bare_json_file() -> None:
+    """Test that from_config auto-wraps a bare DataDesignerConfig loaded from a JSON file."""
+    bare_config: dict = {
+        "model_configs": [
+            {
+                "alias": "test-model",
+                "model": "openai/meta/llama-3.3-70b-instruct",
+            }
+        ],
+        "columns": [
+            {
+                "name": "test_id",
+                "column_type": "sampler",
+                "sampler_type": "uuid",
+                "params": {"prefix": "id_", "short_form": True},
+            }
+        ],
+    }
+    with tempfile.NamedTemporaryFile(suffix=".json", mode="w", delete=False) as f:
+        json.dump(bare_config, f)
+        f.flush()
+        builder = DataDesignerConfigBuilder.from_config(config=Path(f.name))
+
+    assert isinstance(builder.get_column_config(name="test_id"), SamplerColumnConfig)
+
+
+@patch("data_designer.config.utils.io_helpers.requests")
+def test_from_config_loads_yaml_url(mock_requests: MagicMock, stub_data_designer_config_str: str) -> None:
+    mock_response = MagicMock()
+    mock_response.content = stub_data_designer_config_str.encode("utf-8")
+    mock_requests.get.return_value = mock_response
+
+    builder = DataDesignerConfigBuilder.from_config(config="https://example.com/config.yaml")
+
+    assert isinstance(builder.get_column_config(name="code_id"), SamplerColumnConfig)
+    assert isinstance(builder.get_column_config(name="text"), LLMTextColumnConfig)
+    mock_requests.get.assert_called_once_with("https://example.com/config.yaml", timeout=10)
+
+
+@patch("data_designer.config.utils.io_helpers.requests")
+def test_from_config_loads_json_url(mock_requests: MagicMock, stub_data_designer_config_str: str) -> None:
+    config_dict = yaml.safe_load(stub_data_designer_config_str)
+    mock_response = MagicMock()
+    mock_response.content = json.dumps(config_dict).encode("utf-8")
+    mock_requests.get.return_value = mock_response
+
+    builder = DataDesignerConfigBuilder.from_config(config="https://example.com/config.json")
+
+    assert isinstance(builder.get_column_config(name="code_id"), SamplerColumnConfig)
+    assert isinstance(builder.get_column_config(name="text"), LLMTextColumnConfig)
+    mock_requests.get.assert_called_once_with("https://example.com/config.json", timeout=10)
 
 
 def test_info(stub_data_designer_builder):

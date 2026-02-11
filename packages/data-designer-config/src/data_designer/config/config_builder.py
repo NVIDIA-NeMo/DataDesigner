@@ -90,10 +90,17 @@ class DataDesignerConfigBuilder:
     def from_config(cls, config: dict | str | Path | BuilderConfig) -> Self:
         """Create a DataDesignerConfigBuilder from an existing configuration.
 
+        Accepts both the full ``BuilderConfig`` format (with a top-level
+        ``data_designer`` key) and the shorthand ``DataDesignerConfig`` format
+        (``columns``, ``model_configs``, etc. at the top level). When the
+        shorthand format is detected it is automatically normalized into a
+        full ``BuilderConfig``.
+
         Args:
             config: Configuration source. Can be:
                 - A dictionary containing the configuration
-                - A string or Path to a YAML/JSON configuration file
+                - A string or Path to a local YAML/JSON configuration file
+                - An HTTP(S) URL string to a YAML/JSON configuration file
                 - A BuilderConfig object
 
         Returns:
@@ -107,6 +114,9 @@ class DataDesignerConfigBuilder:
             builder_config = config
         else:
             json_config = json.loads(serialize_data(smart_load_yaml(config)))
+            # Normalize shorthand DataDesignerConfig into full BuilderConfig
+            if "columns" in json_config and "data_designer" not in json_config:
+                json_config = {"data_designer": json_config}
             builder_config = BuilderConfig.model_validate(json_config)
 
         builder = cls(

@@ -15,6 +15,7 @@ def column_type_used_in_execution_dag(column_type: str | DataDesignerColumnType)
     """Return True if the column type is used in the workflow execution DAG."""
     column_type = resolve_string_enum(column_type, DataDesignerColumnType)
     dag_column_types = {
+        DataDesignerColumnType.CUSTOM,
         DataDesignerColumnType.EXPRESSION,
         DataDesignerColumnType.LLM_CODE,
         DataDesignerColumnType.LLM_JUDGE,
