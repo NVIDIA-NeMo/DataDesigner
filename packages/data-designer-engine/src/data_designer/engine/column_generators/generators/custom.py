@@ -84,6 +84,11 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
         except CustomColumnGenerationError:
             raise
         except Exception as e:
+            if not is_dataframe:
+                logger.warning(
+                    f"⚠️ Custom generator function {self.config.generator_function.__name__!r} "
+                    f"failed for column '{self.config.name}'. This record will be skipped.\n{e}"
+                )
             raise CustomColumnGenerationError(
                 f"Custom generator function failed for column '{self.config.name}': {e}"
             ) from e
