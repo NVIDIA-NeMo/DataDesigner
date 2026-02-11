@@ -12,7 +12,7 @@ from data_designer.config.utils.constants import DEFAULT_NUM_RECORDS
 def create_command(
     config_source: str = typer.Argument(
         help=(
-            "Path to a config file (.yaml/.yml/.json) or Python module (.py)"
+            "Path or URL to a config file (.yaml/.yml/.json), or a local Python module (.py)"
             " that defines a load_config_builder() function."
         ),
     ),
@@ -29,7 +29,7 @@ def create_command(
         "-d",
         help="Name for the generated dataset folder.",
     ),
-    artifact_path: str = typer.Option(
+    artifact_path: str | None = typer.Option(
         None,
         "--artifact-path",
         "-o",
@@ -47,6 +47,9 @@ def create_command(
 
         # Create with custom settings
         data-designer create my_config.yaml --num-records 1000 --dataset-name my_dataset
+
+        # Create from a remote config URL
+        data-designer create https://example.com/my_config.json --dataset-name my_dataset
 
         # Create from a Python module with custom output path
         data-designer create my_config.py --artifact-path /path/to/output

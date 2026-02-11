@@ -8,8 +8,9 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from data_designer.config.column_configs import LLMTextColumnConfig, SamplerColumnConfig
+from data_designer.config.column_configs import CustomColumnConfig, LLMTextColumnConfig, SamplerColumnConfig
 from data_designer.config.config_builder import DataDesignerConfigBuilder
+from data_designer.config.custom_column import custom_column_generator
 from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.processors import DropColumnsProcessorConfig
 from data_designer.config.run_config import RunConfig
@@ -390,3 +391,17 @@ def test_fan_out_with_threads_uses_early_shutdown_settings_from_resource_provide
     assert call_kwargs["shutdown_error_rate"] == expected_rate
     assert call_kwargs["shutdown_error_window"] == shutdown_error_window
     assert call_kwargs["disable_early_shutdown"] == disable_early_shutdown
+
+
+def test_full_column_custom_generator_error_is_descriptive(stub_resource_provider, stub_model_configs):
+    @custom_column_generator(required_columns=["some_id"])
+    def bad_fn(df: pd.DataFrame) -> pd.DataFrame:
+        raise ValueError("something broke")
+
+    config = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config.add_column(SamplerColumnConfig(name="some_id", sampler_type=SamplerType.UUID, params=UUIDSamplerParams()))
+    config.add_column(CustomColumnConfig(name="col", generator_function=bad_fn, generation_strategy="full_column"))
+    builder = ColumnWiseDatasetBuilder(data_designer_config=config.build(), resource_provider=stub_resource_provider)
+
+    with pytest.raises(DatasetGenerationError, match=r"(?s)Failed to process column 'col'.*something broke"):
+        builder.build_preview(num_records=3)

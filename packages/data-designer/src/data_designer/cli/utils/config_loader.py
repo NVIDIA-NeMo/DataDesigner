@@ -6,30 +6,32 @@ from __future__ import annotations
 import importlib.util
 import sys
 from pathlib import Path
+from urllib.parse import urlparse
 
 from data_designer.config.config_builder import DataDesignerConfigBuilder
+from data_designer.config.utils.io_helpers import VALID_CONFIG_FILE_EXTENSIONS, is_http_url
 
 
 class ConfigLoadError(Exception):
     """Raised when a configuration source cannot be loaded."""
 
 
-CONFIG_FILE_EXTENSIONS = {".yaml", ".yml", ".json"}
 PYTHON_EXTENSIONS = {".py"}
-ALL_SUPPORTED_EXTENSIONS = CONFIG_FILE_EXTENSIONS | PYTHON_EXTENSIONS
+ALL_SUPPORTED_EXTENSIONS = VALID_CONFIG_FILE_EXTENSIONS | PYTHON_EXTENSIONS
 
 USER_MODULE_FUNC_NAME = "load_config_builder"
 
 
 def load_config_builder(config_source: str) -> DataDesignerConfigBuilder:
-    """Load a DataDesignerConfigBuilder from a file path.
+    """Load a DataDesignerConfigBuilder from a file path or URL.
 
     Auto-detects the file type by extension:
     - .yaml/.yml/.json: Loads as a config file via DataDesignerConfigBuilder.from_config()
+      (supports local paths and HTTP(S) URLs)
     - .py: Loads as a Python module and calls its load_config_builder() function
 
     Args:
-        config_source: Path to the configuration file or Python module.
+        config_source: Path or URL to the configuration file, or path to a Python module.
 
     Returns:
         A DataDesignerConfigBuilder instance.
@@ -37,6 +39,9 @@ def load_config_builder(config_source: str) -> DataDesignerConfigBuilder:
     Raises:
         ConfigLoadError: If the file cannot be loaded or is invalid.
     """
+    if is_http_url(config_source):
+        return _load_from_config_url(config_source)
+
     path = Path(config_source)
 
     if not path.exists():
@@ -51,13 +56,30 @@ def load_config_builder(config_source: str) -> DataDesignerConfigBuilder:
         supported = ", ".join(sorted(ALL_SUPPORTED_EXTENSIONS))
         raise ConfigLoadError(f"Unsupported file extension '{suffix}'. Supported extensions: {supported}")
 
-    if suffix in CONFIG_FILE_EXTENSIONS:
+    if suffix in VALID_CONFIG_FILE_EXTENSIONS:
         return _load_from_config_file(path)
 
     return _load_from_python_module(path)
 
 
-def _load_from_config_file(path: Path) -> DataDesignerConfigBuilder:
+def _load_from_config_url(config_source: str) -> DataDesignerConfigBuilder:
+    """Load a DataDesignerConfigBuilder from a remote YAML or JSON config URL."""
+    suffix = Path(urlparse(config_source).path).suffix.lower()
+
+    if suffix in PYTHON_EXTENSIONS:
+        raise ConfigLoadError(
+            f"Remote Python config modules are not supported: {config_source}. "
+            "Please provide a local '.py' file instead."
+        )
+
+    if suffix not in VALID_CONFIG_FILE_EXTENSIONS:
+        supported = ", ".join(sorted(VALID_CONFIG_FILE_EXTENSIONS))
+        raise ConfigLoadError(f"Unsupported file extension '{suffix}'. Supported extensions: {supported}")
+
+    return _load_from_config_file(config_source)
+
+
+def _load_from_config_file(path: Path | str) -> DataDesignerConfigBuilder:
     """Load a DataDesignerConfigBuilder from a YAML or JSON config file.
 
     Delegates to ``DataDesignerConfigBuilder.from_config`` which handles file
@@ -65,7 +87,7 @@ def _load_from_config_file(path: Path) -> DataDesignerConfigBuilder:
     shorthand ``DataDesignerConfig`` format.
 
     Args:
-        path: Path to the config file.
+        path: Path or URL to the config file.
 
     Returns:
         A DataDesignerConfigBuilder instance.

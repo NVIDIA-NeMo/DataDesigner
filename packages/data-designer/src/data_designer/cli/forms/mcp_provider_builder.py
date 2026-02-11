@@ -14,8 +14,8 @@ from data_designer.cli.ui import (
     print_header,
     select_with_arrows,
 )
-from data_designer.cli.utils import validate_url
 from data_designer.config.mcp import LocalStdioMCPProvider, MCPProvider, MCPProviderT
+from data_designer.config.utils.io_helpers import is_http_url
 
 
 class MCPProviderFormBuilder:
@@ -206,7 +206,7 @@ class MCPProviderFormBuilder:
         """Validate endpoint URL."""
         if not endpoint:
             return False, "Endpoint URL is required"
-        if not validate_url(endpoint):
+        if not is_http_url(endpoint):
             return False, "Invalid URL format (must start with http:// or https://)"
         return True, None
 

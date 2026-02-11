@@ -100,7 +100,8 @@ class DataDesignerConfigBuilder:
         Args:
             config: Configuration source. Can be:
                 - A dictionary containing the configuration
-                - A string or Path to a YAML/JSON configuration file
+                - A string or Path to a local YAML/JSON configuration file
+                - An HTTP(S) URL string to a YAML/JSON configuration file
                 - A BuilderConfig object
 
         Returns:

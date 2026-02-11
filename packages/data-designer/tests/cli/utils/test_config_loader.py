@@ -58,6 +58,32 @@ def test_load_config_builder_from_json(mock_from_config: MagicMock, tmp_path: Pa
     assert result is mock_builder
 
 
+@patch("data_designer.cli.utils.config_loader.DataDesignerConfigBuilder.from_config")
+def test_load_config_builder_from_yaml_url(mock_from_config: MagicMock) -> None:
+    """Test loading a config builder from a YAML URL delegates to from_config."""
+    config_url = "https://example.com/config.yaml"
+    mock_builder = MagicMock()
+    mock_from_config.return_value = mock_builder
+
+    result = load_config_builder(config_url)
+
+    mock_from_config.assert_called_once_with(config_url)
+    assert result is mock_builder
+
+
+@patch("data_designer.cli.utils.config_loader.DataDesignerConfigBuilder.from_config")
+def test_load_config_builder_from_json_url_with_query(mock_from_config: MagicMock) -> None:
+    """Test loading a config builder from a JSON URL with query params delegates to from_config."""
+    config_url = "https://example.com/config.json?version=1"
+    mock_builder = MagicMock()
+    mock_from_config.return_value = mock_builder
+
+    result = load_config_builder(config_url)
+
+    mock_from_config.assert_called_once_with(config_url)
+    assert result is mock_builder
+
+
 def test_load_config_builder_from_python_module(tmp_path: Path) -> None:
     """Test loading a config builder from a Python module with load_config_builder()."""
     py_file = tmp_path / "my_config.py"
@@ -92,6 +118,24 @@ def test_load_config_builder_unsupported_extension(tmp_path: Path) -> None:
 
     with pytest.raises(ConfigLoadError, match="Unsupported file extension"):
         load_config_builder(str(txt_file))
+
+
+def test_load_config_builder_url_unsupported_extension() -> None:
+    """Test that a URL with unsupported extension raises ConfigLoadError."""
+    with pytest.raises(ConfigLoadError, match="Unsupported file extension"):
+        load_config_builder("https://example.com/config.txt")
+
+
+def test_load_config_builder_remote_python_module_not_supported() -> None:
+    """Test that a Python module URL is rejected."""
+    with pytest.raises(ConfigLoadError, match="Remote Python config modules are not supported"):
+        load_config_builder("https://example.com/config.py")
+
+
+def test_load_config_builder_url_no_extension() -> None:
+    """Test that a URL with no file extension raises ConfigLoadError."""
+    with pytest.raises(ConfigLoadError, match="Unsupported file extension"):
+        load_config_builder("https://example.com/config")
 
 
 def test_load_config_builder_python_module_missing_function(tmp_path: Path) -> None:

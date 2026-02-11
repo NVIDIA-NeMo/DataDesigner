@@ -7,7 +7,7 @@ import json
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 import yaml
@@ -190,6 +190,33 @@ def test_from_config_auto_wraps_bare_json_file() -> None:
         builder = DataDesignerConfigBuilder.from_config(config=Path(f.name))
 
     assert isinstance(builder.get_column_config(name="test_id"), SamplerColumnConfig)
+
+
+@patch("data_designer.config.utils.io_helpers.requests")
+def test_from_config_loads_yaml_url(mock_requests: MagicMock, stub_data_designer_config_str: str) -> None:
+    mock_response = MagicMock()
+    mock_response.content = stub_data_designer_config_str.encode("utf-8")
+    mock_requests.get.return_value = mock_response
+
+    builder = DataDesignerConfigBuilder.from_config(config="https://example.com/config.yaml")
+
+    assert isinstance(builder.get_column_config(name="code_id"), SamplerColumnConfig)
+    assert isinstance(builder.get_column_config(name="text"), LLMTextColumnConfig)
+    mock_requests.get.assert_called_once_with("https://example.com/config.yaml", timeout=10)
+
+
+@patch("data_designer.config.utils.io_helpers.requests")
+def test_from_config_loads_json_url(mock_requests: MagicMock, stub_data_designer_config_str: str) -> None:
+    config_dict = yaml.safe_load(stub_data_designer_config_str)
+    mock_response = MagicMock()
+    mock_response.content = json.dumps(config_dict).encode("utf-8")
+    mock_requests.get.return_value = mock_response
+
+    builder = DataDesignerConfigBuilder.from_config(config="https://example.com/config.json")
+
+    assert isinstance(builder.get_column_config(name="code_id"), SamplerColumnConfig)
+    assert isinstance(builder.get_column_config(name="text"), LLMTextColumnConfig)
+    mock_requests.get.assert_called_once_with("https://example.com/config.json", timeout=10)
 
 
 def test_info(stub_data_designer_builder):

@@ -12,7 +12,7 @@ from data_designer.config.utils.constants import DEFAULT_NUM_RECORDS
 def preview_command(
     config_source: str = typer.Argument(
         help=(
-            "Path to a config file (.yaml/.yml/.json) or Python module (.py)"
+            "Path or URL to a config file (.yaml/.yml/.json), or a local Python module (.py)"
             " that defines a load_config_builder() function."
         ),
     ),
@@ -47,6 +47,9 @@ def preview_command(
 
         # Preview with custom number of records
         data-designer preview my_config.yaml --num-records 5
+
+        # Preview from a remote config URL
+        data-designer preview https://example.com/my_config.yaml
 
         # Display all records without interactive browsing
         data-designer preview my_config.yaml --non-interactive
