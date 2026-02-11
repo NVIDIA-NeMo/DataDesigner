@@ -64,7 +64,8 @@ class ProcessorRunner:
         original_len = len(df)
         df = self._run_stage(df, ProcessorStage.PRE_BATCH)
         if len(df) != original_len:
-            logger.info(f"ℹ️ PRE_BATCH processors changed row count from {original_len} to {len(df)}.")
+            delta = len(df) - original_len
+            logger.info(f"ℹ️ PRE_BATCH processors changed the record count by {delta:+d} records.")
         batch_manager.replace_records(df.to_dict(orient="records"))
 
     def run_post_batch(self, df: pd.DataFrame, current_batch_number: int | None) -> pd.DataFrame:
@@ -76,19 +77,28 @@ class ProcessorRunner:
         return self._run_stage(df, ProcessorStage.AFTER_GENERATION)
 
     def run_after_generation(self) -> None:
-        """Load final dataset, run process_after_generation(), rewrite dataset."""
+        """Load final dataset, run process_after_generation(), rewrite dataset.
+
+        Preserves the original batch partitioning: the processed dataset is split
+        back into the same number of parquet files that existed before processing.
+        """
         if not self.has_processors_for(ProcessorStage.AFTER_GENERATION):
             return
 
         logger.info("⏳ Running process_after_generation on final dataset...")
+        num_batch_files = len(list(self._artifact_storage.final_dataset_path.glob("*.parquet")))
         df = self._artifact_storage.load_dataset()
         df = self._run_stage(df, ProcessorStage.AFTER_GENERATION)
 
-        if self._artifact_storage.final_dataset_path.exists():
-            shutil.rmtree(self._artifact_storage.final_dataset_path)
-        self._artifact_storage.write_batch_to_parquet_file(
-            batch_number=0,
-            dataframe=df,
-            batch_stage=BatchStage.FINAL_RESULT,
-        )
+        shutil.rmtree(self._artifact_storage.final_dataset_path)
+        num_batches = max(num_batch_files, 1)
+        rows_per_batch = len(df) // num_batches
+        for i in range(num_batches):
+            start = i * rows_per_batch
+            end = start + rows_per_batch if i < num_batches - 1 else len(df)
+            self._artifact_storage.write_batch_to_parquet_file(
+                batch_number=i,
+                dataframe=df.iloc[start:end],
+                batch_stage=BatchStage.FINAL_RESULT,
+            )
         logger.info(f"✅ process_after_generation complete. Final dataset has {len(df)} rows.")

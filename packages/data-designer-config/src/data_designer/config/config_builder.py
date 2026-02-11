@@ -22,7 +22,6 @@ from data_designer.config.column_types import (
     get_column_display_order,
 )
 from data_designer.config.data_designer_config import DataDesignerConfig
-from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.default_model_settings import get_default_model_configs
 from data_designer.config.errors import BuilderConfigurationError, BuilderSerializationError, InvalidColumnTypeError
 from data_designer.config.exportable_config import ExportableConfigBase
@@ -562,7 +561,7 @@ class DataDesignerConfigBuilder:
         column_type = resolve_string_enum(column_type, DataDesignerColumnType)
         return [c for c in self._column_configs.values() if c.column_type != column_type]
 
-    def get_processor_configs(self) -> dict[BuildStage, list[ProcessorConfigT]]:
+    def get_processor_configs(self) -> list[ProcessorConfigT]:
         """Get processor configuration objects.
 
         Returns:

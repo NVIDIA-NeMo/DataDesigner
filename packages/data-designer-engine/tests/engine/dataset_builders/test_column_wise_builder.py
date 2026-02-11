@@ -269,13 +269,6 @@ def test_column_wise_dataset_builder_validate_column_configs(
             )
 
 
-def test_column_wise_dataset_builder_initialize_processors(stub_column_wise_builder):
-    processors = stub_column_wise_builder.processors
-    assert isinstance(processors, tuple)
-    assert len(processors) == 1
-    assert processors[0].config.column_names == ["column_to_drop"]
-
-
 def test_run_config_default_non_inference_max_parallel_workers() -> None:
     run_config = RunConfig()
     assert run_config.non_inference_max_parallel_workers == 4
@@ -425,30 +418,58 @@ def test_fan_out_with_threads_uses_early_shutdown_settings_from_resource_provide
     assert call_kwargs["disable_early_shutdown"] == disable_early_shutdown
 
 
-def test_run_post_generation_processors_modifies_final_dataset(stub_resource_provider, stub_model_configs):
-    """Test that process_after_generation callbacks are applied to the final dataset."""
-    final_df = pd.DataFrame({"id": [1, 2, 3, 4, 5], "value": ["a", "b", "c", "d", "e"]})
-    stub_resource_provider.artifact_storage.mkdir_if_needed(stub_resource_provider.artifact_storage.final_dataset_path)
-    final_df.to_parquet(stub_resource_provider.artifact_storage.final_dataset_path / "batch_00000.parquet", index=False)
+# Processor tests
 
-    mock_processor = create_mock_processor("dedup_processor", ["process_after_generation"])
-    mock_processor.process_after_generation.side_effect = lambda df: df[df["id"] > 2]
 
+@pytest.fixture
+def simple_builder(stub_resource_provider, stub_model_configs):
+    """Minimal builder with a single UUID column and no batch files on disk."""
     config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
     config_builder.add_column(SamplerColumnConfig(name="id", sampler_type="uuid", params=UUIDSamplerParams()))
-
-    builder = ColumnWiseDatasetBuilder(
+    return ColumnWiseDatasetBuilder(
         data_designer_config=config_builder.build(),
         resource_provider=stub_resource_provider,
     )
-    builder.set_processor_runner([mock_processor])
 
-    builder._processor_runner.run_after_generation()
+
+def test_initialize_processors(stub_column_wise_builder):
+    processors = stub_column_wise_builder.processors
+    assert isinstance(processors, tuple)
+    assert len(processors) == 1
+    assert processors[0].config.column_names == ["column_to_drop"]
+
+
+@pytest.mark.parametrize(
+    "processor_fn,num_batches,expected_rows",
+    [
+        pytest.param(lambda df: df[df["id"] > 3], 1, 6, id="single_batch_filter"),
+        pytest.param(lambda df: df, 3, 9, id="multi_batch_noop"),
+        pytest.param(lambda df: df[df["id"] != 3].reset_index(drop=True), 3, 8, id="multi_batch_uneven"),
+    ],
+)
+def test_run_after_generation(stub_resource_provider, simple_builder, processor_fn, num_batches, expected_rows):
+    """Test that process_after_generation applies callbacks and preserves batch partitioning."""
+    storage = stub_resource_provider.artifact_storage
+    storage.mkdir_if_needed(storage.final_dataset_path)
+    all_ids = list(range(1, 10))  # 9 rows total
+    chunk_size = len(all_ids) // num_batches
+    for i in range(num_batches):
+        start = i * chunk_size
+        end = len(all_ids) if i == num_batches - 1 else start + chunk_size
+        pd.DataFrame({"id": all_ids[start:end]}).to_parquet(
+            storage.final_dataset_path / f"batch_{i:05d}.parquet", index=False
+        )
+
+    mock_processor = create_mock_processor("proc", ["process_after_generation"])
+    mock_processor.process_after_generation.side_effect = processor_fn
+
+    simple_builder.set_processor_runner([mock_processor])
+    simple_builder._processor_runner.run_after_generation()
 
     mock_processor.process_after_generation.assert_called_once()
-
-    result_df = stub_resource_provider.artifact_storage.load_dataset()
-    assert len(result_df) == 3
+    batch_files = sorted(storage.final_dataset_path.glob("*.parquet"))
+    assert len(batch_files) == num_batches
+    assert sum(len(pd.read_parquet(f)) for f in batch_files) == expected_rows
 
 
 @pytest.mark.parametrize("mode", ["preview", "build"])
@@ -480,34 +501,22 @@ def test_all_processor_stages_run_in_order(builder_with_seed, mode):
     assert call_order == all_stages
 
 
-# --- Edge Case Tests ---
-
-
-def test_processor_exception_in_process_after_batch_raises_error(stub_resource_provider, stub_model_configs):
+def test_processor_exception_in_process_after_batch_raises_error(simple_builder):
     """Test that processor exceptions during process_after_batch are properly wrapped."""
     mock_processor = create_mock_processor("failing_processor", ["process_after_batch"])
     mock_processor.process_after_batch.side_effect = ValueError("Post-batch processing failed")
 
-    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
-    config_builder.add_column(SamplerColumnConfig(name="id", sampler_type="uuid", params=UUIDSamplerParams()))
-
-    builder = ColumnWiseDatasetBuilder(
-        data_designer_config=config_builder.build(),
-        resource_provider=stub_resource_provider,
-    )
-    builder.set_processor_runner([mock_processor])
+    simple_builder.set_processor_runner([mock_processor])
 
     with pytest.raises(DatasetProcessingError, match="Failed in process_after_batch"):
-        builder._processor_runner.run_post_batch(pd.DataFrame({"id": [1, 2, 3]}), current_batch_number=0)
+        simple_builder._processor_runner.run_post_batch(pd.DataFrame({"id": [1, 2, 3]}), current_batch_number=0)
 
 
 def test_processor_with_no_implemented_stages_is_skipped(builder_with_seed):
     """Test that a processor implementing no stages doesn't cause errors."""
     mock_processor = create_mock_processor("noop_processor", [])
-
     builder_with_seed.set_processor_runner([mock_processor])
 
-    # Should complete without errors
     result = builder_with_seed.build_preview(num_records=3)
 
     assert len(result) == 3
@@ -520,36 +529,24 @@ def test_multiple_processors_run_in_definition_order(builder_with_seed):
     """Test that multiple processors run in the order they were defined."""
     call_order = []
 
-    processor_a = create_mock_processor("processor_a", ["process_before_batch"])
-    processor_a.process_before_batch.side_effect = lambda df: (call_order.append("a"), df)[1]
+    processors = []
+    for label in ["a", "b", "c"]:
+        p = create_mock_processor(f"processor_{label}", ["process_before_batch"])
+        p.process_before_batch.side_effect = lambda df, lbl=label: (call_order.append(lbl), df)[1]
+        processors.append(p)
 
-    processor_b = create_mock_processor("processor_b", ["process_before_batch"])
-    processor_b.process_before_batch.side_effect = lambda df: (call_order.append("b"), df)[1]
-
-    processor_c = create_mock_processor("processor_c", ["process_before_batch"])
-    processor_c.process_before_batch.side_effect = lambda df: (call_order.append("c"), df)[1]
-
-    builder_with_seed.set_processor_runner([processor_a, processor_b, processor_c])
+    builder_with_seed.set_processor_runner(processors)
     builder_with_seed.build(num_records=3)
 
     assert call_order == ["a", "b", "c"]
 
 
-def test_process_preview_with_empty_dataframe(stub_resource_provider, stub_model_configs):
+def test_process_preview_with_empty_dataframe(simple_builder):
     """Test that process_preview handles empty DataFrames gracefully."""
     mock_processor = create_mock_processor("test_processor", ["process_after_batch", "process_after_generation"])
+    simple_builder.set_processor_runner([mock_processor])
 
-    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
-    config_builder.add_column(SamplerColumnConfig(name="id", sampler_type="uuid", params=UUIDSamplerParams()))
-
-    builder = ColumnWiseDatasetBuilder(
-        data_designer_config=config_builder.build(),
-        resource_provider=stub_resource_provider,
-    )
-    builder.set_processor_runner([mock_processor])
-
-    empty_df = pd.DataFrame()
-    result = builder.process_preview(empty_df)
+    result = simple_builder.process_preview(pd.DataFrame())
 
     assert len(result) == 0
     mock_processor.process_after_batch.assert_called_once()
