@@ -259,7 +259,7 @@ class ModelFacade:
                 continue  # Back to top
 
             # No tool calls remaining to process
-            response = completion_response.choices[0].message.content or ""
+            response = (completion_response.choices[0].message.content or "").strip()
             reasoning_trace = getattr(completion_response.choices[0].message, "reasoning_content", None)
             messages.append(ChatMessage.as_assistant(content=response, reasoning_content=reasoning_trace or None))
             curr_num_correction_steps += 1

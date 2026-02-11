@@ -9,9 +9,11 @@ import os
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from numbers import Number
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
 
+import requests
 import yaml
 
 from data_designer.config.errors import InvalidFileFormatError, InvalidFilePathError
@@ -23,7 +25,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+MAX_CONFIG_URL_SIZE_BYTES = 1 * 1024 * 1024  # 1 MB
 VALID_DATASET_FILE_EXTENSIONS = {".parquet", ".csv", ".json", ".jsonl"}
+VALID_CONFIG_FILE_EXTENSIONS = {".yaml", ".yml", ".json"}
 
 
 def ensure_config_dir_exists(config_dir: Path) -> None:
@@ -164,7 +168,9 @@ def smart_load_dataframe(dataframe: str | Path | pd.DataFrame) -> pd.DataFrame:
 
     # Get the file extension.
     if isinstance(dataframe, str) and dataframe.startswith("http"):
-        ext = dataframe.split(".")[-1].lower()
+        dataframe = _maybe_rewrite_url(dataframe)
+        # Parse extension from the URL path to avoid query-string contamination (e.g. "csv?token=…").
+        ext = PurePosixPath(urlparse(dataframe).path).suffix.lstrip(".").lower()
     else:
         dataframe = Path(dataframe)
         ext = dataframe.suffix.lower()
@@ -191,13 +197,20 @@ def smart_load_yaml(yaml_in: str | Path | dict) -> dict:
     Returns:
         The config as a dict.
     """
+    return _smart_load_yaml_internal(yaml_in, from_url=False)
+
+
+def _smart_load_yaml_internal(yaml_in: str | Path | dict, *, from_url: bool) -> dict:
+    """Internal YAML loader with context to prevent URL recursion on fetched payloads."""
     if isinstance(yaml_in, dict):
         yaml_out = yaml_in
+    elif not from_url and isinstance(yaml_in, str) and is_http_url(yaml_in):
+        yaml_out = _load_config_from_url(yaml_in)
     elif isinstance(yaml_in, Path) or (isinstance(yaml_in, str) and os.path.isfile(yaml_in)):
         with open(yaml_in) as file:
             yaml_out = yaml.safe_load(file)
     elif isinstance(yaml_in, str):
-        if yaml_in.endswith((".yaml", ".yml")) and not os.path.isfile(yaml_in):
+        if not from_url and yaml_in.endswith((".yaml", ".yml")) and not os.path.isfile(yaml_in):
             raise FileNotFoundError(f"File not found: {yaml_in}")
         else:
             yaml_out = yaml.safe_load(yaml_in)
@@ -207,9 +220,154 @@ def smart_load_yaml(yaml_in: str | Path | dict) -> dict:
         )
 
     if not isinstance(yaml_out, dict):
-        raise ValueError(f"Loaded yaml must be a dict. Got {yaml_out}, which is of type {type(yaml_out)}.")
+        raise ValueError(f"Loaded yaml must be a dict, got {type(yaml_out).__name__}.")
 
     return yaml_out
+
+
+def is_http_url(value: str) -> bool:
+    """Check whether a string is an HTTP or HTTPS URL."""
+    parsed_url = urlparse(value)
+    return parsed_url.scheme in {"http", "https"} and bool(parsed_url.netloc)
+
+
+def _maybe_rewrite_url(url: str) -> str:
+    """Rewrite known hosting-provider file-view URLs to raw-content URLs."""
+    rewritten = _maybe_rewrite_github_url(url)
+    if rewritten != url:
+        return rewritten
+    return _maybe_rewrite_huggingface_hub_url(url)
+
+
+def _safe_url_for_log(url: str) -> str:
+    """Return URL without query/fragment for safe logging."""
+    parsed = urlparse(url)
+    hostname = parsed.hostname or ""
+    return f"{parsed.scheme}://{hostname}{parsed.path}"
+
+
+def _maybe_rewrite_github_url(url: str) -> str:
+    """Rewrite GitHub blob URLs to raw.githubusercontent.com equivalents.
+
+    GitHub blob URLs (e.g. https://github.com/org/repo/blob/main/config.yaml)
+    serve HTML pages, not raw file content. This rewrites them so that
+    downstream fetchers get the actual file.
+    """
+    parsed = urlparse(url)
+    if parsed.hostname not in {"github.com", "www.github.com"}:
+        return url
+
+    # GitHub blob path: /{owner}/{repo}/blob/{ref}/{path...}
+    # Split on "/" -> ["", owner, repo, "blob", ref, ...path segments]
+    segments = parsed.path.split("/")
+    if len(segments) >= 5 and segments[3] == "blob":
+        raw_path = "/".join(segments[:3] + segments[4:])
+        # Preserve query params (e.g. token for private repos), drop fragment
+        query = f"?{parsed.query}" if parsed.query else ""
+        raw_url = f"https://raw.githubusercontent.com{raw_path}{query}"
+        # Strip query params from log output to avoid leaking tokens.
+        safe_original = _safe_url_for_log(url)
+        safe_rewritten = f"https://raw.githubusercontent.com{raw_path}"
+        logger.info("Rewrote GitHub blob URL to raw URL: %s -> %s", safe_original, safe_rewritten)
+        return raw_url
+
+    return url
+
+
+def _maybe_rewrite_huggingface_hub_url(url: str) -> str:
+    """Rewrite Hugging Face Hub blob URLs to raw URL equivalents."""
+    parsed = urlparse(url)
+    if parsed.hostname not in {"huggingface.co", "www.huggingface.co"}:
+        return url
+
+    # Hugging Face Hub blob path patterns:
+    # - /{namespace}/{repo}/blob/{ref}/{path...}
+    # - /datasets/{namespace}/{repo}/blob/{ref}/{path...}
+    # - /spaces/{namespace}/{repo}/blob/{ref}/{path...}
+    segments = parsed.path.split("/")
+    blob_segment_index = 4 if len(segments) >= 5 and segments[1] in {"datasets", "spaces"} else 3
+    if len(segments) < blob_segment_index + 3 or segments[blob_segment_index] != "blob":
+        return url
+
+    raw_segments = [*segments]
+    raw_segments[blob_segment_index] = "raw"
+    raw_path = "/".join(raw_segments)
+    query = f"?{parsed.query}" if parsed.query else ""
+    raw_url = f"https://huggingface.co{raw_path}{query}"
+
+    # Strip query params from log output to avoid leaking tokens.
+    safe_original = _safe_url_for_log(url)
+    safe_rewritten = f"https://huggingface.co{raw_path}"
+    logger.info("Rewrote Hugging Face blob URL to raw URL: %s -> %s", safe_original, safe_rewritten)
+    return raw_url
+
+
+def _raise_for_failed_http_status(url: str, response: requests.Response) -> None:
+    """Raise a ValueError with actionable details for failing HTTP status codes."""
+    status_code = response.status_code
+    if not isinstance(status_code, int) or status_code < 400:
+        return
+
+    if status_code == 401:
+        raise ValueError(
+            f"Failed to fetch config URL '{url}': received 401 Unauthorized. "
+            "This URL requires authentication, but authenticated config URL loading is not currently supported."
+        )
+    if status_code == 403:
+        raise ValueError(
+            f"Failed to fetch config URL '{url}': received 403 Forbidden. "
+            "Ensure you have permission to access this resource."
+        )
+    if status_code == 404:
+        raise ValueError(
+            f"Failed to fetch config URL '{url}': received 404 Not Found. Check that the URL path is correct."
+        )
+
+    reason = response.reason if isinstance(response.reason, str) and response.reason else "Unknown Error"
+    raise ValueError(f"Failed to fetch config URL '{url}': received HTTP {status_code} ({reason}).")
+
+
+def _load_config_from_url(url: str) -> dict:
+    """Fetch a remote YAML/JSON config URL and return the parsed dict.
+
+    Args:
+        url: HTTP(S) URL pointing to a YAML or JSON configuration file.
+
+    Returns:
+        The parsed configuration as a dictionary.
+
+    Raises:
+        ValueError: If the URL extension is unsupported, the fetch fails,
+            the response exceeds the size limit, or parsing produces a
+            non-dict result.
+    """
+    url = _maybe_rewrite_url(url)
+
+    parsed_url = urlparse(url)
+    suffix = Path(parsed_url.path).suffix.lower()
+    if suffix not in VALID_CONFIG_FILE_EXTENSIONS:
+        supported = ", ".join(sorted(VALID_CONFIG_FILE_EXTENSIONS))
+        raise ValueError(f"Unsupported config URL extension '{suffix}'. Supported extensions: {supported}")
+
+    try:
+        response = requests.get(url, timeout=10)
+    except requests.RequestException as e:
+        raise ValueError(f"Failed to fetch config URL '{url}': {e}") from e
+
+    _raise_for_failed_http_status(url=url, response=response)
+
+    if len(response.content) > MAX_CONFIG_URL_SIZE_BYTES:
+        raise ValueError(f"Config from URL '{url}' exceeds maximum size of {MAX_CONFIG_URL_SIZE_BYTES} bytes")
+
+    try:
+        content = response.content.decode("utf-8")
+    except UnicodeDecodeError as e:
+        raise ValueError(f"Failed to decode config from URL '{url}' as UTF-8: {e}") from e
+
+    try:
+        return _smart_load_yaml_internal(content, from_url=True)
+    except (yaml.YAMLError, ValueError) as e:
+        raise ValueError(f"Failed to parse config from URL '{url}': {e}") from e
 
 
 def serialize_data(data: dict | list | str | Number, **kwargs) -> str:
