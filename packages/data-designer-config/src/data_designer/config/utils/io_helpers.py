@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-MAX_CONFIG_URL_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
+MAX_CONFIG_URL_SIZE_BYTES = 1 * 1024 * 1024  # 1 MB
 VALID_DATASET_FILE_EXTENSIONS = {".parquet", ".csv", ".json", ".jsonl"}
 VALID_CONFIG_FILE_EXTENSIONS = {".yaml", ".yml", ".json"}
 
