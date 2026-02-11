@@ -8,7 +8,7 @@ from typing import Any
 from data_designer.cli.forms.builder import FormBuilder
 from data_designer.cli.forms.field import TextField
 from data_designer.cli.forms.form import Form
-from data_designer.cli.utils import validate_url
+from data_designer.config.utils.io_helpers import is_http_url
 from data_designer.engine.model_provider import ModelProvider
 
 
@@ -64,7 +64,7 @@ class ProviderFormBuilder(FormBuilder[ModelProvider]):
         """Validate endpoint URL."""
         if not endpoint:
             return False, "Endpoint URL is required"
-        if not validate_url(endpoint):
+        if not is_http_url(endpoint):
             return False, "Invalid URL format (must start with http:// or https://)"
         return True, None
 

@@ -217,6 +217,27 @@ def test_output_validation_errors() -> None:
         generator.generate({"input": 1})
 
 
+def test_function_error_logs_warning_cell_by_cell(caplog: pytest.LogCaptureFixture) -> None:
+    """Test that a warning is logged when the user's generator function raises in cell-by-cell mode."""
+    import logging
+
+    @custom_column_generator()
+    def failing_generator(row: dict) -> dict:
+        raise ValueError("something broke")
+
+    generator = _create_test_generator(name="result", generator_function=failing_generator)
+
+    with (
+        caplog.at_level(logging.WARNING),
+        pytest.raises(CustomColumnGenerationError, match="Custom generator function failed"),
+    ):
+        generator.generate({"input": 1})
+
+    assert "failing_generator" in caplog.text
+    assert "This record will be skipped" in caplog.text
+    assert "something broke" in caplog.text
+
+
 def test_undeclared_columns_removed_with_warning(caplog: pytest.LogCaptureFixture) -> None:
     """Test that undeclared columns are removed with a warning."""
     import logging

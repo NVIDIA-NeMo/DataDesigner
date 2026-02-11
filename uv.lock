@@ -804,6 +804,7 @@ dependencies = [
     { name = "pygments" },
     { name = "python-json-logger" },
     { name = "pyyaml" },
+    { name = "requests" },
     { name = "rich" },
 ]
 
@@ -817,6 +818,7 @@ requires-dist = [
     { name = "pygments", specifier = ">=2.19.2,<3" },
     { name = "python-json-logger", specifier = ">=3,<4" },
     { name = "pyyaml", specifier = ">=6.0.1,<7" },
+    { name = "requests", specifier = ">=2.32,<3" },
     { name = "rich", specifier = ">=13.7.1,<15" },
 ]
 
