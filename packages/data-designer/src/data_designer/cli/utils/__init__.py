@@ -6,8 +6,6 @@ from __future__ import annotations
 import shutil
 import subprocess
 
-from data_designer.config.utils.io_helpers import is_http_url
-
 
 def check_ngc_cli_available() -> bool:
     """Check if NGC CLI is installed and available.
@@ -38,20 +36,6 @@ def get_ngc_version() -> str | None:
         return result.stdout.strip()
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
         return None
-
-
-def validate_url(url: str) -> bool:
-    """Validate that a string is a valid HTTP(S) URL.
-
-    Delegates to :func:`data_designer.config.utils.io_helpers.is_http_url`.
-
-    Args:
-        url: URL string to validate
-
-    Returns:
-        True if valid URL, False otherwise
-    """
-    return is_http_url(url)
 
 
 def validate_numeric_range(value: str, min_value: float, max_value: float) -> tuple[bool, float | None]:
