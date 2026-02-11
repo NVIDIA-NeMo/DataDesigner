@@ -440,35 +440,31 @@ def test_initialize_processors(stub_column_wise_builder):
 
 
 @pytest.mark.parametrize(
-    "processor_fn,num_batches,expected_rows",
+    "processor_fn,batch_size,expected_rows,expected_files",
     [
-        pytest.param(lambda df: df[df["id"] > 3], 1, 6, id="single_batch_filter"),
-        pytest.param(lambda df: df, 3, 9, id="multi_batch_noop"),
-        pytest.param(lambda df: df[df["id"] != 3].reset_index(drop=True), 3, 8, id="multi_batch_uneven"),
+        pytest.param(lambda df: df, 3, 9, 3, id="noop_even"),
+        pytest.param(lambda df: df[df["id"] > 3], 3, 6, 2, id="filter_even"),
+        pytest.param(lambda df: df[df["id"] != 3].reset_index(drop=True), 3, 8, 3, id="filter_uneven"),
+        pytest.param(lambda df: df[df["id"] > 8], 3, 1, 1, id="filter_fewer_than_batch_size"),
     ],
 )
-def test_run_after_generation(stub_resource_provider, simple_builder, processor_fn, num_batches, expected_rows):
-    """Test that process_after_generation applies callbacks and preserves batch partitioning."""
+def test_run_after_generation(
+    stub_resource_provider, simple_builder, processor_fn, batch_size, expected_rows, expected_files
+):
+    """Test that process_after_generation re-chunks output by batch_size."""
     storage = stub_resource_provider.artifact_storage
     storage.mkdir_if_needed(storage.final_dataset_path)
-    all_ids = list(range(1, 10))  # 9 rows total
-    chunk_size = len(all_ids) // num_batches
-    for i in range(num_batches):
-        start = i * chunk_size
-        end = len(all_ids) if i == num_batches - 1 else start + chunk_size
-        pd.DataFrame({"id": all_ids[start:end]}).to_parquet(
-            storage.final_dataset_path / f"batch_{i:05d}.parquet", index=False
-        )
+    pd.DataFrame({"id": list(range(1, 10))}).to_parquet(storage.final_dataset_path / "batch_00000.parquet", index=False)
 
     mock_processor = create_mock_processor("proc", ["process_after_generation"])
     mock_processor.process_after_generation.side_effect = processor_fn
 
     simple_builder.set_processor_runner([mock_processor])
-    simple_builder._processor_runner.run_after_generation()
+    simple_builder._processor_runner.run_after_generation(batch_size)
 
     mock_processor.process_after_generation.assert_called_once()
     batch_files = sorted(storage.final_dataset_path.glob("*.parquet"))
-    assert len(batch_files) == num_batches
+    assert len(batch_files) == expected_files
     assert sum(len(pd.read_parquet(f)) for f in batch_files) == expected_rows
 
 

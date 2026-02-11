@@ -127,7 +127,7 @@ class ColumnWiseDatasetBuilder:
             self._write_processed_batch(df_batch)
             self.batch_manager.finish_batch(on_batch_complete)
         self.batch_manager.finish()
-        self._processor_runner.run_after_generation()
+        self._processor_runner.run_after_generation(buffer_size)
 
         self._resource_provider.model_registry.log_model_usage(time.perf_counter() - start_time)
 
