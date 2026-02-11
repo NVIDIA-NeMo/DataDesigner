@@ -21,6 +21,7 @@ def test_column_type_is_model_generated() -> None:
 
 
 def test_column_type_used_in_execution_dag() -> None:
+    assert column_type_used_in_execution_dag(DataDesignerColumnType.CUSTOM)
     assert column_type_used_in_execution_dag(DataDesignerColumnType.EXPRESSION)
     assert column_type_used_in_execution_dag(DataDesignerColumnType.LLM_CODE)
     assert column_type_used_in_execution_dag(DataDesignerColumnType.LLM_JUDGE)
