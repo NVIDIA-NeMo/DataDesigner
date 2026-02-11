@@ -14,7 +14,13 @@ import pytest
 import requests
 import yaml
 
-from data_designer.config.utils.io_helpers import is_http_url, serialize_data, smart_load_dataframe, smart_load_yaml
+from data_designer.config.utils.io_helpers import (
+    _maybe_rewrite_github_url,
+    is_http_url,
+    serialize_data,
+    smart_load_dataframe,
+    smart_load_yaml,
+)
 from data_designer.lazy_heavy_imports import np, pd
 
 if TYPE_CHECKING:
@@ -225,6 +231,99 @@ def test_smart_load_yaml_from_url_no_extension() -> None:
 )
 def test_is_http_url(url: str, expected: bool) -> None:
     assert is_http_url(url) == expected
+
+
+@pytest.mark.parametrize(
+    "url,expected",
+    [
+        (
+            "https://github.com/org/repo/blob/main/config.yaml",
+            "https://raw.githubusercontent.com/org/repo/main/config.yaml",
+        ),
+        (
+            "https://www.github.com/org/repo/blob/main/config.yaml",
+            "https://raw.githubusercontent.com/org/repo/main/config.yaml",
+        ),
+        (
+            "https://github.com/org/repo/blob/main/deep/path/f.yaml",
+            "https://raw.githubusercontent.com/org/repo/main/deep/path/f.yaml",
+        ),
+        (
+            "https://github.com/org/repo/blob/main/f.yaml#L10-L20",
+            "https://raw.githubusercontent.com/org/repo/main/f.yaml",
+        ),
+        (
+            "https://github.com/org/repo/blob/main/f.yaml?token=abc",
+            "https://raw.githubusercontent.com/org/repo/main/f.yaml?token=abc",
+        ),
+        (
+            "https://github.com/blob/repo/blob/main/f.yaml",
+            "https://raw.githubusercontent.com/blob/repo/main/f.yaml",
+        ),
+        (
+            "https://github.com/org/repo/tree/main/some-dir",
+            "https://github.com/org/repo/tree/main/some-dir",
+        ),
+        (
+            "https://raw.githubusercontent.com/org/repo/main/f.yaml",
+            "https://raw.githubusercontent.com/org/repo/main/f.yaml",
+        ),
+        (
+            "https://example.com/config.yaml",
+            "https://example.com/config.yaml",
+        ),
+        (
+            "https://github.com/org/repo",
+            "https://github.com/org/repo",
+        ),
+    ],
+)
+def test_maybe_rewrite_github_url(url: str, expected: str) -> None:
+    assert _maybe_rewrite_github_url(url) == expected
+
+
+@patch("data_designer.config.utils.io_helpers.requests")
+def test_smart_load_yaml_rewrites_github_blob_url(mock_requests: MagicMock) -> None:
+    stub_dict = {"hello": "world"}
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.content = yaml.dump(stub_dict).encode("utf-8")
+    mock_requests.get.return_value = mock_response
+
+    result = smart_load_yaml("https://github.com/org/repo/blob/main/config.yaml")
+
+    assert result == stub_dict
+    mock_requests.get.assert_called_once_with("https://raw.githubusercontent.com/org/repo/main/config.yaml", timeout=10)
+
+
+@patch("data_designer.config.utils.io_helpers.pd.read_csv", autospec=True)
+def test_smart_load_dataframe_rewrites_github_blob_url(mock_read_csv: MagicMock, stub_dataframe: pd.DataFrame) -> None:
+    mock_read_csv.return_value = stub_dataframe
+
+    smart_load_dataframe("https://github.com/org/repo/blob/main/data.csv")
+
+    mock_read_csv.assert_called_once_with("https://raw.githubusercontent.com/org/repo/main/data.csv")
+
+
+@patch("data_designer.config.utils.io_helpers.pd.read_csv", autospec=True)
+def test_smart_load_dataframe_rewrites_github_blob_url_with_token(
+    mock_read_csv: MagicMock, stub_dataframe: pd.DataFrame
+) -> None:
+    mock_read_csv.return_value = stub_dataframe
+
+    smart_load_dataframe("https://github.com/org/repo/blob/main/data.csv?token=secret123")
+
+    mock_read_csv.assert_called_once_with("https://raw.githubusercontent.com/org/repo/main/data.csv?token=secret123")
+
+
+def test_maybe_rewrite_github_url_log_does_not_leak_query(caplog: pytest.LogCaptureFixture) -> None:
+    import logging
+
+    with caplog.at_level(logging.INFO, logger="data_designer.config.utils.io_helpers"):
+        _maybe_rewrite_github_url("https://github.com/org/repo/blob/main/f.yaml?token=secret123")
+
+    assert len(caplog.records) == 1
+    assert "secret123" not in caplog.records[0].message
 
 
 @pytest.mark.parametrize(

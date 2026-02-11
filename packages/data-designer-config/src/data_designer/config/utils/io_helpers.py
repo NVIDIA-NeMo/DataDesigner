@@ -9,7 +9,7 @@ import os
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from numbers import Number
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
@@ -168,7 +168,9 @@ def smart_load_dataframe(dataframe: str | Path | pd.DataFrame) -> pd.DataFrame:
 
     # Get the file extension.
     if isinstance(dataframe, str) and dataframe.startswith("http"):
-        ext = dataframe.split(".")[-1].lower()
+        dataframe = _maybe_rewrite_github_url(dataframe)
+        # Parse extension from the URL path to avoid query-string contamination (e.g. "csv?token=…").
+        ext = PurePosixPath(urlparse(dataframe).path).suffix.lstrip(".").lower()
     else:
         dataframe = Path(dataframe)
         ext = dataframe.suffix.lower()
@@ -224,6 +226,34 @@ def is_http_url(value: str) -> bool:
     return parsed_url.scheme in {"http", "https"} and bool(parsed_url.netloc)
 
 
+def _maybe_rewrite_github_url(url: str) -> str:
+    """Rewrite GitHub blob URLs to raw.githubusercontent.com equivalents.
+
+    GitHub blob URLs (e.g. https://github.com/org/repo/blob/main/config.yaml)
+    serve HTML pages, not raw file content. This rewrites them so that
+    downstream fetchers get the actual file.
+    """
+    parsed = urlparse(url)
+    if parsed.hostname not in {"github.com", "www.github.com"}:
+        return url
+
+    # GitHub blob path: /{owner}/{repo}/blob/{ref}/{path...}
+    # Split on "/" -> ["", owner, repo, "blob", ref, ...path segments]
+    segments = parsed.path.split("/")
+    if len(segments) >= 5 and segments[3] == "blob":
+        raw_path = "/".join(segments[:3] + segments[4:])
+        # Preserve query params (e.g. token for private repos), drop fragment
+        query = f"?{parsed.query}" if parsed.query else ""
+        raw_url = f"https://raw.githubusercontent.com{raw_path}{query}"
+        # Strip query params from log output to avoid leaking tokens.
+        safe_original = f"{parsed.scheme}://{parsed.hostname}{parsed.path}"
+        safe_rewritten = f"https://raw.githubusercontent.com{raw_path}"
+        logger.info("Rewrote GitHub blob URL to raw URL: %s -> %s", safe_original, safe_rewritten)
+        return raw_url
+
+    return url
+
+
 def _raise_for_failed_http_status(url: str, response: requests.Response) -> None:
     """Raise a ValueError with actionable details for failing HTTP status codes."""
     status_code = response.status_code
@@ -263,6 +293,8 @@ def _load_config_from_url(url: str) -> dict:
             the response exceeds the size limit, or parsing produces a
             non-dict result.
     """
+    url = _maybe_rewrite_github_url(url)
+
     parsed_url = urlparse(url)
     suffix = Path(parsed_url.path).suffix.lower()
     if suffix not in VALID_CONFIG_FILE_EXTENSIONS:
