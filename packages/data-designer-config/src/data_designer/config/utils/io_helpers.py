@@ -197,15 +197,20 @@ def smart_load_yaml(yaml_in: str | Path | dict) -> dict:
     Returns:
         The config as a dict.
     """
+    return _smart_load_yaml_internal(yaml_in, from_url=False)
+
+
+def _smart_load_yaml_internal(yaml_in: str | Path | dict, *, from_url: bool) -> dict:
+    """Internal YAML loader with context to prevent URL recursion on fetched payloads."""
     if isinstance(yaml_in, dict):
         yaml_out = yaml_in
-    elif isinstance(yaml_in, str) and is_http_url(yaml_in):
+    elif not from_url and isinstance(yaml_in, str) and is_http_url(yaml_in):
         yaml_out = _load_config_from_url(yaml_in)
     elif isinstance(yaml_in, Path) or (isinstance(yaml_in, str) and os.path.isfile(yaml_in)):
         with open(yaml_in) as file:
             yaml_out = yaml.safe_load(file)
     elif isinstance(yaml_in, str):
-        if yaml_in.endswith((".yaml", ".yml")) and not os.path.isfile(yaml_in):
+        if not from_url and yaml_in.endswith((".yaml", ".yml")) and not os.path.isfile(yaml_in):
             raise FileNotFoundError(f"File not found: {yaml_in}")
         else:
             yaml_out = yaml.safe_load(yaml_in)
@@ -317,7 +322,7 @@ def _load_config_from_url(url: str) -> dict:
         raise ValueError(f"Failed to decode config from URL '{url}' as UTF-8: {e}") from e
 
     try:
-        return smart_load_yaml(content)
+        return _smart_load_yaml_internal(content, from_url=True)
     except (yaml.YAMLError, ValueError) as e:
         raise ValueError(f"Failed to parse config from URL '{url}': {e}") from e
 

@@ -160,6 +160,19 @@ def test_smart_load_yaml_from_url_parse_failure(mock_requests: MagicMock) -> Non
         smart_load_yaml("https://example.com/config.yaml")
 
 
+@patch("data_designer.config.utils.io_helpers.requests")
+def test_smart_load_yaml_from_url_string_payload_does_not_recurse(mock_requests: MagicMock) -> None:
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.content = b"https://example.com/next.yaml"
+    mock_requests.get.return_value = mock_response
+
+    with pytest.raises(ValueError, match="Loaded yaml must be a dict"):
+        smart_load_yaml("https://example.com/config.yaml")
+
+    mock_requests.get.assert_called_once_with("https://example.com/config.yaml", timeout=10)
+
+
 @pytest.mark.parametrize(
     "status_code,reason,error_text",
     [
