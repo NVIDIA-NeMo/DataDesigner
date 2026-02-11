@@ -270,7 +270,7 @@ preview.dataset
 #
 
 # %%
-results = data_designer.create(config_builder, num_records=5, dataset_name="tutorial-5-images")
+results = data_designer.create(config_builder, num_records=2, dataset_name="tutorial-5-images")
 
 # %%
 dataset = results.load_dataset()

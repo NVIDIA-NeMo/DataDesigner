@@ -14,7 +14,6 @@ from data_designer.config.utils.image_helpers import (
     decode_base64_image,
     detect_image_format,
     extract_base64_from_data_uri,
-    get_supported_image_extensions,
     is_base64_image,
     is_image_diffusion_model,
     is_image_path,
@@ -85,9 +84,10 @@ def test_detect_image_format_webp():
     assert detect_image_format(webp_magic) == ImageFormat.WEBP
 
 
-def test_detect_image_format_unknown_defaults_to_png():
+def test_detect_image_format_unknown_raises_error():
     unknown_bytes = b"\x00\x00\x00\x00" + b"\x00" * 10
-    assert detect_image_format(unknown_bytes) == ImageFormat.PNG
+    with pytest.raises(ValueError, match="Unable to detect image format"):
+        detect_image_format(unknown_bytes)
 
 
 # Tests for is_image_path
@@ -204,43 +204,30 @@ def test_validate_image_nonexistent_raises_error(tmp_path):
         validate_image(image_path)
 
 
-# Tests for get_supported_image_extensions
-
-
-def test_get_supported_image_extensions_matches_enum():
-    result = get_supported_image_extensions()
-    enum_values = [f".{fmt.value}" for fmt in ImageFormat]
-    assert set(result) == set(enum_values)
-
-
 # Additional tests for uncovered lines
 
 
-def test_detect_image_format_with_pil_fallback_unsupported_format(tmp_path):
-    # Create a real GIF image that will trigger PIL fallback
-    # (GIF has different magic bytes not in our fast-path detection)
+def test_detect_image_format_gif_magic_bytes(tmp_path):
+    # GIF files start with "GIF87a" or "GIF89a" and are now detected via magic bytes
     img = Image.new("RGB", (1, 1), color="red")
     gif_path = tmp_path / "test.gif"
     img.save(gif_path, format="GIF")
 
     gif_bytes = gif_path.read_bytes()
-    # Should use PIL fallback and correctly detect GIF format
     result = detect_image_format(gif_bytes)
     assert result == ImageFormat.GIF
 
 
 def test_detect_image_format_with_pil_fallback_jpeg():
-    # Test PIL fallback path that converts "jpeg" format string to JPG enum
-    # Use mock since we can't easily create valid JPEG bytes without magic bytes
+    # Test PIL fallback path that normalizes "jpeg" -> JPG enum
     mock_img = Mock()
     mock_img.format = "JPEG"
 
-    # Use bytes that don't match our magic bytes to trigger PIL fallback
+    # Use bytes that don't match any magic bytes to trigger PIL fallback
     test_bytes = b"\x00\x00\x00\x00"
 
     with patch.object(Image, "open", return_value=mock_img):
         result = detect_image_format(test_bytes)
-        # Should convert JPEG -> JPG via line 96
         assert result == ImageFormat.JPG
 
 
