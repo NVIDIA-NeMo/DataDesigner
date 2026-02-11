@@ -37,7 +37,6 @@ class ResourceProvider(ConfigBase):
     mcp_registry: MCPRegistry | None = None
     run_config: RunConfig = RunConfig()
     seed_reader: SeedReader | None = None
-    preprocessed_seed_uri: str | None = None
 
     def get_dataset_metadata(self) -> DatasetMetadata:
         """Get metadata about the dataset being generated.

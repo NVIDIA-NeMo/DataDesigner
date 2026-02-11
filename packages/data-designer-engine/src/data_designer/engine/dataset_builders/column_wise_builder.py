@@ -70,7 +70,6 @@ class ColumnWiseDatasetBuilder:
         processors = self._initialize_processors(self._data_designer_config.processors or [])
         self._processor_runner = ProcessorRunner(
             processors=processors,
-            resource_provider=resource_provider,
             artifact_storage=resource_provider.artifact_storage,
         )
         self._validate_column_configs()
@@ -87,7 +86,6 @@ class ColumnWiseDatasetBuilder:
         """Replace the processor runner with a new one using the given processors."""
         self._processor_runner = ProcessorRunner(
             processors=processors,
-            resource_provider=self._resource_provider,
             artifact_storage=self.artifact_storage,
         )
 
@@ -113,7 +111,6 @@ class ColumnWiseDatasetBuilder:
     ) -> Path:
         self._run_model_health_check_if_needed()
         self._run_mcp_tool_check_if_needed()
-        self._processor_runner.run_preprocess()
         self._write_builder_config()
         generators = self._initialize_generators()
         start_time = time.perf_counter()
@@ -130,7 +127,7 @@ class ColumnWiseDatasetBuilder:
             self._write_processed_batch(df_batch)
             self.batch_manager.finish_batch(on_batch_complete)
         self.batch_manager.finish()
-        self._processor_runner.run_postprocess()
+        self._processor_runner.run_after_generation()
 
         self._resource_provider.model_registry.log_model_usage(time.perf_counter() - start_time)
 
@@ -139,7 +136,6 @@ class ColumnWiseDatasetBuilder:
     def build_preview(self, *, num_records: int) -> pd.DataFrame:
         self._run_model_health_check_if_needed()
         self._run_mcp_tool_check_if_needed()
-        self._processor_runner.run_preprocess()
 
         generators = self._initialize_generators()
         group_id = uuid.uuid4().hex
@@ -149,16 +145,13 @@ class ColumnWiseDatasetBuilder:
         dataset = self.batch_manager.get_current_batch(as_dataframe=True)
         self.batch_manager.reset()
 
-        # Clean up preprocessed seed file and reset URI to avoid affecting subsequent build() calls
-        self._processor_runner.cleanup_preprocessed_seed()
-
         self._resource_provider.model_registry.log_model_usage(time.perf_counter() - start_time)
 
         return dataset
 
     def process_preview(self, dataset: pd.DataFrame) -> pd.DataFrame:
         df = self._processor_runner.run_post_batch(dataset.copy(), current_batch_number=None)
-        return self._processor_runner.run_postprocess_on_df(df)
+        return self._processor_runner.run_after_generation_on_df(df)
 
     def _initialize_generators(self) -> list[ColumnGenerator]:
         return [

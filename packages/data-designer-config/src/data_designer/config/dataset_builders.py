@@ -9,5 +9,4 @@ from enum import Enum
 class BuildStage(str, Enum):
     PRE_BATCH = "pre_batch"
     POST_BATCH = "post_batch"
-    PRE_GENERATION = "pre_generation"
-    POST_GENERATION = "post_generation"
+    AFTER_GENERATION = "after_generation"

@@ -19,24 +19,10 @@ class Processor(ConfigurableTask[TaskConfigT], ABC):
         """Check if subclass overrides a callback method."""
         return getattr(type(self), method_name) is not getattr(Processor, method_name)
 
-    def preprocess(self, data: DataT) -> DataT:
-        """Called at PRE_GENERATION stage on seed data before batching.
-
-        Override to filter or transform seed data before generation begins.
-
-        Args:
-            data: The full seed dataset.
-
-        Returns:
-            Transformed seed dataset.
-        """
-        return data
-
     def process_before_batch(self, data: DataT) -> DataT:
         """Called at PRE_BATCH stage before each batch is generated.
 
-        Override to transform batch data before generation. Unlike preprocess,
-        this operates on in-memory batch data without disk I/O.
+        Override to transform batch data before generation begins.
 
         Args:
             data: The batch data before generation.
@@ -60,8 +46,8 @@ class Processor(ConfigurableTask[TaskConfigT], ABC):
         """
         return data
 
-    def postprocess(self, data: DataT) -> DataT:
-        """Called at POST_GENERATION stage on the final combined dataset.
+    def process_after_generation(self, data: DataT) -> DataT:
+        """Called at AFTER_GENERATION stage on the final combined dataset.
 
         Override to transform the complete generated dataset.
 

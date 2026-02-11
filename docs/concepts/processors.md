@@ -13,14 +13,13 @@ Each processor:
 - Applies its transformation
 - Passes the result to the next processor (or to output)
 
-Processors can run at four stages, determined by which callback methods they implement:
+Processors can run at three stages, determined by which callback methods they implement:
 
 | Stage | When it runs | Callback method | Use cases |
 |-------|--------------|-----------------|-----------|
-| Pre-generation | Once, on full seed data before batching | `preprocess()` | Filter seed data, validate inputs, normalize data |
 | Pre-batch | After seed columns, before dependent columns | `process_before_batch()` | Transform seed data before other columns are generated |
 | Post-batch | After each batch completes | `process_after_batch()` | Drop columns, transform schema per batch |
-| Post-generation | Once, on final dataset after all batches | `postprocess()` | Deduplicate, aggregate statistics, final cleanup |
+| After generation | Once, on final dataset after all batches | `process_after_generation()` | Deduplicate, aggregate statistics, final cleanup |
 
 !!! info "Full Schema Available During Generation"
     Each batch carries the full dataset schema during generation. Post-batch schema changes such as column dropping only alter past batches, so all columns remain accessible to generators while building follow-up batches.

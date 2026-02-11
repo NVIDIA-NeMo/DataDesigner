@@ -53,11 +53,7 @@ class SeedDatasetColumnGenerator(FromScratchColumnGenerator[SeedDatasetMultiColu
         self._num_records_sampled = 0
         self._batch_reader = None
         self._df_remaining = None
-        # Use preprocessed seed if available, otherwise use original
-        if self.resource_provider.preprocessed_seed_uri is not None:
-            self._dataset_uri = self.resource_provider.preprocessed_seed_uri
-        else:
-            self._dataset_uri = self.resource_provider.seed_reader.get_dataset_uri()
+        self._dataset_uri = self.resource_provider.seed_reader.get_dataset_uri()
         self._seed_dataset_size = self.duckdb_conn.execute(f"SELECT COUNT(*) FROM '{self._dataset_uri}'").fetchone()[0]
         self._index_range = self._resolve_index_range()
 

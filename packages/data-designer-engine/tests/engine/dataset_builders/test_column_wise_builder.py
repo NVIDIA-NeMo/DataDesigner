@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import Mock, patch
 
@@ -117,10 +116,9 @@ def create_mock_processor(name: str, stages: list[str]) -> Mock:
     mock_processor = Mock(spec=Processor)
     mock_processor.name = name
     mock_processor.implements.side_effect = lambda m: m in stages
-    mock_processor.preprocess.side_effect = lambda df: df
     mock_processor.process_before_batch.side_effect = lambda df: df
     mock_processor.process_after_batch.side_effect = lambda df, **kw: df
-    mock_processor.postprocess.side_effect = lambda df: df
+    mock_processor.process_after_generation.side_effect = lambda df: df
     return mock_processor
 
 
@@ -427,33 +425,14 @@ def test_fan_out_with_threads_uses_early_shutdown_settings_from_resource_provide
     assert call_kwargs["disable_early_shutdown"] == disable_early_shutdown
 
 
-def test_run_pre_generation_processors_filters_seed_data(stub_resource_provider, builder_with_seed, seed_data_setup):
-    """Test that PRE_GENERATION processors are applied to seed data before generation."""
-    mock_processor = create_mock_processor("filter_processor", ["preprocess"])
-    mock_processor.preprocess.side_effect = lambda df: df[df["seed_id"] > 2].reset_index(drop=True)
-
-    builder_with_seed.set_processor_runner([mock_processor])
-    builder_with_seed._processor_runner.run_preprocess()
-
-    mock_processor.preprocess.assert_called_once()
-
-    assert stub_resource_provider.preprocessed_seed_uri is not None
-    preprocessed_path = Path(stub_resource_provider.preprocessed_seed_uri)
-    assert preprocessed_path.exists()
-
-    preprocessed_df = pd.read_parquet(preprocessed_path)
-    assert len(preprocessed_df) == 3
-    assert list(preprocessed_df["seed_id"]) == [3, 4, 5]
-
-
 def test_run_post_generation_processors_modifies_final_dataset(stub_resource_provider, stub_model_configs):
-    """Test that postprocess callbacks are applied to the final dataset."""
+    """Test that process_after_generation callbacks are applied to the final dataset."""
     final_df = pd.DataFrame({"id": [1, 2, 3, 4, 5], "value": ["a", "b", "c", "d", "e"]})
     stub_resource_provider.artifact_storage.mkdir_if_needed(stub_resource_provider.artifact_storage.final_dataset_path)
     final_df.to_parquet(stub_resource_provider.artifact_storage.final_dataset_path / "batch_00000.parquet", index=False)
 
-    mock_processor = create_mock_processor("dedup_processor", ["postprocess"])
-    mock_processor.postprocess.side_effect = lambda df: df[df["id"] > 2]
+    mock_processor = create_mock_processor("dedup_processor", ["process_after_generation"])
+    mock_processor.process_after_generation.side_effect = lambda df: df[df["id"] > 2]
 
     config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
     config_builder.add_column(SamplerColumnConfig(name="id", sampler_type="uuid", params=UUIDSamplerParams()))
@@ -464,45 +443,27 @@ def test_run_post_generation_processors_modifies_final_dataset(stub_resource_pro
     )
     builder.set_processor_runner([mock_processor])
 
-    builder._processor_runner.run_postprocess()
+    builder._processor_runner.run_after_generation()
 
-    mock_processor.postprocess.assert_called_once()
+    mock_processor.process_after_generation.assert_called_once()
 
     result_df = stub_resource_provider.artifact_storage.load_dataset()
     assert len(result_df) == 3
 
 
-def test_run_pre_generation_processors_skips_when_no_seed_reader(stub_resource_provider, stub_model_configs):
-    """Test that preprocess is skipped when no seed reader is configured."""
-    stub_resource_provider.seed_reader = None
-
-    mock_processor = create_mock_processor("filter_processor", ["preprocess"])
-
-    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
-    config_builder.add_column(SamplerColumnConfig(name="id", sampler_type="uuid", params=UUIDSamplerParams()))
-
-    builder = ColumnWiseDatasetBuilder(
-        data_designer_config=config_builder.build(),
-        resource_provider=stub_resource_provider,
-    )
-    builder.set_processor_runner([mock_processor])
-
-    builder._processor_runner.run_preprocess()
-
-    mock_processor.preprocess.assert_not_called()
-
-
 @pytest.mark.parametrize("mode", ["preview", "build"])
 def test_all_processor_stages_run_in_order(builder_with_seed, mode):
-    """Test that all 4 processor stages run in correct order for both preview and build modes."""
+    """Test that all 3 processor stages run in correct order for both preview and build modes."""
     call_order = []
-    all_stages = ["preprocess", "process_before_batch", "process_after_batch", "postprocess"]
+    all_stages = ["process_before_batch", "process_after_batch", "process_after_generation"]
 
     mock_processor = create_mock_processor("all_stages_processor", all_stages)
-    mock_processor.preprocess.side_effect = lambda df: (call_order.append("preprocess"), df)[1]
     mock_processor.process_before_batch.side_effect = lambda df: (call_order.append("process_before_batch"), df)[1]
     mock_processor.process_after_batch.side_effect = lambda df, **kw: (call_order.append("process_after_batch"), df)[1]
-    mock_processor.postprocess.side_effect = lambda df: (call_order.append("postprocess"), df)[1]
+    mock_processor.process_after_generation.side_effect = lambda df: (
+        call_order.append("process_after_generation"),
+        df,
+    )[1]
 
     builder_with_seed.set_processor_runner([mock_processor])
 
@@ -512,26 +473,14 @@ def test_all_processor_stages_run_in_order(builder_with_seed, mode):
     else:
         builder_with_seed.build(num_records=3)
 
-    mock_processor.preprocess.assert_called_once()
     mock_processor.process_before_batch.assert_called_once()
     mock_processor.process_after_batch.assert_called_once()
-    mock_processor.postprocess.assert_called_once()
+    mock_processor.process_after_generation.assert_called_once()
 
     assert call_order == all_stages
 
 
 # --- Edge Case Tests ---
-
-
-def test_processor_exception_in_preprocess_raises_error(builder_with_seed):
-    """Test that processor exceptions during preprocess are properly wrapped."""
-    mock_processor = create_mock_processor("failing_processor", ["preprocess"])
-    mock_processor.preprocess.side_effect = ValueError("Preprocessing failed")
-
-    builder_with_seed.set_processor_runner([mock_processor])
-
-    with pytest.raises(DatasetProcessingError, match="Failed in preprocess"):
-        builder_with_seed._processor_runner.run_preprocess()
 
 
 def test_processor_exception_in_process_after_batch_raises_error(stub_resource_provider, stub_model_configs):
@@ -562,34 +511,33 @@ def test_processor_with_no_implemented_stages_is_skipped(builder_with_seed):
     result = builder_with_seed.build_preview(num_records=3)
 
     assert len(result) == 3
-    mock_processor.preprocess.assert_not_called()
     mock_processor.process_before_batch.assert_not_called()
     mock_processor.process_after_batch.assert_not_called()
-    mock_processor.postprocess.assert_not_called()
+    mock_processor.process_after_generation.assert_not_called()
 
 
 def test_multiple_processors_run_in_definition_order(builder_with_seed):
     """Test that multiple processors run in the order they were defined."""
     call_order = []
 
-    processor_a = create_mock_processor("processor_a", ["preprocess"])
-    processor_a.preprocess.side_effect = lambda df: (call_order.append("a"), df)[1]
+    processor_a = create_mock_processor("processor_a", ["process_before_batch"])
+    processor_a.process_before_batch.side_effect = lambda df: (call_order.append("a"), df)[1]
 
-    processor_b = create_mock_processor("processor_b", ["preprocess"])
-    processor_b.preprocess.side_effect = lambda df: (call_order.append("b"), df)[1]
+    processor_b = create_mock_processor("processor_b", ["process_before_batch"])
+    processor_b.process_before_batch.side_effect = lambda df: (call_order.append("b"), df)[1]
 
-    processor_c = create_mock_processor("processor_c", ["preprocess"])
-    processor_c.preprocess.side_effect = lambda df: (call_order.append("c"), df)[1]
+    processor_c = create_mock_processor("processor_c", ["process_before_batch"])
+    processor_c.process_before_batch.side_effect = lambda df: (call_order.append("c"), df)[1]
 
     builder_with_seed.set_processor_runner([processor_a, processor_b, processor_c])
-    builder_with_seed._processor_runner.run_preprocess()
+    builder_with_seed.build(num_records=3)
 
     assert call_order == ["a", "b", "c"]
 
 
 def test_process_preview_with_empty_dataframe(stub_resource_provider, stub_model_configs):
     """Test that process_preview handles empty DataFrames gracefully."""
-    mock_processor = create_mock_processor("test_processor", ["process_after_batch", "postprocess"])
+    mock_processor = create_mock_processor("test_processor", ["process_after_batch", "process_after_generation"])
 
     config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
     config_builder.add_column(SamplerColumnConfig(name="id", sampler_type="uuid", params=UUIDSamplerParams()))
@@ -605,4 +553,4 @@ def test_process_preview_with_empty_dataframe(stub_resource_provider, stub_model
 
     assert len(result) == 0
     mock_processor.process_after_batch.assert_called_once()
-    mock_processor.postprocess.assert_called_once()
+    mock_processor.process_after_generation.assert_called_once()

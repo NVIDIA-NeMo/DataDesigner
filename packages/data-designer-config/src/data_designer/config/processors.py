@@ -34,7 +34,7 @@ class ProcessorConfig(ConfigBase, ABC):
     pipeline. They can modify, reshape, or augment the dataset.
 
     The processor implementation determines which stages it handles by overriding
-    the appropriate callback methods (preprocess, process_before_batch, process_after_batch, postprocess).
+    the appropriate callback methods (process_before_batch, process_after_batch, process_after_generation).
 
     Attributes:
         name: Unique name of the processor, used to identify the processor in results
