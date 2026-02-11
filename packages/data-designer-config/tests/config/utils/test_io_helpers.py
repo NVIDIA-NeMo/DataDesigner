@@ -9,9 +9,9 @@ from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
-from urllib.error import URLError
 
 import pytest
+import requests
 import yaml
 
 from data_designer.config.utils.io_helpers import is_http_url, serialize_data, smart_load_dataframe, smart_load_yaml
@@ -101,30 +101,30 @@ def test_smart_load_yaml():
         smart_load_yaml("invalid yaml with just a string")
 
 
-@patch("data_designer.config.utils.io_helpers.urlopen")
-def test_smart_load_yaml_from_yaml_url(mock_urlopen: MagicMock) -> None:
+@patch("data_designer.config.utils.io_helpers.requests")
+def test_smart_load_yaml_from_yaml_url(mock_requests: MagicMock) -> None:
     stub_dict = {"hello": "world", "nested": {"value": 1}}
     mock_response = MagicMock()
-    mock_response.read.return_value = yaml.dump(stub_dict).encode("utf-8")
-    mock_urlopen.return_value.__enter__.return_value = mock_response
+    mock_response.content = yaml.dump(stub_dict).encode("utf-8")
+    mock_requests.get.return_value = mock_response
 
     result = smart_load_yaml("https://example.com/config.yaml")
 
     assert result == stub_dict
-    mock_urlopen.assert_called_once_with("https://example.com/config.yaml", timeout=10)
+    mock_requests.get.assert_called_once_with("https://example.com/config.yaml", timeout=10)
 
 
-@patch("data_designer.config.utils.io_helpers.urlopen")
-def test_smart_load_yaml_from_json_url(mock_urlopen: MagicMock) -> None:
+@patch("data_designer.config.utils.io_helpers.requests")
+def test_smart_load_yaml_from_json_url(mock_requests: MagicMock) -> None:
     stub_dict = {"hello": "world", "nested": {"value": 1}}
     mock_response = MagicMock()
-    mock_response.read.return_value = b'{"hello":"world","nested":{"value":1}}'
-    mock_urlopen.return_value.__enter__.return_value = mock_response
+    mock_response.content = b'{"hello":"world","nested":{"value":1}}'
+    mock_requests.get.return_value = mock_response
 
     result = smart_load_yaml("https://example.com/config.json")
 
     assert result == stub_dict
-    mock_urlopen.assert_called_once_with("https://example.com/config.json", timeout=10)
+    mock_requests.get.assert_called_once_with("https://example.com/config.json", timeout=10)
 
 
 def test_smart_load_yaml_from_url_unsupported_extension() -> None:
@@ -132,22 +132,58 @@ def test_smart_load_yaml_from_url_unsupported_extension() -> None:
         smart_load_yaml("https://example.com/config.txt")
 
 
-@patch("data_designer.config.utils.io_helpers.urlopen")
-def test_smart_load_yaml_from_url_fetch_failure(mock_urlopen: MagicMock) -> None:
-    mock_urlopen.side_effect = URLError("connection failed")
+@patch("data_designer.config.utils.io_helpers.requests")
+def test_smart_load_yaml_from_url_fetch_failure(mock_requests: MagicMock) -> None:
+    mock_requests.get.side_effect = requests.RequestException("connection failed")
+    mock_requests.RequestException = requests.RequestException
 
     with pytest.raises(ValueError, match="Failed to fetch config URL"):
         smart_load_yaml("https://example.com/config.yaml")
 
 
-@patch("data_designer.config.utils.io_helpers.urlopen")
-def test_smart_load_yaml_from_url_parse_failure(mock_urlopen: MagicMock) -> None:
+@patch("data_designer.config.utils.io_helpers.requests")
+def test_smart_load_yaml_from_url_parse_failure(mock_requests: MagicMock) -> None:
     mock_response = MagicMock()
-    mock_response.read.return_value = b":\n  - [\n"
-    mock_urlopen.return_value.__enter__.return_value = mock_response
+    mock_response.content = b":\n  - [\n"
+    mock_requests.get.return_value = mock_response
 
     with pytest.raises(ValueError, match="Failed to parse config from URL"):
         smart_load_yaml("https://example.com/config.yaml")
+
+
+@patch("data_designer.config.utils.io_helpers.requests")
+def test_smart_load_yaml_from_url_http_status_error(mock_requests: MagicMock) -> None:
+    mock_response = MagicMock()
+    mock_response.raise_for_status.side_effect = requests.HTTPError("404 Client Error: Not Found")
+    mock_requests.get.return_value = mock_response
+    mock_requests.RequestException = requests.RequestException
+
+    with pytest.raises(ValueError, match="Failed to fetch config URL"):
+        smart_load_yaml("https://example.com/config.yaml")
+
+
+@patch("data_designer.config.utils.io_helpers.requests")
+def test_smart_load_yaml_from_url_exceeds_size_limit(mock_requests: MagicMock) -> None:
+    from data_designer.config.utils.io_helpers import MAX_CONFIG_URL_SIZE_BYTES
+
+    mock_response = MagicMock()
+    mock_response.content = b"x" * (MAX_CONFIG_URL_SIZE_BYTES + 1)
+    mock_requests.get.return_value = mock_response
+
+    with pytest.raises(ValueError, match="exceeds maximum size"):
+        smart_load_yaml("https://example.com/config.yaml")
+
+
+@patch("data_designer.config.utils.io_helpers.requests")
+def test_smart_load_yaml_from_url_non_dict_payload(mock_requests: MagicMock) -> None:
+    mock_response = MagicMock()
+    mock_response.content = b"- item1\n- item2\n"
+    mock_requests.get.return_value = mock_response
+
+    with pytest.raises(ValueError, match="Failed to parse config from URL") as exc_info:
+        smart_load_yaml("https://example.com/config.yaml")
+
+    assert "list" in str(exc_info.value).lower()
 
 
 def test_smart_load_yaml_from_url_no_extension() -> None:
@@ -162,6 +198,7 @@ def test_smart_load_yaml_from_url_no_extension() -> None:
         ("http://example.com/config.yaml", True),
         ("https://example.com", True),
         ("http://localhost:8000", True),
+        ("example.com", False),
         ("http://", False),
         ("https://", False),
         ("", False),

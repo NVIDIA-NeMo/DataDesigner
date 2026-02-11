@@ -11,10 +11,9 @@ from decimal import Decimal
 from numbers import Number
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
-from urllib.request import urlopen
 
+import requests
 import yaml
 
 from data_designer.config.errors import InvalidFileFormatError, InvalidFilePathError
@@ -199,7 +198,7 @@ def smart_load_yaml(yaml_in: str | Path | dict) -> dict:
     if isinstance(yaml_in, dict):
         yaml_out = yaml_in
     elif isinstance(yaml_in, str) and is_http_url(yaml_in):
-        yaml_out = _load_yaml_from_url(yaml_in)
+        yaml_out = _load_config_from_url(yaml_in)
     elif isinstance(yaml_in, Path) or (isinstance(yaml_in, str) and os.path.isfile(yaml_in)):
         with open(yaml_in) as file:
             yaml_out = yaml.safe_load(file)
@@ -214,7 +213,7 @@ def smart_load_yaml(yaml_in: str | Path | dict) -> dict:
         )
 
     if not isinstance(yaml_out, dict):
-        raise ValueError(f"Loaded yaml must be a dict. Got {yaml_out}, which is of type {type(yaml_out)}.")
+        raise ValueError(f"Loaded yaml must be a dict, got {type(yaml_out).__name__}.")
 
     return yaml_out
 
@@ -225,7 +224,7 @@ def is_http_url(value: str) -> bool:
     return parsed_url.scheme in {"http", "https"} and bool(parsed_url.netloc)
 
 
-def _load_yaml_from_url(url: str) -> dict:
+def _load_config_from_url(url: str) -> dict:
     """Fetch a remote YAML/JSON config URL and return the parsed dict.
 
     Args:
@@ -246,25 +245,23 @@ def _load_yaml_from_url(url: str) -> dict:
         raise ValueError(f"Unsupported config URL extension '{suffix}'. Supported extensions: {supported}")
 
     try:
-        with urlopen(url, timeout=10) as response:
-            content_bytes = response.read(MAX_CONFIG_URL_SIZE_BYTES + 1)
-            if len(content_bytes) > MAX_CONFIG_URL_SIZE_BYTES:
-                raise ValueError(f"Config from URL '{url}' exceeds maximum size of {MAX_CONFIG_URL_SIZE_BYTES} bytes")
-            content = content_bytes.decode("utf-8")
-    except (HTTPError, URLError, TimeoutError) as e:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+    except requests.RequestException as e:
         raise ValueError(f"Failed to fetch config URL '{url}': {e}") from e
-    except UnicodeDecodeError as e:
-        raise ValueError(f"Failed to decode config URL '{url}' as UTF-8: {e}") from e
+
+    if len(response.content) > MAX_CONFIG_URL_SIZE_BYTES:
+        raise ValueError(f"Config from URL '{url}' exceeds maximum size of {MAX_CONFIG_URL_SIZE_BYTES} bytes")
 
     try:
-        loaded_yaml = yaml.safe_load(content)
-    except yaml.YAMLError as e:
+        content = response.content.decode("utf-8")
+    except UnicodeDecodeError as e:
+        raise ValueError(f"Failed to decode config from URL '{url}' as UTF-8: {e}") from e
+
+    try:
+        return smart_load_yaml(content)
+    except (yaml.YAMLError, ValueError) as e:
         raise ValueError(f"Failed to parse config from URL '{url}': {e}") from e
-
-    if not isinstance(loaded_yaml, dict):
-        raise ValueError(f"Config from URL '{url}' must be a YAML mapping, got {type(loaded_yaml).__name__}")
-
-    return loaded_yaml
 
 
 def serialize_data(data: dict | list | str | Number, **kwargs) -> str:
