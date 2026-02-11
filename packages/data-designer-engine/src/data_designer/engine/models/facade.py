@@ -62,6 +62,7 @@ def _try_extract_base64(source: str | litellm.types.utils.ImageObject) -> str | 
         if getattr(source, "url", None):
             return load_image_url_to_base64(source.url)
     except Exception:
+        logger.debug(f"Failed to extract base64 from source of type {type(source).__name__}")
         return None
 
     return None
@@ -561,3 +562,6 @@ class ModelFacade:
                 ),
                 request_usage=RequestUsageStats(successful_requests=1, failed_requests=0),
             )
+        else:
+            # Successful response but no token usage data (some providers don't report it)
+            self._usage_stats.extend(request_usage=RequestUsageStats(successful_requests=1, failed_requests=0))

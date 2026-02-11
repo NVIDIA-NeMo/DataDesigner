@@ -286,6 +286,7 @@ class ColumnWiseDatasetBuilder:
         progress_tracker.log_final()
 
         if len(self._records_to_drop) > 0:
+            self._cleanup_dropped_record_images(self._records_to_drop)
             self.batch_manager.drop_records(self._records_to_drop)
             self._records_to_drop.clear()
 
@@ -361,6 +362,30 @@ class ColumnWiseDatasetBuilder:
                     f"🛑 Failed to process dataset with processor {processor.name} in stage {stage}: {e}"
                 ) from e
         return dataframe
+
+    def _cleanup_dropped_record_images(self, dropped_indices: set[int]) -> None:
+        """Remove saved image files for records that will be dropped.
+
+        When a record fails during generation, any images already saved to disk
+        for that record in previous columns become dangling. This method deletes
+        those files so they don't accumulate.
+        """
+        media_storage = self.artifact_storage.media_storage
+        if not self._has_image_columns() or media_storage is None or media_storage.mode != StorageMode.DISK:
+            return
+
+        image_col_names = [
+            col.name for col in self.single_column_configs if col.column_type == DataDesignerColumnType.IMAGE
+        ]
+
+        buffer = self.batch_manager.get_current_batch(as_dataframe=False)
+        for idx in dropped_indices:
+            if idx < 0 or idx >= len(buffer):
+                continue
+            for col_name in image_col_names:
+                paths = buffer[idx].get(col_name, [])
+                for path in [paths] if isinstance(paths, str) else paths:
+                    media_storage.delete_image(path)
 
     def _worker_error_callback(self, exc: Exception, *, context: dict | None = None) -> None:
         """If a worker fails, we can handle the exception here."""

@@ -57,15 +57,6 @@ class MediaStorage:
         self.images_subdir = images_subdir
         self.mode = mode
 
-    def _ensure_images_directory(self) -> None:
-        """Create images directory if it doesn't exist (lazy initialization)."""
-        self.images_dir.mkdir(parents=True, exist_ok=True)
-
-    def _sanitize_subfolder_name(self, name: str) -> str:
-        """Sanitize subfolder name to prevent path traversal and filesystem issues."""
-        # Replace path separators and parent directory references with underscores
-        return name.replace("/", "_").replace("\\", "_").replace("..", "_")
-
     def save_base64_image(self, base64_data: str, subfolder_name: str) -> str:
         """Save or return base64 image based on storage mode.
 
@@ -118,6 +109,24 @@ class MediaStorage:
 
         return relative_path
 
+    def delete_image(self, relative_path: str) -> bool:
+        """Delete a saved image file given its relative path.
+
+        Args:
+            relative_path: Relative path as returned by save_base64_image (e.g., "images/col/uuid.png")
+
+        Returns:
+            True if the file was deleted, False if it didn't exist or deletion failed.
+        """
+        try:
+            full_path = self.base_path / relative_path
+            if full_path.exists() and self.images_dir in full_path.parents:
+                full_path.unlink()
+                return True
+        except OSError:
+            pass
+        return False
+
     def _validate_image(self, image_path: Path) -> None:
         """Validate that saved image is readable.
 
@@ -133,3 +142,12 @@ class MediaStorage:
             # Clean up invalid file
             image_path.unlink(missing_ok=True)
             raise
+
+    def _ensure_images_directory(self) -> None:
+        """Create images directory if it doesn't exist (lazy initialization)."""
+        self.images_dir.mkdir(parents=True, exist_ok=True)
+
+    def _sanitize_subfolder_name(self, name: str) -> str:
+        """Sanitize subfolder name to prevent path traversal and filesystem issues."""
+        # Replace path separators and parent directory references with underscores
+        return name.replace("/", "_").replace("\\", "_").replace("..", "_")
