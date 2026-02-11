@@ -40,12 +40,17 @@ class ProcessorRunner:
         self._processors = processors
         self._artifact_storage = artifact_storage
 
+    @property
+    def processors(self) -> tuple[Processor, ...]:
+        return tuple(self._processors)
+
     def has_processors_for(self, stage: ProcessorStage) -> bool:
         """Check if any processor implements the given stage."""
         return any(p.implements(stage.value) for p in self._processors)
 
     def _run_stage(self, df: pd.DataFrame, stage: ProcessorStage, **kwargs) -> pd.DataFrame:
         """Run a processor callback on all processors that implement it."""
+        original_len = len(df)
         for processor in self._processors:
             if not processor.implements(stage.value):
                 continue
@@ -53,6 +58,9 @@ class ProcessorRunner:
                 df = getattr(processor, stage.value)(df, **kwargs)
             except Exception as e:
                 raise DatasetProcessingError(f"🛑 Failed in {stage.value} for {processor.name}: {e}") from e
+        if len(df) != original_len:
+            delta = len(df) - original_len
+            logger.info(f"ℹ️ {stage.name} processors changed the record count by {delta:+d} records.")
         return df
 
     def run_pre_batch(self, batch_manager: DatasetBatchManager) -> None:
@@ -61,12 +69,8 @@ class ProcessorRunner:
             return
 
         df = batch_manager.get_current_batch(as_dataframe=True)
-        original_len = len(df)
         df = self._run_stage(df, ProcessorStage.PRE_BATCH)
-        if len(df) != original_len:
-            delta = len(df) - original_len
-            logger.info(f"ℹ️ PRE_BATCH processors changed the record count by {delta:+d} records.")
-        batch_manager.replace_records(df.to_dict(orient="records"))
+        batch_manager.replace_buffer(df.to_dict(orient="records"))
 
     def run_post_batch(self, df: pd.DataFrame, current_batch_number: int | None) -> pd.DataFrame:
         """Run process_after_batch() on processors that implement it."""

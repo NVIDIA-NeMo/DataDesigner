@@ -80,7 +80,7 @@ class ColumnWiseDatasetBuilder:
 
     @property
     def processors(self) -> tuple[Processor, ...]:
-        return tuple(self._processor_runner._processors)
+        return self._processor_runner.processors
 
     def set_processor_runner(self, processors: list[Processor]) -> None:
         """Replace the processor runner with a new one using the given processors."""

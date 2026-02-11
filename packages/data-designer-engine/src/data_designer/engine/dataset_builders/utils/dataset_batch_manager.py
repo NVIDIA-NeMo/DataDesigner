@@ -199,7 +199,7 @@ class DatasetBatchManager:
             )
         self._buffer = records
 
-    def replace_records(self, records: list[dict]) -> None:
+    def replace_buffer(self, records: list[dict]) -> None:
         """Replace the buffer contents, updating the current batch size."""
         self._buffer = records
         if self._num_records_list is not None:
