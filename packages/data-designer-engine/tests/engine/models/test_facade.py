@@ -117,6 +117,28 @@ def test_generate_with_system_prompt(
     assert captured_messages[0] == expected_messages
 
 
+@pytest.mark.parametrize(
+    "raw_content,expected",
+    [
+        ("\nHello world", "Hello world"),
+        ("  Hello world  ", "Hello world"),
+        ("\n\n  Hello world\n", "Hello world"),
+        ("Hello world", "Hello world"),
+    ],
+)
+@patch("data_designer.engine.models.facade.ModelFacade.completion", autospec=True)
+def test_generate_strips_response_content(
+    mock_completion: Any,
+    stub_model_facade: ModelFacade,
+    raw_content: str,
+    expected: str,
+) -> None:
+    """Response content from the LLM is stripped of leading/trailing whitespace."""
+    mock_completion.side_effect = lambda *args, **kwargs: StubResponse(StubMessage(content=raw_content))
+    result, _ = stub_model_facade.generate(prompt="test", parser=lambda x: x)
+    assert result == expected
+
+
 def test_model_alias_property(stub_model_facade, stub_model_configs):
     assert stub_model_facade.model_alias == stub_model_configs[0].alias
 
