@@ -8,7 +8,7 @@
 
 Unlike raw LLM calls, Data Designer gives you statistical diversity, field correlations, automated validation, and reproducible workflows. For details, see [Architecture & Performance](concepts/architecture-and-performance.md).
 
-📝 Want to hear from the team? Check out our **[Dev Notes](blog/index.md)** for deep dives, best practices, and insights.
+📝 Want to hear from the team? Check out our **[Dev Notes](devnotes/index.md)** for deep dives, best practices, and insights.
 
 ## Install
 
