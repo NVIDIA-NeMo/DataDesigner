@@ -132,6 +132,12 @@ def test_load_config_builder_remote_python_module_not_supported() -> None:
         load_config_builder("https://example.com/config.py")
 
 
+def test_load_config_builder_url_no_extension() -> None:
+    """Test that a URL with no file extension raises ConfigLoadError."""
+    with pytest.raises(ConfigLoadError, match="Unsupported file extension"):
+        load_config_builder("https://example.com/config")
+
+
 def test_load_config_builder_python_module_missing_function(tmp_path: Path) -> None:
     """Test that a Python module without load_config_builder() raises ConfigLoadError."""
     py_file = tmp_path / "no_func_config.py"

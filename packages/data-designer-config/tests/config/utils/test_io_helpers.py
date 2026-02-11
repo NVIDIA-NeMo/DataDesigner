@@ -14,7 +14,7 @@ from urllib.error import URLError
 import pytest
 import yaml
 
-from data_designer.config.utils.io_helpers import serialize_data, smart_load_dataframe, smart_load_yaml
+from data_designer.config.utils.io_helpers import is_http_url, serialize_data, smart_load_dataframe, smart_load_yaml
 from data_designer.lazy_heavy_imports import np, pd
 
 if TYPE_CHECKING:
@@ -148,6 +148,30 @@ def test_smart_load_yaml_from_url_parse_failure(mock_urlopen: MagicMock) -> None
 
     with pytest.raises(ValueError, match="Failed to parse config from URL"):
         smart_load_yaml("https://example.com/config.yaml")
+
+
+def test_smart_load_yaml_from_url_no_extension() -> None:
+    with pytest.raises(ValueError, match="Unsupported config URL extension"):
+        smart_load_yaml("https://example.com/config")
+
+
+@pytest.mark.parametrize(
+    "url,expected",
+    [
+        ("https://example.com/config.yaml", True),
+        ("http://example.com/config.yaml", True),
+        ("https://example.com", True),
+        ("http://localhost:8000", True),
+        ("http://", False),
+        ("https://", False),
+        ("", False),
+        ("ftp://example.com/config.yaml", False),
+        ("not-a-url", False),
+        ("/local/path/config.yaml", False),
+    ],
+)
+def test_is_http_url(url: str, expected: bool) -> None:
+    assert is_http_url(url) == expected
 
 
 @pytest.mark.parametrize(

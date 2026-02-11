@@ -6,6 +6,8 @@ from __future__ import annotations
 import shutil
 import subprocess
 
+from data_designer.config.utils.io_helpers import is_http_url
+
 
 def check_ngc_cli_available() -> bool:
     """Check if NGC CLI is installed and available.
@@ -39,7 +41,9 @@ def get_ngc_version() -> str | None:
 
 
 def validate_url(url: str) -> bool:
-    """Validate that a string is a valid URL.
+    """Validate that a string is a valid HTTP(S) URL.
+
+    Delegates to :func:`data_designer.config.utils.io_helpers.is_http_url`.
 
     Args:
         url: URL string to validate
@@ -47,19 +51,7 @@ def validate_url(url: str) -> bool:
     Returns:
         True if valid URL, False otherwise
     """
-    if not url:
-        return False
-
-    # Basic validation - must start with http:// or https://
-    if not url.startswith(("http://", "https://")):
-        return False
-
-    # Must have at least a domain after the protocol
-    parts = url.split("://", 1)
-    if len(parts) != 2 or not parts[1]:
-        return False
-
-    return True
+    return is_http_url(url)
 
 
 def validate_numeric_range(value: str, min_value: float, max_value: float) -> tuple[bool, float | None]:

@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+MAX_CONFIG_URL_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
 VALID_DATASET_FILE_EXTENSIONS = {".parquet", ".csv", ".json", ".jsonl"}
 VALID_CONFIG_FILE_EXTENSIONS = {".yaml", ".yml", ".json"}
 
@@ -197,7 +198,7 @@ def smart_load_yaml(yaml_in: str | Path | dict) -> dict:
     """
     if isinstance(yaml_in, dict):
         yaml_out = yaml_in
-    elif isinstance(yaml_in, str) and _is_http_url(yaml_in):
+    elif isinstance(yaml_in, str) and is_http_url(yaml_in):
         yaml_out = _load_yaml_from_url(yaml_in)
     elif isinstance(yaml_in, Path) or (isinstance(yaml_in, str) and os.path.isfile(yaml_in)):
         with open(yaml_in) as file:
@@ -218,12 +219,26 @@ def smart_load_yaml(yaml_in: str | Path | dict) -> dict:
     return yaml_out
 
 
-def _is_http_url(value: str) -> bool:
+def is_http_url(value: str) -> bool:
+    """Check whether a string is an HTTP or HTTPS URL."""
     parsed_url = urlparse(value)
     return parsed_url.scheme in {"http", "https"} and bool(parsed_url.netloc)
 
 
 def _load_yaml_from_url(url: str) -> dict:
+    """Fetch a remote YAML/JSON config URL and return the parsed dict.
+
+    Args:
+        url: HTTP(S) URL pointing to a YAML or JSON configuration file.
+
+    Returns:
+        The parsed configuration as a dictionary.
+
+    Raises:
+        ValueError: If the URL extension is unsupported, the fetch fails,
+            the response exceeds the size limit, or parsing produces a
+            non-dict result.
+    """
     parsed_url = urlparse(url)
     suffix = Path(parsed_url.path).suffix.lower()
     if suffix not in VALID_CONFIG_FILE_EXTENSIONS:
@@ -232,7 +247,10 @@ def _load_yaml_from_url(url: str) -> dict:
 
     try:
         with urlopen(url, timeout=10) as response:
-            content = response.read().decode("utf-8")
+            content_bytes = response.read(MAX_CONFIG_URL_SIZE_BYTES + 1)
+            if len(content_bytes) > MAX_CONFIG_URL_SIZE_BYTES:
+                raise ValueError(f"Config from URL '{url}' exceeds maximum size of {MAX_CONFIG_URL_SIZE_BYTES} bytes")
+            content = content_bytes.decode("utf-8")
     except (HTTPError, URLError, TimeoutError) as e:
         raise ValueError(f"Failed to fetch config URL '{url}': {e}") from e
     except UnicodeDecodeError as e:
@@ -242,6 +260,9 @@ def _load_yaml_from_url(url: str) -> dict:
         loaded_yaml = yaml.safe_load(content)
     except yaml.YAMLError as e:
         raise ValueError(f"Failed to parse config from URL '{url}': {e}") from e
+
+    if not isinstance(loaded_yaml, dict):
+        raise ValueError(f"Config from URL '{url}' must be a YAML mapping, got {type(loaded_yaml).__name__}")
 
     return loaded_yaml
 

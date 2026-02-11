@@ -8,17 +8,16 @@ import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
-from data_designer.cli.utils import validate_url
 from data_designer.config.config_builder import DataDesignerConfigBuilder
+from data_designer.config.utils.io_helpers import VALID_CONFIG_FILE_EXTENSIONS, is_http_url
 
 
 class ConfigLoadError(Exception):
     """Raised when a configuration source cannot be loaded."""
 
 
-CONFIG_FILE_EXTENSIONS = {".yaml", ".yml", ".json"}
 PYTHON_EXTENSIONS = {".py"}
-ALL_SUPPORTED_EXTENSIONS = CONFIG_FILE_EXTENSIONS | PYTHON_EXTENSIONS
+ALL_SUPPORTED_EXTENSIONS = VALID_CONFIG_FILE_EXTENSIONS | PYTHON_EXTENSIONS
 
 USER_MODULE_FUNC_NAME = "load_config_builder"
 
@@ -40,7 +39,7 @@ def load_config_builder(config_source: str) -> DataDesignerConfigBuilder:
     Raises:
         ConfigLoadError: If the file cannot be loaded or is invalid.
     """
-    if validate_url(config_source):
+    if is_http_url(config_source):
         return _load_from_config_url(config_source)
 
     path = Path(config_source)
@@ -57,7 +56,7 @@ def load_config_builder(config_source: str) -> DataDesignerConfigBuilder:
         supported = ", ".join(sorted(ALL_SUPPORTED_EXTENSIONS))
         raise ConfigLoadError(f"Unsupported file extension '{suffix}'. Supported extensions: {supported}")
 
-    if suffix in CONFIG_FILE_EXTENSIONS:
+    if suffix in VALID_CONFIG_FILE_EXTENSIONS:
         return _load_from_config_file(path)
 
     return _load_from_python_module(path)
@@ -67,15 +66,15 @@ def _load_from_config_url(config_source: str) -> DataDesignerConfigBuilder:
     """Load a DataDesignerConfigBuilder from a remote YAML or JSON config URL."""
     suffix = Path(urlparse(config_source).path).suffix.lower()
 
-    if suffix not in ALL_SUPPORTED_EXTENSIONS:
-        supported = ", ".join(sorted(ALL_SUPPORTED_EXTENSIONS))
-        raise ConfigLoadError(f"Unsupported file extension '{suffix}'. Supported extensions: {supported}")
-
     if suffix in PYTHON_EXTENSIONS:
         raise ConfigLoadError(
             f"Remote Python config modules are not supported: {config_source}. "
             "Please provide a local '.py' file instead."
         )
+
+    if suffix not in VALID_CONFIG_FILE_EXTENSIONS:
+        supported = ", ".join(sorted(VALID_CONFIG_FILE_EXTENSIONS))
+        raise ConfigLoadError(f"Unsupported file extension '{suffix}'. Supported extensions: {supported}")
 
     return _load_from_config_file(config_source)
 
