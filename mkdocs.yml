@@ -65,6 +65,7 @@ nav:
       - devnotes/index.md
       - Design Principles: devnotes/posts/design-principles.md
       - RQA Dataset: devnotes/posts/rqa.md
+      - Deep Research Trajectories: devnotes/posts/deep-research-trajectories.md
 
 theme:
   name: material
