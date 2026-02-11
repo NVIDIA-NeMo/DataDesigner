@@ -224,6 +224,31 @@ def is_http_url(value: str) -> bool:
     return parsed_url.scheme in {"http", "https"} and bool(parsed_url.netloc)
 
 
+def _raise_for_failed_http_status(url: str, response: requests.Response) -> None:
+    """Raise a ValueError with actionable details for failing HTTP status codes."""
+    status_code = response.status_code
+    if not isinstance(status_code, int) or status_code < 400:
+        return
+
+    if status_code == 401:
+        raise ValueError(
+            f"Failed to fetch config URL '{url}': received 401 Unauthorized. "
+            "This URL requires authentication, but authenticated config URL loading is not currently supported."
+        )
+    if status_code == 403:
+        raise ValueError(
+            f"Failed to fetch config URL '{url}': received 403 Forbidden. "
+            "Ensure you have permission to access this resource."
+        )
+    if status_code == 404:
+        raise ValueError(
+            f"Failed to fetch config URL '{url}': received 404 Not Found. Check that the URL path is correct."
+        )
+
+    reason = response.reason if isinstance(response.reason, str) and response.reason else "Unknown Error"
+    raise ValueError(f"Failed to fetch config URL '{url}': received HTTP {status_code} ({reason}).")
+
+
 def _load_config_from_url(url: str) -> dict:
     """Fetch a remote YAML/JSON config URL and return the parsed dict.
 
@@ -246,9 +271,10 @@ def _load_config_from_url(url: str) -> dict:
 
     try:
         response = requests.get(url, timeout=10)
-        response.raise_for_status()
     except requests.RequestException as e:
         raise ValueError(f"Failed to fetch config URL '{url}': {e}") from e
+
+    _raise_for_failed_http_status(url=url, response=response)
 
     if len(response.content) > MAX_CONFIG_URL_SIZE_BYTES:
         raise ValueError(f"Config from URL '{url}' exceeds maximum size of {MAX_CONFIG_URL_SIZE_BYTES} bytes")

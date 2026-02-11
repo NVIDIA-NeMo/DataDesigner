@@ -105,6 +105,7 @@ def test_smart_load_yaml():
 def test_smart_load_yaml_from_yaml_url(mock_requests: MagicMock) -> None:
     stub_dict = {"hello": "world", "nested": {"value": 1}}
     mock_response = MagicMock()
+    mock_response.status_code = 200
     mock_response.content = yaml.dump(stub_dict).encode("utf-8")
     mock_requests.get.return_value = mock_response
 
@@ -118,6 +119,7 @@ def test_smart_load_yaml_from_yaml_url(mock_requests: MagicMock) -> None:
 def test_smart_load_yaml_from_json_url(mock_requests: MagicMock) -> None:
     stub_dict = {"hello": "world", "nested": {"value": 1}}
     mock_response = MagicMock()
+    mock_response.status_code = 200
     mock_response.content = b'{"hello":"world","nested":{"value":1}}'
     mock_requests.get.return_value = mock_response
 
@@ -144,6 +146,7 @@ def test_smart_load_yaml_from_url_fetch_failure(mock_requests: MagicMock) -> Non
 @patch("data_designer.config.utils.io_helpers.requests")
 def test_smart_load_yaml_from_url_parse_failure(mock_requests: MagicMock) -> None:
     mock_response = MagicMock()
+    mock_response.status_code = 200
     mock_response.content = b":\n  - [\n"
     mock_requests.get.return_value = mock_response
 
@@ -151,14 +154,25 @@ def test_smart_load_yaml_from_url_parse_failure(mock_requests: MagicMock) -> Non
         smart_load_yaml("https://example.com/config.yaml")
 
 
+@pytest.mark.parametrize(
+    "status_code,reason,error_text",
+    [
+        (401, "Unauthorized", "requires authentication"),
+        (403, "Forbidden", "received 403 Forbidden"),
+        (404, "Not Found", "received 404 Not Found"),
+        (500, "Internal Server Error", r"received HTTP 500 \(Internal Server Error\)"),
+    ],
+)
 @patch("data_designer.config.utils.io_helpers.requests")
-def test_smart_load_yaml_from_url_http_status_error(mock_requests: MagicMock) -> None:
+def test_smart_load_yaml_from_url_http_status_error(
+    mock_requests: MagicMock, status_code: int, reason: str, error_text: str
+) -> None:
     mock_response = MagicMock()
-    mock_response.raise_for_status.side_effect = requests.HTTPError("404 Client Error: Not Found")
+    mock_response.status_code = status_code
+    mock_response.reason = reason
     mock_requests.get.return_value = mock_response
-    mock_requests.RequestException = requests.RequestException
 
-    with pytest.raises(ValueError, match="Failed to fetch config URL"):
+    with pytest.raises(ValueError, match=error_text):
         smart_load_yaml("https://example.com/config.yaml")
 
 
@@ -167,6 +181,7 @@ def test_smart_load_yaml_from_url_exceeds_size_limit(mock_requests: MagicMock) -
     from data_designer.config.utils.io_helpers import MAX_CONFIG_URL_SIZE_BYTES
 
     mock_response = MagicMock()
+    mock_response.status_code = 200
     mock_response.content = b"x" * (MAX_CONFIG_URL_SIZE_BYTES + 1)
     mock_requests.get.return_value = mock_response
 
@@ -177,6 +192,7 @@ def test_smart_load_yaml_from_url_exceeds_size_limit(mock_requests: MagicMock) -
 @patch("data_designer.config.utils.io_helpers.requests")
 def test_smart_load_yaml_from_url_non_dict_payload(mock_requests: MagicMock) -> None:
     mock_response = MagicMock()
+    mock_response.status_code = 200
     mock_response.content = b"- item1\n- item2\n"
     mock_requests.get.return_value = mock_response
 
