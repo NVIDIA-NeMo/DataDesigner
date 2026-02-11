@@ -29,7 +29,7 @@ def create_command(
         "-d",
         help="Name for the generated dataset folder.",
     ),
-    artifact_path: str = typer.Option(
+    artifact_path: str | None = typer.Option(
         None,
         "--artifact-path",
         "-o",
