@@ -11,6 +11,8 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import requests
+
 from data_designer.config.models import ImageFormat
 from data_designer.lazy_heavy_imports import Image
 
@@ -39,12 +41,13 @@ _BASE64_PATTERN = re.compile(r"^[A-Za-z0-9+/=]+$")
 
 # Patterns for diffusion-based image models only (use image_generation API).
 IMAGE_DIFFUSION_MODEL_PATTERNS = (
-    "dall-e",
+    "dall-e-",
     "dalle",
     "stable-diffusion",
     "sd-",
     "sd_",
     "imagen",
+    "gpt-image-",
 )
 
 SUPPORTED_IMAGE_EXTENSIONS = [f".{fmt.value.lower()}" for fmt in ImageFormat]
@@ -230,6 +233,24 @@ def load_image_path_to_base64(image_path: str, base_path: str | None = None) -> 
             return base64.b64encode(image_bytes).decode()
     except Exception:
         return None
+
+
+def load_image_url_to_base64(url: str, timeout: int = 60) -> str:
+    """Download an image from a URL and return as base64.
+
+    Args:
+        url: HTTP(S) URL pointing to an image.
+        timeout: Request timeout in seconds.
+
+    Returns:
+        Base64-encoded image data.
+
+    Raises:
+        requests.HTTPError: If the download fails with a non-2xx status.
+    """
+    resp = requests.get(url, timeout=timeout)
+    resp.raise_for_status()
+    return base64.b64encode(resp.content).decode()
 
 
 def validate_image(image_path: Path) -> None:

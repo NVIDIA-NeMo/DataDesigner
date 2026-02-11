@@ -13,6 +13,7 @@ from data_designer.config.utils.image_helpers import (
     extract_base64_from_data_uri,
     is_base64_image,
     is_image_diffusion_model,
+    load_image_url_to_base64,
 )
 from data_designer.engine.mcp.errors import MCPConfigurationError
 from data_designer.engine.model_provider import ModelProviderRegistry
@@ -41,12 +42,29 @@ def _identity(x: Any) -> Any:
     return x
 
 
-def _try_extract_base64(data: str) -> str | None:
-    """Try to extract base64 image data from a data URI, returning None on failure."""
+def _try_extract_base64(source: str | litellm.types.utils.ImageObject) -> str | None:
+    """Try to extract base64 image data from a data URI string or image response object.
+
+    Args:
+        source: Either a data URI string (e.g. "data:image/png;base64,...")
+            or a litellm ImageObject with b64_json/url attributes.
+
+    Returns:
+        Base64-encoded image string, or None if extraction fails.
+    """
     try:
-        return extract_base64_from_data_uri(data)
-    except ValueError:
+        if isinstance(source, str):
+            return extract_base64_from_data_uri(source)
+
+        if getattr(source, "b64_json", None):
+            return source.b64_json
+
+        if getattr(source, "url", None):
+            return load_image_url_to_base64(source.url)
+    except Exception:
         return None
+
+    return None
 
 
 logger = logging.getLogger(__name__)
@@ -447,15 +465,13 @@ class ModelFacade:
     def _generate_image_diffusion(self, prompt: str, skip_usage_tracking: bool = False, **kwargs) -> list[str]:
         """Generate image(s) using diffusion model via image_generation API.
 
-        Always returns base64. The API is configured to return base64 format.
+        Always returns base64. If the API returns URLs instead of inline base64,
+        the images are downloaded and converted automatically.
 
         Returns:
             List of base64-encoded image strings
         """
         kwargs = self.consolidate_kwargs(**kwargs)
-
-        # Always request base64 format
-        kwargs["response_format"] = "b64_json"
 
         response = None
 
@@ -471,8 +487,12 @@ class ModelFacade:
             if not response.data or len(response.data) == 0:
                 raise ImageGenerationError("Image generation returned no data")
 
-            # Return all images as list
-            return [img.b64_json for img in response.data]
+            images = [b64 for img in response.data if (b64 := _try_extract_base64(img)) is not None]
+
+            if not images:
+                raise ImageGenerationError("No image data could be extracted from response")
+
+            return images
 
         except Exception:
             raise
