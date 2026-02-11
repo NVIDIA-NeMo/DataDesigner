@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -1075,6 +1075,70 @@ def test_generate_image_chat_completion_tracks_image_usage(
     # Verify image usage was tracked
     assert stub_model_facade.usage_stats.image_usage.total_images == 2
     assert stub_model_facade.usage_stats.image_usage.has_usage is True
+
+
+@patch("data_designer.engine.models.facade.ModelFacade.completion", autospec=True)
+def test_generate_image_chat_completion_with_dict_format(
+    mock_completion: Any,
+    stub_model_facade: ModelFacade,
+) -> None:
+    """Test that generate_image handles images as dicts with image_url string."""
+    # Create mock message with images as dict with string image_url
+    mock_message = MagicMock()
+    mock_message.role = "assistant"
+    mock_message.content = ""
+    mock_message.images = [
+        {"image_url": "data:image/png;base64,image1"},
+        {"image_url": "data:image/jpeg;base64,image2"},
+    ]
+
+    mock_choice = MagicMock()
+    mock_choice.message = mock_message
+
+    mock_response = MagicMock()
+    mock_response.choices = [mock_choice]
+
+    mock_completion.return_value = mock_response
+
+    # Generate images
+    with patch("data_designer.engine.models.facade.is_image_diffusion_model", return_value=False):
+        images = stub_model_facade.generate_image(prompt="test prompt")
+
+    # Verify results
+    assert len(images) == 2
+    assert images == ["image1", "image2"]
+
+
+@patch("data_designer.engine.models.facade.ModelFacade.completion", autospec=True)
+def test_generate_image_chat_completion_with_plain_strings(
+    mock_completion: Any,
+    stub_model_facade: ModelFacade,
+) -> None:
+    """Test that generate_image handles images as plain strings."""
+    # Create mock message with images as plain strings
+    mock_message = MagicMock()
+    mock_message.role = "assistant"
+    mock_message.content = ""
+    mock_message.images = [
+        "data:image/png;base64,image1",
+        "image2",  # Plain base64 without data URI prefix
+    ]
+
+    mock_choice = MagicMock()
+    mock_choice.message = mock_message
+
+    mock_response = MagicMock()
+    mock_response.choices = [mock_choice]
+
+    mock_completion.return_value = mock_response
+
+    # Generate images
+    with patch("data_designer.engine.models.facade.is_image_diffusion_model", return_value=False):
+        images = stub_model_facade.generate_image(prompt="test prompt")
+
+    # Verify results
+    assert len(images) == 2
+    assert images == ["image1", "image2"]
 
 
 @patch("data_designer.engine.models.facade.CustomRouter.image_generation", autospec=True)

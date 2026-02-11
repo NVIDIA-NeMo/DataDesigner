@@ -11,6 +11,8 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import requests
+
 from data_designer.config.models import ImageFormat
 from data_designer.lazy_heavy_imports import Image
 
@@ -21,19 +23,31 @@ if TYPE_CHECKING:
 IMAGE_FORMAT_MAGIC_BYTES = {
     ImageFormat.PNG: b"\x89PNG\r\n\x1a\n",
     ImageFormat.JPG: b"\xff\xd8\xff",
+    ImageFormat.GIF: b"GIF8",
     # WEBP uses RIFF header - handled separately
+}
+
+# Maps PIL format name (lowercase) to our ImageFormat enum.
+# PIL reports "JPEG" (not "JPG"), so we normalize it here.
+_PIL_FORMAT_TO_IMAGE_FORMAT: dict[str, ImageFormat] = {
+    "png": ImageFormat.PNG,
+    "jpeg": ImageFormat.JPG,
+    "jpg": ImageFormat.JPG,
+    "gif": ImageFormat.GIF,
+    "webp": ImageFormat.WEBP,
 }
 
 _BASE64_PATTERN = re.compile(r"^[A-Za-z0-9+/=]+$")
 
 # Patterns for diffusion-based image models only (use image_generation API).
 IMAGE_DIFFUSION_MODEL_PATTERNS = (
-    "dall-e",
+    "dall-e-",
     "dalle",
     "stable-diffusion",
     "sd-",
     "sd_",
     "imagen",
+    "gpt-image-",
 )
 
 SUPPORTED_IMAGE_EXTENSIONS = [f".{fmt.value.lower()}" for fmt in ImageFormat]
@@ -105,13 +119,18 @@ def detect_image_format(image_bytes: bytes) -> ImageFormat:
         image_bytes: Image data as bytes
 
     Returns:
-        Detected format (defaults to PNG if unknown)
+        Detected ImageFormat
+
+    Raises:
+        ValueError: If the image format cannot be determined
     """
     # Check magic bytes first (fast)
     if image_bytes.startswith(IMAGE_FORMAT_MAGIC_BYTES[ImageFormat.PNG]):
         return ImageFormat.PNG
     elif image_bytes.startswith(IMAGE_FORMAT_MAGIC_BYTES[ImageFormat.JPG]):
         return ImageFormat.JPG
+    elif image_bytes.startswith(IMAGE_FORMAT_MAGIC_BYTES[ImageFormat.GIF]):
+        return ImageFormat.GIF
     elif image_bytes.startswith(b"RIFF") and b"WEBP" in image_bytes[:12]:
         return ImageFormat.WEBP
 
@@ -119,13 +138,15 @@ def detect_image_format(image_bytes: bytes) -> ImageFormat:
     try:
         img = Image.open(io.BytesIO(image_bytes))
         format_str = img.format.lower() if img.format else None
-        if format_str in [fmt.value for fmt in ImageFormat]:
-            return ImageFormat(format_str if format_str != ImageFormat.JPEG.value else ImageFormat.JPG.value)
+        if format_str in _PIL_FORMAT_TO_IMAGE_FORMAT:
+            return _PIL_FORMAT_TO_IMAGE_FORMAT[format_str]
     except Exception:
         pass
 
-    # Default to PNG
-    return ImageFormat.PNG
+    raise ValueError(
+        f"Unable to detect image format (first 8 bytes: {image_bytes[:8]!r}). "
+        f"Supported formats: {', '.join(SUPPORTED_IMAGE_EXTENSIONS)}."
+    )
 
 
 def is_image_path(value: str) -> bool:
@@ -212,6 +233,24 @@ def load_image_path_to_base64(image_path: str, base_path: str | None = None) -> 
             return base64.b64encode(image_bytes).decode()
     except Exception:
         return None
+
+
+def load_image_url_to_base64(url: str, timeout: int = 60) -> str:
+    """Download an image from a URL and return as base64.
+
+    Args:
+        url: HTTP(S) URL pointing to an image.
+        timeout: Request timeout in seconds.
+
+    Returns:
+        Base64-encoded image data.
+
+    Raises:
+        requests.HTTPError: If the download fails with a non-2xx status.
+    """
+    resp = requests.get(url, timeout=timeout)
+    resp.raise_for_status()
+    return base64.b64encode(resp.content).decode()
 
 
 def validate_image(image_path: Path) -> None:
