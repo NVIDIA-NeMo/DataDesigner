@@ -15,7 +15,7 @@ import requests
 import yaml
 
 from data_designer.config.utils.io_helpers import (
-    _maybe_rewrite_github_url,
+    _maybe_rewrite_url,
     is_http_url,
     serialize_data,
     smart_load_dataframe,
@@ -289,10 +289,34 @@ def test_is_http_url(url: str, expected: bool) -> None:
             "https://github.com/org/repo",
             "https://github.com/org/repo",
         ),
+        (
+            "https://huggingface.co/datasets/nabinnvidia/multi-lingual-greetings/blob/main/builder_config.json",
+            "https://huggingface.co/datasets/nabinnvidia/multi-lingual-greetings/raw/main/builder_config.json",
+        ),
+        (
+            "https://www.huggingface.co/datasets/nabinnvidia/multi-lingual-greetings/blob/main/builder_config.json",
+            "https://huggingface.co/datasets/nabinnvidia/multi-lingual-greetings/raw/main/builder_config.json",
+        ),
+        (
+            "https://huggingface.co/datasets/org/repo/blob/main/f.yaml#L10-L20",
+            "https://huggingface.co/datasets/org/repo/raw/main/f.yaml",
+        ),
+        (
+            "https://huggingface.co/datasets/org/repo/blob/main/f.yaml?download=1",
+            "https://huggingface.co/datasets/org/repo/raw/main/f.yaml?download=1",
+        ),
+        (
+            "https://huggingface.co/org/repo/blob/main/f.yaml",
+            "https://huggingface.co/org/repo/raw/main/f.yaml",
+        ),
+        (
+            "https://huggingface.co/datasets/org/repo/raw/main/f.yaml",
+            "https://huggingface.co/datasets/org/repo/raw/main/f.yaml",
+        ),
     ],
 )
-def test_maybe_rewrite_github_url(url: str, expected: str) -> None:
-    assert _maybe_rewrite_github_url(url) == expected
+def test_maybe_rewrite_url(url: str, expected: str) -> None:
+    assert _maybe_rewrite_url(url) == expected
 
 
 @patch("data_designer.config.utils.io_helpers.requests")
@@ -307,6 +331,22 @@ def test_smart_load_yaml_rewrites_github_blob_url(mock_requests: MagicMock) -> N
 
     assert result == stub_dict
     mock_requests.get.assert_called_once_with("https://raw.githubusercontent.com/org/repo/main/config.yaml", timeout=10)
+
+
+@patch("data_designer.config.utils.io_helpers.requests")
+def test_smart_load_yaml_rewrites_huggingface_blob_url(mock_requests: MagicMock) -> None:
+    stub_dict = {"hello": "world"}
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.content = yaml.dump(stub_dict).encode("utf-8")
+    mock_requests.get.return_value = mock_response
+
+    result = smart_load_yaml("https://huggingface.co/datasets/org/repo/blob/main/config.yaml")
+
+    assert result == stub_dict
+    mock_requests.get.assert_called_once_with(
+        "https://huggingface.co/datasets/org/repo/raw/main/config.yaml", timeout=10
+    )
 
 
 @patch("data_designer.config.utils.io_helpers.pd.read_csv", autospec=True)
@@ -329,11 +369,32 @@ def test_smart_load_dataframe_rewrites_github_blob_url_with_token(
     mock_read_csv.assert_called_once_with("https://raw.githubusercontent.com/org/repo/main/data.csv?token=secret123")
 
 
+@patch("data_designer.config.utils.io_helpers.pd.read_csv", autospec=True)
+def test_smart_load_dataframe_rewrites_huggingface_blob_url(
+    mock_read_csv: MagicMock, stub_dataframe: pd.DataFrame
+) -> None:
+    mock_read_csv.return_value = stub_dataframe
+
+    smart_load_dataframe("https://huggingface.co/datasets/org/repo/blob/main/data.csv")
+
+    mock_read_csv.assert_called_once_with("https://huggingface.co/datasets/org/repo/raw/main/data.csv")
+
+
 def test_maybe_rewrite_github_url_log_does_not_leak_query(caplog: pytest.LogCaptureFixture) -> None:
     import logging
 
     with caplog.at_level(logging.INFO, logger="data_designer.config.utils.io_helpers"):
-        _maybe_rewrite_github_url("https://github.com/org/repo/blob/main/f.yaml?token=secret123")
+        _maybe_rewrite_url("https://github.com/org/repo/blob/main/f.yaml?token=secret123")
+
+    assert len(caplog.records) == 1
+    assert "secret123" not in caplog.records[0].message
+
+
+def test_maybe_rewrite_huggingface_url_log_does_not_leak_query(caplog: pytest.LogCaptureFixture) -> None:
+    import logging
+
+    with caplog.at_level(logging.INFO, logger="data_designer.config.utils.io_helpers"):
+        _maybe_rewrite_url("https://huggingface.co/datasets/org/repo/blob/main/f.yaml?token=secret123")
 
     assert len(caplog.records) == 1
     assert "secret123" not in caplog.records[0].message

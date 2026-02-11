@@ -168,7 +168,7 @@ def smart_load_dataframe(dataframe: str | Path | pd.DataFrame) -> pd.DataFrame:
 
     # Get the file extension.
     if isinstance(dataframe, str) and dataframe.startswith("http"):
-        dataframe = _maybe_rewrite_github_url(dataframe)
+        dataframe = _maybe_rewrite_url(dataframe)
         # Parse extension from the URL path to avoid query-string contamination (e.g. "csv?token=…").
         ext = PurePosixPath(urlparse(dataframe).path).suffix.lstrip(".").lower()
     else:
@@ -231,6 +231,21 @@ def is_http_url(value: str) -> bool:
     return parsed_url.scheme in {"http", "https"} and bool(parsed_url.netloc)
 
 
+def _maybe_rewrite_url(url: str) -> str:
+    """Rewrite known hosting-provider file-view URLs to raw-content URLs."""
+    rewritten = _maybe_rewrite_github_url(url)
+    if rewritten != url:
+        return rewritten
+    return _maybe_rewrite_huggingface_hub_url(url)
+
+
+def _safe_url_for_log(url: str) -> str:
+    """Return URL without query/fragment for safe logging."""
+    parsed = urlparse(url)
+    hostname = parsed.hostname or ""
+    return f"{parsed.scheme}://{hostname}{parsed.path}"
+
+
 def _maybe_rewrite_github_url(url: str) -> str:
     """Rewrite GitHub blob URLs to raw.githubusercontent.com equivalents.
 
@@ -251,12 +266,40 @@ def _maybe_rewrite_github_url(url: str) -> str:
         query = f"?{parsed.query}" if parsed.query else ""
         raw_url = f"https://raw.githubusercontent.com{raw_path}{query}"
         # Strip query params from log output to avoid leaking tokens.
-        safe_original = f"{parsed.scheme}://{parsed.hostname}{parsed.path}"
+        safe_original = _safe_url_for_log(url)
         safe_rewritten = f"https://raw.githubusercontent.com{raw_path}"
         logger.info("Rewrote GitHub blob URL to raw URL: %s -> %s", safe_original, safe_rewritten)
         return raw_url
 
     return url
+
+
+def _maybe_rewrite_huggingface_hub_url(url: str) -> str:
+    """Rewrite Hugging Face Hub blob URLs to raw URL equivalents."""
+    parsed = urlparse(url)
+    if parsed.hostname not in {"huggingface.co", "www.huggingface.co"}:
+        return url
+
+    # Hugging Face Hub blob path patterns:
+    # - /{namespace}/{repo}/blob/{ref}/{path...}
+    # - /datasets/{namespace}/{repo}/blob/{ref}/{path...}
+    # - /spaces/{namespace}/{repo}/blob/{ref}/{path...}
+    segments = parsed.path.split("/")
+    blob_segment_index = 4 if len(segments) >= 5 and segments[1] in {"datasets", "spaces"} else 3
+    if len(segments) < blob_segment_index + 3 or segments[blob_segment_index] != "blob":
+        return url
+
+    raw_segments = [*segments]
+    raw_segments[blob_segment_index] = "raw"
+    raw_path = "/".join(raw_segments)
+    query = f"?{parsed.query}" if parsed.query else ""
+    raw_url = f"https://huggingface.co{raw_path}{query}"
+
+    # Strip query params from log output to avoid leaking tokens.
+    safe_original = _safe_url_for_log(url)
+    safe_rewritten = f"https://huggingface.co{raw_path}"
+    logger.info("Rewrote Hugging Face blob URL to raw URL: %s -> %s", safe_original, safe_rewritten)
+    return raw_url
 
 
 def _raise_for_failed_http_status(url: str, response: requests.Response) -> None:
@@ -298,7 +341,7 @@ def _load_config_from_url(url: str) -> dict:
             the response exceeds the size limit, or parsing produces a
             non-dict result.
     """
-    url = _maybe_rewrite_github_url(url)
+    url = _maybe_rewrite_url(url)
 
     parsed_url = urlparse(url)
     suffix = Path(parsed_url.path).suffix.lower()
