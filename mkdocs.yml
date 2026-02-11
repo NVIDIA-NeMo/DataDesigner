@@ -62,9 +62,9 @@ nav:
       - processors: code_reference/processors.md
       - analysis: code_reference/analysis.md
   - Dev Notes:
-      - blog/index.md
-      - Design Principles: blog/posts/design-principles.md
-      - RQA Dataset: blog/posts/rqa.md
+      - devnotes/index.md
+      - Design Principles: devnotes/posts/design-principles.md
+      - RQA Dataset: devnotes/posts/rqa.md
 
 theme:
   name: material
@@ -114,7 +114,7 @@ watch:
 plugins:
   - search
   - blog:
-      blog_dir: blog
+      blog_dir: devnotes
       blog_toc: true
       post_date_format: long
       post_url_format: "{slug}"
