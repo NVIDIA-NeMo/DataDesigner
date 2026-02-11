@@ -11,7 +11,7 @@ from data_designer.cli.controllers.generation_controller import GenerationContro
 def validate_command(
     config_source: str = typer.Argument(
         help=(
-            "Path to a config file (.yaml/.yml/.json) or Python module (.py)"
+            "Path or URL to a config file (.yaml/.yml/.json), or a local Python module (.py)"
             " that defines a load_config_builder() function."
         ),
     ),
@@ -24,6 +24,9 @@ def validate_command(
     Examples:
         # Validate a YAML config
         data-designer validate my_config.yaml
+
+        # Validate a remote config URL
+        data-designer validate https://example.com/my_config.yaml
 
         # Validate a Python module
         data-designer validate my_config.py

@@ -11,6 +11,9 @@ from decimal import Decimal
 from numbers import Number
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlparse
+from urllib.request import urlopen
 
 import yaml
 
@@ -24,6 +27,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 VALID_DATASET_FILE_EXTENSIONS = {".parquet", ".csv", ".json", ".jsonl"}
+VALID_CONFIG_FILE_EXTENSIONS = {".yaml", ".yml", ".json"}
 
 
 def ensure_config_dir_exists(config_dir: Path) -> None:
@@ -193,6 +197,8 @@ def smart_load_yaml(yaml_in: str | Path | dict) -> dict:
     """
     if isinstance(yaml_in, dict):
         yaml_out = yaml_in
+    elif isinstance(yaml_in, str) and _is_http_url(yaml_in):
+        yaml_out = _load_yaml_from_url(yaml_in)
     elif isinstance(yaml_in, Path) or (isinstance(yaml_in, str) and os.path.isfile(yaml_in)):
         with open(yaml_in) as file:
             yaml_out = yaml.safe_load(file)
@@ -210,6 +216,34 @@ def smart_load_yaml(yaml_in: str | Path | dict) -> dict:
         raise ValueError(f"Loaded yaml must be a dict. Got {yaml_out}, which is of type {type(yaml_out)}.")
 
     return yaml_out
+
+
+def _is_http_url(value: str) -> bool:
+    parsed_url = urlparse(value)
+    return parsed_url.scheme in {"http", "https"} and bool(parsed_url.netloc)
+
+
+def _load_yaml_from_url(url: str) -> dict:
+    parsed_url = urlparse(url)
+    suffix = Path(parsed_url.path).suffix.lower()
+    if suffix not in VALID_CONFIG_FILE_EXTENSIONS:
+        supported = ", ".join(sorted(VALID_CONFIG_FILE_EXTENSIONS))
+        raise ValueError(f"Unsupported config URL extension '{suffix}'. Supported extensions: {supported}")
+
+    try:
+        with urlopen(url, timeout=10) as response:
+            content = response.read().decode("utf-8")
+    except (HTTPError, URLError, TimeoutError) as e:
+        raise ValueError(f"Failed to fetch config URL '{url}': {e}") from e
+    except UnicodeDecodeError as e:
+        raise ValueError(f"Failed to decode config URL '{url}' as UTF-8: {e}") from e
+
+    try:
+        loaded_yaml = yaml.safe_load(content)
+    except yaml.YAMLError as e:
+        raise ValueError(f"Failed to parse config from URL '{url}': {e}") from e
+
+    return loaded_yaml
 
 
 def serialize_data(data: dict | list | str | Number, **kwargs) -> str:
