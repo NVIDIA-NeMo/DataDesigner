@@ -9,18 +9,6 @@
          <lastmod>2026-02-11</lastmod>
     </url>
     <url>
-         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/blog/</loc>
-         <lastmod>2026-02-11</lastmod>
-    </url>
-    <url>
-         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/blog/designing-data-designer-why-sdg-is-a-systems-problem/</loc>
-         <lastmod>2026-02-11</lastmod>
-    </url>
-    <url>
-         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/blog/graduate-level-science-reasoning-data-with-nemo-data-designer/</loc>
-         <lastmod>2026-02-11</lastmod>
-    </url>
-    <url>
          <loc>https://nvidia-nemo.github.io/DataDesigner/latest/code_reference/analysis/</loc>
          <lastmod>2026-02-11</lastmod>
     </url>
@@ -161,6 +149,18 @@
          <lastmod>2026-02-11</lastmod>
     </url>
     <url>
+         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/devnotes/</loc>
+         <lastmod>2026-02-11</lastmod>
+    </url>
+    <url>
+         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/devnotes/designing-data-designer-why-sdg-is-a-systems-problem/</loc>
+         <lastmod>2026-02-11</lastmod>
+    </url>
+    <url>
+         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/devnotes/graduate-level-science-reasoning-data-with-nemo-data-designer/</loc>
+         <lastmod>2026-02-11</lastmod>
+    </url>
+    <url>
          <loc>https://nvidia-nemo.github.io/DataDesigner/latest/notebook_source/</loc>
          <lastmod>2026-02-11</lastmod>
     </url>
@@ -249,7 +249,7 @@
          <lastmod>2026-02-11</lastmod>
     </url>
     <url>
-         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/blog/archive/2026/</loc>
+         <loc>https://nvidia-nemo.github.io/DataDesigner/latest/devnotes/archive/2026/</loc>
          <lastmod>2026-02-11</lastmod>
     </url>
 </urlset>
