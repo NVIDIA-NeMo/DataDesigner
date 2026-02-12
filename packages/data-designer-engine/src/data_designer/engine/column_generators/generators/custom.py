@@ -129,7 +129,7 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
         if self.config.name not in result_keys:
             raise CustomColumnGenerationError(
                 f"Custom generator for column '{self.config.name}' did not create the expected column. "
-                "The generator_function must add a key named '{self.config.name}' to the row."
+                f"The generator_function must add a key named '{self.config.name}' to the row."
             )
         missing = set(self.config.side_effect_columns) - result_keys
         if missing:
