@@ -18,10 +18,15 @@ logger = logging.getLogger(__name__)
 
 
 class DropColumnsProcessor(Processor[DropColumnsProcessorConfig]):
-    def process(self, data: pd.DataFrame, *, current_batch_number: int | None = None) -> pd.DataFrame:
+    """Drops specified columns from the dataset after each batch."""
+
+    def process_after_batch(self, data: pd.DataFrame, *, current_batch_number: int | None) -> pd.DataFrame:
         logger.info(f"🙈 Dropping columns: {self.config.column_names}")
-        if current_batch_number is not None:  # not in preview mode
-            self._save_dropped_columns_if_needed(data, current_batch_number)
+        if current_batch_number is not None:
+            self._save_dropped_columns(data, current_batch_number)
+        return self._drop_columns(data)
+
+    def _drop_columns(self, data: pd.DataFrame) -> pd.DataFrame:
         for column in self.config.column_names:
             if column in data.columns:
                 data.drop(columns=[column], inplace=True)
@@ -29,7 +34,12 @@ class DropColumnsProcessor(Processor[DropColumnsProcessorConfig]):
                 logger.warning(f"⚠️ Cannot drop column: `{column}` not found in the dataset.")
         return data
 
-    def _save_dropped_columns_if_needed(self, data: pd.DataFrame, current_batch_number: int) -> None:
+    def _save_dropped_columns(self, data: pd.DataFrame, current_batch_number: int) -> None:
+        # Only save columns that actually exist
+        existing_columns = [col for col in self.config.column_names if col in data.columns]
+        if not existing_columns:
+            return
+
         logger.debug("📦 Saving dropped columns to dropped-columns directory")
         dropped_column_parquet_file_name = self.artifact_storage.create_batch_file_path(
             batch_number=current_batch_number,
@@ -37,6 +47,6 @@ class DropColumnsProcessor(Processor[DropColumnsProcessorConfig]):
         ).name
         self.artifact_storage.write_parquet_file(
             parquet_file_name=dropped_column_parquet_file_name,
-            dataframe=data[self.config.column_names],
+            dataframe=data[existing_columns],
             batch_stage=BatchStage.DROPPED_COLUMNS,
         )
