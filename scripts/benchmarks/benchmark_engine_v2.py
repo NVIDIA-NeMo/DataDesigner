@@ -43,7 +43,6 @@ DEFAULT_NUM_RECORDS = 1024
 DEFAULT_BUFFER_SIZE = 1024
 DEFAULT_SEED = 11
 DEFAULT_MAX_PARALLEL_REQUESTS = 16
-DEFAULT_MAX_CONCURRENT_TASKS = 64
 DEFAULT_VALIDATOR_BATCH_SIZE = 256
 DEFAULT_ITERATIONS = 5
 
@@ -68,7 +67,6 @@ class BenchmarkSettings:
     seed: int
     max_parallel_requests: int
     validator_batch_size: int
-    max_concurrent_tasks: int = DEFAULT_MAX_CONCURRENT_TASKS
     simulated_latency: bool = False
 
     def to_cli_args(self) -> list[str]:
@@ -83,8 +81,6 @@ class BenchmarkSettings:
             str(self.max_parallel_requests),
             "--validator-batch-size",
             str(self.validator_batch_size),
-            "--max-concurrent-tasks",
-            str(self.max_concurrent_tasks),
         ]
         if self.simulated_latency:
             args.append("--simulated-latency")
@@ -619,7 +615,6 @@ def _run_single_benchmark(settings: BenchmarkSettings, engine_mode: str) -> Benc
         disable_early_shutdown=True,
         max_conversation_restarts=0,
         max_conversation_correction_steps=0,
-        max_concurrent_tasks=settings.max_concurrent_tasks,
     )
     builder = _build_config(settings)
 
@@ -816,12 +811,6 @@ def _parse_args() -> argparse.Namespace:
         help="Max parallel LLM requests per model.",
     )
     parser.add_argument(
-        "--max-concurrent-tasks",
-        type=int,
-        default=DEFAULT_MAX_CONCURRENT_TASKS,
-        help="Max in-flight tasks in the async executor (system-level backpressure).",
-    )
-    parser.add_argument(
         "--validator-batch-size",
         type=int,
         default=DEFAULT_VALIDATOR_BATCH_SIZE,
@@ -844,7 +833,6 @@ def main() -> None:
         seed=args.seed,
         max_parallel_requests=args.max_parallel_requests,
         validator_batch_size=args.validator_batch_size,
-        max_concurrent_tasks=args.max_concurrent_tasks,
         simulated_latency=args.simulated_latency,
     )
 
