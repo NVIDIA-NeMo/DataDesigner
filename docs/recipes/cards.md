@@ -82,6 +82,23 @@ Each recipe is a self-contained example that can be run independently.
     [Download Code :octicons-download-24:](../assets/recipes/qa_and_chat/multi_turn_chat.py){ .md-button download="multi_turn_chat.py" }
 
 
+-   :material-tools:{ .lg .middle } **Basic MCP Tool Use**
+
+    Minimal example of MCP tool calling with Data Designer. Defines a simple MCP server with basic tools and generates data that requires tool calls to complete.
+
+    ---
+
+    **Demonstrates:**
+
+    - MCP tool calling with LocalStdioMCPProvider
+    - Simple tool server definition
+    - Tool-augmented text generation
+
+    ---
+
+    [:material-book-open-page-variant: View Recipe](mcp_and_tooluse/basic_mcp.md){ .md-button }
+    [Download Code :octicons-download-24:](../assets/recipes/mcp_and_tooluse/basic_mcp.py){ .md-button download="basic_mcp.py" }
+
 -   :material-tools:{ .lg .middle } **PDF Document QA (MCP + Tool Use)**
 
     Generate grounded Q&A pairs from PDF documents using MCP tool calls and BM25 search.
