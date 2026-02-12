@@ -4,7 +4,8 @@
 from __future__ import annotations
 
 from data_designer.cli.controllers.download_controller import DownloadController
+from data_designer.cli.controllers.generation_controller import GenerationController
 from data_designer.cli.controllers.model_controller import ModelController
 from data_designer.cli.controllers.provider_controller import ProviderController
 
-__all__ = ["DownloadController", "ModelController", "ProviderController"]
+__all__ = ["DownloadController", "GenerationController", "ModelController", "ProviderController"]

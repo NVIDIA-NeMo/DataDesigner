@@ -41,19 +41,14 @@ def _json_escape_record(record: dict[str, Any]) -> dict[str, Any]:
 
 
 class SchemaTransformProcessor(WithJinja2UserTemplateRendering, Processor[SchemaTransformProcessorConfig]):
+    """Transforms dataset schema using Jinja2 templates after each batch."""
+
     @property
     def template_as_str(self) -> str:
         return json.dumps(self.config.template)
 
-    def process(self, data: pd.DataFrame, *, current_batch_number: int | None = None) -> pd.DataFrame:
-        self.prepare_jinja2_template_renderer(self.template_as_str, data.columns.to_list())
-        formatted_records = []
-        for record in data.to_dict(orient="records"):
-            deserialized = deserialize_json_values(record)
-            escaped = _json_escape_record(deserialized)
-            rendered = self.render_template(escaped)
-            formatted_records.append(json.loads(rendered))
-        formatted_data = pd.DataFrame(formatted_records)
+    def process_after_batch(self, data: pd.DataFrame, *, current_batch_number: int | None) -> pd.DataFrame:
+        formatted_data = self._transform(data)
         if current_batch_number is not None:
             self.artifact_storage.write_batch_to_parquet_file(
                 batch_number=current_batch_number,
@@ -67,5 +62,14 @@ class SchemaTransformProcessor(WithJinja2UserTemplateRendering, Processor[Schema
                 dataframe=formatted_data,
                 batch_stage=BatchStage.PROCESSORS_OUTPUTS,
             )
-
         return data
+
+    def _transform(self, data: pd.DataFrame) -> pd.DataFrame:
+        self.prepare_jinja2_template_renderer(self.template_as_str, data.columns.to_list())
+        formatted_records = []
+        for record in data.to_dict(orient="records"):
+            deserialized = deserialize_json_values(record)
+            escaped = _json_escape_record(deserialized)
+            rendered = self.render_template(escaped)
+            formatted_records.append(json.loads(rendered))
+        return pd.DataFrame(formatted_records)

@@ -11,10 +11,14 @@ from data_designer.cli.utils import (
     check_ngc_cli_available,
     get_ngc_version,
     validate_numeric_range,
-    validate_url,
 )
 from data_designer.config.errors import InvalidConfigError, InvalidFileFormatError, InvalidFilePathError
-from data_designer.config.utils.io_helpers import ensure_config_dir_exists, load_config_file, save_config_file
+from data_designer.config.utils.io_helpers import (
+    ensure_config_dir_exists,
+    is_http_url,
+    load_config_file,
+    save_config_file,
+)
 
 
 def test_ensure_config_dir_exists(tmp_path: Path) -> None:
@@ -70,19 +74,19 @@ def test_load_config_file_empty(tmp_path: Path) -> None:
         load_config_file(config_file)
 
 
-def test_validate_url() -> None:
+def test_is_http_url() -> None:
     """Test URL validation."""
     # Valid URLs
-    assert validate_url("https://api.example.com/v1")
-    assert validate_url("http://localhost:8000")
-    assert validate_url("https://nvidia.com")
+    assert is_http_url("https://api.example.com/v1")
+    assert is_http_url("http://localhost:8000")
+    assert is_http_url("https://nvidia.com")
 
     # Invalid URLs
-    assert not validate_url("")
-    assert not validate_url("not-a-url")
-    assert not validate_url("ftp://example.com")
-    assert not validate_url("https://")
-    assert not validate_url("http://")
+    assert not is_http_url("")
+    assert not is_http_url("not-a-url")
+    assert not is_http_url("ftp://example.com")
+    assert not is_http_url("https://")
+    assert not is_http_url("http://")
 
 
 def test_validate_numeric_range() -> None:

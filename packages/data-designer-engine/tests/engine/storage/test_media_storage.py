@@ -38,24 +38,21 @@ def sample_base64_jpg() -> str:
     return base64.b64encode(jpg_bytes).decode()
 
 
-def test_media_storage_init(tmp_path):
-    """Test MediaStorage initialization."""
-    storage = MediaStorage(base_path=tmp_path)
+@pytest.mark.parametrize(
+    "images_subdir,mode",
+    [
+        (IMAGES_SUBDIR, StorageMode.DISK),
+        ("custom_images", StorageMode.DATAFRAME),
+    ],
+    ids=["defaults", "custom-subdir-dataframe"],
+)
+def test_media_storage_init(tmp_path, images_subdir: str, mode: StorageMode) -> None:
+    """Test MediaStorage initialization with various configurations."""
+    storage = MediaStorage(base_path=tmp_path, images_subdir=images_subdir, mode=mode)
     assert storage.base_path == tmp_path
-    assert storage.images_dir == tmp_path / IMAGES_SUBDIR
-    assert storage.images_subdir == IMAGES_SUBDIR
-    assert storage.mode == StorageMode.DISK
-    # Directory should NOT exist until first save (lazy initialization)
-    assert not storage.images_dir.exists()
-
-
-def test_media_storage_init_custom_subdir(tmp_path):
-    """Test MediaStorage initialization with custom subdirectory and mode."""
-    custom_subdir = "custom_images"
-    storage = MediaStorage(base_path=tmp_path, images_subdir=custom_subdir, mode=StorageMode.DATAFRAME)
-    assert storage.images_subdir == custom_subdir
-    assert storage.images_dir == tmp_path / custom_subdir
-    assert storage.mode == StorageMode.DATAFRAME
+    assert storage.images_subdir == images_subdir
+    assert storage.images_dir == tmp_path / images_subdir
+    assert storage.mode == mode
     # Directory should NOT exist until first save (lazy initialization)
     assert not storage.images_dir.exists()
 
@@ -149,12 +146,12 @@ def test_save_base64_image_disk_mode_corrupted_image_raises_error(tmp_path):
         assert len(list(column_dir.iterdir())) == 0
 
 
-def test_save_base64_image_dataframe_mode_returns_base64(tmp_path, sample_base64_png):
-    """Test that DATAFRAME mode returns base64 directly without disk operations."""
+@pytest.mark.parametrize("subfolder_name", ["test_column", "test_subfolder"], ids=["column", "subfolder"])
+def test_save_base64_image_dataframe_mode_returns_base64(tmp_path, sample_base64_png, subfolder_name):
+    """Test that DATAFRAME mode returns base64 directly regardless of subfolder name."""
     storage = MediaStorage(base_path=tmp_path, mode=StorageMode.DATAFRAME)
 
-    # Should return the same base64 data (column_name is ignored in DATAFRAME mode)
-    result = storage.save_base64_image(sample_base64_png, subfolder_name="test_column")
+    result = storage.save_base64_image(sample_base64_png, subfolder_name=subfolder_name)
     assert result == sample_base64_png
 
     # Directory should not be created in DATAFRAME mode (lazy initialization)
@@ -201,18 +198,6 @@ def test_save_base64_image_with_different_subfolder_names(media_storage, sample_
     assert (media_storage.base_path / path2).exists()
 
 
-def test_save_base64_image_dataframe_mode_with_subfolder_name(tmp_path, sample_base64_png):
-    """Test that DATAFRAME mode returns base64 directly even with subfolder name."""
-    storage = MediaStorage(base_path=tmp_path, mode=StorageMode.DATAFRAME)
-
-    # Should return the same base64 data regardless of subfolder name
-    result = storage.save_base64_image(sample_base64_png, subfolder_name="test_subfolder")
-    assert result == sample_base64_png
-
-    # Directory should not be created in DATAFRAME mode
-    assert not storage.images_dir.exists()
-
-
 @pytest.mark.parametrize(
     "unsafe_name,expected_sanitized",
     [
@@ -236,3 +221,34 @@ def test_save_base64_image_sanitizes_subfolder_name(media_storage, sample_base64
     full_path = media_storage.base_path / relative_path
     assert full_path.exists()
     assert media_storage.images_dir in full_path.parents
+
+
+# ---------------------------------------------------------------------------
+# delete_image
+# ---------------------------------------------------------------------------
+
+
+def test_delete_image_removes_saved_file(media_storage, sample_base64_png) -> None:
+    """Test that delete_image removes a previously saved image."""
+    relative_path = media_storage.save_base64_image(sample_base64_png, subfolder_name="col")
+    full_path = media_storage.base_path / relative_path
+    assert full_path.exists()
+
+    result = media_storage.delete_image(relative_path)
+    assert result is True
+    assert not full_path.exists()
+
+
+def test_delete_image_returns_false_for_nonexistent(media_storage) -> None:
+    """Test that delete_image returns False when the file doesn't exist."""
+    assert media_storage.delete_image(f"{IMAGES_SUBDIR}/col/nonexistent.png") is False
+
+
+def test_delete_image_rejects_path_outside_images_dir(media_storage, tmp_path) -> None:
+    """Test that delete_image refuses to delete files outside the images directory."""
+    outside_file = tmp_path / "outside.txt"
+    outside_file.write_text("should not be deleted")
+
+    result = media_storage.delete_image("../outside.txt")
+    assert result is False
+    assert outside_file.exists()

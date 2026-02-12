@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TextIO
 
-from pythonjsonlogger import jsonlogger
+from pythonjsonlogger.json import JsonFormatter
 
 
 @dataclass
@@ -161,7 +161,7 @@ def _create_handler(output_config: OutputConfig) -> logging.Handler:
 
 def _make_json_formatter() -> logging.Formatter:
     log_format = "%(asctime)s %(levelname)s %(name)s %(message)s"
-    return jsonlogger.JsonFormatter(log_format)
+    return JsonFormatter(log_format)
 
 
 def _make_stream_formatter() -> logging.Formatter:

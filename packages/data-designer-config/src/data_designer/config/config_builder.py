@@ -22,7 +22,6 @@ from data_designer.config.column_types import (
     get_column_display_order,
 )
 from data_designer.config.data_designer_config import DataDesignerConfig
-from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.default_model_settings import get_default_model_configs
 from data_designer.config.errors import BuilderConfigurationError, BuilderSerializationError, InvalidColumnTypeError
 from data_designer.config.exportable_config import ExportableConfigBase
@@ -91,10 +90,17 @@ class DataDesignerConfigBuilder:
     def from_config(cls, config: dict | str | Path | BuilderConfig) -> Self:
         """Create a DataDesignerConfigBuilder from an existing configuration.
 
+        Accepts both the full ``BuilderConfig`` format (with a top-level
+        ``data_designer`` key) and the shorthand ``DataDesignerConfig`` format
+        (``columns``, ``model_configs``, etc. at the top level). When the
+        shorthand format is detected it is automatically normalized into a
+        full ``BuilderConfig``.
+
         Args:
             config: Configuration source. Can be:
                 - A dictionary containing the configuration
-                - A string or Path to a YAML/JSON configuration file
+                - A string or Path to a local YAML/JSON configuration file
+                - An HTTP(S) URL string to a YAML/JSON configuration file
                 - A BuilderConfig object
 
         Returns:
@@ -108,6 +114,9 @@ class DataDesignerConfigBuilder:
             builder_config = config
         else:
             json_config = json.loads(serialize_data(smart_load_yaml(config)))
+            # Normalize shorthand DataDesignerConfig into full BuilderConfig
+            if "columns" in json_config and "data_designer" not in json_config:
+                json_config = {"data_designer": json_config}
             builder_config = BuilderConfig.model_validate(json_config)
 
         builder = cls(
@@ -562,7 +571,7 @@ class DataDesignerConfigBuilder:
         column_type = resolve_string_enum(column_type, DataDesignerColumnType)
         return [c for c in self._column_configs.values() if c.column_type != column_type]
 
-    def get_processor_configs(self) -> dict[BuildStage, list[ProcessorConfigT]]:
+    def get_processor_configs(self) -> list[ProcessorConfigT]:
         """Get processor configuration objects.
 
         Returns:

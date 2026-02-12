@@ -45,6 +45,7 @@ nav:
           - Product Info QA: recipes/qa_and_chat/product_info_qa.md
           - Multi-Turn Chat: recipes/qa_and_chat/multi_turn_chat.md
       - MCP and Tool Use:
+          - "Basic MCP Tool Use": recipes/mcp_and_tooluse/basic_mcp.md
           - "PDF Document QA": recipes/mcp_and_tooluse/pdf_qa.md
   - Plugins:
       - Overview: plugins/overview.md
@@ -62,9 +63,10 @@ nav:
       - processors: code_reference/processors.md
       - analysis: code_reference/analysis.md
   - Dev Notes:
-      - blog/index.md
-      - RQA Dataset: blog/posts/rqa.md
-      - Welcome: blog/posts/welcome.md
+      - devnotes/index.md
+      - Design Principles: devnotes/posts/design-principles.md
+      - RQA Dataset: devnotes/posts/rqa.md
+      - Deep Research Trajectories: devnotes/posts/deep-research-trajectories.md
 
 theme:
   name: material
@@ -114,7 +116,7 @@ watch:
 plugins:
   - search
   - blog:
-      blog_dir: blog
+      blog_dir: devnotes
       blog_toc: true
       post_date_format: long
       post_url_format: "{slug}"
