@@ -11,11 +11,12 @@ from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, PrivateAttr, field_validator, model_validator
 
 from data_designer.config.utils.io_helpers import read_parquet_dataset
 from data_designer.config.utils.type_helpers import StrEnum, resolve_string_enum
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
+from data_designer.engine.storage.media_storage import MediaStorage, StorageMode
 from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
@@ -38,12 +39,25 @@ class BatchStage(StrEnum):
 
 
 class ArtifactStorage(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     artifact_path: Path | str
     dataset_name: str = "dataset"
     final_dataset_folder_name: str = FINAL_DATASET_FOLDER_NAME
     partial_results_folder_name: str = "tmp-partial-parquet-files"
     dropped_columns_folder_name: str = "dropped-columns-parquet-files"
     processors_outputs_folder_name: str = PROCESSORS_OUTPUTS_FOLDER_NAME
+    _media_storage: MediaStorage = PrivateAttr(default=None)
+
+    @property
+    def media_storage(self) -> MediaStorage:
+        """Access media storage instance."""
+        return self._media_storage
+
+    @media_storage.setter
+    def media_storage(self, value: MediaStorage) -> None:
+        """Set media storage instance."""
+        self._media_storage = value
 
     @property
     def artifact_path_exists(self) -> bool:
@@ -114,7 +128,21 @@ class ArtifactStorage(BaseModel):
             if any(char in invalid_chars for char in name):
                 raise ArtifactStorageError(f"🛑 Directory name '{name}' contains invalid characters.")
 
+        # Initialize media storage with DISK mode by default
+        self._media_storage = MediaStorage(
+            base_path=self.base_dataset_path,
+            mode=StorageMode.DISK,
+        )
+
         return self
+
+    def set_media_storage_mode(self, mode: StorageMode) -> None:
+        """Set media storage mode.
+
+        Args:
+            mode: StorageMode.DISK (save to disk) or StorageMode.DATAFRAME (store in memory)
+        """
+        self._media_storage.mode = mode
 
     @staticmethod
     def mkdir_if_needed(path: Path | str) -> Path:

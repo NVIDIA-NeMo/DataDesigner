@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import html
 import json
 import os
 from collections import OrderedDict
@@ -26,6 +27,13 @@ from data_designer.config.sampler_params import SamplerType
 from data_designer.config.utils.code_lang import code_lang_to_syntax_lexer
 from data_designer.config.utils.constants import NVIDIA_API_KEY_ENV_VAR_NAME, OPENAI_API_KEY_ENV_VAR_NAME
 from data_designer.config.utils.errors import DatasetSampleDisplayError
+from data_designer.config.utils.image_helpers import (
+    extract_base64_from_data_uri,
+    is_base64_image,
+    is_image_path,
+    is_image_url,
+    load_image_path_to_base64,
+)
 from data_designer.lazy_heavy_imports import np, pd
 
 if TYPE_CHECKING:
@@ -37,6 +45,69 @@ if TYPE_CHECKING:
 
 
 console = Console()
+
+
+def _display_image_if_in_notebook(image_data: str, col_name: str) -> bool:
+    """Display image with caption in Jupyter notebook if available.
+
+    Args:
+        image_data: Base64-encoded image data, data URI, file path, or URL.
+        col_name: Name of the column (used for caption).
+
+    Returns:
+        True if image was displayed, False otherwise.
+    """
+    try:
+        # Check if we're in a Jupyter environment
+        from IPython.display import HTML, display
+
+        get_ipython()  # This will raise NameError if not in IPython/Jupyter
+
+        # Escape column name to prevent HTML injection
+        escaped_col_name = html.escape(col_name)
+
+        # URLs: render directly as <img src='url'>
+        if is_image_url(image_data):
+            escaped_url = html.escape(image_data)
+            html_content = f"""
+            <div style='display: flex; flex-direction: column; align-items: flex-start; margin-top: 20px; margin-bottom: 20px;'>
+                <div style='margin-bottom: 10px;'><strong>🖼️ {escaped_col_name}</strong></div>
+                <img src='{escaped_url}'/>
+            </div>
+            """
+            display(HTML(html_content))
+            return True
+
+        # File paths: load from disk and convert to base64
+        if is_image_path(image_data) and not image_data.startswith("data:image/"):
+            loaded_base64 = load_image_path_to_base64(image_data)
+            if loaded_base64 is None:
+                console.print(
+                    f"[yellow]⚠️ Could not load image from path '{image_data}' for column '{col_name}'[/yellow]"
+                )
+                return False
+            base64_data = loaded_base64
+        else:
+            base64_data = image_data
+
+        # Extract base64 from data URI if present
+        img_base64 = extract_base64_from_data_uri(base64_data)
+
+        # Create HTML with caption and image in left-aligned container
+        html_content = f"""
+        <div style='display: flex; flex-direction: column; align-items: flex-start; margin-top: 20px; margin-bottom: 20px;'>
+            <div style='margin-bottom: 10px;'><strong>🖼️ {escaped_col_name}</strong></div>
+            <img src='data:image/png;base64,{img_base64}'/>
+        </div>
+        """
+        display(HTML(html_content))
+        return True
+    except (ImportError, NameError):
+        # Not in a notebook environment
+        return False
+    except Exception as e:
+        console.print(f"[yellow]⚠️ Could not display image for column '{col_name}': {e}[/yellow]")
+        return False
 
 
 def get_nvidia_api_key() -> str | None:
@@ -100,7 +171,7 @@ class WithRecordSamplerMixin:
             processors_to_display: List of processors to display the artifacts for. If None, all processors will be displayed.
             hide_seed_columns: If True, seed columns will not be displayed separately.
         """
-        i = index or self._display_cycle_index
+        i = self._display_cycle_index if index is None else index
 
         try:
             record = self._record_sampler_dataset.iloc[i]
@@ -223,6 +294,66 @@ def display_sample_record(
                             table.add_row(output_col, convert_to_row_element(record[output_col]))
         render_list.append(pad_console_element(table))
 
+    # Collect image generation columns (will be displayed at the end)
+    image_columns = config_builder.get_columns_of_type(DataDesignerColumnType.IMAGE)
+    images_to_display_later = []
+    if len(image_columns) > 0:
+        # Check if we're in a notebook to decide display style
+        try:
+            get_ipython()
+            in_notebook = True
+        except NameError:
+            in_notebook = False
+
+        # Create table for image columns
+        table = Table(title="Images", **table_kws)
+        table.add_column("Name")
+        table.add_column("Preview")
+
+        for col in image_columns:
+            if col.drop:
+                continue
+            image_data = record[col.name]
+
+            # Handle list of images
+            if isinstance(image_data, list):
+                previews = []
+                for idx, img in enumerate(image_data):
+                    if is_base64_image(img):
+                        previews.append(f"[{idx}] <base64, {len(img)} chars>")
+                        if in_notebook:
+                            images_to_display_later.append((f"{col.name}[{idx}]", img))
+                    elif is_image_url(img):
+                        previews.append(f"[{idx}] <URL: {img[:30]}...>")
+                        if in_notebook:
+                            images_to_display_later.append((f"{col.name}[{idx}]", img))
+                    elif is_image_path(img):
+                        previews.append(f"[{idx}] <path: {img}>")
+                        if in_notebook:
+                            images_to_display_later.append((f"{col.name}[{idx}]", img))
+                    else:
+                        previews.append(f"[{idx}] {str(img)[:30]}")
+                preview = "\n".join(previews) if previews else "<empty list>"
+            # Handle single image (backwards compatibility)
+            elif is_base64_image(image_data):
+                preview = f"<base64 encoded, {len(image_data)} chars>"
+                if in_notebook:
+                    images_to_display_later.append((col.name, image_data))
+            elif is_image_url(image_data):
+                preview = f"<URL: {image_data[:50]}...>"
+                if in_notebook:
+                    images_to_display_later.append((col.name, image_data))
+            elif is_image_path(image_data):
+                preview = f"<path: {image_data}>"
+                if in_notebook:
+                    images_to_display_later.append((col.name, image_data))
+            else:
+                preview = str(image_data)[:100] + "..." if len(str(image_data)) > 100 else str(image_data)
+
+            table.add_row(col.name, preview)
+
+        render_list.append(pad_console_element(table))
+
     for col in config_builder.get_columns_of_type(DataDesignerColumnType.LLM_CODE):
         panel = Panel(
             Syntax(
@@ -286,6 +417,11 @@ def display_sample_record(
         render_list.append(index_label)
 
     console.print(Group(*render_list), markup=False)
+
+    # Display images at the bottom with captions (only in notebook)
+    if len(images_to_display_later) > 0:
+        for col_name, image_data in images_to_display_later:
+            _display_image_if_in_notebook(image_data, col_name)
 
 
 def get_truncated_list_as_string(long_list: list[Any], max_items: int = 2) -> str:

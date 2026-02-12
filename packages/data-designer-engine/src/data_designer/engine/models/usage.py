@@ -71,14 +71,27 @@ class ToolUsageStats(BaseModel):
         return self
 
 
+class ImageUsageStats(BaseModel):
+    total_images: int = 0
+
+    @property
+    def has_usage(self) -> bool:
+        return self.total_images > 0
+
+    def extend(self, *, images: int) -> None:
+        """Extend stats with generated images count."""
+        self.total_images += images
+
+
 class ModelUsageStats(BaseModel):
     token_usage: TokenUsageStats = TokenUsageStats()
     request_usage: RequestUsageStats = RequestUsageStats()
     tool_usage: ToolUsageStats = ToolUsageStats()
+    image_usage: ImageUsageStats = ImageUsageStats()
 
     @property
     def has_usage(self) -> bool:
-        return self.token_usage.has_usage and self.request_usage.has_usage
+        return self.token_usage.has_usage or self.request_usage.has_usage or self.image_usage.has_usage
 
     def extend(
         self,
@@ -86,6 +99,7 @@ class ModelUsageStats(BaseModel):
         token_usage: TokenUsageStats | None = None,
         request_usage: RequestUsageStats | None = None,
         tool_usage: ToolUsageStats | None = None,
+        image_usage: ImageUsageStats | None = None,
     ) -> None:
         if token_usage is not None:
             self.token_usage.extend(input_tokens=token_usage.input_tokens, output_tokens=token_usage.output_tokens)
@@ -95,9 +109,16 @@ class ModelUsageStats(BaseModel):
             )
         if tool_usage is not None:
             self.tool_usage.merge(tool_usage)
+        if image_usage is not None:
+            self.image_usage.extend(images=image_usage.total_images)
 
     def get_usage_stats(self, *, total_time_elapsed: float) -> dict:
-        exclude = {"tool_usage"} if not self.tool_usage.has_usage else None
+        exclude = set()
+        if not self.tool_usage.has_usage:
+            exclude.add("tool_usage")
+        if not self.image_usage.has_usage:
+            exclude.add("image_usage")
+        exclude = exclude if exclude else None
         return self.model_dump(exclude=exclude) | {
             "tokens_per_second": int(self.token_usage.total_tokens / total_time_elapsed)
             if total_time_elapsed > 0

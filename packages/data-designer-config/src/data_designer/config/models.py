@@ -242,6 +242,7 @@ DistributionT: TypeAlias = UniformDistribution | ManualDistribution
 class GenerationType(str, Enum):
     CHAT_COMPLETION = "chat-completion"
     EMBEDDING = "embedding"
+    IMAGE = "image"
 
 
 class BaseInferenceParams(ConfigBase, ABC):
@@ -421,8 +422,41 @@ class EmbeddingInferenceParams(BaseInferenceParams):
         return result
 
 
+class ImageInferenceParams(BaseInferenceParams):
+    """Configuration for image generation models.
+
+    Works for both diffusion and autoregressive image generation models. Pass all model-specific image options via `extra_body`.
+
+    Attributes:
+        generation_type: Type of generation, always "image" for this class.
+
+    Example:
+        ```python
+        # OpenAI-style (DALL·E): quality and size in extra_body or as top-level kwargs
+        dd.ImageInferenceParams(
+            extra_body={"size": "1024x1024", "quality": "hd"}
+        )
+
+        # Gemini-style: generationConfig.imageConfig
+        dd.ImageInferenceParams(
+            extra_body={
+                "generationConfig": {
+                    "imageConfig": {
+                        "aspectRatio": "1:1",
+                        "imageSize": "1024"
+                    }
+                }
+            }
+        )
+        ```
+    """
+
+    generation_type: Literal[GenerationType.IMAGE] = GenerationType.IMAGE
+
+
 InferenceParamsT: TypeAlias = Annotated[
-    ChatCompletionInferenceParams | EmbeddingInferenceParams, Field(discriminator="generation_type")
+    ChatCompletionInferenceParams | EmbeddingInferenceParams | ImageInferenceParams,
+    Field(discriminator="generation_type"),
 ]
 
 
@@ -454,8 +488,13 @@ class ModelConfig(ConfigBase):
     def _convert_inference_parameters(cls, value: Any) -> Any:
         """Convert raw dict to appropriate inference parameters type based on field presence."""
         if isinstance(value, dict):
-            # Infer type from presence of embedding-specific fields
-            if "encoding_format" in value or "dimensions" in value:
+            # Check for explicit generation_type first
+            gen_type = value.get("generation_type")
+
+            # Infer type from generation_type or field presence
+            if gen_type == "image":
+                return ImageInferenceParams(**value)
+            elif gen_type == "embedding" or "encoding_format" in value or "dimensions" in value:
                 return EmbeddingInferenceParams(**value)
             else:
                 return ChatCompletionInferenceParams(**value)

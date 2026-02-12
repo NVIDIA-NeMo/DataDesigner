@@ -1,7 +1,13 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from data_designer.engine.models.usage import ModelUsageStats, RequestUsageStats, TokenUsageStats, ToolUsageStats
+from data_designer.engine.models.usage import (
+    ImageUsageStats,
+    ModelUsageStats,
+    RequestUsageStats,
+    TokenUsageStats,
+    ToolUsageStats,
+)
 
 
 def test_token_usage_stats() -> None:
@@ -30,6 +36,20 @@ def test_request_usage_stats() -> None:
     assert request_usage_stats.failed_requests == 20
     assert request_usage_stats.total_requests == 30
     assert request_usage_stats.has_usage is True
+
+
+def test_image_usage_stats() -> None:
+    image_usage_stats = ImageUsageStats()
+    assert image_usage_stats.total_images == 0
+    assert image_usage_stats.has_usage is False
+
+    image_usage_stats.extend(images=5)
+    assert image_usage_stats.total_images == 5
+    assert image_usage_stats.has_usage is True
+
+    image_usage_stats.extend(images=3)
+    assert image_usage_stats.total_images == 8
+    assert image_usage_stats.has_usage is True
 
 
 def test_tool_usage_stats_empty_state() -> None:
@@ -132,9 +152,10 @@ def test_model_usage_stats() -> None:
     assert model_usage_stats.token_usage.output_tokens == 0
     assert model_usage_stats.request_usage.successful_requests == 0
     assert model_usage_stats.request_usage.failed_requests == 0
+    assert model_usage_stats.image_usage.total_images == 0
     assert model_usage_stats.has_usage is False
 
-    # tool_usage is excluded when has_usage is False
+    # tool_usage and image_usage are excluded when has_usage is False
     assert model_usage_stats.get_usage_stats(total_time_elapsed=10) == {
         "token_usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
         "request_usage": {"successful_requests": 0, "failed_requests": 0, "total_requests": 0},
@@ -152,7 +173,7 @@ def test_model_usage_stats() -> None:
     assert model_usage_stats.request_usage.failed_requests == 1
     assert model_usage_stats.has_usage is True
 
-    # tool_usage is excluded when has_usage is False
+    # tool_usage and image_usage are excluded when has_usage is False
     assert model_usage_stats.get_usage_stats(total_time_elapsed=2) == {
         "token_usage": {"input_tokens": 10, "output_tokens": 20, "total_tokens": 30},
         "request_usage": {"successful_requests": 2, "failed_requests": 1, "total_requests": 3},
@@ -177,3 +198,58 @@ def test_model_usage_stats_extend_with_tool_usage() -> None:
     assert stats1.tool_usage.total_tool_call_turns == 6
     assert stats1.tool_usage.total_generations == 4
     assert stats1.tool_usage.generations_with_tools == 3
+
+
+def test_model_usage_stats_with_image_usage() -> None:
+    """Test that ModelUsageStats includes image_usage when it has usage."""
+    model_usage_stats = ModelUsageStats()
+    model_usage_stats.extend(
+        token_usage=TokenUsageStats(input_tokens=10, output_tokens=20),
+        request_usage=RequestUsageStats(successful_requests=1, failed_requests=0),
+        image_usage=ImageUsageStats(total_images=5),
+    )
+
+    assert model_usage_stats.image_usage.total_images == 5
+    assert model_usage_stats.image_usage.has_usage is True
+
+    # image_usage should be included in output
+    usage_stats = model_usage_stats.get_usage_stats(total_time_elapsed=2)
+    assert "image_usage" in usage_stats
+    assert usage_stats["image_usage"] == {"total_images": 5}
+
+
+def test_model_usage_stats_has_usage_any_of() -> None:
+    """Test that has_usage is True when any of token, request, or image usage is present."""
+    # Only token usage
+    stats = ModelUsageStats()
+    stats.extend(token_usage=TokenUsageStats(input_tokens=1, output_tokens=0))
+    assert stats.has_usage is True
+
+    # Only request usage (e.g. diffusion API without token counts)
+    stats = ModelUsageStats()
+    stats.extend(request_usage=RequestUsageStats(successful_requests=1, failed_requests=0))
+    assert stats.has_usage is True
+
+    # Only image usage
+    stats = ModelUsageStats()
+    stats.extend(image_usage=ImageUsageStats(total_images=2))
+    assert stats.has_usage is True
+
+    # None of the three
+    stats = ModelUsageStats()
+    assert stats.has_usage is False
+
+
+def test_model_usage_stats_exclude_unused_stats() -> None:
+    """Test that ModelUsageStats excludes tool_usage and image_usage when they have no usage."""
+    model_usage_stats = ModelUsageStats()
+    model_usage_stats.extend(
+        token_usage=TokenUsageStats(input_tokens=10, output_tokens=20),
+        request_usage=RequestUsageStats(successful_requests=1, failed_requests=0),
+    )
+
+    usage_stats = model_usage_stats.get_usage_stats(total_time_elapsed=2)
+    assert "tool_usage" not in usage_stats
+    assert "image_usage" not in usage_stats
+    assert "token_usage" in usage_stats
+    assert "request_usage" in usage_stats

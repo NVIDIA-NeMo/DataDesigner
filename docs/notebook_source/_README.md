@@ -97,6 +97,15 @@ Learn how to use vision-language models to generate text descriptions from image
 - Generating detailed summaries from document images
 - Inspecting and validating vision-based generation results
 
+### [5. Generating Images](5-generating-images.ipynb)
+
+Generate synthetic image data with Data Designer:
+
+- Configuring image-generation models with `ImageInferenceParams`
+- Adding image columns with Jinja2 prompts and sampler-driven diversity
+- Preview (base64 in dataframe) vs create (images saved to disk, paths in dataframe)
+- Displaying generated images in the notebook
+
 ## 📖 Important Documentation Sections
 
 Before diving into the tutorials, familiarize yourself with these key documentation sections:
