@@ -1,6 +1,41 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+"""Async batch execution with bounded concurrency and early-shutdown semantics.
+
+Async counterpart to ``concurrency.py``. Same operational contract (callbacks
+with optional context, error aggregation, shutdown thresholds), different
+runtime model. The sync module runs callables in a ``ThreadPoolExecutor``;
+this module runs coroutines in ``asyncio.TaskGroup`` on a dedicated loop
+thread. Callers stay synchronous.
+
+Architecture:
+    ``AsyncConcurrentExecutor.run()`` is a blocking call that submits
+    coroutines to a shared background event loop via
+    ``run_coroutine_threadsafe``. Bounded concurrency is enforced with an
+    ``asyncio.Semaphore``. Success/error counts use the same
+    ``ExecutorResults`` model as the sync executor.
+
+    Caller Thread ──► run() ──► run_coroutine_threadsafe ──► Background Loop
+                                                              (TaskGroup)
+
+Singleton Event Loop:
+    The background loop is a process-wide singleton. LiteLLM and similar
+    libraries bind internal async state to a specific event loop, so creating
+    per-call or per-instance loops breaks connection reuse and triggers
+    cross-loop errors. ``_ensure_async_engine_loop()`` creates one daemon
+    loop thread and reuses it for all executor instances.
+
+Startup Handshake:
+    Loop creation uses a ``threading.Event`` readiness handshake. The
+    background thread signals readiness via ``loop.call_soon(ready.set)``,
+    and the creating thread holds the lock until that event fires (or a
+    timeout expires). This prevents a race where a second caller could see
+    ``_loop.is_running() == False`` before the first loop has entered
+    ``run_forever()``, which would create a duplicate loop. On timeout,
+    globals are reset and the orphaned loop is cleaned up before raising.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -41,9 +76,12 @@ _loop: asyncio.AbstractEventLoop | None = None
 _thread: threading.Thread | None = None
 _lock = threading.Lock()
 
+_LOOP_READY_TIMEOUT = 5.0  # seconds to wait for the background loop to start
 
-def _run_loop(loop: asyncio.AbstractEventLoop) -> None:
+
+def _run_loop(loop: asyncio.AbstractEventLoop, ready: threading.Event) -> None:
     asyncio.set_event_loop(loop)
+    loop.call_soon(ready.set)
     loop.run_forever()
 
 
@@ -57,9 +95,26 @@ def _ensure_async_engine_loop() -> asyncio.AbstractEventLoop:
     global _loop, _thread
     with _lock:
         if _loop is None or not _loop.is_running():
+            ready = threading.Event()
             _loop = asyncio.new_event_loop()
-            _thread = threading.Thread(target=_run_loop, args=(_loop,), daemon=True, name="AsyncEngine-EventLoop")
+            _thread = threading.Thread(target=_run_loop, args=(_loop, ready), daemon=True, name="AsyncEngine-EventLoop")
             _thread.start()
+            if not ready.wait(timeout=_LOOP_READY_TIMEOUT):
+                orphan_loop = _loop
+                orphan_thread = _thread
+                _loop = None
+                _thread = None
+
+                if orphan_loop is not None:
+                    try:
+                        if orphan_thread is not None and orphan_thread.is_alive():
+                            orphan_loop.call_soon_threadsafe(orphan_loop.stop)
+                        if not orphan_loop.is_running():
+                            orphan_loop.close()
+                    except Exception:
+                        logger.warning("Failed to clean up timed-out AsyncEngine loop startup", exc_info=True)
+
+                raise RuntimeError("AsyncEngine event loop failed to start within timeout")
     return _loop
 
 
