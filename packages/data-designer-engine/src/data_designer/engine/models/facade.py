@@ -407,7 +407,6 @@ class ModelFacade:
         Returns:
             List of base64-encoded image strings
         """
-        kwargs = self.consolidate_kwargs(**kwargs)
         messages = prompt_to_messages(user_prompt=prompt, multi_modal_context=multi_modal_context)
 
         response = None
