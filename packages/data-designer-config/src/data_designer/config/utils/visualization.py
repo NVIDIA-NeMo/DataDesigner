@@ -171,7 +171,7 @@ class WithRecordSamplerMixin:
             processors_to_display: List of processors to display the artifacts for. If None, all processors will be displayed.
             hide_seed_columns: If True, seed columns will not be displayed separately.
         """
-        i = index or self._display_cycle_index
+        i = self._display_cycle_index if index is None else index
 
         try:
             record = self._record_sampler_dataset.iloc[i]
