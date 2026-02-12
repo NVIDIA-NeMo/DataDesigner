@@ -111,6 +111,10 @@ class ModelFacade:
         return self._model_config.alias
 
     @property
+    def max_parallel_requests(self) -> int:
+        return self._model_config.inference_parameters.max_parallel_requests
+
+    @property
     def usage_stats(self) -> ModelUsageStats:
         return self._usage_stats
 
@@ -513,6 +517,7 @@ class ModelFacade:
             model=f"{provider.provider_type}/{model_config.model}",
             api_base=provider.endpoint,
             api_key=api_key,
+            max_parallel_requests=model_config.inference_parameters.max_parallel_requests,
         )
         return {
             "model_name": model_config.model,

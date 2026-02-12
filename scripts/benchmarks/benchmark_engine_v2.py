@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import contextlib
 import hashlib
 import json
@@ -42,6 +43,7 @@ DEFAULT_NUM_RECORDS = 1024
 DEFAULT_BUFFER_SIZE = 1024
 DEFAULT_SEED = 11
 DEFAULT_MAX_PARALLEL_REQUESTS = 16
+DEFAULT_MAX_CONCURRENT_TASKS = 64
 DEFAULT_VALIDATOR_BATCH_SIZE = 256
 DEFAULT_ITERATIONS = 5
 
@@ -66,9 +68,11 @@ class BenchmarkSettings:
     seed: int
     max_parallel_requests: int
     validator_batch_size: int
+    max_concurrent_tasks: int = DEFAULT_MAX_CONCURRENT_TASKS
+    simulated_latency: bool = False
 
     def to_cli_args(self) -> list[str]:
-        return [
+        args = [
             "--num-records",
             str(self.num_records),
             "--buffer-size",
@@ -79,7 +83,12 @@ class BenchmarkSettings:
             str(self.max_parallel_requests),
             "--validator-batch-size",
             str(self.validator_batch_size),
+            "--max-concurrent-tasks",
+            str(self.max_concurrent_tasks),
         ]
+        if self.simulated_latency:
+            args.append("--simulated-latency")
+        return args
 
 
 @dataclass(frozen=True)
@@ -209,6 +218,7 @@ class FakeResponse:
     choices: list[FakeChoice]
     usage: Any | None = None
     model: str | None = None
+    latency_ms: float = 0.0
 
 
 def _distinct_parallel_requests(base: int) -> tuple[int, int, int]:
@@ -327,14 +337,15 @@ def _profile_for_model(model: str) -> ResponseProfile:
     return DEFAULT_PROFILE
 
 
-def _mock_response_text(model: str, messages: list[dict[str, Any]]) -> str:
+def _mock_response_text(model: str, messages: list[dict[str, Any]]) -> tuple[str, float]:
     profile = _profile_for_model(model)
     rng = random.Random(_stable_seed(model, messages))
     category = rng.choices(profile.categories, weights=profile.category_weights, k=1)[0]
     score = rng.lognormvariate(profile.score_mu, profile.score_sigma)
     latency_ms = int(rng.betavariate(profile.latency_alpha, profile.latency_beta) * 900.0)
     volatility = rng.gauss(0.0, profile.volatility_sigma)
-    return f"{profile.label}:{category}|score={score:.3f}|latency_ms={latency_ms}|vol={volatility:.3f}"
+    text = f"{profile.label}:{category}|score={score:.3f}|latency_ms={latency_ms}|vol={volatility:.3f}"
+    return text, float(latency_ms)
 
 
 def _tool_call_id(model: str, messages: list[dict[str, Any]]) -> str:
@@ -385,16 +396,25 @@ def _mock_tool_result(tool_name: str, arguments: dict[str, Any], provider_name: 
 def _fake_response(model: str, messages: list[dict[str, Any]], **kwargs: Any) -> FakeResponse:
     if kwargs.get("tools") and _should_request_tool(messages):
         tool_call = _build_tool_call(model, messages)
+        # Compute latency for tool-call responses using the same profile/seed mechanism.
+        profile = _profile_for_model(model)
+        rng = random.Random(_stable_seed(model, messages))
+        latency_ms = float(int(rng.betavariate(profile.latency_alpha, profile.latency_beta) * 900.0))
         return FakeResponse(
             choices=[FakeChoice(message=FakeMessage(content="Using tool.", tool_calls=[tool_call]))],
             model=model,
+            latency_ms=latency_ms,
         )
-    response_text = _mock_response_text(model, messages)
-    return FakeResponse(choices=[FakeChoice(message=FakeMessage(content=response_text))], model=model)
+    response_text, latency_ms = _mock_response_text(model, messages)
+    return FakeResponse(
+        choices=[FakeChoice(message=FakeMessage(content=response_text))],
+        model=model,
+        latency_ms=latency_ms,
+    )
 
 
 @contextlib.contextmanager
-def _patch_llm_responses() -> Iterator[None]:
+def _patch_llm_responses(*, simulated_latency: bool = False) -> Iterator[None]:
     # Imports are deferred so engine selection respects DATA_DESIGNER_ASYNC_ENGINE.
     from data_designer.engine.models.litellm_overrides import CustomRouter
 
@@ -403,11 +423,17 @@ def _patch_llm_responses() -> Iterator[None]:
 
     def fake_completion(self: Any, model: str, messages: list[dict[str, Any]], **kwargs: Any) -> FakeResponse:
         _ = self
-        return _fake_response(model, messages, **kwargs)
+        response = _fake_response(model, messages, **kwargs)
+        if simulated_latency and response.latency_ms > 0:
+            time.sleep(response.latency_ms / 1000.0)
+        return response
 
     async def fake_acompletion(self: Any, model: str, messages: list[dict[str, Any]], **kwargs: Any) -> FakeResponse:
         _ = self
-        return _fake_response(model, messages, **kwargs)
+        response = _fake_response(model, messages, **kwargs)
+        if simulated_latency and response.latency_ms > 0:
+            await asyncio.sleep(response.latency_ms / 1000.0)
+        return response
 
     CustomRouter.completion = fake_completion
     CustomRouter.acompletion = fake_acompletion
@@ -593,6 +619,7 @@ def _run_single_benchmark(settings: BenchmarkSettings, engine_mode: str) -> Benc
         disable_early_shutdown=True,
         max_conversation_restarts=0,
         max_conversation_correction_steps=0,
+        max_concurrent_tasks=settings.max_concurrent_tasks,
     )
     builder = _build_config(settings)
 
@@ -630,7 +657,7 @@ def _run_single_benchmark(settings: BenchmarkSettings, engine_mode: str) -> Benc
         )
 
         total_start = time.perf_counter()
-        with _patch_llm_responses(), _patch_mcp_io():
+        with _patch_llm_responses(simulated_latency=settings.simulated_latency), _patch_mcp_io():
             build_start = time.perf_counter()
             dataset_builder.build(num_records=settings.num_records)
             build_time = time.perf_counter() - build_start
@@ -733,8 +760,10 @@ def _compare_runs(settings: BenchmarkSettings, iterations: int) -> int:
     build_diff_stats = _compute_stats(build_diffs)
     total_diff_stats = _compute_stats(total_diffs)
 
+    latency_label = "on" if settings.simulated_latency else "off"
     print("\nEngine benchmark summary (95% CI)")
     print(f"- runs: {iterations} | content match: yes | hash {expected_hash}")
+    print(f"- simulated latency: {latency_label}")
     print(f"- build time sync:  {_format_stats(build_sync_stats, unit='s')}")
     print(f"- build time async: {_format_stats(build_async_stats, unit='s')}")
     print(
@@ -787,10 +816,22 @@ def _parse_args() -> argparse.Namespace:
         help="Max parallel LLM requests per model.",
     )
     parser.add_argument(
+        "--max-concurrent-tasks",
+        type=int,
+        default=DEFAULT_MAX_CONCURRENT_TASKS,
+        help="Max in-flight tasks in the async executor (system-level backpressure).",
+    )
+    parser.add_argument(
         "--validator-batch-size",
         type=int,
         default=DEFAULT_VALIDATOR_BATCH_SIZE,
         help="Batch size for the local validator.",
+    )
+    parser.add_argument(
+        "--simulated-latency",
+        action="store_true",
+        default=False,
+        help="Simulate LLM response latency using beta-distributed delays.",
     )
     return parser.parse_args()
 
@@ -803,6 +844,8 @@ def main() -> None:
         seed=args.seed,
         max_parallel_requests=args.max_parallel_requests,
         validator_batch_size=args.validator_batch_size,
+        max_concurrent_tasks=args.max_concurrent_tasks,
+        simulated_latency=args.simulated_latency,
     )
 
     if args.mode == "compare":

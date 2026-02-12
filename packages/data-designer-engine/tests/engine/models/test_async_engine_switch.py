@@ -36,17 +36,18 @@ def test_async_engine_env_controls_builder_execution_path(monkeypatch: pytest.Mo
 
     builder = MagicMock()
     builder._resource_provider.run_config.non_inference_max_parallel_workers = 4
+    builder._resource_provider.run_config.max_concurrent_tasks = 64
 
-    # Test with async enabled
+    # Test with async enabled — uses max_concurrent_tasks from RunConfig
     with patch.object(cwb_module, "DATA_DESIGNER_ASYNC_ENGINE", True):
         ColumnWiseDatasetBuilder._run_cell_by_cell_generator(builder, mock_generator)
-        builder._fan_out_with_async.assert_called_once()
+        builder._fan_out_with_async.assert_called_once_with(mock_generator, max_workers=64)
         builder._fan_out_with_threads.assert_not_called()
 
     builder.reset_mock()
 
-    # Test with async disabled
+    # Test with async disabled — uses max_parallel_requests from generator
     with patch.object(cwb_module, "DATA_DESIGNER_ASYNC_ENGINE", False):
         ColumnWiseDatasetBuilder._run_cell_by_cell_generator(builder, mock_generator)
-        builder._fan_out_with_threads.assert_called_once()
+        builder._fan_out_with_threads.assert_called_once_with(mock_generator, max_workers=4)
         builder._fan_out_with_async.assert_not_called()
