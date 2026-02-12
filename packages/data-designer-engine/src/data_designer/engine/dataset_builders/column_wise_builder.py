@@ -346,7 +346,7 @@ class ColumnWiseDatasetBuilder:
         return callback
 
     def _write_processed_batch(self, dataframe: pd.DataFrame) -> None:
-        self.batch_manager.replace_buffer(dataframe.to_dict(orient="records"))
+        self.batch_manager.replace_buffer(dataframe.to_dict(orient="records"), allow_resize=False)
         self.batch_manager.write()
 
     def _validate_column_configs(self) -> None:
