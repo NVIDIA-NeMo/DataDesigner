@@ -563,9 +563,12 @@ class CustomColumnConfig(SingleColumnConfig):
 
     @model_validator(mode="after")
     def validate_allow_resize_requires_full_column(self) -> Self:
-        if self.allow_resize and self.generation_strategy != GenerationStrategy.FULL_COLUMN:
+        if self.allow_resize and self.generation_strategy not in (
+            GenerationStrategy.FULL_COLUMN,
+            GenerationStrategy.CELL_BY_CELL,
+        ):
             raise InvalidConfigError(
-                f"🛑 `allow_resize=True` requires `generation_strategy='full_column'` for column '{self.name}'. "
-                f"Cell-by-cell strategy processes one row at a time and cannot change record count."
+                f"🛑 `allow_resize=True` requires `generation_strategy` 'full_column' or 'cell_by_cell' "
+                f"for column '{self.name}'."
             )
         return self

@@ -18,7 +18,6 @@ if TYPE_CHECKING:
 
 from data_designer.config.column_configs import CustomColumnConfig, GenerationStrategy
 from data_designer.config.custom_column import custom_column_generator
-from data_designer.config.errors import InvalidConfigError
 from data_designer.engine.column_generators.generators.custom import CustomColumnGenerator
 from data_designer.engine.column_generators.utils.errors import CustomColumnGenerationError
 from data_designer.engine.resources.resource_provider import ResourceProvider
@@ -114,29 +113,21 @@ def test_config_validation_non_callable() -> None:
         CustomColumnConfig(name="test", generator_function="not_a_function")
 
 
-def test_config_validation_allow_resize_requires_full_column() -> None:
-    """Test that allow_resize=True requires generation_strategy=FULL_COLUMN."""
+def test_config_validation_allow_resize_allows_full_column_and_cell_by_cell() -> None:
+    """allow_resize=True is valid with full_column or cell_by_cell."""
 
     @custom_column_generator()
     def dummy_fn(row: dict) -> dict:
         return row
 
-    with pytest.raises(InvalidConfigError, match="allow_resize=True.*requires.*full_column"):
-        CustomColumnConfig(
+    for strategy in (GenerationStrategy.FULL_COLUMN, GenerationStrategy.CELL_BY_CELL):
+        config = CustomColumnConfig(
             name="test",
             generator_function=dummy_fn,
             allow_resize=True,
-            generation_strategy=GenerationStrategy.CELL_BY_CELL,
+            generation_strategy=strategy,
         )
-
-    # Should work with FULL_COLUMN
-    config = CustomColumnConfig(
-        name="test",
-        generator_function=dummy_fn,
-        allow_resize=True,
-        generation_strategy=GenerationStrategy.FULL_COLUMN,
-    )
-    assert config.allow_resize is True
+        assert config.allow_resize is True
 
 
 # Cell-by-cell generation tests
@@ -184,6 +175,83 @@ def test_side_effect_columns() -> None:
 
     assert result["primary"] == 10
     assert result["secondary"] == 15
+
+
+# cell_by_cell allow_resize: dict | list[dict]
+
+
+def test_cell_by_cell_allow_resize_return_dict() -> None:
+    """With allow_resize, returning a single dict (1:1) works like normal cell-by-cell."""
+    config = CustomColumnConfig(
+        name="result",
+        generator_function=generator_with_required_columns,
+        generation_strategy=GenerationStrategy.CELL_BY_CELL,
+        allow_resize=True,
+    )
+    generator = CustomColumnGenerator(config=config, resource_provider=Mock(spec=ResourceProvider))
+    result = generator.generate({"input": "hi"})
+    assert isinstance(result, dict)
+    assert result["result"] == "HI"
+
+
+def test_cell_by_cell_allow_resize_return_list_expand() -> None:
+    """With allow_resize, returning list[dict] expands one row into multiple."""
+
+    @custom_column_generator(required_columns=["x"])
+    def expand(row: dict) -> list[dict]:
+        return [
+            {**row, "out": row["x"] * 1},
+            {**row, "out": row["x"] * 2},
+        ]
+
+    config = CustomColumnConfig(
+        name="out",
+        generator_function=expand,
+        generation_strategy=GenerationStrategy.CELL_BY_CELL,
+        allow_resize=True,
+    )
+    generator = CustomColumnGenerator(config=config, resource_provider=Mock(spec=ResourceProvider))
+    result = generator.generate({"x": 10})
+    assert isinstance(result, list)
+    assert len(result) == 2
+    assert result[0] == {"x": 10, "out": 10}
+    assert result[1] == {"x": 10, "out": 20}
+
+
+def test_cell_by_cell_allow_resize_return_empty_list() -> None:
+    """With allow_resize, returning [] drops that row (0 rows)."""
+
+    @custom_column_generator(required_columns=["x"])
+    def drop(row: dict) -> list[dict]:
+        return []
+
+    config = CustomColumnConfig(
+        name="out",
+        generator_function=drop,
+        generation_strategy=GenerationStrategy.CELL_BY_CELL,
+        allow_resize=True,
+    )
+    generator = CustomColumnGenerator(config=config, resource_provider=Mock(spec=ResourceProvider))
+    result = generator.generate({"x": 1})
+    assert result == []
+
+
+def test_cell_by_cell_allow_resize_invalid_return_type() -> None:
+    """With allow_resize, return must be dict or list[dict]."""
+
+    @custom_column_generator(required_columns=["x"])
+    def bad_return(row: dict):
+        return [1, 2]
+
+    config = CustomColumnConfig(
+        name="out",
+        generator_function=bad_return,
+        generation_strategy=GenerationStrategy.CELL_BY_CELL,
+        allow_resize=True,
+    )
+    generator = CustomColumnGenerator(config=config, resource_provider=Mock(spec=ResourceProvider))
+    with pytest.raises(CustomColumnGenerationError, match="list elements must be dicts"):
+        generator.generate({"x": 1})
 
 
 # Error handling tests

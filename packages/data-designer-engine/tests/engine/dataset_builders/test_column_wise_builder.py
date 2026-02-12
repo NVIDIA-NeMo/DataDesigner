@@ -565,36 +565,72 @@ def test_process_preview_with_empty_dataframe(simple_builder):
 
 
 # allow_resize integration tests
+#
+# Factories and keep_first stub; _RESIZE_SPECS calls factories inline (n, col names).
 
 
-@custom_column_generator(required_columns=["seed_id"], side_effect_columns=["copy"])
-def _expand_x3(df: pd.DataFrame) -> pd.DataFrame:
-    """Triple each row."""
-    rows = []
-    for _, row in df.iterrows():
-        for i in range(3):
-            rows.append({**row.to_dict(), "expanded": f"{row['seed_id']}_v{i}", "copy": i})
-    return pd.DataFrame(rows)
+def _make_resize_full_expand(n: int, primary_col: str, side_effect_col: str):
+    @custom_column_generator(required_columns=["seed_id"], side_effect_columns=[side_effect_col])
+    def fn(df: pd.DataFrame) -> pd.DataFrame:
+        rows = []
+        for _, row in df.iterrows():
+            for i in range(n):
+                rows.append({**row.to_dict(), primary_col: f"{row['seed_id']}_v{i}", side_effect_col: i})
+        return pd.DataFrame(rows)
+
+    return fn
+
+
+def _make_resize_cell_expand(n: int, col_name: str):
+    suffixes = tuple("abcdefgh"[:n])
+
+    @custom_column_generator(required_columns=["seed_id"])
+    def fn(row: dict) -> list[dict]:
+        return [{**row, col_name: f"{row['seed_id']}_{s}"} for s in suffixes]
+
+    return fn
 
 
 @custom_column_generator(required_columns=["seed_id"])
-def _keep_first(df: pd.DataFrame) -> pd.DataFrame:
-    """Keep only first row per seed_id (retraction)."""
+def _resize_full_keep_first(df: pd.DataFrame) -> pd.DataFrame:
+    """FULL_COLUMN: keep first row per seed_id (retraction)."""
     return df.drop_duplicates(subset="seed_id").assign(filtered=True)
 
 
-@custom_column_generator(required_columns=["seed_id"], side_effect_columns=["copy2"])
-def _expand_x3_again(df: pd.DataFrame) -> pd.DataFrame:
-    """Triple each row (second expansion)."""
-    rows = []
-    for _, row in df.iterrows():
-        for i in range(3):
-            rows.append({**row.to_dict(), "expanded_again": f"{row['seed_id']}_w{i}", "copy2": i})
-    return pd.DataFrame(rows)
+FULL = GenerationStrategy.FULL_COLUMN
+CELL = GenerationStrategy.CELL_BY_CELL
+
+_RESIZE_SPECS: dict[str, list[tuple[str, object, GenerationStrategy]]] = {
+    "single_full_x3": [("expanded", _make_resize_full_expand(3, "expanded", "copy"), FULL)],
+    "single_cell_x2": [("doubled", _make_resize_cell_expand(2, "doubled"), CELL)],
+    "full_chain": [
+        ("expanded", _make_resize_full_expand(3, "expanded", "copy"), FULL),
+        ("filtered", _resize_full_keep_first, FULL),
+        ("expanded_again", _make_resize_full_expand(3, "expanded_again", "copy2"), FULL),
+    ],
+    "cell_then_full_chain": [
+        ("doubled", _make_resize_cell_expand(2, "doubled"), CELL),
+        ("filtered", _resize_full_keep_first, FULL),
+        ("expanded_again", _make_resize_full_expand(3, "expanded_again", "copy2"), FULL),
+    ],
+}
+
+
+def _resize_columns(spec: str) -> list[CustomColumnConfig]:
+    """Return column configs for a given allow_resize recipe."""
+    return [
+        CustomColumnConfig(
+            name=name,
+            generator_function=fn,
+            generation_strategy=strat,
+            allow_resize=True,
+        )
+        for name, fn, strat in _RESIZE_SPECS[spec]
+    ]
 
 
 def _build_resize_builder(stub_resource_provider, stub_model_configs, seed_data_setup, columns):
-    """Helper to build a ColumnWiseDatasetBuilder with resize custom columns."""
+    """Build a ColumnWiseDatasetBuilder with the given resize column configs."""
     config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
     config_builder.with_seed_dataset(LocalFileSeedSource(path=str(seed_data_setup["seed_path"])))
     for col in columns:
@@ -605,55 +641,63 @@ def _build_resize_builder(stub_resource_provider, stub_model_configs, seed_data_
     )
 
 
-def test_chained_expand_retract_expand(stub_resource_provider, stub_model_configs, seed_data_setup):
-    """Expand -> retract -> expand chains correctly in a single batch."""
-    builder = _build_resize_builder(
-        stub_resource_provider,
-        stub_model_configs,
-        seed_data_setup,
-        [
-            CustomColumnConfig(
-                name="expanded",
-                generator_function=_expand_x3,
-                generation_strategy=GenerationStrategy.FULL_COLUMN,
-                allow_resize=True,
-            ),
-            CustomColumnConfig(
-                name="filtered",
-                generator_function=_keep_first,
-                generation_strategy=GenerationStrategy.FULL_COLUMN,
-                allow_resize=True,
-            ),
-            CustomColumnConfig(
-                name="expanded_again",
-                generator_function=_expand_x3_again,
-                generation_strategy=GenerationStrategy.FULL_COLUMN,
-                allow_resize=True,
-            ),
-        ],
-    )
-    # 5 seeds -> 15 (x3) -> 5 (dedup) -> 15 (x3)
-    result = builder.build_preview(num_records=5)
-    assert len(result) == 15
+@pytest.mark.parametrize(
+    "spec,num_records,expected_len,check_doubled_order",
+    [
+        ("single_full_x3", 5, 15, False),
+        ("single_cell_x2", 5, 10, True),
+        ("full_chain", 5, 15, False),
+        ("cell_then_full_chain", 5, 15, False),
+    ],
+    ids=["single_full_x3", "single_cell_x2", "full_chain", "cell_then_full_chain"],
+)
+def test_allow_resize_preview(
+    stub_resource_provider,
+    stub_model_configs,
+    seed_data_setup,
+    spec,
+    num_records,
+    expected_len,
+    check_doubled_order,
+):
+    """Preview with allow_resize columns (FULL_COLUMN and/or CELL_BY_CELL) yields expected length."""
+    columns = _resize_columns(spec)
+    builder = _build_resize_builder(stub_resource_provider, stub_model_configs, seed_data_setup, columns)
+    result = builder.build_preview(num_records=num_records)
+    assert len(result) == expected_len
+    if check_doubled_order:
+        expected = [x for i in range(1, 6) for x in (f"{i}_a", f"{i}_b")]
+        assert result["doubled"].tolist() == expected
 
 
-def test_resize_across_multiple_batches(stub_resource_provider, stub_model_configs, seed_data_setup):
-    """Resized batches are written independently and combine correctly."""
-    stub_resource_provider.run_config = RunConfig(buffer_size=2)
-    builder = _build_resize_builder(
-        stub_resource_provider,
-        stub_model_configs,
-        seed_data_setup,
-        [
-            CustomColumnConfig(
-                name="expanded",
-                generator_function=_expand_x3,
-                generation_strategy=GenerationStrategy.FULL_COLUMN,
-                allow_resize=True,
-            ),
-        ],
-    )
-    # 5 seeds, buffer_size=2 -> batches of [2, 2, 1], each x3 -> [6, 6, 3] = 15 total
-    builder.build(num_records=5)
+@pytest.mark.parametrize(
+    "spec,num_records,buffer_size,expected_total_rows",
+    [
+        ("single_full_x3", 5, 2, 15),  # batches [2,2,1] -> each x3 -> 6+6+3
+        ("single_cell_x2", 5, 2, 10),  # batches [2,2,1] -> each x2 -> 4+4+2
+        ("full_chain", 5, 2, 15),  # batches [2,2,1] -> x3, dedup, x3 -> 15
+        ("single_full_x3", 4, 2, 12),  # batches [2,2] -> 6+6
+    ],
+    ids=[
+        "single_full_x3_multibatch",
+        "single_cell_x2_multibatch",
+        "full_chain_multibatch",
+        "single_full_x3_4_2_multibatch",
+    ],
+)
+def test_allow_resize_multiple_batches(
+    stub_resource_provider,
+    stub_model_configs,
+    seed_data_setup,
+    spec,
+    num_records,
+    buffer_size,
+    expected_total_rows,
+):
+    """Resized batches are written independently and combine to expected total rows."""
+    stub_resource_provider.run_config = RunConfig(buffer_size=buffer_size)
+    columns = _resize_columns(spec)
+    builder = _build_resize_builder(stub_resource_provider, stub_model_configs, seed_data_setup, columns)
+    builder.build(num_records=num_records)
     df = pd.read_parquet(builder.artifact_storage.final_dataset_path)
-    assert len(df) == 15
+    assert len(df) == expected_total_rows

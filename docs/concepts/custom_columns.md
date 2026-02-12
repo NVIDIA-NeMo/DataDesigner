@@ -93,11 +93,11 @@ This gives you direct access to all `ModelFacade` capabilities: custom parsers, 
 | `generator_function` | Callable | Yes | Decorated function |
 | `generation_strategy` | GenerationStrategy | No | `CELL_BY_CELL` or `FULL_COLUMN` |
 | `generator_params` | BaseModel | No | Typed params passed to function |
-| `allow_resize` | bool | No | Allow 1:N or N:1 generation. Requires `FULL_COLUMN` strategy |
+| `allow_resize` | bool | No | Allow 1:N or N:1 generation |
 
 ### Resizing (1:N and N:1)
 
-With `full_column` strategy, you can produce more or fewer records than the input using `allow_resize=True`:
+**FULL_COLUMN:** Set `allow_resize=True` and return a DataFrame with more or fewer rows than the input:
 
 ```python
 @dd.custom_column_generator(
@@ -123,10 +123,28 @@ dd.CustomColumnConfig(
 )
 ```
 
+**CELL_BY_CELL:** With `allow_resize=True`, your function may return a single row (`dict`) or multiple rows (`list[dict]`). Return `[]` to drop that input row.
+
+```python
+@dd.custom_column_generator(required_columns=["id"])
+def expand_row(row: dict) -> list[dict]:
+    return [
+        {**row, "variant": "a"},
+        {**row, "variant": "b"},
+    ]
+
+dd.CustomColumnConfig(
+    name="variant",
+    generator_function=expand_row,
+    generation_strategy=dd.GenerationStrategy.CELL_BY_CELL,
+    allow_resize=True,
+)
+```
+
 Use cases:
 
 - **Expansion (1:N)**: Generate multiple variations per input
-- **Retraction (N:1)**: Filter, aggregate, or deduplicate records
+- **Retraction (N:1)**: Filter, aggregate, or deduplicate records (FULL_COLUMN) or return `[]` per row (CELL_BY_CELL)
 
 ## Multi-Turn Example
 
