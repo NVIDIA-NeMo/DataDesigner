@@ -485,6 +485,59 @@ class EmbeddingColumnConfig(SingleColumnConfig):
         return []
 
 
+class ImageColumnConfig(SingleColumnConfig):
+    """Configuration for image generation columns.
+
+    Image columns generate images using either autoregressive or diffusion models.
+    The API used is automatically determined based on the model name:
+
+    Attributes:
+        prompt: Prompt template for image generation. Supports Jinja2 templating to
+            reference other columns (e.g., "Generate an image of a {{ character_name }}").
+            Must be a valid Jinja2 template.
+        model_alias: The model to use for image generation.
+        multi_modal_context: Optional list of image contexts for multi-modal generation.
+            Enables autoregressive multi-modal models to generate images based on image inputs.
+            Only works with autoregressive models that support image-to-image generation.
+        column_type: Discriminator field, always "image" for this configuration type.
+    """
+
+    prompt: str
+    model_alias: str
+    multi_modal_context: list[ImageContext] | None = None
+    column_type: Literal["image"] = "image"
+
+    @staticmethod
+    def get_column_emoji() -> str:
+        return "🖼️"
+
+    @property
+    def required_columns(self) -> list[str]:
+        """Get columns referenced in the prompt template.
+
+        Returns:
+            List of unique column names referenced in Jinja2 templates.
+        """
+        return list(extract_keywords_from_jinja2_template(self.prompt))
+
+    @model_validator(mode="after")
+    def assert_prompt_valid_jinja(self) -> Self:
+        """Validate that prompt is a valid Jinja2 template.
+
+        Returns:
+            The validated instance.
+
+        Raises:
+            InvalidConfigError: If prompt contains invalid Jinja2 syntax.
+        """
+        assert_valid_jinja2_template(self.prompt)
+        return self
+
+    @property
+    def side_effect_columns(self) -> list[str]:
+        return []
+
+
 class CustomColumnConfig(SingleColumnConfig):
     """Configuration for custom user-defined column generators.
 

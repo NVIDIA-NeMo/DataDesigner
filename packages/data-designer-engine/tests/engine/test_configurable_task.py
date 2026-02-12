@@ -10,9 +10,9 @@ import pytest
 
 from data_designer.config.base import ConfigBase
 from data_designer.engine.configurable_task import ConfigurableTask, DataT, TaskConfigT
-from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.engine.models.registry import ModelRegistry
 from data_designer.engine.resources.resource_provider import ResourceProvider
+from data_designer.engine.storage.artifact_storage import ArtifactStorage
 from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
@@ -25,7 +25,7 @@ def test_configurable_task_generic_type_variables() -> None:
     assert TaskConfigT.__bound__ == ConfigBase
 
 
-def test_configurable_task_concrete_implementation() -> None:
+def test_configurable_task_concrete_implementation(tmp_path) -> None:
     class TestConfig(ConfigBase):
         value: str
 
@@ -41,13 +41,8 @@ def test_configurable_task_concrete_implementation() -> None:
             pass
 
     config = TestConfig(value="test")
-    mock_artifact_storage = Mock(spec=ArtifactStorage)
-    mock_artifact_storage.dataset_name = "test_dataset"
-    mock_artifact_storage.final_dataset_folder_name = "final_dataset"
-    mock_artifact_storage.partial_results_folder_name = "partial_results"
-    mock_artifact_storage.dropped_columns_folder_name = "dropped_columns"
-    mock_artifact_storage.processors_outputs_folder_name = "processors_outputs"
-    resource_provider = ResourceProvider(artifact_storage=mock_artifact_storage)
+    artifact_storage = ArtifactStorage(artifact_path=tmp_path)
+    resource_provider = ResourceProvider(artifact_storage=artifact_storage)
 
     task = TestTask(config=config, resource_provider=resource_provider)
 
@@ -55,7 +50,7 @@ def test_configurable_task_concrete_implementation() -> None:
     assert task._resource_provider == resource_provider
 
 
-def test_configurable_task_config_validation() -> None:
+def test_configurable_task_config_validation(tmp_path) -> None:
     class TestConfig(ConfigBase):
         value: str
 
@@ -69,13 +64,8 @@ def test_configurable_task_config_validation() -> None:
                 raise ValueError("Invalid config")
 
     config = TestConfig(value="test")
-    mock_artifact_storage = Mock(spec=ArtifactStorage)
-    mock_artifact_storage.dataset_name = "test_dataset"
-    mock_artifact_storage.final_dataset_folder_name = "final_dataset"
-    mock_artifact_storage.partial_results_folder_name = "partial_results"
-    mock_artifact_storage.dropped_columns_folder_name = "dropped_columns"
-    mock_artifact_storage.processors_outputs_folder_name = "processors_outputs"
-    resource_provider = ResourceProvider(artifact_storage=mock_artifact_storage)
+    artifact_storage = ArtifactStorage(artifact_path=tmp_path)
+    resource_provider = ResourceProvider(artifact_storage=artifact_storage)
 
     task = TestTask(config=config, resource_provider=resource_provider)
     assert task._config.value == "test"
@@ -85,7 +75,7 @@ def test_configurable_task_config_validation() -> None:
         TestTask(config=invalid_config, resource_provider=resource_provider)
 
 
-def test_configurable_task_resource_validation() -> None:
+def test_configurable_task_resource_validation(tmp_path) -> None:
     class TestConfig(ConfigBase):
         value: str
 
@@ -102,14 +92,9 @@ def test_configurable_task_resource_validation() -> None:
 
     config = TestConfig(value="test")
 
-    mock_artifact_storage = Mock(spec=ArtifactStorage)
-    mock_artifact_storage.dataset_name = "test_dataset"
-    mock_artifact_storage.final_dataset_folder_name = "final_dataset"
-    mock_artifact_storage.partial_results_folder_name = "partial_results"
-    mock_artifact_storage.dropped_columns_folder_name = "dropped_columns"
-    mock_artifact_storage.processors_outputs_folder_name = "processors_outputs"
+    artifact_storage = ArtifactStorage(artifact_path=tmp_path)
     mock_model_registry = Mock(spec=ModelRegistry)
-    resource_provider = ResourceProvider(artifact_storage=mock_artifact_storage, model_registry=mock_model_registry)
+    resource_provider = ResourceProvider(artifact_storage=artifact_storage, model_registry=mock_model_registry)
     task = TestTask(config=config, resource_provider=resource_provider)
     assert task._resource_provider == resource_provider
 

@@ -23,6 +23,7 @@ def column_type_used_in_execution_dag(column_type: str | DataDesignerColumnType)
         DataDesignerColumnType.LLM_TEXT,
         DataDesignerColumnType.VALIDATION,
         DataDesignerColumnType.EMBEDDING,
+        DataDesignerColumnType.IMAGE,
     }
     dag_column_types.update(plugin_manager.get_plugin_column_types(DataDesignerColumnType))
     return column_type in dag_column_types
@@ -37,6 +38,7 @@ def column_type_is_model_generated(column_type: str | DataDesignerColumnType) ->
         DataDesignerColumnType.LLM_STRUCTURED,
         DataDesignerColumnType.LLM_JUDGE,
         DataDesignerColumnType.EMBEDDING,
+        DataDesignerColumnType.IMAGE,
     }
     for plugin in plugin_manager.get_column_generator_plugins():
         if issubclass(plugin.impl_cls, ColumnGeneratorWithModelRegistry):

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
 from data_designer.config.column_configs import CustomColumnConfig
-from data_designer.config.column_types import ColumnConfigT
+from data_designer.config.column_types import ColumnConfigT, DataDesignerColumnType
 from data_designer.config.config_builder import BuilderConfig
 from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.processors import (
@@ -27,7 +27,6 @@ from data_designer.engine.column_generators.generators.base import (
 )
 from data_designer.engine.column_generators.utils.generator_classification import column_type_is_model_generated
 from data_designer.engine.compiler import compile_data_designer_config
-from data_designer.engine.dataset_builders.artifact_storage import SDG_CONFIG_FILENAME, ArtifactStorage
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 from data_designer.engine.dataset_builders.multi_column_configs import MultiColumnConfig
 from data_designer.engine.dataset_builders.utils.concurrency import ConcurrentThreadExecutor
@@ -40,6 +39,8 @@ from data_designer.engine.processing.processors.base import Processor
 from data_designer.engine.processing.processors.drop_columns import DropColumnsProcessor
 from data_designer.engine.registry.data_designer_registry import DataDesignerRegistry
 from data_designer.engine.resources.resource_provider import ResourceProvider
+from data_designer.engine.storage.artifact_storage import SDG_CONFIG_FILENAME, ArtifactStorage
+from data_designer.engine.storage.media_storage import StorageMode
 from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
@@ -110,10 +111,29 @@ class ColumnWiseDatasetBuilder:
         *,
         num_records: int,
         on_batch_complete: Callable[[Path], None] | None = None,
+        save_multimedia_to_disk: bool = True,
     ) -> Path:
+        """Build the dataset.
+
+        Args:
+            num_records: Number of records to generate.
+            on_batch_complete: Optional callback function called when each batch completes.
+            save_multimedia_to_disk: Whether to save generated multimedia (images, audio, video) to disk.
+                If False, multimedia is stored directly in the DataFrame (e.g., images as base64).
+                Default is True.
+
+        Returns:
+            Path to the generated dataset directory.
+        """
         self._run_model_health_check_if_needed()
         self._run_mcp_tool_check_if_needed()
         self._write_builder_config()
+
+        # Set media storage mode based on parameters
+        if self._has_image_columns():
+            mode = StorageMode.DISK if save_multimedia_to_disk else StorageMode.DATAFRAME
+            self.artifact_storage.set_media_storage_mode(mode)
+
         generators = self._initialize_generators()
         start_time = time.perf_counter()
         group_id = uuid.uuid4().hex
@@ -140,6 +160,10 @@ class ColumnWiseDatasetBuilder:
         self._run_model_health_check_if_needed()
         self._run_mcp_tool_check_if_needed()
 
+        # Set media storage to DATAFRAME mode for preview - base64 stored directly in DataFrame
+        if self._has_image_columns():
+            self.artifact_storage.set_media_storage_mode(StorageMode.DATAFRAME)
+
         generators = self._initialize_generators()
         group_id = uuid.uuid4().hex
         start_time = time.perf_counter()
@@ -155,6 +179,10 @@ class ColumnWiseDatasetBuilder:
     def process_preview(self, dataset: pd.DataFrame) -> pd.DataFrame:
         df = self._processor_runner.run_post_batch(dataset.copy(), current_batch_number=None)
         return self._processor_runner.run_after_generation_on_df(df)
+
+    def _has_image_columns(self) -> bool:
+        """Check if config has any image generation columns."""
+        return any(col.column_type == DataDesignerColumnType.IMAGE for col in self.single_column_configs)
 
     def _initialize_generators(self) -> list[ColumnGenerator]:
         return [
@@ -328,6 +356,7 @@ class ColumnWiseDatasetBuilder:
             self._cell_resize_mode = False
             self._cell_resize_results = []
         elif len(self._records_to_drop) > 0:
+            self._cleanup_dropped_record_images(self._records_to_drop)
             self.batch_manager.drop_records(self._records_to_drop)
             self._records_to_drop.clear()
 
@@ -390,6 +419,30 @@ class ColumnWiseDatasetBuilder:
             )
 
         return processors
+
+    def _cleanup_dropped_record_images(self, dropped_indices: set[int]) -> None:
+        """Remove saved image files for records that will be dropped.
+
+        When a record fails during generation, any images already saved to disk
+        for that record in previous columns become dangling. This method deletes
+        those files so they don't accumulate.
+        """
+        media_storage = self.artifact_storage.media_storage
+        if not self._has_image_columns() or media_storage is None or media_storage.mode != StorageMode.DISK:
+            return
+
+        image_col_names = [
+            col.name for col in self.single_column_configs if col.column_type == DataDesignerColumnType.IMAGE
+        ]
+
+        buffer = self.batch_manager.get_current_batch(as_dataframe=False)
+        for idx in dropped_indices:
+            if idx < 0 or idx >= len(buffer):
+                continue
+            for col_name in image_col_names:
+                paths = buffer[idx].get(col_name, [])
+                for path in [paths] if isinstance(paths, str) else paths:
+                    media_storage.delete_image(path)
 
     def _worker_error_callback(self, exc: Exception, *, context: dict | None = None) -> None:
         """If a worker fails, we can handle the exception here."""

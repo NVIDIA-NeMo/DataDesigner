@@ -11,8 +11,8 @@ from unittest.mock import patch
 import pytest
 from pyarrow import ArrowNotImplementedError
 
-from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage, BatchStage
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
+from data_designer.engine.storage.artifact_storage import ArtifactStorage, BatchStage
 from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
@@ -201,7 +201,7 @@ def test_artifact_storage_batch_numbering(stub_artifact_storage, batch_number):
     assert path.name == expected_name
 
 
-@patch("data_designer.engine.dataset_builders.artifact_storage.datetime")
+@patch("data_designer.engine.storage.artifact_storage.datetime")
 def test_artifact_storage_resolved_dataset_name(mock_datetime, tmp_path):
     mock_datetime.now.return_value = datetime(2025, 1, 1, 12, 3, 4)
 
@@ -213,10 +213,11 @@ def test_artifact_storage_resolved_dataset_name(mock_datetime, tmp_path):
     (af_storage.artifact_path / af_storage.dataset_name).mkdir()
     assert af_storage.resolved_dataset_name == "dataset"
 
-    # dataset path exists and is not empty
+    # dataset path exists and is not empty (create file BEFORE constructing ArtifactStorage)
+    dataset_dir = tmp_path / "dataset"
+    dataset_dir.mkdir(exist_ok=True)
+    (dataset_dir / "stub_file.txt").touch()
     af_storage = ArtifactStorage(artifact_path=tmp_path)
-    (af_storage.artifact_path / af_storage.dataset_name / "stub_file.txt").touch()
-    print(af_storage.resolved_dataset_name)
     assert af_storage.resolved_dataset_name == "dataset_01-01-2025_120304"
 
 

@@ -299,3 +299,5 @@ analysis.to_report()
 # - Combine vision-based summaries with other column types for multi-modal workflows
 # - Apply this pattern to other vision tasks like image captioning, OCR validation, or visual question answering
 #
+# - [Generating images](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/5-generating-images/) with Data Designer
+#

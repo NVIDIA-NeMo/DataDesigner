@@ -120,6 +120,10 @@ class ModelRegistry:
                     f"turns={tool_usage['total_tool_call_turns']}"
                 )
 
+            if image_usage := stats.get("image_usage"):
+                total_images = image_usage["total_images"]
+                logger.info(f"{LOG_INDENT}images: total={total_images}")
+
             if model_index < len(sorted_model_names) - 1:
                 logger.info(LOG_INDENT.rstrip())
 
@@ -180,6 +184,12 @@ class ModelRegistry:
                         system_prompt="You are a helpful assistant.",
                         max_correction_steps=0,
                         max_conversation_restarts=0,
+                        skip_usage_tracking=True,
+                        purpose="running health checks",
+                    )
+                elif model.model_generation_type == GenerationType.IMAGE:
+                    model.generate_image(
+                        prompt="Generate a simple illustration of a thumbs up sign.",
                         skip_usage_tracking=True,
                         purpose="running health checks",
                     )

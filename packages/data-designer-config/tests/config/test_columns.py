@@ -53,6 +53,7 @@ def test_data_designer_column_type_get_display_order():
         DataDesignerColumnType.LLM_STRUCTURED,
         DataDesignerColumnType.LLM_JUDGE,
         DataDesignerColumnType.EMBEDDING,
+        DataDesignerColumnType.IMAGE,
         DataDesignerColumnType.VALIDATION,
         DataDesignerColumnType.EXPRESSION,
         DataDesignerColumnType.CUSTOM,

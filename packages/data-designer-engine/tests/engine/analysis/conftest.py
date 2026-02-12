@@ -23,10 +23,10 @@ from data_designer.engine.analysis.dataset_profiler import (
     DatasetProfilerConfig,
 )
 from data_designer.engine.analysis.utils.judge_score_processing import JudgeScoreDistributions
-from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.engine.models.registry import ModelRegistry
 from data_designer.engine.registry.data_designer_registry import DataDesignerRegistry
 from data_designer.engine.resources.resource_provider import ResourceProvider
+from data_designer.engine.storage.artifact_storage import ArtifactStorage
 from data_designer.lazy_heavy_imports import pa, pd
 
 if TYPE_CHECKING:

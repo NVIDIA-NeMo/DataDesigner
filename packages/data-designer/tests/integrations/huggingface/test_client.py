@@ -462,6 +462,76 @@ def test_validate_dataset_path_invalid_builder_config_json(tmp_path: Path) -> No
         client.upload_dataset("test/dataset", base_path, "Test")
 
 
+def test_upload_dataset_uploads_images_folder(
+    mock_hf_api: MagicMock, mock_dataset_card: MagicMock, sample_dataset_path: Path
+) -> None:
+    """Test that upload_dataset uploads images when images folder exists with subfolders."""
+    # Create images directory with column subfolders (matches MediaStorage structure)
+    images_dir = sample_dataset_path / "images"
+    col_dir = images_dir / "my_image_column"
+    col_dir.mkdir(parents=True)
+    (col_dir / "uuid1.png").write_bytes(b"fake png data")
+    (col_dir / "uuid2.png").write_bytes(b"fake png data")
+
+    client = HuggingFaceHubClient(token="test-token")
+    client.upload_dataset(repo_id="test/dataset", base_dataset_path=sample_dataset_path, description="Test dataset")
+
+    # Check that upload_folder was called for images
+    image_calls = [call for call in mock_hf_api.upload_folder.call_args_list if call.kwargs["path_in_repo"] == "images"]
+    assert len(image_calls) == 1
+    assert image_calls[0].kwargs["folder_path"] == str(images_dir)
+    assert image_calls[0].kwargs["repo_type"] == "dataset"
+
+
+def test_upload_dataset_skips_images_when_folder_missing(
+    mock_hf_api: MagicMock, mock_dataset_card: MagicMock, sample_dataset_path: Path
+) -> None:
+    """Test that upload_dataset skips images upload when images folder doesn't exist."""
+    # sample_dataset_path has no images/ directory by default
+    client = HuggingFaceHubClient(token="test-token")
+    client.upload_dataset(repo_id="test/dataset", base_dataset_path=sample_dataset_path, description="Test dataset")
+
+    # No upload_folder call should target "images"
+    image_calls = [call for call in mock_hf_api.upload_folder.call_args_list if call.kwargs["path_in_repo"] == "images"]
+    assert len(image_calls) == 0
+
+
+def test_upload_dataset_skips_images_when_folder_empty(
+    mock_hf_api: MagicMock, mock_dataset_card: MagicMock, sample_dataset_path: Path
+) -> None:
+    """Test that upload_dataset skips images upload when images folder exists but is empty."""
+    images_dir = sample_dataset_path / "images"
+    images_dir.mkdir()
+
+    client = HuggingFaceHubClient(token="test-token")
+    client.upload_dataset(repo_id="test/dataset", base_dataset_path=sample_dataset_path, description="Test dataset")
+
+    image_calls = [call for call in mock_hf_api.upload_folder.call_args_list if call.kwargs["path_in_repo"] == "images"]
+    assert len(image_calls) == 0
+
+
+def test_upload_dataset_images_upload_failure(
+    mock_hf_api: MagicMock, mock_dataset_card: MagicMock, sample_dataset_path: Path
+) -> None:
+    """Test that upload_dataset raises error when images upload fails."""
+    # Create images directory with a file
+    images_dir = sample_dataset_path / "images"
+    col_dir = images_dir / "col"
+    col_dir.mkdir(parents=True)
+    (col_dir / "img.png").write_bytes(b"fake")
+
+    # Make upload_folder fail only for images
+    def failing_upload_folder(**kwargs):
+        if kwargs.get("path_in_repo") == "images":
+            raise Exception("Network error")
+
+    mock_hf_api.upload_folder.side_effect = failing_upload_folder
+
+    client = HuggingFaceHubClient(token="test-token")
+    with pytest.raises(HuggingFaceHubClientUploadError, match="Failed to upload images"):
+        client.upload_dataset(repo_id="test/dataset", base_dataset_path=sample_dataset_path, description="Test dataset")
+
+
 def test_upload_dataset_invalid_repo_id(mock_hf_api: MagicMock, sample_dataset_path: Path) -> None:
     """Test upload_dataset fails with invalid repo_id."""
     client = HuggingFaceHubClient(token="test-token")

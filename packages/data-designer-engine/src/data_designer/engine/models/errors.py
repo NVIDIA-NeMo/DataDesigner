@@ -83,6 +83,9 @@ class ModelStructuredOutputError(DataDesignerError): ...
 class ModelGenerationValidationFailureError(DataDesignerError): ...
 
 
+class ImageGenerationError(DataDesignerError): ...
+
+
 class FormattedLLMErrorMessage(BaseModel):
     cause: str
     solution: str

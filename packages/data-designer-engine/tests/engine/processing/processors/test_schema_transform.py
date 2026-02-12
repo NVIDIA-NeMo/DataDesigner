@@ -10,9 +10,9 @@ from unittest.mock import Mock
 import pytest
 
 from data_designer.config.processors import SchemaTransformProcessorConfig
-from data_designer.engine.dataset_builders.artifact_storage import BatchStage
 from data_designer.engine.processing.processors.schema_transform import SchemaTransformProcessor
 from data_designer.engine.resources.resource_provider import ResourceProvider
+from data_designer.engine.storage.artifact_storage import BatchStage
 from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:

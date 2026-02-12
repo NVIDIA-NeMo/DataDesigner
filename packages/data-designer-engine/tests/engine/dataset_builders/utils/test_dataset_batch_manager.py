@@ -9,9 +9,9 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from data_designer.engine.dataset_builders.artifact_storage import BatchStage
 from data_designer.engine.dataset_builders.utils.dataset_batch_manager import DatasetBatchManager
 from data_designer.engine.dataset_builders.utils.errors import DatasetBatchManagementError
+from data_designer.engine.storage.artifact_storage import BatchStage
 from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:

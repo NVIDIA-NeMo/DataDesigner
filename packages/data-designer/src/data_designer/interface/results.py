@@ -10,8 +10,8 @@ from data_designer.config.analysis.dataset_profiler import DatasetProfilerResult
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.dataset_metadata import DatasetMetadata
 from data_designer.config.utils.visualization import WithRecordSamplerMixin
-from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
+from data_designer.engine.storage.artifact_storage import ArtifactStorage
 from data_designer.integrations.huggingface.client import HuggingFaceHubClient
 from data_designer.lazy_heavy_imports import pd
 
