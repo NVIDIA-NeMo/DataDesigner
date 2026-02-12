@@ -12,7 +12,6 @@ from data_designer.config.column_configs import (
     Score,
     ValidationColumnConfig,
 )
-from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.models import ImageContext, ModalityDataType
 from data_designer.config.processors import (
     DropColumnsProcessorConfig,
@@ -104,12 +103,10 @@ PROCESSOR_CONFIGS = [
     DropColumnsProcessorConfig(
         name="drop_columns_processor",
         column_names=["inexistent_column"],
-        build_stage=BuildStage.POST_BATCH,
     ),
     SchemaTransformProcessorConfig(
         name="schema_transform_processor_invalid_reference",
         template={"text": "{{ invalid_reference }}"},
-        build_stage=BuildStage.POST_BATCH,
     ),
 ]
 ALLOWED_REFERENCE = [c.name for c in COLUMNS]

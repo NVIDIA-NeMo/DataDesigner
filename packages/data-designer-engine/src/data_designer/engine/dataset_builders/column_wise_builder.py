@@ -14,7 +14,6 @@ from data_designer.config.column_configs import CustomColumnConfig
 from data_designer.config.column_types import ColumnConfigT
 from data_designer.config.config_builder import BuilderConfig
 from data_designer.config.data_designer_config import DataDesignerConfig
-from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.processors import (
     DropColumnsProcessorConfig,
     ProcessorConfig,
@@ -29,11 +28,12 @@ from data_designer.engine.column_generators.generators.base import (
 from data_designer.engine.column_generators.utils.generator_classification import column_type_is_model_generated
 from data_designer.engine.compiler import compile_data_designer_config
 from data_designer.engine.dataset_builders.artifact_storage import SDG_CONFIG_FILENAME, ArtifactStorage
-from data_designer.engine.dataset_builders.errors import DatasetGenerationError, DatasetProcessingError
+from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 from data_designer.engine.dataset_builders.multi_column_configs import MultiColumnConfig
 from data_designer.engine.dataset_builders.utils.concurrency import ConcurrentThreadExecutor
 from data_designer.engine.dataset_builders.utils.config_compiler import compile_dataset_builder_column_configs
 from data_designer.engine.dataset_builders.utils.dataset_batch_manager import DatasetBatchManager
+from data_designer.engine.dataset_builders.utils.processor_runner import ProcessorRunner
 from data_designer.engine.dataset_builders.utils.progress_tracker import ProgressTracker
 from data_designer.engine.models.telemetry import InferenceEvent, NemoSourceEnum, TaskStatusEnum, TelemetryHandler
 from data_designer.engine.processing.processors.base import Processor
@@ -67,14 +67,27 @@ class ColumnWiseDatasetBuilder:
 
         self._data_designer_config = compile_data_designer_config(data_designer_config, resource_provider)
         self._column_configs = compile_dataset_builder_column_configs(self._data_designer_config)
-        self._processors: dict[BuildStage, list[Processor]] = self._initialize_processors(
-            self._data_designer_config.processors or []
+        processors = self._initialize_processors(self._data_designer_config.processors or [])
+        self._processor_runner = ProcessorRunner(
+            processors=processors,
+            artifact_storage=resource_provider.artifact_storage,
         )
         self._validate_column_configs()
 
     @property
     def artifact_storage(self) -> ArtifactStorage:
         return self._resource_provider.artifact_storage
+
+    @property
+    def processors(self) -> tuple[Processor, ...]:
+        return self._processor_runner.processors
+
+    def set_processor_runner(self, processors: list[Processor]) -> None:
+        """Replace the processor runner with a new one using the given processors."""
+        self._processor_runner = ProcessorRunner(
+            processors=processors,
+            artifact_storage=self.artifact_storage,
+        )
 
     @functools.cached_property
     def single_column_configs(self) -> list[ColumnConfigT]:
@@ -107,15 +120,15 @@ class ColumnWiseDatasetBuilder:
         self.batch_manager.start(num_records=num_records, buffer_size=buffer_size)
         for batch_idx in range(self.batch_manager.num_batches):
             logger.info(f"⏳ Processing batch {batch_idx + 1} of {self.batch_manager.num_batches}")
-            self._run_batch(generators, batch_mode="batch", group_id=group_id)
-            df_batch = self._run_processors(
-                stage=BuildStage.POST_BATCH,
-                dataframe=self.batch_manager.get_current_batch(as_dataframe=True),
+            self._run_batch(
+                generators,
+                batch_mode="batch",
+                group_id=group_id,
                 current_batch_number=batch_idx,
+                on_batch_complete=on_batch_complete,
             )
-            self._write_processed_batch(df_batch)
-            self.batch_manager.finish_batch(on_batch_complete)
         self.batch_manager.finish()
+        self._processor_runner.run_after_generation(buffer_size)
 
         self._resource_provider.model_registry.log_model_usage(time.perf_counter() - start_time)
 
@@ -138,11 +151,8 @@ class ColumnWiseDatasetBuilder:
         return dataset
 
     def process_preview(self, dataset: pd.DataFrame) -> pd.DataFrame:
-        return self._run_processors(
-            stage=BuildStage.POST_BATCH,
-            dataframe=dataset.copy(),
-            current_batch_number=None,  # preview mode does not have a batch number
-        )
+        df = self._processor_runner.run_post_batch(dataset.copy(), current_batch_number=None)
+        return self._processor_runner.run_after_generation_on_df(df)
 
     def _initialize_generators(self) -> list[ColumnGenerator]:
         return [
@@ -159,15 +169,27 @@ class ColumnWiseDatasetBuilder:
         )
 
     def _run_batch(
-        self, generators: list[ColumnGenerator], *, batch_mode: str, save_partial_results: bool = True, group_id: str
+        self,
+        generators: list[ColumnGenerator],
+        *,
+        batch_mode: str,
+        save_partial_results: bool = True,
+        group_id: str,
+        current_batch_number: int | None = None,
+        on_batch_complete: Callable[[Path], None] | None = None,
     ) -> None:
         pre_batch_snapshot = self._resource_provider.model_registry.get_model_usage_snapshot()
+        ran_pre_batch = False
         for generator in generators:
             generator.log_pre_generation()
             try:
                 generation_strategy = generator.get_generation_strategy()
                 if generator.can_generate_from_scratch and self.batch_manager.buffer_is_empty:
                     self._run_from_scratch_column_generator(generator)
+                    # Run PRE_BATCH after seed generator, before other columns
+                    if not ran_pre_batch:
+                        self._processor_runner.run_pre_batch(self.batch_manager)
+                        ran_pre_batch = True
                 elif generation_strategy == GenerationStrategy.CELL_BY_CELL:
                     self._run_cell_by_cell_generator(generator)
                 elif generation_strategy == GenerationStrategy.FULL_COLUMN:
@@ -190,6 +212,12 @@ class ColumnWiseDatasetBuilder:
             self._emit_batch_inference_events(batch_mode, usage_deltas, group_id)
         except Exception:
             pass
+
+        if current_batch_number is not None:
+            df_batch = self.batch_manager.get_current_batch(as_dataframe=True)
+            df_batch = self._processor_runner.run_post_batch(df_batch, current_batch_number=current_batch_number)
+            self._write_processed_batch(df_batch)
+            self.batch_manager.finish_batch(on_batch_complete)
 
     def _run_from_scratch_column_generator(self, generator: ColumnGenerator) -> None:
         df = generator.generate_from_scratch(self.batch_manager.num_records_batch)
@@ -288,20 +316,20 @@ class ColumnWiseDatasetBuilder:
         ).can_generate_from_scratch:
             raise DatasetGenerationError("🛑 The first column config must be a from-scratch column generator.")
 
-    def _initialize_processors(self, processor_configs: list[ProcessorConfig]) -> dict[BuildStage, list[Processor]]:
+    def _initialize_processors(self, processor_configs: list[ProcessorConfig]) -> list[Processor]:
         # Check columns marked for drop
         columns_to_drop = [config.name for config in self.single_column_configs if config.drop]
 
-        processors: dict[BuildStage, list[Processor]] = {stage: [] for stage in BuildStage}
+        processors: list[Processor] = []
         for config in processor_configs:
-            processors[config.build_stage].append(
+            processors.append(
                 self._registry.processors.get_for_config_type(type(config))(
                     config=config,
                     resource_provider=self._resource_provider,
                 )
             )
 
-            # Manually included "drop columns" processor takes precedence (can e.g., pick stages other than post-batch)
+            # Manually included "drop columns" processor takes precedence
             if config.processor_type == ProcessorType.DROP_COLUMNS:
                 for column in config.column_names:
                     if column in columns_to_drop:
@@ -309,30 +337,17 @@ class ColumnWiseDatasetBuilder:
 
         # If there are still columns marked for drop, add the "drop columns" processor to drop them
         if len(columns_to_drop) > 0:
-            processors[BuildStage.POST_BATCH].append(  # as post-batch by default
+            processors.append(
                 DropColumnsProcessor(
                     config=DropColumnsProcessorConfig(
                         name="default_drop_columns_processor",
                         column_names=columns_to_drop,
-                        build_stage=BuildStage.POST_BATCH,
                     ),
                     resource_provider=self._resource_provider,
                 )
             )
 
         return processors
-
-    def _run_processors(
-        self, stage: BuildStage, dataframe: pd.DataFrame, current_batch_number: int | None = None
-    ) -> pd.DataFrame:
-        for processor in self._processors[stage]:
-            try:
-                dataframe = processor.process(dataframe, current_batch_number=current_batch_number)
-            except Exception as e:
-                raise DatasetProcessingError(
-                    f"🛑 Failed to process dataset with processor {processor.name} in stage {stage}: {e}"
-                ) from e
-        return dataframe
 
     def _worker_error_callback(self, exc: Exception, *, context: dict | None = None) -> None:
         """If a worker fails, we can handle the exception here."""

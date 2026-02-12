@@ -12,7 +12,6 @@ from pydantic import ValidationError
 
 from data_designer.config.column_configs import SamplerColumnConfig
 from data_designer.config.config_builder import DataDesignerConfigBuilder
-from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.models import ModelProvider
 from data_designer.config.processors import DropColumnsProcessorConfig
@@ -323,11 +322,7 @@ def test_preview_with_dropped_columns(
         SamplerColumnConfig(name="uniform", sampler_type="uniform", params={"low": 1, "high": 100})
     )
 
-    config_builder.add_processor(
-        DropColumnsProcessorConfig(
-            name="drop_columns_processor", build_stage=BuildStage.POST_BATCH, column_names=["category"]
-        )
-    )
+    config_builder.add_processor(DropColumnsProcessorConfig(name="drop_columns_processor", column_names=["category"]))
 
     data_designer = DataDesigner(
         artifact_path=stub_artifact_path,
