@@ -218,6 +218,24 @@ def test_cell_by_cell_allow_resize_return_list_expand() -> None:
     assert result[1] == {"x": 10, "out": 20}
 
 
+def test_cell_by_cell_allow_resize_return_list_single() -> None:
+    """With allow_resize, returning [dict] (1:1 via list) is valid."""
+
+    @custom_column_generator(required_columns=["x"])
+    def one_row(row: dict) -> list[dict]:
+        return [{**row, "out": row["x"]}]
+
+    config = CustomColumnConfig(
+        name="out",
+        generator_function=one_row,
+        generation_strategy=GenerationStrategy.CELL_BY_CELL,
+        allow_resize=True,
+    )
+    generator = CustomColumnGenerator(config=config, resource_provider=Mock(spec=ResourceProvider))
+    result = generator.generate({"x": 42})
+    assert result == [{"x": 42, "out": 42}]
+
+
 def test_cell_by_cell_allow_resize_return_empty_list() -> None:
     """With allow_resize, returning [] drops that row (0 rows)."""
 

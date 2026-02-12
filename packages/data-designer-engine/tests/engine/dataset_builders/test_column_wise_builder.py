@@ -566,10 +566,12 @@ def test_process_preview_with_empty_dataframe(simple_builder):
 
 # allow_resize integration tests
 #
-# Factories and keep_first stub; _RESIZE_SPECS calls factories inline (n, col names).
+# Factory: _make_resize_full_expand. Stubs: _resize_full_keep_first, _resize_cell_*.
 
 
 def _make_resize_full_expand(n: int, primary_col: str, side_effect_col: str):
+    """CELL_BY_CELL: expand n times per seed_id."""
+
     @custom_column_generator(required_columns=["seed_id"], side_effect_columns=[side_effect_col])
     def fn(df: pd.DataFrame) -> pd.DataFrame:
         rows = []
@@ -581,37 +583,49 @@ def _make_resize_full_expand(n: int, primary_col: str, side_effect_col: str):
     return fn
 
 
-def _make_resize_cell_expand(n: int, col_name: str):
-    suffixes = tuple("abcdefgh"[:n])
-
-    @custom_column_generator(required_columns=["seed_id"])
-    def fn(row: dict) -> list[dict]:
-        return [{**row, col_name: f"{row['seed_id']}_{s}"} for s in suffixes]
-
-    return fn
-
-
 @custom_column_generator(required_columns=["seed_id"])
 def _resize_full_keep_first(df: pd.DataFrame) -> pd.DataFrame:
     """FULL_COLUMN: keep first row per seed_id (retraction)."""
     return df.drop_duplicates(subset="seed_id").assign(filtered=True)
 
 
-FULL = GenerationStrategy.FULL_COLUMN
-CELL = GenerationStrategy.CELL_BY_CELL
+@custom_column_generator(required_columns=["seed_id"])
+def _resize_cell_expand(row: dict) -> list[dict]:
+    """CELL_BY_CELL: one row -> two rows (doubled)."""
+    return [
+        {**row, "doubled": f"{row['seed_id']}_a"},
+        {**row, "doubled": f"{row['seed_id']}_b"},
+    ]
+
+
+@custom_column_generator(required_columns=["seed_id"])
+def _resize_cell_filter_odd(row: dict) -> dict | list[dict]:
+    """CELL_BY_CELL: drop even seed_id, keep odd."""
+    if row["seed_id"] % 2 == 0:
+        return []
+    return {**row, "kept": row["seed_id"]}
+
+
+@custom_column_generator(required_columns=["seed_id"])
+def _resize_cell_drop_all(row: dict) -> list[dict]:
+    """CELL_BY_CELL: return [] for every row (drop all)."""
+    return []
+
 
 _RESIZE_SPECS: dict[str, list[tuple[str, object, GenerationStrategy]]] = {
-    "single_full_x3": [("expanded", _make_resize_full_expand(3, "expanded", "copy"), FULL)],
-    "single_cell_x2": [("doubled", _make_resize_cell_expand(2, "doubled"), CELL)],
+    "cell_filter_odd": [("kept", _resize_cell_filter_odd, GenerationStrategy.CELL_BY_CELL)],
+    "cell_x2": [("doubled", _resize_cell_expand, GenerationStrategy.CELL_BY_CELL)],
+    "cell_drop_all": [("dropped", _resize_cell_drop_all, GenerationStrategy.CELL_BY_CELL)],
+    "full_x3": [("expanded", _make_resize_full_expand(3, "expanded", "copy"), GenerationStrategy.FULL_COLUMN)],
     "full_chain": [
-        ("expanded", _make_resize_full_expand(3, "expanded", "copy"), FULL),
-        ("filtered", _resize_full_keep_first, FULL),
-        ("expanded_again", _make_resize_full_expand(3, "expanded_again", "copy2"), FULL),
+        ("expanded", _make_resize_full_expand(3, "expanded", "copy"), GenerationStrategy.FULL_COLUMN),
+        ("filtered", _resize_full_keep_first, GenerationStrategy.FULL_COLUMN),
+        ("expanded_again", _make_resize_full_expand(3, "expanded_again", "copy2"), GenerationStrategy.FULL_COLUMN),
     ],
-    "cell_then_full_chain": [
-        ("doubled", _make_resize_cell_expand(2, "doubled"), CELL),
-        ("filtered", _resize_full_keep_first, FULL),
-        ("expanded_again", _make_resize_full_expand(3, "expanded_again", "copy2"), FULL),
+    "cell_plus_full_chain": [
+        ("doubled", _resize_cell_expand, GenerationStrategy.CELL_BY_CELL),
+        ("filtered", _resize_full_keep_first, GenerationStrategy.FULL_COLUMN),
+        ("expanded_again", _make_resize_full_expand(3, "expanded_again", "copy2"), GenerationStrategy.FULL_COLUMN),
     ],
 }
 
@@ -644,12 +658,21 @@ def _build_resize_builder(stub_resource_provider, stub_model_configs, seed_data_
 @pytest.mark.parametrize(
     "spec,num_records,expected_len,check_doubled_order",
     [
-        ("single_full_x3", 5, 15, False),
-        ("single_cell_x2", 5, 10, True),
+        ("cell_filter_odd", 5, 3, False),
+        ("cell_x2", 5, 10, True),
+        ("cell_drop_all", 5, 0, False),
+        ("full_x3", 5, 15, False),
         ("full_chain", 5, 15, False),
-        ("cell_then_full_chain", 5, 15, False),
+        ("cell_plus_full_chain", 5, 15, False),
     ],
-    ids=["single_full_x3", "single_cell_x2", "full_chain", "cell_then_full_chain"],
+    ids=[
+        "cell_filter_odd_preview",
+        "cell_x2_preview",
+        "cell_drop_all_preview",
+        "full_x3_preview",
+        "full_chain_preview",
+        "cell_plus_full_chain_preview",
+    ],
 )
 def test_allow_resize_preview(
     stub_resource_provider,
@@ -673,16 +696,20 @@ def test_allow_resize_preview(
 @pytest.mark.parametrize(
     "spec,num_records,buffer_size,expected_total_rows",
     [
-        ("single_full_x3", 5, 2, 15),  # batches [2,2,1] -> each x3 -> 6+6+3
-        ("single_cell_x2", 5, 2, 10),  # batches [2,2,1] -> each x2 -> 4+4+2
+        ("cell_x2", 5, 2, 10),  # batches [2,2,1] -> each x2 -> 4+4+2
+        ("cell_filter_odd", 5, 2, 3),  # batches [2,2,1] -> keep odd -> 1+1+1
+        ("cell_drop_all", 5, 2, 0),  # each batch -> 0 rows
+        ("full_x3", 5, 2, 15),  # batches [2,2,1] -> each x3 -> 6+6+3
+        ("full_x3", 4, 2, 12),  # batches [2,2] -> 6+6
         ("full_chain", 5, 2, 15),  # batches [2,2,1] -> x3, dedup, x3 -> 15
-        ("single_full_x3", 4, 2, 12),  # batches [2,2] -> 6+6
     ],
     ids=[
-        "single_full_x3_multibatch",
-        "single_cell_x2_multibatch",
+        "cell_x2_multibatch",
+        "cell_filter_odd_multibatch",
+        "cell_drop_all_multibatch",
+        "full_x3_multibatch_5_2",
+        "full_x3_multibatch_4_2",
         "full_chain_multibatch",
-        "single_full_x3_4_2_multibatch",
     ],
 )
 def test_allow_resize_multiple_batches(
@@ -699,5 +726,9 @@ def test_allow_resize_multiple_batches(
     columns = _resize_columns(spec)
     builder = _build_resize_builder(stub_resource_provider, stub_model_configs, seed_data_setup, columns)
     builder.build(num_records=num_records)
-    df = pd.read_parquet(builder.artifact_storage.final_dataset_path)
+    final_path = builder.artifact_storage.final_dataset_path
+    if expected_total_rows == 0 and not final_path.exists():
+        df = pd.DataFrame()
+    else:
+        df = pd.read_parquet(final_path)
     assert len(df) == expected_total_rows
