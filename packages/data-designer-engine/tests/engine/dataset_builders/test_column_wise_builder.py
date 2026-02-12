@@ -562,3 +562,98 @@ def test_process_preview_with_empty_dataframe(simple_builder):
     assert len(result) == 0
     mock_processor.process_after_batch.assert_called_once()
     mock_processor.process_after_generation.assert_called_once()
+
+
+# allow_resize integration tests
+
+
+@custom_column_generator(required_columns=["seed_id"], side_effect_columns=["copy"])
+def _expand_x3(df: pd.DataFrame) -> pd.DataFrame:
+    """Triple each row."""
+    rows = []
+    for _, row in df.iterrows():
+        for i in range(3):
+            rows.append({**row.to_dict(), "expanded": f"{row['seed_id']}_v{i}", "copy": i})
+    return pd.DataFrame(rows)
+
+
+@custom_column_generator(required_columns=["seed_id"])
+def _keep_first(df: pd.DataFrame) -> pd.DataFrame:
+    """Keep only first row per seed_id (retraction)."""
+    return df.drop_duplicates(subset="seed_id").assign(filtered=True)
+
+
+@custom_column_generator(required_columns=["seed_id"], side_effect_columns=["copy2"])
+def _expand_x3_again(df: pd.DataFrame) -> pd.DataFrame:
+    """Triple each row (second expansion)."""
+    rows = []
+    for _, row in df.iterrows():
+        for i in range(3):
+            rows.append({**row.to_dict(), "expanded_again": f"{row['seed_id']}_w{i}", "copy2": i})
+    return pd.DataFrame(rows)
+
+
+def _build_resize_builder(stub_resource_provider, stub_model_configs, seed_data_setup, columns):
+    """Helper to build a ColumnWiseDatasetBuilder with resize custom columns."""
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config_builder.with_seed_dataset(LocalFileSeedSource(path=str(seed_data_setup["seed_path"])))
+    for col in columns:
+        config_builder.add_column(col)
+    return ColumnWiseDatasetBuilder(
+        data_designer_config=config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+
+
+def test_chained_expand_retract_expand(stub_resource_provider, stub_model_configs, seed_data_setup):
+    """Expand -> retract -> expand chains correctly in a single batch."""
+    builder = _build_resize_builder(
+        stub_resource_provider,
+        stub_model_configs,
+        seed_data_setup,
+        [
+            CustomColumnConfig(
+                name="expanded",
+                generator_function=_expand_x3,
+                generation_strategy=GenerationStrategy.FULL_COLUMN,
+                allow_resize=True,
+            ),
+            CustomColumnConfig(
+                name="filtered",
+                generator_function=_keep_first,
+                generation_strategy=GenerationStrategy.FULL_COLUMN,
+                allow_resize=True,
+            ),
+            CustomColumnConfig(
+                name="expanded_again",
+                generator_function=_expand_x3_again,
+                generation_strategy=GenerationStrategy.FULL_COLUMN,
+                allow_resize=True,
+            ),
+        ],
+    )
+    # 5 seeds -> 15 (x3) -> 5 (dedup) -> 15 (x3)
+    result = builder.build_preview(num_records=5)
+    assert len(result) == 15
+
+
+def test_resize_across_multiple_batches(stub_resource_provider, stub_model_configs, seed_data_setup):
+    """Resized batches are written independently and combine correctly."""
+    stub_resource_provider.run_config = RunConfig(buffer_size=2)
+    builder = _build_resize_builder(
+        stub_resource_provider,
+        stub_model_configs,
+        seed_data_setup,
+        [
+            CustomColumnConfig(
+                name="expanded",
+                generator_function=_expand_x3,
+                generation_strategy=GenerationStrategy.FULL_COLUMN,
+                allow_resize=True,
+            ),
+        ],
+    )
+    # 5 seeds, buffer_size=2 -> batches of [2, 2, 1], each x3 -> [6, 6, 3] = 15 total
+    builder.build(num_records=5)
+    df = pd.read_parquet(builder.artifact_storage.final_dataset_path)
+    assert len(df) == 15

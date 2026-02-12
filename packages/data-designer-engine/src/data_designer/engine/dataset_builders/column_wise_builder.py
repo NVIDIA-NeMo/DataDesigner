@@ -241,9 +241,9 @@ class ColumnWiseDatasetBuilder:
                     f"⚠️ Column '{generator.config.name}' reduced batch to 0 records. This batch will be skipped."
                 )
             else:
+                emoji = "💥" if new_count > original_count else "✂️"
                 logger.info(
-                    f"📊 Column '{generator.config.name}' resized batch: {original_count} -> {new_count} records. "
-                    f"Subsequent columns will operate on the new record count."
+                    f"{emoji} Column '{generator.config.name}' resized batch: {original_count} -> {new_count} records."
                 )
 
         self.batch_manager.replace_buffer(df.to_dict(orient="records"), allow_resize=allow_resize)
