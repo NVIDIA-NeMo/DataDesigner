@@ -25,6 +25,8 @@
 #
 # Data Designer supports both **diffusion** (e.g. DALL·E, Stable Diffusion, Imagen) and **autoregressive** (e.g. Gemini image, GPT image) models.
 #
+# > **Prerequisites**: This tutorial uses [OpenRouter](https://openrouter.ai) with the Flux 2 Pro image model. Set `OPENROUTER_API_KEY` in your environment before running.
+#
 # If this is your first time using Data Designer, we recommend starting with the [first notebook](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/1-the-basics/) in this tutorial series.
 #
 
@@ -45,7 +47,7 @@ from data_designer.interface import DataDesigner
 # %% [markdown]
 # ### ⚙️ Initialize the Data Designer interface
 #
-# When initialized without arguments, [default model providers](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/) are used. This tutorial uses [OpenRouter](https://openrouter.ai) with the Flux 2 Pro image model; set `OPENROUTER_API_KEY` in your environment.
+# We initialize Data Designer without arguments here—the image model is configured explicitly in the next cell. No default text model is needed for this tutorial.
 #
 
 # %%

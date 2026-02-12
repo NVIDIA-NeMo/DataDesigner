@@ -26,6 +26,8 @@
 #
 # This tutorial uses an **autoregressive** model (one that supports both image input *and* image output via the chat completions API). Diffusion models (DALL·E, Stable Diffusion, etc.) do not support image context—see [Tutorial 5](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/5-generating-images/) for text-to-image generation with diffusion models.
 #
+# > **Prerequisites**: This tutorial uses [OpenRouter](https://openrouter.ai) with the Flux 2 Pro model. Set `OPENROUTER_API_KEY` in your environment before running.
+#
 # If this is your first time using Data Designer, we recommend starting with the [first notebook](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/1-the-basics/) in this tutorial series.
 #
 
@@ -52,7 +54,7 @@ from data_designer.interface import DataDesigner
 # %% [markdown]
 # ### ⚙️ Initialize the Data Designer interface
 #
-# When initialized without arguments, [default model providers](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/) are used.
+# We initialize Data Designer without arguments here—the image-editing model is configured explicitly in the next cell. No default text model is needed for this tutorial.
 #
 
 # %%

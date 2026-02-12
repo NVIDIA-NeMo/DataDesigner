@@ -111,8 +111,8 @@ Image columns require a model configured with `ImageInferenceParams`. Model-spec
 
 Image columns also support `multi_modal_context` for autoregressive models that accept image inputs, enabling image-to-image generation workflows.
 
-!!! tip "Tutorial"
-    See the [Generating Images](../notebooks/5-generating-images.ipynb) tutorial for a complete walkthrough, and [Providing Images as Context](../notebooks/4-providing-images-as-context.ipynb) for using images as input to other columns.
+!!! tip "Tutorials"
+    The image tutorials cover three workflows: [Providing Images as Context](../notebooks/4-providing-images-as-context.ipynb) (image → text), [Generating Images](../notebooks/5-generating-images.ipynb) (text → image), and [Editing Images with Image Context](../notebooks/6-editing-images-with-image-context.ipynb) (image → image).
 
 ### 🧬 Embedding Columns
 
