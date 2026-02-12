@@ -30,31 +30,28 @@ def convert_to_nemo_gym_format(
             }
         )
 
-    cleaned_tools = []
-    for tool in tools:
-        cleaned_tools.append(
-            {
-                "type": tool.get("type"),
-                "name": tool.get("name"),
-                "description": tool.get("description"),
-                "parameters": tool.get("parameters"),
-                "strict": tool.get("strict"),
-            }
-        )
-
-    responses_create_params = {
-        "input": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": row.get("user_query", "")},
-        ],
-        "tools": cleaned_tools,
-        "parallel_tool_calls": False,
-        "temperature": 1.0,
-    }
+    cleaned_tools = [
+        {
+            "type": tool.get("type"),
+            "name": tool.get("name"),
+            "description": tool.get("description"),
+            "parameters": tool.get("parameters"),
+            "strict": tool.get("strict"),
+        }
+        for tool in tools
+    ]
 
     return {
         "id": idx,
-        "responses_create_params": responses_create_params,
+        "responses_create_params": {
+            "input": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": row.get("user_query", "")},
+            ],
+            "tools": cleaned_tools,
+            "parallel_tool_calls": False,
+            "temperature": 1.0,
+        },
         "ground_truth": ground_truth,
         "category": f"workplace_assistant_{row.get('category', 'general')}",
         "environment_name": environment_name,
@@ -62,25 +59,6 @@ def convert_to_nemo_gym_format(
         "trajectory_judge": row.get("trajectory_judge", {}),
         "pattern": row.get("pattern", ""),
     }
-
-
-def build_nemo_gym_converter(
-    tools: list[dict[str, Any]],
-    system_prompt: str,
-    environment_name: str = "workplace_assistant",
-) -> Callable[[dict[str, Any], int], dict[str, Any]]:
-    """Return a ready-to-use converter function for notebook usage."""
-
-    def _convert(row: dict[str, Any], idx: int) -> dict[str, Any]:
-        return convert_to_nemo_gym_format(
-            row=row,
-            idx=idx,
-            tools=tools,
-            system_prompt=system_prompt,
-            environment_name=environment_name,
-        )
-
-    return _convert
 
 
 def save_for_nemo_gym(
@@ -95,13 +73,3 @@ def save_for_nemo_gym(
             f.write(json.dumps(record) + "\n")
 
     print(f"Saved {len(df)} examples to {output_path}")
-
-
-def print_convert_to_nemo_gym_format_quickstart() -> None:
-    """Print practical usage instructions for notebook users."""
-    print("convert_to_nemo_gym_format utility loaded.")
-    print("\nQuickstart:")
-    print("1) Build a converter tied to your tools + system prompt:")
-    print("   convert_fn = build_nemo_gym_converter(tools=TOOLS, system_prompt=SYSTEM_PROMPT)")
-    print("2) Save any filtered dataframe to JSONL:")
-    print("   save_for_nemo_gym(filtered_df, 'workplace_assistant_train.jsonl', convert_fn)")
