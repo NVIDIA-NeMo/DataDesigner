@@ -8,7 +8,6 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from data_designer.config.dataset_builders import BuildStage
 from data_designer.config.processors import DropColumnsProcessorConfig
 from data_designer.engine.dataset_builders.artifact_storage import BatchStage
 from data_designer.engine.processing.processors.drop_columns import DropColumnsProcessor
@@ -20,9 +19,7 @@ if TYPE_CHECKING:
 
 @pytest.fixture
 def stub_processor_config():
-    return DropColumnsProcessorConfig(
-        name="drop_columns_processor", build_stage=BuildStage.POST_BATCH, column_names=["col1", "col2"]
-    )
+    return DropColumnsProcessorConfig(name="drop_columns_processor", column_names=["col1", "col2"])
 
 
 @pytest.fixture
@@ -84,34 +81,34 @@ def stub_empty_dataframe():
         ),
     ],
 )
-def test_process_scenarios(
+def test_process_after_batch_scenarios(
     stub_processor, stub_sample_dataframe, test_case, column_names, expected_result, expected_warning
 ):
     stub_processor.config.column_names = column_names
 
     if expected_warning:
         with patch("data_designer.engine.processing.processors.drop_columns.logger") as mock_logger:
-            result = stub_processor.process(stub_sample_dataframe.copy())
+            result = stub_processor.process_after_batch(stub_sample_dataframe.copy(), current_batch_number=0)
 
             pd.testing.assert_frame_equal(result, pd.DataFrame(expected_result))
             mock_logger.warning.assert_called_once_with(expected_warning)
     else:
-        result = stub_processor.process(stub_sample_dataframe.copy())
+        result = stub_processor.process_after_batch(stub_sample_dataframe.copy(), current_batch_number=0)
         pd.testing.assert_frame_equal(result, pd.DataFrame(expected_result))
 
 
-def test_process_logging(stub_processor, stub_sample_dataframe):
+def test_process_after_batch_logging(stub_processor, stub_sample_dataframe):
     with patch("data_designer.engine.processing.processors.drop_columns.logger") as mock_logger:
-        stub_processor.process(stub_sample_dataframe.copy())
+        stub_processor.process_after_batch(stub_sample_dataframe.copy(), current_batch_number=0)
 
         mock_logger.info.assert_called_once_with("🙈 Dropping columns: ['col1', 'col2']")
 
 
-def test_save_dropped_columns_without_preview(stub_processor, stub_sample_dataframe):
+def test_save_dropped_columns(stub_processor, stub_sample_dataframe):
     stub_processor.config.column_names = ["col1", "col2"]
 
     with patch("data_designer.engine.processing.processors.drop_columns.logger") as mock_logger:
-        stub_processor.process(stub_sample_dataframe.copy(), current_batch_number=0)
+        stub_processor.process_after_batch(stub_sample_dataframe.copy(), current_batch_number=0)
 
         stub_processor.artifact_storage.write_parquet_file.assert_called_once()
         call_args = stub_processor.artifact_storage.write_parquet_file.call_args
@@ -126,24 +123,19 @@ def test_save_dropped_columns_without_preview(stub_processor, stub_sample_datafr
         mock_logger.debug.assert_called_once_with("📦 Saving dropped columns to dropped-columns directory")
 
 
-def test_save_dropped_columns_with_preview(stub_processor, stub_sample_dataframe):
-    stub_processor.config.column_names = ["col1", "col2"]
-
-    stub_processor.process(stub_sample_dataframe.copy())
-    stub_processor.artifact_storage.write_parquet_file.assert_not_called()
-
-
 def test_save_dropped_columns_with_nonexistent_columns(stub_processor, stub_sample_dataframe):
+    """When columns don't exist, no file is written but warnings are logged."""
     stub_processor.config.column_names = ["nonexistent1", "nonexistent2"]
 
     with patch("data_designer.engine.processing.processors.drop_columns.logger"):
-        with pytest.raises(KeyError):
-            stub_processor.process(stub_sample_dataframe.copy(), current_batch_number=0)
+        stub_processor.process_after_batch(stub_sample_dataframe.copy(), current_batch_number=0)
+        # No file is written for nonexistent columns
+        stub_processor.artifact_storage.write_parquet_file.assert_not_called()
 
 
-def test_process_inplace_modification(stub_processor, stub_sample_dataframe):
+def test_process_after_batch_inplace_modification(stub_processor, stub_sample_dataframe):
     original_df = stub_sample_dataframe.copy()
-    result = stub_processor.process(original_df)
+    result = stub_processor.process_after_batch(original_df, current_batch_number=0)
 
     assert result is original_df
 
@@ -152,11 +144,26 @@ def test_process_inplace_modification(stub_processor, stub_sample_dataframe):
     assert "col3" in result.columns
 
 
-def test_process_empty_dataframe(stub_processor, stub_empty_dataframe):
+def test_process_after_batch_empty_dataframe(stub_processor, stub_empty_dataframe):
     stub_processor.config.column_names = ["col1"]
 
     with patch("data_designer.engine.processing.processors.drop_columns.logger") as mock_logger:
-        result = stub_processor.process(stub_empty_dataframe)
+        result = stub_processor.process_after_batch(stub_empty_dataframe, current_batch_number=0)
 
         pd.testing.assert_frame_equal(result, stub_empty_dataframe)
         mock_logger.warning.assert_called_once_with("⚠️ Cannot drop column: `col1` not found in the dataset.")
+
+
+def test_process_after_batch_preview_mode_does_not_save(stub_processor, stub_sample_dataframe):
+    """In preview mode (current_batch_number=None), columns are dropped but not saved to disk."""
+    stub_processor.config.column_names = ["col1", "col2"]
+
+    result = stub_processor.process_after_batch(stub_sample_dataframe.copy(), current_batch_number=None)
+
+    # Columns should still be dropped
+    assert "col1" not in result.columns
+    assert "col2" not in result.columns
+    assert "col3" in result.columns
+
+    # But no file should be written
+    stub_processor.artifact_storage.write_parquet_file.assert_not_called()

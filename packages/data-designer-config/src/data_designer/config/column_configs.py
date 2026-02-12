@@ -492,7 +492,6 @@ class ImageColumnConfig(SingleColumnConfig):
     The API used is automatically determined based on the model name:
 
     Attributes:
-        column_type: Discriminator field, always "image" for this configuration type.
         prompt: Prompt template for image generation. Supports Jinja2 templating to
             reference other columns (e.g., "Generate an image of a {{ character_name }}").
             Must be a valid Jinja2 template.
@@ -500,6 +499,7 @@ class ImageColumnConfig(SingleColumnConfig):
         multi_modal_context: Optional list of image contexts for multi-modal generation.
             Enables autoregressive multi-modal models to generate images based on image inputs.
             Only works with autoregressive models that support image-to-image generation.
+        column_type: Discriminator field, always "image" for this configuration type.
     """
 
     prompt: str

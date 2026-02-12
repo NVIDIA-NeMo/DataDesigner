@@ -13,7 +13,18 @@ Each processor:
 - Applies its transformation
 - Passes the result to the next processor (or to output)
 
-Currently, processors run only at the `POST_BATCH` stage, i.e., after column generation completes for each batch.
+Processors can run at three stages, determined by which callback methods they implement:
+
+| Stage | When it runs | Callback method | Use cases |
+|-------|--------------|-----------------|-----------|
+| Pre-batch | After seed columns, before dependent columns | `process_before_batch()` | Transform seed data before other columns are generated |
+| Post-batch | After each batch completes | `process_after_batch()` | Drop columns, transform schema per batch |
+| After generation | Once, on final dataset after all batches | `process_after_generation()` | Deduplicate, aggregate statistics, final cleanup |
+
+!!! info "Full Schema Available During Generation"
+    Each batch carries the full dataset schema during generation. Post-batch schema changes such as column dropping only alter past batches, so all columns remain accessible to generators while building follow-up batches.
+
+A processor can implement any combination of these callbacks. The built-in processors use `process_after_batch()` by default.
 
 ## Processor Types
 
@@ -134,7 +145,6 @@ Processors execute in the order they're added. Plan accordingly when one process
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `name` | str | Identifier for the processor, used in output directory names |
-| `build_stage` | BuildStage | When to run (default: `POST_BATCH`) |
 
 ### DropColumnsProcessorConfig
 
