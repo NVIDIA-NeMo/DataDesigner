@@ -251,6 +251,31 @@ def catch_llm_exceptions(func: Callable) -> Callable:
     return wrapper
 
 
+def acatch_llm_exceptions(func: Callable) -> Callable:
+    @wraps(func)
+    async def wrapper(model_facade: Any, *args: Any, **kwargs: Any) -> Any:
+        try:
+            return await func(model_facade, *args, **kwargs)
+        except Exception as e:
+            logger.debug(
+                "\n".join(
+                    [
+                        "",
+                        "|----------",
+                        f"| Caught an exception downstream of type {type(e)!r}. Re-raising it below as a custom error with more context.",
+                        "|----------",
+                    ]
+                ),
+                exc_info=True,
+                stack_info=True,
+            )
+            handle_llm_exceptions(
+                e, model_facade.model_name, model_facade.model_provider_name, purpose=kwargs.get("purpose")
+            )
+
+    return wrapper
+
+
 class DownstreamLLMExceptionMessageParser:
     def __init__(self, model_name: str, model_provider_name: str, purpose: str):
         self.model_name = model_name

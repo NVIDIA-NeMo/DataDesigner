@@ -5,10 +5,11 @@ from __future__ import annotations
 
 import functools
 import logging
+import os
 import time
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from data_designer.config.column_configs import CustomColumnConfig
 from data_designer.config.column_types import ColumnConfigT, DataDesignerColumnType
@@ -50,6 +51,20 @@ if TYPE_CHECKING:
     from data_designer.engine.models.usage import ModelUsageStats
 
 logger = logging.getLogger(__name__)
+
+DATA_DESIGNER_ASYNC_ENGINE = os.environ.get("DATA_DESIGNER_ASYNC_ENGINE", "0") == "1"
+
+if DATA_DESIGNER_ASYNC_ENGINE:
+    import sys
+
+    if sys.version_info < (3, 11):
+        raise RuntimeError(
+            "DATA_DESIGNER_ASYNC_ENGINE requires Python 3.11+ (asyncio.TaskGroup). "
+            f"Current version: {sys.version_info.major}.{sys.version_info.minor}"
+        )
+    from data_designer.engine.dataset_builders.utils.async_concurrency import AsyncConcurrentExecutor
+
+    logger.info("⚡ DATA_DESIGNER_ASYNC_ENGINE is enabled — using async concurrency")
 
 _CLIENT_VERSION: str = get_library_version()
 
@@ -257,7 +272,11 @@ class ColumnWiseDatasetBuilder:
         max_workers = self._resource_provider.run_config.non_inference_max_parallel_workers
         if isinstance(generator, ColumnGeneratorWithModel):
             max_workers = generator.inference_parameters.max_parallel_requests
-        self._fan_out_with_threads(generator, max_workers=max_workers)
+        if DATA_DESIGNER_ASYNC_ENGINE:
+            logger.info("⚡ Using async engine for concurrent execution")
+            self._fan_out_with_async(generator, max_workers=max_workers)
+        else:
+            self._fan_out_with_threads(generator, max_workers=max_workers)
 
     def _column_display_name(self, config: ColumnConfigT) -> str:
         return f"columns {config.column_names}" if hasattr(config, "column_names") else config.name
@@ -299,11 +318,13 @@ class ColumnWiseDatasetBuilder:
             raise DatasetGenerationError(f"Tool alias(es) {tool_aliases!r} specified but no MCPRegistry configured.")
         self._resource_provider.mcp_registry.run_health_check(tool_aliases)
 
-    def _fan_out_with_threads(self, generator: ColumnGeneratorWithModelRegistry, max_workers: int) -> None:
+    def _setup_fan_out(
+        self, generator: ColumnGeneratorWithModelRegistry, max_workers: int
+    ) -> tuple[ProgressTracker, dict[str, Any]]:
         if generator.get_generation_strategy() != GenerationStrategy.CELL_BY_CELL:
             raise DatasetGenerationError(
                 f"Generator {generator.name} is not a {GenerationStrategy.CELL_BY_CELL} "
-                "generator so concurrency through threads is not supported."
+                "generator so concurrent fan-out is not supported."
             )
 
         if getattr(generator.config, "tool_alias", None):
@@ -313,6 +334,9 @@ class ColumnWiseDatasetBuilder:
         if allow_resize:
             self._cell_resize_results = [None] * self.batch_manager.num_records_batch
             self._cell_resize_mode = True
+            self._current_column_display_name = self._column_display_name(generator.config)
+        else:
+            self._cell_resize_mode = False
 
         progress_tracker = ProgressTracker(
             total_records=self.batch_manager.num_records_batch,
@@ -321,21 +345,21 @@ class ColumnWiseDatasetBuilder:
         progress_tracker.log_start(max_workers)
 
         settings = self._resource_provider.run_config
-        with ConcurrentThreadExecutor(
-            max_workers=max_workers,
-            column_name=generator.config.name,
-            result_callback=self._make_result_callback(progress_tracker),
-            error_callback=self._make_error_callback(progress_tracker),
-            shutdown_error_rate=settings.shutdown_error_rate,
-            shutdown_error_window=settings.shutdown_error_window,
-            disable_early_shutdown=settings.disable_early_shutdown,
-        ) as executor:
-            for i, record in self.batch_manager.iter_current_batch():
-                executor.submit(lambda record: generator.generate(record), record, context={"index": i})
+        executor_kwargs: dict = {
+            "column_name": generator.config.name,
+            "result_callback": self._make_result_callback(progress_tracker),
+            "error_callback": self._make_error_callback(progress_tracker),
+            "shutdown_error_rate": settings.shutdown_error_rate,
+            "shutdown_error_window": settings.shutdown_error_window,
+            "disable_early_shutdown": settings.disable_early_shutdown,
+        }
 
+        return progress_tracker, executor_kwargs
+
+    def _finalize_fan_out(self, progress_tracker: ProgressTracker) -> None:
         progress_tracker.log_final()
 
-        if allow_resize:
+        if self._cell_resize_mode:
             # Flatten results in index order; skip indices in _records_to_drop (failed cells),
             # so those rows are omitted from the new buffer.
             new_records: list[dict] = []
@@ -346,7 +370,7 @@ class ColumnWiseDatasetBuilder:
                 if r is not None:
                     new_records.extend(r if isinstance(r, list) else [r])
             self._log_resize_if_changed(
-                self._column_display_name(generator.config),
+                self._current_column_display_name,
                 self.batch_manager.num_records_in_buffer,
                 len(new_records),
                 True,
@@ -359,6 +383,26 @@ class ColumnWiseDatasetBuilder:
             self._cleanup_dropped_record_images(self._records_to_drop)
             self.batch_manager.drop_records(self._records_to_drop)
             self._records_to_drop.clear()
+
+    def _fan_out_with_async(self, generator: ColumnGeneratorWithModelRegistry, max_workers: int) -> None:
+        if getattr(generator.config, "tool_alias", None):
+            logger.info("🛠️ Tool calling enabled")
+        progress_tracker, executor_kwargs = self._setup_fan_out(generator, max_workers)
+        executor = AsyncConcurrentExecutor(max_workers=max_workers, **executor_kwargs)
+        work_items = [
+            (generator.agenerate(record), {"index": i}) for i, record in self.batch_manager.iter_current_batch()
+        ]
+        executor.run(work_items)
+        self._finalize_fan_out(progress_tracker)
+
+    def _fan_out_with_threads(self, generator: ColumnGeneratorWithModelRegistry, max_workers: int) -> None:
+        if getattr(generator.config, "tool_alias", None):
+            logger.info("🛠️ Tool calling enabled")
+        progress_tracker, executor_kwargs = self._setup_fan_out(generator, max_workers)
+        with ConcurrentThreadExecutor(max_workers=max_workers, **executor_kwargs) as executor:
+            for i, record in self.batch_manager.iter_current_batch():
+                executor.submit(lambda record: generator.generate(record), record, context={"index": i})
+        self._finalize_fan_out(progress_tracker)
 
     def _make_result_callback(self, progress_tracker: ProgressTracker) -> Callable[[dict], None]:
         def callback(result: dict, *, context: dict | None = None) -> None:

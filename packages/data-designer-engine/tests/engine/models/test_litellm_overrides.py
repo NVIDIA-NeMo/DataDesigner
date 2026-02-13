@@ -8,6 +8,7 @@ from unittest.mock import patch
 import litellm
 import pytest
 
+from data_designer.engine.models import litellm_overrides
 from data_designer.engine.models.litellm_overrides import (
     DEFAULT_MAX_CALLBACKS,
     CustomRouter,
@@ -56,9 +57,9 @@ def test_apply_litellm_patches_no_exceptions():
         pytest.fail(f"apply_litellm_patches() raised an unexpected exception: {e}")
 
 
-@patch("data_designer.engine.models.litellm_overrides.quiet_noisy_logger", autospec=True)
-def test_apply_litellm_patches(mock_quiet_noisy_logger):
-    apply_litellm_patches()
+@patch.object(litellm_overrides, "quiet_noisy_logger", autospec=True)
+def test_apply_litellm_patches(mock_quiet_noisy_logger: object) -> None:
+    litellm_overrides.apply_litellm_patches()
     assert isinstance(litellm.in_memory_llm_clients_cache, ThreadSafeCache)
     assert (
         litellm.litellm_core_utils.logging_callback_manager.LoggingCallbackManager.MAX_CALLBACKS
