@@ -473,6 +473,17 @@ generate-colab-notebooks:
 	uv run --group docs python docs/scripts/generate_colab_notebooks.py
 	@echo "✅ Colab notebooks created in docs/colab_notebooks/"
 
+generate-fern-notebooks:
+	@echo "📓 Converting notebooks to Fern format for NotebookViewer..."
+	@mkdir -p fern/components/notebooks
+	@for f in docs/colab_notebooks/*.ipynb; do \
+		if [ -f "$$f" ]; then \
+			name=$$(basename "$$f" .ipynb); \
+			python fern/scripts/ipynb-to-fern-json.py "$$f" -o fern/components/notebooks/$$name.json; \
+		fi; \
+	done
+	@echo "✅ Fern notebooks created in fern/components/notebooks/"
+
 # ==============================================================================
 # PERFORMANCE
 # ==============================================================================

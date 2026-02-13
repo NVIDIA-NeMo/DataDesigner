@@ -14,6 +14,12 @@ npx fern-api --version
 
 ## 🔍 Local Preview
 
+**Before first run (for NotebookViewer pages):**
+```bash
+make generate-colab-notebooks   # Creates docs/colab_notebooks/*.ipynb
+make generate-fern-notebooks    # Creates fern/assets/notebooks/*.ts
+```
+
 ```bash
 # From the fern/ directory
 cd fern/
@@ -24,6 +30,8 @@ fern docs dev --project ./fern
 ```
 
 The docs will be available at `http://localhost:3000`.
+
+See [DOCS-VS-FERN.md](DOCS-VS-FERN.md) for docs/ vs fern/ comparison and migration notes.
 
 ## 📁 Folder Structure
 
@@ -145,6 +153,44 @@ fern docs deploy
 - [MDX Components Reference](https://buildwithfern.com/learn/docs/components)
 - [Versioning Guide](https://buildwithfern.com/learn/docs/configuration/versions)
 - [Navigation Configuration](https://buildwithfern.com/learn/docs/configuration/navigation)
+
+## 📓 NotebookViewer Component
+
+A custom React component renders Jupyter notebook content in Fern docs. Use it to display tutorials from `.ipynb` files with a Colab badge.
+
+### Workflow
+
+1. **Generate Colab notebooks** (source of truth):
+   ```bash
+   make generate-colab-notebooks
+   ```
+
+2. **Convert to Fern format**:
+   ```bash
+   make generate-fern-notebooks
+   ```
+
+3. **Use in MDX** (import from `@/components/notebooks/` – inside the components tree so Fern can resolve it):
+   ```mdx
+   import { NotebookViewer } from "@/components/NotebookViewer";
+   import notebook from "@/components/notebooks/1-the-basics";
+
+   <NotebookViewer
+     notebook={notebook}
+     colabUrl="https://colab.research.google.com/github/NVIDIA-NeMo/DataDesigner/blob/main/docs/colab_notebooks/1-the-basics.ipynb"
+   />
+   ```
+
+### Files
+
+- `fern/components/NotebookViewer.tsx` – React component
+- `fern/components/notebooks/*.ts` – Notebook data (generated, in components tree for import resolution)
+- `fern/scripts/ipynb-to-fern-json.py` – Converts `.ipynb` → `.ts` + `.json`
+- `fern/styles/notebook-viewer.css` – Component styles
+
+### Requirements
+
+- Fern Pro or Enterprise plan (custom React components)
 
 ## ⚠️ Common Issues
 

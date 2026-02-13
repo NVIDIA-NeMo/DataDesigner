@@ -1,0 +1,496 @@
+---
+title: Config Builder
+description: API reference for the DataDesignerConfigBuilder class.
+---
+
+The `DataDesignerConfigBuilder` provides a high-level interface for building Data Designer configurations. It allows you to define columns, model configurations, tool configurations, processors, constraints, and seed datasets in a fluent, method-chaining style.
+
+<Info title="Model configs are required">
+Model configurations must be provided either at initialization or defaults will be used when running locally with configured API keys.
+</Info>
+
+## BuilderConfig
+
+Container for the full builder configuration, including the Data Designer config and library version.
+
+```python
+class BuilderConfig(ExportableConfigBase):
+    """Configuration container for Data Designer builder."""
+    
+    data_designer: DataDesignerConfig  # Main Data Designer configuration
+    library_version: str | None = None  # Version used to create the config
+```
+
+## DataDesignerConfigBuilder
+
+The main builder class for constructing Data Designer configurations.
+
+### Constructor
+
+```python
+def __init__(
+    self,
+    model_configs: list[ModelConfig] | str | Path | None = None,
+    tool_configs: list[ToolConfig] | None = None,
+) -> None:
+    """Initialize a new DataDesignerConfigBuilder instance.
+    
+    Args:
+        model_configs: Model configurations. Can be:
+            - None to use default model configurations in local mode
+            - A list of ModelConfig objects
+            - A string or Path to a model configuration file
+        tool_configs: Tool configurations for MCP tool calling.
+    """
+```
+
+### Class Methods
+
+#### from_config
+
+```python
+@classmethod
+def from_config(cls, config: dict | str | Path | BuilderConfig) -> Self:
+    """Create a DataDesignerConfigBuilder from an existing configuration.
+    
+    Accepts both the full BuilderConfig format (with a top-level
+    `data_designer` key) and the shorthand DataDesignerConfig format
+    (columns, model_configs, etc. at the top level).
+    
+    Args:
+        config: Configuration source. Can be:
+            - A dictionary containing the configuration
+            - A string or Path to a local YAML/JSON configuration file
+            - An HTTP(S) URL string to a YAML/JSON configuration file
+            - A BuilderConfig object
+    
+    Returns:
+        A new instance populated with the configuration.
+    """
+```
+
+### Properties
+
+```python
+@property
+def model_configs(self) -> list[ModelConfig]:
+    """Get the model configurations for this builder."""
+
+@property
+def tool_configs(self) -> list[ToolConfig]:
+    """Get the tool configurations for this builder."""
+
+@property
+def allowed_references(self) -> list[str]:
+    """Get all referenceable variables allowed in prompt templates and expressions."""
+
+@property
+def info(self) -> ConfigBuilderInfo:
+    """Get the ConfigBuilderInfo object for this builder."""
+```
+
+### Column Methods
+
+#### add_column
+
+```python
+def add_column(
+    self,
+    column_config: ColumnConfigT | None = None,
+    *,
+    name: str | None = None,
+    column_type: DataDesignerColumnType | None = None,
+    **kwargs,
+) -> Self:
+    """Add a column configuration to the builder.
+    
+    You can either provide a column config object directly, or provide
+    name, column_type, and additional kwargs to construct the config.
+    
+    Args:
+        column_config: Data Designer column config object to add.
+        name: Name of the column (if not using column_config).
+        column_type: Column type (if not using column_config).
+        **kwargs: Additional arguments for the column constructor.
+    
+    Returns:
+        The builder instance for chaining.
+    """
+```
+
+#### delete_column
+
+```python
+def delete_column(self, column_name: str) -> Self:
+    """Delete the column with the given name.
+    
+    Args:
+        column_name: Name of the column to delete.
+    
+    Returns:
+        The builder instance for chaining.
+    
+    Raises:
+        BuilderConfigurationError: If trying to delete a seed dataset column.
+    """
+```
+
+#### get_column_config
+
+```python
+def get_column_config(self, name: str) -> ColumnConfigT:
+    """Get a column configuration by name.
+    
+    Args:
+        name: Name of the column.
+    
+    Returns:
+        The column configuration object.
+    
+    Raises:
+        KeyError: If no column with the given name exists.
+    """
+```
+
+#### get_column_configs
+
+```python
+def get_column_configs(self) -> list[ColumnConfigT]:
+    """Get all column configurations."""
+```
+
+#### get_columns_of_type
+
+```python
+def get_columns_of_type(self, column_type: DataDesignerColumnType) -> list[ColumnConfigT]:
+    """Get all column configurations of the specified type."""
+```
+
+#### get_columns_excluding_type
+
+```python
+def get_columns_excluding_type(self, column_type: DataDesignerColumnType) -> list[ColumnConfigT]:
+    """Get all column configurations excluding the specified type."""
+```
+
+#### num_columns_of_type
+
+```python
+def num_columns_of_type(self, column_type: DataDesignerColumnType) -> int:
+    """Get the count of columns of the specified type."""
+```
+
+### Model Config Methods
+
+#### add_model_config
+
+```python
+def add_model_config(self, model_config: ModelConfig) -> Self:
+    """Add a model configuration to the builder.
+    
+    Args:
+        model_config: The model configuration to add.
+    
+    Raises:
+        BuilderConfigurationError: If a config with the same alias exists.
+    """
+```
+
+#### delete_model_config
+
+```python
+def delete_model_config(self, alias: str) -> Self:
+    """Delete a model configuration by alias."""
+```
+
+### Tool Config Methods
+
+#### add_tool_config
+
+```python
+def add_tool_config(self, tool_config: ToolConfig) -> Self:
+    """Add a tool configuration for MCP tool calling.
+    
+    Args:
+        tool_config: The tool configuration to add.
+    
+    Raises:
+        BuilderConfigurationError: If a config with the same alias exists.
+    """
+```
+
+#### delete_tool_config
+
+```python
+def delete_tool_config(self, alias: str) -> Self:
+    """Delete a tool configuration by alias."""
+```
+
+#### get_tool_config
+
+```python
+def get_tool_config(self, alias: str) -> ToolConfig:
+    """Get a tool configuration by alias.
+    
+    Raises:
+        KeyError: If no tool configuration with the given alias exists.
+    """
+```
+
+### Processor Methods
+
+#### add_processor
+
+```python
+def add_processor(
+    self,
+    processor_config: ProcessorConfigT | None = None,
+    *,
+    processor_type: ProcessorType | None = None,
+    **kwargs,
+) -> Self:
+    """Add a processor to the builder.
+    
+    You can either provide a processor config object directly, or provide
+    a processor_type and additional kwargs to construct the config.
+    
+    Args:
+        processor_config: The processor configuration object.
+        processor_type: The type of processor to add.
+        **kwargs: Additional arguments for the processor constructor.
+    """
+```
+
+#### get_processor_configs
+
+```python
+def get_processor_configs(self) -> list[ProcessorConfigT]:
+    """Get all processor configurations."""
+```
+
+### Constraint Methods
+
+#### add_constraint
+
+```python
+def add_constraint(
+    self,
+    constraint: ColumnConstraintT | None = None,
+    *,
+    constraint_type: ConstraintType | None = None,
+    **kwargs,
+) -> Self:
+    """Add a constraint to the builder.
+    
+    Valid constraint types:
+        - "scalar_inequality": Constraint between a column and a scalar value
+        - "column_inequality": Constraint between two columns
+    
+    Args:
+        constraint: Constraint object to add.
+        constraint_type: Constraint type (if not using constraint object).
+        **kwargs: Additional arguments for the constraint constructor.
+    """
+```
+
+#### delete_constraints
+
+```python
+def delete_constraints(self, target_column: str) -> Self:
+    """Delete all constraints for the given target column."""
+```
+
+#### get_constraints
+
+```python
+def get_constraints(self, target_column: str) -> list[ColumnConstraintT]:
+    """Get all constraints for the given target column."""
+```
+
+### Profiler Methods
+
+#### add_profiler
+
+```python
+def add_profiler(self, profiler_config: ColumnProfilerConfigT) -> Self:
+    """Add a profiler to the builder.
+    
+    Args:
+        profiler_config: The profiler configuration object.
+    """
+```
+
+#### get_profilers
+
+```python
+def get_profilers(self) -> list[ColumnProfilerConfigT]:
+    """Get all profiler configurations."""
+```
+
+### Seed Dataset Methods
+
+#### with_seed_dataset
+
+```python
+def with_seed_dataset(
+    self,
+    seed_source: SeedSourceT,
+    *,
+    sampling_strategy: SamplingStrategy = SamplingStrategy.ORDERED,
+    selection_strategy: IndexRange | PartitionBlock | None = None,
+) -> Self:
+    """Add a seed dataset to the builder.
+    
+    Args:
+        seed_source: The seed dataset source.
+        sampling_strategy: How to sample from the seed (default: ORDERED).
+        selection_strategy: Optional selection strategy for the seed.
+    """
+```
+
+#### get_seed_config
+
+```python
+def get_seed_config(self) -> SeedConfig | None:
+    """Get the seed config, or None if not configured."""
+```
+
+### Build and Export Methods
+
+#### build
+
+```python
+def build(self) -> DataDesignerConfig:
+    """Build a DataDesignerConfig from the current builder state.
+    
+    Returns:
+        The built configuration object.
+    """
+```
+
+#### get_builder_config
+
+```python
+def get_builder_config(self) -> BuilderConfig:
+    """Get the full BuilderConfig including library version."""
+```
+
+#### write_config
+
+```python
+def write_config(self, path: str | Path, indent: int | None = 2, **kwargs) -> None:
+    """Write the configuration to a YAML or JSON file.
+    
+    The format is determined by the file extension (.yaml, .yml, or .json).
+    
+    Args:
+        path: Path to the output file.
+        indent: Indentation level (default: 2).
+        **kwargs: Additional serialization options.
+    
+    Raises:
+        BuilderConfigurationError: If the file format is unsupported.
+        BuilderSerializationError: If using a DataFrame seed source.
+    """
+```
+
+## ConfigBuilderInfo
+
+The `info` property returns a `ConfigBuilderInfo` object that can display information about available samplers and model configurations.
+
+```python
+# Display available sampler types and their parameters
+config_builder.info.display("samplers")
+
+# Display configured model configurations
+config_builder.info.display("model_configs")
+```
+
+## Seed Sources
+
+### LocalFileSeedSource
+
+```python
+class LocalFileSeedSource(SeedSource):
+    """Seed source from a local file."""
+    
+    seed_type: Literal["local"] = "local"
+    path: str  # Path to parquet, CSV, or JSON file
+    
+    @classmethod
+    def from_dataframe(cls, df: pd.DataFrame, path: str) -> Self:
+        """Create a local file seed source from a DataFrame.
+        
+        Saves the DataFrame to the specified path as parquet.
+        """
+```
+
+### HuggingFaceSeedSource
+
+```python
+class HuggingFaceSeedSource(SeedSource):
+    """Seed source from HuggingFace datasets."""
+    
+    seed_type: Literal["hf"] = "hf"
+    path: str  # HuggingFace path (e.g., "datasets/user/dataset/data/*.parquet")
+    token: str | None = None  # Optional HuggingFace token
+    endpoint: str = "https://huggingface.co"
+```
+
+### DataFrameSeedSource
+
+```python
+class DataFrameSeedSource(SeedSource):
+    """Seed source from an in-memory DataFrame.
+    
+    Note: Cannot be serialized to config files.
+    """
+    
+    seed_type: Literal["df"] = "df"
+    df: pd.DataFrame  # The DataFrame to use as seed
+```
+
+## Example Usage
+
+```python
+import data_designer.config as dd
+from data_designer.interface import DataDesigner
+
+# Create a builder with default model configurations
+builder = dd.DataDesignerConfigBuilder()
+
+# Add columns
+builder.add_column(
+    dd.SamplerColumnConfig(
+        name="category",
+        sampler_type=dd.SamplerType.CATEGORY,
+        params=dd.CategorySamplerParams(values=["A", "B", "C"]),
+    )
+)
+
+builder.add_column(
+    dd.LLMTextColumnConfig(
+        name="description",
+        model_alias="nvidia-text",
+        prompt="Write a description for category {{ category }}.",
+    )
+)
+
+# Add a processor
+builder.add_processor(
+    dd.DropColumnsProcessorConfig(
+        name="cleanup",
+        column_names=["intermediate_column"],
+    )
+)
+
+# Build and use
+data_designer = DataDesigner()
+results = data_designer.preview(builder, num_records=5)
+
+# Save configuration
+builder.write_config("my_config.yaml")
+
+# Load configuration later
+loaded_builder = dd.DataDesignerConfigBuilder.from_config("my_config.yaml")
+```

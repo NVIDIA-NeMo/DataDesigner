@@ -1,0 +1,252 @@
+---
+title: Column Configurations
+description: API reference for column configuration objects.
+---
+
+The `column_configs` module defines configuration objects for all Data Designer column types. Each configuration inherits from `SingleColumnConfig`, which provides shared arguments like the column `name`, whether to `drop` the column after generation, and the `column_type`.
+
+<Info title="column_type is a discriminator field">
+The `column_type` argument is used to identify column types when deserializing the Data Designer Config from JSON/YAML. It acts as the discriminator in a [discriminated union](https://docs.pydantic.dev/latest/concepts/unions/#discriminated-unions), allowing Pydantic to automatically determine which column configuration class to instantiate.
+</Info>
+
+## SingleColumnConfig (Base Class)
+
+```python
+class SingleColumnConfig(BaseModel):
+    """Base configuration for all column types."""
+    
+    name: str  # Column name (unique identifier)
+    drop: bool = False  # Whether to drop column from final output
+    column_type: str  # Discriminator field for column type
+    
+    @property
+    def required_columns(self) -> list[str]:
+        """Columns that must be generated before this one."""
+        ...
+    
+    @property
+    def side_effect_columns(self) -> list[str]:
+        """Columns created as side effects (e.g., reasoning traces)."""
+        ...
+```
+
+## SamplerColumnConfig
+
+```python
+class SamplerColumnConfig(SingleColumnConfig):
+    """Configuration for sampler-based columns."""
+    
+    column_type: Literal["sampler"] = "sampler"
+    sampler_type: SamplerType  # Type of sampler to use
+    params: SamplerParamsT  # Sampler-specific parameters
+    conditional_params: dict[str, SamplerParamsT] = {}  # Condition-based params
+    convert_to: str | None = None  # Type conversion ("int", "float", "str")
+```
+
+## LLMTextColumnConfig
+
+```python
+class LLMTextColumnConfig(SingleColumnConfig):
+    """Configuration for LLM text generation columns."""
+    
+    column_type: Literal["llm-text"] = "llm-text"
+    model_alias: str  # Reference to model configuration
+    prompt: str  # Jinja2 template for the prompt
+    system_prompt: str | None = None  # Optional system prompt
+    multi_modal_context: list[ImageContext] | None = None  # Image inputs
+    tool_alias: str | None = None  # Tool configuration alias for MCP tool calls
+    with_trace: TraceType = TraceType.NONE  # Trace capture setting
+    extract_reasoning_content: bool = False  # Extract reasoning from response
+```
+
+<Note title="Side Effect Columns">
+When `with_trace` is not `TraceType.NONE`, a `{column_name}__trace` column is created containing the message history.
+
+When `extract_reasoning_content=True`, a `{column_name}__reasoning_content` column is created containing chain-of-thought reasoning from the model response.
+</Note>
+
+## LLMCodeColumnConfig
+
+Extends `LLMTextColumnConfig` for code generation.
+
+```python
+class LLMCodeColumnConfig(LLMTextColumnConfig):
+    """Configuration for LLM code generation columns."""
+    
+    column_type: Literal["llm-code"] = "llm-code"
+    code_lang: CodeLang  # Target programming language
+    
+    # Inherits from LLMTextColumnConfig:
+    # model_alias, prompt, system_prompt, multi_modal_context,
+    # tool_alias, with_trace, extract_reasoning_content
+```
+
+## LLMStructuredColumnConfig
+
+Extends `LLMTextColumnConfig` for structured JSON output.
+
+```python
+class LLMStructuredColumnConfig(LLMTextColumnConfig):
+    """Configuration for LLM structured output columns."""
+    
+    column_type: Literal["llm-structured"] = "llm-structured"
+    output_format: type[BaseModel] | dict  # Pydantic model or JSON schema
+    
+    # Inherits from LLMTextColumnConfig:
+    # model_alias, prompt, system_prompt, multi_modal_context,
+    # tool_alias, with_trace, extract_reasoning_content
+```
+
+## LLMJudgeColumnConfig
+
+Extends `LLMTextColumnConfig` for quality assessment.
+
+```python
+class LLMJudgeColumnConfig(LLMTextColumnConfig):
+    """Configuration for LLM judge/scoring columns."""
+    
+    column_type: Literal["llm-judge"] = "llm-judge"
+    scores: list[Score]  # Scoring rubrics (at least one required)
+    
+    # Inherits from LLMTextColumnConfig:
+    # model_alias, prompt, system_prompt, multi_modal_context,
+    # tool_alias, with_trace, extract_reasoning_content
+
+
+class Score(BaseModel):
+    """Scoring rubric definition."""
+    
+    name: str  # Score dimension name
+    description: str  # Description of what's being evaluated
+    options: dict[int | str, str]  # Score options with descriptions
+```
+
+## EmbeddingColumnConfig
+
+```python
+class EmbeddingColumnConfig(SingleColumnConfig):
+    """Configuration for embedding generation columns."""
+    
+    column_type: Literal["embedding"] = "embedding"
+    model_alias: str  # Reference to model configuration
+    target_column: str  # Column containing text to embed
+```
+
+## ImageColumnConfig
+
+```python
+class ImageColumnConfig(SingleColumnConfig):
+    """Configuration for image generation columns."""
+    
+    column_type: Literal["image"] = "image"
+    model_alias: str  # Reference to model configuration
+    prompt: str  # Jinja2 template for the image prompt
+    multi_modal_context: list[ImageContext] | None = None  # Image inputs for img2img
+```
+
+## ExpressionColumnConfig
+
+```python
+class ExpressionColumnConfig(SingleColumnConfig):
+    """Configuration for Jinja2 expression columns."""
+    
+    column_type: Literal["expression"] = "expression"
+    expr: str  # Jinja2 expression
+    dtype: Literal["str", "int", "float", "bool"] = "str"  # Output type
+```
+
+## ValidationColumnConfig
+
+```python
+class ValidationColumnConfig(SingleColumnConfig):
+    """Configuration for validation columns."""
+    
+    column_type: Literal["validation"] = "validation"
+    validator_type: ValidatorType  # Type of validator
+    target_columns: list[str]  # Columns to validate
+    validator_params: ValidatorParamsT  # Validator-specific parameters
+    batch_size: int = 10  # Number of records per validation batch
+```
+
+## SeedDatasetColumnConfig
+
+```python
+class SeedDatasetColumnConfig(SingleColumnConfig):
+    """Configuration for seed dataset columns.
+    
+    This config marks columns that come from seed data. It is typically
+    created automatically when calling with_seed_dataset() on the builder.
+    """
+    
+    column_type: Literal["seed-dataset"] = "seed-dataset"
+    # No additional fields - the column name is the seed column name
+```
+
+## CustomColumnConfig
+
+```python
+class CustomColumnConfig(SingleColumnConfig):
+    """Configuration for custom user-defined column generators."""
+    
+    column_type: Literal["custom"] = "custom"
+    generator_function: Callable  # Function decorated with @custom_column_generator
+    generation_strategy: GenerationStrategy = GenerationStrategy.CELL_BY_CELL
+    generator_params: BaseModel | None = None  # Optional typed config object
+
+
+class GenerationStrategy(str, Enum):
+    """Strategy for custom column generation."""
+    
+    CELL_BY_CELL = "cell_by_cell"  # Row-based generation
+    FULL_COLUMN = "full_column"  # Batch-based with DataFrame access
+```
+
+## CodeLang Enum
+
+```python
+class CodeLang(str, Enum):
+    """Supported programming languages for code generation."""
+    
+    BASH = "bash"
+    C = "c"
+    COBOL = "cobol"
+    CPP = "cpp"
+    CSHARP = "csharp"
+    GO = "go"
+    JAVA = "java"
+    JAVASCRIPT = "javascript"
+    KOTLIN = "kotlin"
+    PYTHON = "python"
+    RUBY = "ruby"
+    RUST = "rust"
+    SCALA = "scala"
+    SWIFT = "swift"
+    TYPESCRIPT = "typescript"
+    SQL_SQLITE = "sql:sqlite"
+    SQL_TSQL = "sql:tsql"
+    SQL_BIGQUERY = "sql:bigquery"
+    SQL_MYSQL = "sql:mysql"
+    SQL_POSTGRES = "sql:postgres"
+```
+
+## ValidatorType Enum
+
+```python
+class ValidatorType(str, Enum):
+    """Supported validator types."""
+    
+    CODE = "code"
+    LOCAL_CALLABLE = "local_callable"
+    REMOTE = "remote"
+```
+
+## TraceType Enum
+
+```python
+class TraceType(str, Enum):
+    """Trace capture options for LLM columns."""
+    
+    NONE = "none"  # No trace captured
+    LAST_MESSAGE = "last_message"  # Only final assistant message
+    ALL_MESSAGES = "all_messages"  # Full conversation history
+```

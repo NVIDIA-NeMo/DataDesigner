@@ -1,0 +1,101 @@
+---
+title: Run Config
+description: Runtime settings for dataset generation behavior.
+---
+
+The `run_config` module defines runtime settings that control dataset generation behavior, including early shutdown thresholds, batch sizing, and non-inference worker concurrency.
+
+## Usage
+
+```python
+import data_designer.config as dd
+from data_designer.interface import DataDesigner
+
+data_designer = DataDesigner()
+data_designer.set_run_config(dd.RunConfig(
+    buffer_size=500,
+    max_conversation_restarts=3,
+))
+```
+
+## RunConfig
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `buffer_size` | `int` | `1000` | Number of records processed per batch |
+| `max_conversation_restarts` | `int` | `5` | Maximum full conversation restarts for failed generations |
+| `max_conversation_correction_steps` | `int` | `0` | Maximum in-conversation correction attempts |
+| `non_inference_max_parallel_workers` | `int` | `4` | Thread pool size for non-LLM operations |
+| `disable_early_shutdown` | `bool` | `False` | Disable early shutdown on high error rates |
+| `shutdown_error_rate` | `float` | `0.5` | Error rate threshold for early shutdown |
+| `shutdown_error_window` | `int` | `10` | Minimum tasks before error monitoring begins |
+
+## Parameters in Detail
+
+### `buffer_size`
+
+Controls how many records are processed per batch. Each batch completes entirely before moving to the next.
+
+| Value | Memory Usage | Throughput | Error Feedback |
+|-------|--------------|------------|----------------|
+| **Low** (100-500) | Lower | May not saturate inference | Fast |
+| **Default** (1000) | Moderate | Good for most cases | Moderate |
+| **High** (2000-5000) | Higher | Better for deep pipelines | Slower |
+
+### `max_conversation_restarts`
+
+When generation fails (parsing error, schema violation, etc.), the entire conversation is restarted from scratch. This parameter limits total restart attempts per cell.
+
+### `max_conversation_correction_steps`
+
+Instead of restarting, Data Designer can attempt in-conversation corrections by feeding the error back to the model. Set this to enable error-recovery within the conversation.
+
+<Tip title="Strict schemas">
+For strict schema requirements, consider `max_conversation_restarts=7` with `max_conversation_correction_steps=2`.
+</Tip>
+
+### `non_inference_max_parallel_workers`
+
+Thread pool size for non-LLM operations (samplers, expressions, validators). Increase for workloads with many CPU-bound columns.
+
+### Early Shutdown
+
+Early shutdown terminates generation if the error rate exceeds a threshold, preventing wasted computation on failing workloads.
+
+- `disable_early_shutdown`: Set to `True` to see all errors during debugging
+- `shutdown_error_rate`: Error rate threshold (0.5 = 50%)
+- `shutdown_error_window`: Minimum tasks before monitoring begins
+
+## Example Configurations
+
+### High-throughput workload
+
+```python
+run_config = dd.RunConfig(
+    buffer_size=2000,
+    max_conversation_restarts=3,
+)
+```
+
+### Strict schema requirements
+
+```python
+run_config = dd.RunConfig(
+    max_conversation_restarts=7,
+    max_conversation_correction_steps=2,
+)
+```
+
+### Debugging failed generations
+
+```python
+run_config = dd.RunConfig(
+    disable_early_shutdown=True,
+    buffer_size=100,
+)
+```
+
+## See Also
+
+- [Architecture & Performance](/docs/concepts/architecture-and-performance): Detailed tuning guide
+- [Inference Parameters](/docs/concepts/models/inference-parameters): Per-model concurrency settings

@@ -1,0 +1,43 @@
+/* ExpandableCode component styles */
+
+.expandable-code {
+  margin: 1rem 0;
+  border: 1px solid rgba(128, 128, 128, 0.2);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.expandable-code__summary {
+  cursor: pointer;
+  padding: 0.75rem 1rem;
+  background: rgba(0, 0, 0, 0.03);
+  font-size: 0.9rem;
+}
+
+.dark .expandable-code__summary {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.expandable-code__summary:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.dark .expandable-code__summary:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.expandable-code__content {
+  padding: 0;
+  overflow-x: auto;
+}
+
+.expandable-code__pre {
+  margin: 0;
+  padding: 1rem;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.expandable-code__pre code {
+  font-family: "SF Mono", Menlo, Monaco, "Cascadia Code", monospace;
+}

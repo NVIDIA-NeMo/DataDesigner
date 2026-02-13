@@ -1,0 +1,145 @@
+{
+  "cells": [
+    {
+      "type": "markdown",
+      "source": "# \ud83c\udfa8 Data Designer Tutorial: The Basics\n\n#### \ud83d\udcda What you'll learn\n\nThis notebook demonstrates the basics of Data Designer by generating a simple product review dataset."
+    },
+    {
+      "type": "markdown",
+      "source": "### \ud83d\udce6 Import Data Designer\n\n- `data_designer.config` provides access to the configuration API.\n\n- `DataDesigner` is the main interface for data generation."
+    },
+    {
+      "type": "markdown",
+      "source": "### \u26a1 Colab Setup\n\nRun the cells below to install the dependencies and set up the API key. If you don't have an API key, you can generate one from [build.nvidia.com](https://build.nvidia.com)."
+    },
+    {
+      "type": "code",
+      "source": "%%capture\n!pip install -U data-designer",
+      "language": "python"
+    },
+    {
+      "type": "code",
+      "source": "import getpass\nimport os\n\nfrom google.colab import userdata\n\ntry:\n    os.environ[\"NVIDIA_API_KEY\"] = userdata.get(\"NVIDIA_API_KEY\")\nexcept userdata.SecretNotFoundError:\n    os.environ[\"NVIDIA_API_KEY\"] = getpass.getpass(\"Enter your NVIDIA API key: \")",
+      "language": "python"
+    },
+    {
+      "type": "code",
+      "source": "import data_designer.config as dd\nfrom data_designer.interface import DataDesigner",
+      "language": "python"
+    },
+    {
+      "type": "markdown",
+      "source": "### \u2699\ufe0f Initialize the Data Designer interface\n\n- `DataDesigner` is the main object responsible for managing the data generation process.\n\n- When initialized without arguments, the [default model providers](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/) are used."
+    },
+    {
+      "type": "code",
+      "source": "data_designer = DataDesigner()",
+      "language": "python"
+    },
+    {
+      "type": "markdown",
+      "source": "### \ud83c\udf9b\ufe0f Define model configurations\n\n- Each `ModelConfig` defines a model that can be used during the generation process.\n\n- The \"model alias\" is used to reference the model in the Data Designer config (as we will see below).\n\n- The \"model provider\" is the external service that hosts the model (see the [model config](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/) docs for more details).\n\n- By default, we use [build.nvidia.com](https://build.nvidia.com/models) as the model provider."
+    },
+    {
+      "type": "code",
+      "source": "# This name is set in the model provider configuration.\nMODEL_PROVIDER = \"nvidia\"\n\n# The model ID is from build.nvidia.com.\nMODEL_ID = \"nvidia/nemotron-3-nano-30b-a3b\"\n\n# We choose this alias to be descriptive for our use case.\nMODEL_ALIAS = \"nemotron-nano-v3\"\n\nmodel_configs = [\n    dd.ModelConfig(\n        alias=MODEL_ALIAS,\n        model=MODEL_ID,\n        provider=MODEL_PROVIDER,\n        inference_parameters=dd.ChatCompletionInferenceParams(\n            temperature=1.0,\n            top_p=1.0,\n            max_tokens=2048,\n            extra_body={\"chat_template_kwargs\": {\"enable_thinking\": False}},\n        ),\n    )\n]",
+      "language": "python"
+    },
+    {
+      "type": "markdown",
+      "source": "### \ud83c\udfd7\ufe0f Initialize the Data Designer Config Builder\n\n- The Data Designer config defines the dataset schema and generation process.\n\n- The config builder provides an intuitive interface for building this configuration.\n\n- The list of model configs is provided to the builder at initialization."
+    },
+    {
+      "type": "code",
+      "source": "config_builder = dd.DataDesignerConfigBuilder(model_configs=model_configs)",
+      "language": "python"
+    },
+    {
+      "type": "markdown",
+      "source": "## \ud83c\udfb2 Getting started with sampler columns\n\n- Sampler columns offer non-LLM based generation of synthetic data.\n\n- They are particularly useful for **steering the diversity** of the generated data, as we demonstrate below.\n\n<br>\n\nYou can view available samplers using the config builder's `info` property:"
+    },
+    {
+      "type": "code",
+      "source": "config_builder.info.display(\"samplers\")",
+      "language": "python"
+    },
+    {
+      "type": "markdown",
+      "source": "Let's start designing our product review dataset by adding product category and subcategory columns."
+    },
+    {
+      "type": "code",
+      "source": "config_builder.add_column(\n    dd.SamplerColumnConfig(\n        name=\"product_category\",\n        sampler_type=dd.SamplerType.CATEGORY,\n        params=dd.CategorySamplerParams(\n            values=[\n                \"Electronics\",\n                \"Clothing\",\n                \"Home & Kitchen\",\n                \"Books\",\n                \"Home Office\",\n            ],\n        ),\n    )\n)\n\nconfig_builder.add_column(\n    dd.SamplerColumnConfig(\n        name=\"product_subcategory\",\n        sampler_type=dd.SamplerType.SUBCATEGORY,\n        params=dd.SubcategorySamplerParams(\n            category=\"product_category\",\n            values={\n                \"Electronics\": [\n                    \"Smartphones\",\n                    \"Laptops\",\n                    \"Headphones\",\n                    \"Cameras\",\n                    \"Accessories\",\n                ],\n                \"Clothing\": [\n                    \"Men's Clothing\",\n                    \"Women's Clothing\",\n                    \"Winter Coats\",\n                    \"Activewear\",\n                    \"Accessories\",\n                ],\n                \"Home & Kitchen\": [\n                    \"Appliances\",\n                    \"Cookware\",\n                    \"Furniture\",\n                    \"Decor\",\n                    \"Organization\",\n                ],\n                \"Books\": [\n                    \"Fiction\",\n                    \"Non-Fiction\",\n                    \"Self-Help\",\n                    \"Textbooks\",\n                    \"Classics\",\n                ],\n                \"Home Office\": [\n                    \"Desks\",\n                    \"Chairs\",\n                    \"Storage\",\n                    \"Office Supplies\",\n                    \"Lighting\",\n                ],\n            },\n        ),\n    )\n)\n\nconfig_builder.add_column(\n    dd.SamplerColumnConfig(\n        name=\"target_age_range\",\n        sampler_type=dd.SamplerType.CATEGORY,\n        params=dd.CategorySamplerParams(values=[\"18-25\", \"25-35\", \"35-50\", \"50-65\", \"65+\"]),\n    )\n)\n\n# Optionally validate that the columns are configured correctly.\ndata_designer.validate(config_builder)",
+      "language": "python"
+    },
+    {
+      "type": "markdown",
+      "source": "Next, let's add samplers to generate data related to the customer and their review."
+    },
+    {
+      "type": "code",
+      "source": "config_builder.add_column(\n    dd.SamplerColumnConfig(\n        name=\"customer\",\n        sampler_type=dd.SamplerType.PERSON_FROM_FAKER,\n        params=dd.PersonFromFakerSamplerParams(age_range=[18, 70], locale=\"en_US\"),\n    )\n)\n\nconfig_builder.add_column(\n    dd.SamplerColumnConfig(\n        name=\"number_of_stars\",\n        sampler_type=dd.SamplerType.UNIFORM,\n        params=dd.UniformSamplerParams(low=1, high=5),\n        convert_to=\"int\",  # Convert the sampled float to an integer.\n    )\n)\n\nconfig_builder.add_column(\n    dd.SamplerColumnConfig(\n        name=\"review_style\",\n        sampler_type=dd.SamplerType.CATEGORY,\n        params=dd.CategorySamplerParams(\n            values=[\"rambling\", \"brief\", \"detailed\", \"structured with bullet points\"],\n            weights=[1, 2, 2, 1],\n        ),\n    )\n)\n\ndata_designer.validate(config_builder)",
+      "language": "python"
+    },
+    {
+      "type": "markdown",
+      "source": "## \ud83e\udd9c LLM-generated columns\n\n- The real power of Data Designer comes from leveraging LLMs to generate text, code, and structured data.\n\n- When prompting the LLM, we can use Jinja templating to reference other columns in the dataset.\n\n- As we see below, nested json fields can be accessed using dot notation."
+    },
+    {
+      "type": "code",
+      "source": "config_builder.add_column(\n    dd.LLMTextColumnConfig(\n        name=\"product_name\",\n        prompt=(\n            \"You are a helpful assistant that generates product names. DO NOT add quotes around the product name.\\n\\n\"\n            \"Come up with a creative product name for a product in the '{{ product_category }}' category, focusing \"\n            \"on products related to '{{ product_subcategory }}'. The target age range of the ideal customer is \"\n            \"{{ target_age_range }} years old. Respond with only the product name, no other text.\"\n        ),\n        model_alias=MODEL_ALIAS,\n    )\n)\n\nconfig_builder.add_column(\n    dd.LLMTextColumnConfig(\n        name=\"customer_review\",\n        prompt=(\n            \"You are a customer named {{ customer.first_name }} from {{ customer.city }}, {{ customer.state }}. \"\n            \"You are {{ customer.age }} years old and recently purchased a product called {{ product_name }}. \"\n            \"Write a review of this product, which you gave a rating of {{ number_of_stars }} stars. \"\n            \"The style of the review should be '{{ review_style }}'. \"\n            \"Respond with only the review, no other text.\"\n        ),\n        model_alias=MODEL_ALIAS,\n    )\n)\n\ndata_designer.validate(config_builder)",
+      "language": "python"
+    },
+    {
+      "type": "markdown",
+      "source": "### \ud83d\udd01 Iteration is key \u2013\u00a0preview the dataset!\n\n1. Use the `preview` method to generate a sample of records quickly.\n\n2. Inspect the results for quality and format issues.\n\n3. Adjust column configurations, prompts, or parameters as needed.\n\n4. Re-run the preview until satisfied."
+    },
+    {
+      "type": "code",
+      "source": "preview = data_designer.preview(config_builder, num_records=2)",
+      "language": "python"
+    },
+    {
+      "type": "code",
+      "source": "# Run this cell multiple times to cycle through the 2 preview records.\npreview.display_sample_record()",
+      "language": "python"
+    },
+    {
+      "type": "code",
+      "source": "# The preview dataset is available as a pandas DataFrame.\npreview.dataset",
+      "language": "python"
+    },
+    {
+      "type": "markdown",
+      "source": "### \ud83d\udcca Analyze the generated data\n\n- Data Designer automatically generates a basic statistical analysis of the generated data.\n\n- This analysis is available via the `analysis` property of generation result objects."
+    },
+    {
+      "type": "code",
+      "source": "# Print the analysis as a table.\npreview.analysis.to_report()",
+      "language": "python"
+    },
+    {
+      "type": "markdown",
+      "source": "### \ud83c\udd99 Scale up!\n\n- Happy with your preview data?\n\n- Use the `create` method to submit larger Data Designer generation jobs."
+    },
+    {
+      "type": "code",
+      "source": "results = data_designer.create(config_builder, num_records=10, dataset_name=\"tutorial-1\")",
+      "language": "python"
+    },
+    {
+      "type": "code",
+      "source": "# Load the generated dataset as a pandas DataFrame.\ndataset = results.load_dataset()\n\ndataset.head()",
+      "language": "python"
+    },
+    {
+      "type": "code",
+      "source": "# Load the analysis results into memory.\nanalysis = results.load_analysis()\n\nanalysis.to_report()",
+      "language": "python"
+    },
+    {
+      "type": "markdown",
+      "source": "## \u23ed\ufe0f Next Steps\n\nNow that you've seen the basics of Data Designer, check out the following notebooks to learn more about:\n\n- [Structured outputs and jinja expressions](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/2-structured-outputs-and-jinja-expressions/)\n\n- [Seeding synthetic data generation with an external dataset](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/3-seeding-with-a-dataset/)\n\n- [Providing images as context](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/4-providing-images-as-context/)\n\n- [Generating images](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/5-generating-images/)"
+    }
+  ]
+}

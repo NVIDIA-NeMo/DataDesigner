@@ -1,0 +1,32 @@
+/* MetricsTable component styles */
+
+.metrics-table-wrapper {
+  margin: 1.5rem 0;
+  overflow-x: auto;
+}
+
+.metrics-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.metrics-table th,
+.metrics-table td {
+  border: 1px solid rgba(128, 128, 128, 0.25);
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+}
+
+.metrics-table th {
+  background: rgba(0, 0, 0, 0.04);
+  font-weight: 600;
+}
+
+.dark .metrics-table th {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.metrics-table td.metrics-table__cell--best {
+  font-weight: 600;
+}

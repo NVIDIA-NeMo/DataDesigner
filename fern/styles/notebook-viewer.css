@@ -1,0 +1,117 @@
+/* NotebookViewer component styles */
+
+.notebook-viewer {
+  margin: 1.5rem 0;
+}
+
+.notebook-viewer__colab-banner {
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  background: linear-gradient(90deg, #f9ab00 0%, #e37400 100%);
+  border-radius: 8px;
+}
+
+.notebook-viewer__colab-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #1a1a1a;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.notebook-viewer__colab-link:hover {
+  text-decoration: underline;
+}
+
+.notebook-viewer__colab-icon {
+  font-size: 0.875rem;
+}
+
+.notebook-viewer__cells {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.notebook-viewer__cell {
+  margin: 0;
+}
+
+.notebook-viewer__cell--markdown .notebook-viewer__markdown {
+  line-height: 1.6;
+}
+
+.notebook-viewer__cell--markdown .notebook-viewer__markdown h1,
+.notebook-viewer__cell--markdown .notebook-viewer__markdown h2,
+.notebook-viewer__cell--markdown .notebook-viewer__markdown h3,
+.notebook-viewer__cell--markdown .notebook-viewer__markdown h4 {
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.notebook-viewer__cell--markdown .notebook-viewer__markdown h1:first-child,
+.notebook-viewer__cell--markdown .notebook-viewer__markdown h2:first-child,
+.notebook-viewer__cell--markdown .notebook-viewer__markdown h3:first-child,
+.notebook-viewer__cell--markdown .notebook-viewer__markdown h4:first-child {
+  margin-top: 0;
+}
+
+.notebook-viewer__cell--markdown .notebook-viewer__markdown ul {
+  margin: 0.5rem 0;
+  padding-left: 1.5rem;
+}
+
+.notebook-viewer__cell--markdown .notebook-viewer__markdown p {
+  margin: 0.5rem 0;
+}
+
+.notebook-viewer__code-wrapper {
+  margin: 0;
+}
+
+.notebook-viewer__code {
+  margin: 0;
+  padding: 1rem;
+  border-radius: 8px;
+  overflow-x: auto;
+}
+
+.notebook-viewer__outputs {
+  margin-top: 0.5rem;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: 8px;
+  overflow-x: auto;
+}
+
+.dark .notebook-viewer__outputs {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.notebook-viewer__output-text,
+.notebook-viewer__output-html {
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+.notebook-viewer__output-html table {
+  border-collapse: collapse;
+}
+
+.notebook-viewer__output-html th,
+.notebook-viewer__output-html td {
+  border: 1px solid #e5e7eb;
+  padding: 0.25rem 0.5rem;
+}
+
+.dark .notebook-viewer__output-html th,
+.dark .notebook-viewer__output-html td {
+  border-color: #374151;
+}
+
+.notebook-viewer__output-image {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+}

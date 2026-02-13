@@ -1,0 +1,147 @@
+---
+title: Processors
+description: API reference for processor configuration objects.
+---
+
+The `processors` module defines configuration objects for post-generation data transformations. Processors run after column generation and can modify the dataset schema or content before output.
+
+## ProcessorType Enum
+
+```python
+class ProcessorType(str, Enum):
+    """Enumeration of available processor types."""
+    
+    DROP_COLUMNS = "drop_columns"
+    SCHEMA_TRANSFORM = "schema_transform"
+```
+
+## ProcessorConfig (Base Class)
+
+```python
+class ProcessorConfig(ConfigBase, ABC):
+    """Abstract base class for all processor configuration types."""
+    
+    name: str  # Unique name of the processor
+    processor_type: str  # Discriminator field
+```
+
+## DropColumnsProcessorConfig
+
+```python
+class DropColumnsProcessorConfig(ProcessorConfig):
+    """Configuration for dropping columns from output."""
+    
+    name: str  # Processor identifier
+    column_names: list[str]  # Columns to remove from output
+    processor_type: Literal[ProcessorType.DROP_COLUMNS] = ProcessorType.DROP_COLUMNS
+```
+
+### Behavior
+
+- Columns in `column_names` are removed from the main output
+- Dropped column values are saved to a separate file in `dropped-columns/`
+- When this processor is added via the config builder, column configs are automatically marked with `drop=True`
+
+### Example Usage
+
+```python
+import data_designer.config as dd
+
+builder = dd.DataDesignerConfigBuilder()
+# ... add columns ...
+
+builder.add_processor(
+    dd.DropColumnsProcessorConfig(
+        name="remove_intermediate",
+        column_names=["temp_calculation", "raw_context", "debug_info"],
+    )
+)
+```
+
+<Tip title="Alternative: Set drop directly on columns">
+Instead of using a processor, you can set `drop=True` directly when configuring a column:
+
+```python
+builder.add_column(
+    dd.LLMTextColumnConfig(
+        name="intermediate_reasoning",
+        model_alias="nvidia-text",
+        prompt="...",
+        drop=True,  # This column will be dropped from output
+    )
+)
+```
+</Tip>
+
+## SchemaTransformProcessorConfig
+
+```python
+class SchemaTransformProcessorConfig(ProcessorConfig):
+    """Configuration for transforming output schema."""
+    
+    name: str  # Processor identifier
+    template: dict[str, Any]  # Jinja2 template for output schema (must be JSON-serializable)
+    processor_type: Literal[ProcessorType.SCHEMA_TRANSFORM] = ProcessorType.SCHEMA_TRANSFORM
+```
+
+### Behavior
+
+- Each key in `template` becomes a column in the transformed output
+- Values are Jinja2 templates with access to all columns in the batch
+- Complex structures (lists, nested dicts) are supported but must be JSON-serializable
+- Output saved to `processors-outputs/{processor_name}/`
+- Original dataset passes through unchanged
+
+### Template Capabilities
+
+- **Variable substitution**: `{{ column_name }}`
+- **Filters**: `{{ text | upper }}`, `{{ text | lower }}`, `{{ text | trim }}`
+- **Nested structures**: Arbitrarily deep JSON structures
+- **Lists**: `["{{ col1 }}", "{{ col2 }}"]`
+- **Conditionals**: `{% if condition %}...{% endif %}`
+
+### Example Usage
+
+```python
+import data_designer.config as dd
+
+builder = dd.DataDesignerConfigBuilder()
+# ... add columns with 'question' and 'answer' ...
+
+# Transform to chat message format
+builder.add_processor(
+    dd.SchemaTransformProcessorConfig(
+        name="chat_format",
+        template={
+            "messages": [
+                {"role": "user", "content": "{{ question }}"},
+                {"role": "assistant", "content": "{{ answer }}"},
+            ],
+            "metadata": {
+                "category": "{{ category | upper }}",
+                "generated": True,
+            },
+        },
+    )
+)
+```
+
+## Helper Function
+
+```python
+def get_processor_config_from_kwargs(
+    processor_type: ProcessorType, 
+    **kwargs: Any
+) -> ProcessorConfig:
+    """Create a processor configuration from a processor type and keyword arguments.
+    
+    Args:
+        processor_type: The type of processor to create.
+        **kwargs: Additional keyword arguments passed to the processor constructor.
+    
+    Returns:
+        A processor configuration object of the specified type.
+    """
+```
+
+This function is used internally by `DataDesignerConfigBuilder.add_processor()` when you provide a `processor_type` and keyword arguments instead of a config object directly.

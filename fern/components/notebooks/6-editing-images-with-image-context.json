@@ -1,0 +1,128 @@
+{
+  "cells": [
+    {
+      "type": "markdown",
+      "source": "# \ud83c\udfa8 Data Designer Tutorial: Image-to-Image Editing\n\n#### \ud83d\udcda What you'll learn\n\nThis notebook shows how to edit existing images by combining a seed dataset with image generation. You'll load animal portrait photographs from HuggingFace, feed them as context to an autoregressive model, and generate fun edited versions with accessories like sunglasses, top hats, and bow ties.\n\n- \ud83c\udf31 **Seed datasets with images**: Load a HuggingFace image dataset and use it as a seed\n- \ud83d\uddbc\ufe0f **Image context for editing**: Pass existing images to an image-generation model via `multi_modal_context`\n- \ud83c\udfb2 **Sampler-driven diversity**: Combine sampled accessories and settings with seed images for varied results\n- \ud83d\udcbe **Preview vs create**: Preview stores base64 in the dataframe; create saves images to disk\n\nThis tutorial uses an **autoregressive** model (one that supports both image input *and* image output via the chat completions API). Diffusion models (DALL\u00b7E, Stable Diffusion, etc.) do not support image context\u2014see [Tutorial 5](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/5-generating-images/) for text-to-image generation with diffusion models.\n\n> **Prerequisites**: This tutorial uses [OpenRouter](https://openrouter.ai) with the Flux 2 Pro model. Set `OPENROUTER_API_KEY` in your environment before running.\n\nIf this is your first time using Data Designer, we recommend starting with the [first notebook](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/1-the-basics/) in this tutorial series."
+    },
+    {
+      "type": "markdown",
+      "source": "### \ud83d\udce6 Import Data Designer\n\n- `data_designer.config` provides the configuration API.\n- `DataDesigner` is the main interface for generation."
+    },
+    {
+      "type": "markdown",
+      "source": "### \u26a1 Colab Setup\n\nRun the cells below to install the dependencies and set up the API key. If you don't have an API key, you can generate one from [build.nvidia.com](https://build.nvidia.com)."
+    },
+    {
+      "type": "code",
+      "source": "%%capture\n!pip install -U data-designer",
+      "language": "python"
+    },
+    {
+      "type": "code",
+      "source": "import getpass\nimport os\n\nfrom google.colab import userdata\n\ntry:\n    os.environ[\"NVIDIA_API_KEY\"] = userdata.get(\"NVIDIA_API_KEY\")\nexcept userdata.SecretNotFoundError:\n    os.environ[\"NVIDIA_API_KEY\"] = getpass.getpass(\"Enter your NVIDIA API key: \")",
+      "language": "python"
+    },
+    {
+      "type": "code",
+      "source": "import base64\nimport io\nimport uuid\n\nimport pandas as pd\nfrom datasets import load_dataset\nfrom IPython.display import Image as IPImage\nfrom IPython.display import display\n\nimport data_designer.config as dd\nfrom data_designer.interface import DataDesigner",
+      "language": "python"
+    },
+    {
+      "type": "markdown",
+      "source": "### \u2699\ufe0f Initialize the Data Designer interface\n\nWe initialize Data Designer without arguments here\u2014the image-editing model is configured explicitly in the next cell. No default text model is needed for this tutorial."
+    },
+    {
+      "type": "code",
+      "source": "data_designer = DataDesigner()",
+      "language": "python"
+    },
+    {
+      "type": "markdown",
+      "source": "### \ud83c\udf9b\ufe0f Define an image-editing model\n\nWe need an **autoregressive** model that supports both image input and image output via the chat completions API. This lets us pass existing images as context and receive edited images back.\n\n- Use `ImageInferenceParams` so Data Designer treats this model as an image generator.\n- Image-specific options are model-dependent; pass them via `extra_body`.\n\n> **Note**: This tutorial uses the Flux 2 Pro model via [OpenRouter](https://openrouter.ai). Set `OPENROUTER_API_KEY` in your environment."
+    },
+    {
+      "type": "code",
+      "source": "MODEL_PROVIDER = \"openrouter\"\nMODEL_ID = \"black-forest-labs/flux.2-pro\"\nMODEL_ALIAS = \"image-editor\"\n\nmodel_configs = [\n    dd.ModelConfig(\n        alias=MODEL_ALIAS,\n        model=MODEL_ID,\n        provider=MODEL_PROVIDER,\n        inference_parameters=dd.ImageInferenceParams(\n            extra_body={\"height\": 512, \"width\": 512},\n        ),\n    )\n]",
+      "language": "python"
+    },
+    {
+      "type": "markdown",
+      "source": "### \ud83c\udf31 Load animal portraits from HuggingFace\n\nWe'll load animal face photographs from the [AFHQ](https://huggingface.co/datasets/huggan/AFHQv2) (Animal Faces-HQ) dataset, convert them to base64, and use them as a seed dataset.\n\nAFHQ contains high-quality 512\u00d7512 close-up portraits of cats, dogs, and wildlife\u2014perfect subjects for adding fun accessories."
+    },
+    {
+      "type": "code",
+      "source": "SEED_COUNT = 10\nBASE64_IMAGE_HEIGHT = 512\n\nANIMAL_LABELS = {0: \"cat\", 1: \"dog\", 2: \"wild\"}\n\n\ndef resize_image(image, height: int):\n    \"\"\"Resize image maintaining aspect ratio.\"\"\"\n    original_width, original_height = image.size\n    width = int(original_width * (height / original_height))\n    return image.resize((width, height))\n\n\ndef prepare_record(record: dict, height: int) -> dict:\n    \"\"\"Convert a HuggingFace record to base64 with metadata.\"\"\"\n    image = resize_image(record[\"image\"], height)\n    img_buffer = io.BytesIO()\n    image.save(img_buffer, format=\"PNG\")\n    base64_string = base64.b64encode(img_buffer.getvalue()).decode(\"utf-8\")\n    return {\n        \"uuid\": str(uuid.uuid4()),\n        \"base64_image\": base64_string,\n        \"animal\": ANIMAL_LABELS[record[\"label\"]],\n    }",
+      "language": "python"
+    },
+    {
+      "type": "code",
+      "source": "print(\"\ud83d\udce5 Streaming animal portraits from HuggingFace...\")\nhf_dataset = load_dataset(\"huggan/AFHQv2\", split=\"train\", streaming=True)\n\nhf_iter = iter(hf_dataset)\nrecords = [prepare_record(next(hf_iter), BASE64_IMAGE_HEIGHT) for _ in range(SEED_COUNT)]\ndf_seed = pd.DataFrame(records)\n\nprint(f\"\u2705 Prepared {len(df_seed)} animal portraits with columns: {list(df_seed.columns)}\")\ndf_seed.head()",
+      "language": "python"
+    },
+    {
+      "type": "markdown",
+      "source": "### \ud83c\udfd7\ufe0f Build the configuration\n\nWe combine three ingredients:\n\n1. **Seed dataset** \u2014 original animal portraits as base64 and their species labels\n2. **Sampler columns** \u2014 randomly sample accessories and settings for each image\n3. **Image column with context** \u2014 generate an edited image using the original as reference\n\nThe `multi_modal_context` parameter on `ImageColumnConfig` tells Data Designer to pass the seed image to the model alongside the text prompt. The model receives both the image and the editing instructions, and generates a new image."
+    },
+    {
+      "type": "code",
+      "source": "config_builder = dd.DataDesignerConfigBuilder(model_configs=model_configs)\n\n# 1. Seed the original animal portraits\nconfig_builder.with_seed_dataset(dd.DataFrameSeedSource(df=df_seed))\n\n# 2. Add sampler columns for accessory diversity\nconfig_builder.add_column(\n    dd.SamplerColumnConfig(\n        name=\"accessory\",\n        sampler_type=dd.SamplerType.CATEGORY,\n        params=dd.CategorySamplerParams(\n            values=[\n                \"a tiny top hat\",\n                \"oversized sunglasses\",\n                \"a red bow tie\",\n                \"a knitted beanie\",\n                \"a flower crown\",\n                \"a monocle and mustache\",\n                \"a pirate hat and eye patch\",\n                \"a chef hat\",\n            ],\n        ),\n    )\n)\n\nconfig_builder.add_column(\n    dd.SamplerColumnConfig(\n        name=\"setting\",\n        sampler_type=dd.SamplerType.CATEGORY,\n        params=dd.CategorySamplerParams(\n            values=[\n                \"a cozy living room\",\n                \"a sunny park\",\n                \"a photo studio with soft lighting\",\n                \"a red carpet event\",\n                \"a holiday card backdrop with snowflakes\",\n                \"a tropical beach at sunset\",\n            ],\n        ),\n    )\n)\n\nconfig_builder.add_column(\n    dd.SamplerColumnConfig(\n        name=\"art_style\",\n        sampler_type=dd.SamplerType.CATEGORY,\n        params=dd.CategorySamplerParams(\n            values=[\n                \"a photorealistic style\",\n                \"a Disney Pixar 3D render\",\n                \"a watercolor painting\",\n                \"a pop art poster\",\n            ],\n        ),\n    )\n)\n\n# 3. Image column that reads the seed image as context and generates an edited version\nconfig_builder.add_column(\n    dd.ImageColumnConfig(\n        name=\"edited_image\",\n        prompt=(\n            \"Edit this {{ animal }} portrait photo. \"\n            \"Add {{ accessory }} on the animal. \"\n            \"Place the {{ animal }} in {{ setting }}. \"\n            \"Render the result in {{ art_style }}. \"\n            \"Keep the animal's face, expression, and features faithful to the original photo.\"\n        ),\n        model_alias=MODEL_ALIAS,\n        multi_modal_context=[\n            dd.ImageContext(\n                column_name=\"base64_image\",\n                data_type=dd.ModalityDataType.BASE64,\n                image_format=dd.ImageFormat.PNG,\n            )\n        ],\n    )\n)\n\ndata_designer.validate(config_builder)",
+      "language": "python"
+    },
+    {
+      "type": "markdown",
+      "source": "### \ud83d\udd01 Preview: quick iteration\n\nIn **preview** mode, generated images are stored as base64 strings in the dataframe. Use this to iterate on your prompts, accessories, and sampler values before scaling up."
+    },
+    {
+      "type": "code",
+      "source": "preview = data_designer.preview(config_builder, num_records=2)",
+      "language": "python"
+    },
+    {
+      "type": "code",
+      "source": "for i in range(len(preview.dataset)):\n    preview.display_sample_record()",
+      "language": "python"
+    },
+    {
+      "type": "code",
+      "source": "preview.dataset",
+      "language": "python"
+    },
+    {
+      "type": "markdown",
+      "source": "### \ud83d\udd0e Compare original vs edited\n\nLet's display the original animal portraits next to their accessorized versions."
+    },
+    {
+      "type": "code",
+      "source": "def display_before_after(row: pd.Series, index: int, base_path=None) -> None:\n    \"\"\"Display original vs edited image for a single record.\n\n    When base_path is None (preview mode), edited_image is decoded from base64.\n    When base_path is provided (create mode), edited_image is loaded from disk.\n    \"\"\"\n    print(f\"\\n{'=' * 60}\")\n    print(f\"Record {index}: {row['animal']} wearing {row['accessory']}\")\n    print(f\"Setting: {row['setting']}\")\n    print(f\"Style: {row['art_style']}\")\n    print(f\"{'=' * 60}\")\n\n    print(\"\\n\ud83d\udcf7 Original portrait:\")\n    display(IPImage(data=base64.b64decode(row[\"base64_image\"])))\n\n    print(\"\\n\ud83c\udfa8 Edited version:\")\n    edited = row.get(\"edited_image\")\n    if edited is None:\n        return\n    if base_path is None:\n        images = edited if isinstance(edited, list) else [edited]\n        for img_b64 in images:\n            display(IPImage(data=base64.b64decode(img_b64)))\n    else:\n        paths = edited if not isinstance(edited, str) else [edited]\n        for path in paths:\n            display(IPImage(filename=str(base_path / path)))",
+      "language": "python"
+    },
+    {
+      "type": "code",
+      "source": "for index, row in preview.dataset.iterrows():\n    display_before_after(row, index)",
+      "language": "python"
+    },
+    {
+      "type": "markdown",
+      "source": "### \ud83c\udd99 Create at scale\n\nIn **create** mode, images are saved to disk in an `images/<column_name>/` folder with UUID filenames. The dataframe stores relative paths."
+    },
+    {
+      "type": "code",
+      "source": "results = data_designer.create(config_builder, num_records=5, dataset_name=\"tutorial-6-edited-images\")",
+      "language": "python"
+    },
+    {
+      "type": "code",
+      "source": "dataset = results.load_dataset()\ndataset.head()",
+      "language": "python"
+    },
+    {
+      "type": "code",
+      "source": "for index, row in dataset.head(10).iterrows():\n    display_before_after(row, index, base_path=results.artifact_storage.base_dataset_path)",
+      "language": "python"
+    },
+    {
+      "type": "markdown",
+      "source": "## \u23ed\ufe0f Next steps\n\n- Experiment with different autoregressive models for image editing\n- Try more creative editing prompts (style transfer, background replacement, artistic filters)\n- Combine image editing with text generation (e.g., generate captions for edited images using an LLM-Text column)\n\nRelated tutorials:\n\n- [The basics](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/1-the-basics/): samplers and LLM text columns\n- [Providing images as context](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/4-providing-images-as-context/): image-to-text with VLMs\n- [Generating images](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/5-generating-images/): text-to-image generation with diffusion models"
+    }
+  ]
+}
