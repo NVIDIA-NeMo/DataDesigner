@@ -52,6 +52,7 @@ from data_designer.engine.dataset_builders.utils.concurrency import (
     ExecutorResults,
 )
 from data_designer.engine.errors import DataDesignerRuntimeError
+from data_designer.logging import LOG_INDENT
 
 logger = logging.getLogger(__name__)
 
@@ -198,10 +199,10 @@ class AsyncConcurrentExecutor:
 
             try:
                 result = await coro
-                self._results.completed_count += 1
-                self._results.success_count += 1
                 if self._result_callback is not None:
                     self._result_callback(result, context=context)
+                self._results.completed_count += 1
+                self._results.success_count += 1
             except Exception as err:
                 self._results.completed_count += 1
                 self._results.error_trap.handle_error(err)
@@ -212,14 +213,17 @@ class AsyncConcurrentExecutor:
                         self._results.early_shutdown = True
                     self._shutdown_event.set()
                 if self._error_callback is not None:
-                    self._error_callback(err, context=context)
+                    try:
+                        self._error_callback(err, context=context)
+                    except Exception:
+                        logger.warning("error_callback raised an exception", exc_info=True)
 
     def _raise_task_error(self) -> None:
         raise DataDesignerRuntimeError(
             "\n".join(
                 [
-                    "  |-- Data generation was terminated early due to error rate exceeding threshold.",
-                    f"  |-- The summary of encountered errors is: \n{json.dumps(self._results.summary, indent=4)}",
+                    f"{LOG_INDENT}Data generation was terminated early due to error rate exceeding threshold.",
+                    f"{LOG_INDENT}The summary of encountered errors is: \n{json.dumps(self._results.summary, indent=4)}",
                 ]
             )
         )

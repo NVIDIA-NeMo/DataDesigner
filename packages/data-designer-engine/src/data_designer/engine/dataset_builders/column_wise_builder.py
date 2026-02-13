@@ -328,6 +328,8 @@ class ColumnWiseDatasetBuilder:
             self._records_to_drop.clear()
 
     def _fan_out_with_async(self, generator: ColumnGeneratorWithModelRegistry, max_workers: int) -> None:
+        if getattr(generator.config, "tool_alias", None):
+            logger.info("🛠️ Tool calling enabled")
         progress_tracker, executor_kwargs = self._setup_fan_out(generator, max_workers)
         executor = AsyncConcurrentExecutor(max_workers=max_workers, **executor_kwargs)
         work_items = [
