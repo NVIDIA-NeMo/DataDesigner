@@ -68,7 +68,9 @@ class CategorySamplerParams(ConfigBase):
             "Larger values will be sampled with higher probability."
         ),
     )
-    sampler_type: Literal[SamplerType.CATEGORY] = SamplerType.CATEGORY
+    sampler_type: Literal[SamplerType.CATEGORY] = Field(
+        default=SamplerType.CATEGORY, description="Sampler type discriminator, always 'category' for this sampler"
+    )
 
     @model_validator(mode="after")
     def _normalize_weights_if_needed(self) -> Self:
@@ -109,7 +111,9 @@ class DatetimeSamplerParams(ConfigBase):
         default="D",
         description="Sampling units, e.g. the smallest possible time interval between samples.",
     )
-    sampler_type: Literal[SamplerType.DATETIME] = SamplerType.DATETIME
+    sampler_type: Literal[SamplerType.DATETIME] = Field(
+        default=SamplerType.DATETIME, description="Sampler type discriminator, always 'datetime' for this sampler"
+    )
 
     @field_validator("start", "end")
     @classmethod
@@ -140,7 +144,9 @@ class SubcategorySamplerParams(ConfigBase):
         ...,
         description="Mapping from each value of parent category to a list of subcategory values.",
     )
-    sampler_type: Literal[SamplerType.SUBCATEGORY] = SamplerType.SUBCATEGORY
+    sampler_type: Literal[SamplerType.SUBCATEGORY] = Field(
+        default=SamplerType.SUBCATEGORY, description="Sampler type discriminator, always 'subcategory' for this sampler"
+    )
 
 
 class TimeDeltaSamplerParams(ConfigBase):
@@ -192,7 +198,9 @@ class TimeDeltaSamplerParams(ConfigBase):
         default="D",
         description="Sampling units, e.g. the smallest possible time interval between samples.",
     )
-    sampler_type: Literal[SamplerType.TIMEDELTA] = SamplerType.TIMEDELTA
+    sampler_type: Literal[SamplerType.TIMEDELTA] = Field(
+        default=SamplerType.TIMEDELTA, description="Sampler type discriminator, always 'timedelta' for this sampler"
+    )
 
     @model_validator(mode="after")
     def _validate_min_less_than_max(self) -> Self:
@@ -225,7 +233,9 @@ class UUIDSamplerParams(ConfigBase):
         default=False,
         description="If true, all letters in the UUID will be capitalized.",
     )
-    sampler_type: Literal[SamplerType.UUID] = SamplerType.UUID
+    sampler_type: Literal[SamplerType.UUID] = Field(
+        default=SamplerType.UUID, description="Sampler type discriminator, always 'uuid' for this sampler"
+    )
 
     @property
     def last_index(self) -> int:
@@ -264,7 +274,9 @@ class ScipySamplerParams(ConfigBase):
     decimal_places: int | None = Field(
         default=None, description="Number of decimal places to round the sampled values to."
     )
-    sampler_type: Literal[SamplerType.SCIPY] = SamplerType.SCIPY
+    sampler_type: Literal[SamplerType.SCIPY] = Field(
+        default=SamplerType.SCIPY, description="Sampler type discriminator, always 'scipy' for this sampler"
+    )
 
 
 class BinomialSamplerParams(ConfigBase):
@@ -281,7 +293,9 @@ class BinomialSamplerParams(ConfigBase):
 
     n: int = Field(..., description="Number of trials.")
     p: float = Field(..., description="Probability of success on each trial.", ge=0.0, le=1.0)
-    sampler_type: Literal[SamplerType.BINOMIAL] = SamplerType.BINOMIAL
+    sampler_type: Literal[SamplerType.BINOMIAL] = Field(
+        default=SamplerType.BINOMIAL, description="Sampler type discriminator, always 'binomial' for this sampler"
+    )
 
 
 class BernoulliSamplerParams(ConfigBase):
@@ -297,7 +311,9 @@ class BernoulliSamplerParams(ConfigBase):
     """
 
     p: float = Field(..., description="Probability of success.", ge=0.0, le=1.0)
-    sampler_type: Literal[SamplerType.BERNOULLI] = SamplerType.BERNOULLI
+    sampler_type: Literal[SamplerType.BERNOULLI] = Field(
+        default=SamplerType.BERNOULLI, description="Sampler type discriminator, always 'bernoulli' for this sampler"
+    )
 
 
 class BernoulliMixtureSamplerParams(ConfigBase):
@@ -337,7 +353,10 @@ class BernoulliMixtureSamplerParams(ConfigBase):
         ...,
         description="Parameters of the scipy.stats distribution given in `dist_name`.",
     )
-    sampler_type: Literal[SamplerType.BERNOULLI_MIXTURE] = SamplerType.BERNOULLI_MIXTURE
+    sampler_type: Literal[SamplerType.BERNOULLI_MIXTURE] = Field(
+        default=SamplerType.BERNOULLI_MIXTURE,
+        description="Sampler type discriminator, always 'bernoulli_mixture' for this sampler",
+    )
 
 
 class GaussianSamplerParams(ConfigBase):
@@ -361,7 +380,9 @@ class GaussianSamplerParams(ConfigBase):
     decimal_places: int | None = Field(
         default=None, description="Number of decimal places to round the sampled values to."
     )
-    sampler_type: Literal[SamplerType.GAUSSIAN] = SamplerType.GAUSSIAN
+    sampler_type: Literal[SamplerType.GAUSSIAN] = Field(
+        default=SamplerType.GAUSSIAN, description="Sampler type discriminator, always 'gaussian' for this sampler"
+    )
 
 
 class PoissonSamplerParams(ConfigBase):
@@ -381,7 +402,9 @@ class PoissonSamplerParams(ConfigBase):
     """
 
     mean: float = Field(..., description="Mean number of events in a fixed interval.")
-    sampler_type: Literal[SamplerType.POISSON] = SamplerType.POISSON
+    sampler_type: Literal[SamplerType.POISSON] = Field(
+        default=SamplerType.POISSON, description="Sampler type discriminator, always 'poisson' for this sampler"
+    )
 
 
 class UniformSamplerParams(ConfigBase):
@@ -403,7 +426,9 @@ class UniformSamplerParams(ConfigBase):
     decimal_places: int | None = Field(
         default=None, description="Number of decimal places to round the sampled values to."
     )
-    sampler_type: Literal[SamplerType.UNIFORM] = SamplerType.UNIFORM
+    sampler_type: Literal[SamplerType.UNIFORM] = Field(
+        default=SamplerType.UNIFORM, description="Sampler type discriminator, always 'uniform' for this sampler"
+    )
 
 
 #########################################
@@ -481,7 +506,9 @@ class PersonSamplerParams(ConfigBase):
         default=False,
         description="If True, then append synthetic persona columns to each generated person.",
     )
-    sampler_type: Literal[SamplerType.PERSON] = SamplerType.PERSON
+    sampler_type: Literal[SamplerType.PERSON] = Field(
+        default=SamplerType.PERSON, description="Sampler type discriminator, always 'person' for this sampler"
+    )
 
     @property
     def generator_kwargs(self) -> list[str]:
@@ -564,7 +591,10 @@ class PersonFromFakerSamplerParams(ConfigBase):
         min_length=2,
         max_length=2,
     )
-    sampler_type: Literal[SamplerType.PERSON_FROM_FAKER] = SamplerType.PERSON_FROM_FAKER
+    sampler_type: Literal[SamplerType.PERSON_FROM_FAKER] = Field(
+        default=SamplerType.PERSON_FROM_FAKER,
+        description="Sampler type discriminator, always 'person_from_faker' for this sampler",
+    )
 
     @property
     def generator_kwargs(self) -> list[str]:

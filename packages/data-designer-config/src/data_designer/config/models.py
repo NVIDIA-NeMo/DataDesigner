@@ -56,9 +56,11 @@ class DistributionType(str, Enum):
 
 
 class ModalityContext(ABC, BaseModel):
-    modality: Modality
-    column_name: str
-    data_type: ModalityDataType | None = None
+    modality: Modality = Field(description="The modality type for this context")
+    column_name: str = Field(description="Name of the column containing the modality data")
+    data_type: ModalityDataType | None = Field(
+        default=None, description="Format of the modality data ('url' or 'base64')"
+    )
 
     @abstractmethod
     def get_contexts(self, record: dict, *, base_path: str | None = None) -> list[dict[str, Any]]: ...
@@ -76,8 +78,8 @@ class ImageContext(ModalityContext):
         image_format: Image format (required when data_type is explicitly "base64").
     """
 
-    modality: Modality = Modality.IMAGE
-    image_format: ImageFormat | None = None
+    modality: Modality = Field(default=Modality.IMAGE, description="The modality type, always 'image' for ImageContext")
+    image_format: ImageFormat | None = Field(default=None, description="Image format (required for base64 data)")
 
     def get_contexts(self, record: dict, *, base_path: str | None = None) -> list[dict[str, Any]]:
         """Get the contexts for the image modality.
@@ -179,8 +181,8 @@ DistributionParamsT = TypeVar("DistributionParamsT", bound=ConfigBase)
 
 
 class Distribution(ABC, ConfigBase, Generic[DistributionParamsT]):
-    distribution_type: DistributionType
-    params: DistributionParamsT
+    distribution_type: DistributionType = Field(description="Type of distribution for sampling")
+    params: DistributionParamsT = Field(description="Parameters for the distribution")
 
     @abstractmethod
     def sample(self) -> float: ...
@@ -194,8 +196,10 @@ class ManualDistributionParams(ConfigBase):
         weights: Optional list of weights for each value. If not provided, all values have equal probability.
     """
 
-    values: list[float] = Field(min_length=1)
-    weights: list[float] | None = None
+    values: list[float] = Field(min_length=1, description="List of possible values to sample from")
+    weights: list[float] | None = Field(
+        default=None, description="Optional probability weights for each value; automatically normalized to sum to 1.0"
+    )
 
     @model_validator(mode="after")
     def _normalize_weights(self) -> Self:
@@ -221,8 +225,10 @@ class ManualDistribution(Distribution[ManualDistributionParams]):
         params: Distribution parameters (values, weights).
     """
 
-    distribution_type: DistributionType | None = "manual"
-    params: ManualDistributionParams
+    distribution_type: DistributionType | None = Field(
+        default="manual", description="Type of distribution, always 'manual' for this class"
+    )
+    params: ManualDistributionParams = Field(description="Manual distribution parameters (values and optional weights)")
 
     def sample(self) -> float:
         """Sample a value from the manual distribution.
@@ -241,8 +247,8 @@ class UniformDistributionParams(ConfigBase):
         high: Upper bound (exclusive).
     """
 
-    low: float
-    high: float
+    low: float = Field(description="Lower bound of the uniform distribution (inclusive)")
+    high: float = Field(description="Upper bound of the uniform distribution (exclusive)")
 
     @model_validator(mode="after")
     def _validate_low_lt_high(self) -> Self:
@@ -262,8 +268,10 @@ class UniformDistribution(Distribution[UniformDistributionParams]):
         params: Distribution parameters (low, high).
     """
 
-    distribution_type: DistributionType | None = "uniform"
-    params: UniformDistributionParams
+    distribution_type: DistributionType | None = Field(
+        default="uniform", description="Type of distribution, always 'uniform' for this class"
+    )
+    params: UniformDistributionParams = Field(description="Uniform distribution parameters (low and high bounds)")
 
     def sample(self) -> float:
         """Sample a value from the uniform distribution.
@@ -293,10 +301,14 @@ class BaseInferenceParams(ConfigBase, ABC):
         extra_body: Additional parameters to pass to the model API.
     """
 
-    generation_type: GenerationType
-    max_parallel_requests: int = Field(default=4, ge=1)
-    timeout: int | None = Field(default=None, ge=1)
-    extra_body: dict[str, Any] | None = None
+    generation_type: GenerationType = Field(description="Type of generation (chat-completion, embedding, or image)")
+    max_parallel_requests: int = Field(
+        default=4, ge=1, description="Maximum number of parallel requests to the model API"
+    )
+    timeout: int | None = Field(default=None, ge=1, description="Timeout in seconds for each request")
+    extra_body: dict[str, Any] | None = Field(
+        default=None, description="Additional parameters to pass to the model API"
+    )
 
     @property
     def generate_kwargs(self) -> dict[str, Any]:
@@ -361,10 +373,19 @@ class ChatCompletionInferenceParams(BaseInferenceParams):
         max_tokens: Maximum number of tokens to generate in the response.
     """
 
-    generation_type: Literal[GenerationType.CHAT_COMPLETION] = GenerationType.CHAT_COMPLETION
-    temperature: float | DistributionT | None = None
-    top_p: float | DistributionT | None = None
-    max_tokens: int | None = Field(default=None, ge=1)
+    generation_type: Literal[GenerationType.CHAT_COMPLETION] = Field(
+        default=GenerationType.CHAT_COMPLETION,
+        description="Type of generation, always 'chat-completion' for this class",
+    )
+    temperature: float | DistributionT | None = Field(
+        default=None, description="Sampling temperature (0.0-2.0); can be a fixed value or a distribution"
+    )
+    top_p: float | DistributionT | None = Field(
+        default=None, description="Nucleus sampling probability (0.0-1.0); can be a fixed value or a distribution"
+    )
+    max_tokens: int | None = Field(
+        default=None, ge=1, description="Maximum number of tokens to generate in the response"
+    )
 
     @property
     def generate_kwargs(self) -> dict[str, Any]:
@@ -446,9 +467,13 @@ class EmbeddingInferenceParams(BaseInferenceParams):
         dimensions: Number of dimensions for the embedding.
     """
 
-    generation_type: Literal[GenerationType.EMBEDDING] = GenerationType.EMBEDDING
-    encoding_format: Literal["float", "base64"] = "float"
-    dimensions: int | None = None
+    generation_type: Literal[GenerationType.EMBEDDING] = Field(
+        default=GenerationType.EMBEDDING, description="Type of generation, always 'embedding' for this class"
+    )
+    encoding_format: Literal["float", "base64"] = Field(
+        default="float", description="Format of the embedding encoding ('float' or 'base64')"
+    )
+    dimensions: int | None = Field(default=None, description="Number of dimensions for the embedding")
 
     @property
     def generate_kwargs(self) -> dict[str, float | int]:
@@ -489,7 +514,9 @@ class ImageInferenceParams(BaseInferenceParams):
         ```
     """
 
-    generation_type: Literal[GenerationType.IMAGE] = GenerationType.IMAGE
+    generation_type: Literal[GenerationType.IMAGE] = Field(
+        default=GenerationType.IMAGE, description="Type of generation, always 'image' for this class"
+    )
 
 
 InferenceParamsT: TypeAlias = Annotated[
@@ -510,11 +537,14 @@ class ModelConfig(ConfigBase):
         skip_health_check: Whether to skip the health check for this model. Defaults to False.
     """
 
-    alias: str
-    model: str
-    inference_parameters: InferenceParamsT = Field(default_factory=ChatCompletionInferenceParams)
-    provider: str | None = None
-    skip_health_check: bool = False
+    alias: str = Field(description="User-defined alias to reference in column configurations")
+    model: str = Field(description="Model identifier (e.g., from build.nvidia.com or other providers)")
+    inference_parameters: InferenceParamsT = Field(
+        default_factory=ChatCompletionInferenceParams,
+        description="Inference parameters for the model (temperature, top_p, max_tokens, etc.)",
+    )
+    provider: str | None = Field(default=None, description="Optional model provider name if using custom providers")
+    skip_health_check: bool = Field(default=False, description="Whether to skip the health check for this model")
 
     @property
     def generation_type(self) -> GenerationType:

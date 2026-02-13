@@ -33,10 +33,12 @@ class MCPProvider(ConfigBase):
         ... )
     """
 
-    provider_type: Literal["sse"] = "sse"
-    name: str
-    endpoint: str
-    api_key: str | None = None
+    provider_type: Literal["sse"] = Field(
+        default="sse", description="Transport type discriminator, always 'sse' for remote MCP providers"
+    )
+    name: str = Field(description="Unique name used to reference this MCP provider")
+    endpoint: str = Field(description="SSE endpoint URL for connecting to the remote MCP server")
+    api_key: str | None = Field(default=None, description="Optional API key for authentication")
 
 
 class LocalStdioMCPProvider(ConfigBase):
@@ -63,11 +65,15 @@ class LocalStdioMCPProvider(ConfigBase):
         ... )
     """
 
-    provider_type: Literal["stdio"] = "stdio"
-    name: str
-    command: str
-    args: list[str] = Field(default_factory=list)
-    env: dict[str, str] = Field(default_factory=dict)
+    provider_type: Literal["stdio"] = Field(
+        default="stdio", description="Transport type discriminator, always 'stdio' for local subprocess MCP providers"
+    )
+    name: str = Field(description="Unique name used to reference this MCP provider")
+    command: str = Field(description="Executable to launch the MCP server via stdio transport")
+    args: list[str] = Field(default_factory=list, description="Arguments passed to the MCP server executable")
+    env: dict[str, str] = Field(
+        default_factory=dict, description="Environment variables passed to the MCP server subprocess"
+    )
 
 
 MCPProviderT: TypeAlias = Annotated[MCPProvider | LocalStdioMCPProvider, Field(discriminator="provider_type")]
@@ -102,8 +108,12 @@ class ToolConfig(ConfigBase):
         ... )
     """
 
-    tool_alias: str
-    providers: list[str]
-    allow_tools: list[str] | None = None
-    max_tool_call_turns: int = Field(default=5, ge=1)
-    timeout_sec: float | None = Field(default=None, gt=0)
+    tool_alias: str = Field(description="User-defined alias to reference this tool configuration in column configs")
+    providers: list[str] = Field(description="Names of the MCP providers to use for tool calls")
+    allow_tools: list[str] | None = Field(
+        default=None, description="Optional allowlist of tool names that restricts which tools are permitted"
+    )
+    max_tool_call_turns: int = Field(
+        default=5, ge=1, description="Maximum number of tool-calling turns permitted in a single generation"
+    )
+    timeout_sec: float | None = Field(default=None, gt=0, description="Timeout in seconds for MCP tool calls")

@@ -6,6 +6,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from enum import Enum
 
+from pydantic import Field
 from typing_extensions import TypeAlias
 
 from data_designer.config.base import ConfigBase
@@ -24,7 +25,7 @@ class InequalityOperator(str, Enum):
 
 
 class Constraint(ConfigBase, ABC):
-    target_column: str
+    target_column: str = Field(description="Name of the column this constraint applies to")
 
     @property
     @abstractmethod
@@ -32,8 +33,8 @@ class Constraint(ConfigBase, ABC):
 
 
 class ScalarInequalityConstraint(Constraint):
-    rhs: float
-    operator: InequalityOperator
+    rhs: float = Field(description="Scalar value to compare against")
+    operator: InequalityOperator = Field(description="Comparison operator (lt, le, gt, ge)")
 
     @property
     def constraint_type(self) -> ConstraintType:
@@ -41,8 +42,8 @@ class ScalarInequalityConstraint(Constraint):
 
 
 class ColumnInequalityConstraint(Constraint):
-    rhs: str
-    operator: InequalityOperator
+    rhs: str = Field(description="Name of the other column to compare against")
+    operator: InequalityOperator = Field(description="Comparison operator (lt, le, gt, ge)")
 
     @property
     def constraint_type(self) -> ConstraintType:

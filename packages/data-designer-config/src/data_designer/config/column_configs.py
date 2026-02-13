@@ -56,11 +56,22 @@ class SamplerColumnConfig(SingleColumnConfig):
         ```
     """
 
-    sampler_type: SamplerType
-    params: Annotated[SamplerParamsT, Discriminator("sampler_type")]
-    conditional_params: dict[str, Annotated[SamplerParamsT, Discriminator("sampler_type")]] = {}
-    convert_to: str | None = None
-    column_type: Literal["sampler"] = "sampler"
+    sampler_type: SamplerType = Field(
+        description="Type of sampler to use (e.g., uuid, category, uniform, gaussian, person, datetime)"
+    )
+    params: Annotated[SamplerParamsT, Discriminator("sampler_type")] = Field(
+        description="Parameters specific to the chosen sampler type"
+    )
+    conditional_params: dict[str, Annotated[SamplerParamsT, Discriminator("sampler_type")]] = Field(
+        default_factory=dict,
+        description="Optional dictionary for conditional parameters; keys are conditions, values are params to use when met",
+    )
+    convert_to: str | None = Field(
+        default=None, description="Optional type conversion after sampling: 'float', 'int', or 'str'"
+    )
+    column_type: Literal["sampler"] = Field(
+        default="sampler", description="Discriminator field, always 'sampler' for this configuration type"
+    )
 
     @staticmethod
     def get_column_emoji() -> str:
@@ -136,14 +147,28 @@ class LLMTextColumnConfig(SingleColumnConfig):
         column_type: Discriminator field, always "llm-text" for this configuration type.
     """
 
-    prompt: str
-    model_alias: str
-    system_prompt: str | None = None
-    multi_modal_context: list[ImageContext] | None = None
-    tool_alias: str | None = None
-    with_trace: TraceType = TraceType.NONE
-    extract_reasoning_content: bool = False
-    column_type: Literal["llm-text"] = "llm-text"
+    prompt: str = Field(
+        description="Jinja2 template for the LLM prompt; can reference other columns via {{ column_name }}"
+    )
+    model_alias: str = Field(description="Alias of the model configuration to use for generation")
+    system_prompt: str | None = Field(
+        default=None, description="Optional system prompt to set model behavior and constraints"
+    )
+    multi_modal_context: list[ImageContext] | None = Field(
+        default=None, description="Optional list of ImageContext for vision model inputs"
+    )
+    tool_alias: str | None = Field(
+        default=None, description="Optional alias of the tool configuration to use for MCP tool calls"
+    )
+    with_trace: TraceType = Field(
+        default=TraceType.NONE, description="Trace capture mode: NONE, LAST_MESSAGE, or ALL_MESSAGES"
+    )
+    extract_reasoning_content: bool = Field(
+        default=False, description="If True, capture chain-of-thought in {name}__reasoning_content column"
+    )
+    column_type: Literal["llm-text"] = Field(
+        default="llm-text", description="Discriminator field, always 'llm-text' for this configuration type"
+    )
 
     @staticmethod
     def get_column_emoji() -> str:
@@ -219,8 +244,12 @@ class LLMCodeColumnConfig(LLMTextColumnConfig):
             column containing the reasoning content from the final assistant response.
     """
 
-    code_lang: CodeLang
-    column_type: Literal["llm-code"] = "llm-code"
+    code_lang: CodeLang = Field(
+        description="Target programming language or SQL dialect for code extraction from LLM response"
+    )
+    column_type: Literal["llm-code"] = Field(
+        default="llm-code", description="Discriminator field, always 'llm-code' for this configuration type"
+    )
 
     @staticmethod
     def get_column_emoji() -> str:
@@ -252,8 +281,12 @@ class LLMStructuredColumnConfig(LLMTextColumnConfig):
             column containing the reasoning content from the final assistant response.
     """
 
-    output_format: dict | type[BaseModel]
-    column_type: Literal["llm-structured"] = "llm-structured"
+    output_format: dict | type[BaseModel] = Field(
+        description="Pydantic model or JSON schema dict defining the expected structured output shape"
+    )
+    column_type: Literal["llm-structured"] = Field(
+        default="llm-structured", description="Discriminator field, always 'llm-structured' for this configuration type"
+    )
 
     @staticmethod
     def get_column_emoji() -> str:
@@ -317,8 +350,12 @@ class LLMJudgeColumnConfig(LLMTextColumnConfig):
             column containing the reasoning content from the final assistant response.
     """
 
-    scores: list[Score] = Field(..., min_length=1)
-    column_type: Literal["llm-judge"] = "llm-judge"
+    scores: list[Score] = Field(
+        ..., min_length=1, description="List of Score objects defining rubric criteria for LLM judge evaluation"
+    )
+    column_type: Literal["llm-judge"] = Field(
+        default="llm-judge", description="Discriminator field, always 'llm-judge' for this configuration type"
+    )
 
     @staticmethod
     def get_column_emoji() -> str:
@@ -341,10 +378,14 @@ class ExpressionColumnConfig(SingleColumnConfig):
         column_type: Discriminator field, always "expression" for this configuration type.
     """
 
-    name: str
-    expr: str
-    dtype: Literal["int", "float", "str", "bool"] = "str"
-    column_type: Literal["expression"] = "expression"
+    name: str = Field(description="Unique name of the column to be generated")
+    expr: str = Field(description="Jinja2 expression to compute the column value from other columns")
+    dtype: Literal["int", "float", "str", "bool"] = Field(
+        default="str", description="Data type for expression result: 'int', 'float', 'str', or 'bool'"
+    )
+    column_type: Literal["expression"] = Field(
+        default="expression", description="Discriminator field, always 'expression' for this configuration type"
+    )
 
     @staticmethod
     def get_column_emoji() -> str:
@@ -410,11 +451,13 @@ class ValidationColumnConfig(SingleColumnConfig):
         column_type: Discriminator field, always "validation" for this configuration type.
     """
 
-    target_columns: list[str]
-    validator_type: ValidatorType
-    validator_params: ValidatorParamsT
+    target_columns: list[str] = Field(description="List of column names to validate")
+    validator_type: ValidatorType = Field(description="Validation method: CODE, LOCAL_CALLABLE, or REMOTE")
+    validator_params: ValidatorParamsT = Field(description="Validator-specific parameters (e.g., CodeValidatorParams)")
     batch_size: int = Field(default=10, ge=1, description="Number of records to process in each batch")
-    column_type: Literal["validation"] = "validation"
+    column_type: Literal["validation"] = Field(
+        default="validation", description="Discriminator field, always 'validation' for this configuration type"
+    )
 
     @staticmethod
     def get_column_emoji() -> str:
@@ -441,7 +484,9 @@ class SeedDatasetColumnConfig(SingleColumnConfig):
         column_type: Discriminator field, always "seed-dataset" for this configuration type.
     """
 
-    column_type: Literal["seed-dataset"] = "seed-dataset"
+    column_type: Literal["seed-dataset"] = Field(
+        default="seed-dataset", description="Discriminator field, always 'seed-dataset' for this configuration type"
+    )
 
     @staticmethod
     def get_column_emoji() -> str:
@@ -468,9 +513,11 @@ class EmbeddingColumnConfig(SingleColumnConfig):
         column_type: Discriminator field, always "embedding" for this configuration type.
     """
 
-    target_column: str
-    model_alias: str
-    column_type: Literal["embedding"] = "embedding"
+    target_column: str = Field(description="Name of the text column to generate embeddings for")
+    model_alias: str = Field(description="Alias of the model to use for embedding generation")
+    column_type: Literal["embedding"] = Field(
+        default="embedding", description="Discriminator field, always 'embedding' for this configuration type"
+    )
 
     @staticmethod
     def get_column_emoji() -> str:
@@ -502,10 +549,16 @@ class ImageColumnConfig(SingleColumnConfig):
         column_type: Discriminator field, always "image" for this configuration type.
     """
 
-    prompt: str
-    model_alias: str
-    multi_modal_context: list[ImageContext] | None = None
-    column_type: Literal["image"] = "image"
+    prompt: str = Field(
+        description="Jinja2 template for the image generation prompt; can reference other columns via {{ column_name }}"
+    )
+    model_alias: str = Field(description="Alias of the model to use for image generation")
+    multi_modal_context: list[ImageContext] | None = Field(
+        default=None, description="Optional list of ImageContext for image-to-image generation inputs"
+    )
+    column_type: Literal["image"] = Field(
+        default="image", description="Discriminator field, always 'image' for this configuration type"
+    )
 
     @staticmethod
     def get_column_emoji() -> str:
@@ -562,7 +615,9 @@ class CustomColumnConfig(SingleColumnConfig):
         default=None,
         description="Optional typed configuration object passed as second argument to generator function",
     )
-    column_type: Literal["custom"] = "custom"
+    column_type: Literal["custom"] = Field(
+        default="custom", description="Discriminator field, always 'custom' for this configuration type"
+    )
 
     @field_validator("generator_function")
     @classmethod
