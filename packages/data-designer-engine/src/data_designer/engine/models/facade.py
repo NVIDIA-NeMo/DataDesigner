@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Callable
 from copy import deepcopy
@@ -20,6 +21,7 @@ from data_designer.engine.model_provider import ModelProviderRegistry
 from data_designer.engine.models.errors import (
     GenerationValidationFailureError,
     ImageGenerationError,
+    acatch_llm_exceptions,
     catch_llm_exceptions,
     get_exception_primary_cause,
 )
@@ -107,6 +109,10 @@ class ModelFacade:
     @property
     def model_alias(self) -> str:
         return self._model_config.alias
+
+    @property
+    def max_parallel_requests(self) -> int:
+        return self._model_config.inference_parameters.max_parallel_requests
 
     @property
     def usage_stats(self) -> ModelUsageStats:
@@ -511,6 +517,7 @@ class ModelFacade:
             model=f"{provider.provider_type}/{model_config.model}",
             api_base=provider.endpoint,
             api_key=api_key,
+            max_parallel_requests=model_config.inference_parameters.max_parallel_requests,
         )
         return {
             "model_name": model_config.model,
@@ -564,3 +571,327 @@ class ModelFacade:
         else:
             # Successful response but no token usage data (some providers don't report it)
             self._usage_stats.extend(request_usage=RequestUsageStats(successful_requests=1, failed_requests=0))
+
+    async def acompletion(
+        self, messages: list[ChatMessage], skip_usage_tracking: bool = False, **kwargs: Any
+    ) -> litellm.ModelResponse:
+        message_payloads = [message.to_dict() for message in messages]
+        logger.debug(
+            f"Prompting model {self.model_name!r}...",
+            extra={"model": self.model_name, "messages": message_payloads},
+        )
+        response = None
+        kwargs = self.consolidate_kwargs(**kwargs)
+        try:
+            response = await self._router.acompletion(model=self.model_name, messages=message_payloads, **kwargs)
+            logger.debug(
+                f"Received completion from model {self.model_name!r}",
+                extra={
+                    "model": self.model_name,
+                    "response": response,
+                    "text": response.choices[0].message.content,
+                    "usage": self._usage_stats.model_dump(),
+                },
+            )
+            return response
+        except Exception as e:
+            raise e
+        finally:
+            if not skip_usage_tracking and response is not None:
+                self._track_token_usage_from_completion(response)
+
+    @acatch_llm_exceptions
+    async def agenerate_text_embeddings(
+        self, input_texts: list[str], skip_usage_tracking: bool = False, **kwargs: Any
+    ) -> list[list[float]]:
+        logger.debug(
+            f"Generating embeddings with model {self.model_name!r}...",
+            extra={
+                "model": self.model_name,
+                "input_count": len(input_texts),
+            },
+        )
+        kwargs = self.consolidate_kwargs(**kwargs)
+        response = None
+        try:
+            response = await self._router.aembedding(model=self.model_name, input=input_texts, **kwargs)
+            logger.debug(
+                f"Received embeddings from model {self.model_name!r}",
+                extra={
+                    "model": self.model_name,
+                    "embedding_count": len(response.data) if response.data else 0,
+                    "usage": self._usage_stats.model_dump(),
+                },
+            )
+            if response.data and len(response.data) == len(input_texts):
+                return [data["embedding"] for data in response.data]
+            else:
+                raise ValueError(f"Expected {len(input_texts)} embeddings, but received {len(response.data)}")
+        except Exception as e:
+            raise e
+        finally:
+            if not skip_usage_tracking and response is not None:
+                self._track_token_usage_from_embedding(response)
+
+    @acatch_llm_exceptions
+    async def agenerate(
+        self,
+        prompt: str,
+        *,
+        parser: Callable[[str], Any] = _identity,
+        system_prompt: str | None = None,
+        multi_modal_context: list[dict[str, Any]] | None = None,
+        tool_alias: str | None = None,
+        max_correction_steps: int = 0,
+        max_conversation_restarts: int = 0,
+        skip_usage_tracking: bool = False,
+        purpose: str | None = None,
+        **kwargs: Any,
+    ) -> tuple[Any, list[ChatMessage]]:
+        output_obj = None
+        tool_schemas = None
+        tool_call_turns = 0
+        total_tool_calls = 0
+        curr_num_correction_steps = 0
+        curr_num_restarts = 0
+
+        mcp_facade = self._get_mcp_facade(tool_alias)
+
+        restart_checkpoint = prompt_to_messages(
+            user_prompt=prompt, system_prompt=system_prompt, multi_modal_context=multi_modal_context
+        )
+        checkpoint_tool_call_turns = 0
+        messages: list[ChatMessage] = deepcopy(restart_checkpoint)
+
+        if mcp_facade is not None:
+            tool_schemas = await asyncio.to_thread(mcp_facade.get_tool_schemas)
+
+        while True:
+            completion_kwargs = dict(kwargs)
+            if tool_schemas is not None:
+                completion_kwargs["tools"] = tool_schemas
+
+            completion_response = await self.acompletion(
+                messages,
+                skip_usage_tracking=skip_usage_tracking,
+                **completion_kwargs,
+            )
+
+            if mcp_facade is not None and mcp_facade.has_tool_calls(completion_response):
+                tool_call_turns += 1
+                total_tool_calls += mcp_facade.tool_call_count(completion_response)
+
+                if tool_call_turns > mcp_facade.max_tool_call_turns:
+                    messages.extend(mcp_facade.refuse_completion_response(completion_response))
+                else:
+                    messages.extend(
+                        await asyncio.to_thread(mcp_facade.process_completion_response, completion_response)
+                    )
+
+                restart_checkpoint = deepcopy(messages)
+                checkpoint_tool_call_turns = tool_call_turns
+
+                continue
+
+            response = (completion_response.choices[0].message.content or "").strip()
+            reasoning_trace = getattr(completion_response.choices[0].message, "reasoning_content", None)
+            messages.append(ChatMessage.as_assistant(content=response, reasoning_content=reasoning_trace or None))
+            curr_num_correction_steps += 1
+
+            try:
+                output_obj = parser(response)
+                break
+            except ParserException as exc:
+                if max_correction_steps == 0 and max_conversation_restarts == 0:
+                    raise GenerationValidationFailureError(
+                        "Unsuccessful generation attempt. No retries were attempted."
+                    ) from exc
+
+                if curr_num_correction_steps <= max_correction_steps:
+                    messages.append(ChatMessage.as_user(content=str(get_exception_primary_cause(exc))))
+
+                elif curr_num_restarts < max_conversation_restarts:
+                    curr_num_correction_steps = 0
+                    curr_num_restarts += 1
+                    messages = deepcopy(restart_checkpoint)
+                    tool_call_turns = checkpoint_tool_call_turns
+
+                else:
+                    raise GenerationValidationFailureError(
+                        f"Unsuccessful generation despite {max_correction_steps} correction steps "
+                        f"and {max_conversation_restarts} conversation restarts."
+                    ) from exc
+
+        if not skip_usage_tracking and mcp_facade is not None:
+            self._usage_stats.tool_usage.extend(
+                tool_calls=total_tool_calls,
+                tool_call_turns=tool_call_turns,
+            )
+
+        return output_obj, messages
+
+    @acatch_llm_exceptions
+    async def agenerate_image(
+        self,
+        prompt: str,
+        multi_modal_context: list[dict[str, Any]] | None = None,
+        skip_usage_tracking: bool = False,
+        **kwargs: Any,
+    ) -> list[str]:
+        """Async version of generate_image. Generate image(s) and return base64-encoded data.
+
+        Automatically detects the appropriate API based on model name:
+        - Diffusion models (DALL-E, Stable Diffusion, Imagen, etc.) → image_generation API
+        - All other models → chat/completions API (default)
+
+        Both paths return base64-encoded image data. If the API returns multiple images,
+        all are returned in the list.
+
+        Args:
+            prompt: The prompt for image generation
+            multi_modal_context: Optional list of image contexts for multi-modal generation.
+                Only used with autoregressive models via chat completions API.
+            skip_usage_tracking: Whether to skip usage tracking
+            **kwargs: Additional arguments to pass to the model (including n=number of images)
+
+        Returns:
+            List of base64-encoded image strings (without data URI prefix)
+
+        Raises:
+            ImageGenerationError: If image generation fails or returns invalid data
+        """
+        logger.debug(
+            f"Generating image with model {self.model_name!r}...",
+            extra={"model": self.model_name, "prompt": prompt},
+        )
+
+        # Auto-detect API type based on model name
+        if is_image_diffusion_model(self.model_name):
+            images = await self._agenerate_image_diffusion(prompt, skip_usage_tracking, **kwargs)
+        else:
+            images = await self._agenerate_image_chat_completion(
+                prompt, multi_modal_context, skip_usage_tracking, **kwargs
+            )
+
+        # Track image usage
+        if not skip_usage_tracking and len(images) > 0:
+            self._usage_stats.extend(image_usage=ImageUsageStats(total_images=len(images)))
+
+        return images
+
+    async def _agenerate_image_chat_completion(
+        self,
+        prompt: str,
+        multi_modal_context: list[dict[str, Any]] | None = None,
+        skip_usage_tracking: bool = False,
+        **kwargs: Any,
+    ) -> list[str]:
+        """Async version of _generate_image_chat_completion.
+
+        Generate image(s) using autoregressive model via chat completions API.
+
+        Args:
+            prompt: The prompt for image generation
+            multi_modal_context: Optional list of image contexts for multi-modal generation
+            skip_usage_tracking: Whether to skip usage tracking
+            **kwargs: Additional arguments to pass to the model
+
+        Returns:
+            List of base64-encoded image strings
+        """
+        messages = prompt_to_messages(user_prompt=prompt, multi_modal_context=multi_modal_context)
+
+        response = None
+        try:
+            response = await self.acompletion(
+                messages=messages,
+                skip_usage_tracking=skip_usage_tracking,
+                **kwargs,
+            )
+
+            logger.debug(
+                f"Received image(s) from autoregressive model {self.model_name!r}",
+                extra={"model": self.model_name, "response": response},
+            )
+
+            # Validate response structure
+            if not response.choices or len(response.choices) == 0:
+                raise ImageGenerationError("Image generation response missing choices")
+
+            message = response.choices[0].message
+            images = []
+
+            # Extract base64 from images attribute (primary path)
+            if hasattr(message, "images") and message.images:
+                for image in message.images:
+                    # Handle different response formats
+                    if isinstance(image, dict) and "image_url" in image:
+                        image_url = image["image_url"]
+
+                        if isinstance(image_url, dict) and "url" in image_url:
+                            if (b64 := _try_extract_base64(image_url["url"])) is not None:
+                                images.append(b64)
+                        elif isinstance(image_url, str):
+                            if (b64 := _try_extract_base64(image_url)) is not None:
+                                images.append(b64)
+                    # Fallback: treat as base64 string
+                    elif isinstance(image, str):
+                        if (b64 := _try_extract_base64(image)) is not None:
+                            images.append(b64)
+
+            # Fallback: check content field if it looks like image data
+            if not images:
+                content = message.content or ""
+                if content and (content.startswith("data:image/") or is_base64_image(content)):
+                    if (b64 := _try_extract_base64(content)) is not None:
+                        images.append(b64)
+
+            if not images:
+                raise ImageGenerationError("No image data found in image generation response")
+
+            return images
+
+        except Exception:
+            raise
+
+    async def _agenerate_image_diffusion(
+        self, prompt: str, skip_usage_tracking: bool = False, **kwargs: Any
+    ) -> list[str]:
+        """Async version of _generate_image_diffusion.
+
+        Generate image(s) using diffusion model via image_generation API.
+
+        Always returns base64. If the API returns URLs instead of inline base64,
+        the images are downloaded and converted automatically.
+
+        Returns:
+            List of base64-encoded image strings
+        """
+        kwargs = self.consolidate_kwargs(**kwargs)
+
+        response = None
+
+        try:
+            response = await self._router.aimage_generation(prompt=prompt, model=self.model_name, **kwargs)
+
+            logger.debug(
+                f"Received {len(response.data)} image(s) from diffusion model {self.model_name!r}",
+                extra={"model": self.model_name, "response": response},
+            )
+
+            # Validate response
+            if not response.data or len(response.data) == 0:
+                raise ImageGenerationError("Image generation returned no data")
+
+            images = [b64 for img in response.data if (b64 := _try_extract_base64(img)) is not None]
+
+            if not images:
+                raise ImageGenerationError("No image data could be extracted from response")
+
+            return images
+
+        except Exception:
+            raise
+        finally:
+            if not skip_usage_tracking and response is not None:
+                self._track_token_usage_from_image_diffusion(response)

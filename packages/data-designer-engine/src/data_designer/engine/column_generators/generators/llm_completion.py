@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import functools
 import logging
+from typing import TYPE_CHECKING, Any
 
 from data_designer.config.column_configs import (
     LLMCodeColumnConfig,
@@ -23,6 +24,9 @@ from data_designer.engine.column_generators.utils.prompt_renderer import (
 from data_designer.engine.configurable_task import TaskConfigT
 from data_designer.engine.models.recipes.base import ResponseRecipe
 from data_designer.engine.processing.utils import deserialize_json_values
+
+if TYPE_CHECKING:
+    from data_designer.engine.models.utils import ChatMessage
 
 logger = logging.getLogger(__name__)
 
@@ -56,36 +60,55 @@ class ColumnGeneratorWithModelChatCompletion(ColumnGeneratorWithModel[TaskConfig
         )
 
     def generate(self, data: dict) -> dict:
+        kwargs = self._prepare_generation_kwargs(data)
+        response, trace = self.model.generate(**kwargs)
+        return self._process_generation_result(data, response, trace)
+
+    async def agenerate(self, data: dict) -> dict:
+        kwargs = self._prepare_generation_kwargs(data)
+        response, trace = await self.model.agenerate(**kwargs)
+        return self._process_generation_result(data, response, trace)
+
+    def _prepare_generation_kwargs(self, data: dict) -> dict[str, Any]:
+        """Prepare keyword arguments for model.generate() / model.agenerate().
+
+        Deserializes input data, builds multi-modal context, and renders prompts.
+        """
         # Deserialize input data from previous columns so Jinja2 templates can access nested fields
         # Example: If prev column stored '{"key": "value"}', templates can use {{ prev_column.key }}
         # Note: This creates a new dict and doesn't mutate the original `data` argument
         deserialized_record = deserialize_json_values(data)
 
-        multi_modal_context = None
+        multi_modal_context: list[dict[str, Any]] | None = None
         if self.config.multi_modal_context is not None and len(self.config.multi_modal_context) > 0:
             multi_modal_context = []
             for context in self.config.multi_modal_context:
                 multi_modal_context.extend(context.get_contexts(deserialized_record))
 
-        response, trace = self.model.generate(
-            prompt=self.prompt_renderer.render(
+        return {
+            "prompt": self.prompt_renderer.render(
                 record=deserialized_record,
                 prompt_template=self.config.prompt,
                 prompt_type=PromptType.USER_PROMPT,
             ),
-            system_prompt=self.prompt_renderer.render(
+            "system_prompt": self.prompt_renderer.render(
                 record=deserialized_record,
                 prompt_template=self.config.system_prompt,
                 prompt_type=PromptType.SYSTEM_PROMPT,
             ),
-            parser=self.response_recipe.parse,
-            multi_modal_context=multi_modal_context,
-            tool_alias=self.config.tool_alias,
-            max_correction_steps=self.max_conversation_correction_steps,
-            max_conversation_restarts=self.max_conversation_restarts,
-            purpose=f"running generation for column '{self.config.name}'",
-        )
+            "parser": self.response_recipe.parse,
+            "multi_modal_context": multi_modal_context,
+            "tool_alias": self.config.tool_alias,
+            "max_correction_steps": self.max_conversation_correction_steps,
+            "max_conversation_restarts": self.max_conversation_restarts,
+            "purpose": f"running generation for column '{self.config.name}'",
+        }
 
+    def _process_generation_result(self, data: dict, response: Any, trace: list[ChatMessage]) -> dict:
+        """Process model response and trace into the output data dict.
+
+        Serializes the response, applies trace column logic, and extracts reasoning content.
+        """
         serialized_output = self.response_recipe.serialize_output(response)
         data[self.config.name] = self._process_serialized_output(serialized_output)
 
@@ -102,7 +125,7 @@ class ColumnGeneratorWithModelChatCompletion(ColumnGeneratorWithModel[TaskConfig
 
         return data
 
-    def _extract_reasoning_content(self, trace: list) -> str | None:
+    def _extract_reasoning_content(self, trace: list[ChatMessage]) -> str | None:
         """Extract reasoning_content from the final assistant message in the trace.
 
         Args:
