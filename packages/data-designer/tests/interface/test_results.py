@@ -14,7 +14,7 @@ from data_designer.config.dataset_metadata import DatasetMetadata
 from data_designer.config.preview_results import PreviewResults
 from data_designer.config.utils.errors import DatasetSampleDisplayError
 from data_designer.config.utils.visualization import display_sample_record as display_fn
-from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
+from data_designer.engine.storage.artifact_storage import ArtifactStorage
 from data_designer.interface.results import DatasetCreationResults
 from data_designer.lazy_heavy_imports import pd
 

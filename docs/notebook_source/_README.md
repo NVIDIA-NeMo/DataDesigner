@@ -106,6 +106,15 @@ Generate synthetic image data with Data Designer:
 - Preview (base64 in dataframe) vs create (images saved to disk, paths in dataframe)
 - Displaying generated images in the notebook
 
+### [6. Image-to-Image Editing](6-editing-images-with-image-context.ipynb)
+
+Edit existing images by combining seed datasets with image generation:
+
+- Loading a HuggingFace image dataset and using it as a seed
+- Passing existing images to an image-generation model via `multi_modal_context`
+- Combining sampled accessories and settings with seed images for varied results
+- Comparing original vs edited images in preview and create modes
+
 ## 📖 Important Documentation Sections
 
 Before diving into the tutorials, familiarize yourself with these key documentation sections:

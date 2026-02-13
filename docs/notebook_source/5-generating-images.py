@@ -23,7 +23,9 @@
 # - 📝 **Jinja2 prompts**: Drive diversity by referencing other columns in your prompt template
 # - 💾 **Preview vs create**: Preview stores base64 in the dataframe; create saves images to disk and stores paths
 #
-# Data Designer supports both **diffusion** (e.g. DALL·E, Stable Diffusion, Imagen) and **autoregressive** (e.g. Gemini image, GPT image) models; the API is chosen automatically from the model name.
+# Data Designer supports both **diffusion** (e.g. DALL·E, Stable Diffusion, Imagen) and **autoregressive** (e.g. Gemini image, GPT image) models.
+#
+# > **Prerequisites**: This tutorial uses [OpenRouter](https://openrouter.ai) with the Flux 2 Pro image model. Set `OPENROUTER_API_KEY` in your environment before running.
 #
 # If this is your first time using Data Designer, we recommend starting with the [first notebook](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/1-the-basics/) in this tutorial series.
 #
@@ -45,7 +47,7 @@ from data_designer.interface import DataDesigner
 # %% [markdown]
 # ### ⚙️ Initialize the Data Designer interface
 #
-# When initialized without arguments, [default model providers](https://nvidia-nemo.github.io/DataDesigner/latest/concepts/models/default-model-settings/) are used. This tutorial uses [OpenRouter](https://openrouter.ai) with the Flux 2 Pro image model; set `OPENROUTER_API_KEY` in your environment.
+# We initialize Data Designer without arguments here—the image model is configured explicitly in the next cell. No default text model is needed for this tutorial.
 #
 
 # %%
@@ -277,14 +279,14 @@ dataset = results.load_dataset()
 dataset.head()
 
 # %%
-# Display all image from the created dataset. Paths are relative to the artifact output directory.
+# Display all images from the created dataset. Paths are relative to the artifact output directory.
 for index, row in dataset.iterrows():
     path_or_list = row.get("generated_image")
     if path_or_list is not None:
-        for path in path_or_list:
-            base = results.artifact_storage.base_dataset_path
-            full_path = base / path
-            display(IPImage(data=full_path))
+        paths = path_or_list if not isinstance(path_or_list, str) else [path_or_list]
+        for path in paths:
+            full_path = results.artifact_storage.base_dataset_path / path
+            display(IPImage(filename=str(full_path)))
 
 # %% [markdown]
 # ## ⏭️ Next steps
@@ -293,4 +295,5 @@ for index, row in dataset.iterrows():
 # - [Structured outputs and Jinja](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/2-structured-outputs-and-jinja-expressions/)
 # - [Seeding with a dataset](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/3-seeding-with-a-dataset/)
 # - [Providing images as context](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/4-providing-images-as-context/)
+# - [Image-to-image editing](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/6-editing-images-with-image-context/): edit existing images with seed datasets
 #

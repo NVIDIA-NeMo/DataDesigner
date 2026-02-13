@@ -6,13 +6,13 @@ from unittest.mock import Mock, patch
 import pytest
 
 from data_designer.config.mcp import LocalStdioMCPProvider, MCPProvider, ToolConfig
-from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
 from data_designer.engine.models.registry import ModelRegistry
 from data_designer.engine.resources.resource_provider import (
     ResourceProvider,
     _validate_tool_configs_against_providers,
     create_resource_provider,
 )
+from data_designer.engine.storage.artifact_storage import ArtifactStorage
 
 
 def _stub_model_registry() -> ModelRegistry:

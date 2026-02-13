@@ -13,7 +13,7 @@ from huggingface_hub.errors import HFValidationError
 from huggingface_hub.utils import HfHubHTTPError, validate_repo_id
 
 from data_designer.config.utils.constants import HUGGINGFACE_HUB_DATASET_URL_PREFIX
-from data_designer.engine.dataset_builders.artifact_storage import (
+from data_designer.engine.storage.artifact_storage import (
     FINAL_DATASET_FOLDER_NAME,
     METADATA_FILENAME,
     PROCESSORS_OUTPUTS_FOLDER_NAME,

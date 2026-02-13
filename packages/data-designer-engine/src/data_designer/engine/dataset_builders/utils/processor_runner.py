@@ -8,15 +8,15 @@ import shutil
 from enum import Enum
 from typing import TYPE_CHECKING
 
-from data_designer.engine.dataset_builders.artifact_storage import BatchStage
 from data_designer.engine.dataset_builders.errors import DatasetProcessingError
+from data_designer.engine.storage.artifact_storage import BatchStage
 
 if TYPE_CHECKING:
     import pandas as pd
 
-    from data_designer.engine.dataset_builders.artifact_storage import ArtifactStorage
     from data_designer.engine.dataset_builders.utils.dataset_batch_manager import DatasetBatchManager
     from data_designer.engine.processing.processors.base import Processor
+    from data_designer.engine.storage.artifact_storage import ArtifactStorage
 
 logger = logging.getLogger(__name__)
 
