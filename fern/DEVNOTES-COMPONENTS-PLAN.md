@@ -10,8 +10,8 @@ Plan for Fern custom React components that replicate the experience of `docs/dev
 | ExpandableCode | `components/ExpandableCode.tsx` | Done |
 | PipelineDiagram | `components/PipelineDiagram.tsx` | Done |
 | MetricsTable | `components/MetricsTable.tsx` | Done |
-| 4hop trajectory data | `components/trajectories/4hop-example.ts` | Done |
-| SDG pipeline diagram | `components/diagrams/sdg-pipeline.ts` | Done |
+| 4hop trajectory data | `components/devnotes/deep-research-trajectories/4hop-example.ts` | Done |
+| SDG pipeline diagram | `components/devnotes/design-principles/sdg-pipeline.ts` | Done |
 
 ## Current Dev Notes Structure
 
@@ -235,7 +235,7 @@ interface ResourceLinksProps {
 4. **Convert MDX** – replace inline HTML with component usage:
    ```mdx
    import { TrajectoryViewer } from "@/components/TrajectoryViewer";
-   import exampleTrajectory from "@/components/trajectories/4hop-example";
+   import exampleTrajectory from "@/components/devnotes/deep-research-trajectories/4hop-example";
 
    <TrajectoryViewer
      question={exampleTrajectory.question}
@@ -253,8 +253,8 @@ interface ResourceLinksProps {
 
 | Source | Output | Format |
 |--------|--------|--------|
-| deep-research-trajectories.md (lines 141–174) | `trajectories/4hop-example.ts` | `{ question, referenceAnswer, turns }` |
-| design-principles.md (pipeline ASCII) | Inline or `diagrams/sdg-pipeline.ts` | `{ diagram: string }` |
+| deep-research-trajectories.md (lines 141–174) | `devnotes/deep-research-trajectories/4hop-example.ts` | `{ question, referenceAnswer, turns }` |
+| design-principles.md (pipeline ASCII) | `devnotes/design-principles/sdg-pipeline.ts` | `{ diagram: string }` |
 
 ---
 

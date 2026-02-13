@@ -29,8 +29,8 @@ css:
   - ./styles/notebook-viewer.css
   - ./styles/trajectory-viewer.css
   - ./styles/expandable-code.css
-  - ./styles/pipeline-diagram.css
   - ./styles/metrics-table.css
+  - ./styles/authors.css
 
 navbar-links:
   - type: github

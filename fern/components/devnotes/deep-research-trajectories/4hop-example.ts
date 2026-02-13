@@ -1,6 +1,6 @@
-/** Extracted from docs/devnotes/posts/deep-research-trajectories.md - 4-hop example trajectory */
+/** 4-hop example trajectory for deep-research-trajectories dev note */
 
-import type { TrajectoryViewerProps } from "../TrajectoryViewer";
+import type { TrajectoryViewerProps } from "../../TrajectoryViewer";
 
 const turns = [
   { turnIndex: 1, calls: [{ fn: "search" as const, arg: '"border war Libya 1st century BC"' }] },

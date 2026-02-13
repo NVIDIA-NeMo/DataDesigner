@@ -9,7 +9,7 @@
  *
  * Usage in MDX:
  *   import { TrajectoryViewer } from "@/components/TrajectoryViewer";
- *   import trajectory from "@/components/trajectories/4hop-example";
+ *   import trajectory from "@/components/devnotes/deep-research-trajectories/4hop-example";
  *
  *   <TrajectoryViewer {...trajectory} defaultOpen />
  */
@@ -35,15 +35,26 @@ export interface TrajectoryViewerProps {
   defaultOpen?: boolean;
 }
 
+const TOOL_ICONS: Record<string, string> = {
+  search: "🔍",
+  open: "📄",
+  find: "🔎",
+  answer: "✓",
+};
+
 function ToolCallBlock({ call }: { call: ToolCall }) {
   const isAnswer = call.fn === "answer";
   const argDisplay = call.arg ?? "";
   const cn = `trajectory-viewer__call trajectory-viewer__call--${call.fn}`;
+  const icon = TOOL_ICONS[call.fn] ?? "";
 
   if (isAnswer && call.body) {
     return (
       <div className={cn}>
-        <span className="trajectory-viewer__fn">{call.fn}</span>
+        <span className="trajectory-viewer__fn">
+          {icon && <span className="trajectory-viewer__icon">{icon}</span>}
+          {call.fn}
+        </span>
         <div
           className="trajectory-viewer__body"
           dangerouslySetInnerHTML={{ __html: call.body }}
@@ -54,7 +65,10 @@ function ToolCallBlock({ call }: { call: ToolCall }) {
 
   return (
     <div className={cn}>
-      <span className="trajectory-viewer__fn">{call.fn}</span>
+      <span className="trajectory-viewer__fn">
+        {icon && <span className="trajectory-viewer__icon">{icon}</span>}
+        {call.fn}
+      </span>
       <span className="trajectory-viewer__arg">
         {argDisplay}
         {call.isGolden && " ⭐"}
@@ -105,11 +119,16 @@ export const TrajectoryViewer = ({
     </div>
   );
 
+  const totalCalls = turns.reduce((acc, t) => acc + t.calls.length, 0);
+
   if (summary) {
     return (
       <details className="trajectory-viewer__details" open={defaultOpen}>
         <summary className="trajectory-viewer__summary">
           <strong>{summary}</strong>
+          <span className="trajectory-viewer__stats">
+            {turns.length} turns · {totalCalls} calls
+          </span>
         </summary>
         {content}
       </details>

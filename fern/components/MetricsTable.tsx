@@ -83,7 +83,7 @@ export const MetricsTable = ({
         </thead>
         <tbody>
           {rows.map((row, rowIdx) => (
-            <tr key={rowIdx}>
+            <tr key={rowIdx} className={rowIdx % 2 === 1 ? "metrics-table__row--alt" : ""}>
               {row.map((cell, colIdx) => {
                 const isBest = bestByCol[colIdx]?.has(rowIdx);
                 return (

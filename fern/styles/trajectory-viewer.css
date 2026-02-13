@@ -15,6 +15,22 @@
   cursor: pointer;
   padding: 0.5rem 0;
   font-size: 0.95rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.trajectory-viewer__stats {
+  font-size: 0.8em;
+  opacity: 0.6;
+  font-weight: normal;
+  font-family: "SF Mono", Menlo, Monaco, "Cascadia Code", monospace;
+}
+
+.trajectory-viewer__icon {
+  margin-right: 0.35em;
+  font-size: 0.9em;
 }
 
 .trajectory-viewer__question {

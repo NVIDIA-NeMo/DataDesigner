@@ -3,8 +3,9 @@ title: "Designing Data Designer: Why SDG Is a Systems Problem"
 description: The design principles behind NeMo Data Designer and why we built it as a composable orchestration framework.
 ---
 
-import { PipelineDiagram } from "@/components/PipelineDiagram";
-import { sdgPipelineDiagram } from "@/components/diagrams/sdg-pipeline";
+import { Authors } from "@/components/Authors";
+
+<Authors ids={["kthadaka"]} />
 
 Synthetic data generation is more than a single prompt to a large language model. In this post, we walk through the design principles behind NeMo Data Designer and explain why we built it as a composable orchestration framework - treating SDG as a system of specialized stages rather than a monolithic generation task.
 
@@ -102,7 +103,30 @@ In a single-prompt approach, you'd try to pack all of this into one call: "Given
 
 With Data Designer, the same task decomposes into a pipeline of focused stages:
 
-<PipelineDiagram diagram={sdgPipelineDiagram} />
+```
+      Seed Documents         Seed dataset column ingests documents
+            │                 from local files or HuggingFace
+            ▼
+┌─────────────────────────┐
+│  Artifact Extraction    │  LLM extracts key concepts, entities,
+│                         │  relationships from each document
+└───────────┬─────────────┘
+            │
+            ▼
+┌─────────────────────────┐
+│  QA Generation          │  LLM generates questions & answers grounded
+│                         │  in the extracted artifacts
+└───────────┬─────────────┘
+            │
+            ▼
+┌─────────────────────────┐
+│  Quality Evaluation     │  LLM judge scores each QA pair
+│                         │  on relevance, accuracy, clarity
+└───────────┬─────────────┘
+            │
+            ▼
+      Final Dataset
+```
 
 Each box is a column. Each one can use a different model. Each one has a focused prompt or algorithm. And because they're declared as columns with explicit dependencies, the framework handles the execution order, the batching, and the parallelism.
 
