@@ -31,14 +31,19 @@ class SingleColumnConfig(ConfigBase, ABC):
         name: Unique name of the column to be generated.
         drop: If True, the column will be generated but removed from the final dataset.
             Useful for intermediate columns that are dependencies for other columns.
+        allow_resize: If True, the column is allowed to be resized during generation.
         column_type: Discriminator field that identifies the specific column type.
             Subclasses must override this field to specify the column type with a `Literal` value.
     """
 
-    name: str
-    drop: bool = False
-    allow_resize: bool = False
-    column_type: str
+    name: str = Field(description="Unique name of the column to be generated")
+    drop: bool = Field(
+        default=False, description="If True, the column will be generated but removed from the final dataset"
+    )
+    allow_resize: bool = Field(
+        default=False, description="If True, the column is allowed to be resized during generation"
+    )
+    column_type: str = Field(description="Discriminator field that identifies the specific column type")
 
     @staticmethod
     def get_column_emoji() -> str:

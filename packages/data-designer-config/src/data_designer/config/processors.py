@@ -57,7 +57,10 @@ class DropColumnsProcessorConfig(ProcessorConfig):
     """
 
     column_names: list[str] = Field(description="List of column names to drop from the output dataset.")
-    processor_type: Literal[ProcessorType.DROP_COLUMNS] = ProcessorType.DROP_COLUMNS
+    processor_type: Literal[ProcessorType.DROP_COLUMNS] = Field(
+        default=ProcessorType.DROP_COLUMNS,
+        description="Discriminator field, always 'drop_columns' for this processor type",
+    )
 
 
 class SchemaTransformProcessorConfig(ProcessorConfig):
@@ -97,7 +100,10 @@ class SchemaTransformProcessorConfig(ProcessorConfig):
         References to columns "col1" and "col2" in the templates will be replaced with the actual values of the columns in the dataset.
         """,
     )
-    processor_type: Literal[ProcessorType.SCHEMA_TRANSFORM] = ProcessorType.SCHEMA_TRANSFORM
+    processor_type: Literal[ProcessorType.SCHEMA_TRANSFORM] = Field(
+        default=ProcessorType.SCHEMA_TRANSFORM,
+        description="Discriminator field, always 'schema_transform' for this processor type",
+    )
 
     @field_validator("template")
     def validate_template(cls, v: dict[str, Any]) -> dict[str, Any]:

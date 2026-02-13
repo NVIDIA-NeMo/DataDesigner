@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import typer
 
+from data_designer.cli.commands import agent_context
 from data_designer.cli.lazy_group import create_lazy_typer_group
 
 _CMD = "data_designer.cli.commands"
@@ -101,6 +102,9 @@ download_app = typer.Typer(
 # Add setup command groups
 app.add_typer(config_app, name="config", rich_help_panel="Setup")
 app.add_typer(download_app, name="download", rich_help_panel="Setup")
+
+# Add agent command groups
+app.add_typer(agent_context.agent_context_app, name="agent-context", rich_help_panel="Agent")
 
 
 def main() -> None:
