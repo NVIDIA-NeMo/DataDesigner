@@ -37,6 +37,7 @@ class SingleColumnConfig(ConfigBase, ABC):
 
     name: str
     drop: bool = False
+    allow_resize: bool = False
     column_type: str
 
     @staticmethod

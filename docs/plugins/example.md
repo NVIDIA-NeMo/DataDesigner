@@ -82,6 +82,17 @@ class IndexMultiplierColumnConfig(SingleColumnConfig):
 - `required_columns` lists any columns this generator depends on (empty if none)
 - `side_effect_columns` lists any additional columns this generator produces beyond the primary column (empty if none)
 
+**If your plugin can expand or retract the number of rows (1:N or N:1):** set `allow_resize=True` in the config class so the pipeline updates batch bookkeeping correctly. For example:
+
+```python
+class MyColumnConfig(SingleColumnConfig):
+    column_type: Literal["my-plugin"] = "my-plugin"
+    allow_resize: bool = True  # required when output row count can differ from input
+    # ...
+```
+
+The default is `False`; only set it to `True` when your `generate` method can return more or fewer rows than it receives.
+
 ### Step 3: Create the implementation class
 
 The implementation class defines the actual business logic of the plugin. For column generator plugins, inherit from `ColumnGeneratorFullColumn` or `ColumnGeneratorCellByCell` and implement the `generate` method.
