@@ -30,7 +30,6 @@ from data_designer.engine.column_generators.utils.generator_classification impor
 from data_designer.engine.compiler import compile_data_designer_config
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 from data_designer.engine.dataset_builders.multi_column_configs import MultiColumnConfig
-from data_designer.engine.dataset_builders.utils.async_concurrency import AsyncConcurrentExecutor
 from data_designer.engine.dataset_builders.utils.concurrency import ConcurrentThreadExecutor
 from data_designer.engine.dataset_builders.utils.config_compiler import compile_dataset_builder_column_configs
 from data_designer.engine.dataset_builders.utils.dataset_batch_manager import DatasetBatchManager
@@ -56,6 +55,15 @@ logger = logging.getLogger(__name__)
 DATA_DESIGNER_ASYNC_ENGINE = os.environ.get("DATA_DESIGNER_ASYNC_ENGINE", "0") == "1"
 
 if DATA_DESIGNER_ASYNC_ENGINE:
+    import sys
+
+    if sys.version_info < (3, 11):
+        raise RuntimeError(
+            "DATA_DESIGNER_ASYNC_ENGINE requires Python 3.11+ (asyncio.TaskGroup). "
+            f"Current version: {sys.version_info.major}.{sys.version_info.minor}"
+        )
+    from data_designer.engine.dataset_builders.utils.async_concurrency import AsyncConcurrentExecutor
+
     logger.info("⚡ DATA_DESIGNER_ASYNC_ENGINE is enabled — using async concurrency")
 
 _CLIENT_VERSION: str = get_library_version()
