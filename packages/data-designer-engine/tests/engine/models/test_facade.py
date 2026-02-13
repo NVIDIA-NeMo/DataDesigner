@@ -18,6 +18,7 @@ from data_designer.lazy_heavy_imports import litellm
 
 if TYPE_CHECKING:
     import litellm
+    from litellm.types.utils import EmbeddingResponse, ModelResponse
 
 
 def mock_oai_response_object(response_text: str) -> StubResponse:
@@ -1403,3 +1404,108 @@ async def test_agenerate_success(
     # Trace should contain at least the user prompt and the assistant response
     assert any(msg.role == "user" for msg in trace)
     assert any(msg.role == "assistant" and msg.content == "parsed output" for msg in trace)
+
+
+# =============================================================================
+# Async image generation tests
+# =============================================================================
+
+
+@patch("data_designer.engine.models.facade.CustomRouter.aimage_generation", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_agenerate_image_diffusion_success(
+    mock_aimage_generation: AsyncMock,
+    stub_model_facade: ModelFacade,
+) -> None:
+    """Test async image generation via diffusion API."""
+    mock_response = litellm.types.utils.ImageResponse(
+        data=[
+            litellm.types.utils.ImageObject(b64_json="image1_base64"),
+            litellm.types.utils.ImageObject(b64_json="image2_base64"),
+        ]
+    )
+    mock_aimage_generation.return_value = mock_response
+
+    with patch("data_designer.engine.models.facade.is_image_diffusion_model", return_value=True):
+        images = await stub_model_facade.agenerate_image(prompt="test prompt")
+
+    assert len(images) == 2
+    assert images == ["image1_base64", "image2_base64"]
+    assert mock_aimage_generation.call_count == 1
+    # Verify image usage was tracked
+    assert stub_model_facade.usage_stats.image_usage.total_images == 2
+
+
+@patch.object(ModelFacade, "acompletion", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_agenerate_image_chat_completion_success(
+    mock_acompletion: AsyncMock,
+    stub_model_facade: ModelFacade,
+) -> None:
+    """Test async image generation via chat completion API."""
+    mock_message = litellm.types.utils.Message(
+        role="assistant",
+        content="",
+        images=[
+            litellm.types.utils.ImageURLListItem(
+                type="image_url", image_url={"url": "data:image/png;base64,image1"}, index=0
+            ),
+        ],
+    )
+    mock_response = litellm.types.utils.ModelResponse(choices=[litellm.types.utils.Choices(message=mock_message)])
+    mock_acompletion.return_value = mock_response
+
+    with patch("data_designer.engine.models.facade.is_image_diffusion_model", return_value=False):
+        images = await stub_model_facade.agenerate_image(prompt="test prompt")
+
+    assert len(images) == 1
+    assert images == ["image1"]
+    assert mock_acompletion.call_count == 1
+    assert stub_model_facade.usage_stats.image_usage.total_images == 1
+
+
+@patch("data_designer.engine.models.facade.CustomRouter.aimage_generation", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_agenerate_image_diffusion_no_data(
+    mock_aimage_generation: AsyncMock,
+    stub_model_facade: ModelFacade,
+) -> None:
+    """Test async image generation raises error when diffusion API returns no data."""
+    mock_response = litellm.types.utils.ImageResponse(data=[])
+    mock_aimage_generation.return_value = mock_response
+
+    with patch("data_designer.engine.models.facade.is_image_diffusion_model", return_value=True):
+        with pytest.raises(ImageGenerationError, match="Image generation returned no data"):
+            await stub_model_facade.agenerate_image(prompt="test prompt")
+
+
+@patch.object(ModelFacade, "acompletion", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_agenerate_image_chat_completion_no_choices(
+    mock_acompletion: AsyncMock,
+    stub_model_facade: ModelFacade,
+) -> None:
+    """Test async image generation raises error when response has no choices."""
+    mock_response = litellm.types.utils.ModelResponse(choices=[])
+    mock_acompletion.return_value = mock_response
+
+    with patch("data_designer.engine.models.facade.is_image_diffusion_model", return_value=False):
+        with pytest.raises(ImageGenerationError, match="Image generation response missing choices"):
+            await stub_model_facade.agenerate_image(prompt="test prompt")
+
+
+@patch("data_designer.engine.models.facade.CustomRouter.aimage_generation", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_agenerate_image_skip_usage_tracking(
+    mock_aimage_generation: AsyncMock,
+    stub_model_facade: ModelFacade,
+) -> None:
+    """Test that async image generation respects skip_usage_tracking flag."""
+    mock_response = litellm.types.utils.ImageResponse(data=[litellm.types.utils.ImageObject(b64_json="image1_base64")])
+    mock_aimage_generation.return_value = mock_response
+
+    with patch("data_designer.engine.models.facade.is_image_diffusion_model", return_value=True):
+        images = await stub_model_facade.agenerate_image(prompt="test prompt", skip_usage_tracking=True)
+
+    assert len(images) == 1
+    assert stub_model_facade.usage_stats.image_usage.total_images == 0

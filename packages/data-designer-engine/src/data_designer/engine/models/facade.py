@@ -729,3 +729,169 @@ class ModelFacade:
             )
 
         return output_obj, messages
+
+    @acatch_llm_exceptions
+    async def agenerate_image(
+        self,
+        prompt: str,
+        multi_modal_context: list[dict[str, Any]] | None = None,
+        skip_usage_tracking: bool = False,
+        **kwargs: Any,
+    ) -> list[str]:
+        """Async version of generate_image. Generate image(s) and return base64-encoded data.
+
+        Automatically detects the appropriate API based on model name:
+        - Diffusion models (DALL-E, Stable Diffusion, Imagen, etc.) → image_generation API
+        - All other models → chat/completions API (default)
+
+        Both paths return base64-encoded image data. If the API returns multiple images,
+        all are returned in the list.
+
+        Args:
+            prompt: The prompt for image generation
+            multi_modal_context: Optional list of image contexts for multi-modal generation.
+                Only used with autoregressive models via chat completions API.
+            skip_usage_tracking: Whether to skip usage tracking
+            **kwargs: Additional arguments to pass to the model (including n=number of images)
+
+        Returns:
+            List of base64-encoded image strings (without data URI prefix)
+
+        Raises:
+            ImageGenerationError: If image generation fails or returns invalid data
+        """
+        logger.debug(
+            f"Generating image with model {self.model_name!r}...",
+            extra={"model": self.model_name, "prompt": prompt},
+        )
+
+        # Auto-detect API type based on model name
+        if is_image_diffusion_model(self.model_name):
+            images = await self._agenerate_image_diffusion(prompt, skip_usage_tracking, **kwargs)
+        else:
+            images = await self._agenerate_image_chat_completion(
+                prompt, multi_modal_context, skip_usage_tracking, **kwargs
+            )
+
+        # Track image usage
+        if not skip_usage_tracking and len(images) > 0:
+            self._usage_stats.extend(image_usage=ImageUsageStats(total_images=len(images)))
+
+        return images
+
+    async def _agenerate_image_chat_completion(
+        self,
+        prompt: str,
+        multi_modal_context: list[dict[str, Any]] | None = None,
+        skip_usage_tracking: bool = False,
+        **kwargs: Any,
+    ) -> list[str]:
+        """Async version of _generate_image_chat_completion.
+
+        Generate image(s) using autoregressive model via chat completions API.
+
+        Args:
+            prompt: The prompt for image generation
+            multi_modal_context: Optional list of image contexts for multi-modal generation
+            skip_usage_tracking: Whether to skip usage tracking
+            **kwargs: Additional arguments to pass to the model
+
+        Returns:
+            List of base64-encoded image strings
+        """
+        messages = prompt_to_messages(user_prompt=prompt, multi_modal_context=multi_modal_context)
+
+        response = None
+        try:
+            response = await self.acompletion(
+                messages=messages,
+                skip_usage_tracking=skip_usage_tracking,
+                **kwargs,
+            )
+
+            logger.debug(
+                f"Received image(s) from autoregressive model {self.model_name!r}",
+                extra={"model": self.model_name, "response": response},
+            )
+
+            # Validate response structure
+            if not response.choices or len(response.choices) == 0:
+                raise ImageGenerationError("Image generation response missing choices")
+
+            message = response.choices[0].message
+            images = []
+
+            # Extract base64 from images attribute (primary path)
+            if hasattr(message, "images") and message.images:
+                for image in message.images:
+                    # Handle different response formats
+                    if isinstance(image, dict) and "image_url" in image:
+                        image_url = image["image_url"]
+
+                        if isinstance(image_url, dict) and "url" in image_url:
+                            if (b64 := _try_extract_base64(image_url["url"])) is not None:
+                                images.append(b64)
+                        elif isinstance(image_url, str):
+                            if (b64 := _try_extract_base64(image_url)) is not None:
+                                images.append(b64)
+                    # Fallback: treat as base64 string
+                    elif isinstance(image, str):
+                        if (b64 := _try_extract_base64(image)) is not None:
+                            images.append(b64)
+
+            # Fallback: check content field if it looks like image data
+            if not images:
+                content = message.content or ""
+                if content and (content.startswith("data:image/") or is_base64_image(content)):
+                    if (b64 := _try_extract_base64(content)) is not None:
+                        images.append(b64)
+
+            if not images:
+                raise ImageGenerationError("No image data found in image generation response")
+
+            return images
+
+        except Exception:
+            raise
+
+    async def _agenerate_image_diffusion(
+        self, prompt: str, skip_usage_tracking: bool = False, **kwargs: Any
+    ) -> list[str]:
+        """Async version of _generate_image_diffusion.
+
+        Generate image(s) using diffusion model via image_generation API.
+
+        Always returns base64. If the API returns URLs instead of inline base64,
+        the images are downloaded and converted automatically.
+
+        Returns:
+            List of base64-encoded image strings
+        """
+        kwargs = self.consolidate_kwargs(**kwargs)
+
+        response = None
+
+        try:
+            response = await self._router.aimage_generation(prompt=prompt, model=self.model_name, **kwargs)
+
+            logger.debug(
+                f"Received {len(response.data)} image(s) from diffusion model {self.model_name!r}",
+                extra={"model": self.model_name, "response": response},
+            )
+
+            # Validate response
+            if not response.data or len(response.data) == 0:
+                raise ImageGenerationError("Image generation returned no data")
+
+            images = [b64 for img in response.data if (b64 := _try_extract_base64(img)) is not None]
+
+            if not images:
+                raise ImageGenerationError("No image data could be extracted from response")
+
+            return images
+
+        except Exception:
+            raise
+        finally:
+            if not skip_usage_tracking and response is not None:
+                self._track_token_usage_from_image_diffusion(response)
