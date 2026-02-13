@@ -2,8 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
+import sys
 
 import pytest
+
+# asyncio.TaskGroup requires Python 3.11+
+pytestmark = pytest.mark.skipif(sys.version_info < (3, 11), reason="asyncio.TaskGroup requires Python 3.11+")
 
 from data_designer.engine.dataset_builders.utils.async_concurrency import (
     AsyncConcurrentExecutor,
