@@ -362,3 +362,121 @@ def test_mixed_success_and_failure_with_callbacks():
     assert len(results_list) == expected_successes
     assert len(errors_list) == expected_errors
     assert executor.results.early_shutdown is False
+
+
+# ---------------------------------------------------------------------------
+# Edge cases (mirroring sync test_concurrency.py)
+# ---------------------------------------------------------------------------
+
+
+def test_edge_cases_invalid_max_workers_negative():
+    """asyncio.Semaphore(-1) raises ValueError, propagated through future.result()."""
+
+    async def ok() -> int:
+        return 1
+
+    coro = ok()
+    executor = AsyncConcurrentExecutor(max_workers=-1, column_name="test_column")
+    with pytest.raises(ValueError, match="must be >= 0"):
+        executor.run([(coro, None)])
+    coro.close()  # prevent "coroutine was never awaited" warning
+
+
+def test_edge_cases_zero_error_window():
+    """With shutdown_error_window=0, the first failure triggers immediate shutdown.
+
+    get_error_rate returns 0.0 only when completed_count < window. With window=0,
+    that guard never fires, so the first error's rate (1/1 = 100%) exceeds any
+    non-zero threshold.
+    """
+    executor = AsyncConcurrentExecutor(
+        max_workers=1,  # deterministic ordering
+        column_name="test_column",
+        shutdown_error_rate=0.5,
+        shutdown_error_window=0,
+    )
+
+    async def fail() -> None:
+        raise ValueError("boom")
+
+    async def succeed() -> str:
+        return "ok"
+
+    with pytest.raises(DataDesignerRuntimeError, match="Data generation was terminated early"):
+        executor.run([(fail(), None), (succeed(), None), (succeed(), None)])
+
+    assert executor.results.early_shutdown is True
+    assert executor.results.completed_count == 1
+    assert executor.results.error_trap.error_count == 1
+    assert executor.results.success_count == 0
+
+
+def test_edge_cases_multiple_early_shutdown_skips_pending():
+    """After shutdown fires, remaining tasks are skipped via _shutdown_event check."""
+    executor = AsyncConcurrentExecutor(
+        max_workers=1,  # sequential execution for deterministic counts
+        column_name="test_column",
+        shutdown_error_rate=0.5,
+        shutdown_error_window=2,
+    )
+
+    async def fail() -> None:
+        raise ValueError("boom")
+
+    async def succeed() -> int:
+        return 1
+
+    # 2 failures then 28 successes — shutdown should fire after the 2 failures
+    work = [(fail(), None), (fail(), None)] + [(succeed(), None) for _ in range(28)]
+
+    with pytest.raises(DataDesignerRuntimeError, match="Data generation was terminated early"):
+        executor.run(work)
+
+    assert executor.results.early_shutdown is True
+    # Only the tasks that actually executed get counted
+    assert executor.results.completed_count <= 3  # at most 2 failures + maybe 1 success
+    assert executor.results.error_trap.error_count == 2
+    # Skipped tasks should NOT inflate completed_count
+    assert executor.results.completed_count < 30
+
+
+def test_edge_cases_semaphore_release_on_exception():
+    """Verify semaphore is released after a failing task, allowing the next task to run.
+
+    With max_workers=1, if the semaphore weren't released on exception, the second
+    task would deadlock.
+    """
+    results = []
+    errors = []
+
+    def result_cb(result, *, context=None):
+        results.append((result, context))
+
+    def error_cb(exc, *, context=None):
+        errors.append((type(exc).__name__, str(exc), context))
+
+    executor = AsyncConcurrentExecutor(
+        max_workers=1,
+        column_name="test_column",
+        result_callback=result_cb,
+        error_callback=error_cb,
+        shutdown_error_rate=1.0,  # high threshold to avoid early shutdown
+        shutdown_error_window=10,
+    )
+
+    async def fail() -> None:
+        raise ValueError("boom")
+
+    async def succeed() -> str:
+        return "ok"
+
+    executor.run([(fail(), {"id": "fail"}), (succeed(), {"id": "ok"})])
+
+    assert executor.results.early_shutdown is False
+    assert executor.results.completed_count == 2
+    assert executor.results.error_trap.error_count == 1
+    assert executor.results.success_count == 1
+    assert len(errors) == 1
+    assert errors[0] == ("ValueError", "boom", {"id": "fail"})
+    assert len(results) == 1
+    assert results[0] == ("ok", {"id": "ok"})
