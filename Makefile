@@ -76,7 +76,9 @@ help:
 	@echo "  verify-imports            - Verify all package imports work"
 	@echo "  show-versions             - Show versions of all packages"
 	@echo "  convert-execute-notebooks - Convert notebooks from .py to .ipynb using jupytext"
-	@echo "  generate-colab-notebooks  - Generate Colab-compatible notebooks"
+	@echo "  generate-colab-notebooks       - Generate Colab-compatible notebooks"
+	@echo "  generate-fern-notebooks        - Convert notebooks to Fern format for docs"
+	@echo "  generate-fern-notebooks-with-outputs - Execute notebooks first, then convert (requires API key)"
 	@echo "  serve-docs-locally        - Serve documentation locally"
 	@echo "  check-license-headers     - Check if all files have license headers"
 	@echo "  update-license-headers    - Add license headers to all files"
@@ -470,19 +472,28 @@ convert-execute-notebooks:
 
 generate-colab-notebooks:
 	@echo "📓 Generating Colab-compatible notebooks..."
-	uv run --group docs python docs/scripts/generate_colab_notebooks.py
+	@if [ -d docs/notebooks ] && [ -n "$$(ls docs/notebooks/*.ipynb 2>/dev/null)" ]; then \
+		echo "   Using executed notebooks from docs/notebooks (outputs preserved)"; \
+		uv run --group docs python docs/scripts/generate_colab_notebooks.py --executed-dir docs/notebooks; \
+	else \
+		echo "   Using source only (run 'make convert-execute-notebooks' first for outputs)"; \
+		uv run --group docs python docs/scripts/generate_colab_notebooks.py; \
+	fi
 	@echo "✅ Colab notebooks created in docs/colab_notebooks/"
 
-generate-fern-notebooks:
+generate-fern-notebooks: generate-colab-notebooks
 	@echo "📓 Converting notebooks to Fern format for NotebookViewer..."
 	@mkdir -p fern/components/notebooks
 	@for f in docs/colab_notebooks/*.ipynb; do \
 		if [ -f "$$f" ]; then \
 			name=$$(basename "$$f" .ipynb); \
-			python fern/scripts/ipynb-to-fern-json.py "$$f" -o fern/components/notebooks/$$name.json; \
+			uv run python fern/scripts/ipynb-to-fern-json.py "$$f" -o fern/components/notebooks/$$name.json; \
 		fi; \
 	done
 	@echo "✅ Fern notebooks created in fern/components/notebooks/"
+
+generate-fern-notebooks-with-outputs: convert-execute-notebooks
+	$(MAKE) generate-fern-notebooks
 
 # ==============================================================================
 # PERFORMANCE

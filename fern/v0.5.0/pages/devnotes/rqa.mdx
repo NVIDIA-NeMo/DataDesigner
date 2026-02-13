@@ -3,6 +3,8 @@ title: "Graduate-Level Science Reasoning Data with NeMo Data Designer"
 description: How we created the RQA dataset using Data Designer to push the boundaries of model performance.
 ---
 
+import { MetricsTable } from "@/components/MetricsTable";
+
 Using NeMo Data Designer, we created the RQA (Reasoning Question-Answer) dataset: a massive collection of graduate-level, reasoning-heavy science samples designed to push the boundaries of model performance.
 
 ![RQA Blog](/assets/images/rqa-blog.png)
@@ -141,12 +143,17 @@ We chose to use the same frontier reasoning model to answer the questions as we 
 
 To evaluate the impact of the RQA data, we ran continued pretraining experiments on an internal checkpoint of [Nemotron-H 8B](https://research.nvidia.com/labs/adlr/nemotronh/). Nemotron-H used a two-phase pretraining approach (you can read more about it in our white paper [here](https://arxiv.org/pdf/2504.03624)). We intervened at the Phase 2 training stage, comparing the result of replacing either 4% or 8% of the existing data blend with RQA samples (taking weight from high-quality Common Crawl data). We ran the intervention for 18k steps, between a checkpoint at 140k steps and a checkpoint at 158k steps.
 
-| Data Blend | Validation Loss (↓) | MMLU-Pro (with CoT, ↑) | Math 500 (with CoT, ↑) | GSM8K (with CoT, ↑) | Humaneval+ (↑) | MBPP+ (↑) |
-| :---- | :---- | :---- | :---- | :---- | :---- | :---- |
-| **Baseline data blend (140k steps)** | 1.309 | 36.99 | - | 79.98 | 38.14 | 48.68 |
-| **Baseline data blend (158k steps)** | 1.258 | 43.39 | 71.00 | 81.96 | 42.71 | 53.31 |
-| **with RQA (4.5m @4%, 158k steps)** | 1.256 | 44.31 | **73.40** | 82.79 | **47.20** | **54.84** |
-| **with RQA (9m @8%, 158k steps)** | **1.255** | **45.80** | **73.40** | **84.76** | 45.61 | 53.80 |
+<MetricsTable
+  headers={["Data Blend", "Validation Loss (↓)", "MMLU-Pro (with CoT, ↑)", "Math 500 (with CoT, ↑)", "GSM8K (with CoT, ↑)", "Humaneval+ (↑)", "MBPP+ (↑)"]}
+  rows={[
+    ["Baseline data blend (140k steps)", "1.309", "36.99", "-", "79.98", "38.14", "48.68"],
+    ["Baseline data blend (158k steps)", "1.258", "43.39", "71.00", "81.96", "42.71", "53.31"],
+    ["with RQA (4.5m @4%, 158k steps)", "1.256", "44.31", "73.40", "82.79", "47.20", "54.84"],
+    ["with RQA (9m @8%, 158k steps)", "1.255", "45.80", "73.40", "84.76", "45.61", "53.80"],
+  ]}
+  lowerIsBetter={[1]}
+  higherIsBetter={[2, 3, 4, 5, 6]}
+/>
 
 One of the most surprising (and exciting!) results was that RQA didn't just improve performance on tests of scientific reasoning like MMLU-Pro - it also improved performance on benchmarks associated with math reasoning (Math 500, GSM8K) and coding capabilities (Humaneval+, MBPP+). This shows how early introduction of advanced reasoning capabilities can produce robust improvements across different domains.
 

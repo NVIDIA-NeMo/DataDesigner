@@ -15,17 +15,20 @@
     {
       "type": "code",
       "source": "%%capture\n!pip install -U data-designer",
-      "language": "python"
+      "language": "python",
+      "source_html": "<span style=\"color: #666\">%%</span>capture\n<span style=\"border: 1px solid #F00\">!</span>pip install <span style=\"color: #666\">-</span>U data<span style=\"color: #666\">-</span>designer\n"
     },
     {
       "type": "code",
       "source": "import getpass\nimport os\n\nfrom google.colab import userdata\n\ntry:\n    os.environ[\"NVIDIA_API_KEY\"] = userdata.get(\"NVIDIA_API_KEY\")\nexcept userdata.SecretNotFoundError:\n    os.environ[\"NVIDIA_API_KEY\"] = getpass.getpass(\"Enter your NVIDIA API key: \")",
-      "language": "python"
+      "language": "python",
+      "source_html": "<span style=\"color: #007020; font-weight: bold\">import</span><span style=\"color: #BBB\"> </span><span style=\"color: #0E84B5; font-weight: bold\">getpass</span>\n<span style=\"color: #007020; font-weight: bold\">import</span><span style=\"color: #BBB\"> </span><span style=\"color: #0E84B5; font-weight: bold\">os</span>\n\n<span style=\"color: #007020; font-weight: bold\">from</span><span style=\"color: #BBB\"> </span><span style=\"color: #0E84B5; font-weight: bold\">google.colab</span><span style=\"color: #BBB\"> </span><span style=\"color: #007020; font-weight: bold\">import</span> userdata\n\n<span style=\"color: #007020; font-weight: bold\">try</span>:\n    os<span style=\"color: #666\">.</span>environ[<span style=\"color: #4070A0\">&quot;NVIDIA_API_KEY&quot;</span>] <span style=\"color: #666\">=</span> userdata<span style=\"color: #666\">.</span>get(<span style=\"color: #4070A0\">&quot;NVIDIA_API_KEY&quot;</span>)\n<span style=\"color: #007020; font-weight: bold\">except</span> userdata<span style=\"color: #666\">.</span>SecretNotFoundError:\n    os<span style=\"color: #666\">.</span>environ[<span style=\"color: #4070A0\">&quot;NVIDIA_API_KEY&quot;</span>] <span style=\"color: #666\">=</span> getpass<span style=\"color: #666\">.</span>getpass(<span style=\"color: #4070A0\">&quot;Enter your NVIDIA API key: &quot;</span>)\n"
     },
     {
       "type": "code",
       "source": "import data_designer.config as dd\nfrom data_designer.interface import DataDesigner",
-      "language": "python"
+      "language": "python",
+      "source_html": "<span style=\"color: #007020; font-weight: bold\">import</span><span style=\"color: #BBB\"> </span><span style=\"color: #0E84B5; font-weight: bold\">data_designer.config</span><span style=\"color: #BBB\"> </span><span style=\"color: #007020; font-weight: bold\">as</span><span style=\"color: #BBB\"> </span><span style=\"color: #0E84B5; font-weight: bold\">dd</span>\n<span style=\"color: #007020; font-weight: bold\">from</span><span style=\"color: #BBB\"> </span><span style=\"color: #0E84B5; font-weight: bold\">data_designer.interface</span><span style=\"color: #BBB\"> </span><span style=\"color: #007020; font-weight: bold\">import</span> DataDesigner\n"
     },
     {
       "type": "markdown",
@@ -34,7 +37,8 @@
     {
       "type": "code",
       "source": "data_designer = DataDesigner()",
-      "language": "python"
+      "language": "python",
+      "source_html": "data_designer <span style=\"color: #666\">=</span> DataDesigner()\n"
     },
     {
       "type": "markdown",
@@ -43,7 +47,8 @@
     {
       "type": "code",
       "source": "# This name is set in the model provider configuration.\nMODEL_PROVIDER = \"nvidia\"\n\n# The model ID is from build.nvidia.com.\nMODEL_ID = \"nvidia/nemotron-3-nano-30b-a3b\"\n\n# We choose this alias to be descriptive for our use case.\nMODEL_ALIAS = \"nemotron-nano-v3\"\n\nmodel_configs = [\n    dd.ModelConfig(\n        alias=MODEL_ALIAS,\n        model=MODEL_ID,\n        provider=MODEL_PROVIDER,\n        inference_parameters=dd.ChatCompletionInferenceParams(\n            temperature=1.0,\n            top_p=1.0,\n            max_tokens=2048,\n            extra_body={\"chat_template_kwargs\": {\"enable_thinking\": False}},\n        ),\n    )\n]",
-      "language": "python"
+      "language": "python",
+      "source_html": "<span style=\"color: #60A0B0; font-style: italic\"># This name is set in the model provider configuration.</span>\nMODEL_PROVIDER <span style=\"color: #666\">=</span> <span style=\"color: #4070A0\">&quot;nvidia&quot;</span>\n\n<span style=\"color: #60A0B0; font-style: italic\"># The model ID is from build.nvidia.com.</span>\nMODEL_ID <span style=\"color: #666\">=</span> <span style=\"color: #4070A0\">&quot;nvidia/nemotron-3-nano-30b-a3b&quot;</span>\n\n<span style=\"color: #60A0B0; font-style: italic\"># We choose this alias to be descriptive for our use case.</span>\nMODEL_ALIAS <span style=\"color: #666\">=</span> <span style=\"color: #4070A0\">&quot;nemotron-nano-v3&quot;</span>\n\nmodel_configs <span style=\"color: #666\">=</span> [\n    dd<span style=\"color: #666\">.</span>ModelConfig(\n        alias<span style=\"color: #666\">=</span>MODEL_ALIAS,\n        model<span style=\"color: #666\">=</span>MODEL_ID,\n        provider<span style=\"color: #666\">=</span>MODEL_PROVIDER,\n        inference_parameters<span style=\"color: #666\">=</span>dd<span style=\"color: #666\">.</span>ChatCompletionInferenceParams(\n            temperature<span style=\"color: #666\">=</span><span style=\"color: #40A070\">1.0</span>,\n            top_p<span style=\"color: #666\">=</span><span style=\"color: #40A070\">1.0</span>,\n            max_tokens<span style=\"color: #666\">=</span><span style=\"color: #40A070\">2048</span>,\n            extra_body<span style=\"color: #666\">=</span>{<span style=\"color: #4070A0\">&quot;chat_template_kwargs&quot;</span>: {<span style=\"color: #4070A0\">&quot;enable_thinking&quot;</span>: <span style=\"color: #007020; font-weight: bold\">False</span>}},\n        ),\n    )\n]\n"
     },
     {
       "type": "markdown",
@@ -52,7 +57,8 @@
     {
       "type": "code",
       "source": "config_builder = dd.DataDesignerConfigBuilder(model_configs=model_configs)",
-      "language": "python"
+      "language": "python",
+      "source_html": "config_builder <span style=\"color: #666\">=</span> dd<span style=\"color: #666\">.</span>DataDesignerConfigBuilder(model_configs<span style=\"color: #666\">=</span>model_configs)\n"
     },
     {
       "type": "markdown",
@@ -61,7 +67,8 @@
     {
       "type": "code",
       "source": "config_builder.info.display(\"samplers\")",
-      "language": "python"
+      "language": "python",
+      "source_html": "config_builder<span style=\"color: #666\">.</span>info<span style=\"color: #666\">.</span>display(<span style=\"color: #4070A0\">&quot;samplers&quot;</span>)\n"
     },
     {
       "type": "markdown",
@@ -70,7 +77,8 @@
     {
       "type": "code",
       "source": "config_builder.add_column(\n    dd.SamplerColumnConfig(\n        name=\"product_category\",\n        sampler_type=dd.SamplerType.CATEGORY,\n        params=dd.CategorySamplerParams(\n            values=[\n                \"Electronics\",\n                \"Clothing\",\n                \"Home & Kitchen\",\n                \"Books\",\n                \"Home Office\",\n            ],\n        ),\n    )\n)\n\nconfig_builder.add_column(\n    dd.SamplerColumnConfig(\n        name=\"product_subcategory\",\n        sampler_type=dd.SamplerType.SUBCATEGORY,\n        params=dd.SubcategorySamplerParams(\n            category=\"product_category\",\n            values={\n                \"Electronics\": [\n                    \"Smartphones\",\n                    \"Laptops\",\n                    \"Headphones\",\n                    \"Cameras\",\n                    \"Accessories\",\n                ],\n                \"Clothing\": [\n                    \"Men's Clothing\",\n                    \"Women's Clothing\",\n                    \"Winter Coats\",\n                    \"Activewear\",\n                    \"Accessories\",\n                ],\n                \"Home & Kitchen\": [\n                    \"Appliances\",\n                    \"Cookware\",\n                    \"Furniture\",\n                    \"Decor\",\n                    \"Organization\",\n                ],\n                \"Books\": [\n                    \"Fiction\",\n                    \"Non-Fiction\",\n                    \"Self-Help\",\n                    \"Textbooks\",\n                    \"Classics\",\n                ],\n                \"Home Office\": [\n                    \"Desks\",\n                    \"Chairs\",\n                    \"Storage\",\n                    \"Office Supplies\",\n                    \"Lighting\",\n                ],\n            },\n        ),\n    )\n)\n\nconfig_builder.add_column(\n    dd.SamplerColumnConfig(\n        name=\"target_age_range\",\n        sampler_type=dd.SamplerType.CATEGORY,\n        params=dd.CategorySamplerParams(values=[\"18-25\", \"25-35\", \"35-50\", \"50-65\", \"65+\"]),\n    )\n)\n\n# Optionally validate that the columns are configured correctly.\ndata_designer.validate(config_builder)",
-      "language": "python"
+      "language": "python",
+      "source_html": "config_builder<span style=\"color: #666\">.</span>add_column(\n    dd<span style=\"color: #666\">.</span>SamplerColumnConfig(\n        name<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;product_category&quot;</span>,\n        sampler_type<span style=\"color: #666\">=</span>dd<span style=\"color: #666\">.</span>SamplerType<span style=\"color: #666\">.</span>CATEGORY,\n        params<span style=\"color: #666\">=</span>dd<span style=\"color: #666\">.</span>CategorySamplerParams(\n            values<span style=\"color: #666\">=</span>[\n                <span style=\"color: #4070A0\">&quot;Electronics&quot;</span>,\n                <span style=\"color: #4070A0\">&quot;Clothing&quot;</span>,\n                <span style=\"color: #4070A0\">&quot;Home &amp; Kitchen&quot;</span>,\n                <span style=\"color: #4070A0\">&quot;Books&quot;</span>,\n                <span style=\"color: #4070A0\">&quot;Home Office&quot;</span>,\n            ],\n        ),\n    )\n)\n\nconfig_builder<span style=\"color: #666\">.</span>add_column(\n    dd<span style=\"color: #666\">.</span>SamplerColumnConfig(\n        name<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;product_subcategory&quot;</span>,\n        sampler_type<span style=\"color: #666\">=</span>dd<span style=\"color: #666\">.</span>SamplerType<span style=\"color: #666\">.</span>SUBCATEGORY,\n        params<span style=\"color: #666\">=</span>dd<span style=\"color: #666\">.</span>SubcategorySamplerParams(\n            category<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;product_category&quot;</span>,\n            values<span style=\"color: #666\">=</span>{\n                <span style=\"color: #4070A0\">&quot;Electronics&quot;</span>: [\n                    <span style=\"color: #4070A0\">&quot;Smartphones&quot;</span>,\n                    <span style=\"color: #4070A0\">&quot;Laptops&quot;</span>,\n                    <span style=\"color: #4070A0\">&quot;Headphones&quot;</span>,\n                    <span style=\"color: #4070A0\">&quot;Cameras&quot;</span>,\n                    <span style=\"color: #4070A0\">&quot;Accessories&quot;</span>,\n                ],\n                <span style=\"color: #4070A0\">&quot;Clothing&quot;</span>: [\n                    <span style=\"color: #4070A0\">&quot;Men&#39;s Clothing&quot;</span>,\n                    <span style=\"color: #4070A0\">&quot;Women&#39;s Clothing&quot;</span>,\n                    <span style=\"color: #4070A0\">&quot;Winter Coats&quot;</span>,\n                    <span style=\"color: #4070A0\">&quot;Activewear&quot;</span>,\n                    <span style=\"color: #4070A0\">&quot;Accessories&quot;</span>,\n                ],\n                <span style=\"color: #4070A0\">&quot;Home &amp; Kitchen&quot;</span>: [\n                    <span style=\"color: #4070A0\">&quot;Appliances&quot;</span>,\n                    <span style=\"color: #4070A0\">&quot;Cookware&quot;</span>,\n                    <span style=\"color: #4070A0\">&quot;Furniture&quot;</span>,\n                    <span style=\"color: #4070A0\">&quot;Decor&quot;</span>,\n                    <span style=\"color: #4070A0\">&quot;Organization&quot;</span>,\n                ],\n                <span style=\"color: #4070A0\">&quot;Books&quot;</span>: [\n                    <span style=\"color: #4070A0\">&quot;Fiction&quot;</span>,\n                    <span style=\"color: #4070A0\">&quot;Non-Fiction&quot;</span>,\n                    <span style=\"color: #4070A0\">&quot;Self-Help&quot;</span>,\n                    <span style=\"color: #4070A0\">&quot;Textbooks&quot;</span>,\n                    <span style=\"color: #4070A0\">&quot;Classics&quot;</span>,\n                ],\n                <span style=\"color: #4070A0\">&quot;Home Office&quot;</span>: [\n                    <span style=\"color: #4070A0\">&quot;Desks&quot;</span>,\n                    <span style=\"color: #4070A0\">&quot;Chairs&quot;</span>,\n                    <span style=\"color: #4070A0\">&quot;Storage&quot;</span>,\n                    <span style=\"color: #4070A0\">&quot;Office Supplies&quot;</span>,\n                    <span style=\"color: #4070A0\">&quot;Lighting&quot;</span>,\n                ],\n            },\n        ),\n    )\n)\n\nconfig_builder<span style=\"color: #666\">.</span>add_column(\n    dd<span style=\"color: #666\">.</span>SamplerColumnConfig(\n        name<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;target_age_range&quot;</span>,\n        sampler_type<span style=\"color: #666\">=</span>dd<span style=\"color: #666\">.</span>SamplerType<span style=\"color: #666\">.</span>CATEGORY,\n        params<span style=\"color: #666\">=</span>dd<span style=\"color: #666\">.</span>CategorySamplerParams(values<span style=\"color: #666\">=</span>[<span style=\"color: #4070A0\">&quot;18-25&quot;</span>, <span style=\"color: #4070A0\">&quot;25-35&quot;</span>, <span style=\"color: #4070A0\">&quot;35-50&quot;</span>, <span style=\"color: #4070A0\">&quot;50-65&quot;</span>, <span style=\"color: #4070A0\">&quot;65+&quot;</span>]),\n    )\n)\n\n<span style=\"color: #60A0B0; font-style: italic\"># Optionally validate that the columns are configured correctly.</span>\ndata_designer<span style=\"color: #666\">.</span>validate(config_builder)\n"
     },
     {
       "type": "markdown",
@@ -79,7 +87,8 @@
     {
       "type": "code",
       "source": "config_builder.add_column(\n    dd.SamplerColumnConfig(\n        name=\"customer\",\n        sampler_type=dd.SamplerType.PERSON_FROM_FAKER,\n        params=dd.PersonFromFakerSamplerParams(age_range=[18, 70], locale=\"en_US\"),\n    )\n)\n\nconfig_builder.add_column(\n    dd.SamplerColumnConfig(\n        name=\"number_of_stars\",\n        sampler_type=dd.SamplerType.UNIFORM,\n        params=dd.UniformSamplerParams(low=1, high=5),\n        convert_to=\"int\",  # Convert the sampled float to an integer.\n    )\n)\n\nconfig_builder.add_column(\n    dd.SamplerColumnConfig(\n        name=\"review_style\",\n        sampler_type=dd.SamplerType.CATEGORY,\n        params=dd.CategorySamplerParams(\n            values=[\"rambling\", \"brief\", \"detailed\", \"structured with bullet points\"],\n            weights=[1, 2, 2, 1],\n        ),\n    )\n)\n\ndata_designer.validate(config_builder)",
-      "language": "python"
+      "language": "python",
+      "source_html": "config_builder<span style=\"color: #666\">.</span>add_column(\n    dd<span style=\"color: #666\">.</span>SamplerColumnConfig(\n        name<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;customer&quot;</span>,\n        sampler_type<span style=\"color: #666\">=</span>dd<span style=\"color: #666\">.</span>SamplerType<span style=\"color: #666\">.</span>PERSON_FROM_FAKER,\n        params<span style=\"color: #666\">=</span>dd<span style=\"color: #666\">.</span>PersonFromFakerSamplerParams(age_range<span style=\"color: #666\">=</span>[<span style=\"color: #40A070\">18</span>, <span style=\"color: #40A070\">70</span>], locale<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;en_US&quot;</span>),\n    )\n)\n\nconfig_builder<span style=\"color: #666\">.</span>add_column(\n    dd<span style=\"color: #666\">.</span>SamplerColumnConfig(\n        name<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;number_of_stars&quot;</span>,\n        sampler_type<span style=\"color: #666\">=</span>dd<span style=\"color: #666\">.</span>SamplerType<span style=\"color: #666\">.</span>UNIFORM,\n        params<span style=\"color: #666\">=</span>dd<span style=\"color: #666\">.</span>UniformSamplerParams(low<span style=\"color: #666\">=</span><span style=\"color: #40A070\">1</span>, high<span style=\"color: #666\">=</span><span style=\"color: #40A070\">5</span>),\n        convert_to<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;int&quot;</span>,  <span style=\"color: #60A0B0; font-style: italic\"># Convert the sampled float to an integer.</span>\n    )\n)\n\nconfig_builder<span style=\"color: #666\">.</span>add_column(\n    dd<span style=\"color: #666\">.</span>SamplerColumnConfig(\n        name<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;review_style&quot;</span>,\n        sampler_type<span style=\"color: #666\">=</span>dd<span style=\"color: #666\">.</span>SamplerType<span style=\"color: #666\">.</span>CATEGORY,\n        params<span style=\"color: #666\">=</span>dd<span style=\"color: #666\">.</span>CategorySamplerParams(\n            values<span style=\"color: #666\">=</span>[<span style=\"color: #4070A0\">&quot;rambling&quot;</span>, <span style=\"color: #4070A0\">&quot;brief&quot;</span>, <span style=\"color: #4070A0\">&quot;detailed&quot;</span>, <span style=\"color: #4070A0\">&quot;structured with bullet points&quot;</span>],\n            weights<span style=\"color: #666\">=</span>[<span style=\"color: #40A070\">1</span>, <span style=\"color: #40A070\">2</span>, <span style=\"color: #40A070\">2</span>, <span style=\"color: #40A070\">1</span>],\n        ),\n    )\n)\n\ndata_designer<span style=\"color: #666\">.</span>validate(config_builder)\n"
     },
     {
       "type": "markdown",
@@ -88,7 +97,8 @@
     {
       "type": "code",
       "source": "config_builder.add_column(\n    dd.LLMTextColumnConfig(\n        name=\"product_name\",\n        prompt=(\n            \"You are a helpful assistant that generates product names. DO NOT add quotes around the product name.\\n\\n\"\n            \"Come up with a creative product name for a product in the '{{ product_category }}' category, focusing \"\n            \"on products related to '{{ product_subcategory }}'. The target age range of the ideal customer is \"\n            \"{{ target_age_range }} years old. Respond with only the product name, no other text.\"\n        ),\n        model_alias=MODEL_ALIAS,\n    )\n)\n\nconfig_builder.add_column(\n    dd.LLMTextColumnConfig(\n        name=\"customer_review\",\n        prompt=(\n            \"You are a customer named {{ customer.first_name }} from {{ customer.city }}, {{ customer.state }}. \"\n            \"You are {{ customer.age }} years old and recently purchased a product called {{ product_name }}. \"\n            \"Write a review of this product, which you gave a rating of {{ number_of_stars }} stars. \"\n            \"The style of the review should be '{{ review_style }}'. \"\n            \"Respond with only the review, no other text.\"\n        ),\n        model_alias=MODEL_ALIAS,\n    )\n)\n\ndata_designer.validate(config_builder)",
-      "language": "python"
+      "language": "python",
+      "source_html": "config_builder<span style=\"color: #666\">.</span>add_column(\n    dd<span style=\"color: #666\">.</span>LLMTextColumnConfig(\n        name<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;product_name&quot;</span>,\n        prompt<span style=\"color: #666\">=</span>(\n            <span style=\"color: #4070A0\">&quot;You are a helpful assistant that generates product names. DO NOT add quotes around the product name.</span><span style=\"color: #4070A0; font-weight: bold\">\\n\\n</span><span style=\"color: #4070A0\">&quot;</span>\n            <span style=\"color: #4070A0\">&quot;Come up with a creative product name for a product in the &#39;{{ product_category }}&#39; category, focusing &quot;</span>\n            <span style=\"color: #4070A0\">&quot;on products related to &#39;{{ product_subcategory }}&#39;. The target age range of the ideal customer is &quot;</span>\n            <span style=\"color: #4070A0\">&quot;{{ target_age_range }} years old. Respond with only the product name, no other text.&quot;</span>\n        ),\n        model_alias<span style=\"color: #666\">=</span>MODEL_ALIAS,\n    )\n)\n\nconfig_builder<span style=\"color: #666\">.</span>add_column(\n    dd<span style=\"color: #666\">.</span>LLMTextColumnConfig(\n        name<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;customer_review&quot;</span>,\n        prompt<span style=\"color: #666\">=</span>(\n            <span style=\"color: #4070A0\">&quot;You are a customer named {{ customer.first_name }} from {{ customer.city }}, {{ customer.state }}. &quot;</span>\n            <span style=\"color: #4070A0\">&quot;You are {{ customer.age }} years old and recently purchased a product called {{ product_name }}. &quot;</span>\n            <span style=\"color: #4070A0\">&quot;Write a review of this product, which you gave a rating of {{ number_of_stars }} stars. &quot;</span>\n            <span style=\"color: #4070A0\">&quot;The style of the review should be &#39;{{ review_style }}&#39;. &quot;</span>\n            <span style=\"color: #4070A0\">&quot;Respond with only the review, no other text.&quot;</span>\n        ),\n        model_alias<span style=\"color: #666\">=</span>MODEL_ALIAS,\n    )\n)\n\ndata_designer<span style=\"color: #666\">.</span>validate(config_builder)\n"
     },
     {
       "type": "markdown",
@@ -97,17 +107,20 @@
     {
       "type": "code",
       "source": "preview = data_designer.preview(config_builder, num_records=2)",
-      "language": "python"
+      "language": "python",
+      "source_html": "preview <span style=\"color: #666\">=</span> data_designer<span style=\"color: #666\">.</span>preview(config_builder, num_records<span style=\"color: #666\">=</span><span style=\"color: #40A070\">2</span>)\n"
     },
     {
       "type": "code",
       "source": "# Run this cell multiple times to cycle through the 2 preview records.\npreview.display_sample_record()",
-      "language": "python"
+      "language": "python",
+      "source_html": "<span style=\"color: #60A0B0; font-style: italic\"># Run this cell multiple times to cycle through the 2 preview records.</span>\npreview<span style=\"color: #666\">.</span>display_sample_record()\n"
     },
     {
       "type": "code",
       "source": "# The preview dataset is available as a pandas DataFrame.\npreview.dataset",
-      "language": "python"
+      "language": "python",
+      "source_html": "<span style=\"color: #60A0B0; font-style: italic\"># The preview dataset is available as a pandas DataFrame.</span>\npreview<span style=\"color: #666\">.</span>dataset\n"
     },
     {
       "type": "markdown",
@@ -116,7 +129,8 @@
     {
       "type": "code",
       "source": "# Print the analysis as a table.\npreview.analysis.to_report()",
-      "language": "python"
+      "language": "python",
+      "source_html": "<span style=\"color: #60A0B0; font-style: italic\"># Print the analysis as a table.</span>\npreview<span style=\"color: #666\">.</span>analysis<span style=\"color: #666\">.</span>to_report()\n"
     },
     {
       "type": "markdown",
@@ -125,17 +139,20 @@
     {
       "type": "code",
       "source": "results = data_designer.create(config_builder, num_records=10, dataset_name=\"tutorial-1\")",
-      "language": "python"
+      "language": "python",
+      "source_html": "results <span style=\"color: #666\">=</span> data_designer<span style=\"color: #666\">.</span>create(config_builder, num_records<span style=\"color: #666\">=</span><span style=\"color: #40A070\">10</span>, dataset_name<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;tutorial-1&quot;</span>)\n"
     },
     {
       "type": "code",
       "source": "# Load the generated dataset as a pandas DataFrame.\ndataset = results.load_dataset()\n\ndataset.head()",
-      "language": "python"
+      "language": "python",
+      "source_html": "<span style=\"color: #60A0B0; font-style: italic\"># Load the generated dataset as a pandas DataFrame.</span>\ndataset <span style=\"color: #666\">=</span> results<span style=\"color: #666\">.</span>load_dataset()\n\ndataset<span style=\"color: #666\">.</span>head()\n"
     },
     {
       "type": "code",
       "source": "# Load the analysis results into memory.\nanalysis = results.load_analysis()\n\nanalysis.to_report()",
-      "language": "python"
+      "language": "python",
+      "source_html": "<span style=\"color: #60A0B0; font-style: italic\"># Load the analysis results into memory.</span>\nanalysis <span style=\"color: #666\">=</span> results<span style=\"color: #666\">.</span>load_analysis()\n\nanalysis<span style=\"color: #666\">.</span>to_report()\n"
     },
     {
       "type": "markdown",

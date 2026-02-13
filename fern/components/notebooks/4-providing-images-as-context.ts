@@ -19,17 +19,20 @@ export default { cells: [
   {
     "type": "code",
     "source": "%%capture\n!pip install -U data-designer \"pillow>=12.0.0,<13\" \"datasets>=4.0.0,<5\"",
-    "language": "python"
+    "language": "python",
+    "source_html": "<span style=\"color: #666\">%%</span>capture\n<span style=\"border: 1px solid #F00\">!</span>pip install <span style=\"color: #666\">-</span>U data<span style=\"color: #666\">-</span>designer <span style=\"color: #4070A0\">&quot;pillow&gt;=12.0.0,&lt;13&quot;</span> <span style=\"color: #4070A0\">&quot;datasets&gt;=4.0.0,&lt;5&quot;</span>\n"
   },
   {
     "type": "code",
     "source": "import getpass\nimport os\n\nfrom google.colab import userdata\n\ntry:\n    os.environ[\"NVIDIA_API_KEY\"] = userdata.get(\"NVIDIA_API_KEY\")\nexcept userdata.SecretNotFoundError:\n    os.environ[\"NVIDIA_API_KEY\"] = getpass.getpass(\"Enter your NVIDIA API key: \")",
-    "language": "python"
+    "language": "python",
+    "source_html": "<span style=\"color: #007020; font-weight: bold\">import</span><span style=\"color: #BBB\"> </span><span style=\"color: #0E84B5; font-weight: bold\">getpass</span>\n<span style=\"color: #007020; font-weight: bold\">import</span><span style=\"color: #BBB\"> </span><span style=\"color: #0E84B5; font-weight: bold\">os</span>\n\n<span style=\"color: #007020; font-weight: bold\">from</span><span style=\"color: #BBB\"> </span><span style=\"color: #0E84B5; font-weight: bold\">google.colab</span><span style=\"color: #BBB\"> </span><span style=\"color: #007020; font-weight: bold\">import</span> userdata\n\n<span style=\"color: #007020; font-weight: bold\">try</span>:\n    os<span style=\"color: #666\">.</span>environ[<span style=\"color: #4070A0\">&quot;NVIDIA_API_KEY&quot;</span>] <span style=\"color: #666\">=</span> userdata<span style=\"color: #666\">.</span>get(<span style=\"color: #4070A0\">&quot;NVIDIA_API_KEY&quot;</span>)\n<span style=\"color: #007020; font-weight: bold\">except</span> userdata<span style=\"color: #666\">.</span>SecretNotFoundError:\n    os<span style=\"color: #666\">.</span>environ[<span style=\"color: #4070A0\">&quot;NVIDIA_API_KEY&quot;</span>] <span style=\"color: #666\">=</span> getpass<span style=\"color: #666\">.</span>getpass(<span style=\"color: #4070A0\">&quot;Enter your NVIDIA API key: &quot;</span>)\n"
   },
   {
     "type": "code",
     "source": "# Standard library imports\nimport base64\nimport io\nimport uuid\n\n# Third-party imports\nimport pandas as pd\nimport rich\nfrom datasets import load_dataset\nfrom IPython.display import display\nfrom rich.panel import Panel\n\n# Data Designer imports\nimport data_designer.config as dd\nfrom data_designer.interface import DataDesigner",
-    "language": "python"
+    "language": "python",
+    "source_html": "<span style=\"color: #60A0B0; font-style: italic\"># Standard library imports</span>\n<span style=\"color: #007020; font-weight: bold\">import</span><span style=\"color: #BBB\"> </span><span style=\"color: #0E84B5; font-weight: bold\">base64</span>\n<span style=\"color: #007020; font-weight: bold\">import</span><span style=\"color: #BBB\"> </span><span style=\"color: #0E84B5; font-weight: bold\">io</span>\n<span style=\"color: #007020; font-weight: bold\">import</span><span style=\"color: #BBB\"> </span><span style=\"color: #0E84B5; font-weight: bold\">uuid</span>\n\n<span style=\"color: #60A0B0; font-style: italic\"># Third-party imports</span>\n<span style=\"color: #007020; font-weight: bold\">import</span><span style=\"color: #BBB\"> </span><span style=\"color: #0E84B5; font-weight: bold\">pandas</span><span style=\"color: #BBB\"> </span><span style=\"color: #007020; font-weight: bold\">as</span><span style=\"color: #BBB\"> </span><span style=\"color: #0E84B5; font-weight: bold\">pd</span>\n<span style=\"color: #007020; font-weight: bold\">import</span><span style=\"color: #BBB\"> </span><span style=\"color: #0E84B5; font-weight: bold\">rich</span>\n<span style=\"color: #007020; font-weight: bold\">from</span><span style=\"color: #BBB\"> </span><span style=\"color: #0E84B5; font-weight: bold\">datasets</span><span style=\"color: #BBB\"> </span><span style=\"color: #007020; font-weight: bold\">import</span> load_dataset\n<span style=\"color: #007020; font-weight: bold\">from</span><span style=\"color: #BBB\"> </span><span style=\"color: #0E84B5; font-weight: bold\">IPython.display</span><span style=\"color: #BBB\"> </span><span style=\"color: #007020; font-weight: bold\">import</span> display\n<span style=\"color: #007020; font-weight: bold\">from</span><span style=\"color: #BBB\"> </span><span style=\"color: #0E84B5; font-weight: bold\">rich.panel</span><span style=\"color: #BBB\"> </span><span style=\"color: #007020; font-weight: bold\">import</span> Panel\n\n<span style=\"color: #60A0B0; font-style: italic\"># Data Designer imports</span>\n<span style=\"color: #007020; font-weight: bold\">import</span><span style=\"color: #BBB\"> </span><span style=\"color: #0E84B5; font-weight: bold\">data_designer.config</span><span style=\"color: #BBB\"> </span><span style=\"color: #007020; font-weight: bold\">as</span><span style=\"color: #BBB\"> </span><span style=\"color: #0E84B5; font-weight: bold\">dd</span>\n<span style=\"color: #007020; font-weight: bold\">from</span><span style=\"color: #BBB\"> </span><span style=\"color: #0E84B5; font-weight: bold\">data_designer.interface</span><span style=\"color: #BBB\"> </span><span style=\"color: #007020; font-weight: bold\">import</span> DataDesigner\n"
   },
   {
     "type": "markdown",
@@ -38,7 +41,8 @@ export default { cells: [
   {
     "type": "code",
     "source": "data_designer = DataDesigner()",
-    "language": "python"
+    "language": "python",
+    "source_html": "data_designer <span style=\"color: #666\">=</span> DataDesigner()\n"
   },
   {
     "type": "markdown",
@@ -47,7 +51,8 @@ export default { cells: [
   {
     "type": "code",
     "source": "# This name is set in the model provider configuration.\nMODEL_PROVIDER = \"nvidia\"\n\nmodel_configs = [\n    dd.ModelConfig(\n        alias=\"vision\",\n        model=\"meta/llama-4-scout-17b-16e-instruct\",\n        provider=MODEL_PROVIDER,\n        inference_parameters=dd.ChatCompletionInferenceParams(\n            temperature=0.60,\n            top_p=0.95,\n            max_tokens=2048,\n        ),\n    ),\n]",
-    "language": "python"
+    "language": "python",
+    "source_html": "<span style=\"color: #60A0B0; font-style: italic\"># This name is set in the model provider configuration.</span>\nMODEL_PROVIDER <span style=\"color: #666\">=</span> <span style=\"color: #4070A0\">&quot;nvidia&quot;</span>\n\nmodel_configs <span style=\"color: #666\">=</span> [\n    dd<span style=\"color: #666\">.</span>ModelConfig(\n        alias<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;vision&quot;</span>,\n        model<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;meta/llama-4-scout-17b-16e-instruct&quot;</span>,\n        provider<span style=\"color: #666\">=</span>MODEL_PROVIDER,\n        inference_parameters<span style=\"color: #666\">=</span>dd<span style=\"color: #666\">.</span>ChatCompletionInferenceParams(\n            temperature<span style=\"color: #666\">=</span><span style=\"color: #40A070\">0.60</span>,\n            top_p<span style=\"color: #666\">=</span><span style=\"color: #40A070\">0.95</span>,\n            max_tokens<span style=\"color: #666\">=</span><span style=\"color: #40A070\">2048</span>,\n        ),\n    ),\n]\n"
   },
   {
     "type": "markdown",
@@ -56,7 +61,8 @@ export default { cells: [
   {
     "type": "code",
     "source": "config_builder = dd.DataDesignerConfigBuilder(model_configs=model_configs)",
-    "language": "python"
+    "language": "python",
+    "source_html": "config_builder <span style=\"color: #666\">=</span> dd<span style=\"color: #666\">.</span>DataDesignerConfigBuilder(model_configs<span style=\"color: #666\">=</span>model_configs)\n"
   },
   {
     "type": "markdown",
@@ -65,32 +71,38 @@ export default { cells: [
   {
     "type": "code",
     "source": "# Dataset processing configuration\nIMG_COUNT = 512  # Number of images to process\nBASE64_IMAGE_HEIGHT = 512  # Standardized height for model input\n\n# Load ColPali dataset for visual documents\nimg_dataset_cfg = {\"path\": \"vidore/colpali_train_set\", \"split\": \"train\", \"streaming\": True}",
-    "language": "python"
+    "language": "python",
+    "source_html": "<span style=\"color: #60A0B0; font-style: italic\"># Dataset processing configuration</span>\nIMG_COUNT <span style=\"color: #666\">=</span> <span style=\"color: #40A070\">512</span>  <span style=\"color: #60A0B0; font-style: italic\"># Number of images to process</span>\nBASE64_IMAGE_HEIGHT <span style=\"color: #666\">=</span> <span style=\"color: #40A070\">512</span>  <span style=\"color: #60A0B0; font-style: italic\"># Standardized height for model input</span>\n\n<span style=\"color: #60A0B0; font-style: italic\"># Load ColPali dataset for visual documents</span>\nimg_dataset_cfg <span style=\"color: #666\">=</span> {<span style=\"color: #4070A0\">&quot;path&quot;</span>: <span style=\"color: #4070A0\">&quot;vidore/colpali_train_set&quot;</span>, <span style=\"color: #4070A0\">&quot;split&quot;</span>: <span style=\"color: #4070A0\">&quot;train&quot;</span>, <span style=\"color: #4070A0\">&quot;streaming&quot;</span>: <span style=\"color: #007020; font-weight: bold\">True</span>}\n"
   },
   {
     "type": "code",
     "source": "def resize_image(image, height: int):\n    \"\"\"\n    Resize image while maintaining aspect ratio.\n\n    Args:\n        image: PIL Image object\n        height: Target height in pixels\n\n    Returns:\n        Resized PIL Image object\n    \"\"\"\n    original_width, original_height = image.size\n    width = int(original_width * (height / original_height))\n    return image.resize((width, height))\n\n\ndef convert_image_to_chat_format(record, height: int) -> dict:\n    \"\"\"\n    Convert PIL image to base64 format for chat template usage.\n\n    Args:\n        record: Dataset record containing image and metadata\n        height: Target height for image resizing\n\n    Returns:\n        Updated record with base64_image and uuid fields\n    \"\"\"\n    # Resize image for consistent processing\n    image = resize_image(record[\"image\"], height)\n\n    # Convert to base64 string\n    img_buffer = io.BytesIO()\n    image.save(img_buffer, format=\"PNG\")\n    byte_data = img_buffer.getvalue()\n    base64_encoded_data = base64.b64encode(byte_data)\n    base64_string = base64_encoded_data.decode(\"utf-8\")\n\n    # Return updated record\n    return record | {\"base64_image\": base64_string, \"uuid\": str(uuid.uuid4())}",
-    "language": "python"
+    "language": "python",
+    "source_html": "<span style=\"color: #007020; font-weight: bold\">def</span><span style=\"color: #BBB\"> </span><span style=\"color: #06287E\">resize_image</span>(image, height: <span style=\"color: #007020\">int</span>):\n<span style=\"color: #BBB\">    </span><span style=\"color: #4070A0; font-style: italic\">&quot;&quot;&quot;</span>\n<span style=\"color: #4070A0; font-style: italic\">    Resize image while maintaining aspect ratio.</span>\n\n<span style=\"color: #4070A0; font-style: italic\">    Args:</span>\n<span style=\"color: #4070A0; font-style: italic\">        image: PIL Image object</span>\n<span style=\"color: #4070A0; font-style: italic\">        height: Target height in pixels</span>\n\n<span style=\"color: #4070A0; font-style: italic\">    Returns:</span>\n<span style=\"color: #4070A0; font-style: italic\">        Resized PIL Image object</span>\n<span style=\"color: #4070A0; font-style: italic\">    &quot;&quot;&quot;</span>\n    original_width, original_height <span style=\"color: #666\">=</span> image<span style=\"color: #666\">.</span>size\n    width <span style=\"color: #666\">=</span> <span style=\"color: #007020\">int</span>(original_width <span style=\"color: #666\">*</span> (height <span style=\"color: #666\">/</span> original_height))\n    <span style=\"color: #007020; font-weight: bold\">return</span> image<span style=\"color: #666\">.</span>resize((width, height))\n\n\n<span style=\"color: #007020; font-weight: bold\">def</span><span style=\"color: #BBB\"> </span><span style=\"color: #06287E\">convert_image_to_chat_format</span>(record, height: <span style=\"color: #007020\">int</span>) <span style=\"color: #666\">-&gt;</span> <span style=\"color: #007020\">dict</span>:\n<span style=\"color: #BBB\">    </span><span style=\"color: #4070A0; font-style: italic\">&quot;&quot;&quot;</span>\n<span style=\"color: #4070A0; font-style: italic\">    Convert PIL image to base64 format for chat template usage.</span>\n\n<span style=\"color: #4070A0; font-style: italic\">    Args:</span>\n<span style=\"color: #4070A0; font-style: italic\">        record: Dataset record containing image and metadata</span>\n<span style=\"color: #4070A0; font-style: italic\">        height: Target height for image resizing</span>\n\n<span style=\"color: #4070A0; font-style: italic\">    Returns:</span>\n<span style=\"color: #4070A0; font-style: italic\">        Updated record with base64_image and uuid fields</span>\n<span style=\"color: #4070A0; font-style: italic\">    &quot;&quot;&quot;</span>\n    <span style=\"color: #60A0B0; font-style: italic\"># Resize image for consistent processing</span>\n    image <span style=\"color: #666\">=</span> resize_image(record[<span style=\"color: #4070A0\">&quot;image&quot;</span>], height)\n\n    <span style=\"color: #60A0B0; font-style: italic\"># Convert to base64 string</span>\n    img_buffer <span style=\"color: #666\">=</span> io<span style=\"color: #666\">.</span>BytesIO()\n    image<span style=\"color: #666\">.</span>save(img_buffer, <span style=\"color: #007020\">format</span><span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;PNG&quot;</span>)\n    byte_data <span style=\"color: #666\">=</span> img_buffer<span style=\"color: #666\">.</span>getvalue()\n    base64_encoded_data <span style=\"color: #666\">=</span> base64<span style=\"color: #666\">.</span>b64encode(byte_data)\n    base64_string <span style=\"color: #666\">=</span> base64_encoded_data<span style=\"color: #666\">.</span>decode(<span style=\"color: #4070A0\">&quot;utf-8&quot;</span>)\n\n    <span style=\"color: #60A0B0; font-style: italic\"># Return updated record</span>\n    <span style=\"color: #007020; font-weight: bold\">return</span> record <span style=\"color: #666\">|</span> {<span style=\"color: #4070A0\">&quot;base64_image&quot;</span>: base64_string, <span style=\"color: #4070A0\">&quot;uuid&quot;</span>: <span style=\"color: #007020\">str</span>(uuid<span style=\"color: #666\">.</span>uuid4())}\n"
   },
   {
     "type": "code",
     "source": "# Load and process the visual document dataset\nprint(\"\ud83d\udce5 Loading and processing document images...\")\n\nimg_dataset_iter = iter(\n    load_dataset(**img_dataset_cfg).map(convert_image_to_chat_format, fn_kwargs={\"height\": BASE64_IMAGE_HEIGHT})\n)\nimg_dataset = pd.DataFrame([next(img_dataset_iter) for _ in range(IMG_COUNT)])\n\nprint(f\"\u2705 Loaded {len(img_dataset)} images with columns: {list(img_dataset.columns)}\")",
-    "language": "python"
+    "language": "python",
+    "source_html": "<span style=\"color: #60A0B0; font-style: italic\"># Load and process the visual document dataset</span>\n<span style=\"color: #007020\">print</span>(<span style=\"color: #4070A0\">&quot;\ud83d\udce5 Loading and processing document images...&quot;</span>)\n\nimg_dataset_iter <span style=\"color: #666\">=</span> <span style=\"color: #007020\">iter</span>(\n    load_dataset(<span style=\"color: #666\">**</span>img_dataset_cfg)<span style=\"color: #666\">.</span>map(convert_image_to_chat_format, fn_kwargs<span style=\"color: #666\">=</span>{<span style=\"color: #4070A0\">&quot;height&quot;</span>: BASE64_IMAGE_HEIGHT})\n)\nimg_dataset <span style=\"color: #666\">=</span> pd<span style=\"color: #666\">.</span>DataFrame([<span style=\"color: #007020\">next</span>(img_dataset_iter) <span style=\"color: #007020; font-weight: bold\">for</span> _ <span style=\"color: #007020; font-weight: bold\">in</span> <span style=\"color: #007020\">range</span>(IMG_COUNT)])\n\n<span style=\"color: #007020\">print</span>(<span style=\"color: #4070A0\">f&quot;\u2705 Loaded </span><span style=\"color: #70A0D0; font-style: italic\">{</span><span style=\"color: #007020\">len</span>(img_dataset)<span style=\"color: #70A0D0; font-style: italic\">}</span><span style=\"color: #4070A0\"> images with columns: </span><span style=\"color: #70A0D0; font-style: italic\">{</span><span style=\"color: #007020\">list</span>(img_dataset<span style=\"color: #666\">.</span>columns)<span style=\"color: #70A0D0; font-style: italic\">}</span><span style=\"color: #4070A0\">&quot;</span>)\n"
   },
   {
     "type": "code",
     "source": "img_dataset.head()",
-    "language": "python"
+    "language": "python",
+    "source_html": "img_dataset<span style=\"color: #666\">.</span>head()\n"
   },
   {
     "type": "code",
     "source": "# Add the seed dataset containing our processed images\ndf_seed = pd.DataFrame(img_dataset)[[\"uuid\", \"image_filename\", \"base64_image\", \"page\", \"options\", \"source\"]]\nconfig_builder.with_seed_dataset(dd.DataFrameSeedSource(df=df_seed))",
-    "language": "python"
+    "language": "python",
+    "source_html": "<span style=\"color: #60A0B0; font-style: italic\"># Add the seed dataset containing our processed images</span>\ndf_seed <span style=\"color: #666\">=</span> pd<span style=\"color: #666\">.</span>DataFrame(img_dataset)[[<span style=\"color: #4070A0\">&quot;uuid&quot;</span>, <span style=\"color: #4070A0\">&quot;image_filename&quot;</span>, <span style=\"color: #4070A0\">&quot;base64_image&quot;</span>, <span style=\"color: #4070A0\">&quot;page&quot;</span>, <span style=\"color: #4070A0\">&quot;options&quot;</span>, <span style=\"color: #4070A0\">&quot;source&quot;</span>]]\nconfig_builder<span style=\"color: #666\">.</span>with_seed_dataset(dd<span style=\"color: #666\">.</span>DataFrameSeedSource(df<span style=\"color: #666\">=</span>df_seed))\n"
   },
   {
     "type": "code",
     "source": "# Add a column to generate detailed document summaries\nconfig_builder.add_column(\n    dd.LLMTextColumnConfig(\n        name=\"summary\",\n        model_alias=\"vision\",\n        prompt=(\n            \"Provide a detailed summary of the content in this image in Markdown format. \"\n            \"Start from the top of the image and then describe it from top to bottom. \"\n            \"Place a summary at the bottom.\"\n        ),\n        multi_modal_context=[\n            dd.ImageContext(\n                column_name=\"base64_image\",\n                data_type=dd.ModalityDataType.BASE64,\n                image_format=dd.ImageFormat.PNG,\n            )\n        ],\n    )\n)\n\ndata_designer.validate(config_builder)",
-    "language": "python"
+    "language": "python",
+    "source_html": "<span style=\"color: #60A0B0; font-style: italic\"># Add a column to generate detailed document summaries</span>\nconfig_builder<span style=\"color: #666\">.</span>add_column(\n    dd<span style=\"color: #666\">.</span>LLMTextColumnConfig(\n        name<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;summary&quot;</span>,\n        model_alias<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;vision&quot;</span>,\n        prompt<span style=\"color: #666\">=</span>(\n            <span style=\"color: #4070A0\">&quot;Provide a detailed summary of the content in this image in Markdown format. &quot;</span>\n            <span style=\"color: #4070A0\">&quot;Start from the top of the image and then describe it from top to bottom. &quot;</span>\n            <span style=\"color: #4070A0\">&quot;Place a summary at the bottom.&quot;</span>\n        ),\n        multi_modal_context<span style=\"color: #666\">=</span>[\n            dd<span style=\"color: #666\">.</span>ImageContext(\n                column_name<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;base64_image&quot;</span>,\n                data_type<span style=\"color: #666\">=</span>dd<span style=\"color: #666\">.</span>ModalityDataType<span style=\"color: #666\">.</span>BASE64,\n                image_format<span style=\"color: #666\">=</span>dd<span style=\"color: #666\">.</span>ImageFormat<span style=\"color: #666\">.</span>PNG,\n            )\n        ],\n    )\n)\n\ndata_designer<span style=\"color: #666\">.</span>validate(config_builder)\n"
   },
   {
     "type": "markdown",
@@ -99,17 +111,20 @@ export default { cells: [
   {
     "type": "code",
     "source": "preview = data_designer.preview(config_builder, num_records=2)",
-    "language": "python"
+    "language": "python",
+    "source_html": "preview <span style=\"color: #666\">=</span> data_designer<span style=\"color: #666\">.</span>preview(config_builder, num_records<span style=\"color: #666\">=</span><span style=\"color: #40A070\">2</span>)\n"
   },
   {
     "type": "code",
     "source": "# Run this cell multiple times to cycle through the 2 preview records.\npreview.display_sample_record()",
-    "language": "python"
+    "language": "python",
+    "source_html": "<span style=\"color: #60A0B0; font-style: italic\"># Run this cell multiple times to cycle through the 2 preview records.</span>\npreview<span style=\"color: #666\">.</span>display_sample_record()\n"
   },
   {
     "type": "code",
     "source": "# The preview dataset is available as a pandas DataFrame.\npreview.dataset",
-    "language": "python"
+    "language": "python",
+    "source_html": "<span style=\"color: #60A0B0; font-style: italic\"># The preview dataset is available as a pandas DataFrame.</span>\npreview<span style=\"color: #666\">.</span>dataset\n"
   },
   {
     "type": "markdown",
@@ -118,7 +133,8 @@ export default { cells: [
   {
     "type": "code",
     "source": "# Print the analysis as a table.\npreview.analysis.to_report()",
-    "language": "python"
+    "language": "python",
+    "source_html": "<span style=\"color: #60A0B0; font-style: italic\"># Print the analysis as a table.</span>\npreview<span style=\"color: #666\">.</span>analysis<span style=\"color: #666\">.</span>to_report()\n"
   },
   {
     "type": "markdown",
@@ -127,7 +143,8 @@ export default { cells: [
   {
     "type": "code",
     "source": "# Compare original document with generated summary\nindex = 0  # Change this to view different examples\n\n# Merge preview data with original images for comparison\ncomparison_dataset = preview.dataset.merge(pd.DataFrame(img_dataset)[[\"uuid\", \"image\"]], how=\"left\", on=\"uuid\")\n\n# Extract the record for display\nrecord = comparison_dataset.iloc[index]\n\nprint(\"\ud83d\udcc4 Original Document Image:\")\ndisplay(resize_image(record.image, BASE64_IMAGE_HEIGHT))\n\nprint(\"\\n\ud83d\udcdd Generated Summary:\")\nrich.print(Panel(record.summary, title=\"Document Summary\", title_align=\"left\"))",
-    "language": "python"
+    "language": "python",
+    "source_html": "<span style=\"color: #60A0B0; font-style: italic\"># Compare original document with generated summary</span>\nindex <span style=\"color: #666\">=</span> <span style=\"color: #40A070\">0</span>  <span style=\"color: #60A0B0; font-style: italic\"># Change this to view different examples</span>\n\n<span style=\"color: #60A0B0; font-style: italic\"># Merge preview data with original images for comparison</span>\ncomparison_dataset <span style=\"color: #666\">=</span> preview<span style=\"color: #666\">.</span>dataset<span style=\"color: #666\">.</span>merge(pd<span style=\"color: #666\">.</span>DataFrame(img_dataset)[[<span style=\"color: #4070A0\">&quot;uuid&quot;</span>, <span style=\"color: #4070A0\">&quot;image&quot;</span>]], how<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;left&quot;</span>, on<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;uuid&quot;</span>)\n\n<span style=\"color: #60A0B0; font-style: italic\"># Extract the record for display</span>\nrecord <span style=\"color: #666\">=</span> comparison_dataset<span style=\"color: #666\">.</span>iloc[index]\n\n<span style=\"color: #007020\">print</span>(<span style=\"color: #4070A0\">&quot;\ud83d\udcc4 Original Document Image:&quot;</span>)\ndisplay(resize_image(record<span style=\"color: #666\">.</span>image, BASE64_IMAGE_HEIGHT))\n\n<span style=\"color: #007020\">print</span>(<span style=\"color: #4070A0\">&quot;</span><span style=\"color: #4070A0; font-weight: bold\">\\n</span><span style=\"color: #4070A0\">\ud83d\udcdd Generated Summary:&quot;</span>)\nrich<span style=\"color: #666\">.</span>print(Panel(record<span style=\"color: #666\">.</span>summary, title<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;Document Summary&quot;</span>, title_align<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;left&quot;</span>))\n"
   },
   {
     "type": "markdown",
@@ -136,17 +153,20 @@ export default { cells: [
   {
     "type": "code",
     "source": "results = data_designer.create(config_builder, num_records=10, dataset_name=\"tutorial-4\")",
-    "language": "python"
+    "language": "python",
+    "source_html": "results <span style=\"color: #666\">=</span> data_designer<span style=\"color: #666\">.</span>create(config_builder, num_records<span style=\"color: #666\">=</span><span style=\"color: #40A070\">10</span>, dataset_name<span style=\"color: #666\">=</span><span style=\"color: #4070A0\">&quot;tutorial-4&quot;</span>)\n"
   },
   {
     "type": "code",
     "source": "# Load the generated dataset as a pandas DataFrame.\ndataset = results.load_dataset()\n\ndataset.head()",
-    "language": "python"
+    "language": "python",
+    "source_html": "<span style=\"color: #60A0B0; font-style: italic\"># Load the generated dataset as a pandas DataFrame.</span>\ndataset <span style=\"color: #666\">=</span> results<span style=\"color: #666\">.</span>load_dataset()\n\ndataset<span style=\"color: #666\">.</span>head()\n"
   },
   {
     "type": "code",
     "source": "# Load the analysis results into memory.\nanalysis = results.load_analysis()\n\nanalysis.to_report()",
-    "language": "python"
+    "language": "python",
+    "source_html": "<span style=\"color: #60A0B0; font-style: italic\"># Load the analysis results into memory.</span>\nanalysis <span style=\"color: #666\">=</span> results<span style=\"color: #666\">.</span>load_analysis()\n\nanalysis<span style=\"color: #666\">.</span>to_report()\n"
   },
   {
     "type": "markdown",

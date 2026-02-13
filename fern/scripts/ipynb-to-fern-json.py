@@ -6,13 +6,17 @@
 Convert Jupyter notebooks (.ipynb) to Fern NotebookViewer JSON format.
 
 Reads notebook JSON and outputs a minimal format with cells array:
-  { "cells": [ { "type": "markdown"|"code", "source": "...", "language": "python" } ] }
+  { "cells": [ { "type": "markdown"|"code", "source": "...", "source_html"?: "...",
+    "language"?: "python", "outputs"?: [{ "type": "text"|"image", "data": "...", "format"?: "plain"|"html" }] } ] }
+
+Code cells include source_html (Pygments syntax-highlighted HTML) and outputs when available.
 
 Usage:
   python ipynb-to-fern-json.py input.ipynb -o output.json
-  python ipynb-to-fern-json.py docs/notebooks/1-the-basics.ipynb -o fern/assets/notebooks/1-the-basics.json
+  python ipynb-to-fern-json.py docs/colab_notebooks/1-the-basics.ipynb -o fern/components/notebooks/1-the-basics.json
 
-Run after: make convert-execute-notebooks (generates .ipynb from docs/notebook_source/*.py)
+Run after: make convert-execute-notebooks && make generate-colab-notebooks
+  (executed notebooks preserve outputs; generate-colab injects Colab setup)
 """
 
 from __future__ import annotations
@@ -20,6 +24,11 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+
+from pygments import highlight
+from pygments.formatters import HtmlFormatter
+from pygments.lexers import get_lexer_by_name
+from pygments.util import ClassNotFound
 
 
 def get_language(metadata: dict) -> str:
@@ -29,17 +38,72 @@ def get_language(metadata: dict) -> str:
     return "python" if lang == "python3" else lang
 
 
+def highlight_code(source: str, language: str) -> str | None:
+    """Return Pygments syntax-highlighted HTML, or None if highlighting fails."""
+    try:
+        lexer = get_lexer_by_name(language, stripall=True)
+    except ClassNotFound:
+        return None
+    formatter = HtmlFormatter(
+        noclasses=True,
+        style="friendly",
+        nowrap=True,
+    )
+    return highlight(source, lexer, formatter)
+
+
+def _join_source(source: list | str) -> str:
+    """Normalize cell source to a single string."""
+    if isinstance(source, list):
+        return "".join(source)
+    return str(source)
+
+
+def extract_outputs(outputs: list) -> list[dict]:
+    """Convert Jupyter outputs to Fern CellOutput format."""
+    result: list[dict] = []
+    for out in outputs:
+        out_type = out.get("output_type", "")
+        if out_type == "stream":
+            text = _join_source(out.get("text", []))
+            if text.strip():
+                result.append({"type": "text", "data": text.rstrip("\n"), "format": "plain"})
+        elif out_type in ("display_data", "execute_result"):
+            data = out.get("data", {})
+            if "image/png" in data:
+                b64 = data["image/png"]
+                if isinstance(b64, list):
+                    b64 = "".join(b64)
+                result.append({"type": "image", "data": b64})
+            elif "text/html" in data:
+                html = data["text/html"]
+                if isinstance(html, list):
+                    html = "".join(html)
+                if html.strip():
+                    result.append({"type": "text", "data": html, "format": "html"})
+            elif "text/plain" in data:
+                text = data["text/plain"]
+                if isinstance(text, list):
+                    text = "".join(text)
+                if text.strip():
+                    result.append({"type": "text", "data": text.rstrip("\n"), "format": "plain"})
+    return result
+
+
 def convert_cell(cell: dict, default_language: str) -> dict:
     """Convert a Jupyter cell to Fern format."""
     cell_type = cell.get("cell_type", "code")
-    source = cell.get("source", [])
-    if isinstance(source, list):
-        source = "".join(source)
-    source = source.rstrip("\n")
-    out: dict = {"type": cell_type, "source": source}
+    source = _join_source(cell.get("source", [])).rstrip("\n")
+    result: dict = {"type": cell_type, "source": source}
     if cell_type == "code":
-        out["language"] = default_language
-    return out
+        result["language"] = default_language
+        source_html = highlight_code(source, default_language)
+        if source_html:
+            result["source_html"] = source_html
+        raw_outputs = cell.get("outputs", [])
+        if raw_outputs:
+            result["outputs"] = extract_outputs(raw_outputs)
+    return result
 
 
 def convert_notebook(ipynb_path: Path) -> dict:
