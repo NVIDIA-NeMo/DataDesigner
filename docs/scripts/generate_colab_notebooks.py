@@ -6,6 +6,9 @@ This script processes jupytext percent-format Python files and:
 1. Injects Colab-specific setup cells (pip install, API key from secrets)
 2. Injects cells before the "Import the essentials" section
 3. Saves the result as .ipynb files in docs/colab_notebooks
+
+When --executed-dir is provided and an executed .ipynb exists there, uses it as the
+base (preserving cell outputs for display in Fern docs). Otherwise reads from source .py.
 """
 
 from __future__ import annotations
@@ -14,6 +17,7 @@ import argparse
 from pathlib import Path
 
 import jupytext
+import nbformat
 from nbformat import NotebookNode
 from nbformat.v4 import new_code_cell, new_markdown_cell
 
@@ -99,30 +103,41 @@ def process_notebook(notebook: NotebookNode, source_path: Path) -> NotebookNode:
     return notebook
 
 
-def generate_colab_notebook(source_path: Path, output_dir: Path) -> Path:
+def generate_colab_notebook(
+    source_path: Path, output_dir: Path, executed_dir: Path | None = None
+) -> Path:
     """Generate a Colab-compatible notebook from a source file.
 
     Args:
         source_path: Path to the jupytext percent-format Python source file
         output_dir: Directory to save the output notebook
+        executed_dir: Optional directory with executed .ipynb files (preserves outputs)
 
     Returns:
         Path to the generated notebook
     """
-    # Read the source file using jupytext
-    notebook = jupytext.read(source_path)
+    executed_path = (
+        (executed_dir / f"{source_path.stem}.ipynb") if executed_dir else None
+    )
 
-    # Process the notebook for Colab
+    if executed_path and executed_path.exists():
+        notebook = nbformat.read(executed_path, as_version=4)
+    else:
+        notebook = jupytext.read(source_path)
+
     notebook = process_notebook(notebook, source_path)
 
-    # Determine output path
     output_path = output_dir / f"{source_path.stem}.ipynb"
-
-    # Ensure output directory exists
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Write the notebook
-    jupytext.write(notebook, output_path, config={"metadata": {"jupytext": {"cell_metadata_filter": "-id"}}})
+    if executed_path and executed_path.exists():
+        nbformat.write(notebook, output_path)
+    else:
+        jupytext.write(
+            notebook,
+            output_path,
+            config={"metadata": {"jupytext": {"cell_metadata_filter": "-id"}}},
+        )
 
     return output_path
 
@@ -141,6 +156,12 @@ def main() -> None:
         type=Path,
         default=Path("docs/colab_notebooks"),
         help="Directory to save Colab notebooks (default: docs/colab_notebooks)",
+    )
+    parser.add_argument(
+        "--executed-dir",
+        type=Path,
+        default=None,
+        help="Directory with executed .ipynb files (preserves outputs for Fern docs)",
     )
     parser.add_argument(
         "--files",
@@ -165,6 +186,8 @@ def main() -> None:
     print(f"📓 Generating Colab notebooks from {len(source_files)} source file(s)...")
     print(f"   Source: {args.source_dir}")
     print(f"   Output: {args.output_dir}")
+    if args.executed_dir:
+        print(f"   Executed (outputs): {args.executed_dir}")
     print()
 
     for source_path in source_files:
@@ -173,7 +196,9 @@ def main() -> None:
             continue
 
         try:
-            output_path = generate_colab_notebook(source_path, args.output_dir)
+            output_path = generate_colab_notebook(
+                source_path, args.output_dir, args.executed_dir
+            )
             print(f"✅ {source_path.name} → {output_path.name}")
         except Exception as e:
             print(f"❌ {source_path.name}: {e}")

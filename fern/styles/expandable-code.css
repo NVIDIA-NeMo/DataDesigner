@@ -1,0 +1,97 @@
+/* ExpandableCode component styles */
+
+.expandable-code {
+  margin: 1rem 0;
+  border: 1px solid rgba(128, 128, 128, 0.2);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.expandable-code__summary {
+  cursor: pointer;
+  padding: 0.75rem 1rem;
+  background: rgba(0, 0, 0, 0.03);
+  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.dark .expandable-code__summary {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.expandable-code__summary:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.dark .expandable-code__summary:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.expandable-code__badge {
+  font-size: 0.7rem;
+  padding: 0.15rem 0.5rem;
+  background: rgba(128, 128, 128, 0.15);
+  border-radius: 4px;
+  font-family: "SF Mono", Menlo, Monaco, "Cascadia Code", monospace;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.dark .expandable-code__badge {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.expandable-code__content {
+  padding: 0;
+  overflow-x: auto;
+  position: relative;
+}
+
+.expandable-code__toolbar {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  z-index: 1;
+}
+
+.expandable-code__copy {
+  font-size: 0.75rem;
+  padding: 0.35rem 0.65rem;
+  background: rgba(128, 128, 128, 0.12);
+  border: 1px solid rgba(128, 128, 128, 0.2);
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.expandable-code__copy:hover {
+  background: rgba(128, 128, 128, 0.18);
+  border-color: rgba(128, 128, 128, 0.3);
+}
+
+.expandable-code__copy--copied {
+  background: rgba(76, 175, 80, 0.2);
+  border-color: rgba(76, 175, 80, 0.4);
+  color: #2e7d32;
+}
+
+.dark .expandable-code__copy--copied {
+  background: rgba(76, 175, 80, 0.25);
+  color: #81c784;
+}
+
+.expandable-code__pre {
+  margin: 0;
+  padding: 1rem;
+  padding-top: 2.25rem;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.expandable-code__pre code {
+  font-family: "SF Mono", Menlo, Monaco, "Cascadia Code", monospace;
+}

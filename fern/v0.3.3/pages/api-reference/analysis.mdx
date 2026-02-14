@@ -1,0 +1,160 @@
+---
+title: Analysis
+description: API reference for dataset analysis and profiling.
+---
+
+The `analysis` modules provide tools for profiling and analyzing generated datasets. It includes statistics tracking, column profiling, and reporting capabilities.
+
+## Column Statistics
+
+Column statistics are automatically computed for every column after generation. They provide basic metrics specific to the column type. For example, LLM columns track token usage statistics, sampler columns track distribution information, and validation columns track validation success rates.
+
+### LLMColumnStatistics
+
+```python
+class LLMColumnStatistics(BaseModel):
+    """Statistics for LLM-generated columns."""
+    
+    total_input_tokens: int  # Total prompt tokens across all generations
+    total_output_tokens: int  # Total completion tokens
+    avg_input_tokens: float  # Average prompt tokens per generation
+    avg_output_tokens: float  # Average completion tokens per generation
+    generation_time_seconds: float  # Total generation time
+    generations_per_second: float  # Generation throughput
+```
+
+### SamplerColumnStatistics
+
+```python
+class SamplerColumnStatistics(BaseModel):
+    """Statistics for sampler columns."""
+    
+    unique_values: int  # Number of unique values generated
+    value_counts: dict[str, int]  # Counts per value (for categorical)
+    min_value: float | None  # Minimum value (for numerical)
+    max_value: float | None  # Maximum value (for numerical)
+    mean_value: float | None  # Mean value (for numerical)
+    std_value: float | None  # Standard deviation (for numerical)
+```
+
+### ValidationColumnStatistics
+
+```python
+class ValidationColumnStatistics(BaseModel):
+    """Statistics for validation columns."""
+    
+    total_validated: int  # Total records validated
+    valid_count: int  # Number of valid records
+    invalid_count: int  # Number of invalid records
+    null_count: int  # Number of null results
+    pass_rate: float  # Percentage of valid records
+```
+
+### ExpressionColumnStatistics
+
+```python
+class ExpressionColumnStatistics(BaseModel):
+    """Statistics for expression columns."""
+    
+    unique_values: int  # Number of unique values
+    null_count: int  # Number of null results
+    evaluation_time_seconds: float  # Time to evaluate expressions
+```
+
+## Column Profilers
+
+Column profilers are optional analysis tools that provide deeper insights into specific column types. Currently, the only column profiler available is the Judge Score Profiler.
+
+### JudgeScoreProfilerResults
+
+```python
+class JudgeScoreProfilerResults(BaseModel):
+    """Profiling results for LLM judge columns."""
+    
+    score_name: str  # Name of the score dimension
+    score_distribution: dict[str, int]  # Distribution of scores
+    avg_score: float | None  # Average score (for numeric scores)
+    score_counts: dict[str | int, int]  # Counts per score value
+```
+
+## Dataset Profiler
+
+The `DatasetProfilerResults` class contains complete profiling results for a generated dataset. It aggregates column-level statistics, metadata, and profiler results.
+
+### DatasetProfilerResults
+
+```python
+class DatasetProfilerResults(BaseModel):
+    """Complete profiling results for a generated dataset."""
+    
+    dataset_name: str  # Name of the dataset
+    total_records: int  # Total records generated
+    generation_time_seconds: float  # Total generation time
+    column_statistics: dict[str, ColumnStatistics]  # Per-column stats
+    column_profiler_results: dict[str, list[ProfilerResults]]  # Profiler results
+    
+    def to_report(
+        self,
+        output_format: Literal["console", "html", "svg"] = "console",
+    ) -> None:
+        """Generate a formatted analysis report.
+        
+        Args:
+            output_format: Output format for the report.
+        """
+        ...
+    
+    def get_column_statistics(
+        self,
+        column_name: str,
+    ) -> ColumnStatistics:
+        """Get statistics for a specific column.
+        
+        Args:
+            column_name: Name of the column.
+        
+        Returns:
+            Column statistics object.
+        """
+        ...
+    
+    def filter_by_column_type(
+        self,
+        column_type: str,
+    ) -> dict[str, ColumnStatistics]:
+        """Filter statistics by column type.
+        
+        Args:
+            column_type: Type of columns to filter (e.g., "llm-text").
+        
+        Returns:
+            Dictionary of column statistics for matching columns.
+        """
+        ...
+```
+
+### Example: Accessing Analysis Results
+
+```python
+from data_designer.essentials import DataDesigner, DataDesignerConfigBuilder
+
+# Generate a dataset
+data_designer = DataDesigner()
+builder = DataDesignerConfigBuilder()
+# ... add columns ...
+
+results = data_designer.create(builder, num_records=100)
+
+# Load and display analysis
+analysis = results.load_analysis()
+analysis.to_report()
+
+# Access specific column statistics
+llm_stats = analysis.get_column_statistics("generated_text")
+print(f"Average output tokens: {llm_stats.avg_output_tokens}")
+
+# Filter by column type
+all_llm_stats = analysis.filter_by_column_type("llm-text")
+for col_name, stats in all_llm_stats.items():
+    print(f"{col_name}: {stats.generations_per_second:.2f} gen/sec")
+```

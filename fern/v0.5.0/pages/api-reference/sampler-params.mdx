@@ -1,0 +1,273 @@
+---
+title: Sampler Parameters
+description: API reference for sampler parameter configuration objects.
+---
+
+The `sampler_params` module defines parameter configuration objects for all Data Designer sampler types. Sampler parameters are used within the `SamplerColumnConfig` to specify how values should be generated for sampled columns.
+
+<Tip title="Displaying available samplers and their parameters">
+The config builder has an `info` attribute that can be used to display the available sampler types and their parameters:
+
+```python
+config_builder.info.display("samplers")
+```
+</Tip>
+
+## SamplerType
+
+Enum defining all available sampler types:
+
+```python
+class SamplerType(str, Enum):
+    BERNOULLI = "bernoulli"
+    BERNOULLI_MIXTURE = "bernoulli_mixture"
+    BINOMIAL = "binomial"
+    CATEGORY = "category"
+    DATETIME = "datetime"
+    GAUSSIAN = "gaussian"
+    PERSON = "person"
+    PERSON_FROM_FAKER = "person_from_faker"
+    POISSON = "poisson"
+    SCIPY = "scipy"
+    SUBCATEGORY = "subcategory"
+    TIMEDELTA = "timedelta"
+    UNIFORM = "uniform"
+    UUID = "uuid"
+```
+
+## CategorySamplerParams
+
+Parameters for categorical sampling with optional probability weighting.
+
+```python
+class CategorySamplerParams(ConfigBase):
+    """Parameters for categorical sampling."""
+    
+    values: list[str | int | float]  # List of categorical values to sample from (required)
+    weights: list[float] | None = None  # Optional unnormalized probability weights
+    sampler_type: Literal[SamplerType.CATEGORY] = SamplerType.CATEGORY
+```
+
+When `weights` are provided, they are automatically normalized to sum to 1.0. Larger weights result in higher sampling probability.
+
+## SubcategorySamplerParams
+
+Parameters for subcategory sampling conditioned on a parent category column.
+
+```python
+class SubcategorySamplerParams(ConfigBase):
+    """Parameters for hierarchical categorical sampling."""
+    
+    category: str  # Name of parent category column
+    values: dict[str, list[str | int | float]]  # Mapping of parent values to subcategory values
+    sampler_type: Literal[SamplerType.SUBCATEGORY] = SamplerType.SUBCATEGORY
+```
+
+## UniformSamplerParams
+
+Parameters for sampling from a continuous Uniform distribution.
+
+```python
+class UniformSamplerParams(ConfigBase):
+    """Parameters for uniform distribution sampling."""
+    
+    low: float  # Lower bound (inclusive)
+    high: float  # Upper bound (inclusive)
+    decimal_places: int | None = None  # Number of decimal places to round to
+    sampler_type: Literal[SamplerType.UNIFORM] = SamplerType.UNIFORM
+```
+
+## GaussianSamplerParams
+
+Parameters for sampling from a Gaussian (Normal) distribution.
+
+```python
+class GaussianSamplerParams(ConfigBase):
+    """Parameters for Gaussian (normal) distribution sampling."""
+    
+    mean: float  # Distribution mean (required)
+    stddev: float  # Standard deviation (required)
+    decimal_places: int | None = None  # Number of decimal places to round to
+    sampler_type: Literal[SamplerType.GAUSSIAN] = SamplerType.GAUSSIAN
+```
+
+## BernoulliSamplerParams
+
+Parameters for sampling from a Bernoulli distribution (binary outcomes).
+
+```python
+class BernoulliSamplerParams(ConfigBase):
+    """Parameters for Bernoulli (binary) sampling."""
+    
+    p: float  # Probability of success (1), must be between 0.0 and 1.0
+    sampler_type: Literal[SamplerType.BERNOULLI] = SamplerType.BERNOULLI
+```
+
+## BernoulliMixtureSamplerParams
+
+Parameters for sampling from a Bernoulli mixture distribution. Combines a Bernoulli distribution with a scipy.stats distribution.
+
+```python
+class BernoulliMixtureSamplerParams(ConfigBase):
+    """Parameters for Bernoulli mixture distribution sampling."""
+    
+    p: float  # Probability of sampling from the mixture distribution (non-zero outcome)
+    dist_name: str  # Name of scipy.stats distribution for non-zero samples
+    dist_params: dict  # Parameters for the scipy.stats distribution
+    sampler_type: Literal[SamplerType.BERNOULLI_MIXTURE] = SamplerType.BERNOULLI_MIXTURE
+```
+
+With probability `1-p`, the sample is 0. With probability `p`, the sample is drawn from the specified distribution.
+
+## BinomialSamplerParams
+
+Parameters for sampling from a Binomial distribution.
+
+```python
+class BinomialSamplerParams(ConfigBase):
+    """Parameters for binomial distribution sampling."""
+    
+    n: int  # Number of trials
+    p: float  # Probability of success per trial (0.0 to 1.0)
+    sampler_type: Literal[SamplerType.BINOMIAL] = SamplerType.BINOMIAL
+```
+
+## PoissonSamplerParams
+
+Parameters for sampling from a Poisson distribution.
+
+```python
+class PoissonSamplerParams(ConfigBase):
+    """Parameters for Poisson distribution sampling."""
+    
+    mean: float  # Mean number of events (lambda/rate parameter)
+    sampler_type: Literal[SamplerType.POISSON] = SamplerType.POISSON
+```
+
+## ScipySamplerParams
+
+Parameters for sampling from any scipy.stats distribution.
+
+```python
+class ScipySamplerParams(ConfigBase):
+    """Parameters for scipy.stats distribution sampling."""
+    
+    dist_name: str  # Name of scipy.stats distribution (e.g., "beta", "gamma", "expon")
+    dist_params: dict  # Distribution-specific parameters
+    decimal_places: int | None = None  # Number of decimal places to round to
+    sampler_type: Literal[SamplerType.SCIPY] = SamplerType.SCIPY
+```
+
+See [scipy.stats documentation](https://docs.scipy.org/doc/scipy/reference/stats.html) for available distributions.
+
+## UUIDSamplerParams
+
+Parameters for UUID generation.
+
+```python
+class UUIDSamplerParams(ConfigBase):
+    """Parameters for UUID generation."""
+    
+    prefix: str | None = None  # Optional prefix for the UUID
+    short_form: bool = False  # Truncate to 8 characters
+    uppercase: bool = False  # Convert to uppercase
+    sampler_type: Literal[SamplerType.UUID] = SamplerType.UUID
+```
+
+## DatetimeSamplerParams
+
+Parameters for uniform datetime sampling within a specified range.
+
+```python
+class DatetimeSamplerParams(ConfigBase):
+    """Parameters for datetime sampling."""
+    
+    start: str  # Start of date range (parseable by pandas.to_datetime)
+    end: str  # End of date range (parseable by pandas.to_datetime)
+    unit: Literal["Y", "M", "D", "h", "m", "s"] = "D"  # Sampling granularity
+    sampler_type: Literal[SamplerType.DATETIME] = SamplerType.DATETIME
+```
+
+The `unit` parameter determines the smallest possible time interval:
+- `"Y"`: Years
+- `"M"`: Months
+- `"D"`: Days (default)
+- `"h"`: Hours
+- `"m"`: Minutes
+- `"s"`: Seconds
+
+## TimeDeltaSamplerParams
+
+Parameters for sampling time deltas relative to a reference datetime column.
+
+```python
+class TimeDeltaSamplerParams(ConfigBase):
+    """Parameters for timedelta (duration) sampling."""
+    
+    dt_min: int  # Minimum delta (inclusive), must be >= 0
+    dt_max: int  # Maximum delta (exclusive), must be > dt_min
+    reference_column_name: str  # Column containing reference datetime
+    unit: Literal["D", "h", "m", "s"] = "D"  # Time unit for delta values
+    sampler_type: Literal[SamplerType.TIMEDELTA] = SamplerType.TIMEDELTA
+```
+
+<Note>
+Years and months are not supported as timedelta units because they have variable lengths.
+</Note>
+
+## PersonSamplerParams
+
+Parameters for sampling synthetic person data from Nemotron Personas managed datasets.
+
+```python
+class PersonSamplerParams(ConfigBase):
+    """Parameters for Nemotron-Personas person sampling."""
+    
+    locale: str = "en_US"  # Must be a supported managed dataset locale
+    sex: Literal["Male", "Female"] | None = None  # Filter by sex
+    city: str | list[str] | None = None  # Filter by city
+    age_range: list[int] = [18, 70]  # [min_age, max_age]
+    select_field_values: dict[str, list[str]] | None = None  # Custom field filters
+    with_synthetic_personas: bool = False  # Include personality profiles
+    sampler_type: Literal[SamplerType.PERSON] = SamplerType.PERSON
+```
+
+Supported locales for managed datasets: `en_US`, `ja_JP`, `en_IN`, `hi_Deva_IN`, `hi_Latn_IN`, `en_SG`, `pt_BR`.
+
+## PersonFromFakerSamplerParams
+
+Parameters for Faker-based person sampling. Generates basic synthetic person data without the demographic accuracy of managed datasets.
+
+```python
+class PersonFromFakerSamplerParams(ConfigBase):
+    """Parameters for Faker-based person sampling."""
+    
+    locale: str = "en_US"  # Any Faker-supported locale
+    sex: Literal["Male", "Female"] | None = None  # Filter by sex
+    city: str | list[str] | None = None  # Filter by city
+    age_range: list[int] = [18, 70]  # [min_age, max_age]
+    sampler_type: Literal[SamplerType.PERSON_FROM_FAKER] = SamplerType.PERSON_FROM_FAKER
+```
+
+## SamplerParamsT
+
+Type alias representing the union of all sampler parameter types:
+
+```python
+SamplerParamsT = (
+    SubcategorySamplerParams
+    | CategorySamplerParams
+    | DatetimeSamplerParams
+    | PersonSamplerParams
+    | PersonFromFakerSamplerParams
+    | TimeDeltaSamplerParams
+    | UUIDSamplerParams
+    | BernoulliSamplerParams
+    | BernoulliMixtureSamplerParams
+    | BinomialSamplerParams
+    | GaussianSamplerParams
+    | PoissonSamplerParams
+    | UniformSamplerParams
+    | ScipySamplerParams
+)
+```

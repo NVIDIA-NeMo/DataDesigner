@@ -1,0 +1,110 @@
+---
+title: Data Designer Configuration
+description: API reference for the DataDesignerConfig object.
+---
+
+`DataDesignerConfig` is the main configuration object for building datasets with Data Designer. It is a declarative configuration for defining the dataset you want to generate column-by-column, including options for dataset post-processing, validation, and profiling.
+
+Generally, you should use the [DataDesignerConfigBuilder](/api/config-builder) to build your configuration, but you can also build it manually by instantiating the `DataDesignerConfig` class directly.
+
+## DataDesignerConfig
+
+```python
+class DataDesignerConfig(BaseModel):
+    """Complete configuration for a Data Designer generation job."""
+    
+    columns: list[SingleColumnConfig]  # List of column configurations
+    processors: list[ProcessorConfig] = []  # Post-generation processors
+    seed_source: SeedSource | None = None  # Optional seed dataset
+    
+    @property
+    def column_names(self) -> list[str]:
+        """Names of all configured columns."""
+        ...
+    
+    @property
+    def dependency_graph(self) -> dict[str, list[str]]:
+        """Column dependency graph for execution ordering."""
+        ...
+    
+    def get_column(self, name: str) -> SingleColumnConfig:
+        """Get a column configuration by name.
+        
+        Args:
+            name: Column name.
+        
+        Returns:
+            Column configuration.
+        
+        Raises:
+            KeyError: If column not found.
+        """
+        ...
+    
+    def to_yaml(self) -> str:
+        """Serialize configuration to YAML string."""
+        ...
+    
+    def to_json(self) -> str:
+        """Serialize configuration to JSON string."""
+        ...
+    
+    @classmethod
+    def from_yaml(cls, yaml_str: str) -> "DataDesignerConfig":
+        """Deserialize configuration from YAML string."""
+        ...
+    
+    @classmethod
+    def from_json(cls, json_str: str) -> "DataDesignerConfig":
+        """Deserialize configuration from JSON string."""
+        ...
+    
+    @classmethod
+    def from_file(cls, path: str | Path) -> "DataDesignerConfig":
+        """Load configuration from a file.
+        
+        Args:
+            path: Path to YAML or JSON file.
+        
+        Returns:
+            Loaded configuration.
+        """
+        ...
+```
+
+## Configuration Serialization
+
+Data Designer configs can be serialized to and from YAML or JSON format, making it easy to:
+
+- Save configurations for reproducibility
+- Share configurations with team members
+- Version control your data generation pipelines
+- Load and modify existing configurations
+
+### Example: Saving and Loading Configs
+
+```python
+import data_designer.config as dd
+
+# Build a configuration
+builder = dd.DataDesignerConfigBuilder()
+builder.add_column(
+    dd.SamplerColumnConfig(
+        name="id",
+        sampler_type=dd.SamplerType.UUID,
+    )
+)
+builder.add_column(
+    dd.LLMTextColumnConfig(
+        name="greeting",
+        model_alias="nvidia-text",
+        prompt="Write a greeting.",
+    )
+)
+
+# Save to file
+builder.write_config("my_config.yaml")
+
+# Load from file later
+config = dd.DataDesignerConfig.from_file("my_config.yaml")
+```

@@ -1,0 +1,473 @@
+---
+title: PDF Document QA
+description: Generate grounded Q&A pairs from PDF documents using MCP tool calls and BM25 search.
+---
+
+<Info title="Download Recipe">
+[Download Code](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/docs/assets/recipes/mcp_and_tooluse/pdf_qa.py)
+</Info>
+
+This recipe demonstrates an end-to-end MCP tool-calling workflow:
+
+1. Load one or more PDF documents from URLs or local paths
+2. Index them with BM25S for fast lexical search
+3. Use Data Designer tool calls (`search_docs`) to generate grounded Q&A pairs
+
+## Prerequisites
+
+- `NVIDIA_API_KEY` environment variable for NVIDIA provider model aliases (default)
+- `OPENAI_API_KEY` environment variable for OpenAI provider model aliases
+
+## Running the Recipe
+
+```bash
+# Basic usage with default sample PDF (generates 4 Q&A pairs)
+uv run pdf_qa.py
+
+# For help message and available options
+uv run pdf_qa.py --help
+
+# Index a custom PDF
+uv run pdf_qa.py --pdf path/to/your/document.pdf
+
+# Index multiple PDFs
+uv run pdf_qa.py --pdf doc1.pdf --pdf https://example.com/doc2.pdf
+```
+
+## Features Demonstrated
+
+- **MCP tool calling** with `LocalStdioMCPProvider`
+- **BM25 lexical search** for document retrieval
+- **Retrieval-grounded QA generation** with citations
+- **Per-column trace capture** for debugging tool calls
+- **Structured output** for Q&A pairs with Pydantic models
+
+## Architecture
+
+```
+┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐
+│   PDF Files     │      │   BM25 Index    │      │   Data Designer │
+│   (local/URL)   │ ───► │   (in-memory)   │ ◄─── │   (tool calls)  │
+└─────────────────┘      └─────────────────┘      └─────────────────┘
+                                │                          │
+                                │     search_docs()        │
+                                ◄──────────────────────────┤
+                                │                          │
+                                │     results              │
+                                ├──────────────────────────►
+                                │                          │
+                                                           ▼
+                                                    ┌─────────────────┐
+                                                    │  Q&A Pair with  │
+                                                    │  Citation       │
+                                                    └─────────────────┘
+```
+
+## Output Schema
+
+Each generated record includes:
+
+| Field | Description |
+|-------|-------------|
+| `question` | A question grounded in the document text |
+| `answer` | A concise answer grounded in the supporting passage |
+| `supporting_passage` | A 2-4 sentence excerpt from the search result |
+| `citation` | Source reference (URL, page number, etc.) |
+
+## Code
+
+```python
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "data-designer",
+#     "mcp",
+#     "bm25s",
+#     "pymupdf",
+#     "rich",
+# ]
+# ///
+"""MCP + Tool Use Recipe: Document Q&A with BM25S Lexical Search
+
+This recipe demonstrates an end-to-end MCP tool-calling workflow:
+
+1) Load one or more PDF documents from URLs or local paths.
+2) Index them with BM25S for fast lexical search.
+3) Use Data Designer tool calls (`search_docs`) to generate grounded Q&A pairs.
+
+Prerequisites:
+    - OPENAI_API_KEY environment variable for OpenAI provider model aliases.
+    - NVIDIA_API_KEY environment variable for NVIDIA provider model aliases (default model alias is "nvidia-reasoning").
+
+Run:
+    # Basic usage with default sample PDF (generates 4 Q&A pairs)
+    uv run pdf_qa.py
+
+    # For help message and available options
+    uv run pdf_qa.py --help
+"""
+
+from __future__ import annotations
+
+import argparse
+import io
+import json
+import os
+import sys
+from pathlib import Path
+from urllib.parse import urlparse
+from urllib.request import urlopen
+
+import bm25s
+import fitz
+from mcp.server.fastmcp import FastMCP
+from pydantic import BaseModel, Field
+
+import data_designer.config as dd
+from data_designer.config.preview_results import PreviewResults
+from data_designer.interface import DataDesigner
+
+DEFAULT_PDF_URL = "https://research.nvidia.com/labs/nemotron/files/NVIDIA-Nemotron-3-Nano-Technical-Report.pdf"
+MCP_SERVER_NAME = "doc-bm25-search"
+
+# Global state for the BM25 index (populated at server startup)
+_bm25_retriever: bm25s.BM25 | None = None
+_corpus: list[dict[str, str]] = []
+
+
+class QAPair(BaseModel):
+    question: str = Field(..., description="A question grounded in the document text.")
+    answer: str = Field(..., description="A concise answer grounded in the supporting passage.")
+    supporting_passage: str = Field(
+        ..., description="A short excerpt (2-4 sentences) copied from the search result that supports the answer."
+    )
+    citation: str = Field(
+        ..., description="The citation (e.g. source url, page number, etc) of the supporting passage."
+    )
+
+
+class TopicList(BaseModel):
+    topics: list[str] = Field(
+        ...,
+        description="High-level topics covered by the document.",
+    )
+
+
+def _is_url(path_or_url: str) -> bool:
+    """Check if the given string is a URL."""
+    parsed = urlparse(path_or_url)
+    return parsed.scheme in ("http", "https")
+
+
+def _get_source_name(path_or_url: str) -> str:
+    """Extract a human-readable source name from a path or URL."""
+    if _is_url(path_or_url):
+        parsed = urlparse(path_or_url)
+        return Path(parsed.path).name or parsed.netloc
+    return Path(path_or_url).name
+
+
+def extract_pdf_text(path_or_url: str) -> list[dict[str, str]]:
+    """Extract text from a PDF file or URL, returning a list of passages with metadata."""
+    passages: list[dict[str, str]] = []
+    source_name = _get_source_name(path_or_url)
+
+    if _is_url(path_or_url):
+        with urlopen(path_or_url) as response:
+            pdf_bytes = response.read()
+        doc = fitz.open(stream=io.BytesIO(pdf_bytes), filetype="pdf")
+    else:
+        doc = fitz.open(path_or_url)
+
+    for page_num in range(len(doc)):
+        page = doc[page_num]
+        text = page.get_text("text").strip()
+        if text:
+            passages.append(
+                {
+                    "text": text,
+                    "page": str(page_num + 1),
+                    "source": source_name,
+                }
+            )
+
+    doc.close()
+    return passages
+
+
+def build_bm25_index(passages: list[dict[str, str]]) -> bm25s.BM25:
+    """Build a BM25S index from the extracted passages."""
+    corpus_texts = [p["text"] for p in passages]
+    corpus_tokens = bm25s.tokenize(corpus_texts, stopwords="en")
+
+    retriever = bm25s.BM25()
+    retriever.index(corpus_tokens)
+
+    return retriever
+
+
+def initialize_search_index(pdf_sources: list[str]) -> None:
+    """Load PDFs from paths/URLs and build the BM25 index."""
+    global _bm25_retriever, _corpus
+
+    _corpus = []
+    for source in pdf_sources:
+        passages = extract_pdf_text(source)
+        _corpus.extend(passages)
+
+    if _corpus:
+        _bm25_retriever = build_bm25_index(_corpus)
+
+
+# MCP Server Definition
+mcp_server = FastMCP(MCP_SERVER_NAME)
+
+
+@mcp_server.tool()
+def search_docs(query: str, limit: int = 5, document: str = "", page: str = "") -> str:
+    """Search through documents using BM25 lexical search.
+
+    BM25 is a keyword-based retrieval algorithm that matches exact terms. For best results:
+
+    - Use specific keywords, not full questions
+    - Include domain-specific terms that would appear in the source text
+    - Combine multiple relevant terms to narrow results
+
+    Args:
+        query: Search query string - use specific keywords for best results
+        limit: Maximum number of results to return (default: 5)
+        document: Optional document source name to restrict search to
+        page: Optional page number to restrict search to (requires document)
+
+    Returns:
+        JSON string with search results including text excerpts and page numbers
+    """
+    global _bm25_retriever, _corpus
+
+    if _bm25_retriever is None or not _corpus:
+        return json.dumps({"error": "Search index not initialized"})
+
+    if page and not document:
+        return json.dumps({"error": "The 'page' parameter requires 'document' to be specified"})
+
+    query_tokens = bm25s.tokenize([query], stopwords="en")
+
+    retrieve_limit = len(_corpus) if (document or page) else limit
+    results, scores = _bm25_retriever.retrieve(query_tokens, k=min(retrieve_limit, len(_corpus)))
+
+    search_results: list[dict[str, str | float]] = []
+    for i in range(results.shape[1]):
+        doc_idx = results[0, i]
+        score = float(scores[0, i])
+
+        if score <= 0:
+            continue
+
+        passage = _corpus[doc_idx]
+
+        if document and passage["source"] != document:
+            continue
+
+        if page and passage["page"] != page:
+            continue
+
+        search_results.append(
+            {
+                "text": passage["text"][:2000],
+                "page": passage["page"],
+                "source": passage["source"],
+                "score": round(score, 4),
+                "url": f"file://{passage['source']}#page={passage['page']}",
+            }
+        )
+
+        if len(search_results) >= limit:
+            break
+
+    return json.dumps({"results": search_results, "query": query, "total": len(search_results)})
+
+
+@mcp_server.tool()
+def list_docs() -> str:
+    """List all documents in the search index with their page counts."""
+    global _corpus
+
+    if not _corpus:
+        return json.dumps({"error": "Search index not initialized", "documents": []})
+
+    doc_pages: dict[str, set[str]] = {}
+    for passage in _corpus:
+        source = passage["source"]
+        page = passage["page"]
+        if source not in doc_pages:
+            doc_pages[source] = set()
+        doc_pages[source].add(page)
+
+    documents = [{"source": source, "page_count": len(pages)} for source, pages in sorted(doc_pages.items())]
+
+    return json.dumps({"documents": documents, "total_documents": len(documents)})
+
+
+def build_config(model_alias: str, provider_name: str) -> dd.DataDesignerConfigBuilder:
+    """Build the Data Designer configuration for document Q&A generation."""
+    tool_config = dd.ToolConfig(
+        tool_alias="doc-search",
+        providers=[provider_name],
+        allow_tools=["list_docs", "search_docs"],
+        max_tool_call_turns=100,
+        timeout_sec=30.0,
+    )
+
+    config_builder = dd.DataDesignerConfigBuilder(tool_configs=[tool_config])
+    config_builder.add_column(
+        dd.SamplerColumnConfig(
+            name="seed_id",
+            sampler_type=dd.SamplerType.UUID,
+            params=dd.UUIDSamplerParams(),
+            drop=True,
+        )
+    )
+
+    config_builder.add_column(
+        dd.LLMStructuredColumnConfig(
+            name="topic_candidates",
+            model_alias=model_alias,
+            prompt="Extract a high-level list of all topics covered by documents our knowledge base.",
+            system_prompt=(
+                "You must call tools before answering. "
+                "Do not use outside knowledge; only use tool results. "
+                "You can use as many tool calls as required to answer the user query."
+            ),
+            output_format=TopicList,
+            tool_alias="doc-search",
+            with_trace=dd.TraceType.ALL_MESSAGES,
+        )
+    )
+
+    config_builder.add_column(
+        dd.ExpressionColumnConfig(
+            name="topic",
+            expr="{{ topic_candidates.topics | random }}",
+        )
+    )
+
+    qa_prompt = """\
+Create a question-answer pair on the topic "{{topic}}", with supporting text and citation.
+The supporting_passage must be a 2-4 sentence excerpt copied from the tool result that demonstrates
+why the answer is correct.
+"""
+
+    config_builder.add_column(
+        dd.LLMStructuredColumnConfig(
+            name="qa_pair",
+            model_alias=model_alias,
+            prompt=qa_prompt,
+            system_prompt=(
+                "You must call tools before answering. "
+                "Do not use outside knowledge; only use tool results. "
+                "You can use as many tool calls as required to answer the user query."
+            ),
+            output_format=QAPair,
+            tool_alias="doc-search",
+            with_trace=dd.TraceType.ALL_MESSAGES,
+            extract_reasoning_content=True,
+        )
+    )
+
+    config_builder.add_column(
+        dd.ExpressionColumnConfig(
+            name="question",
+            expr="{{ qa_pair.question }}",
+        )
+    )
+    config_builder.add_column(
+        dd.ExpressionColumnConfig(
+            name="answer",
+            expr="{{ qa_pair.answer }}",
+        )
+    )
+    config_builder.add_column(
+        dd.ExpressionColumnConfig(
+            name="supporting_passage",
+            expr="{{ qa_pair.supporting_passage }}",
+        )
+    )
+    config_builder.add_column(
+        dd.ExpressionColumnConfig(
+            name="citation",
+            expr="{{ qa_pair.citation }}",
+        )
+    )
+    return config_builder
+
+
+def serve() -> None:
+    """Run the MCP server (called when launched as subprocess by Data Designer)."""
+    pdf_sources_json = os.environ.get("PDF_SOURCES", "[]")
+    pdf_sources = json.loads(pdf_sources_json)
+    if not pdf_sources:
+        pdf_sources = [DEFAULT_PDF_URL]
+    initialize_search_index(pdf_sources)
+    mcp_server.run()
+
+
+def parse_args() -> argparse.Namespace:
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(description="Generate document Q&A pairs using MCP tool calls with BM25S search.")
+    subparsers = parser.add_subparsers(dest="command")
+
+    # 'serve' subcommand for running the MCP server
+    subparsers.add_parser("serve", help="Run the MCP server (used by Data Designer)")
+
+    # Default command arguments (demo mode)
+    parser.add_argument("--model-alias", type=str, default="nvidia-reasoning", help="Model alias to use for generation")
+    parser.add_argument("--num-records", type=int, default=4, help="Number of Q&A pairs to generate")
+    parser.add_argument(
+        "--pdf",
+        type=str,
+        action="append",
+        dest="pdfs",
+        metavar="PATH_OR_URL",
+        help="PDF file path or URL to index (can be specified multiple times). Defaults to a sample PDF if not provided.",
+    )
+    # For compatibility with Makefile test-run-recipes target (ignored in demo mode)
+    parser.add_argument("--artifact-path", type=str, default=None, help=argparse.SUPPRESS)
+
+    return parser.parse_args()
+
+
+def main() -> None:
+    """Main entry point for the demo."""
+    args = parse_args()
+
+    if args.command == "serve":
+        serve()
+        return
+
+    if os.environ.get("NVIDIA_API_KEY") is None and args.model_alias.startswith("nvidia"):
+        raise RuntimeError("NVIDIA_API_KEY must be set when using NVIDIA model aliases.")
+
+    pdf_sources = args.pdfs if args.pdfs else [DEFAULT_PDF_URL]
+
+    mcp_provider = dd.LocalStdioMCPProvider(
+        name=MCP_SERVER_NAME,
+        command=sys.executable,
+        args=[str(Path(__file__).resolve()), "serve"],
+        env={"PDF_SOURCES": json.dumps(pdf_sources)},
+    )
+
+    config_builder = build_config(
+        model_alias=args.model_alias,
+        provider_name=MCP_SERVER_NAME,
+    )
+
+    data_designer = DataDesigner(mcp_providers=[mcp_provider])
+    preview_results = data_designer.preview(config_builder, num_records=args.num_records)
+    preview_results.display_sample_record()
+
+
+if __name__ == "__main__":
+    main()
+```

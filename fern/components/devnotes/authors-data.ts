@@ -1,0 +1,30 @@
+/** Author data - keep in sync with .authors.yml */
+
+export interface Author {
+  name: string;
+  description: string;
+  avatar: string;
+}
+
+export const authors: Record<string, Author> = {
+  nvidia: {
+    name: "NVIDIA NeMo Data Designer Team",
+    description: "NeMo Data Designer Core Team",
+    avatar: "https://avatars.githubusercontent.com/u/1728152?s=200&v=4",
+  },
+  dcorneil: {
+    name: "Dane Corneil",
+    description: "Researcher at NVIDIA",
+    avatar: "https://avatars.githubusercontent.com/u/4678597?v=4",
+  },
+  etramel: {
+    name: "Eric Tramel",
+    description: "Researcher at NVIDIA",
+    avatar: "https://avatars.githubusercontent.com/u/1223539?v=4",
+  },
+  kthadaka: {
+    name: "Kirit Thadaka",
+    description: "Product Manager at NVIDIA",
+    avatar: "https://avatars.githubusercontent.com/u/8190572?v=4",
+  },
+};
