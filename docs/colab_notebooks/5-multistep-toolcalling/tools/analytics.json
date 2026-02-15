@@ -1,0 +1,125 @@
+{
+  "database": "analytics",
+  "description": "Website analytics data for tracking visitor behavior and engagement.",
+  "data_schema": {
+    "columns": ["date_of_visit", "visitor_id", "page_views", "session_duration_seconds", "traffic_source", "user_engaged"],
+    "enums": {
+      "traffic_source": ["direct", "referral", "search engine", "social media"]
+    }
+  },
+  "tools": [
+    {
+      "type": "function",
+      "name": "analytics_get_visitor_information_by_id",
+      "description": "Returns the analytics data for a given visitor ID.",
+      "database": "analytics",
+      "operation_type": "read",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "visitor_id": {"type": "string", "description": "ID of the visitor"}
+        },
+        "required": ["visitor_id"],
+        "additionalProperties": false
+      },
+      "strict": false
+    },
+    {
+      "type": "function",
+      "name": "analytics_create_plot",
+      "description": "Plots the analytics data for a given time range and value.",
+      "database": "analytics",
+      "operation_type": "create",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "time_min": {"type": "string", "description": "Start date of the time range. Date format is YYYY-MM-DD"},
+          "time_max": {"type": "string", "description": "End date of the time range. Date format is YYYY-MM-DD"},
+          "value_to_plot": {
+            "type": "string",
+            "description": "Value to plot. Available values are: 'total_visits', 'session_duration_seconds', 'user_engaged', 'visits_direct', 'visits_referral', 'visits_search_engine', 'visits_social_media'"
+          },
+          "plot_type": {
+            "type": "string",
+            "description": "Type of plot. Can be 'bar', 'line', 'scatter' or 'histogram'"
+          }
+        },
+        "required": ["time_min", "time_max", "value_to_plot", "plot_type"],
+        "additionalProperties": false
+      },
+      "strict": false
+    },
+    {
+      "type": "function",
+      "name": "analytics_total_visits_count",
+      "description": "Returns the total number of visits within a specified time range.",
+      "database": "analytics",
+      "operation_type": "read",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "time_min": {"type": "string", "description": "Start date of the time range. Date format is YYYY-MM-DD"},
+          "time_max": {"type": "string", "description": "End date of the time range. Date format is YYYY-MM-DD"}
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "strict": false
+    },
+    {
+      "type": "function",
+      "name": "analytics_engaged_users_count",
+      "description": "Returns the number of engaged users within a specified time range.",
+      "database": "analytics",
+      "operation_type": "read",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "time_min": {"type": "string", "description": "Start date of the time range. Date format is YYYY-MM-DD"},
+          "time_max": {"type": "string", "description": "End date of the time range. Date format is YYYY-MM-DD"}
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "strict": false
+    },
+    {
+      "type": "function",
+      "name": "analytics_traffic_source_count",
+      "description": "Returns the number of visits from a specific traffic source within a specified time range.",
+      "database": "analytics",
+      "operation_type": "read",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "time_min": {"type": "string", "description": "Start date of the time range. Date format is YYYY-MM-DD"},
+          "time_max": {"type": "string", "description": "End date of the time range. Date format is YYYY-MM-DD"},
+          "traffic_source": {
+            "type": "string",
+            "description": "Traffic source to filter the visits. Available values are: 'direct', 'referral', 'search engine', 'social media'"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "strict": false
+    },
+    {
+      "type": "function",
+      "name": "analytics_get_average_session_duration",
+      "description": "Returns the average session duration within a specified time range.",
+      "database": "analytics",
+      "operation_type": "read",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "time_min": {"type": "string", "description": "Start date of the time range. Date format is YYYY-MM-DD"},
+          "time_max": {"type": "string", "description": "End date of the time range. Date format is YYYY-MM-DD"}
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "strict": false
+    }
+  ]
+}
