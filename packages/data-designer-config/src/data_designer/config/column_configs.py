@@ -378,7 +378,6 @@ class ExpressionColumnConfig(SingleColumnConfig):
         column_type: Discriminator field, always "expression" for this configuration type.
     """
 
-    name: str = Field(description="Unique name of the column to be generated")
     expr: str = Field(description="Jinja2 expression to compute the column value from other columns")
     dtype: Literal["int", "float", "str", "bool"] = Field(
         default="str", description="Data type for expression result: 'int', 'float', 'str', or 'bool'"
@@ -452,7 +451,7 @@ class ValidationColumnConfig(SingleColumnConfig):
     """
 
     target_columns: list[str] = Field(description="List of column names to validate")
-    validator_type: ValidatorType = Field(description="Validation method: CODE, LOCAL_CALLABLE, or REMOTE")
+    validator_type: ValidatorType = Field(description="Validation method: 'code', 'local_callable', or 'remote'")
     validator_params: ValidatorParamsT = Field(description="Validator-specific parameters (e.g., CodeValidatorParams)")
     batch_size: int = Field(default=10, ge=1, description="Number of records to process in each batch")
     column_type: Literal["validation"] = Field(
