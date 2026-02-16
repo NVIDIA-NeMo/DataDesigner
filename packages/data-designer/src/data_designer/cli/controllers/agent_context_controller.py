@@ -10,30 +10,40 @@ import typer
 from data_designer.cli.services.introspection.discovery import (
     discover_column_configs,
     discover_constraint_types,
+    discover_importable_names,
+    discover_interface_classes,
     discover_mcp_types,
     discover_model_configs,
+    discover_namespace_tree,
     discover_processor_configs,
     discover_sampler_types,
     discover_seed_types,
     discover_validator_types,
 )
 from data_designer.cli.services.introspection.formatters import (
+    format_imports_json,
+    format_imports_text,
+    format_interface_json,
+    format_interface_text,
     format_method_info_json,
     format_method_info_text,
     format_model_schema_json,
     format_model_schema_text,
+    format_namespace_json,
+    format_namespace_text,
     format_overview_text,
     format_type_list_text,
 )
 from data_designer.cli.services.introspection.method_inspector import inspect_class_methods
 from data_designer.cli.services.introspection.pydantic_inspector import build_model_schema
+from data_designer.config.config_builder import DataDesignerConfigBuilder
 
 
 class AgentContextController:
-    """Controller for agent-context CLI commands.
+    """Controller for introspect CLI commands.
 
     Orchestrates discovery, inspection, formatting, and output for all
-    agent-context subcommands.
+    introspect subcommands.
     """
 
     def __init__(self, output_format: str = "text") -> None:
@@ -103,8 +113,6 @@ class AgentContextController:
 
     def show_builder(self) -> None:
         """Show DataDesignerConfigBuilder method signatures and docs."""
-        from data_designer.config.config_builder import DataDesignerConfigBuilder
-
         methods = inspect_class_methods(DataDesignerConfigBuilder)
         if self._format == "json":
             typer.echo(json.dumps(format_method_info_json(methods), indent=2))
@@ -126,10 +134,58 @@ class AgentContextController:
         items = discover_mcp_types()
         self._show_all_schemas(items, "Data Designer MCP Types Reference")
 
+    def show_interface(self) -> None:
+        """Show DataDesigner, result types, and RunConfig."""
+        classes = discover_interface_classes()
+
+        method_class_names = ["DataDesigner", "DatasetCreationResults", "PreviewResults"]
+        pydantic_class_names = ["RunConfig"]
+
+        classes_with_methods: list[tuple[str, list]] = []
+        for name in method_class_names:
+            cls = classes[name]
+            methods = inspect_class_methods(cls)
+            classes_with_methods.append((name, methods))
+
+        pydantic_schemas = []
+        for name in pydantic_class_names:
+            cls = classes[name]
+            schema = build_model_schema(cls)
+            pydantic_schemas.append(schema)
+
+        if self._format == "json":
+            typer.echo(json.dumps(format_interface_json(classes_with_methods, pydantic_schemas), indent=2))
+        else:
+            typer.echo(format_interface_text(classes_with_methods, pydantic_schemas))
+
+    def show_imports(self, category: str | None = None) -> None:
+        """Show categorized import reference for data_designer.config and data_designer.interface."""
+        categories = discover_importable_names()
+
+        if category is not None:
+            matched_key = self._match_category(category, list(categories.keys()))
+            if matched_key is None:
+                available = ", ".join(sorted(categories.keys()))
+                typer.echo(f"Error: No category matching '{category}'.", err=True)
+                typer.echo(f"Available categories: {available}", err=True)
+                raise typer.Exit(code=1)
+            categories = {matched_key: categories[matched_key]}
+
+        if self._format == "json":
+            typer.echo(json.dumps(format_imports_json(categories), indent=2))
+        else:
+            typer.echo(format_imports_text(categories))
+
+    def show_code_structure(self, depth: int = 2) -> None:
+        """Show the data_designer package structure and install paths."""
+        data = discover_namespace_tree(max_depth=depth)
+        if self._format == "json":
+            typer.echo(json.dumps(format_namespace_json(data), indent=2))
+        else:
+            typer.echo(format_namespace_text(data))
+
     def show_overview(self) -> None:
         """Show compact API overview cheatsheet."""
-        from data_designer.config.config_builder import DataDesignerConfigBuilder
-
         type_counts = {
             "Column types": len(discover_column_configs()),
             "Sampler types": len(discover_sampler_types()),
@@ -152,6 +208,43 @@ class AgentContextController:
         else:
             typer.echo(format_overview_text(type_counts, builder_methods))
 
+    @staticmethod
+    def _match_category(query: str, keys: list[str]) -> str | None:
+        """Match a user query to a category key using progressive fuzzy matching.
+
+        Tries: exact match, first-word stem match, any-word stem match, substring match.
+        """
+        normalized = query.lower().rstrip("s")
+
+        # Exact match (case-insensitive)
+        for key in keys:
+            if key.lower() == query.lower():
+                return key
+
+        # First-word stem match
+        for key in keys:
+            first_word = key.lower().split()[0].rstrip("s")
+            if first_word == normalized:
+                return key
+
+        # Any-word stem match
+        for key in keys:
+            words = key.lower().split()
+            for word in words:
+                if word.rstrip("s") == normalized:
+                    return key
+
+        # Substring match (earliest position wins)
+        best_key: str | None = None
+        best_pos = float("inf")
+        for key in keys:
+            pos = key.lower().find(query.lower())
+            if pos != -1 and pos < best_pos:
+                best_pos = pos
+                best_key = key
+
+        return best_key
+
     def _show_typed_items(
         self,
         items: dict[str, type],
@@ -165,14 +258,7 @@ class AgentContextController:
         uppercase_value: bool = False,
     ) -> None:
         """Shared logic for type-based commands (columns, samplers, validators, processors)."""
-        if list_mode:
-            if self._format == "json":
-                typer.echo(json.dumps({k: v.__name__ for k, v in sorted(items.items())}, indent=2))
-            else:
-                typer.echo(format_type_list_text(items, type_label, class_label))
-            return
-
-        if type_name is None:
+        if list_mode or type_name is None:
             if self._format == "json":
                 typer.echo(json.dumps({k: v.__name__ for k, v in sorted(items.items())}, indent=2))
             else:
@@ -218,12 +304,13 @@ class AgentContextController:
                 all_schemas.append(format_model_schema_json(schema))
             typer.echo(json.dumps(all_schemas, indent=2))
         else:
+            seen_schemas: set[str] = set()
             lines = [f"# {header_title}", f"# {len(sorted_types)} types discovered from data_designer.config", ""]
             for type_value in sorted_types:
                 cls = items[type_value]
                 display_value = type_value.upper() if uppercase_value else type_value
                 schema = build_model_schema(cls, type_key=type_key, type_value=display_value)
-                lines.append(format_model_schema_text(schema))
+                lines.append(format_model_schema_text(schema, seen_schemas=seen_schemas))
                 lines.append("")
             typer.echo("\n".join(lines))
 
@@ -240,12 +327,13 @@ class AgentContextController:
                     all_schemas.append({"class_name": cls.__name__, "description": cls.__doc__ or ""})
             typer.echo(json.dumps(all_schemas, indent=2))
         else:
+            seen_schemas: set[str] = set()
             lines = [f"# {header_title}", f"# {len(items)} types", ""]
             for name in sorted(items.keys()):
                 cls = items[name]
                 if hasattr(cls, "model_fields"):
                     schema = build_model_schema(cls)
-                    lines.append(format_model_schema_text(schema))
+                    lines.append(format_model_schema_text(schema, seen_schemas=seen_schemas))
                 else:
                     lines.append(f"{cls.__name__}:")
                     if cls.__doc__:
