@@ -7,7 +7,6 @@ import pytest
 
 from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.validator_params import CodeValidatorParams
-from data_designer.engine.validators import sql as sql_validator_module
 from data_designer.engine.validators.sql import SQLValidator
 
 
@@ -43,7 +42,7 @@ def test_sql_validator_decimal_without_scale_fails() -> None:
 
 def test_sql_validator_handles_lint_exception() -> None:
     sql_validator = SQLValidator(CodeValidatorParams(code_lang=CodeLang.SQL_ANSI))
-    with patch.object(sql_validator_module.sqlfluff, "lint", side_effect=RuntimeError("boom")):
+    with patch("data_designer.lazy_heavy_imports.sqlfluff.lint", side_effect=RuntimeError("boom")):
         result = sql_validator.run_validation([{"sql": "SELECT 1"}])
     assert not result.data[0].is_valid
     assert "Exception during SQL parsing" in result.data[0].error_messages
