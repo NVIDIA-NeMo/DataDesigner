@@ -11,6 +11,7 @@ from enum import Enum
 from typing import Any, get_args, get_origin
 
 from pydantic import BaseModel
+from pydantic_core import PydanticUndefined
 
 
 @dataclass
@@ -20,7 +21,10 @@ class FieldDetail:
     name: str
     type_str: str
     description: str
+    required: bool = True
+    default: str | None = None
     enum_values: list[str] | None = None
+    constraints: dict[str, Any] | None = None
     nested_schema: ModelSchema | None = None
 
 
@@ -165,6 +169,18 @@ def get_brief_description(cls: type) -> str:
     return "No description available."
 
 
+def _extract_constraints(field_info: Any) -> dict[str, Any] | None:
+    """Extract numeric/string constraints from a Pydantic FieldInfo's metadata."""
+    constraint_keys = {"ge", "le", "gt", "lt", "min_length", "max_length"}
+    constraints: dict[str, Any] = {}
+    for meta in getattr(field_info, "metadata", []):
+        for key in constraint_keys:
+            val = getattr(meta, key, None)
+            if val is not None:
+                constraints[key] = val
+    return constraints or None
+
+
 def get_field_info(cls: type) -> list[FieldDetail]:
     """Extract field information from a Pydantic model.
 
@@ -172,8 +188,9 @@ def get_field_info(cls: type) -> list[FieldDetail]:
         cls: The Pydantic model class to inspect.
 
     Returns:
-        List of FieldDetail objects with name, type_str, description, enum_values,
-        and nested_schema (initially None, populated by build_model_schema).
+        List of FieldDetail objects with name, type_str, description, required,
+        default, enum_values, constraints, and nested_schema (initially None,
+        populated by build_model_schema).
     """
     fields: list[FieldDetail] = []
     model_fields: dict[str, Any] = getattr(cls, "model_fields", {})
@@ -182,17 +199,31 @@ def get_field_info(cls: type) -> list[FieldDetail]:
             type_str = format_type(field_info.annotation)
             description = field_info.description or ""
 
+            required = field_info.is_required()
+
+            default: str | None = None
+            if not required:
+                if field_info.default is not PydanticUndefined and field_info.default is not None:
+                    default = repr(field_info.default)
+                elif field_info.default_factory is not None:
+                    default = f"{field_info.default_factory.__name__}()"
+
             enum_cls = _extract_enum_class(field_info.annotation)
             enum_values: list[str] | None = None
             if enum_cls is not None:
-                enum_values = [member.name for member in enum_cls]
+                enum_values = [str(member.value) for member in enum_cls]
+
+            constraints = _extract_constraints(field_info)
 
             fields.append(
                 FieldDetail(
                     name=field_name,
                     type_str=type_str,
                     description=description,
+                    required=required,
+                    default=default,
                     enum_values=enum_values,
+                    constraints=constraints,
                     nested_schema=None,
                 )
             )

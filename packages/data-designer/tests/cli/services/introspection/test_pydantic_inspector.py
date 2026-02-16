@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from data_designer.cli.services.introspection.pydantic_inspector import (
     FieldDetail,
     ModelSchema,
+    _extract_constraints,
     _extract_enum_class,
     _is_basemodel_subclass,
     _is_enum_subclass,
@@ -57,13 +58,33 @@ class SelfRefModel(BaseModel):
     child: SelfRefModel | None = None
 
 
+class DeepB(BaseModel):
+    val: int = 0
+
+
 class DeepA(BaseModel):
     val: int = 0
     b: DeepB | None = None
 
 
-class DeepB(BaseModel):
-    val: int = 0
+# Rebuild models that use forward references (required due to `from __future__ import annotations`)
+SelfRefModel.model_rebuild()
+DeepA.model_rebuild()
+
+
+class RequiredFieldModel(BaseModel):
+    """Model with required and optional fields for testing."""
+
+    required_name: str
+    optional_name: str = "default_val"
+
+
+class ConstrainedModel(BaseModel):
+    """Model with constrained fields for testing."""
+
+    score: float = Field(default=0.5, ge=0.0, le=1.0)
+    label: str = Field(default="", min_length=1, max_length=100)
+    count: int = Field(default=0, gt=-1, lt=1000)
 
 
 # ---------------------------------------------------------------------------
@@ -235,17 +256,95 @@ def test_get_field_info_returns_field_details() -> None:
     assert "my_enum" in names
 
 
-def test_get_field_info_enum_values() -> None:
+def test_get_field_info_enum_values_use_dot_value() -> None:
     fields = get_field_info(OuterModel)
     enum_field = next(f for f in fields if f.name == "my_enum")
     assert enum_field.enum_values is not None
-    assert set(enum_field.enum_values) == {"RED", "GREEN", "BLUE"}
+    assert set(enum_field.enum_values) == {"red", "green", "blue"}
 
 
 def test_get_field_info_non_enum_has_no_enum_values() -> None:
     fields = get_field_info(OuterModel)
     plain_field = next(f for f in fields if f.name == "plain")
     assert plain_field.enum_values is None
+
+
+# ---------------------------------------------------------------------------
+# required / default
+# ---------------------------------------------------------------------------
+
+
+def test_get_field_info_required_field() -> None:
+    fields = get_field_info(RequiredFieldModel)
+    req = next(f for f in fields if f.name == "required_name")
+    assert req.required is True
+    assert req.default is None
+
+
+def test_get_field_info_optional_field_default() -> None:
+    fields = get_field_info(RequiredFieldModel)
+    opt = next(f for f in fields if f.name == "optional_name")
+    assert opt.required is False
+    assert opt.default == "'default_val'"
+
+
+def test_get_field_info_default_factory() -> None:
+    fields = get_field_info(OuterModel)
+    nested = next(f for f in fields if f.name == "nested")
+    assert nested.required is False
+    assert nested.default == "InnerModel()"
+
+
+def test_get_field_info_none_default_not_shown() -> None:
+    """Fields with default=None (like SelfRefModel.child) should have default=None in FieldDetail."""
+    fields = get_field_info(SelfRefModel)
+    child = next(f for f in fields if f.name == "child")
+    assert child.required is False
+    assert child.default is None
+
+
+# ---------------------------------------------------------------------------
+# constraints
+# ---------------------------------------------------------------------------
+
+
+def test_extract_constraints_from_constrained_model() -> None:
+    fields = get_field_info(ConstrainedModel)
+    score = next(f for f in fields if f.name == "score")
+    assert score.constraints is not None
+    assert score.constraints["ge"] == 0.0
+    assert score.constraints["le"] == 1.0
+
+
+def test_extract_constraints_gt_lt() -> None:
+    fields = get_field_info(ConstrainedModel)
+    count = next(f for f in fields if f.name == "count")
+    assert count.constraints is not None
+    assert count.constraints["gt"] == -1
+    assert count.constraints["lt"] == 1000
+
+
+def test_extract_constraints_string_lengths() -> None:
+    fields = get_field_info(ConstrainedModel)
+    label = next(f for f in fields if f.name == "label")
+    assert label.constraints is not None
+    assert label.constraints["min_length"] == 1
+    assert label.constraints["max_length"] == 100
+
+
+def test_extract_constraints_none_for_unconstrained() -> None:
+    fields = get_field_info(InnerModel)
+    x_field = next(f for f in fields if f.name == "x")
+    assert x_field.constraints is None
+
+
+def test_extract_constraints_helper_with_no_metadata() -> None:
+    """_extract_constraints returns None when field_info has no constraint metadata."""
+
+    class FakeFieldInfo:
+        metadata: list = []
+
+    assert _extract_constraints(FakeFieldInfo()) is None
 
 
 # ---------------------------------------------------------------------------
@@ -280,21 +379,20 @@ def test_build_model_schema_nested_expansion() -> None:
 def test_build_model_schema_cycle_protection() -> None:
     schema = build_model_schema(SelfRefModel)
     child_field = next(f for f in schema.fields if f.name == "child")
-    # SelfRefModel references itself: the first expansion should happen,
-    # but the recursive child should NOT be expanded again (cycle detected).
-    if child_field.nested_schema is not None:
-        inner_child = next(
-            (f for f in child_field.nested_schema.fields if f.name == "child"),
-            None,
-        )
-        if inner_child is not None:
-            assert inner_child.nested_schema is None
+    # First level: SelfRefModel.child should be expanded into a nested schema
+    assert child_field.nested_schema is not None, "First-level expansion must happen"
+    assert child_field.nested_schema.class_name == "SelfRefModel"
+    # Second level: the recursive child.child should NOT be expanded (cycle detected)
+    inner_child = next(f for f in child_field.nested_schema.fields if f.name == "child")
+    assert inner_child.nested_schema is None, "Cycle protection must block second-level expansion"
 
 
 def test_build_model_schema_depth_limiting() -> None:
     schema = build_model_schema(DeepA, max_depth=1)
     b_field = next(f for f in schema.fields if f.name == "b")
-    if b_field.nested_schema is not None:
-        # At depth 1, nested model should not recurse further
-        for f in b_field.nested_schema.fields:
-            assert f.nested_schema is None
+    # At max_depth=1, the first nested level (DeepB) should still be expanded
+    assert b_field.nested_schema is not None, "First-level nesting must be expanded at max_depth=1"
+    assert b_field.nested_schema.class_name == "DeepB"
+    # But any further nesting within DeepB should be blocked
+    for f in b_field.nested_schema.fields:
+        assert f.nested_schema is None, f"Field '{f.name}' should not be expanded beyond max_depth"
