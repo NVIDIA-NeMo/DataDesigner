@@ -581,12 +581,16 @@ class ModelProvider(ConfigBase):
         extra_headers: Additional headers to pass in API requests.
     """
 
-    name: str
-    endpoint: str
-    provider_type: str = "openai"
-    api_key: str | None = None
-    extra_body: dict[str, Any] | None = None
-    extra_headers: dict[str, str] | None = None
+    name: str = Field(description="Name of the model provider.")
+    endpoint: str = Field(description="API endpoint URL for the provider.")
+    provider_type: str = Field(default="openai", description="Provider type. Determines the API format to use.")
+    api_key: str | None = Field(default=None, description="Optional API key for authentication.")
+    extra_body: dict[str, Any] | None = Field(
+        default=None, description="Additional parameters to pass in API requests."
+    )
+    extra_headers: dict[str, str] | None = Field(
+        default=None, description="Additional headers to pass in API requests."
+    )
 
 
 def load_model_configs(model_configs: list[ModelConfig] | str | Path) -> list[ModelConfig]:

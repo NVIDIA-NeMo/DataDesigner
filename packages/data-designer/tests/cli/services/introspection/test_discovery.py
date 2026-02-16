@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from data_designer.cli.services.introspection.discovery import (
+    _discover_by_modules,
     discover_column_configs,
     discover_constraint_types,
     discover_importable_names,
@@ -253,3 +254,39 @@ def test_discover_importable_names_entries_have_name_and_module() -> None:
         for entry in entries:
             assert "name" in entry, f"Entry in '{category}' missing 'name'"
             assert "module" in entry, f"Entry in '{category}' missing 'module'"
+
+
+# ---------------------------------------------------------------------------
+# _discover_by_modules
+# ---------------------------------------------------------------------------
+
+
+def test_discover_by_modules_returns_only_matching_modules() -> None:
+    result = _discover_by_modules("models")
+    import data_designer.config as dd
+
+    lazy_imports: dict[str, tuple[str, str]] = getattr(dd, "_LAZY_IMPORTS", {})
+    model_names = {name for name, (mod, _) in lazy_imports.items() if mod == "data_designer.config.models"}
+    assert set(result.keys()) == model_names
+
+
+def test_discover_by_modules_with_multiple_suffixes() -> None:
+    result = _discover_by_modules("seed", "seed_source")
+    assert "SeedConfig" in result
+    assert "LocalFileSeedSource" in result
+
+
+def test_discover_by_modules_unknown_suffix_returns_empty() -> None:
+    result = _discover_by_modules("nonexistent_module")
+    assert result == {}
+
+
+# ---------------------------------------------------------------------------
+# discover_interface_classes — error class exclusion
+# ---------------------------------------------------------------------------
+
+
+def test_discover_interface_classes_excludes_exceptions() -> None:
+    result = discover_interface_classes()
+    for name, cls in result.items():
+        assert not issubclass(cls, Exception), f"{name} is an Exception subclass and should be excluded"

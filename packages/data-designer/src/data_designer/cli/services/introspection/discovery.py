@@ -14,8 +14,6 @@ import data_designer.config as dd
 import data_designer.interface as interface_mod
 from data_designer.config.preview_results import PreviewResults
 from data_designer.config.run_config import RunConfig
-from data_designer.interface.data_designer import DataDesigner
-from data_designer.interface.results import DatasetCreationResults
 
 
 def _walk_namespace(package_path: list[str], prefix: str, max_depth: int, current_depth: int) -> list[dict[str, Any]]:
@@ -162,22 +160,35 @@ def discover_processor_configs() -> dict[str, type]:
     return processor_configs
 
 
+def _discover_by_modules(*module_suffixes: str) -> dict[str, type]:
+    """Discover config types by filtering _LAZY_IMPORTS on source-module suffix.
+
+    Args:
+        module_suffixes: One or more module suffixes to match against
+            (e.g., ``"models"``, ``"seed"``).
+
+    Returns:
+        Dict mapping class/object names to their resolved types.
+    """
+    lazy_imports: dict[str, tuple[str, str]] = getattr(dd, "_LAZY_IMPORTS", {})
+    prefix = "data_designer.config."
+    result: dict[str, type] = {}
+    for name, (module_path, _attr) in lazy_imports.items():
+        suffix = module_path.removeprefix(prefix) if module_path.startswith(prefix) else module_path
+        if suffix in module_suffixes:
+            obj = getattr(dd, name, None)
+            if obj is not None:
+                result[name] = obj
+    return result
+
+
 def discover_model_configs() -> dict[str, type]:
     """Return model-related configuration classes from data_designer.config.
 
     Returns:
         Dict mapping class names to their types.
     """
-
-    return {
-        "ModelConfig": dd.ModelConfig,
-        "ChatCompletionInferenceParams": dd.ChatCompletionInferenceParams,
-        "EmbeddingInferenceParams": dd.EmbeddingInferenceParams,
-        "ImageInferenceParams": dd.ImageInferenceParams,
-        "ImageContext": dd.ImageContext,
-        "UniformDistribution": dd.UniformDistribution,
-        "ManualDistribution": dd.ManualDistribution,
-    }
+    return _discover_by_modules("models")
 
 
 def discover_constraint_types() -> dict[str, type]:
@@ -186,12 +197,7 @@ def discover_constraint_types() -> dict[str, type]:
     Returns:
         Dict mapping class names to their types.
     """
-
-    return {
-        "ScalarInequalityConstraint": dd.ScalarInequalityConstraint,
-        "ColumnInequalityConstraint": dd.ColumnInequalityConstraint,
-        "InequalityOperator": dd.InequalityOperator,
-    }
+    return _discover_by_modules("sampler_constraints")
 
 
 def discover_seed_types() -> dict[str, type]:
@@ -200,16 +206,7 @@ def discover_seed_types() -> dict[str, type]:
     Returns:
         Dict mapping class names to their types.
     """
-
-    return {
-        "SeedConfig": dd.SeedConfig,
-        "SamplingStrategy": dd.SamplingStrategy,
-        "LocalFileSeedSource": dd.LocalFileSeedSource,
-        "HuggingFaceSeedSource": dd.HuggingFaceSeedSource,
-        "DataFrameSeedSource": dd.DataFrameSeedSource,
-        "IndexRange": dd.IndexRange,
-        "PartitionBlock": dd.PartitionBlock,
-    }
+    return _discover_by_modules("seed", "seed_source")
 
 
 def discover_mcp_types() -> dict[str, type]:
@@ -218,27 +215,26 @@ def discover_mcp_types() -> dict[str, type]:
     Returns:
         Dict mapping class names to their types.
     """
-
-    return {
-        "MCPProvider": dd.MCPProvider,
-        "LocalStdioMCPProvider": dd.LocalStdioMCPProvider,
-        "ToolConfig": dd.ToolConfig,
-    }
+    return _discover_by_modules("mcp")
 
 
 def discover_interface_classes() -> dict[str, type]:
-    """Return the key interface-layer classes an agent uses after building a config.
+    """Discover interface-layer classes plus config-layer types used in the interface workflow.
+
+    Dynamically scans ``data_designer.interface.__all__`` for non-exception classes and
+    adds ``PreviewResults`` and ``RunConfig`` from the config layer.
 
     Returns:
-        Dict mapping class names to their types for DataDesigner, DatasetCreationResults,
-        PreviewResults, and RunConfig.
+        Dict mapping class names to their types.
     """
-    return {
-        "DataDesigner": DataDesigner,
-        "DatasetCreationResults": DatasetCreationResults,
-        "PreviewResults": PreviewResults,
-        "RunConfig": RunConfig,
-    }
+    result: dict[str, type] = {}
+    for name in getattr(interface_mod, "__all__", []):
+        obj = getattr(interface_mod, name, None)
+        if obj is not None and inspect.isclass(obj) and not issubclass(obj, Exception):
+            result[name] = obj
+    result["PreviewResults"] = PreviewResults
+    result["RunConfig"] = RunConfig
+    return result
 
 
 _MODULE_CATEGORIES: dict[str, str] = {
