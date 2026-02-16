@@ -14,13 +14,13 @@ from typing import TYPE_CHECKING
 import pytest
 import yaml
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.analysis.column_statistics import GeneralColumnStatistics
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
 from data_designer.config.column_configs import SamplerColumnConfig
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.data_designer_config import DataDesignerConfig
 from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig, ModelProvider
-from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -172,7 +172,7 @@ def stub_complete_builder(stub_data_designer_builder_config_str: str) -> DataDes
 
 @pytest.fixture
 def stub_dataframe() -> pd.DataFrame:
-    return pd.DataFrame(
+    return lazy.pd.DataFrame(
         {
             "name": ["John", "Jane", "Jim", "Jill", "Mike", "Mary", "Mark", "Martha", "Alex", "Alice", "Bob", "Bella"],
             "age": [25, 30, 35, 40, 45, 50, 55, 60, 22, 28, 65, 38],
@@ -255,8 +255,8 @@ def stub_dataframe() -> pd.DataFrame:
 def stub_dataset_tar_file():
     with tempfile.TemporaryDirectory() as temp_dir:
         # Create valid parquet files with actual data
-        df1 = pd.DataFrame({"id": ["1", "2"], "name": ["test", "sample"]})
-        df2 = pd.DataFrame({"id": ["3", "4"], "name": ["data", "example"]})
+        df1 = lazy.pd.DataFrame({"id": ["1", "2"], "name": ["test", "sample"]})
+        df2 = lazy.pd.DataFrame({"id": ["3", "4"], "name": ["data", "example"]})
 
         # Write parquet files
         os.makedirs(temp_dir + "/dataset", exist_ok=True)

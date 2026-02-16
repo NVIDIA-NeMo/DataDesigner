@@ -8,11 +8,12 @@ import logging
 from abc import ABC, abstractmethod
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, Generic, Literal, TypeVar
+from typing import Annotated, Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing_extensions import Self, TypeAlias
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.base import ConfigBase
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.utils.constants import (
@@ -22,10 +23,6 @@ from data_designer.config.utils.constants import (
     MIN_TOP_P,
 )
 from data_designer.config.utils.io_helpers import smart_load_yaml
-from data_designer.lazy_heavy_imports import np
-
-if TYPE_CHECKING:
-    import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -192,7 +189,7 @@ class ManualDistribution(Distribution[ManualDistributionParams]):
         Returns:
             A float value sampled from the manual distribution.
         """
-        return float(np.random.choice(self.params.values, p=self.params.weights))
+        return float(lazy.np.random.choice(self.params.values, p=self.params.weights))
 
 
 class UniformDistributionParams(ConfigBase):
@@ -233,7 +230,7 @@ class UniformDistribution(Distribution[UniformDistributionParams]):
         Returns:
             A float value sampled from the uniform distribution.
         """
-        return float(np.random.uniform(low=self.params.low, high=self.params.high, size=1)[0])
+        return float(lazy.np.random.uniform(low=self.params.low, high=self.params.high, size=1)[0])
 
 
 DistributionT: TypeAlias = UniformDistribution | ManualDistribution

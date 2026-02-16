@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, overload
 
 from data_designer.config.column_configs import GenerationStrategy
 from data_designer.engine.configurable_task import ConfigurableTask, DataT, TaskConfigT
-from data_designer.lazy_heavy_imports import pd
 from data_designer.logging import LOG_DOUBLE_INDENT, LOG_INDENT
 
 if TYPE_CHECKING:

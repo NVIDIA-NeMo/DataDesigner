@@ -10,15 +10,18 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic.json_schema import SkipJsonSchema
 from typing_extensions import Self
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.utils.io_helpers import (
     VALID_DATASET_FILE_EXTENSIONS,
     validate_dataset_file_path,
     validate_path_contains_files_of_type,
 )
-from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
     import pandas as pd
+
+# DataFrameSeedSource field annotations require a runtime pandas symbol for Pydantic model resolution.
+pd = lazy.pd
 
 
 class SeedSource(BaseModel, ABC):

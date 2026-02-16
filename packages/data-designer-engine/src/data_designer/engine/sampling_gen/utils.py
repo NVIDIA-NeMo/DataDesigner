@@ -4,12 +4,8 @@
 from __future__ import annotations
 
 import numbers
-from typing import TYPE_CHECKING
 
-from data_designer.lazy_heavy_imports import np
-
-if TYPE_CHECKING:
-    import numpy as np
+import data_designer.lazy_heavy_imports as lazy
 
 
 def check_random_state(seed):
@@ -37,10 +33,10 @@ def check_random_state(seed):
     >>> check_random_state(42)
     RandomState(MT19937) at 0x...
     """
-    if seed is None or seed is np.random:
-        return np.random.mtrand._rand
+    if seed is None or seed is lazy.np.random:
+        return lazy.np.random.mtrand._rand
     if isinstance(seed, numbers.Integral):
-        return np.random.RandomState(seed)
-    if isinstance(seed, np.random.RandomState):
+        return lazy.np.random.RandomState(seed)
+    if isinstance(seed, lazy.np.random.RandomState):
         return seed
     raise ValueError("%r cannot be used to seed a numpy.random.RandomState instance" % seed)

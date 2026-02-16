@@ -61,7 +61,7 @@ def stub_test_data_catalog():
     ]
 
 
-@patch("data_designer.engine.resources.managed_dataset_repository.duckdb", autospec=True)
+@patch("data_designer.engine.resources.managed_dataset_repository.lazy.duckdb", autospec=True)
 def test_duckdb_dataset_repository_init_default_config(mock_duckdb, stub_blob_storage):
     mock_db = Mock()
     mock_duckdb.connect.return_value = mock_db
@@ -81,7 +81,7 @@ def test_duckdb_dataset_repository_init_default_config(mock_duckdb, stub_blob_st
         mock_thread.assert_called_once()
 
 
-@patch("data_designer.engine.resources.managed_dataset_repository.duckdb", autospec=True)
+@patch("data_designer.engine.resources.managed_dataset_repository.lazy.duckdb", autospec=True)
 def test_duckdb_dataset_repository_init_custom_config(mock_duckdb, stub_blob_storage, stub_test_data_catalog):
     mock_db = Mock()
     mock_duckdb.connect.return_value = mock_db
@@ -105,7 +105,7 @@ def test_duckdb_dataset_repository_init_custom_config(mock_duckdb, stub_blob_sto
         assert repo._use_cache is False
 
 
-@patch("data_designer.engine.resources.managed_dataset_repository.duckdb", autospec=True)
+@patch("data_designer.engine.resources.managed_dataset_repository.lazy.duckdb", autospec=True)
 def test_duckdb_dataset_repository_data_catalog_property(mock_duckdb, stub_blob_storage, stub_test_data_catalog):
     mock_db = Mock()
     mock_duckdb.connect.return_value = mock_db
@@ -116,7 +116,7 @@ def test_duckdb_dataset_repository_data_catalog_property(mock_duckdb, stub_blob_
         assert repo.data_catalog == stub_test_data_catalog
 
 
-@patch("data_designer.engine.resources.managed_dataset_repository.duckdb", autospec=True)
+@patch("data_designer.engine.resources.managed_dataset_repository.lazy.duckdb", autospec=True)
 def test_duckdb_dataset_repository_query_basic(mock_duckdb, stub_blob_storage):
     mock_db = Mock()
     mock_cursor = Mock()
@@ -140,7 +140,7 @@ def test_duckdb_dataset_repository_query_basic(mock_duckdb, stub_blob_storage):
         pd.testing.assert_frame_equal(result, mock_df)
 
 
-@patch("data_designer.engine.resources.managed_dataset_repository.duckdb", autospec=True)
+@patch("data_designer.engine.resources.managed_dataset_repository.lazy.duckdb", autospec=True)
 def test_duckdb_dataset_repository_query_waits_for_registration(mock_duckdb, stub_blob_storage):
     mock_db = Mock()
     mock_cursor = Mock()
@@ -166,7 +166,7 @@ def test_duckdb_dataset_repository_query_waits_for_registration(mock_duckdb, stu
         pd.testing.assert_frame_equal(result, mock_df)
 
 
-@patch("data_designer.engine.resources.managed_dataset_repository.duckdb", autospec=True)
+@patch("data_designer.engine.resources.managed_dataset_repository.lazy.duckdb", autospec=True)
 def test_duckdb_dataset_repository_query_cursor_cleanup(mock_duckdb, stub_blob_storage):
     mock_db = Mock()
     mock_cursor = Mock()

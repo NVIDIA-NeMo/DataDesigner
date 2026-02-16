@@ -9,10 +9,10 @@ import inspect
 import logging
 from typing import TYPE_CHECKING, Any
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.column_configs import CustomColumnConfig, GenerationStrategy
 from data_designer.engine.column_generators.generators.base import ColumnGenerator
 from data_designer.engine.column_generators.utils.errors import CustomColumnGenerationError
-from data_designer.lazy_heavy_imports import pd
 from data_designer.logging import LOG_INDENT
 
 if TYPE_CHECKING:
@@ -66,7 +66,7 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
         """Unified generation logic for both strategies."""
         # Get columns/keys using unified accessor
         get_keys = (lambda d: set(d.columns)) if is_dataframe else (lambda d: set(d.keys()))
-        expected_type = pd.DataFrame if is_dataframe else dict
+        expected_type = lazy.pd.DataFrame if is_dataframe else dict
         type_name = "DataFrame" if is_dataframe else "dict"
 
         # Check required columns

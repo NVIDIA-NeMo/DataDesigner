@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Generic, TypeVar, get_args, get_origin
 from huggingface_hub import HfFileSystem
 from typing_extensions import Self
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.seed_source import (
     DataFrameSeedSource,
     HuggingFaceSeedSource,
@@ -18,7 +19,6 @@ from data_designer.config.seed_source import (
 )
 from data_designer.engine.secret_resolver import SecretResolver
 from data_designer.errors import DataDesignerError
-from data_designer.lazy_heavy_imports import duckdb
 
 if TYPE_CHECKING:
     import duckdb
@@ -87,7 +87,7 @@ class SeedReader(ABC, Generic[SourceT]):
 
 class LocalFileSeedReader(SeedReader[LocalFileSeedSource]):
     def create_duckdb_connection(self) -> duckdb.DuckDBPyConnection:
-        return duckdb.connect()
+        return lazy.duckdb.connect()
 
     def get_dataset_uri(self) -> str:
         return self.source.path
@@ -105,7 +105,7 @@ class HuggingFaceSeedReader(SeedReader[HuggingFaceSeedSource]):
         if hasattr(hffs, "dircache"):
             hffs.dircache.clear()
 
-        conn = duckdb.connect()
+        conn = lazy.duckdb.connect()
         conn.register_filesystem(hffs)
         return conn
 
@@ -118,7 +118,7 @@ class DataFrameSeedReader(SeedReader[DataFrameSeedSource]):
     _table_name = "df"
 
     def create_duckdb_connection(self) -> duckdb.DuckDBPyConnection:
-        conn = duckdb.connect()
+        conn = lazy.duckdb.connect()
         conn.register(self._table_name, self.source.df)
         return conn
 

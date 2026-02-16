@@ -16,29 +16,13 @@ from urllib.parse import urlparse
 import requests
 import yaml
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.errors import InvalidFileFormatError, InvalidFilePathError
 
 if TYPE_CHECKING:
     import pandas as pd
 
 logger = logging.getLogger(__name__)
-
-# Lazy module-level accessors for pd and np.
-# These are NOT imported eagerly. External access (e.g. test mocks via
-# @patch("...io_helpers.pd.read_csv")) triggers __getattr__, which imports
-# on first use and caches the result in module globals.
-_LAZY_MODULE_ATTRS = {"pd": "pandas", "np": "numpy"}
-
-
-def __getattr__(name: str) -> object:
-    if name in _LAZY_MODULE_ATTRS:
-        import importlib
-
-        mod = importlib.import_module(_LAZY_MODULE_ATTRS[name])
-        globals()[name] = mod
-        return mod
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
 
 MAX_CONFIG_URL_SIZE_BYTES = 1 * 1024 * 1024  # 1 MB
 VALID_DATASET_FILE_EXTENSIONS = {".parquet", ".csv", ".json", ".jsonl"}
@@ -119,15 +103,13 @@ def read_parquet_dataset(path: Path) -> pd.DataFrame:
     Returns:
         The parquet dataset as a pandas DataFrame.
     """
-    from data_designer.lazy_heavy_imports import pd
-
     try:
-        return pd.read_parquet(path, dtype_backend="pyarrow")
+        return lazy.pd.read_parquet(path, dtype_backend="pyarrow")
     except Exception as e:
         if path.is_dir() and "Unsupported cast" in str(e):
             logger.warning("Failed to read parquets as folder, falling back to individual files")
-            return pd.concat(
-                [pd.read_parquet(file, dtype_backend="pyarrow") for file in sorted(path.glob("*.parquet"))],
+            return lazy.pd.concat(
+                [lazy.pd.read_parquet(file, dtype_backend="pyarrow") for file in sorted(path.glob("*.parquet"))],
                 ignore_index=True,
             )
         else:
@@ -180,9 +162,7 @@ def smart_load_dataframe(dataframe: str | Path | pd.DataFrame) -> pd.DataFrame:
     Returns:
         A pandas DataFrame object.
     """
-    from data_designer.lazy_heavy_imports import pd
-
-    if isinstance(dataframe, pd.DataFrame):
+    if isinstance(dataframe, lazy.pd.DataFrame):
         return dataframe
 
     # Get the file extension.
@@ -198,11 +178,11 @@ def smart_load_dataframe(dataframe: str | Path | pd.DataFrame) -> pd.DataFrame:
 
     # Load the dataframe based on the file extension.
     if ext == "csv":
-        return pd.read_csv(dataframe)
+        return lazy.pd.read_csv(dataframe)
     elif ext == "json":
-        return pd.read_json(dataframe, lines=True)
+        return lazy.pd.read_json(dataframe, lines=True)
     elif ext == "parquet":
-        return pd.read_parquet(dataframe)
+        return lazy.pd.read_parquet(dataframe)
     else:
         raise ValueError(f"Unsupported file format: {dataframe}")
 
@@ -408,26 +388,24 @@ def _convert_to_serializable(obj: Any) -> Any:
     Raises:
         TypeError: If the object type is not supported for serialization.
     """
-    from data_designer.lazy_heavy_imports import np, pd
-
     if isinstance(obj, (set, list)):
         return list(obj)
-    if isinstance(obj, (pd.Series, np.ndarray)):
+    if isinstance(obj, (lazy.pd.Series, lazy.np.ndarray)):
         return obj.tolist()
 
-    if pd.isna(obj):
+    if lazy.pd.isna(obj):
         return None
 
-    if isinstance(obj, (datetime, date, pd.Timestamp)):
+    if isinstance(obj, (datetime, date, lazy.pd.Timestamp)):
         return obj.isoformat()
     if isinstance(obj, timedelta):
         return obj.total_seconds()
-    if isinstance(obj, (np.datetime64, np.timedelta64)):
+    if isinstance(obj, (lazy.np.datetime64, lazy.np.timedelta64)):
         return str(obj)
 
     if isinstance(obj, Decimal):
         return float(obj)
-    if isinstance(obj, (np.integer, np.floating, np.bool_)):
+    if isinstance(obj, (lazy.np.integer, lazy.np.floating, lazy.np.bool_)):
         return obj.item()
 
     if isinstance(obj, bytes):

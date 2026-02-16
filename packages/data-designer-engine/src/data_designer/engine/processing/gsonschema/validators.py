@@ -7,17 +7,14 @@ import logging
 import re
 from copy import deepcopy
 from decimal import ROUND_HALF_UP, Decimal
-from typing import TYPE_CHECKING, Any, overload
+from typing import Any, overload
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.engine.processing.gsonschema.exceptions import JSONSchemaValidationError
 from data_designer.engine.processing.gsonschema.schema_transformers import forbid_additional_properties
 from data_designer.engine.processing.gsonschema.types import DataObjectT, JSONSchemaT, T_primitive
-from data_designer.lazy_heavy_imports import jsonschema
 
-if TYPE_CHECKING:
-    import jsonschema
-
-DEFAULT_JSONSCHEMA_VALIDATOR = jsonschema.Draft202012Validator
+DEFAULT_JSONSCHEMA_VALIDATOR = lazy.jsonschema.Draft202012Validator
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +70,7 @@ def extend_jsonschema_validator_with_pruning(validator):
         Type[jsonschema.Validator]: A validator class that will
             prune extra fields.
     """
-    return jsonschema.validators.extend(validator, {"additionalProperties": prune_additional_properties})
+    return lazy.jsonschema.validators.extend(validator, {"additionalProperties": prune_additional_properties})
 
 
 def _get_decimal_info_from_anyof(schema: dict) -> tuple[bool, int | None]:
@@ -194,7 +191,7 @@ def validate(
 
     try:
         validator(schema).validate(final_object)
-    except jsonschema.ValidationError as exc:
+    except lazy.jsonschema.ValidationError as exc:
         raise JSONSchemaValidationError(str(exc)) from exc
 
     final_object = normalize_decimal_fields(final_object, schema)

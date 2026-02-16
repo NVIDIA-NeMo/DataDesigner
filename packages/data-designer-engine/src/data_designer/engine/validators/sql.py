@@ -5,16 +5,11 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import TYPE_CHECKING
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.validator_params import CodeValidatorParams
 from data_designer.engine.validators.base import BaseValidator, ValidationOutput, ValidationResult
-from data_designer.lazy_heavy_imports import pd, sqlfluff
-
-if TYPE_CHECKING:
-    import pandas as pd
-    import sqlfluff
 
 sqlfluff_logger = logging.getLogger("sqlfluff")
 sqlfluff_logger.setLevel(logging.WARNING)
@@ -25,7 +20,7 @@ class SQLValidator(BaseValidator):
         self.config = config
 
     def run_validation(self, data: list[dict]) -> ValidationResult:
-        df = pd.DataFrame(data)
+        df = lazy.pd.DataFrame(data)
 
         if len(df.columns) > 1:
             raise ValueError("SQL validator assumes single column input")
@@ -42,7 +37,7 @@ class SQLValidator(BaseValidator):
 
     def _validate_query(self, content: str) -> ValidationResult:
         try:
-            result = sqlfluff.lint(
+            result = lazy.sqlfluff.lint(
                 content,
                 dialect=CodeLang.parse_dialect(self.config.code_lang),
             )

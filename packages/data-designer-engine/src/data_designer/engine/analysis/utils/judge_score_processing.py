@@ -7,6 +7,7 @@ import logging
 from collections import defaultdict
 from typing import TYPE_CHECKING, Any
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.analysis.column_profilers import JudgeScoreDistributions, JudgeScoreSample
 from data_designer.config.analysis.column_statistics import (
     CategoricalDistribution,
@@ -15,7 +16,6 @@ from data_designer.config.analysis.column_statistics import (
     NumericalDistribution,
 )
 from data_designer.config.column_configs import LLMJudgeColumnConfig
-from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -54,7 +54,7 @@ def extract_judge_score_distributions(
                 return MissingValue.OUTPUT_FORMAT_ERROR
 
         try:
-            series = pd.Series(scores[name], name=name)
+            series = lazy.pd.Series(scores[name], name=name)
             cat_dist = CategoricalDistribution.from_series(series)
 
             # For judge scores, build a categorical histogram, since numerical scores are integers.
@@ -97,7 +97,7 @@ def sample_scores_and_reasoning(
     if num_samples <= 0:
         raise ValueError("num_samples must be greater than 0")
 
-    df_samples = pd.DataFrame({"score": scores, "reasoning": reasoning})
+    df_samples = lazy.pd.DataFrame({"score": scores, "reasoning": reasoning})
 
     if len(scores) <= num_samples:
         return [JudgeScoreSample(score=score, reasoning=reasoning) for score, reasoning in zip(scores, reasoning)]
@@ -109,7 +109,7 @@ def sample_scores_and_reasoning(
     # If more categories than samples, pick one sample from each of the most frequent categories
     if len(score_category_counts) >= num_samples:
         top_categories = score_category_counts.head(num_samples).index
-        samples = pd.concat(
+        samples = lazy.pd.concat(
             [df_samples[df_samples["score"] == cat].sample(n=1, random_state=random_seed) for cat in top_categories],
             ignore_index=True,
         )

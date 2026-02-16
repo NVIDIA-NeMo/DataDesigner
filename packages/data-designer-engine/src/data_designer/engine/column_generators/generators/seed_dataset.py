@@ -7,12 +7,12 @@ import functools
 import logging
 from typing import TYPE_CHECKING
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.seed import IndexRange, PartitionBlock, SamplingStrategy
 from data_designer.engine.column_generators.generators.base import FromScratchColumnGenerator, GenerationStrategy
 from data_designer.engine.column_generators.utils.errors import SeedDatasetError
 from data_designer.engine.dataset_builders.multi_column_configs import SeedDatasetMultiColumnConfig
 from data_designer.engine.processing.utils import concat_datasets
-from data_designer.lazy_heavy_imports import duckdb, pd
 from data_designer.logging import LOG_INDENT
 
 if TYPE_CHECKING:
@@ -118,14 +118,14 @@ class SeedDatasetColumnGenerator(FromScratchColumnGenerator[SeedDatasetMultiColu
                     f"{LOG_INDENT}selection: partition {self.config.selection_strategy.index + 1} of {self.config.selection_strategy.num_partitions}"
                 )
             logger.info(f"{LOG_INDENT}seed dataset size after selection: {self._index_range.size} records")
-        df_batch = pd.DataFrame()
-        df_sample = pd.DataFrame() if self._df_remaining is None else self._df_remaining
+        df_batch = lazy.pd.DataFrame()
+        df_sample = lazy.pd.DataFrame() if self._df_remaining is None else self._df_remaining
         num_zero_record_responses = 0
 
         while len(df_sample) < num_records:
             try:
                 df_batch = self._batch_reader.read_next_batch().to_pandas()
-                df_sample = pd.concat([df_sample, df_batch], ignore_index=True)
+                df_sample = lazy.pd.concat([df_sample, df_batch], ignore_index=True)
             except StopIteration:
                 self._reset_batch_reader(num_records)
 

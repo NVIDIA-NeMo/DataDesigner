@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 import re
 import subprocess
 from pathlib import Path
@@ -13,8 +15,8 @@ MAX_IMPORT_TIME_SECONDS = 6.0
 PERF_TEST_TIMEOUT_SECONDS = 30.0
 
 
-def test_import_performance():
-    """Test that average import time never exceeds 6 seconds (1 cold start + 4 warm cache runs)."""
+def test_import_performance() -> None:
+    """Test that average pure import time never exceeds 6 seconds (1 cold start + 4 warm cache runs)."""
     # Get the project root (where Makefile is located)
     # For workspace packages, need to go up to the workspace root
     project_root = Path(__file__).parent.parent.parent.parent
@@ -36,7 +38,9 @@ def test_import_performance():
             timeout=PERF_TEST_TIMEOUT_SECONDS,
         )
 
-        # Parse the output to extract import time
+        assert result.returncode == 0, f"perf-import failed on run {run + 1}:\n{result.stdout}\n{result.stderr}"
+
+        # Parse the output to extract pure-import time
         # Looking for line like: "  Total: 3.456s"
         match = re.search(r"Total:\s+([\d.]+)s", result.stdout)
         assert match, f"Could not parse import time from run {run + 1}:\n{result.stdout}"

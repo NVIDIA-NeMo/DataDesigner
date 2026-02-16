@@ -29,9 +29,9 @@ if TYPE_CHECKING:
 
 
 @patch("data_designer.config.utils.io_helpers.Path", autospec=True)
-@patch("data_designer.config.utils.io_helpers.pd.read_csv", autospec=True)
-@patch("data_designer.config.utils.io_helpers.pd.read_json", autospec=True)
-@patch("data_designer.config.utils.io_helpers.pd.read_parquet", autospec=True)
+@patch("data_designer.config.utils.io_helpers.lazy.pd.read_csv", autospec=True)
+@patch("data_designer.config.utils.io_helpers.lazy.pd.read_json", autospec=True)
+@patch("data_designer.config.utils.io_helpers.lazy.pd.read_parquet", autospec=True)
 def test_smart_load_dataframe(mock_read_parquet, mock_read_json, mock_read_csv, mock_path_cls, stub_dataframe):
     mock_read_parquet.return_value = stub_dataframe
     mock_read_json.return_value = stub_dataframe
@@ -349,7 +349,7 @@ def test_smart_load_yaml_rewrites_huggingface_blob_url(mock_requests: MagicMock)
     )
 
 
-@patch("data_designer.config.utils.io_helpers.pd.read_csv", autospec=True)
+@patch("data_designer.config.utils.io_helpers.lazy.pd.read_csv", autospec=True)
 def test_smart_load_dataframe_rewrites_github_blob_url(mock_read_csv: MagicMock, stub_dataframe: pd.DataFrame) -> None:
     mock_read_csv.return_value = stub_dataframe
 
@@ -358,7 +358,7 @@ def test_smart_load_dataframe_rewrites_github_blob_url(mock_read_csv: MagicMock,
     mock_read_csv.assert_called_once_with("https://raw.githubusercontent.com/org/repo/main/data.csv")
 
 
-@patch("data_designer.config.utils.io_helpers.pd.read_csv", autospec=True)
+@patch("data_designer.config.utils.io_helpers.lazy.pd.read_csv", autospec=True)
 def test_smart_load_dataframe_rewrites_github_blob_url_with_token(
     mock_read_csv: MagicMock, stub_dataframe: pd.DataFrame
 ) -> None:
@@ -369,7 +369,7 @@ def test_smart_load_dataframe_rewrites_github_blob_url_with_token(
     mock_read_csv.assert_called_once_with("https://raw.githubusercontent.com/org/repo/main/data.csv?token=secret123")
 
 
-@patch("data_designer.config.utils.io_helpers.pd.read_csv", autospec=True)
+@patch("data_designer.config.utils.io_helpers.lazy.pd.read_csv", autospec=True)
 def test_smart_load_dataframe_rewrites_huggingface_blob_url(
     mock_read_csv: MagicMock, stub_dataframe: pd.DataFrame
 ) -> None:

@@ -20,6 +20,7 @@ from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.base import ConfigBase
 from data_designer.config.column_types import DataDesignerColumnType
 from data_designer.config.models import ModelConfig, ModelProvider
@@ -34,15 +35,12 @@ from data_designer.config.utils.image_helpers import (
     is_image_url,
     load_image_path_to_base64,
 )
-from data_designer.lazy_heavy_imports import np, pd
 
 if TYPE_CHECKING:
-    import numpy as np
     import pandas as pd
 
     from data_designer.config.config_builder import DataDesignerConfigBuilder
     from data_designer.config.dataset_metadata import DatasetMetadata
-
 
 console = Console()
 
@@ -135,13 +133,13 @@ class WithRecordSamplerMixin:
 
     @cached_property
     def _record_sampler_dataset(self) -> pd.DataFrame:
-        if hasattr(self, "dataset") and self.dataset is not None and isinstance(self.dataset, pd.DataFrame):
+        if hasattr(self, "dataset") and self.dataset is not None and isinstance(self.dataset, lazy.pd.DataFrame):
             return self.dataset
         elif (
             hasattr(self, "load_dataset")
             and callable(self.load_dataset)
             and (dataset := self.load_dataset()) is not None
-            and isinstance(dataset, pd.DataFrame)
+            and isinstance(dataset, lazy.pd.DataFrame)
         ):
             return dataset
         else:
@@ -241,9 +239,9 @@ def display_sample_record(
     record_index: int | None = None,
     seed_column_names: list[str] | None = None,
 ):
-    if isinstance(record, (dict, pd.Series)):
-        record = pd.DataFrame([record]).iloc[0]
-    elif isinstance(record, pd.DataFrame):
+    if isinstance(record, (dict, lazy.pd.Series)):
+        record = lazy.pd.DataFrame([record]).iloc[0]
+    elif isinstance(record, lazy.pd.DataFrame):
         if record.shape[0] > 1:
             raise DatasetSampleDisplayError(
                 f"The record must be a single record. You provided a DataFrame with {record.shape[0]} records."
@@ -545,7 +543,7 @@ def convert_to_row_element(elem):
         elem = Pretty(json.loads(elem))
     except (TypeError, json.JSONDecodeError):
         pass
-    if isinstance(elem, (np.integer, np.floating, np.ndarray)):
+    if isinstance(elem, (lazy.np.integer, lazy.np.floating, lazy.np.ndarray)):
         elem = str(elem)
     elif isinstance(elem, (list, dict)):
         elem = Pretty(elem)

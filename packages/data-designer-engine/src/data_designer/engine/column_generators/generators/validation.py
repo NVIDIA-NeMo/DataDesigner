@@ -6,6 +6,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.column_configs import ValidationColumnConfig
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.utils.code_lang import SQL_DIALECTS, CodeLang
@@ -21,7 +22,6 @@ from data_designer.engine.validators import (
     SQLValidator,
     ValidationResult,
 )
-from data_designer.lazy_heavy_imports import pd
 from data_designer.logging import LOG_INDENT
 
 if TYPE_CHECKING:
@@ -99,8 +99,8 @@ class ValidationColumnGenerator(ColumnGeneratorFullColumn[ValidationColumnConfig
             else:
                 outputs_as_dicts = [output.model_dump(mode="json") for output in concatenated_outputs]
 
-        validation_results = pd.DataFrame({self.config.name: outputs_as_dicts})
-        return pd.concat([data, validation_results], axis=1)
+        validation_results = lazy.pd.DataFrame({self.config.name: outputs_as_dicts})
+        return lazy.pd.concat([data, validation_results], axis=1)
 
     def _validate_in_parallel(self, validator: BaseValidator, batched_records: list[list[dict]]) -> pd.DataFrame:
         """Run validation in parallel."""

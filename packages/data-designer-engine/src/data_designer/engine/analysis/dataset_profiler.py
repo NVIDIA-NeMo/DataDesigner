@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import Field, field_validator
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.analysis.column_profilers import ColumnProfilerConfigT
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
 from data_designer.config.base import ConfigBase, SingleColumnConfig
@@ -21,12 +22,10 @@ from data_designer.engine.analysis.utils.column_statistics_calculations import h
 from data_designer.engine.dataset_builders.multi_column_configs import DatasetBuilderColumnConfigT, MultiColumnConfig
 from data_designer.engine.registry.data_designer_registry import DataDesignerRegistry
 from data_designer.engine.resources.resource_provider import ResourceProvider
-from data_designer.lazy_heavy_imports import pa, pd
 from data_designer.logging import LOG_INDENT
 
 if TYPE_CHECKING:
     import pandas as pd
-    import pyarrow as pa
 
 logger = logging.getLogger(__name__)
 
@@ -106,10 +105,10 @@ class DataDesignerDatasetProfiler:
     def _convert_to_pyarrow_backend_if_needed(self, dataset: pd.DataFrame) -> pd.DataFrame:
         if not has_pyarrow_backend(dataset):
             try:
-                dataset = pa.Table.from_pandas(dataset).to_pandas(types_mapper=pd.ArrowDtype)
+                dataset = lazy.pa.Table.from_pandas(dataset).to_pandas(types_mapper=lazy.pd.ArrowDtype)
             except Exception as e:
                 # For ArrowTypeError, the second arg contains the more informative message
-                if isinstance(e, pa.lib.ArrowTypeError) and len(e.args) > 1:
+                if isinstance(e, lazy.pa.lib.ArrowTypeError) and len(e.args) > 1:
                     error_msg = str(e.args[1])
                 else:
                     error_msg = str(e)

@@ -6,6 +6,7 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.sampler_params import (
     BernoulliMixtureSamplerParams,
     BernoulliSamplerParams,
@@ -39,10 +40,8 @@ from data_designer.engine.sampling_gen.data_sources.errors import (
 )
 from data_designer.engine.sampling_gen.entities.dataset_based_person_fields import PERSONA_FIELDS, PII_FIELDS
 from data_designer.engine.sampling_gen.people_gen import PeopleGen
-from data_designer.lazy_heavy_imports import np, pd, scipy
 
 if TYPE_CHECKING:
-    import numpy as np
     import pandas as pd
     import scipy
 
@@ -139,14 +138,14 @@ class CategorySampler(TypeConversionMixin, Sampler[CategorySamplerParams]):
 class DatetimeSampler(DatetimeFormatMixin, Sampler[DatetimeSamplerParams]):
     def sample(self, num_samples: int) -> NumpyArray1dT:
         # Convert nanoseconds to seconds.
-        start_sec = pd.to_datetime(self.params.start).value // ONE_BILLION
-        end_sec = pd.to_datetime(self.params.end).value // ONE_BILLION
+        start_sec = lazy.pd.to_datetime(self.params.start).value // ONE_BILLION
+        end_sec = lazy.pd.to_datetime(self.params.end).value // ONE_BILLION
 
-        random_ns = (ONE_BILLION * self.rng.randint(start_sec, end_sec, num_samples, dtype=np.int64)).view(
+        random_ns = (ONE_BILLION * self.rng.randint(start_sec, end_sec, num_samples, dtype=lazy.np.int64)).view(
             "datetime64[ns]"
         )
 
-        return np.array(random_ns, dtype=f"datetime64[{self.params.unit}]")
+        return lazy.np.array(random_ns, dtype=f"datetime64[{self.params.unit}]")
 
 
 @SamplerRegistry.register(SamplerType.PERSON)
@@ -178,7 +177,7 @@ class PersonSampler(PassthroughMixin, Sampler[PersonSamplerParams]):
         if self._generator is None:
             raise ValueError("Generator not set. Please setup generator before sampling.")
 
-        samples = np.array(self._generator.generate(num_samples, **self._fixed_kwargs))
+        samples = lazy.np.array(self._generator.generate(num_samples, **self._fixed_kwargs))
         if len(samples) < num_samples:
             raise PersonSamplerConstraintsError(
                 f"🛑 Only {len(samples)} samples could be generated with the given settings: {self._fixed_kwargs!r}. "
@@ -208,7 +207,7 @@ class PersonFromFakerSampler(PassthroughMixin, Sampler[PersonFromFakerSamplerPar
         if self._generator is None:
             raise ValueError("Generator not set. Please setup generator before sampling.")
 
-        samples = np.array(self._generator.generate(num_samples, **self._fixed_kwargs))
+        samples = lazy.np.array(self._generator.generate(num_samples, **self._fixed_kwargs))
         if len(samples) < num_samples:
             raise ValueError(f"Only {len(samples)} samples could be generated given constraints {self._fixed_kwargs}.")
         return samples
@@ -230,15 +229,15 @@ class TimeDeltaSampler(DatetimeFormatMixin, Sampler[TimeDeltaSamplerParams]):
         if self.params.reference_column_name not in list(dataframe):
             raise ValueError(f"Columns `{self.params.reference_column_name}` not found in dataset")
 
-        dataframe.loc[index, column_name] = pd.to_datetime(
+        dataframe.loc[index, column_name] = lazy.pd.to_datetime(
             dataframe.loc[index, self.params.reference_column_name]
-        ) + pd.to_timedelta(self.sample(len(index)), unit=self.params.unit)
+        ) + lazy.pd.to_timedelta(self.sample(len(index)), unit=self.params.unit)
 
         return dataframe
 
     def sample(self, num_samples: int) -> NumpyArray1dT:
         deltas = self.rng.randint(self.params.dt_min, self.params.dt_max, num_samples)
-        return np.array(deltas, dtype=f"timedelta64[{self.params.unit}]")
+        return lazy.np.array(deltas, dtype=f"timedelta64[{self.params.unit}]")
 
 
 @SamplerRegistry.register(SamplerType.UUID)
@@ -256,7 +255,7 @@ class UUIDSampler(PassthroughMixin, Sampler[UUIDSamplerParams]):
             if uid not in uid_list:
                 uid_list.append(uid)
 
-        return np.array(uid_list)
+        return lazy.np.array(uid_list)
 
 
 #########################################
@@ -270,7 +269,7 @@ class ScipySampler(TypeConversionMixin, ScipyStatsSampler[ScipySamplerParams]):
 
     @property
     def distribution(self) -> scipy.stats.rv_continuous | scipy.stats.rv_discrete:
-        return getattr(scipy.stats, self.params.dist_name)(**self.params.dist_params)
+        return getattr(lazy.scipy.stats, self.params.dist_name)(**self.params.dist_params)
 
     def _validate(self) -> None:
         _validate_scipy_distribution(self.params.dist_name, self.params.dist_params)
@@ -280,14 +279,14 @@ class ScipySampler(TypeConversionMixin, ScipyStatsSampler[ScipySamplerParams]):
 class BernoulliSampler(TypeConversionMixin, ScipyStatsSampler[BernoulliSamplerParams]):
     @property
     def distribution(self) -> scipy.stats.rv_discrete:
-        return scipy.stats.bernoulli(p=self.params.p)
+        return lazy.scipy.stats.bernoulli(p=self.params.p)
 
 
 @SamplerRegistry.register(SamplerType.BERNOULLI_MIXTURE)
 class BernoulliMixtureSampler(TypeConversionMixin, Sampler[BernoulliMixtureSamplerParams]):
     def sample(self, num_samples: int) -> NumpyArray1dT:
-        return scipy.stats.bernoulli(p=self.params.p).rvs(size=num_samples) * getattr(
-            scipy.stats, self.params.dist_name
+        return lazy.scipy.stats.bernoulli(p=self.params.p).rvs(size=num_samples) * getattr(
+            lazy.scipy.stats, self.params.dist_name
         )(**self.params.dist_params).rvs(size=num_samples)
 
     def _validate(self) -> None:
@@ -298,28 +297,28 @@ class BernoulliMixtureSampler(TypeConversionMixin, Sampler[BernoulliMixtureSampl
 class BinomialSampler(TypeConversionMixin, ScipyStatsSampler[BinomialSamplerParams]):
     @property
     def distribution(self) -> scipy.stats.rv_discrete:
-        return scipy.stats.binom(n=self.params.n, p=self.params.p)
+        return lazy.scipy.stats.binom(n=self.params.n, p=self.params.p)
 
 
 @SamplerRegistry.register(SamplerType.GAUSSIAN)
 class GaussianSampler(TypeConversionMixin, ScipyStatsSampler[GaussianSamplerParams]):
     @property
     def distribution(self) -> scipy.stats.rv_continuous:
-        return scipy.stats.norm(loc=self.params.mean, scale=self.params.stddev)
+        return lazy.scipy.stats.norm(loc=self.params.mean, scale=self.params.stddev)
 
 
 @SamplerRegistry.register(SamplerType.POISSON)
 class PoissonSampler(TypeConversionMixin, ScipyStatsSampler[PoissonSamplerParams]):
     @property
     def distribution(self) -> scipy.stats.rv_discrete:
-        return scipy.stats.poisson(mu=self.params.mean)
+        return lazy.scipy.stats.poisson(mu=self.params.mean)
 
 
 @SamplerRegistry.register(SamplerType.UNIFORM)
 class UniformSampler(TypeConversionMixin, ScipyStatsSampler[UniformSamplerParams]):
     @property
     def distribution(self) -> scipy.stats.rv_continuous:
-        return scipy.stats.uniform(loc=self.params.low, scale=self.params.high - self.params.low)
+        return lazy.scipy.stats.uniform(loc=self.params.low, scale=self.params.high - self.params.low)
 
 
 ###################################################
@@ -333,14 +332,14 @@ def load_sampler(sampler_type: SamplerType, **params) -> DataSource:
 
 
 def _validate_scipy_distribution(dist_name: str, dist_params: dict) -> None:
-    if not hasattr(scipy.stats, dist_name):
+    if not hasattr(lazy.scipy.stats, dist_name):
         raise InvalidSamplerParamsError(f"Distribution {dist_name} not found in scipy.stats")
-    if not hasattr(getattr(scipy.stats, dist_name), "rvs"):
+    if not hasattr(getattr(lazy.scipy.stats, dist_name), "rvs"):
         raise InvalidSamplerParamsError(
             f"Distribution {dist_name} does not have a `rvs` method, which is required for sampling."
         )
     try:
-        getattr(scipy.stats, dist_name)(**dist_params)
+        getattr(lazy.scipy.stats, dist_name)(**dist_params)
     except Exception:
         raise InvalidSamplerParamsError(
             f"Distribution parameters {dist_params} are not a valid for distribution '{dist_name}'"

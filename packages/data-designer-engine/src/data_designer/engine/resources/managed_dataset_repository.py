@@ -13,12 +13,11 @@ from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.utils.constants import LOCALES_WITH_MANAGED_DATASETS
 from data_designer.engine.resources.managed_storage import LocalBlobStorageProvider, ManagedBlobStorage
-from data_designer.lazy_heavy_imports import duckdb, pd
 
 if TYPE_CHECKING:
-    import duckdb
     import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -105,7 +104,7 @@ class DuckDBDatasetRepository(ManagedDatasetRepository):
         self._use_cache = use_cache
 
         # Configure database and register tables
-        self.db = duckdb.connect(config=self._config)
+        self.db = lazy.duckdb.connect(config=self._config)
 
         # Dataset registration completion is tracked with an event. Consumers can
         # wait on this event to ensure the catalog is ready.

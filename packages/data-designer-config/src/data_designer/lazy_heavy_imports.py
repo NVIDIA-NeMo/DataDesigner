@@ -11,10 +11,14 @@ The below mapping for lazy imports represents all third-party packages that, if 
 Data Designer, we strongly recommend using this lazy imports pattern to improve import performance.
 
 Usage:
-    from data_designer.lazy_heavy_imports import pd, np
+    import data_designer.lazy_heavy_imports as lazy
 
-    df = pd.DataFrame(...)
-    arr = np.array([1, 2, 3])
+    df = lazy.pd.DataFrame(...)
+    arr = lazy.np.array([1, 2, 3])
+
+Important:
+    Avoid `from data_designer.lazy_heavy_imports import pd`.
+    That import style resolves the attribute immediately and eagerly imports the heavy dependency.
 """
 
 from __future__ import annotations
@@ -48,7 +52,9 @@ def __getattr__(name: str) -> object:
     """
     if name in _LAZY_IMPORTS:
         module_name = _LAZY_IMPORTS[name]
-        return importlib.import_module(module_name)
+        module = importlib.import_module(module_name)
+        globals()[name] = module
+        return module
 
     raise AttributeError(f"module 'data_designer.lazy_heavy_imports' has no attribute {name!r}")
 

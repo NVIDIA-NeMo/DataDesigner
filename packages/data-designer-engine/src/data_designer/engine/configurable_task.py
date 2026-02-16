@@ -5,17 +5,14 @@ from __future__ import annotations
 
 from abc import ABC
 from pathlib import Path
-from typing import TYPE_CHECKING, Generic, TypeVar, get_origin
+from typing import Generic, TypeVar, get_origin
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.base import ConfigBase
 from data_designer.engine.resources.resource_provider import ResourceProvider
 from data_designer.engine.storage.artifact_storage import ArtifactStorage
-from data_designer.lazy_heavy_imports import pd
 
-if TYPE_CHECKING:
-    import pandas as pd
-
-DataT = TypeVar("DataT", dict, pd.DataFrame)
+DataT = TypeVar("DataT", dict, lazy.pd.DataFrame)
 TaskConfigT = TypeVar("ConfigT", bound=ConfigBase)
 
 

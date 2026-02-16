@@ -4,22 +4,18 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.column_types import ColumnConfigT
 from data_designer.engine.column_generators.utils.generator_classification import column_type_used_in_execution_dag
 from data_designer.engine.dataset_builders.utils.errors import DAGCircularDependencyError
-from data_designer.lazy_heavy_imports import nx
 from data_designer.logging import LOG_INDENT
-
-if TYPE_CHECKING:
-    import networkx as nx
 
 logger = logging.getLogger(__name__)
 
 
 def topologically_sort_column_configs(column_configs: list[ColumnConfigT]) -> list[ColumnConfigT]:
-    dag = nx.DiGraph()
+    dag = lazy.nx.DiGraph()
 
     non_dag_column_config_list = [
         col for col in column_configs if not column_type_used_in_execution_dag(col.column_type)
@@ -50,7 +46,7 @@ def topologically_sort_column_configs(column_configs: list[ColumnConfigT]) -> li
                         dag.add_edge(parent, name)
                         break
 
-    if not nx.is_directed_acyclic_graph(dag):
+    if not lazy.nx.is_directed_acyclic_graph(dag):
         raise DAGCircularDependencyError(
             "🛑 The Data Designer column configurations contain cyclic dependencies. Please "
             "inspect the column configurations and ensure they can be sorted without "
@@ -58,6 +54,6 @@ def topologically_sort_column_configs(column_configs: list[ColumnConfigT]) -> li
         )
 
     sorted_columns = non_dag_column_config_list
-    sorted_columns.extend([dag_column_config_dict[n] for n in list(nx.topological_sort(dag))])
+    sorted_columns.extend([dag_column_config_dict[n] for n in list(lazy.nx.topological_sort(dag))])
 
     return sorted_columns

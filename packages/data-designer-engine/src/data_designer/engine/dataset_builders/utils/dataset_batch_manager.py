@@ -8,13 +8,12 @@ import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Container, Iterator
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.engine.dataset_builders.utils.errors import DatasetBatchManagementError
 from data_designer.engine.storage.artifact_storage import ArtifactStorage, BatchStage
-from data_designer.lazy_heavy_imports import pd, pq
 
 if TYPE_CHECKING:
     import pandas as pd
-    import pyarrow.parquet as pq
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +89,7 @@ class DatasetBatchManager:
                     "target_num_records": sum(self.num_records_list),
                     "total_num_batches": self.num_batches,
                     "buffer_size": self._buffer_size,
-                    "schema": {field.name: str(field.type) for field in pq.read_schema(final_file_path)},
+                    "schema": {field.name: str(field.type) for field in lazy.pq.read_schema(final_file_path)},
                     "file_paths": self.artifact_storage.get_file_paths(),
                     "num_completed_batches": self._current_batch_number + 1,
                     "dataset_name": self.artifact_storage.dataset_name,
@@ -131,7 +130,7 @@ class DatasetBatchManager:
 
     def get_current_batch(self, *, as_dataframe: bool = False) -> pd.DataFrame | list[dict]:
         if as_dataframe:
-            return pd.DataFrame(self._buffer)
+            return lazy.pd.DataFrame(self._buffer)
         return self._buffer
 
     def iter_current_batch(self) -> Iterator[tuple[int, dict]]:
@@ -179,7 +178,7 @@ class DatasetBatchManager:
         try:
             file_path = self.artifact_storage.write_batch_to_parquet_file(
                 batch_number=self._current_batch_number,
-                dataframe=pd.DataFrame(self._buffer),
+                dataframe=lazy.pd.DataFrame(self._buffer),
                 batch_stage=BatchStage.PARTIAL_RESULT,
             )
             return file_path
