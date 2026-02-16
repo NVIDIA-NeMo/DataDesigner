@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
@@ -9,7 +9,8 @@ from data_designer.cli.services.introspection.method_inspector import MethodInfo
 from data_designer.cli.services.introspection.pydantic_inspector import FieldDetail, ModelSchema
 
 _AGENT_GUIDANCE_FOOTER = (
-    "Use `data-designer introspect <subcommand>` for API details.\n"
+    "Use `data-designer types <subcommand>` to explore configuration types.\n"
+    "Use `data-designer reference <subcommand>` for builder, imports, and overview.\n"
     "Only read source files directly if these commands don't cover your need."
 )
 
@@ -201,13 +202,13 @@ def format_overview_text(type_counts: dict[str, int], builder_methods: list[Meth
         lines.append("")
 
     lines.append("Quick Start Commands:")
-    lines.append("  data-designer introspect columns --list")
-    lines.append("  data-designer introspect columns all")
-    lines.append("  data-designer introspect columns llm-text")
-    lines.append("  data-designer introspect samplers category")
-    lines.append("  data-designer introspect builder")
-    lines.append("  data-designer introspect interface")
-    lines.append("  data-designer introspect imports")
+    lines.append("  data-designer types columns")
+    lines.append("  data-designer types columns all")
+    lines.append("  data-designer types columns llm-text")
+    lines.append("  data-designer types samplers category")
+    lines.append("  data-designer reference builder")
+    lines.append("  data-designer reference interface")
+    lines.append("  data-designer reference imports")
 
     return "\n".join(lines)
 
@@ -310,25 +311,44 @@ def format_interface_json(
 # ---------------------------------------------------------------------------
 
 
+_CONFIG_MODULE = "data_designer.config"
+_INTERFACE_MODULE = "data_designer.interface"
+_CONFIG_ALIAS = "dd"
+
+_RECOMMENDED_IMPORTS = [
+    f"import {_CONFIG_MODULE} as {_CONFIG_ALIAS}",
+    f"from {_INTERFACE_MODULE} import DataDesigner",
+]
+
+
 def format_imports_text(categories: dict[str, list[dict[str, str]]]) -> str:
-    """Format categorized import names as readable text with import statements."""
+    """Format categorized import names as readable text with access patterns."""
     lines: list[str] = []
     lines.append("Data Designer Import Reference")
     lines.append("=" * 30)
     lines.append("")
 
-    for category, entries in sorted(categories.items()):
-        lines.append(f"{category} ({len(entries)} names):")
-        by_module: dict[str, list[str]] = {}
-        for entry in entries:
-            by_module.setdefault(entry["module"], []).append(entry["name"])
+    lines.append("Recommended imports:")
+    for imp in _RECOMMENDED_IMPORTS:
+        lines.append(f"  {imp}")
+    lines.append("")
 
-        for module, names in sorted(by_module.items()):
-            sorted_names = sorted(names)
+    for category, entries in sorted(categories.items()):
+        count = len(entries)
+        noun = "name" if count == 1 else "names"
+        lines.append(f"{category} ({count} {noun}):")
+
+        is_config = any(e["module"] == _CONFIG_MODULE for e in entries)
+        if is_config:
+            for entry in sorted(entries, key=lambda e: e["name"]):
+                lines.append(f"  {_CONFIG_ALIAS}.{entry['name']}")
+        else:
+            sorted_names = sorted(e["name"] for e in entries)
             if len(sorted_names) <= 3:
                 names_str = ", ".join(sorted_names)
-                lines.append(f"  from {module} import {names_str}")
+                lines.append(f"  from {entries[0]['module']} import {names_str}")
             else:
+                module = entries[0]["module"]
                 lines.append(f"  from {module} import (")
                 for name in sorted_names:
                     lines.append(f"      {name},")
@@ -339,5 +359,17 @@ def format_imports_text(categories: dict[str, list[dict[str, str]]]) -> str:
 
 
 def format_imports_json(categories: dict[str, list[dict[str, str]]]) -> dict[str, Any]:
-    """Return the categories dict as-is for JSON output."""
-    return categories
+    """Return a structured JSON with recommended imports, alias, and categorized names."""
+    structured: dict[str, Any] = {
+        "recommended_imports": _RECOMMENDED_IMPORTS,
+        "config_alias": _CONFIG_ALIAS,
+        "categories": {},
+    }
+    for category, entries in sorted(categories.items()):
+        module = entries[0]["module"] if entries else _CONFIG_MODULE
+        structured["categories"][category] = {
+            "module": module,
+            "access_pattern": f"{_CONFIG_ALIAS}.<name>" if module == _CONFIG_MODULE else f"from {module} import <name>",
+            "names": sorted(e["name"] for e in entries),
+        }
+    return structured

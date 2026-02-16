@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
@@ -117,7 +117,7 @@ def test_usage_validate_unsupported_extension_is_actionable(tmp_path: Path) -> N
 
 
 def test_usage_introspect_columns_json_contract() -> None:
-    result = runner.invoke(app, ["introspect", "columns", "llm-text", "--format", "json"], color=False)
+    result = runner.invoke(app, ["types", "columns", "llm-text", "--format", "json"], color=False)
     assert result.exit_code == 0
 
     payload = json.loads(result.output)
@@ -127,7 +127,7 @@ def test_usage_introspect_columns_json_contract() -> None:
 
 
 def test_usage_introspect_unknown_type_error_is_actionable() -> None:
-    result = runner.invoke(app, ["introspect", "columns", "nonexistent"], color=False)
+    result = runner.invoke(app, ["types", "columns", "nonexistent"], color=False)
     normalized = _normalize_text(result.output)
 
     assert result.exit_code == 1
