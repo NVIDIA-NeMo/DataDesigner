@@ -3,29 +3,57 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from data_designer.cli.services.introspection.method_inspector import MethodInfo, ParamInfo
 from data_designer.cli.services.introspection.pydantic_inspector import FieldDetail, ModelSchema
 
+_AGENT_GUIDANCE_FOOTER = (
+    "Use `data-designer introspect <subcommand>` for API details.\n"
+    "Only read source files directly if these commands don't cover your need."
+)
 
-def _format_field_text(field: FieldDetail, indent: int = 4) -> list[str]:
-    """Format a single field as YAML-style text lines, recursing into nested schemas."""
+
+def _format_field_text(field: FieldDetail, indent: int = 4, seen_schemas: set[str] | None = None) -> list[str]:
+    """Format a single field as YAML-style text lines, recursing into nested schemas.
+
+    When ``seen_schemas`` is provided, nested schemas that have already been rendered
+    are replaced with a short back-reference to reduce output duplication.
+    """
     pad = " " * indent
     lines: list[str] = []
-    lines.append(f"{pad}{field.name}:")
-    lines.append(f"{pad}  type: {field.type_str}")
+    header = f"{pad}{field.name}: {field.type_str}"
+    if field.default is not None:
+        header += f" = {field.default}"
+    if field.required:
+        header += "  [required]"
+    lines.append(header)
     if field.description:
         lines.append(f"{pad}  description: {field.description}")
     if field.enum_values:
         lines.append(f"{pad}  values: [{', '.join(field.enum_values)}]")
+    if field.constraints:
+        constraint_parts = [f"{k}={v}" for k, v in field.constraints.items()]
+        lines.append(f"{pad}  constraints: {', '.join(constraint_parts)}")
     if field.nested_schema:
-        lines.append(f"{pad}  schema ({field.nested_schema.class_name}):")
-        for nested_field in field.nested_schema.fields:
-            lines.extend(_format_field_text(nested_field, indent=indent + 4))
+        schema_name = field.nested_schema.class_name
+        if seen_schemas is not None and schema_name in seen_schemas:
+            lines.append(f"{pad}  schema: (see {schema_name} above)")
+        else:
+            if seen_schemas is not None:
+                seen_schemas.add(schema_name)
+            lines.append(f"{pad}  schema ({schema_name}):")
+            for nested_field in field.nested_schema.fields:
+                lines.extend(_format_field_text(nested_field, indent=indent + 4, seen_schemas=seen_schemas))
     return lines
 
 
-def format_model_schema_text(schema: ModelSchema, indent: int = 0) -> str:
-    """Format a ModelSchema as YAML-style text for backward compatibility with the existing skill scripts."""
+def format_model_schema_text(schema: ModelSchema, indent: int = 0, seen_schemas: set[str] | None = None) -> str:
+    """Format a ModelSchema as YAML-style text for backward compatibility with the existing skill scripts.
+
+    When ``seen_schemas`` is provided, nested schemas that have already been rendered
+    across prior calls are replaced with a short back-reference.
+    """
     lines: list[str] = []
     pad = " " * indent
     lines.append(f"{pad}{schema.class_name}:")
@@ -34,7 +62,7 @@ def format_model_schema_text(schema: ModelSchema, indent: int = 0) -> str:
     lines.append(f"{pad}  description: {schema.description}")
     lines.append(f"{pad}  fields:")
     for field in schema.fields:
-        lines.extend(_format_field_text(field, indent=indent + 4))
+        lines.extend(_format_field_text(field, indent=indent + 4, seen_schemas=seen_schemas))
     return "\n".join(lines)
 
 
@@ -43,11 +71,16 @@ def _format_field_json(field: FieldDetail) -> dict:
     result: dict = {
         "name": field.name,
         "type": field.type_str,
+        "required": field.required,
     }
+    if field.default is not None:
+        result["default"] = field.default
     if field.description:
         result["description"] = field.description
     if field.enum_values:
         result["values"] = field.enum_values
+    if field.constraints:
+        result["constraints"] = field.constraints
     if field.nested_schema:
         result["schema"] = format_model_schema_json(field.nested_schema)
     return result
@@ -168,11 +201,13 @@ def format_overview_text(type_counts: dict[str, int], builder_methods: list[Meth
         lines.append("")
 
     lines.append("Quick Start Commands:")
-    lines.append("  data-designer agent-context columns --list")
-    lines.append("  data-designer agent-context columns all")
-    lines.append("  data-designer agent-context columns llm-text")
-    lines.append("  data-designer agent-context samplers category")
-    lines.append("  data-designer agent-context builder")
+    lines.append("  data-designer introspect columns --list")
+    lines.append("  data-designer introspect columns all")
+    lines.append("  data-designer introspect columns llm-text")
+    lines.append("  data-designer introspect samplers category")
+    lines.append("  data-designer introspect builder")
+    lines.append("  data-designer introspect interface")
+    lines.append("  data-designer introspect imports")
 
     return "\n".join(lines)
 
@@ -180,3 +215,129 @@ def format_overview_text(type_counts: dict[str, int], builder_methods: list[Meth
 def _short_sig(method: MethodInfo) -> str:
     """Create a compact signature like 'add_column(...)' for overview display."""
     return f"{method.name}(...)"
+
+
+# ---------------------------------------------------------------------------
+# Namespace / code-structure formatters
+# ---------------------------------------------------------------------------
+
+
+def _render_tree_lines(node: dict[str, Any], prefix: str = "", is_last: bool = True) -> list[str]:
+    """Recursively render a namespace tree node into box-drawing lines."""
+    connector = "└── " if is_last else "├── "
+    suffix = "/" if node["is_package"] else ".py"
+    lines: list[str] = [f"{prefix}{connector}{node['name']}{suffix}"]
+
+    children = node.get("children", [])
+    child_prefix = prefix + ("    " if is_last else "│   ")
+    for i, child in enumerate(children):
+        lines.extend(_render_tree_lines(child, child_prefix, is_last=(i == len(children) - 1)))
+    return lines
+
+
+def format_namespace_text(data: dict[str, Any]) -> str:
+    """Format a namespace tree as a text tree diagram with box-drawing characters."""
+    lines: list[str] = []
+    lines.append("data_designer code structure")
+    lines.append("=" * 28)
+    lines.append("")
+
+    paths = data.get("paths", [])
+    if paths:
+        lines.append("Install path:")
+        for p in paths:
+            lines.append(f"  {p}")
+        lines.append("")
+
+    tree = data["tree"]
+    lines.append(f"{tree['name']}/")
+    children = tree.get("children", [])
+    for i, child in enumerate(children):
+        lines.extend(_render_tree_lines(child, prefix="", is_last=(i == len(children) - 1)))
+
+    lines.append("")
+    lines.append(_AGENT_GUIDANCE_FOOTER)
+    return "\n".join(lines)
+
+
+def format_namespace_json(data: dict[str, Any]) -> dict[str, Any]:
+    """Return the namespace tree dict as-is for JSON output."""
+    return data
+
+
+# ---------------------------------------------------------------------------
+# Interface formatters
+# ---------------------------------------------------------------------------
+
+
+def format_interface_text(
+    classes_with_methods: list[tuple[str, list[MethodInfo]]],
+    pydantic_schemas: list[ModelSchema],
+) -> str:
+    """Format interface classes as readable text for agent consumption."""
+    lines: list[str] = []
+    lines.append("Data Designer Interface Reference")
+    lines.append("=" * 34)
+    lines.append("")
+
+    for class_name, methods in classes_with_methods:
+        lines.append(format_method_info_text(methods, class_name=class_name))
+        lines.append("")
+
+    for schema in pydantic_schemas:
+        lines.append(format_model_schema_text(schema))
+        lines.append("")
+
+    return "\n".join(lines).rstrip()
+
+
+def format_interface_json(
+    classes_with_methods: list[tuple[str, list[MethodInfo]]],
+    pydantic_schemas: list[ModelSchema],
+) -> dict[str, Any]:
+    """Convert interface classes to a JSON-serializable dict."""
+    methods_dict: dict[str, list[dict]] = {}
+    for class_name, methods in classes_with_methods:
+        methods_dict[class_name] = format_method_info_json(methods)
+
+    schemas_list: list[dict] = [format_model_schema_json(s) for s in pydantic_schemas]
+
+    return {"methods": methods_dict, "schemas": schemas_list}
+
+
+# ---------------------------------------------------------------------------
+# Imports formatters
+# ---------------------------------------------------------------------------
+
+
+def format_imports_text(categories: dict[str, list[dict[str, str]]]) -> str:
+    """Format categorized import names as readable text with import statements."""
+    lines: list[str] = []
+    lines.append("Data Designer Import Reference")
+    lines.append("=" * 30)
+    lines.append("")
+
+    for category, entries in sorted(categories.items()):
+        lines.append(f"{category} ({len(entries)} names):")
+        by_module: dict[str, list[str]] = {}
+        for entry in entries:
+            by_module.setdefault(entry["module"], []).append(entry["name"])
+
+        for module, names in sorted(by_module.items()):
+            sorted_names = sorted(names)
+            if len(sorted_names) <= 3:
+                names_str = ", ".join(sorted_names)
+                lines.append(f"  from {module} import {names_str}")
+            else:
+                lines.append(f"  from {module} import (")
+                for name in sorted_names:
+                    lines.append(f"      {name},")
+                lines.append("  )")
+        lines.append("")
+
+    return "\n".join(lines).rstrip()
+
+
+def format_imports_json(categories: dict[str, list[dict[str, str]]]) -> dict[str, Any]:
+    """Return the categories dict as-is for JSON output."""
+    return categories
