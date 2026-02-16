@@ -30,6 +30,8 @@ class SeedSource(BaseModel, ABC):
 
 
 class LocalFileSeedSource(SeedSource):
+    """Seed source that reads data from a local file (e.g., Parquet, CSV, JSONL)."""
+
     seed_type: Literal["local"] = Field(
         default="local", description="Seed source type discriminator, always 'local' for local file sources"
     )
@@ -55,6 +57,8 @@ class LocalFileSeedSource(SeedSource):
 
 
 class HuggingFaceSeedSource(SeedSource):
+    """Seed source that reads data from a HuggingFace dataset repository."""
+
     seed_type: Literal["hf"] = Field(
         default="hf", description="Seed source type discriminator, always 'hf' for HuggingFace sources"
     )
