@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib
 import inspect
+import logging
 import pkgutil
 from enum import Enum
 from typing import Any, Literal, get_args, get_origin
@@ -14,6 +15,8 @@ import data_designer.config as dd
 import data_designer.interface as interface_mod
 from data_designer.config.preview_results import PreviewResults
 from data_designer.config.run_config import RunConfig
+
+logger = logging.getLogger(__name__)
 
 
 def _walk_namespace(
@@ -46,6 +49,7 @@ def _walk_namespace(
                     list(sub_path), full_name, max_depth, current_depth + 1, import_errors
                 )
             except Exception as e:
+                logger.debug("Failed to import %s during namespace discovery.", full_name, exc_info=True)
                 import_errors.append({"module": full_name, "message": str(e)})
         children.append(node)
 
