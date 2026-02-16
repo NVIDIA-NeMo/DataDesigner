@@ -1,9 +1,10 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
 
 import json
+from enum import Enum
 
 import typer
 
@@ -39,7 +40,14 @@ from data_designer.cli.services.introspection.pydantic_inspector import build_mo
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 
 
-class AgentContextController:
+class OutputFormat(str, Enum):
+    """Supported output formats for introspect commands."""
+
+    TEXT = "text"
+    JSON = "json"
+
+
+class IntrospectionController:
     """Controller for introspect CLI commands.
 
     Orchestrates discovery, inspection, formatting, and output for all
@@ -49,26 +57,24 @@ class AgentContextController:
     def __init__(self, output_format: str = "text") -> None:
         self._format = output_format
 
-    def show_columns(self, type_name: str | None, list_mode: bool) -> None:
+    def show_columns(self, type_name: str | None) -> None:
         """Show column configuration types."""
         items = discover_column_configs()
         self._show_typed_items(
             items=items,
             type_name=type_name,
-            list_mode=list_mode,
             type_key="column_type",
             type_label="column_type",
             class_label="config_class",
             header_title="Data Designer Column Types Reference",
         )
 
-    def show_samplers(self, type_name: str | None, list_mode: bool) -> None:
+    def show_samplers(self, type_name: str | None) -> None:
         """Show sampler types and their param classes."""
         items = discover_sampler_types()
         self._show_typed_items(
             items=items,
             type_name=type_name,
-            list_mode=list_mode,
             type_key="sampler_type",
             type_label="sampler_type",
             class_label="params_class",
@@ -77,13 +83,12 @@ class AgentContextController:
             uppercase_value=True,
         )
 
-    def show_validators(self, type_name: str | None, list_mode: bool) -> None:
+    def show_validators(self, type_name: str | None) -> None:
         """Show validator types and their param classes."""
         items = discover_validator_types()
         self._show_typed_items(
             items=items,
             type_name=type_name,
-            list_mode=list_mode,
             type_key="validator_type",
             type_label="validator_type",
             class_label="params_class",
@@ -92,13 +97,12 @@ class AgentContextController:
             uppercase_value=True,
         )
 
-    def show_processors(self, type_name: str | None, list_mode: bool) -> None:
+    def show_processors(self, type_name: str | None) -> None:
         """Show processor types and their config classes."""
         items = discover_processor_configs()
         self._show_typed_items(
             items=items,
             type_name=type_name,
-            list_mode=list_mode,
             type_key="processor_type",
             type_label="processor_type",
             class_label="config_class",
@@ -249,7 +253,6 @@ class AgentContextController:
         self,
         items: dict[str, type],
         type_name: str | None,
-        list_mode: bool,
         type_key: str,
         type_label: str,
         class_label: str,
@@ -258,7 +261,7 @@ class AgentContextController:
         uppercase_value: bool = False,
     ) -> None:
         """Shared logic for type-based commands (columns, samplers, validators, processors)."""
-        if list_mode or type_name is None:
+        if type_name is None:
             if self._format == "json":
                 typer.echo(json.dumps({k: v.__name__ for k, v in sorted(items.items())}, indent=2))
             else:
