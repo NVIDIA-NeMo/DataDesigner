@@ -338,6 +338,15 @@ def test_show_seeds_json_includes_enum_values(capsys: pytest.CaptureFixture[str]
     assert "ordered" in enum_entries[0]["values"] or "shuffle" in enum_entries[0]["values"]
 
 
+def test_show_seeds_text_uses_enum_values_not_names(capsys: pytest.CaptureFixture[str]) -> None:
+    """Text output for seeds uses enum .value (e.g. ordered, shuffle) for parity with JSON."""
+    controller = IntrospectionController(output_format="text")
+    controller.show_seeds()
+    captured = capsys.readouterr()
+    assert "SamplingStrategy" in captured.out
+    assert "values: [ordered, shuffle]" in captured.out or "values: [shuffle, ordered]" in captured.out
+
+
 # ---------------------------------------------------------------------------
 # _match_category
 # ---------------------------------------------------------------------------
