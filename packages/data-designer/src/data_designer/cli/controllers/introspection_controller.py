@@ -346,7 +346,7 @@ class IntrospectionController:
                     if cls.__doc__:
                         lines.append(f"  description: {cls.__doc__.strip().split(chr(10))[0]}")
                     if hasattr(cls, "__members__"):
-                        members = [m.name for m in cls]
+                        members = [str(m.value) for m in cls]
                         lines.append(f"  values: [{', '.join(members)}]")
                 lines.append("")
             typer.echo("\n".join(lines))

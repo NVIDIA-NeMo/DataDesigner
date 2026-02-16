@@ -203,10 +203,7 @@ def _default_to_json(value: Any) -> Any:
     if isinstance(value, Enum):
         return value.value
     if isinstance(value, (list, dict)):
-        try:
-            return value
-        except Exception:
-            pass
+        return value
     return repr(value)
 
 
