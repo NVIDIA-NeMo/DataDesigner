@@ -15,6 +15,11 @@ _AGENT_GUIDANCE_FOOTER = (
 )
 
 
+def _schema_dedupe_key(schema: ModelSchema) -> str:
+    """Return a stable key used for nested-schema deduplication in text output."""
+    return schema.schema_ref or schema.class_name
+
+
 def _format_field_text(field: FieldDetail, indent: int = 4, seen_schemas: set[str] | None = None) -> list[str]:
     """Format a single field as YAML-style text lines, recursing into nested schemas.
 
@@ -41,12 +46,13 @@ def _format_field_text(field: FieldDetail, indent: int = 4, seen_schemas: set[st
         constraint_parts = [f"{k}={v}" for k, v in field.constraints.items()]
         lines.append(f"{pad}  constraints: {', '.join(constraint_parts)}")
     if field.nested_schema:
+        schema_key = _schema_dedupe_key(field.nested_schema)
         schema_name = field.nested_schema.class_name
-        if seen_schemas is not None and schema_name in seen_schemas:
+        if seen_schemas is not None and schema_key in seen_schemas:
             lines.append(f"{pad}  schema: (see {schema_name} above)")
         else:
             if seen_schemas is not None:
-                seen_schemas.add(schema_name)
+                seen_schemas.add(schema_key)
             lines.append(f"{pad}  schema ({schema_name}):")
             for nested_field in field.nested_schema.fields:
                 lines.extend(_format_field_text(nested_field, indent=indent + 4, seen_schemas=seen_schemas))

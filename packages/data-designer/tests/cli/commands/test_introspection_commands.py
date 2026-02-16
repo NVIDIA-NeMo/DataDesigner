@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from typer.testing import CliRunner
 
 from data_designer.cli.main import app
@@ -68,7 +69,14 @@ def test_columns_nonexistent_exits_with_error() -> None:
 def test_samplers_specific() -> None:
     result = runner.invoke(app, ["types", "samplers", "category"])
     assert result.exit_code == 0
-    assert "CATEGORY" in result.output
+    assert "sampler_type: category" in result.output
+
+
+def test_samplers_all_case_insensitive() -> None:
+    result = runner.invoke(app, ["types", "samplers", "ALL"])
+    assert result.exit_code == 0
+    assert "Data Designer Sampler Types Reference" in result.output
+    assert "sampler_type: category" in result.output
 
 
 def test_samplers_list() -> None:
@@ -76,6 +84,24 @@ def test_samplers_list() -> None:
     assert result.exit_code == 0
     assert "category" in result.output
     assert "data-designer types samplers" in result.output
+
+
+# ---------------------------------------------------------------------------
+# validators
+# ---------------------------------------------------------------------------
+
+
+def test_validators_specific() -> None:
+    result = runner.invoke(app, ["types", "validators", "code"])
+    assert result.exit_code == 0
+    assert "validator_type: code" in result.output
+
+
+def test_validators_all_case_insensitive() -> None:
+    result = runner.invoke(app, ["types", "validators", "ALL"])
+    assert result.exit_code == 0
+    assert "Data Designer Validator Types Reference" in result.output
+    assert "validator_type: code" in result.output
 
 
 # ---------------------------------------------------------------------------
@@ -272,6 +298,31 @@ def test_imports_json() -> None:
     assert "recommended_imports" in data
     assert "categories" in data
     assert len(data["categories"]) > 0
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["types", "columns", "all"],
+        ["types", "samplers", "all"],
+        ["types", "validators", "all"],
+        ["types", "processors", "all"],
+        ["types", "models"],
+        ["types", "constraints"],
+        ["types", "seeds"],
+        ["types", "mcp"],
+        ["reference", "overview"],
+        ["reference", "builder"],
+        ["reference", "interface"],
+        ["reference", "imports"],
+        ["reference", "code-structure"],
+    ],
+)
+def test_json_contract_for_all_introspection_commands(args: list[str]) -> None:
+    result = runner.invoke(app, [*args, "--format", "json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload is not None
 
 
 # ---------------------------------------------------------------------------
