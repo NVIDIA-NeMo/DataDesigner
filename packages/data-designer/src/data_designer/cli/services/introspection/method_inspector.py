@@ -23,6 +23,14 @@ class MethodInfo:
     description: str
     return_type: str
     parameters: list[ParamInfo] = field(default_factory=list)
+    is_classmethod: bool = False
+
+
+@dataclass
+class PropertyInfo:
+    name: str
+    return_type: str
+    description: str
 
 
 def _parse_google_docstring_args(docstring: str | None) -> dict[str, str]:
@@ -206,8 +214,22 @@ def _is_private(name: str) -> bool:
     return name.startswith("_") and not (name.startswith("__") and name.endswith("__"))
 
 
+_DEFAULT_INIT_DOCSTRING = "Initialize self. See help(type(self)) for accurate signature."
+
+
+def _is_default_init_docstring(docstring: str | None) -> bool:
+    """Check if a docstring is the unhelpful default __init__ docstring."""
+    if not docstring:
+        return False
+    normalized = " ".join(docstring.strip().split())
+    return normalized == _DEFAULT_INIT_DOCSTRING
+
+
 def inspect_class_methods(cls: type, include_private: bool = False) -> list[MethodInfo]:
     """Introspect public methods of a class using inspect.signature() and docstring parsing.
+
+    Detects regular methods, classmethods, and handles __init__ docstring fallback
+    to the class docstring when the default is unhelpful.
 
     Args:
         cls: The class to introspect.
@@ -217,8 +239,19 @@ def inspect_class_methods(cls: type, include_private: bool = False) -> list[Meth
         List of MethodInfo objects for each method.
     """
     methods: list[MethodInfo] = []
+    classmethod_names = _collect_classmethod_names(cls)
 
-    for name, method in inspect.getmembers(cls, predicate=inspect.isfunction):
+    # inspect.isfunction finds regular methods; inspect.ismethod finds classmethods
+    seen: set[str] = set()
+    candidates: list[tuple[str, object]] = []
+    candidates.extend(inspect.getmembers(cls, predicate=inspect.isfunction))
+    candidates.extend(inspect.getmembers(cls, predicate=inspect.ismethod))
+
+    for name, method in candidates:
+        if name in seen:
+            continue
+        seen.add(name)
+
         if _is_dunder(name):
             continue
         if _is_private(name) and not include_private:
@@ -230,6 +263,10 @@ def inspect_class_methods(cls: type, include_private: bool = False) -> list[Meth
             continue
 
         docstring = inspect.getdoc(method)
+
+        if name == "__init__" and _is_default_init_docstring(docstring):
+            docstring = inspect.getdoc(cls) or ""
+
         docstring_args = _parse_google_docstring_args(docstring)
 
         signature_str = _format_signature(name, sig)
@@ -244,7 +281,55 @@ def inspect_class_methods(cls: type, include_private: bool = False) -> list[Meth
                 description=description,
                 return_type=return_type,
                 parameters=parameters,
+                is_classmethod=name in classmethod_names,
             )
         )
 
     return methods
+
+
+def _collect_classmethod_names(cls: type) -> set[str]:
+    """Collect the names of all classmethods defined on a class and its bases."""
+    names: set[str] = set()
+    for klass in cls.__mro__:
+        for name, value in vars(klass).items():
+            if isinstance(value, classmethod):
+                names.add(name)
+    return names
+
+
+def inspect_class_properties(cls: type, include_private: bool = False) -> list[PropertyInfo]:
+    """Introspect properties of a class.
+
+    Args:
+        cls: The class to introspect.
+        include_private: If True, include properties starting with underscore.
+
+    Returns:
+        List of PropertyInfo objects for each property.
+    """
+    properties: list[PropertyInfo] = []
+
+    for name in dir(cls):
+        if _is_dunder(name):
+            continue
+        if _is_private(name) and not include_private:
+            continue
+
+        attr = inspect.getattr_static(cls, name, None)
+        if not isinstance(attr, property):
+            continue
+
+        return_type = "Any"
+        if attr.fget is not None:
+            hints = getattr(attr.fget, "__annotations__", {})
+            ret = hints.get("return")
+            if ret is not None:
+                return_type = _format_annotation(ret)
+
+        docstring = attr.fget.__doc__ if attr.fget is not None else None
+        description = _get_first_docstring_line(docstring)
+
+        properties.append(PropertyInfo(name=name, return_type=return_type, description=description))
+
+    return properties
