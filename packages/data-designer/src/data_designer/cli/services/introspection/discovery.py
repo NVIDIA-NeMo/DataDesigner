@@ -19,6 +19,112 @@ from data_designer.config.run_config import RunConfig
 logger = logging.getLogger(__name__)
 
 
+def _extract_literal_discriminator_value(annotation: Any) -> str | None:
+    """Extract the first literal discriminator value from a type annotation.
+
+    Supports ``Literal["value"]`` and ``Literal[SomeEnum.MEMBER]``.
+    Returns ``None`` when the annotation is not a literal discriminator.
+    """
+    if get_origin(annotation) is not Literal:
+        return None
+
+    args = get_args(annotation)
+    if not args:
+        return None
+
+    value = args[0]
+    if isinstance(value, Enum):
+        return str(value.value)
+    return str(value)
+
+
+def _discover_configs_by_discriminator(
+    class_name_suffix: str,
+    discriminator_field: str,
+    exclude_class_names: set[str] | None = None,
+) -> dict[str, type]:
+    """Discover config classes whose discriminator field is a Literal value.
+
+    Args:
+        class_name_suffix: Class-name suffix to select candidate classes.
+        discriminator_field: Pydantic field name containing the discriminator.
+        exclude_class_names: Optional set of class names to skip.
+
+    Returns:
+        Dict mapping discriminator values to config classes.
+    """
+    excluded = exclude_class_names or set()
+    discovered: dict[str, type] = {}
+
+    for name in dir(dd):
+        if name in excluded or not name.endswith(class_name_suffix):
+            continue
+
+        obj = getattr(dd, name)
+        if not (inspect.isclass(obj) and hasattr(obj, "model_fields")):
+            continue
+        if discriminator_field not in obj.model_fields:
+            continue
+
+        annotation = obj.model_fields[discriminator_field].annotation
+        discriminator_value = _extract_literal_discriminator_value(annotation)
+        if discriminator_value is not None:
+            discovered[discriminator_value] = obj
+
+    return discovered
+
+
+def _discover_params_by_discriminator(
+    params_class_suffix: str,
+    discriminator_field: str,
+    enum_name: str,
+) -> dict[str, type]:
+    """Discover params classes keyed by their literal discriminator value.
+
+    Args:
+        params_class_suffix: Class-name suffix to select params classes.
+        discriminator_field: Field name that stores the literal discriminator.
+
+    Returns:
+        Dict mapping discriminator values to params classes.
+    """
+    discovered: dict[str, type] = {}
+    normalized_name_map: dict[str, type] = {}
+
+    for name in dir(dd):
+        if not name.endswith(params_class_suffix):
+            continue
+
+        obj = getattr(dd, name)
+        if not (inspect.isclass(obj) and hasattr(obj, "model_fields")):
+            continue
+
+        if discriminator_field in obj.model_fields:
+            annotation = obj.model_fields[discriminator_field].annotation
+            discriminator_value = _extract_literal_discriminator_value(annotation)
+            if discriminator_value is not None:
+                discovered[discriminator_value] = obj
+                continue
+
+        normalized_name = name.removesuffix(params_class_suffix).replace("_", "").lower()
+        normalized_name_map[normalized_name] = obj
+
+    enum_cls = getattr(dd, enum_name, None)
+    if enum_cls is None or not (inspect.isclass(enum_cls) and issubclass(enum_cls, Enum)):
+        return discovered
+
+    for member in enum_cls:
+        value = str(member.value)
+        if value in discovered:
+            continue
+        normalized_value = value.replace("_", "").lower()
+        params_cls = normalized_name_map.get(normalized_value)
+        if params_cls is not None:
+            discovered[value] = params_cls
+
+    return discovered
+
+
 def _walk_namespace(
     package_path: list[str],
     prefix: str,
@@ -87,79 +193,36 @@ def discover_column_configs() -> dict[str, type]:
     Returns:
         Dict mapping column_type literal values (e.g., 'llm-text') to their config classes.
     """
-
-    column_configs: dict[str, type] = {}
-    for name in dir(dd):
-        if name.endswith("ColumnConfig"):
-            obj = getattr(dd, name)
-            if inspect.isclass(obj) and hasattr(obj, "model_fields"):
-                if "column_type" in obj.model_fields:
-                    annotation = obj.model_fields["column_type"].annotation
-                    if get_origin(annotation) is Literal:
-                        args = get_args(annotation)
-                        if args:
-                            column_configs[args[0]] = obj
-    return column_configs
+    return _discover_configs_by_discriminator(
+        class_name_suffix="ColumnConfig",
+        discriminator_field="column_type",
+    )
 
 
 def discover_sampler_types() -> dict[str, type]:
-    """Dynamically discover all sampler types and their param classes from data_designer.config.
+    """Dynamically discover sampler types and params classes from data_designer.config.
 
     Returns:
         Dict mapping sampler type names (e.g., 'category') to their params classes.
     """
-
-    sampler_type_enum = getattr(dd, "SamplerType", None)
-    if sampler_type_enum is None or not issubclass(sampler_type_enum, Enum):
-        return {}
-
-    params_classes: dict[str, type] = {}
-    for name in dir(dd):
-        if name.endswith("SamplerParams"):
-            obj = getattr(dd, name)
-            if inspect.isclass(obj) and hasattr(obj, "model_fields"):
-                normalized = name.replace("SamplerParams", "").lower()
-                params_classes[normalized] = obj
-
-    sampler_types: dict[str, type] = {}
-    for member in sampler_type_enum:
-        sampler_name = member.name.lower()
-        normalized_name = sampler_name.replace("_", "")
-        params_cls = params_classes.get(normalized_name)
-        if params_cls is not None:
-            sampler_types[sampler_name] = params_cls
-
-    return sampler_types
+    return _discover_params_by_discriminator(
+        params_class_suffix="SamplerParams",
+        discriminator_field="sampler_type",
+        enum_name="SamplerType",
+    )
 
 
 def discover_validator_types() -> dict[str, type]:
-    """Dynamically discover all validator types and their param classes from data_designer.config.
+    """Dynamically discover validator types and params classes from data_designer.config.
 
     Returns:
         Dict mapping validator type names to their params classes.
     """
-
-    validator_type_enum = getattr(dd, "ValidatorType", None)
-    if validator_type_enum is None or not issubclass(validator_type_enum, Enum):
-        return {}
-
-    params_classes: dict[str, type] = {}
-    for name in dir(dd):
-        if name.endswith("ValidatorParams"):
-            obj = getattr(dd, name)
-            if inspect.isclass(obj) and hasattr(obj, "model_fields"):
-                normalized = name.replace("ValidatorParams", "").lower()
-                params_classes[normalized] = obj
-
-    validator_types: dict[str, type] = {}
-    for member in validator_type_enum:
-        validator_name = member.name.lower()
-        normalized_name = validator_name.replace("_", "")
-        params_cls = params_classes.get(normalized_name)
-        if params_cls is not None:
-            validator_types[validator_name] = params_cls
-
-    return validator_types
+    return _discover_params_by_discriminator(
+        params_class_suffix="ValidatorParams",
+        discriminator_field="validator_type",
+        enum_name="ValidatorType",
+    )
 
 
 def discover_processor_configs() -> dict[str, type]:
@@ -168,20 +231,11 @@ def discover_processor_configs() -> dict[str, type]:
     Returns:
         Dict mapping processor_type values to their config classes.
     """
-
-    processor_configs: dict[str, type] = {}
-    for name in dir(dd):
-        if name.endswith("ProcessorConfig") and name != "ProcessorConfig":
-            obj = getattr(dd, name)
-            if inspect.isclass(obj) and hasattr(obj, "model_fields"):
-                if "processor_type" in obj.model_fields:
-                    annotation = obj.model_fields["processor_type"].annotation
-                    if get_origin(annotation) is Literal:
-                        args = get_args(annotation)
-                        if args:
-                            key = args[0].value if isinstance(args[0], Enum) else args[0]
-                            processor_configs[key] = obj
-    return processor_configs
+    return _discover_configs_by_discriminator(
+        class_name_suffix="ProcessorConfig",
+        discriminator_field="processor_type",
+        exclude_class_names={"ProcessorConfig"},
+    )
 
 
 def _discover_by_modules(*module_suffixes: str) -> dict[str, type]:

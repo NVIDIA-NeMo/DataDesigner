@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
+from dataclasses import dataclass
 from enum import Enum
 
 import typer
@@ -48,6 +50,18 @@ class OutputFormat(str, Enum):
     JSON = "json"
 
 
+@dataclass(frozen=True)
+class _TypedCommandSpec:
+    """Configuration for typed introspection commands."""
+
+    discover_items: Callable[[], dict[str, type]]
+    type_key: str
+    type_label: str
+    class_label: str
+    header_title: str
+    case_insensitive: bool = False
+
+
 class IntrospectionController:
     """Controller for introspect CLI commands.
 
@@ -55,61 +69,58 @@ class IntrospectionController:
     introspect subcommands.
     """
 
-    def __init__(self, output_format: str = "text") -> None:
-        self._format = output_format
-
-    def show_columns(self, type_name: str | None) -> None:
-        """Show column configuration types."""
-        items = discover_column_configs()
-        self._show_typed_items(
-            items=items,
-            type_name=type_name,
+    _TYPED_COMMAND_SPECS: dict[str, _TypedCommandSpec] = {
+        "columns": _TypedCommandSpec(
+            discover_items=discover_column_configs,
             type_key="column_type",
             type_label="column_type",
             class_label="config_class",
             header_title="Data Designer Column Types Reference",
-        )
-
-    def show_samplers(self, type_name: str | None) -> None:
-        """Show sampler types and their param classes."""
-        items = discover_sampler_types()
-        self._show_typed_items(
-            items=items,
-            type_name=type_name,
+        ),
+        "samplers": _TypedCommandSpec(
+            discover_items=discover_sampler_types,
             type_key="sampler_type",
             type_label="sampler_type",
             class_label="params_class",
             header_title="Data Designer Sampler Types Reference",
             case_insensitive=True,
-            uppercase_value=True,
-        )
-
-    def show_validators(self, type_name: str | None) -> None:
-        """Show validator types and their param classes."""
-        items = discover_validator_types()
-        self._show_typed_items(
-            items=items,
-            type_name=type_name,
+        ),
+        "validators": _TypedCommandSpec(
+            discover_items=discover_validator_types,
             type_key="validator_type",
             type_label="validator_type",
             class_label="params_class",
             header_title="Data Designer Validator Types Reference",
             case_insensitive=True,
-            uppercase_value=True,
-        )
-
-    def show_processors(self, type_name: str | None) -> None:
-        """Show processor types and their config classes."""
-        items = discover_processor_configs()
-        self._show_typed_items(
-            items=items,
-            type_name=type_name,
+        ),
+        "processors": _TypedCommandSpec(
+            discover_items=discover_processor_configs,
             type_key="processor_type",
             type_label="processor_type",
             class_label="config_class",
             header_title="Data Designer Processor Types Reference",
             case_insensitive=True,
-        )
+        ),
+    }
+
+    def __init__(self, output_format: str = "text") -> None:
+        self._format = output_format
+
+    def show_columns(self, type_name: str | None) -> None:
+        """Show column configuration types."""
+        self._show_typed_command(command_name="columns", type_name=type_name)
+
+    def show_samplers(self, type_name: str | None) -> None:
+        """Show sampler types and their param classes."""
+        self._show_typed_command(command_name="samplers", type_name=type_name)
+
+    def show_validators(self, type_name: str | None) -> None:
+        """Show validator types and their param classes."""
+        self._show_typed_command(command_name="validators", type_name=type_name)
+
+    def show_processors(self, type_name: str | None) -> None:
+        """Show processor types and their config classes."""
+        self._show_typed_command(command_name="processors", type_name=type_name)
 
     def show_models(self) -> None:
         """Show model configuration types."""
@@ -210,6 +221,19 @@ class IntrospectionController:
         else:
             typer.echo(format_overview_text(type_counts, builder_methods))
 
+    def _show_typed_command(self, command_name: str, type_name: str | None) -> None:
+        """Resolve a typed-command spec and render it."""
+        spec = self._TYPED_COMMAND_SPECS[command_name]
+        self._show_typed_items(
+            items=spec.discover_items(),
+            type_name=type_name,
+            type_key=spec.type_key,
+            type_label=spec.type_label,
+            class_label=spec.class_label,
+            header_title=spec.header_title,
+            case_insensitive=spec.case_insensitive,
+        )
+
     @staticmethod
     def _match_category(query: str, keys: list[str]) -> str | None:
         """Match a user query to a category key using progressive fuzzy matching.
@@ -256,7 +280,6 @@ class IntrospectionController:
         class_label: str,
         header_title: str,
         case_insensitive: bool = False,
-        uppercase_value: bool = False,
     ) -> None:
         """Shared logic for type-based commands (columns, samplers, validators, processors)."""
         if type_name is None:
@@ -266,20 +289,28 @@ class IntrospectionController:
                 typer.echo(format_type_list_text(items, type_label, class_label))
             return
 
-        if type_name == "all":
-            self._show_all_typed(items, type_key, header_title, uppercase_value)
+        if type_name.lower() == "all":
+            self._show_all_typed(items, type_key, header_title)
             return
 
-        lookup = type_name.lower() if case_insensitive else type_name
-        if lookup not in items:
+        canonical_value: str | None = None
+        cls: type | None = None
+        if case_insensitive:
+            matched = {k.lower(): (k, v) for k, v in items.items()}.get(type_name.lower())
+            if matched is not None:
+                canonical_value, cls = matched
+        else:
+            if type_name in items:
+                canonical_value = type_name
+                cls = items[type_name]
+
+        if canonical_value is None or cls is None:
             available = ", ".join(sorted(items.keys()))
             typer.echo(f"Error: Unknown {type_key} '{type_name}'", err=True)
             typer.echo(f"Available types: {available}", err=True)
             raise typer.Exit(code=1)
 
-        cls = items[lookup]
-        display_value = lookup.upper() if uppercase_value else lookup
-        schema = build_model_schema(cls, type_key=type_key, type_value=display_value)
+        schema = build_model_schema(cls, type_key=type_key, type_value=canonical_value)
 
         if self._format == "json":
             typer.echo(json.dumps(format_model_schema_json(schema), indent=2))
@@ -291,7 +322,6 @@ class IntrospectionController:
         items: dict[str, type],
         type_key: str,
         header_title: str,
-        uppercase_value: bool = False,
     ) -> None:
         """Show all types for a typed command."""
         sorted_types = sorted(items.keys())
@@ -300,8 +330,7 @@ class IntrospectionController:
             all_schemas = []
             for type_value in sorted_types:
                 cls = items[type_value]
-                display_value = type_value.upper() if uppercase_value else type_value
-                schema = build_model_schema(cls, type_key=type_key, type_value=display_value)
+                schema = build_model_schema(cls, type_key=type_key, type_value=type_value)
                 all_schemas.append(format_model_schema_json(schema))
             typer.echo(json.dumps(all_schemas, indent=2))
         else:
@@ -309,8 +338,7 @@ class IntrospectionController:
             lines = [f"# {header_title}", f"# {len(sorted_types)} types discovered from data_designer.config", ""]
             for type_value in sorted_types:
                 cls = items[type_value]
-                display_value = type_value.upper() if uppercase_value else type_value
-                schema = build_model_schema(cls, type_key=type_key, type_value=display_value)
+                schema = build_model_schema(cls, type_key=type_key, type_value=type_value)
                 lines.append(format_model_schema_text(schema, seen_schemas=seen_schemas))
                 lines.append("")
             typer.echo("\n".join(lines))

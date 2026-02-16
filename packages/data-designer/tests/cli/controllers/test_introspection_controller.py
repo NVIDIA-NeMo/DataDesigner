@@ -104,7 +104,15 @@ def test_show_samplers_specific(capsys: pytest.CaptureFixture[str]) -> None:
     controller = IntrospectionController(output_format="text")
     controller.show_samplers(type_name="category")
     captured = capsys.readouterr()
-    assert "CATEGORY" in captured.out
+    assert "sampler_type: category" in captured.out
+
+
+def test_show_samplers_all_case_insensitive(capsys: pytest.CaptureFixture[str]) -> None:
+    controller = IntrospectionController(output_format="text")
+    controller.show_samplers(type_name="ALL")
+    captured = capsys.readouterr()
+    assert "Data Designer Sampler Types Reference" in captured.out
+    assert "sampler_type: category" in captured.out
 
 
 # ---------------------------------------------------------------------------
@@ -219,7 +227,15 @@ def test_show_validators_specific_text(capsys: pytest.CaptureFixture[str]) -> No
     controller = IntrospectionController(output_format="text")
     controller.show_validators(type_name="code")
     captured = capsys.readouterr()
-    assert "CODE" in captured.out
+    assert "validator_type: code" in captured.out
+
+
+def test_show_validators_all_case_insensitive(capsys: pytest.CaptureFixture[str]) -> None:
+    controller = IntrospectionController(output_format="text")
+    controller.show_validators(type_name="ALL")
+    captured = capsys.readouterr()
+    assert "Data Designer Validator Types Reference" in captured.out
+    assert "validator_type: code" in captured.out
 
 
 def test_show_validators_specific_json(capsys: pytest.CaptureFixture[str]) -> None:

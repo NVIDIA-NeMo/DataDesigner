@@ -42,6 +42,7 @@ class ModelSchema:
 
     class_name: str
     description: str
+    schema_ref: str | None = None
     type_key: str | None = None
     type_value: str | None = None
     fields: list[FieldDetail] = field(default_factory=list)
@@ -198,12 +199,14 @@ def _default_to_json(value: Any) -> Any:
     """
     if value is None:
         return None
-    if isinstance(value, (bool, int, float, str)):
-        return value
     if isinstance(value, Enum):
         return value.value
-    if isinstance(value, (list, dict)):
+    if isinstance(value, (bool, int, float, str)):
         return value
+    if isinstance(value, list):
+        return [_default_to_json(item) for item in value]
+    if isinstance(value, dict):
+        return {k: _default_to_json(v) for k, v in value.items()}
     return repr(value)
 
 
@@ -238,7 +241,7 @@ def get_field_info(cls: type) -> list[FieldDetail]:
                 elif field_info.default is not PydanticUndefined:
                     default_json = _default_to_json(field_info.default)
                     if default_json is not _UNDEFINED:
-                        default_display = repr(field_info.default)
+                        default_display = repr(default_json)
 
             enum_cls = _extract_enum_class(field_info.annotation)
             enum_values: list[str] | None = None
@@ -271,7 +274,7 @@ def build_model_schema(
     cls: type,
     type_key: str | None = None,
     type_value: str | None = None,
-    seen: set[str] | None = None,
+    seen: set[type] | None = None,
     max_depth: int = 3,
     current_depth: int = 0,
 ) -> ModelSchema:
@@ -293,6 +296,7 @@ def build_model_schema(
 
     class_name = cls.__name__
     description = get_brief_description(cls)
+    schema_ref = f"{cls.__module__}.{cls.__qualname__}"
     fields = get_field_info(cls)
 
     model_fields_raw: dict[str, Any] = getattr(cls, "model_fields", {})
@@ -302,11 +306,11 @@ def build_model_schema(
             continue
 
         nested_cls = extract_nested_basemodel(raw_field_info.annotation)
-        if nested_cls is not None and nested_cls.__name__ not in seen and current_depth < max_depth:
-            seen.add(nested_cls.__name__)
+        if nested_cls is not None and nested_cls not in seen and current_depth < max_depth:
+            next_seen = seen | {nested_cls}
             field_detail.nested_schema = build_model_schema(
                 nested_cls,
-                seen=seen,
+                seen=next_seen,
                 max_depth=max_depth,
                 current_depth=current_depth + 1,
             )
@@ -314,6 +318,7 @@ def build_model_schema(
     return ModelSchema(
         class_name=class_name,
         description=description,
+        schema_ref=schema_ref,
         type_key=type_key,
         type_value=type_value,
         fields=fields,
