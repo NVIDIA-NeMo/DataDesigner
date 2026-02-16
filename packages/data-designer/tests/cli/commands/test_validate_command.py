@@ -12,7 +12,7 @@ from data_designer.cli.commands.validate import validate_command
 # ---------------------------------------------------------------------------
 
 
-@patch("data_designer.cli.commands.validate.GenerationController")
+@patch("data_designer.cli.controllers.generation_controller.GenerationController")
 def test_validate_command_delegates_to_controller(mock_ctrl_cls: MagicMock) -> None:
     """Test validate_command delegates to GenerationController.run_validate."""
     mock_ctrl = MagicMock()
@@ -24,7 +24,7 @@ def test_validate_command_delegates_to_controller(mock_ctrl_cls: MagicMock) -> N
     mock_ctrl.run_validate.assert_called_once_with(config_source="config.yaml")
 
 
-@patch("data_designer.cli.commands.validate.GenerationController")
+@patch("data_designer.cli.controllers.generation_controller.GenerationController")
 def test_validate_command_passes_python_module_source(mock_ctrl_cls: MagicMock) -> None:
     """Test validate_command passes a .py source to the controller."""
     mock_ctrl = MagicMock()

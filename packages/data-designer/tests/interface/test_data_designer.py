@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from pydantic import ValidationError
 
+import data_designer.interface.data_designer as dd_mod
 from data_designer.config.column_configs import SamplerColumnConfig
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.errors import InvalidConfigError
@@ -384,3 +385,17 @@ def test_validate_raises_error_when_seed_collides(
 
     with pytest.raises(InvalidConfigError):
         data_designer.validate(config_builder)
+
+
+def test_initialize_interface_runtime_runs_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """_initialize_interface_runtime only runs initialization once."""
+    monkeypatch.setattr(dd_mod, "_interface_runtime_initialized", False)
+
+    with (
+        patch("data_designer.interface.data_designer.configure_logging") as mock_logging,
+        patch("data_designer.interface.data_designer.resolve_seed_default_model_settings") as mock_resolve,
+    ):
+        dd_mod._initialize_interface_runtime()
+        dd_mod._initialize_interface_runtime()
+        mock_logging.assert_called_once()
+        mock_resolve.assert_called_once()

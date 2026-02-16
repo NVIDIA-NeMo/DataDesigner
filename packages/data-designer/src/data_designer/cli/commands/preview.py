@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import typer
 
-from data_designer.cli.controllers.generation_controller import GenerationController
 from data_designer.config.utils.constants import DEFAULT_NUM_RECORDS
+
+# Controllers are imported inside command functions to avoid pulling in heavy
+# dependencies (engine, models) at CLI startup time.
 
 
 def preview_command(
@@ -54,6 +56,8 @@ def preview_command(
         # Display all records without interactive browsing
         data-designer preview my_config.yaml --non-interactive
     """
+    from data_designer.cli.controllers.generation_controller import GenerationController
+
     controller = GenerationController()
     controller.run_preview(
         config_source=config_source,

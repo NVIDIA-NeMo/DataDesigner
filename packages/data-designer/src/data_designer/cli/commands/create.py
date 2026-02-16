@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import typer
 
-from data_designer.cli.controllers.generation_controller import GenerationController
 from data_designer.config.utils.constants import DEFAULT_NUM_RECORDS
+
+# Controllers are imported inside command functions to avoid pulling in heavy
+# dependencies (engine, models) at CLI startup time.
 
 
 def create_command(
@@ -54,6 +56,8 @@ def create_command(
         # Create from a Python module with custom output path
         data-designer create my_config.py --artifact-path /path/to/output
     """
+    from data_designer.cli.controllers.generation_controller import GenerationController
+
     controller = GenerationController()
     controller.run_create(
         config_source=config_source,

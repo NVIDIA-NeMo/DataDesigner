@@ -13,7 +13,7 @@ from data_designer.cli.ui import wait_for_navigation_key
 # ---------------------------------------------------------------------------
 
 
-@patch("data_designer.cli.commands.preview.GenerationController")
+@patch("data_designer.cli.controllers.generation_controller.GenerationController")
 def test_preview_command_delegates_to_controller(mock_ctrl_cls: MagicMock) -> None:
     """Test preview_command delegates to GenerationController.run_preview."""
     mock_ctrl = MagicMock()
@@ -29,7 +29,7 @@ def test_preview_command_delegates_to_controller(mock_ctrl_cls: MagicMock) -> No
     )
 
 
-@patch("data_designer.cli.commands.preview.GenerationController")
+@patch("data_designer.cli.controllers.generation_controller.GenerationController")
 def test_preview_command_passes_non_interactive_false(mock_ctrl_cls: MagicMock) -> None:
     """Test preview_command passes non_interactive=False by default."""
     mock_ctrl = MagicMock()
@@ -44,7 +44,7 @@ def test_preview_command_passes_non_interactive_false(mock_ctrl_cls: MagicMock) 
     )
 
 
-@patch("data_designer.cli.commands.preview.GenerationController")
+@patch("data_designer.cli.controllers.generation_controller.GenerationController")
 def test_preview_command_passes_custom_num_records(mock_ctrl_cls: MagicMock) -> None:
     """Test preview_command passes custom num_records to controller."""
     mock_ctrl = MagicMock()

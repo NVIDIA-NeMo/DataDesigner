@@ -8,7 +8,7 @@ from data_designer.cli.controllers.model_controller import ModelController
 from data_designer.config.utils.constants import DATA_DESIGNER_HOME
 
 
-@patch("data_designer.cli.commands.models.ModelController")
+@patch("data_designer.cli.controllers.model_controller.ModelController")
 def test_models_command(mock_model_controller):
     mock_model_controller_instance = MagicMock(spec=ModelController)
     mock_model_controller.return_value = mock_model_controller_instance

@@ -18,6 +18,7 @@ from data_designer.config.analysis.column_statistics import (
 from data_designer.config.column_configs import LLMTextColumnConfig
 from data_designer.config.utils.numerical_helpers import prepare_number_for_reporting
 from data_designer.engine.analysis.utils.column_statistics_calculations import (
+    _get_tokenizer,
     calculate_column_distribution,
     calculate_general_column_info,
     calculate_input_token_stats,
@@ -355,3 +356,11 @@ def test_calculate_general_column_info_edge_cases():
     assert result["num_records"] == 0
     assert result["num_null"] == 0
     assert result["simple_dtype"] == MissingValue.CALCULATION_FAILED
+
+
+def test_get_tokenizer_returns_cached_instance() -> None:
+    """_get_tokenizer returns the same cached tokenizer instance."""
+    _get_tokenizer.cache_clear()
+    tokenizer1 = _get_tokenizer()
+    tokenizer2 = _get_tokenizer()
+    assert tokenizer1 is tokenizer2
