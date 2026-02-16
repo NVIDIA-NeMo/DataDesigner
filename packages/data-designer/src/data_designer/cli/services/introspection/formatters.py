@@ -24,7 +24,11 @@ def _format_field_text(field: FieldDetail, indent: int = 4, seen_schemas: set[st
     pad = " " * indent
     lines: list[str] = []
     header = f"{pad}{field.name}: {field.type_str}"
-    if field.default is not None:
+    if field.default_factory:
+        header += f" = {field.default_factory}()"
+    elif field.has_literal_default():
+        header += f" = {field.default_json!r}"
+    elif field.default:
         header += f" = {field.default}"
     if field.required:
         header += "  [required]"
@@ -68,13 +72,21 @@ def format_model_schema_text(schema: ModelSchema, indent: int = 0, seen_schemas:
 
 
 def _format_field_json(field: FieldDetail) -> dict:
-    """Convert a FieldDetail to a JSON-serializable dict, recursing into nested schemas."""
+    """Convert a FieldDetail to a JSON-serializable dict, recursing into nested schemas.
+
+    Emits machine-typed defaults: "default" (native JSON value, including null) when
+    the field has a literal default, and "default_factory" (string) when it uses a factory.
+    """
     result: dict = {
         "name": field.name,
         "type": field.type_str,
         "required": field.required,
     }
-    if field.default is not None:
+    if field.default_factory:
+        result["default_factory"] = field.default_factory
+    elif field.has_literal_default():
+        result["default"] = field.default_json
+    elif field.default is not None:
         result["default"] = field.default
     if field.description:
         result["description"] = field.description
@@ -256,13 +268,24 @@ def format_namespace_text(data: dict[str, Any]) -> str:
     for i, child in enumerate(children):
         lines.extend(_render_tree_lines(child, prefix="", is_last=(i == len(children) - 1)))
 
+    import_errors = data.get("import_errors", [])
+    if import_errors:
+        lines.append("")
+        lines.append("Warnings (submodules that could not be imported):")
+        for err in import_errors:
+            lines.append(f"  {err.get('module', '?')}: {err.get('message', '')}")
+        lines.append("")
+
     lines.append("")
     lines.append(_AGENT_GUIDANCE_FOOTER)
     return "\n".join(lines)
 
 
 def format_namespace_json(data: dict[str, Any]) -> dict[str, Any]:
-    """Return the namespace tree dict as-is for JSON output."""
+    """Return the namespace tree dict as-is for JSON output.
+
+    When discovery collected import_errors, they are included under "import_errors".
+    """
     return data
 
 

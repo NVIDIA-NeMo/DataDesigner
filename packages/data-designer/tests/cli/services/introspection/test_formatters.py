@@ -174,6 +174,58 @@ def test_format_model_schema_json_required_field_no_default() -> None:
     assert "default" not in f
 
 
+def test_format_model_schema_json_native_default_value() -> None:
+    """JSON output uses native types for default (e.g. int, bool, null)."""
+    field = FieldDetail(
+        name="count",
+        type_str="int",
+        description="Count",
+        required=False,
+        default_json=42,
+        default_factory=None,
+    )
+    schema = _make_schema(fields=[field])
+    result = format_model_schema_json(schema)
+    f = result["fields"][0]
+    assert f["required"] is False
+    assert f["default"] == 42
+    assert "default_factory" not in f
+
+
+def test_format_model_schema_json_default_factory_key() -> None:
+    """JSON output includes default_factory when the field uses a factory."""
+    field = FieldDetail(
+        name="items",
+        type_str="list[str]",
+        description="Items",
+        required=False,
+        default_factory="list",
+    )
+    schema = _make_schema(fields=[field])
+    result = format_model_schema_json(schema)
+    f = result["fields"][0]
+    assert f["required"] is False
+    assert f["default_factory"] == "list"
+    assert "default" not in f
+
+
+def test_format_model_schema_json_explicit_null_default() -> None:
+    """JSON output uses null for explicit None default."""
+    field = FieldDetail(
+        name="optional",
+        type_str="str | None",
+        description="Optional",
+        required=False,
+        default_json=None,
+        default_factory=None,
+    )
+    schema = _make_schema(fields=[field])
+    result = format_model_schema_json(schema)
+    f = result["fields"][0]
+    assert f["required"] is False
+    assert f["default"] is None
+
+
 def test_format_model_schema_json_includes_constraints() -> None:
     field = FieldDetail(
         name="score",
@@ -405,6 +457,25 @@ def test_format_namespace_json_returns_passthrough() -> None:
     data = _make_namespace_data()
     result = format_namespace_json(data)
     assert result is data
+
+
+def test_format_namespace_text_shows_import_warnings_when_present() -> None:
+    data = _make_namespace_data()
+    data["import_errors"] = [
+        {"module": "data_designer.fake_submodule", "message": "No module named 'fake'"},
+    ]
+    text = format_namespace_text(data)
+    assert "Warnings" in text
+    assert "data_designer.fake_submodule" in text
+    assert "No module named" in text
+
+
+def test_format_namespace_json_includes_import_errors_when_present() -> None:
+    data = _make_namespace_data()
+    data["import_errors"] = [{"module": "data_designer.foo", "message": "err"}]
+    result = format_namespace_json(data)
+    assert "import_errors" in result
+    assert result["import_errors"] == [{"module": "data_designer.foo", "message": "err"}]
 
 
 # ---------------------------------------------------------------------------
