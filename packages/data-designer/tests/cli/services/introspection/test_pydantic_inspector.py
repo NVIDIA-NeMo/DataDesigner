@@ -67,6 +67,11 @@ class DeepA(BaseModel):
     b: DeepB | None = None
 
 
+class SiblingNestedModel(BaseModel):
+    first: InnerModel = Field(default_factory=InnerModel)
+    second: InnerModel = Field(default_factory=InnerModel)
+
+
 # Rebuild models that use forward references (required due to `from __future__ import annotations`)
 SelfRefModel.model_rebuild()
 DeepA.model_rebuild()
@@ -320,6 +325,15 @@ def test_get_field_info_default_factory_set() -> None:
     assert nested.default_factory == "InnerModel"
 
 
+def test_get_field_info_str_enum_default_json_uses_member_value() -> None:
+    """Defaults for str-enum fields should be normalized to the enum member's .value."""
+    fields = get_field_info(OuterModel)
+    enum_field = next(f for f in fields if f.name == "my_enum")
+    assert enum_field.required is False
+    assert enum_field.default_json == "red"
+    assert enum_field.default == "'red'"
+
+
 # ---------------------------------------------------------------------------
 # constraints
 # ---------------------------------------------------------------------------
@@ -413,3 +427,15 @@ def test_build_model_schema_depth_limiting() -> None:
     # But any further nesting within DeepB should be blocked
     for f in b_field.nested_schema.fields:
         assert f.nested_schema is None, f"Field '{f.name}' should not be expanded beyond max_depth"
+
+
+def test_build_model_schema_repeated_sibling_nested_expands_each_field() -> None:
+    """Sibling fields of the same nested type should each include a nested schema."""
+    schema = build_model_schema(SiblingNestedModel)
+    first = next(f for f in schema.fields if f.name == "first")
+    second = next(f for f in schema.fields if f.name == "second")
+
+    assert first.nested_schema is not None
+    assert second.nested_schema is not None
+    assert first.nested_schema.class_name == "InnerModel"
+    assert second.nested_schema.class_name == "InnerModel"

@@ -32,6 +32,7 @@ def _make_field(name: str = "my_field", type_str: str = "str", description: str 
 def _make_schema(
     class_name: str = "TestModel",
     description: str = "A test model.",
+    schema_ref: str | None = None,
     type_key: str | None = None,
     type_value: str | None = None,
     fields: list[FieldDetail] | None = None,
@@ -39,6 +40,7 @@ def _make_schema(
     return ModelSchema(
         class_name=class_name,
         description=description,
+        schema_ref=schema_ref,
         type_key=type_key,
         type_value=type_value,
         fields=fields or [_make_field()],
@@ -624,3 +626,26 @@ def test_format_field_text_no_dedup_without_seen_set() -> None:
 
     text = format_model_schema_text(schema)
     assert "schema (Inner):" in text
+
+
+def test_format_field_text_dedup_uses_schema_ref_to_avoid_name_collisions() -> None:
+    """Schemas with identical class names but different refs should both expand."""
+    nested_a = _make_schema(class_name="SharedName", schema_ref="pkg.alpha.SharedName")
+    nested_b = _make_schema(class_name="SharedName", schema_ref="pkg.beta.SharedName")
+
+    schema_a = _make_schema(
+        class_name="OuterA",
+        fields=[FieldDetail(name="a", type_str="SharedName", description="Ref A", nested_schema=nested_a)],
+    )
+    schema_b = _make_schema(
+        class_name="OuterB",
+        fields=[FieldDetail(name="b", type_str="SharedName", description="Ref B", nested_schema=nested_b)],
+    )
+
+    seen: set[str] = set()
+    text_a = format_model_schema_text(schema_a, seen_schemas=seen)
+    text_b = format_model_schema_text(schema_b, seen_schemas=seen)
+
+    assert "schema (SharedName):" in text_a
+    assert "schema (SharedName):" in text_b
+    assert "see SharedName above" not in text_b
