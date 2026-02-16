@@ -37,6 +37,7 @@ from data_designer.cli.services.introspection.formatters import (
 )
 from data_designer.cli.services.introspection.method_inspector import inspect_class_methods
 from data_designer.cli.services.introspection.pydantic_inspector import build_model_schema
+from data_designer.config.base import ConfigBase
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 
 
@@ -142,20 +143,14 @@ class IntrospectionController:
         """Show DataDesigner, result types, and RunConfig."""
         classes = discover_interface_classes()
 
-        method_class_names = ["DataDesigner", "DatasetCreationResults", "PreviewResults"]
-        pydantic_class_names = ["RunConfig"]
-
         classes_with_methods: list[tuple[str, list]] = []
-        for name in method_class_names:
-            cls = classes[name]
-            methods = inspect_class_methods(cls)
-            classes_with_methods.append((name, methods))
-
         pydantic_schemas = []
-        for name in pydantic_class_names:
-            cls = classes[name]
-            schema = build_model_schema(cls)
-            pydantic_schemas.append(schema)
+        for name, cls in classes.items():
+            if isinstance(cls, type) and issubclass(cls, ConfigBase):
+                pydantic_schemas.append(build_model_schema(cls))
+            else:
+                methods = inspect_class_methods(cls)
+                classes_with_methods.append((name, methods))
 
         if self._format == "json":
             typer.echo(json.dumps(format_interface_json(classes_with_methods, pydantic_schemas), indent=2))
