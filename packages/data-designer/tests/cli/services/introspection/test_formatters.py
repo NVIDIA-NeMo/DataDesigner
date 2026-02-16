@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
@@ -340,7 +340,7 @@ def test_format_overview_text_contains_quick_start() -> None:
     type_counts = {"Column types": 1}
     text = format_overview_text(type_counts, [])
     assert "Quick Start Commands:" in text
-    assert "introspect columns --list" in text
+    assert "types columns" in text
 
 
 # ---------------------------------------------------------------------------
@@ -471,23 +471,55 @@ def _make_imports_data() -> dict[str, list[dict[str, str]]]:
     }
 
 
-def test_format_imports_text_contains_from_import() -> None:
+def test_format_imports_text_contains_recommended_imports() -> None:
     text = format_imports_text(_make_imports_data())
-    assert "from data_designer.config import" in text
+    assert "Recommended imports:" in text
+    assert "import data_designer.config as dd" in text
+    assert "from data_designer.interface import DataDesigner" in text
+
+
+def test_format_imports_text_config_names_use_dd_prefix() -> None:
+    text = format_imports_text(_make_imports_data())
+    assert "dd.LLMTextColumnConfig" in text
+    assert "dd.SamplerColumnConfig" in text
+    assert "from data_designer.config import" not in text
+
+
+def test_format_imports_text_interface_uses_from_import() -> None:
+    text = format_imports_text(_make_imports_data())
+    assert "from data_designer.interface import DataDesigner" in text
 
 
 def test_format_imports_text_has_category_headers() -> None:
     text = format_imports_text(_make_imports_data())
     assert "Column Configs (2 names):" in text
-    assert "Interface (1 names):" in text
+    assert "Interface (1 name):" in text
 
 
 def test_format_imports_json_structure() -> None:
     data = _make_imports_data()
     result = format_imports_json(data)
     assert isinstance(result, dict)
-    assert "Column Configs" in result
-    assert "Interface" in result
+    assert "recommended_imports" in result
+    assert "config_alias" in result
+    assert result["config_alias"] == "dd"
+    assert "categories" in result
+    assert "Column Configs" in result["categories"]
+    assert "Interface" in result["categories"]
+
+
+def test_format_imports_json_category_structure() -> None:
+    data = _make_imports_data()
+    result = format_imports_json(data)
+    config_cat = result["categories"]["Column Configs"]
+    assert config_cat["module"] == "data_designer.config"
+    assert config_cat["access_pattern"] == "dd.<name>"
+    assert "LLMTextColumnConfig" in config_cat["names"]
+
+    interface_cat = result["categories"]["Interface"]
+    assert interface_cat["module"] == "data_designer.interface"
+    assert "from data_designer.interface import <name>" in interface_cat["access_pattern"]
+    assert "DataDesigner" in interface_cat["names"]
 
 
 # ---------------------------------------------------------------------------
