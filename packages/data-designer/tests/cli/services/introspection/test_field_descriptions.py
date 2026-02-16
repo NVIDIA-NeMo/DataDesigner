@@ -8,6 +8,7 @@ import pytest
 from data_designer.cli.services.introspection.discovery import (
     discover_column_configs,
     discover_constraint_types,
+    discover_interface_classes,
     discover_mcp_types,
     discover_model_configs,
     discover_processor_configs,
@@ -34,6 +35,7 @@ def _collect_models_with_fields() -> list[tuple[str, str, type]]:
         ("constraint_types", discover_constraint_types()),
         ("seed_types", discover_seed_types()),
         ("mcp_types", discover_mcp_types()),
+        ("interface_classes", discover_interface_classes()),
     ]
 
     for source_label, discovered in discovery_sources:
