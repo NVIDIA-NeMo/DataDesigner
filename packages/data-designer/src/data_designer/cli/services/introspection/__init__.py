@@ -47,11 +47,6 @@ from data_designer.cli.services.introspection.pydantic_inspector import (
 )
 
 __all__ = [
-    "FieldDetail",
-    "MethodInfo",
-    "ModelSchema",
-    "ParamInfo",
-    "PropertyInfo",
     "build_model_schema",
     "discover_column_configs",
     "discover_constraint_types",
@@ -64,6 +59,7 @@ __all__ = [
     "discover_sampler_types",
     "discover_seed_types",
     "discover_validator_types",
+    "FieldDetail",
     "format_imports_json",
     "format_imports_text",
     "format_interface_json",
@@ -81,4 +77,8 @@ __all__ = [
     "get_field_info",
     "inspect_class_methods",
     "inspect_class_properties",
+    "MethodInfo",
+    "ModelSchema",
+    "ParamInfo",
+    "PropertyInfo",
 ]
