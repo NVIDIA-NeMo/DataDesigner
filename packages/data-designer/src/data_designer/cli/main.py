@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import typer
 
-from data_designer.cli.commands import agent_context
+from data_designer.cli.commands import reference, types
 from data_designer.cli.lazy_group import create_lazy_typer_group
 
 _CMD = "data_designer.cli.commands"
@@ -104,7 +104,8 @@ app.add_typer(config_app, name="config", rich_help_panel="Setup Commands")
 app.add_typer(download_app, name="download", rich_help_panel="Setup Commands")
 
 # Add agent command groups
-app.add_typer(agent_context.agent_context_app, name="introspect", rich_help_panel="Agent Commands")
+app.add_typer(types.types_app, name="types", rich_help_panel="Agent Commands")
+app.add_typer(reference.reference_app, name="reference", rich_help_panel="Agent Commands")
 
 
 def main() -> None:
