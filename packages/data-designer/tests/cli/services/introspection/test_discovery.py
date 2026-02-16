@@ -6,8 +6,11 @@ from __future__ import annotations
 from data_designer.cli.services.introspection.discovery import (
     discover_column_configs,
     discover_constraint_types,
+    discover_importable_names,
+    discover_interface_classes,
     discover_mcp_types,
     discover_model_configs,
+    discover_namespace_tree,
     discover_processor_configs,
     discover_sampler_types,
     discover_seed_types,
@@ -153,3 +156,100 @@ def test_discover_mcp_types_contains_expected_keys() -> None:
     result = discover_mcp_types()
     for expected_key in ("MCPProvider", "ToolConfig"):
         assert expected_key in result, f"Expected key '{expected_key}' not found in {list(result.keys())}"
+
+
+# ---------------------------------------------------------------------------
+# discover_namespace_tree
+# ---------------------------------------------------------------------------
+
+
+def test_discover_namespace_tree_returns_paths_and_tree() -> None:
+    result = discover_namespace_tree()
+    assert "paths" in result
+    assert "tree" in result
+
+
+def test_discover_namespace_tree_paths_non_empty() -> None:
+    result = discover_namespace_tree()
+    assert isinstance(result["paths"], list)
+    assert len(result["paths"]) > 0
+    for p in result["paths"]:
+        assert isinstance(p, str)
+
+
+def test_discover_namespace_tree_root_is_data_designer() -> None:
+    result = discover_namespace_tree()
+    tree = result["tree"]
+    assert tree["name"] == "data_designer"
+    assert tree["is_package"] is True
+
+
+def test_discover_namespace_tree_contains_expected_children() -> None:
+    result = discover_namespace_tree()
+    child_names = [c["name"] for c in result["tree"]["children"]]
+    for expected in ("config", "engine", "cli"):
+        assert expected in child_names, f"Expected '{expected}' in {child_names}"
+
+
+def test_discover_namespace_tree_children_have_correct_structure() -> None:
+    result = discover_namespace_tree()
+    for child in result["tree"]["children"]:
+        assert "name" in child
+        assert "is_package" in child
+        assert "children" in child
+        assert isinstance(child["name"], str)
+        assert isinstance(child["is_package"], bool)
+        assert isinstance(child["children"], list)
+
+
+# ---------------------------------------------------------------------------
+# discover_interface_classes
+# ---------------------------------------------------------------------------
+
+
+def test_discover_interface_classes_returns_dict() -> None:
+    result = discover_interface_classes()
+    assert isinstance(result, dict)
+    assert len(result) > 0
+
+
+def test_discover_interface_classes_contains_expected_keys() -> None:
+    result = discover_interface_classes()
+    for expected_key in ("DataDesigner", "DatasetCreationResults", "PreviewResults", "RunConfig"):
+        assert expected_key in result, f"Expected key '{expected_key}' not found in {list(result.keys())}"
+
+
+def test_discover_interface_classes_values_are_classes() -> None:
+    result = discover_interface_classes()
+    for cls in result.values():
+        assert isinstance(cls, type)
+
+
+# ---------------------------------------------------------------------------
+# discover_importable_names
+# ---------------------------------------------------------------------------
+
+
+def test_discover_importable_names_returns_dict() -> None:
+    result = discover_importable_names()
+    assert isinstance(result, dict)
+    assert len(result) > 0
+
+
+def test_discover_importable_names_has_column_configs_category() -> None:
+    result = discover_importable_names()
+    assert "Column Configs" in result, f"Expected 'Column Configs' in {list(result.keys())}"
+
+
+def test_discover_importable_names_has_interface_category() -> None:
+    result = discover_importable_names()
+    assert "Interface" in result, f"Expected 'Interface' in {list(result.keys())}"
+
+
+def test_discover_importable_names_entries_have_name_and_module() -> None:
+    result = discover_importable_names()
+    for category, entries in result.items():
+        assert isinstance(entries, list), f"Category '{category}' value is not a list"
+        for entry in entries:
+            assert "name" in entry, f"Entry in '{category}' missing 'name'"
+            assert "module" in entry, f"Entry in '{category}' missing 'module'"
