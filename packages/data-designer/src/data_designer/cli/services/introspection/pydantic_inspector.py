@@ -13,6 +13,8 @@ from typing import Any, get_args, get_origin
 from pydantic import BaseModel
 from pydantic_core import PydanticUndefined
 
+_UNDEFINED: Any = object()
+
 
 @dataclass
 class FieldDetail:
@@ -23,9 +25,15 @@ class FieldDetail:
     description: str
     required: bool = True
     default: str | None = None
+    default_json: Any = _UNDEFINED
+    default_factory: str | None = None
     enum_values: list[str] | None = None
     constraints: dict[str, Any] | None = None
     nested_schema: ModelSchema | None = None
+
+    def has_literal_default(self) -> bool:
+        """True if this field has a literal default value (including None)."""
+        return self.default_json is not _UNDEFINED
 
 
 @dataclass
@@ -181,6 +189,27 @@ def _extract_constraints(field_info: Any) -> dict[str, Any] | None:
     return constraints or None
 
 
+def _default_to_json(value: Any) -> Any:
+    """Convert a Pydantic default value to a JSON-serializable value.
+
+    Returns the value unchanged if it is already JSON-serializable (bool, int, float,
+    str, None, list, dict with JSON-serializable values). Enum members are converted
+    to their .value. Other types are returned as a string representation for stability.
+    """
+    if value is None:
+        return None
+    if isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, (list, dict)):
+        try:
+            return value
+        except Exception:
+            pass
+    return repr(value)
+
+
 def get_field_info(cls: type) -> list[FieldDetail]:
     """Extract field information from a Pydantic model.
 
@@ -201,12 +230,18 @@ def get_field_info(cls: type) -> list[FieldDetail]:
 
             required = field_info.is_required()
 
-            default: str | None = None
+            default_json: Any = _UNDEFINED
+            default_factory_name: str | None = None
+            default_display: str | None = None
             if not required:
-                if field_info.default is not PydanticUndefined and field_info.default is not None:
-                    default = repr(field_info.default)
-                elif field_info.default_factory is not None:
-                    default = f"{field_info.default_factory.__name__}()"
+                if field_info.default_factory is not None:
+                    default_factory_name = getattr(
+                        field_info.default_factory, "__name__", repr(field_info.default_factory)
+                    )
+                elif field_info.default is not PydanticUndefined:
+                    default_json = _default_to_json(field_info.default)
+                    if default_json is not _UNDEFINED:
+                        default_display = repr(field_info.default)
 
             enum_cls = _extract_enum_class(field_info.annotation)
             enum_values: list[str] | None = None
@@ -215,13 +250,18 @@ def get_field_info(cls: type) -> list[FieldDetail]:
 
             constraints = _extract_constraints(field_info)
 
+            if default_display is None and default_factory_name is not None:
+                default_display = f"{default_factory_name}()"
+
             fields.append(
                 FieldDetail(
                     name=field_name,
                     type_str=type_str,
                     description=description,
                     required=required,
-                    default=default,
+                    default=default_display,
+                    default_json=default_json,
+                    default_factory=default_factory_name,
                     enum_values=enum_values,
                     constraints=constraints,
                     nested_schema=None,

@@ -26,7 +26,13 @@ def overview_command(
 
 @reference_app.command(name="code-structure")
 def code_structure_command(
-    depth: int = typer.Option(2, "--depth", "-d", help="Max tree depth (default: 2)."),
+    depth: int = typer.Option(
+        2,
+        "--depth",
+        "-d",
+        help="Max tree depth (default: 2). Must be >= 0.",
+        min=0,
+    ),
     output_format: OutputFormat = typer.Option(
         OutputFormat.TEXT, "--format", "-f", help="Output format: 'text' or 'json'."
     ),
