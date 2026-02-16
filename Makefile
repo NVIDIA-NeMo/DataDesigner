@@ -85,6 +85,8 @@ help:
 	@echo "  perf-import               - Profile import time and show summary"
 	@echo "  perf-import CLEAN=1       - Clean cache, then profile import time"
 	@echo "  perf-import NOFILE=1      - Profile without writing to file (for CI)"
+	@echo "  bench-cli-startup         - Benchmark CLI startup (isolated venv)"
+	@echo "  bench-cli-startup-verbose - Benchmark CLI startup with import trace"
 	@echo ""
 	@echo "🚀 Publish:"
 	@echo "  publish VERSION=X.Y.Z                        - Publish all packages to PyPI"
@@ -507,6 +509,16 @@ else
 	grep "import time:" "$$PERF_FILE" | sort -rn -k5 | head -10 | awk '{printf "%-12.3f %-12.3f %s", $$3/1000000, $$5/1000000, $$7; for(i=8;i<=NF;i++) printf " %s", $$i; printf "\n"}'
 endif
 
+BENCH_CLI_ARGS ?=
+
+bench-cli-startup:
+	@echo "⚡ Benchmarking CLI startup time (isolated venv)..."
+	uv run python scripts/benchmarks/benchmark_cli_startup.py $(BENCH_CLI_ARGS)
+
+bench-cli-startup-verbose:
+	@echo "⚡ Benchmarking CLI startup time (isolated + import trace)..."
+	uv run python scripts/benchmarks/benchmark_cli_startup.py --verbose $(BENCH_CLI_ARGS)
+
 # ==============================================================================
 # PUBLISH
 # ==============================================================================
@@ -576,7 +588,8 @@ clean-test-coverage:
 # PHONY TARGETS
 # ==============================================================================
 
-.PHONY: build build-config build-engine build-interface \
+.PHONY: bench-cli-startup bench-cli-startup-verbose \
+        build build-config build-engine build-interface \
         check-all check-all-fix check-config check-engine check-interface \
         check-license-headers \
         clean clean-dist clean-notebooks clean-pycache clean-test-coverage \
