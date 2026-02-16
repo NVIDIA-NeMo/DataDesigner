@@ -177,6 +177,9 @@ class IntrospectionController:
 
     def show_code_structure(self, depth: int = 2) -> None:
         """Show the data_designer package structure and install paths."""
+        if depth < 0:
+            typer.echo("Error: --depth must be >= 0.", err=True)
+            raise typer.Exit(code=1)
         data = discover_namespace_tree(max_depth=depth)
         if self._format == "json":
             typer.echo(json.dumps(format_namespace_json(data), indent=2))
@@ -322,7 +325,13 @@ class IntrospectionController:
                     schema = build_model_schema(cls)
                     all_schemas.append(format_model_schema_json(schema))
                 else:
-                    all_schemas.append({"class_name": cls.__name__, "description": cls.__doc__ or ""})
+                    entry: dict = {
+                        "class_name": cls.__name__,
+                        "description": (cls.__doc__ or "").strip().split("\n")[0],
+                    }
+                    if hasattr(cls, "__members__"):
+                        entry["values"] = [str(member.value) for member in cls]
+                    all_schemas.append(entry)
             typer.echo(json.dumps(all_schemas, indent=2))
         else:
             seen_schemas: set[str] = set()

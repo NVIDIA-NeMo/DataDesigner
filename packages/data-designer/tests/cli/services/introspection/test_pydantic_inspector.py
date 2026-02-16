@@ -296,11 +296,28 @@ def test_get_field_info_default_factory() -> None:
 
 
 def test_get_field_info_none_default_not_shown() -> None:
-    """Fields with default=None (like SelfRefModel.child) should have default=None in FieldDetail."""
+    """Fields with default=None (like SelfRefModel.child) have default_json=None in FieldDetail."""
     fields = get_field_info(SelfRefModel)
     child = next(f for f in fields if f.name == "child")
     assert child.required is False
-    assert child.default is None
+    assert child.default_json is None
+
+
+def test_get_field_info_optional_field_default_json_native() -> None:
+    """Optional scalar defaults are stored as native default_json for machine consumption."""
+    fields = get_field_info(RequiredFieldModel)
+    opt = next(f for f in fields if f.name == "optional_name")
+    assert opt.required is False
+    assert opt.default_json == "default_val"
+    assert opt.default_factory is None
+
+
+def test_get_field_info_default_factory_set() -> None:
+    """Fields with default_factory set have default_factory name and default_json undefined."""
+    fields = get_field_info(OuterModel)
+    nested = next(f for f in fields if f.name == "nested")
+    assert nested.required is False
+    assert nested.default_factory == "InnerModel"
 
 
 # ---------------------------------------------------------------------------

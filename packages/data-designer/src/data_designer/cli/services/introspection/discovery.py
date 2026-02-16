@@ -16,8 +16,17 @@ from data_designer.config.preview_results import PreviewResults
 from data_designer.config.run_config import RunConfig
 
 
-def _walk_namespace(package_path: list[str], prefix: str, max_depth: int, current_depth: int) -> list[dict[str, Any]]:
-    """Recursively walk a namespace package and build a tree of children nodes."""
+def _walk_namespace(
+    package_path: list[str],
+    prefix: str,
+    max_depth: int,
+    current_depth: int,
+    import_errors: list[dict[str, str]],
+) -> list[dict[str, Any]]:
+    """Recursively walk a namespace package and build a tree of children nodes.
+
+    Import failures are appended to import_errors as {"module": full_name, "message": str}.
+    """
     if current_depth >= max_depth:
         return []
 
@@ -33,9 +42,11 @@ def _walk_namespace(package_path: list[str], prefix: str, max_depth: int, curren
             try:
                 sub_mod = importlib.import_module(full_name)
                 sub_path = getattr(sub_mod, "__path__", [])
-                node["children"] = _walk_namespace(list(sub_path), full_name, max_depth, current_depth + 1)
-            except Exception:
-                pass
+                node["children"] = _walk_namespace(
+                    list(sub_path), full_name, max_depth, current_depth + 1, import_errors
+                )
+            except Exception as e:
+                import_errors.append({"module": full_name, "message": str(e)})
         children.append(node)
 
     children.sort(key=lambda n: (not n["is_package"], n["name"]))
@@ -47,14 +58,23 @@ def discover_namespace_tree(max_depth: int = 2) -> dict[str, Any]:
 
     Returns:
         Dict with ``paths`` (list of install directories) and ``tree`` (nested node dict).
+
+    Raises:
+        ValueError: If max_depth < 0.
     """
+    if max_depth < 0:
+        raise ValueError("max_depth must be >= 0.")
     paths = list(data_designer.__path__)
+    import_errors: list[dict[str, str]] = []
     tree: dict[str, Any] = {
         "name": "data_designer",
         "is_package": True,
-        "children": _walk_namespace(paths, "data_designer", max_depth, 0),
+        "children": _walk_namespace(paths, "data_designer", max_depth, 0, import_errors),
     }
-    return {"paths": paths, "tree": tree}
+    result: dict[str, Any] = {"paths": paths, "tree": tree}
+    if import_errors:
+        result["import_errors"] = import_errors
+    return result
 
 
 def discover_column_configs() -> dict[str, type]:

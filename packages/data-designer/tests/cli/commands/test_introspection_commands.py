@@ -219,6 +219,13 @@ def test_code_structure_shows_agent_guidance() -> None:
     assert "Only read source files directly" in result.output
 
 
+def test_code_structure_negative_depth_exits_with_error() -> None:
+    """Invalid --depth < 0 is rejected with actionable error."""
+    result = runner.invoke(app, ["reference", "code-structure", "--depth", "-1"], color=False)
+    assert result.exit_code != 0
+    assert "depth" in result.output.lower() or "0" in result.output
+
+
 # ---------------------------------------------------------------------------
 # interface
 # ---------------------------------------------------------------------------

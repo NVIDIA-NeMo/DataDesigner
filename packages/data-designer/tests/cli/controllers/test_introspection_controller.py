@@ -313,6 +313,31 @@ def test_show_code_structure_json(capsys: pytest.CaptureFixture[str]) -> None:
     assert data["tree"]["name"] == "data_designer"
 
 
+def test_show_code_structure_negative_depth_exits(capsys: pytest.CaptureFixture[str]) -> None:
+    """Invalid depth < 0 should exit with code 1 and an actionable message."""
+    import click.exceptions
+
+    controller = IntrospectionController(output_format="text")
+    with pytest.raises(click.exceptions.Exit):
+        controller.show_code_structure(depth=-1)
+    captured = capsys.readouterr()
+    assert "depth" in captured.err.lower() or ">= 0" in captured.err
+
+
+def test_show_seeds_json_includes_enum_values(capsys: pytest.CaptureFixture[str]) -> None:
+    """JSON schema list for seeds includes 'values' for enum-only types (e.g. SamplingStrategy)."""
+    controller = IntrospectionController(output_format="json")
+    controller.show_seeds()
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+    assert isinstance(data, list)
+    enum_entries = [e for e in data if e.get("class_name") == "SamplingStrategy"]
+    assert len(enum_entries) >= 1
+    assert "values" in enum_entries[0]
+    assert isinstance(enum_entries[0]["values"], list)
+    assert "ordered" in enum_entries[0]["values"] or "shuffle" in enum_entries[0]["values"]
+
+
 # ---------------------------------------------------------------------------
 # _match_category
 # ---------------------------------------------------------------------------

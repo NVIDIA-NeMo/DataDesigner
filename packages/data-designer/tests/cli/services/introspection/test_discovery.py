@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from data_designer.cli.services.introspection.discovery import (
     _discover_by_modules,
     discover_column_configs,
@@ -201,6 +203,25 @@ def test_discover_namespace_tree_children_have_correct_structure() -> None:
         assert isinstance(child["name"], str)
         assert isinstance(child["is_package"], bool)
         assert isinstance(child["children"], list)
+
+
+def test_discover_namespace_tree_negative_depth_raises() -> None:
+    """Invalid max_depth < 0 raises ValueError with actionable message."""
+    with pytest.raises(ValueError, match="max_depth must be >= 0"):
+        discover_namespace_tree(max_depth=-1)
+
+
+def test_discover_namespace_tree_import_errors_structure() -> None:
+    """When present, import_errors is a list of dicts with module and message."""
+    result = discover_namespace_tree()
+    if "import_errors" in result:
+        errors = result["import_errors"]
+        assert isinstance(errors, list)
+        for err in errors:
+            assert "module" in err
+            assert "message" in err
+            assert isinstance(err["module"], str)
+            assert isinstance(err["message"], str)
 
 
 # ---------------------------------------------------------------------------
