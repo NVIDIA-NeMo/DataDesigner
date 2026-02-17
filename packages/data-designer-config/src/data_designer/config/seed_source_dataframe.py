@@ -3,18 +3,13 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
+import pandas as pd
 from pydantic import ConfigDict, Field
 from pydantic.json_schema import SkipJsonSchema
 
-import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.seed_source import SeedSource
-
-if TYPE_CHECKING:
-    import pandas as pd
-
-pd = lazy.pd
 
 
 class DataFrameSeedSource(SeedSource):
