@@ -94,8 +94,6 @@ theme:
             icon: material/lightbulb
             name: Switch to dark mode
   features:
-      - navigation.tabs
-      - navigation.expand
       - navigation.path
       - navigation.footer
       - navigation.indexes
