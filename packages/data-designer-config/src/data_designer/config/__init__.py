@@ -224,7 +224,10 @@ def __getattr__(name: str) -> object:
     if name in _LAZY_IMPORTS:
         module_path, attr_name = _LAZY_IMPORTS[name]
         module = importlib.import_module(module_path)
-        return getattr(module, attr_name)
+        attr = getattr(module, attr_name)
+        # Cache so subsequent accesses find a real attribute and skip __getattr__.
+        globals()[name] = attr
+        return attr
 
     raise AttributeError(f"module 'data_designer.config' has no attribute {name!r}")
 

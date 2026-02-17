@@ -53,6 +53,7 @@ def __getattr__(name: str) -> object:
     if name in _LAZY_IMPORTS:
         module_name = _LAZY_IMPORTS[name]
         module = importlib.import_module(module_name)
+        # Cache so subsequent accesses find a real attribute and skip __getattr__.
         globals()[name] = module
         return module
 
