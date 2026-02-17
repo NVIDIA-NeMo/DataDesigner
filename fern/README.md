@@ -16,8 +16,8 @@ npx fern-api --version
 
 **Before first run (for NotebookViewer pages):**
 ```bash
-make generate-colab-notebooks   # Creates docs/colab_notebooks/*.ipynb
-make generate-fern-notebooks    # Creates fern/assets/notebooks/*.ts
+make generate-colab-notebooks   # docs/colab_notebooks/*.ipynb
+make generate-fern-notebooks     # fern/components/notebooks/*.ts
 ```
 
 ```bash
@@ -31,7 +31,7 @@ fern docs dev --project ./fern
 
 The docs will be available at `http://localhost:3000`.
 
-See [DOCS-VS-FERN.md](DOCS-VS-FERN.md) for docs/ vs fern/ comparison and migration notes.
+See [DOCS-VS-FERN.md](DOCS-VS-FERN.md) for docs/ vs fern/ comparison. See [components/README.md](components/README.md) for custom components (Authors, MetricsTable, NotebookViewer, etc.).
 
 ## 📁 Folder Structure
 
@@ -156,41 +156,20 @@ fern docs deploy
 
 ## 📓 NotebookViewer Component
 
-A custom React component renders Jupyter notebook content in Fern docs. Use it to display tutorials from `.ipynb` files with a Colab badge.
+Renders Jupyter notebooks in Fern docs with a Colab badge. Source: `docs/notebook_source/*.py` (Jupytext percent-format: `# %%` code, `# %% [markdown]` markdown).
 
-### Workflow
+**Pipeline:** Jupytext reads `.py` → `generate_colab_notebooks` injects Colab setup → `generate-fern-notebooks` runs `ipynb-to-fern-json.py` → outputs `fern/components/notebooks/*.json` + `*.ts`. Makefile passes `-o fern/components/notebooks/$$name.json`; the script writes `.ts` alongside.
 
-1. **Generate Colab notebooks** (source of truth):
-   ```bash
-   make generate-colab-notebooks
-   ```
+**Commands:**
+```bash
+make generate-colab-notebooks   # Colab-ready .ipynb
+make generate-fern-notebooks    # Runs colab first, then converts to .ts
+make generate-fern-notebooks-with-outputs   # Execute first (needs API key), then convert
+```
 
-2. **Convert to Fern format**:
-   ```bash
-   make generate-fern-notebooks
-   ```
+**Add a new tutorial:** Add `N-name.py` to `docs/notebook_source/`, run pipeline, add MDX page that imports from `@/components/notebooks/N-name`.
 
-3. **Use in MDX** (import from `@/components/notebooks/` – inside the components tree so Fern can resolve it):
-   ```mdx
-   import { NotebookViewer } from "@/components/NotebookViewer";
-   import notebook from "@/components/notebooks/1-the-basics";
-
-   <NotebookViewer
-     notebook={notebook}
-     colabUrl="https://colab.research.google.com/github/NVIDIA-NeMo/DataDesigner/blob/main/docs/colab_notebooks/1-the-basics.ipynb"
-   />
-   ```
-
-### Files
-
-- `fern/components/NotebookViewer.tsx` – React component
-- `fern/components/notebooks/*.ts` – Notebook data (generated, in components tree for import resolution)
-- `fern/scripts/ipynb-to-fern-json.py` – Converts `.ipynb` → `.ts` + `.json`
-- `fern/styles/notebook-viewer.css` – Component styles
-
-### Requirements
-
-- Fern Pro or Enterprise plan (custom React components)
+**Files:** `NotebookViewer.tsx`, `fern/components/notebooks/*.ts` (generated), `fern/scripts/ipynb-to-fern-json.py`, `notebook-viewer.css`. Requires Fern Pro/Enterprise.
 
 ## ⚠️ Common Issues
 
