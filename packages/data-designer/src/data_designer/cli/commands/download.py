@@ -5,10 +5,8 @@ from __future__ import annotations
 
 import typer
 
+from data_designer.cli.controllers.download_controller import DownloadController
 from data_designer.config.utils.constants import DATA_DESIGNER_HOME
-
-# Controllers are imported inside command functions to avoid pulling in heavy
-# dependencies (engine, models) at CLI startup time.
 
 
 def personas_command(
@@ -52,8 +50,6 @@ def personas_command(
         # Preview what would be downloaded
         data-designer download personas --all --dry-run
     """
-    from data_designer.cli.controllers.download_controller import DownloadController
-
     controller = DownloadController(DATA_DESIGNER_HOME)
 
     if list_available:

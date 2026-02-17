@@ -6,18 +6,21 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
-from numpy.typing import NDArray
-
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.sampler_params import SamplerParamsT
 from data_designer.engine.sampling_gen.utils import check_random_state
 
 if TYPE_CHECKING:
+    import numpy as np
     import pandas as pd
     import scipy
+    from numpy.typing import NDArray
 
-NumpyArray1dT = NDArray[Any]
-RadomStateT = int | lazy.np.random.RandomState
+    NumpyArray1dT = NDArray[Any]
+    RadomStateT = int | np.random.RandomState
+else:
+    NumpyArray1dT = Any
+    RadomStateT = Any
 
 GenericParamsT = TypeVar("GenericParamsT", bound=SamplerParamsT)
 

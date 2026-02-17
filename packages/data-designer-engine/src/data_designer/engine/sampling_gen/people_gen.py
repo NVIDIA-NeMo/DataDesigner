@@ -27,7 +27,9 @@ if TYPE_CHECKING:
 
     from data_designer.engine.sampling_gen.schema import DataSchema
 
-EngineT: TypeAlias = lazy.faker.Faker | ManagedDatasetGenerator
+    EngineT: TypeAlias = faker.Faker | ManagedDatasetGenerator
+else:
+    EngineT: TypeAlias = Any
 
 
 class PeopleGen(ABC):

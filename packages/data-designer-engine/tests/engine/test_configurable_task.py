@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
 from unittest.mock import Mock
 
 import pytest
@@ -13,14 +12,12 @@ from data_designer.engine.configurable_task import ConfigurableTask, DataT, Task
 from data_designer.engine.models.registry import ModelRegistry
 from data_designer.engine.resources.resource_provider import ResourceProvider
 from data_designer.engine.storage.artifact_storage import ArtifactStorage
-from data_designer.lazy_heavy_imports import pd
-
-if TYPE_CHECKING:
-    import pandas as pd
 
 
 def test_configurable_task_generic_type_variables() -> None:
-    assert DataT.__constraints__ == (dict, pd.DataFrame)
+    # DataT constraints are deferred to TYPE_CHECKING to avoid eagerly importing pandas.
+    # At runtime it is an unconstrained TypeVar; type checkers still see the constraints.
+    assert DataT.__constraints__ == ()
 
     assert TaskConfigT.__bound__ == ConfigBase
 

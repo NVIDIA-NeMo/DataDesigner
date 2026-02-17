@@ -9,7 +9,8 @@ from typing import TYPE_CHECKING
 import pytest
 
 from data_designer.config.errors import InvalidFilePathError
-from data_designer.config.seed_source import DataFrameSeedSource, LocalFileSeedSource
+from data_designer.config.seed_source import LocalFileSeedSource
+from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:

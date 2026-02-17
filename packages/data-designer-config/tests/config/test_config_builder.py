@@ -37,7 +37,8 @@ from data_designer.config.models import ChatCompletionInferenceParams, ModelConf
 from data_designer.config.sampler_constraints import ColumnInequalityConstraint, ScalarInequalityConstraint
 from data_designer.config.sampler_params import SamplerType, UUIDSamplerParams
 from data_designer.config.seed import SamplingStrategy
-from data_designer.config.seed_source import DataFrameSeedSource, HuggingFaceSeedSource
+from data_designer.config.seed_source import HuggingFaceSeedSource
+from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.utils.info import ConfigBuilderInfo
 from data_designer.config.validator_params import CodeValidatorParams

@@ -4,13 +4,16 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from data_designer.cli.repositories.mcp_provider_repository import MCPProviderRepository
-    from data_designer.cli.repositories.model_repository import ModelRepository
-    from data_designer.cli.repositories.provider_repository import ProviderRepository
-    from data_designer.cli.repositories.tool_repository import ToolRepository
+from rich.table import Table
+
+from data_designer.cli.repositories.mcp_provider_repository import MCPProviderRepository
+from data_designer.cli.repositories.model_repository import ModelRepository
+from data_designer.cli.repositories.provider_repository import ProviderRepository
+from data_designer.cli.repositories.tool_repository import ToolRepository
+from data_designer.cli.ui import console, print_error, print_header, print_info, print_warning
+from data_designer.config.mcp import LocalStdioMCPProvider, MCPProvider
+from data_designer.config.utils.constants import DATA_DESIGNER_HOME, NordColor
 
 # Pattern for valid environment variable names (uppercase letters, digits, underscores, not starting with digit)
 _ENV_VAR_PATTERN = re.compile(r"^[A-Z_][A-Z0-9_]*$")
@@ -54,13 +57,6 @@ def list_command() -> None:
     Returns:
         None
     """
-    from data_designer.cli.repositories.mcp_provider_repository import MCPProviderRepository
-    from data_designer.cli.repositories.model_repository import ModelRepository
-    from data_designer.cli.repositories.provider_repository import ProviderRepository
-    from data_designer.cli.repositories.tool_repository import ToolRepository
-    from data_designer.cli.ui import console, print_header, print_info
-    from data_designer.config.utils.constants import DATA_DESIGNER_HOME
-
     # Determine config directory
     print_header("Data Designer Configurations")
     print_info(f"Configuration directory: {DATA_DESIGNER_HOME}")
@@ -82,11 +78,6 @@ def display_providers(provider_repo: ProviderRepository) -> None:
     Returns:
         None
     """
-    from rich.table import Table
-
-    from data_designer.cli.ui import console, print_error, print_warning
-    from data_designer.config.utils.constants import NordColor
-
     try:
         provider_registry = provider_repo.load()
 
@@ -133,11 +124,6 @@ def display_models(model_repo: ModelRepository) -> None:
     Returns:
         None
     """
-    from rich.table import Table
-
-    from data_designer.cli.ui import console, print_error, print_warning
-    from data_designer.config.utils.constants import NordColor
-
     try:
         registry = model_repo.load()
 
@@ -181,12 +167,6 @@ def display_mcp_providers(mcp_provider_repo: MCPProviderRepository) -> None:
     Returns:
         None
     """
-    from rich.table import Table
-
-    from data_designer.cli.ui import console, print_error, print_warning
-    from data_designer.config.mcp import LocalStdioMCPProvider, MCPProvider
-    from data_designer.config.utils.constants import NordColor
-
     try:
         registry = mcp_provider_repo.load()
 
@@ -239,11 +219,6 @@ def display_tool_configs(tool_repo: ToolRepository) -> None:
     Returns:
         None
     """
-    from rich.table import Table
-
-    from data_designer.cli.ui import console, print_error, print_warning
-    from data_designer.config.utils.constants import NordColor
-
     try:
         registry = tool_repo.load()
 

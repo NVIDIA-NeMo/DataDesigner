@@ -11,6 +11,8 @@ import typer
 
 from data_designer.cli.ui import console, print_error, print_header, print_success, wait_for_navigation_key
 from data_designer.cli.utils.config_loader import ConfigLoadError, load_config_builder
+from data_designer.config.errors import InvalidConfigError
+from data_designer.interface import DataDesigner
 
 if TYPE_CHECKING:
     from data_designer.config.config_builder import DataDesignerConfigBuilder
@@ -28,8 +30,6 @@ class GenerationController:
             num_records: Number of records to generate.
             non_interactive: If True, display all records at once instead of browsing.
         """
-        from data_designer.interface import DataDesigner
-
         config_builder = self._load_config(config_source)
 
         print_header("Data Designer Preview")
@@ -69,9 +69,6 @@ class GenerationController:
         Args:
             config_source: Path to a config file or Python module.
         """
-        from data_designer.config.errors import InvalidConfigError
-        from data_designer.interface import DataDesigner
-
         config_builder = self._load_config(config_source)
 
         print_header("Data Designer Validate")
@@ -105,8 +102,6 @@ class GenerationController:
             dataset_name: Name for the generated dataset folder.
             artifact_path: Path where generated artifacts will be stored, or None for default.
         """
-        from data_designer.interface import DataDesigner
-
         config_builder = self._load_config(config_source)
 
         resolved_artifact_path = Path(artifact_path) if artifact_path else Path.cwd() / "artifacts"

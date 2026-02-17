@@ -12,7 +12,7 @@ from data_designer.cli.commands.create import create_command
 # ---------------------------------------------------------------------------
 
 
-@patch("data_designer.cli.controllers.generation_controller.GenerationController")
+@patch("data_designer.cli.commands.create.GenerationController")
 def test_create_command_delegates_to_controller(mock_ctrl_cls: MagicMock) -> None:
     """Test create_command delegates to GenerationController.run_create."""
     mock_ctrl = MagicMock()
@@ -29,7 +29,7 @@ def test_create_command_delegates_to_controller(mock_ctrl_cls: MagicMock) -> Non
     )
 
 
-@patch("data_designer.cli.controllers.generation_controller.GenerationController")
+@patch("data_designer.cli.commands.create.GenerationController")
 def test_create_command_passes_custom_options(mock_ctrl_cls: MagicMock) -> None:
     """Test create_command passes custom options to the controller."""
     mock_ctrl = MagicMock()
@@ -50,7 +50,7 @@ def test_create_command_passes_custom_options(mock_ctrl_cls: MagicMock) -> None:
     )
 
 
-@patch("data_designer.cli.controllers.generation_controller.GenerationController")
+@patch("data_designer.cli.commands.create.GenerationController")
 def test_create_command_default_artifact_path_is_none(mock_ctrl_cls: MagicMock) -> None:
     """Test create_command passes artifact_path=None when not specified."""
     mock_ctrl = MagicMock()

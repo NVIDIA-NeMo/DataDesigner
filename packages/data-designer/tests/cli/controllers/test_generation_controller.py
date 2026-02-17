@@ -40,7 +40,7 @@ def _make_mock_create_results(num_records: int, base_path: str = "/output/artifa
 # ---------------------------------------------------------------------------
 
 
-@patch("data_designer.interface.DataDesigner")
+@patch(f"{_CTRL}.DataDesigner")
 @patch(f"{_CTRL}.load_config_builder")
 def test_run_preview_success(mock_load_config: MagicMock, mock_dd_cls: MagicMock) -> None:
     """Test successful preview execution in non-interactive mode."""
@@ -59,7 +59,7 @@ def test_run_preview_success(mock_load_config: MagicMock, mock_dd_cls: MagicMock
     mock_dd.preview.assert_called_once_with(mock_builder, num_records=5)
 
 
-@patch("data_designer.interface.DataDesigner")
+@patch(f"{_CTRL}.DataDesigner")
 @patch(f"{_CTRL}.load_config_builder")
 def test_run_preview_custom_num_records(mock_load_config: MagicMock, mock_dd_cls: MagicMock) -> None:
     """Test preview with a custom number of records."""
@@ -88,7 +88,7 @@ def test_run_preview_config_load_error(mock_load_config: MagicMock) -> None:
     assert exc_info.value.exit_code == 1
 
 
-@patch("data_designer.interface.DataDesigner")
+@patch(f"{_CTRL}.DataDesigner")
 @patch(f"{_CTRL}.load_config_builder")
 def test_run_preview_generation_fails(mock_load_config: MagicMock, mock_dd_cls: MagicMock) -> None:
     """Test preview exits with code 1 when generation fails."""
@@ -104,7 +104,7 @@ def test_run_preview_generation_fails(mock_load_config: MagicMock, mock_dd_cls: 
     assert exc_info.value.exit_code == 1
 
 
-@patch("data_designer.interface.DataDesigner")
+@patch(f"{_CTRL}.DataDesigner")
 @patch(f"{_CTRL}.load_config_builder")
 def test_run_preview_no_records_generated(mock_load_config: MagicMock, mock_dd_cls: MagicMock) -> None:
     """Test preview exits with code 1 when dataset is None."""
@@ -122,7 +122,7 @@ def test_run_preview_no_records_generated(mock_load_config: MagicMock, mock_dd_c
     assert exc_info.value.exit_code == 1
 
 
-@patch("data_designer.interface.DataDesigner")
+@patch(f"{_CTRL}.DataDesigner")
 @patch(f"{_CTRL}.load_config_builder")
 def test_run_preview_empty_dataset(mock_load_config: MagicMock, mock_dd_cls: MagicMock) -> None:
     """Test preview exits with code 1 when dataset is empty."""
@@ -141,7 +141,7 @@ def test_run_preview_empty_dataset(mock_load_config: MagicMock, mock_dd_cls: Mag
     assert exc_info.value.exit_code == 1
 
 
-@patch("data_designer.interface.DataDesigner")
+@patch(f"{_CTRL}.DataDesigner")
 @patch(f"{_CTRL}.load_config_builder")
 def test_run_preview_non_interactive_displays_all(mock_load_config: MagicMock, mock_dd_cls: MagicMock) -> None:
     """Test --non-interactive displays all records without interactive browsing."""
@@ -161,7 +161,7 @@ def test_run_preview_non_interactive_displays_all(mock_load_config: MagicMock, m
 
 
 @patch(f"{_CTRL}.sys")
-@patch("data_designer.interface.DataDesigner")
+@patch(f"{_CTRL}.DataDesigner")
 @patch(f"{_CTRL}.load_config_builder")
 def test_run_preview_non_tty_stdin_falls_back_to_non_interactive(
     mock_load_config: MagicMock,
@@ -184,7 +184,7 @@ def test_run_preview_non_tty_stdin_falls_back_to_non_interactive(
 
 
 @patch(f"{_CTRL}.sys")
-@patch("data_designer.interface.DataDesigner")
+@patch(f"{_CTRL}.DataDesigner")
 @patch(f"{_CTRL}.load_config_builder")
 def test_run_preview_piped_stdout_falls_back_to_non_interactive(
     mock_load_config: MagicMock,
@@ -207,7 +207,7 @@ def test_run_preview_piped_stdout_falls_back_to_non_interactive(
 
 
 @patch(f"{_CTRL}.sys")
-@patch("data_designer.interface.DataDesigner")
+@patch(f"{_CTRL}.DataDesigner")
 @patch(f"{_CTRL}.load_config_builder")
 def test_run_preview_single_record_no_interactive(
     mock_load_config: MagicMock,
@@ -231,7 +231,7 @@ def test_run_preview_single_record_no_interactive(
 
 @patch(f"{_CTRL}.wait_for_navigation_key", side_effect=["n", "q"])
 @patch(f"{_CTRL}.sys")
-@patch("data_designer.interface.DataDesigner")
+@patch(f"{_CTRL}.DataDesigner")
 @patch(f"{_CTRL}.load_config_builder")
 def test_run_preview_tty_multiple_records_uses_interactive(
     mock_load_config: MagicMock,
@@ -255,7 +255,7 @@ def test_run_preview_tty_multiple_records_uses_interactive(
     assert mock_wait.call_count == 2
 
 
-@patch("data_designer.interface.DataDesigner")
+@patch(f"{_CTRL}.DataDesigner")
 @patch(f"{_CTRL}.load_config_builder")
 def test_run_preview_calls_to_report_when_analysis_present(mock_load_config: MagicMock, mock_dd_cls: MagicMock) -> None:
     """Test that analysis.to_report() is called when analysis is present."""
@@ -273,7 +273,7 @@ def test_run_preview_calls_to_report_when_analysis_present(mock_load_config: Mag
     mock_analysis.to_report.assert_called_once()
 
 
-@patch("data_designer.interface.DataDesigner")
+@patch(f"{_CTRL}.DataDesigner")
 @patch(f"{_CTRL}.load_config_builder")
 def test_run_preview_skips_report_when_analysis_is_none(mock_load_config: MagicMock, mock_dd_cls: MagicMock) -> None:
     """Test that to_report() is not called when analysis is None."""
@@ -373,7 +373,7 @@ def test_display_all_records() -> None:
 # ---------------------------------------------------------------------------
 
 
-@patch("data_designer.interface.DataDesigner")
+@patch(f"{_CTRL}.DataDesigner")
 @patch(f"{_CTRL}.load_config_builder")
 def test_run_validate_success(mock_load_config: MagicMock, mock_dd_cls: MagicMock) -> None:
     """Test successful validate execution."""
@@ -404,7 +404,7 @@ def test_run_validate_config_load_error(mock_load_config: MagicMock) -> None:
     assert exc_info.value.exit_code == 1
 
 
-@patch("data_designer.interface.DataDesigner")
+@patch(f"{_CTRL}.DataDesigner")
 @patch(f"{_CTRL}.load_config_builder")
 def test_run_validate_invalid_config(mock_load_config: MagicMock, mock_dd_cls: MagicMock) -> None:
     """Test validate exits with code 1 when config is invalid."""
@@ -420,7 +420,7 @@ def test_run_validate_invalid_config(mock_load_config: MagicMock, mock_dd_cls: M
     assert exc_info.value.exit_code == 1
 
 
-@patch("data_designer.interface.DataDesigner")
+@patch(f"{_CTRL}.DataDesigner")
 @patch(f"{_CTRL}.load_config_builder")
 def test_run_validate_generic_exception(mock_load_config: MagicMock, mock_dd_cls: MagicMock) -> None:
     """Test validate exits with code 1 on unexpected errors."""
@@ -441,7 +441,7 @@ def test_run_validate_generic_exception(mock_load_config: MagicMock, mock_dd_cls
 # ---------------------------------------------------------------------------
 
 
-@patch("data_designer.interface.DataDesigner")
+@patch(f"{_CTRL}.DataDesigner")
 @patch(f"{_CTRL}.load_config_builder")
 def test_run_create_success(mock_load_config: MagicMock, mock_dd_cls: MagicMock) -> None:
     """Test successful create execution with default artifact path."""
@@ -460,7 +460,7 @@ def test_run_create_success(mock_load_config: MagicMock, mock_dd_cls: MagicMock)
     mock_dd.create.assert_called_once_with(mock_builder, num_records=10, dataset_name="dataset")
 
 
-@patch("data_designer.interface.DataDesigner")
+@patch(f"{_CTRL}.DataDesigner")
 @patch(f"{_CTRL}.load_config_builder")
 def test_run_create_custom_options(mock_load_config: MagicMock, mock_dd_cls: MagicMock) -> None:
     """Test create with custom --num-records, --dataset-name, and --artifact-path."""
@@ -493,7 +493,7 @@ def test_run_create_config_load_error(mock_load_config: MagicMock) -> None:
     assert exc_info.value.exit_code == 1
 
 
-@patch("data_designer.interface.DataDesigner")
+@patch(f"{_CTRL}.DataDesigner")
 @patch(f"{_CTRL}.load_config_builder")
 def test_run_create_creation_fails(mock_load_config: MagicMock, mock_dd_cls: MagicMock) -> None:
     """Test create exits with code 1 when dataset creation fails."""
@@ -509,7 +509,7 @@ def test_run_create_creation_fails(mock_load_config: MagicMock, mock_dd_cls: Mag
     assert exc_info.value.exit_code == 1
 
 
-@patch("data_designer.interface.DataDesigner")
+@patch(f"{_CTRL}.DataDesigner")
 @patch(f"{_CTRL}.load_config_builder")
 def test_run_create_calls_to_report_when_analysis_present(mock_load_config: MagicMock, mock_dd_cls: MagicMock) -> None:
     """Test that analysis.to_report() is called when load_analysis() returns a value."""
@@ -528,7 +528,7 @@ def test_run_create_calls_to_report_when_analysis_present(mock_load_config: Magi
     mock_analysis.to_report.assert_called_once()
 
 
-@patch("data_designer.interface.DataDesigner")
+@patch(f"{_CTRL}.DataDesigner")
 @patch(f"{_CTRL}.load_config_builder")
 def test_run_create_skips_report_when_analysis_is_none(mock_load_config: MagicMock, mock_dd_cls: MagicMock) -> None:
     """Test that to_report() is not called when load_analysis() returns None."""

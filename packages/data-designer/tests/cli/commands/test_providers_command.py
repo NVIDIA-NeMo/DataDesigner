@@ -8,7 +8,7 @@ from data_designer.cli.controllers.provider_controller import ProviderController
 from data_designer.config.utils.constants import DATA_DESIGNER_HOME
 
 
-@patch("data_designer.cli.controllers.provider_controller.ProviderController")
+@patch("data_designer.cli.commands.providers.ProviderController")
 def test_providers_command(mock_provider_controller):
     mock_provider_controller_instance = MagicMock(spec=ProviderController)
     mock_provider_controller.return_value = mock_provider_controller_instance

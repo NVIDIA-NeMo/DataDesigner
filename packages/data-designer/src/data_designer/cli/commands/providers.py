@@ -3,15 +3,11 @@
 
 from __future__ import annotations
 
+from data_designer.cli.controllers.provider_controller import ProviderController
 from data_designer.config.utils.constants import DATA_DESIGNER_HOME
-
-# Controllers are imported inside command functions to avoid pulling in heavy
-# dependencies (engine, models) at CLI startup time.
 
 
 def providers_command() -> None:
     """Configure model providers interactively."""
-    from data_designer.cli.controllers.provider_controller import ProviderController
-
     controller = ProviderController(DATA_DESIGNER_HOME)
     controller.run()

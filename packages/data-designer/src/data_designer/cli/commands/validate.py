@@ -5,8 +5,7 @@ from __future__ import annotations
 
 import typer
 
-# Controllers are imported inside command functions to avoid pulling in heavy
-# dependencies (engine, models) at CLI startup time.
+from data_designer.cli.controllers.generation_controller import GenerationController
 
 
 def validate_command(
@@ -32,7 +31,5 @@ def validate_command(
         # Validate a Python module
         data-designer validate my_config.py
     """
-    from data_designer.cli.controllers.generation_controller import GenerationController
-
     controller = GenerationController()
     controller.run_validate(config_source=config_source)

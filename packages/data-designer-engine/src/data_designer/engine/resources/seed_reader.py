@@ -12,11 +12,11 @@ from typing_extensions import Self
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.seed_source import (
-    DataFrameSeedSource,
     HuggingFaceSeedSource,
     LocalFileSeedSource,
     SeedSource,
 )
+from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 from data_designer.engine.secret_resolver import SecretResolver
 from data_designer.errors import DataDesignerError
 

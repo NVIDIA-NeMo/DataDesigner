@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from data_designer.config.seed_source import DataFrameSeedSource
+from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 from data_designer.engine.resources.seed_reader import (
     DataFrameSeedReader,
     LocalFileSeedReader,

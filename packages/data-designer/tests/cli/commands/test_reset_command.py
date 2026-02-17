@@ -89,9 +89,9 @@ def mock_repositories_factory(stub_fake_provider_path: Path, stub_fake_model_pat
 
 
 # Tests
-@patch("data_designer.cli.repositories.model_repository.ModelRepository")
-@patch("data_designer.cli.repositories.provider_repository.ProviderRepository")
-@patch("data_designer.cli.ui.confirm_action")
+@patch("data_designer.cli.commands.reset.ModelRepository")
+@patch("data_designer.cli.commands.reset.ProviderRepository")
+@patch("data_designer.cli.commands.reset.confirm_action")
 def test_reset_no_config_files_exist(
     mock_confirm: Mock,
     mock_provider_repo: Mock,
@@ -114,9 +114,9 @@ def test_reset_no_config_files_exist(
     mock_model_instance.delete.assert_not_called()
 
 
-@patch("data_designer.cli.repositories.model_repository.ModelRepository")
-@patch("data_designer.cli.repositories.provider_repository.ProviderRepository")
-@patch("data_designer.cli.ui.confirm_action")
+@patch("data_designer.cli.commands.reset.ModelRepository")
+@patch("data_designer.cli.commands.reset.ProviderRepository")
+@patch("data_designer.cli.commands.reset.confirm_action")
 def test_reset_both_files_exist_user_confirms_both(
     mock_confirm: Mock,
     mock_provider_repo: Mock,
@@ -138,9 +138,9 @@ def test_reset_both_files_exist_user_confirms_both(
     mock_model_instance.delete.assert_called_once()
 
 
-@patch("data_designer.cli.repositories.model_repository.ModelRepository")
-@patch("data_designer.cli.repositories.provider_repository.ProviderRepository")
-@patch("data_designer.cli.ui.confirm_action")
+@patch("data_designer.cli.commands.reset.ModelRepository")
+@patch("data_designer.cli.commands.reset.ProviderRepository")
+@patch("data_designer.cli.commands.reset.confirm_action")
 def test_reset_both_files_exist_user_declines_both(
     mock_confirm: Mock,
     mock_provider_repo: Mock,
@@ -162,9 +162,9 @@ def test_reset_both_files_exist_user_declines_both(
     mock_model_instance.delete.assert_not_called()
 
 
-@patch("data_designer.cli.repositories.model_repository.ModelRepository")
-@patch("data_designer.cli.repositories.provider_repository.ProviderRepository")
-@patch("data_designer.cli.ui.confirm_action")
+@patch("data_designer.cli.commands.reset.ModelRepository")
+@patch("data_designer.cli.commands.reset.ProviderRepository")
+@patch("data_designer.cli.commands.reset.confirm_action")
 def test_reset_mixed_confirmation(
     mock_confirm: Mock,
     mock_provider_repo: Mock,
@@ -195,9 +195,9 @@ def test_reset_mixed_confirmation(
     ],
     ids=["provider_fails", "model_fails", "both_fail"],
 )
-@patch("data_designer.cli.repositories.model_repository.ModelRepository")
-@patch("data_designer.cli.repositories.provider_repository.ProviderRepository")
-@patch("data_designer.cli.ui.confirm_action")
+@patch("data_designer.cli.commands.reset.ModelRepository")
+@patch("data_designer.cli.commands.reset.ProviderRepository")
+@patch("data_designer.cli.commands.reset.confirm_action")
 def test_reset_deletion_failures(
     mock_confirm: Mock,
     mock_provider_repo: Mock,
@@ -235,9 +235,9 @@ def test_reset_deletion_failures(
     ],
     ids=["only_provider", "only_model"],
 )
-@patch("data_designer.cli.repositories.model_repository.ModelRepository")
-@patch("data_designer.cli.repositories.provider_repository.ProviderRepository")
-@patch("data_designer.cli.ui.confirm_action")
+@patch("data_designer.cli.commands.reset.ModelRepository")
+@patch("data_designer.cli.commands.reset.ProviderRepository")
+@patch("data_designer.cli.commands.reset.confirm_action")
 def test_reset_single_file_exists(
     mock_confirm: Mock,
     mock_provider_repo: Mock,
@@ -264,9 +264,9 @@ def test_reset_single_file_exists(
     assert mock_model_instance.delete.call_count == expected_model_deletes
 
 
-@patch("data_designer.cli.repositories.model_repository.ModelRepository")
-@patch("data_designer.cli.repositories.provider_repository.ProviderRepository")
-@patch("data_designer.cli.ui.confirm_action")
+@patch("data_designer.cli.commands.reset.ModelRepository")
+@patch("data_designer.cli.commands.reset.ProviderRepository")
+@patch("data_designer.cli.commands.reset.confirm_action")
 def test_reset_uses_default_config_dir_when_none_provided(
     mock_confirm: Mock,
     mock_provider_repo: Mock,

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import functools
 import logging
 import re
 from copy import deepcopy
@@ -14,7 +15,11 @@ from data_designer.engine.processing.gsonschema.exceptions import JSONSchemaVali
 from data_designer.engine.processing.gsonschema.schema_transformers import forbid_additional_properties
 from data_designer.engine.processing.gsonschema.types import DataObjectT, JSONSchemaT, T_primitive
 
-DEFAULT_JSONSCHEMA_VALIDATOR = lazy.jsonschema.Draft202012Validator
+
+@functools.lru_cache(maxsize=1)
+def _get_default_validator() -> type:
+    return lazy.jsonschema.Draft202012Validator
+
 
 logger = logging.getLogger(__name__)
 
@@ -182,7 +187,7 @@ def validate(
             schema.
     """
     final_object = deepcopy(obj)
-    validator = DEFAULT_JSONSCHEMA_VALIDATOR
+    validator = _get_default_validator()
     if pruning:
         validator = extend_jsonschema_validator_with_pruning(validator)
 

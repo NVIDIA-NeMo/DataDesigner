@@ -14,7 +14,8 @@ from data_designer.config.custom_column import custom_column_generator
 from data_designer.config.processors import DropColumnsProcessorConfig
 from data_designer.config.run_config import RunConfig
 from data_designer.config.sampler_params import SamplerType, UUIDSamplerParams
-from data_designer.config.seed_source import DataFrameSeedSource, LocalFileSeedSource
+from data_designer.config.seed_source import LocalFileSeedSource
+from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 from data_designer.engine.column_generators.generators.base import GenerationStrategy
 from data_designer.engine.dataset_builders.column_wise_builder import ColumnWiseDatasetBuilder
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError, DatasetProcessingError
