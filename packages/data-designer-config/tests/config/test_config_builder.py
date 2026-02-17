@@ -6,13 +6,13 @@ from __future__ import annotations
 import json
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pytest
 import yaml
 from pydantic import BaseModel, ValidationError
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.analysis.column_profilers import JudgeScoreProfilerConfig
 from data_designer.config.column_configs import (
     ExpressionColumnConfig,
@@ -43,10 +43,6 @@ from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.utils.info import ConfigBuilderInfo
 from data_designer.config.validator_params import CodeValidatorParams
 from data_designer.config.version import get_library_version
-from data_designer.lazy_heavy_imports import pd
-
-if TYPE_CHECKING:
-    import pandas as pd
 
 
 class DummyStructuredModel(BaseModel):
@@ -873,7 +869,7 @@ def test_delete_model_config(stub_empty_builder):
 def test_cannot_write_config_with_dataframe_seed(stub_model_configs):
     builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
 
-    df = pd.DataFrame(data={"hello": [1, 2], "world": [10, 20]})
+    df = lazy.pd.DataFrame(data={"hello": [1, 2], "world": [10, 20]})
     df_seed = DataFrameSeedSource(df=df)
     builder.with_seed_dataset(df_seed)
 

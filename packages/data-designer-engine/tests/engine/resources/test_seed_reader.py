@@ -3,10 +3,9 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import pytest
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 from data_designer.engine.resources.seed_reader import (
     DataFrameSeedReader,
@@ -15,10 +14,6 @@ from data_designer.engine.resources.seed_reader import (
     SeedReaderRegistry,
 )
 from data_designer.engine.secret_resolver import PlaintextResolver
-from data_designer.lazy_heavy_imports import pd
-
-if TYPE_CHECKING:
-    import pandas as pd
 
 
 def test_one_reader_per_seed_type():
@@ -39,7 +34,7 @@ def test_get_reader_basic():
     df_reader = DataFrameSeedReader()
     registry = SeedReaderRegistry([local_reader, df_reader])
 
-    df = pd.DataFrame(data={"a": [1, 2, 3]})
+    df = lazy.pd.DataFrame(data={"a": [1, 2, 3]})
     local_seed_config = DataFrameSeedSource(df=df)
 
     reader = registry.get_reader(local_seed_config, PlaintextResolver())
@@ -51,7 +46,7 @@ def test_get_reader_missing():
     local_reader = LocalFileSeedReader()
     registry = SeedReaderRegistry([local_reader])
 
-    df = pd.DataFrame(data={"a": [1, 2, 3]})
+    df = lazy.pd.DataFrame(data={"a": [1, 2, 3]})
     local_seed_config = DataFrameSeedSource(df=df)
 
     with pytest.raises(SeedReaderError):

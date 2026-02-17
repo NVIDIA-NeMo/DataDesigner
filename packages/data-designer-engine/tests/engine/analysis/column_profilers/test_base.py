@@ -3,22 +3,17 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import pytest
 from pydantic import ValidationError
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.column_configs import SamplerColumnConfig
 from data_designer.config.sampler_params import SamplerType
 from data_designer.engine.analysis.column_profilers.base import ColumnConfigWithDataFrame
-from data_designer.lazy_heavy_imports import pd
-
-if TYPE_CHECKING:
-    import pandas as pd
 
 
 def test_column_config_with_dataframe_valid_column_config_with_dataframe():
-    df = pd.DataFrame({"test_column": [1, 2, 3]})
+    df = lazy.pd.DataFrame({"test_column": [1, 2, 3]})
     column_config = SamplerColumnConfig(
         name="test_column", sampler_type=SamplerType.CATEGORY, params={"values": [1, 2, 3]}
     )
@@ -31,7 +26,7 @@ def test_column_config_with_dataframe_valid_column_config_with_dataframe():
 
 
 def test_column_config_with_dataframe_column_not_found_validation_error():
-    df = pd.DataFrame({"other_column": [1, 2, 3]})
+    df = lazy.pd.DataFrame({"other_column": [1, 2, 3]})
     column_config = SamplerColumnConfig(
         name="test_column", sampler_type=SamplerType.CATEGORY, params={"values": [1, 2, 3]}
     )
@@ -41,7 +36,7 @@ def test_column_config_with_dataframe_column_not_found_validation_error():
 
 
 def test_column_config_with_dataframe_as_tuple_method():
-    df = pd.DataFrame({"test_column": [1, 2, 3]})
+    df = lazy.pd.DataFrame({"test_column": [1, 2, 3]})
     column_config = SamplerColumnConfig(
         name="test_column", sampler_type=SamplerType.CATEGORY, params={"values": [1, 2, 3]}
     )

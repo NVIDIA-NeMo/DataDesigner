@@ -11,7 +11,7 @@ from unittest.mock import Mock
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from data_designer.lazy_heavy_imports import pd
+import data_designer.lazy_heavy_imports as lazy
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -275,7 +275,7 @@ def test_full_column_strategy() -> None:
 
     assert generator.get_generation_strategy() == GenerationStrategy.FULL_COLUMN
 
-    result = generator.generate(pd.DataFrame({"input": [1, 2, 3]}))
+    result = generator.generate(lazy.pd.DataFrame({"input": [1, 2, 3]}))
     assert list(result["result"]) == [2, 4, 6]
 
 
@@ -294,7 +294,7 @@ def test_full_column_with_params() -> None:
         generation_strategy=GenerationStrategy.FULL_COLUMN,
     )
 
-    result = generator.generate(pd.DataFrame({"input": [1, 2, 3]}))
+    result = generator.generate(lazy.pd.DataFrame({"input": [1, 2, 3]}))
     assert list(result["result"]) == [3, 6, 9]
 
 
@@ -345,7 +345,7 @@ def test_strategy_mismatch_at_runtime() -> None:
         name="result", generator_function=row_func, generation_strategy=GenerationStrategy.FULL_COLUMN
     )
     with pytest.raises(CustomColumnGenerationError, match="first parameter must be 'df', got 'row'"):
-        gen.generate(pd.DataFrame({"input": [1]}))
+        gen.generate(lazy.pd.DataFrame({"input": [1]}))
 
     # df function used with cell_by_cell strategy
     @custom_column_generator()

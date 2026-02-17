@@ -3,11 +3,11 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
 from unittest.mock import Mock, patch
 
 import pytest
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.engine.resources.managed_dataset_repository import (
     DATASETS_ROOT,
     DEFAULT_DATA_CATALOG,
@@ -16,10 +16,6 @@ from data_designer.engine.resources.managed_dataset_repository import (
     load_managed_dataset_repository,
 )
 from data_designer.engine.resources.managed_storage import ManagedBlobStorage
-from data_designer.lazy_heavy_imports import pd
-
-if TYPE_CHECKING:
-    import pandas as pd
 
 
 def test_table_creation_default_schema():
@@ -120,7 +116,7 @@ def test_duckdb_dataset_repository_data_catalog_property(mock_duckdb, stub_blob_
 def test_duckdb_dataset_repository_query_basic(mock_duckdb, stub_blob_storage):
     mock_db = Mock()
     mock_cursor = Mock()
-    mock_df = pd.DataFrame({"col1": [1, 2, 3]})
+    mock_df = lazy.pd.DataFrame({"col1": [1, 2, 3]})
 
     mock_duckdb.connect.return_value = mock_db
     mock_db.cursor.return_value = mock_cursor
@@ -137,14 +133,14 @@ def test_duckdb_dataset_repository_query_basic(mock_duckdb, stub_blob_storage):
         mock_cursor.execute.assert_called_once_with("SELECT * FROM test", [])
         mock_cursor.close.assert_called_once()
 
-        pd.testing.assert_frame_equal(result, mock_df)
+        lazy.pd.testing.assert_frame_equal(result, mock_df)
 
 
 @patch("data_designer.engine.resources.managed_dataset_repository.lazy.duckdb", autospec=True)
 def test_duckdb_dataset_repository_query_waits_for_registration(mock_duckdb, stub_blob_storage):
     mock_db = Mock()
     mock_cursor = Mock()
-    mock_df = pd.DataFrame({"col1": [1, 2, 3]})
+    mock_df = lazy.pd.DataFrame({"col1": [1, 2, 3]})
 
     mock_duckdb.connect.return_value = mock_db
     mock_db.cursor.return_value = mock_cursor
@@ -163,7 +159,7 @@ def test_duckdb_dataset_repository_query_waits_for_registration(mock_duckdb, stu
         result = repo.query("SELECT * FROM test", [])
 
         mock_cursor.execute.assert_called_once_with("SELECT * FROM test", [])
-        pd.testing.assert_frame_equal(result, mock_df)
+        lazy.pd.testing.assert_frame_equal(result, mock_df)
 
 
 @patch("data_designer.engine.resources.managed_dataset_repository.lazy.duckdb", autospec=True)

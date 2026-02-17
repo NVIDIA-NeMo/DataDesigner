@@ -3,26 +3,22 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
 from unittest.mock import Mock, patch
 
 import pytest
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.engine.resources.managed_dataset_generator import ManagedDatasetGenerator
 from data_designer.engine.resources.managed_dataset_repository import ManagedDatasetRepository
 from data_designer.engine.resources.managed_storage import ManagedBlobStorage
 from data_designer.engine.sampling_gen.entities.person import load_person_data_sampler
 from data_designer.engine.sampling_gen.errors import DatasetNotAvailableForLocaleError
-from data_designer.lazy_heavy_imports import pd
-
-if TYPE_CHECKING:
-    import pandas as pd
 
 
 @pytest.fixture
 def stub_repository():
     mock_repo = Mock(spec=ManagedDatasetRepository)
-    mock_repo.query.return_value = pd.DataFrame({"name": ["John", "Jane"], "age": [25, 30]})
+    mock_repo.query.return_value = lazy.pd.DataFrame({"name": ["John", "Jane"], "age": [25, 30]})
     return mock_repo
 
 
@@ -82,7 +78,7 @@ def test_generate_samples_scenarios(size, evidence, expected_query_pattern, expe
 
     stub_repository.query.assert_called_once_with(expected_query_pattern, expected_parameters)
 
-    assert isinstance(result, pd.DataFrame)
+    assert isinstance(result, lazy.pd.DataFrame)
 
 
 def test_generate_samples_different_locale(stub_repository):
@@ -95,7 +91,7 @@ def test_generate_samples_different_locale(stub_repository):
     expected_query = "select * from ja_JP order by random() limit 1"
     assert expected_query in call_args
 
-    assert isinstance(result, pd.DataFrame)
+    assert isinstance(result, lazy.pd.DataFrame)
 
 
 @pytest.mark.parametrize(

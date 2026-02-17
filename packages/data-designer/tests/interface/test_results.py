@@ -3,11 +3,11 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.dataset_metadata import DatasetMetadata
@@ -16,10 +16,6 @@ from data_designer.config.utils.errors import DatasetSampleDisplayError
 from data_designer.config.utils.visualization import display_sample_record as display_fn
 from data_designer.engine.storage.artifact_storage import ArtifactStorage
 from data_designer.interface.results import DatasetCreationResults
-from data_designer.lazy_heavy_imports import pd
-
-if TYPE_CHECKING:
-    import pandas as pd
 
 
 @pytest.fixture
@@ -67,9 +63,9 @@ def test_load_dataset(stub_dataset_creation_results, stub_artifact_storage, stub
     """Test loading the dataset."""
     dataset = stub_dataset_creation_results.load_dataset()
 
-    assert isinstance(dataset, pd.DataFrame)
+    assert isinstance(dataset, lazy.pd.DataFrame)
     stub_artifact_storage.load_dataset.assert_called_once()
-    pd.testing.assert_frame_equal(dataset, stub_dataframe)
+    lazy.pd.testing.assert_frame_equal(dataset, stub_dataframe)
 
 
 def test_load_analysis(stub_dataset_creation_results, stub_dataset_profiler_results):
@@ -95,7 +91,7 @@ def test_record_sampler_dataset_initialization(stub_dataset_creation_results, st
 
     # Verify load_dataset was called
     stub_artifact_storage.load_dataset.assert_called_once()
-    pd.testing.assert_frame_equal(dataset, stub_artifact_storage.load_dataset.return_value)
+    lazy.pd.testing.assert_frame_equal(dataset, stub_artifact_storage.load_dataset.return_value)
 
 
 @patch("data_designer.config.utils.visualization.display_sample_record", autospec=True)
@@ -112,7 +108,7 @@ def test_display_sample_record_with_default_params(
     assert call_kwargs["background_color"] is None
     assert call_kwargs["record_index"] == 0
     # Verify the record passed is the first row of the dataframe
-    pd.testing.assert_series_equal(mock_display_sample_record.call_args.kwargs["record"], stub_dataframe.iloc[0])
+    lazy.pd.testing.assert_series_equal(mock_display_sample_record.call_args.kwargs["record"], stub_dataframe.iloc[0])
 
 
 @patch("data_designer.config.utils.visualization.display_sample_record", autospec=True)
@@ -128,7 +124,7 @@ def test_display_sample_record_with_custom_index(
     assert call_kwargs["syntax_highlighting_theme"] == "dracula"
     assert call_kwargs["background_color"] is None
     # Verify the record passed is the correct row
-    pd.testing.assert_series_equal(mock_display_sample_record.call_args.kwargs["record"], stub_dataframe.iloc[5])
+    lazy.pd.testing.assert_series_equal(mock_display_sample_record.call_args.kwargs["record"], stub_dataframe.iloc[5])
 
 
 @patch("data_designer.config.utils.visualization.display_sample_record", autospec=True)
@@ -192,7 +188,7 @@ def test_display_sample_record_multiple_calls(
 def test_display_sample_record_with_empty_dataset():
     """Test display_sample_record behavior with empty dataset."""
     empty_storage = MagicMock(spec=ArtifactStorage)
-    empty_storage.load_dataset.return_value = pd.DataFrame()
+    empty_storage.load_dataset.return_value = lazy.pd.DataFrame()
 
     results = DatasetCreationResults(
         artifact_storage=empty_storage,
@@ -272,7 +268,7 @@ def test_preview_results_dataset_metadata() -> None:
 
     results = PreviewResults(
         config_builder=config_builder,
-        dataset=pd.DataFrame({"name": ["Alice"], "age": [25], "greeting": ["Hello"]}),
+        dataset=lazy.pd.DataFrame({"name": ["Alice"], "age": [25], "greeting": ["Hello"]}),
         dataset_metadata=dataset_metadata,
     )
 

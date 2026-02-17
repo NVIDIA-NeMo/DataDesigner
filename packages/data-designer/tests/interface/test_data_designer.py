@@ -4,13 +4,13 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pytest
 from pydantic import ValidationError
 
 import data_designer.interface.data_designer as dd_mod
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.column_configs import SamplerColumnConfig
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.errors import InvalidConfigError
@@ -23,10 +23,6 @@ from data_designer.engine.secret_resolver import CompositeResolver, EnvironmentR
 from data_designer.engine.testing.stubs import StubHuggingFaceSeedReader
 from data_designer.interface.data_designer import DataDesigner
 from data_designer.interface.errors import DataDesignerGenerationError, DataDesignerProfilingError
-from data_designer.lazy_heavy_imports import pd
-
-if TYPE_CHECKING:
-    import pandas as pd
 
 
 @pytest.fixture
@@ -240,7 +236,9 @@ def test_create_raises_error_when_profiler_fails(
         # Mock builder to succeed
         mock_builder = MagicMock()
         mock_builder.build.return_value = None
-        mock_builder.artifact_storage.load_dataset_with_dropped_columns.return_value = pd.DataFrame({"col": [1, 2, 3]})
+        mock_builder.artifact_storage.load_dataset_with_dropped_columns.return_value = lazy.pd.DataFrame(
+            {"col": [1, 2, 3]}
+        )
         mock_builder_method.return_value = mock_builder
 
         # Mock profiler to fail
@@ -291,8 +289,8 @@ def test_preview_raises_error_when_profiler_fails(
     ):
         # Mock builder to succeed
         mock_builder = MagicMock()
-        mock_builder.build_preview.return_value = pd.DataFrame({"col": [1, 2, 3]})
-        mock_builder.process_preview.return_value = pd.DataFrame({"col": [1, 2, 3]})
+        mock_builder.build_preview.return_value = lazy.pd.DataFrame({"col": [1, 2, 3]})
+        mock_builder.process_preview.return_value = lazy.pd.DataFrame({"col": [1, 2, 3]})
         mock_builder_method.return_value = mock_builder
 
         # Mock profiler to fail

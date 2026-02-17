@@ -3,10 +3,9 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import pytest
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.analysis.column_statistics import (
     CategoricalDistribution,
     CategoricalHistogramData,
@@ -23,11 +22,6 @@ from data_designer.config.analysis.column_statistics import (
     SamplerType,
     ValidationColumnStatistics,
 )
-from data_designer.lazy_heavy_imports import np, pd
-
-if TYPE_CHECKING:
-    import numpy as np
-    import pandas as pd
 
 
 @pytest.fixture
@@ -227,7 +221,7 @@ def test_validation_column_statistics_with_valid_values(stub_general_stats_args_
 def test_categorical_histogram_data():
     # test construction
     categorical_histogram_data = CategoricalHistogramData(
-        categories=[np.int64(1), np.int64(2), np.int64(3), np.int64(4)],
+        categories=[lazy.np.int64(1), lazy.np.int64(2), lazy.np.int64(3), lazy.np.int64(4)],
         counts=[3.0, 2.0, 1.0, 0.0],
     )
     assert categorical_histogram_data.categories == [1, 2, 3, 4]
@@ -235,8 +229,15 @@ def test_categorical_histogram_data():
 
     # test from pd series
     categorical_histogram_data = CategoricalHistogramData.from_series(
-        pd.Series(
-            [np.float16(1.0), np.float16(1.0), np.float16(2.0), np.float16(3.0), np.float16(3.0), np.float16(1.0)]
+        lazy.pd.Series(
+            [
+                lazy.np.float16(1.0),
+                lazy.np.float16(1.0),
+                lazy.np.float16(2.0),
+                lazy.np.float16(3.0),
+                lazy.np.float16(3.0),
+                lazy.np.float16(1.0),
+            ]
         )
     )
     assert categorical_histogram_data.categories == [1, 3, 2]
@@ -245,8 +246,8 @@ def test_categorical_histogram_data():
 
 def test_categorical_distribution(stub_categorical_histogram_data):
     categorical_distribution = CategoricalDistribution(
-        most_common_value=np.int8(1),
-        least_common_value=np.int8(3),
+        most_common_value=lazy.np.int8(1),
+        least_common_value=lazy.np.int8(3),
         histogram=stub_categorical_histogram_data,
     )
     assert categorical_distribution.most_common_value == 1
@@ -262,7 +263,9 @@ def test_categorical_distribution(stub_categorical_histogram_data):
 
     # test from series
     categorical_distribution = CategoricalDistribution.from_series(
-        pd.Series([np.int8(1), np.int8(2), np.int8(3), np.int8(3), np.int8(2), np.int8(3)])
+        lazy.pd.Series(
+            [lazy.np.int8(1), lazy.np.int8(2), lazy.np.int8(3), lazy.np.int8(3), lazy.np.int8(2), lazy.np.int8(3)]
+        )
     )
     assert categorical_distribution.most_common_value == 3
     assert categorical_distribution.least_common_value == 1
@@ -272,10 +275,10 @@ def test_categorical_distribution(stub_categorical_histogram_data):
 
 def test_numerical_distribution():
     numerical_distribution = NumericalDistribution(
-        min=np.float16(1.0),
-        max=np.int8(2.0),
-        mean=np.int8(3),
-        stddev=np.int8(4),
+        min=lazy.np.float16(1.0),
+        max=lazy.np.int8(2.0),
+        mean=lazy.np.int8(3),
+        stddev=lazy.np.int8(4),
         median=5,
     )
     assert numerical_distribution.min == 1
@@ -291,7 +294,7 @@ def test_numerical_distribution():
     assert isinstance(numerical_distribution.median, float)
 
     # test from series
-    numerical_distribution = NumericalDistribution.from_series(pd.Series([1, 2, 3, 4, 5, pd.NA]))
+    numerical_distribution = NumericalDistribution.from_series(lazy.pd.Series([1, 2, 3, 4, 5, lazy.pd.NA]))
     assert numerical_distribution.min == 1
     assert numerical_distribution.max == 5
     assert numerical_distribution.mean == 3.0

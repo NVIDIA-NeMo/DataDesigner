@@ -7,9 +7,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.validator_params import LocalCallableValidatorParams
 from data_designer.engine.validators.local_callable import LocalCallableValidator
-from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -23,9 +23,9 @@ def stub_data() -> list[dict]:
 def test_validate_with_callback_validator(stub_data: list[dict]):
     def callback_fn(df: pd.DataFrame) -> pd.DataFrame:
         if df.iloc[0]["text"] == "Sample text":
-            return pd.DataFrame([{"is_valid": True, "confidence": "0.98"}])
+            return lazy.pd.DataFrame([{"is_valid": True, "confidence": "0.98"}])
         else:
-            return pd.DataFrame([{"is_valid": False, "confidence": "0.0"}])
+            return lazy.pd.DataFrame([{"is_valid": False, "confidence": "0.0"}])
 
     validator = LocalCallableValidator(
         LocalCallableValidatorParams(

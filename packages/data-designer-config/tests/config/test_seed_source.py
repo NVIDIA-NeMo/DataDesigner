@@ -4,21 +4,17 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import pytest
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.errors import InvalidFilePathError
 from data_designer.config.seed_source import LocalFileSeedSource
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
-from data_designer.lazy_heavy_imports import pd
-
-if TYPE_CHECKING:
-    import pandas as pd
 
 
 def create_partitions_in_path(temp_dir: Path, extension: str, num_files: int = 2) -> Path:
-    df = pd.DataFrame({"col": [1, 2, 3]})
+    df = lazy.pd.DataFrame({"col": [1, 2, 3]})
 
     for i in range(num_files):
         file_path = temp_dir / f"partition_{i}.{extension}"
@@ -59,18 +55,18 @@ def test_local_seed_dataset_reference_validation_error(tmp_path: Path):
 
 
 def test_local_source_from_dataframe(tmp_path: Path):
-    df = pd.DataFrame({"col": [1, 2, 3]})
+    df = lazy.pd.DataFrame({"col": [1, 2, 3]})
     filepath = f"{tmp_path}/data.parquet"
 
     source = LocalFileSeedSource.from_dataframe(df, filepath)
 
     assert source.path == filepath
-    pd.testing.assert_frame_equal(df, pd.read_parquet(filepath))
+    lazy.pd.testing.assert_frame_equal(df, lazy.pd.read_parquet(filepath))
 
 
 def test_dataframe_seed_source_serialization():
     """Test that DataFrameSeedSource excludes the DataFrame field during serialization."""
-    df = pd.DataFrame({"col1": [1, 2, 3], "col2": ["a", "b", "c"]})
+    df = lazy.pd.DataFrame({"col1": [1, 2, 3], "col2": ["a", "b", "c"]})
     source = DataFrameSeedSource(df=df)
 
     # Test model_dump excludes the df field

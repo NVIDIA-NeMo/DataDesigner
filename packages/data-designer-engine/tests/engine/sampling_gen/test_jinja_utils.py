@@ -3,16 +3,12 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
 from unittest.mock import Mock
 
 import pytest
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.engine.sampling_gen.jinja_utils import JinjaDataFrame, extract_column_names_from_expression
-from data_designer.lazy_heavy_imports import pd
-
-if TYPE_CHECKING:
-    import pandas as pd
 
 
 @pytest.mark.parametrize(
@@ -70,9 +66,9 @@ def test_jinja_dataframe_select_index_scenarios(test_case, expr, df_data, mock_s
     jdf = JinjaDataFrame(expr)
 
     if df_data:
-        df = pd.DataFrame(df_data)
+        df = lazy.pd.DataFrame(df_data)
     else:
-        df = pd.DataFrame()
+        df = lazy.pd.DataFrame()
 
     if test_case == "with_condition":
         jdf.prepare_jinja2_template_renderer = Mock()
@@ -111,7 +107,7 @@ def test_jinja_dataframe_select_index_scenarios(test_case, expr, df_data, mock_s
 )
 def test_jinja_dataframe_to_column_scenarios(test_case, expr, df_data, mock_side_effect, expected_result):
     jdf = JinjaDataFrame(expr)
-    df = pd.DataFrame(df_data)
+    df = lazy.pd.DataFrame(df_data)
 
     jdf.prepare_jinja2_template_renderer = Mock()
     jdf.render_template = Mock(side_effect=mock_side_effect)

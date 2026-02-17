@@ -5,11 +5,11 @@ from __future__ import annotations
 
 import os
 import tempfile
-from typing import TYPE_CHECKING
 from unittest.mock import Mock, patch
 
 import pytest
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.column_configs import SeedDatasetColumnConfig
 from data_designer.config.seed import IndexRange, PartitionBlock, SamplingStrategy
 from data_designer.config.seed_source import HuggingFaceSeedSource, LocalFileSeedSource
@@ -21,11 +21,6 @@ from data_designer.engine.column_generators.generators.seed_dataset import (
 from data_designer.engine.column_generators.utils.errors import SeedDatasetError
 from data_designer.engine.dataset_builders.multi_column_configs import SeedDatasetMultiColumnConfig
 from data_designer.engine.resources.resource_provider import ResourceProvider
-from data_designer.lazy_heavy_imports import duckdb, pd
-
-if TYPE_CHECKING:
-    import duckdb
-    import pandas as pd
 
 
 @pytest.fixture
@@ -56,7 +51,7 @@ def stub_seed_dataset_generator(stub_resource_provider, stub_duckdb_conn, stub_s
 @pytest.fixture
 def sample_dataframe():
     """Sample dataframe to be saved in different formats."""
-    return pd.DataFrame(
+    return lazy.pd.DataFrame(
         {
             "id": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
             "name": ["Alice", "Bob", "Charlie", "David", "Eve", "Frank", "Grace", "Henry", "Ivy", "Jack"],
@@ -178,13 +173,13 @@ def test_seed_dataset_column_generator_generator_properties(stub_seed_dataset_ge
 
 def test_seed_dataset_column_generator_generate_method(stub_seed_dataset_generator):
     gen = stub_seed_dataset_generator
-    mock_generated_df = pd.DataFrame({"col1": [1, 2, 3]})
+    mock_generated_df = lazy.pd.DataFrame({"col1": [1, 2, 3]})
     gen.generate_from_scratch = Mock(return_value=mock_generated_df)
 
-    input_df = pd.DataFrame({"existing": [4, 5, 6]})
+    input_df = lazy.pd.DataFrame({"existing": [4, 5, 6]})
 
     with patch("data_designer.engine.column_generators.generators.seed_dataset.concat_datasets") as mock_concat:
-        mock_concat.return_value = pd.DataFrame({"col1": [1, 2, 3], "existing": [4, 5, 6]})
+        mock_concat.return_value = lazy.pd.DataFrame({"col1": [1, 2, 3], "existing": [4, 5, 6]})
 
         gen.generate(input_df)
 
@@ -204,7 +199,7 @@ def test_seed_dataset_column_generator_generate_from_scratch_valid_records(stub_
     gen = stub_seed_dataset_generator
 
     gen._reset_batch_reader = Mock()
-    gen._sample_records = Mock(return_value=pd.DataFrame({"col1": [1, 2, 3]}))
+    gen._sample_records = Mock(return_value=lazy.pd.DataFrame({"col1": [1, 2, 3]}))
 
     result = gen.generate_from_scratch(3)
 
@@ -250,7 +245,7 @@ def test_seed_dataset_column_generator_sample_records_simple(stub_seed_dataset_g
 
     # Mock batch reader to return data
     mock_batch = Mock()
-    mock_batch.to_pandas.return_value = pd.DataFrame({"col1": [1, 2, 3]})
+    mock_batch.to_pandas.return_value = lazy.pd.DataFrame({"col1": [1, 2, 3]})
 
     gen._batch_reader = Mock()
     gen._batch_reader.read_next_batch.return_value = mock_batch
@@ -268,7 +263,7 @@ def test_seed_dataset_column_generator_sample_records_with_remaining(stub_seed_d
 
     # Mock batch reader to return more data than requested
     mock_batch = Mock()
-    mock_batch.to_pandas.return_value = pd.DataFrame({"col1": [1, 2, 3, 4, 5]})
+    mock_batch.to_pandas.return_value = lazy.pd.DataFrame({"col1": [1, 2, 3, 4, 5]})
 
     gen._batch_reader = Mock()
     gen._batch_reader.read_next_batch.return_value = mock_batch
@@ -285,11 +280,11 @@ def test_seed_dataset_column_generator_sample_records_with_remaining(stub_seed_d
 
 def test_seed_dataset_column_generator_sample_records_with_previous_remaining(stub_seed_dataset_generator):
     gen = stub_seed_dataset_generator
-    gen._df_remaining = pd.DataFrame({"col1": [10, 11]})
+    gen._df_remaining = lazy.pd.DataFrame({"col1": [10, 11]})
 
     # Mock batch reader to return additional data
     mock_batch = Mock()
-    mock_batch.to_pandas.return_value = pd.DataFrame({"col1": [1, 2, 3]})
+    mock_batch.to_pandas.return_value = lazy.pd.DataFrame({"col1": [1, 2, 3]})
 
     gen._batch_reader = Mock()
     gen._batch_reader.read_next_batch.return_value = mock_batch
@@ -312,7 +307,7 @@ def test_seed_dataset_column_generator_sample_records_with_stop_iteration(stub_s
     mock_batch1.to_pandas.side_effect = StopIteration()
 
     mock_batch2 = Mock()
-    mock_batch2.to_pandas.return_value = pd.DataFrame({"col1": [1, 2, 3]})
+    mock_batch2.to_pandas.return_value = lazy.pd.DataFrame({"col1": [1, 2, 3]})
 
     gen._batch_reader = Mock()
     gen._batch_reader.read_next_batch.side_effect = [mock_batch1, mock_batch2]
@@ -331,7 +326,7 @@ def test_seed_dataset_column_generator_sample_records_zero_record_error(stub_see
 
     # Mock batch reader to always return empty dataframes
     mock_batch = Mock()
-    mock_batch.to_pandas.return_value = pd.DataFrame({"col1": []})
+    mock_batch.to_pandas.return_value = lazy.pd.DataFrame({"col1": []})
 
     gen._batch_reader = Mock()
     gen._batch_reader.read_next_batch.return_value = mock_batch
@@ -345,10 +340,10 @@ def test_seed_dataset_column_generator_sample_records_multiple_batches(stub_seed
 
     # Mock batch reader to return data in multiple batches
     mock_batch1 = Mock()
-    mock_batch1.to_pandas.return_value = pd.DataFrame({"col1": [1, 2]})
+    mock_batch1.to_pandas.return_value = lazy.pd.DataFrame({"col1": [1, 2]})
 
     mock_batch2 = Mock()
-    mock_batch2.to_pandas.return_value = pd.DataFrame({"col1": [3, 4]})
+    mock_batch2.to_pandas.return_value = lazy.pd.DataFrame({"col1": [3, 4]})
 
     gen._batch_reader = Mock()
     gen._batch_reader.read_next_batch.side_effect = [mock_batch1, mock_batch2]
@@ -387,7 +382,7 @@ def create_generator_with_real_file(
     )
 
     # Create a real DuckDB connection (in-memory by default)
-    real_conn = duckdb.connect()
+    real_conn = lazy.duckdb.connect()
 
     mock_provider = stub_resource_provider
     mock_seed_reader = mock_provider.seed_reader
@@ -447,7 +442,7 @@ def test_seed_dataset_generator_ordered_sampling(fixture_name, stub_resource_pro
         sampling_strategy=SamplingStrategy.ORDERED,
     )
 
-    real_conn = duckdb.connect()
+    real_conn = lazy.duckdb.connect()
     mock_provider = stub_resource_provider
     mock_provider.seed_reader.create_duckdb_connection.return_value = real_conn
     mock_provider.seed_reader.get_dataset_uri.return_value = file_path
@@ -483,7 +478,7 @@ def test_seed_dataset_generator_shuffle_sampling(fixture_name, stub_resource_pro
         sampling_strategy=SamplingStrategy.SHUFFLE,
     )
 
-    real_conn = duckdb.connect()
+    real_conn = lazy.duckdb.connect()
     mock_provider = stub_resource_provider
     mock_provider.seed_reader.create_duckdb_connection.return_value = real_conn
     mock_provider.seed_reader.get_dataset_uri.return_value = file_path
@@ -567,7 +562,7 @@ def test_seed_dataset_generator_generate_method_integration(fixture_name, stub_r
     generator = create_generator_with_real_file(file_path, stub_resource_provider)
 
     # Create an existing dataset with different columns (concat_datasets concatenates horizontally)
-    existing_df = pd.DataFrame({"existing_col1": ["val1", "val2"], "existing_col2": [100, 200]})
+    existing_df = lazy.pd.DataFrame({"existing_col1": ["val1", "val2"], "existing_col2": [100, 200]})
 
     result = generator.generate(existing_df)
 
@@ -627,7 +622,7 @@ def test_seed_dataset_generator_uses_real_duckdb_connection(fixture_name, stub_r
     generator = create_generator_with_real_file(file_path, stub_resource_provider)
 
     # Verify the duckdb_conn is a real connection
-    assert isinstance(generator.duckdb_conn, duckdb.DuckDBPyConnection)
+    assert isinstance(generator.duckdb_conn, lazy.duckdb.DuckDBPyConnection)
 
     # Verify we can query the file directly through the connection
     result = generator.duckdb_conn.execute(f"SELECT * FROM '{file_path}' LIMIT 3").fetchdf()

@@ -3,10 +3,9 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import pytest
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.utils.visualization import (
@@ -15,10 +14,6 @@ from data_designer.config.utils.visualization import (
     mask_api_key,
 )
 from data_designer.config.validator_params import CodeValidatorParams
-from data_designer.lazy_heavy_imports import pd
-
-if TYPE_CHECKING:
-    import pandas as pd
 
 
 @pytest.fixture
@@ -55,7 +50,7 @@ def test_display_sample_record_twice_no_errors(validation_output, config_builder
     sample_record = {"code": "print('hello world')", "code_validation_result": validation_output}
 
     # Convert to pandas Series to match expected input format
-    record_series = pd.Series(sample_record)
+    record_series = lazy.pd.Series(sample_record)
 
     # Call display_sample_record twice - should not produce any errors
     display_sample_record(record_series, config_builder_with_validation)
