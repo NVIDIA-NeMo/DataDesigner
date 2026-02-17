@@ -6,7 +6,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from data_designer.engine.column_generators.generators.base import ColumnGeneratorFullColumn
-from data_designer.lazy_heavy_imports import pd
 from data_designer_e2e_tests.plugins.column_generator.config import DemoColumnGeneratorConfig
 
 if TYPE_CHECKING:
