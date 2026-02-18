@@ -34,6 +34,7 @@ from data_designer.config.errors import (
     InvalidConfigError,
 )
 from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig
+from data_designer.config.processors import DropColumnsProcessorConfig, SchemaTransformProcessorConfig
 from data_designer.config.sampler_constraints import ColumnInequalityConstraint, ScalarInequalityConstraint
 from data_designer.config.sampler_params import SamplerType, UUIDSamplerParams
 from data_designer.config.seed import SamplingStrategy
@@ -887,6 +888,55 @@ def test_cannot_write_config_with_dataframe_seed(stub_model_configs):
         builder.write_config("./config.json")
 
     assert "DataFrame seed dataset" in str(excinfo.value)
+
+
+class TestAddProcessorIdempotent:
+    """Tests that add_processor replaces existing processors with the same name."""
+
+    def test_add_processor_replaces_existing_by_name(self, stub_empty_builder):
+        stub_empty_builder.add_column(
+            SamplerColumnConfig(name="col_a", sampler_type="uuid", params=UUIDSamplerParams()),
+        )
+        stub_empty_builder.add_column(
+            SamplerColumnConfig(name="col_b", sampler_type="uuid", params=UUIDSamplerParams()),
+        )
+
+        stub_empty_builder.add_processor(
+            DropColumnsProcessorConfig(name="cleanup", column_names=["col_a"]),
+        )
+        assert stub_empty_builder.get_column_config("col_a").drop is True
+
+        stub_empty_builder.add_processor(
+            DropColumnsProcessorConfig(name="cleanup", column_names=["col_b"]),
+        )
+        configs = stub_empty_builder.get_processor_configs()
+        assert len(configs) == 1
+        assert configs[0].column_names == ["col_b"]
+        assert stub_empty_builder.get_column_config("col_a").drop is False
+        assert stub_empty_builder.get_column_config("col_b").drop is True
+
+    def test_add_processor_different_names_appends(self, stub_empty_builder):
+        stub_empty_builder.add_column(
+            SamplerColumnConfig(name="col_a", sampler_type="uuid", params=UUIDSamplerParams()),
+        )
+        stub_empty_builder.add_processor(
+            DropColumnsProcessorConfig(name="cleanup_1", column_names=["col_a"]),
+        )
+        stub_empty_builder.add_processor(
+            SchemaTransformProcessorConfig(name="transform_1", template={"x": "{{ col_a }}"}),
+        )
+        assert len(stub_empty_builder.get_processor_configs()) == 2
+
+    def test_add_processor_replaces_non_drop_processor(self, stub_empty_builder):
+        stub_empty_builder.add_processor(
+            SchemaTransformProcessorConfig(name="transform", template={"x": "old"}),
+        )
+        stub_empty_builder.add_processor(
+            SchemaTransformProcessorConfig(name="transform", template={"x": "new"}),
+        )
+        configs = stub_empty_builder.get_processor_configs()
+        assert len(configs) == 1
+        assert configs[0].template == {"x": "new"}
 
 
 class TestToolConfigDuplicateValidation:

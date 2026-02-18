@@ -279,6 +279,48 @@ def test_validate_schema_transform_processor():
     assert violations[0].level == ViolationLevel.ERROR
 
 
+def test_validate_drop_columns_processor_accepts_reasoning_columns():
+    columns = [
+        LLMTextColumnConfig(
+            name="answer",
+            prompt="Answer the question.",
+            model_alias=STUB_MODEL_ALIAS,
+            extract_reasoning_content=True,
+        ),
+    ]
+    processor_configs = [
+        DropColumnsProcessorConfig(
+            name="drop_reasoning",
+            column_names=["answer__reasoning_content"],
+        ),
+    ]
+    from data_designer.engine.validation import validate_drop_columns_processor
+
+    violations = validate_drop_columns_processor(columns, processor_configs)
+    assert len(violations) == 0
+
+
+def test_validate_drop_columns_processor_rejects_invalid_side_effect_column():
+    columns = [
+        LLMTextColumnConfig(
+            name="answer",
+            prompt="Answer the question.",
+            model_alias=STUB_MODEL_ALIAS,
+        ),
+    ]
+    processor_configs = [
+        DropColumnsProcessorConfig(
+            name="drop_reasoning",
+            column_names=["answer__reasoning_content"],
+        ),
+    ]
+    from data_designer.engine.validation import validate_drop_columns_processor
+
+    violations = validate_drop_columns_processor(columns, processor_configs)
+    assert len(violations) == 1
+    assert violations[0].type == ViolationType.INVALID_COLUMN
+
+
 @patch("data_designer.engine.validation.Console.print")
 def test_rich_print_violations(mock_console_print):
     rich_print_violations([])

@@ -276,6 +276,8 @@ def validate_drop_columns_processor(
     processor_configs: list[ProcessorConfigT],
 ) -> list[Violation]:
     all_column_names = {c.name for c in columns}
+    for col in columns:
+        all_column_names.update(col.side_effect_columns)
     for processor_config in processor_configs:
         if processor_config.processor_type == ProcessorType.DROP_COLUMNS:
             invalid_columns = set(processor_config.column_names) - all_column_names

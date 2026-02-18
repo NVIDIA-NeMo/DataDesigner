@@ -366,6 +366,9 @@ class DataDesignerConfigBuilder:
     ) -> Self:
         """Add a processor to the current Data Designer configuration.
 
+        If a processor with the same name already exists, it is replaced (upsert),
+        making notebook cells safely re-runnable.
+
         You can either provide a processor config object directly, or provide a processor type and
         additional keyword arguments to construct the processor config object.
 
@@ -385,6 +388,8 @@ class DataDesignerConfigBuilder:
                 )
             processor_config = get_processor_config_from_kwargs(processor_type=processor_type, **kwargs)
 
+        self._remove_processor_by_name(processor_config.name)
+
         # Checks elsewhere fail if DropColumnsProcessor drops a column but it is not marked for drop
         if processor_config.processor_type == ProcessorType.DROP_COLUMNS:
             for column in processor_config.column_names:
@@ -393,6 +398,18 @@ class DataDesignerConfigBuilder:
 
         self._processor_configs.append(processor_config)
         return self
+
+    def _remove_processor_by_name(self, name: str) -> None:
+        """Remove an existing processor by name and undo its side-effects."""
+        for existing in self._processor_configs:
+            if existing.name != name:
+                continue
+            if existing.processor_type == ProcessorType.DROP_COLUMNS:
+                for column in existing.column_names:
+                    if column in self._column_configs:
+                        self._column_configs[column].drop = False
+            self._processor_configs.remove(existing)
+            return
 
     def add_profiler(self, profiler_config: ColumnProfilerConfigT) -> Self:
         """Add a profiler to the current Data Designer configuration.
