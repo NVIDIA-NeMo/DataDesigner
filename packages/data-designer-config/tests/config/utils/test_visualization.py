@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -21,8 +22,6 @@ from data_designer.config.validator_params import CodeValidatorParams
 from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     import pandas as pd
 
 
