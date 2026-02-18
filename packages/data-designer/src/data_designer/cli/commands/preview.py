@@ -44,12 +44,12 @@ def preview_command(
         "dark",
         "--theme",
         click_type=click.Choice(["dark", "light"], case_sensitive=False),
-        help="Color theme for saved HTML files (dark or light). Only applies when --save-results is used.",
+        help="Color theme for HTML output (dark or light). Only applies when --save-results is used.",
     ),
     display_width: int = typer.Option(
         DEFAULT_DISPLAY_WIDTH,
         "--display-width",
-        help="Width of the rendered record output in characters. Only applies when --save-results is used.",
+        help="Maximum width of the rendered record output in characters.",
         min=40,
     ),
 ) -> None:

@@ -47,8 +47,8 @@ class GenerationController:
             non_interactive: If True, display all records at once instead of browsing.
             save_results: If True, save all preview artifacts to the artifact path.
             artifact_path: Directory to save results in, or None for ./artifacts.
-            theme: Color theme for saved HTML files (dark or light).
-            display_width: Width of the rendered record output in characters.
+            theme: Color theme for HTML output (dark or light).
+            display_width: Maximum width of the rendered record output in characters.
         """
         config_builder = self._load_config(config_source)
 
