@@ -15,12 +15,9 @@ from data_designer.cli.services.introspection.discovery import (
     discover_sampler_types,
     discover_validator_types,
 )
-from data_designer.cli.services.introspection.formatters import (
-    format_method_info_text,
-    format_type_list_text,
-)
+from data_designer.cli.services.introspection.formatters import format_method_info_text, format_type_list_text
 from data_designer.cli.services.introspection.method_inspector import inspect_class_methods
-from data_designer.cli.services.introspection.pydantic_inspector import format_model_text
+from data_designer.cli.services.introspection.pydantic_inspector import format_model_text, get_brief_description
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 
 
@@ -113,19 +110,24 @@ class IntrospectionController:
 
     def show_sampler_constraints(self) -> None:
         """Show sampler constraint types."""
-        self._emit_import_hint(_CONFIG_IMPORT, "dd.<ClassName>")
+        self._emit_import_hint(_CONFIG_IMPORT)
         items = discover_constraint_types()
         self._show_all_schemas(items, "Data Designer Constraint Types Reference")
 
     def _show_typed_command(self, command_name: str, type_name: str | None) -> None:
         """Resolve a typed-command spec and render it."""
         spec = self._TYPED_COMMAND_SPECS[command_name]
+        items = spec.discover_items()
+
+        if type_name is None:
+            self._emit_import_hint(_CONFIG_IMPORT)
+            typer.echo(format_type_list_text(items, spec.type_label, spec.class_label))
+            return
+
         self._show_typed_items(
-            items=spec.discover_items(),
+            items=items,
             type_name=type_name,
             type_key=spec.type_key,
-            type_label=spec.type_label,
-            class_label=spec.class_label,
             header_title=spec.header_title,
             case_insensitive=spec.case_insensitive,
         )
@@ -133,20 +135,12 @@ class IntrospectionController:
     def _show_typed_items(
         self,
         items: dict[str, type],
-        type_name: str | None,
+        type_name: str,
         type_key: str,
-        type_label: str,
-        class_label: str,
         header_title: str,
         case_insensitive: bool = False,
-        related_inspect_tip: str | None = None,
     ) -> None:
         """Shared logic for type-based commands (columns, samplers, validators, processors)."""
-        if type_name is None:
-            self._emit_import_hint(_CONFIG_IMPORT, "dd.<ClassName>")
-            typer.echo(format_type_list_text(items, type_label, class_label))
-            return
-
         if type_name.lower() == "all":
             self._show_all_typed(items, type_key, header_title)
             return
@@ -200,7 +194,7 @@ class IntrospectionController:
             else:
                 lines.append(f"{cls.__name__}:")
                 if cls.__doc__:
-                    lines.append(f"  description: {cls.__doc__.strip().split(chr(10))[0]}")
+                    lines.append(f"  description: {get_brief_description(cls)}")
                 if hasattr(cls, "__members__"):
                     members = [str(m.value) for m in cls]
                     lines.append(f"  values: [{', '.join(members)}]")
