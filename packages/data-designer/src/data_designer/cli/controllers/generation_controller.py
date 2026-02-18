@@ -4,8 +4,9 @@
 from __future__ import annotations
 
 import sys
+from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import typer
 
@@ -13,6 +14,8 @@ from data_designer.cli.ui import console, print_error, print_header, print_succe
 from data_designer.cli.utils.config_loader import ConfigLoadError, load_config_builder
 from data_designer.config.errors import InvalidConfigError
 from data_designer.interface import DataDesigner
+from data_designer.cli.utils.sample_records_pager import PAGER_FILENAME, create_sample_records_pager
+from data_designer.config.utils.constants import DEFAULT_DISPLAY_WIDTH
 
 if TYPE_CHECKING:
     from data_designer.config.config_builder import DataDesignerConfigBuilder
@@ -22,13 +25,26 @@ if TYPE_CHECKING:
 class GenerationController:
     """Controller for dataset generation workflows (preview, validate, create)."""
 
-    def run_preview(self, config_source: str, num_records: int, non_interactive: bool) -> None:
+    def run_preview(
+        self,
+        config_source: str,
+        num_records: int,
+        non_interactive: bool,
+        save_results: bool = False,
+        artifact_path: str | None = None,
+        theme: Literal["dark", "light"] = "dark",
+        display_width: int = DEFAULT_DISPLAY_WIDTH,
+    ) -> None:
         """Load config, generate a preview dataset, and display the results.
 
         Args:
             config_source: Path to a config file or Python module.
             num_records: Number of records to generate.
             non_interactive: If True, display all records at once instead of browsing.
+            save_results: If True, save all preview artifacts to the artifact path.
+            artifact_path: Directory to save results in, or None for ./artifacts.
+            theme: Color theme for saved HTML files (dark or light).
+            display_width: Width of the rendered record output in characters.
         """
         config_builder = self._load_config(config_source)
 
@@ -59,6 +75,40 @@ class GenerationController:
         if results.analysis is not None:
             console.print()
             results.analysis.to_report()
+
+        # Save artifacts when requested
+        if save_results:
+            try:
+                resolved_artifact_path = Path(artifact_path) if artifact_path else Path.cwd() / "artifacts"
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                results_dir = resolved_artifact_path / f"preview_results_{timestamp}"
+                results_dir.mkdir(parents=True, exist_ok=True)
+
+                if results.analysis is not None:
+                    results.analysis.to_report(save_path=results_dir / "report.html")
+
+                results.dataset.to_parquet(results_dir / "dataset.parquet")
+
+                sample_records_dir = results_dir / "sample_records"
+                sample_records_dir.mkdir(parents=True, exist_ok=True)
+                for i in range(total):
+                    results.display_sample_record(
+                        index=i,
+                        save_path=sample_records_dir / f"record_{i}.html",
+                        theme=theme,
+                        display_width=display_width,
+                    )
+                create_sample_records_pager(
+                    sample_records_dir=sample_records_dir,
+                    num_records=total,
+                    num_columns=len(results.dataset.columns),
+                )
+
+                console.print(f"  Results saved to: [bold]{results_dir}[/bold]")
+                console.print(f"  Browse records: [bold]{sample_records_dir / PAGER_FILENAME}[/bold]")
+            except OSError as e:
+                print_error(f"Failed to save preview results: {e}")
+                raise typer.Exit(code=1)
 
         console.print()
         print_success(f"Preview complete — {total} record(s) generated")
