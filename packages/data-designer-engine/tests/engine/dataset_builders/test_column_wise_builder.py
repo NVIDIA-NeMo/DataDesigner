@@ -581,7 +581,7 @@ def _make_resize_full_expand(n: int, primary_col: str, side_effect_col: str):
         for _, row in df.iterrows():
             for i in range(n):
                 rows.append({**row.to_dict(), primary_col: f"{row['seed_id']}_v{i}", side_effect_col: i})
-        return pd.DataFrame(rows)
+        return lazy.pd.DataFrame(rows)
 
     return fn
 
@@ -731,7 +731,7 @@ def test_allow_resize_multiple_batches(
     builder.build(num_records=num_records)
     final_path = builder.artifact_storage.final_dataset_path
     if expected_total_rows == 0 and not final_path.exists():
-        df = pd.DataFrame()
+        df = lazy.pd.DataFrame()
     else:
-        df = pd.read_parquet(final_path)
+        df = lazy.pd.read_parquet(final_path)
     assert len(df) == expected_total_rows
