@@ -9,6 +9,7 @@ import pytest
 
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.utils.code_lang import CodeLang
+from data_designer.config.utils.errors import DatasetSampleDisplayError
 from data_designer.config.utils.visualization import (
     display_sample_record,
     get_truncated_list_as_string,
@@ -18,6 +19,8 @@ from data_designer.config.validator_params import CodeValidatorParams
 from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     import pandas as pd
 
 
@@ -92,3 +95,58 @@ def test_get_truncated_list_as_string():
         get_truncated_list_as_string([1, 2, 3, 4, 5], max_items=-1)
     with pytest.raises(ValueError):
         get_truncated_list_as_string([1, 2, 3, 4, 5], max_items=0)
+
+
+def test_display_sample_record_save_html(
+    validation_output: dict, config_builder_with_validation: DataDesignerConfigBuilder, tmp_path: Path
+) -> None:
+    """Test that display_sample_record can save output as an HTML file."""
+    sample_record = {"code": "print('hello world')", "code_validation_result": validation_output}
+    record_series = pd.Series(sample_record)
+    save_path = tmp_path / "output.html"
+
+    display_sample_record(record_series, config_builder_with_validation, save_path=save_path)
+
+    assert save_path.exists()
+    content = save_path.read_text()
+    assert "<html" in content.lower() or "<!doctype" in content.lower()
+
+
+def test_display_sample_record_save_svg(
+    validation_output: dict, config_builder_with_validation: DataDesignerConfigBuilder, tmp_path: Path
+) -> None:
+    """Test that display_sample_record can save output as an SVG file."""
+    sample_record = {"code": "print('hello world')", "code_validation_result": validation_output}
+    record_series = pd.Series(sample_record)
+    save_path = tmp_path / "output.svg"
+
+    display_sample_record(record_series, config_builder_with_validation, save_path=save_path)
+
+    assert save_path.exists()
+    content = save_path.read_text()
+    assert "<svg" in content.lower()
+
+
+def test_display_sample_record_save_invalid_extension(
+    validation_output: dict, config_builder_with_validation: DataDesignerConfigBuilder, tmp_path: Path
+) -> None:
+    """Test that display_sample_record raises an error for unsupported file extensions."""
+    sample_record = {"code": "print('hello world')", "code_validation_result": validation_output}
+    record_series = pd.Series(sample_record)
+    save_path = tmp_path / "output.txt"
+
+    with pytest.raises(DatasetSampleDisplayError, match="must be either .html or .svg"):
+        display_sample_record(record_series, config_builder_with_validation, save_path=save_path)
+
+
+def test_display_sample_record_save_path_none_default(
+    validation_output: dict, config_builder_with_validation: DataDesignerConfigBuilder, tmp_path: Path
+) -> None:
+    """Test that display_sample_record with save_path=None prints to console without creating files."""
+    sample_record = {"code": "print('hello world')", "code_validation_result": validation_output}
+    record_series = pd.Series(sample_record)
+
+    display_sample_record(record_series, config_builder_with_validation, save_path=None)
+
+    # No files should be created in tmp_path
+    assert list(tmp_path.iterdir()) == []

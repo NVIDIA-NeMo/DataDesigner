@@ -9,6 +9,7 @@ import os
 from collections import OrderedDict
 from enum import Enum
 from functools import cached_property
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from rich.console import Console, Group
@@ -158,6 +159,7 @@ class WithRecordSamplerMixin:
         background_color: str | None = None,
         processors_to_display: list[str] | None = None,
         hide_seed_columns: bool = False,
+        save_path: str | Path | None = None,
     ) -> None:
         """Display a sample record from the Data Designer dataset preview.
 
@@ -170,6 +172,7 @@ class WithRecordSamplerMixin:
                 documentation from `rich` for information about available background colors.
             processors_to_display: List of processors to display the artifacts for. If None, all processors will be displayed.
             hide_seed_columns: If True, seed columns will not be displayed separately.
+            save_path: Optional path to save the rendered output as an HTML or SVG file.
         """
         i = self._display_cycle_index if index is None else index
 
@@ -207,6 +210,7 @@ class WithRecordSamplerMixin:
             syntax_highlighting_theme=syntax_highlighting_theme,
             record_index=i,
             seed_column_names=seed_column_names,
+            save_path=save_path,
         )
         if index is None:
             self._display_cycle_index = (self._display_cycle_index + 1) % num_records
@@ -240,6 +244,7 @@ def display_sample_record(
     syntax_highlighting_theme: str = "dracula",
     record_index: int | None = None,
     seed_column_names: list[str] | None = None,
+    save_path: str | Path | None = None,
 ):
     if isinstance(record, (dict, pd.Series)):
         record = pd.DataFrame([record]).iloc[0]
@@ -416,7 +421,12 @@ def display_sample_record(
         index_label = Text(f"[index: {record_index}]", justify="center")
         render_list.append(index_label)
 
-    console.print(Group(*render_list), markup=False)
+    if save_path is not None:
+        recording_console = Console(record=True)
+        recording_console.print(Group(*render_list), markup=False)
+        _save_console_output(recording_console, save_path)
+    else:
+        console.print(Group(*render_list), markup=False)
 
     # Display images at the bottom with captions (only in notebook)
     if len(images_to_display_later) > 0:
@@ -622,3 +632,15 @@ def _get_field_constraints(field: dict, schema: dict) -> str:
             constraints.append(f"allowed: {', '.join(enum_values.keys())}")
 
     return ", ".join(constraints)
+
+
+def _save_console_output(recorded_console: Console, save_path: str | Path) -> None:
+    save_path = str(save_path)
+    if save_path.endswith(".html"):
+        recorded_console.save_html(save_path)
+    elif save_path.endswith(".svg"):
+        recorded_console.save_svg(save_path, title="")
+    else:
+        raise DatasetSampleDisplayError(
+            f"The extension of the save path must be either .html or .svg. You provided {save_path}."
+        )
