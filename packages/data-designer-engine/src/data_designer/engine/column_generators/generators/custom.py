@@ -97,7 +97,9 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
             ) from e
 
         # Cell-by-cell with allow_resize: accept dict or list[dict]
-        if not is_dataframe and getattr(self.config, "allow_resize", False):
+        if not is_dataframe and self.config.allow_resize:
+            if isinstance(result, dict):
+                return self._validate_output(result, keys_before, is_dataframe)
             if isinstance(result, list):
                 if not all(isinstance(r, dict) for r in result):
                     raise CustomColumnGenerationError(
@@ -105,8 +107,6 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
                         "dict or list[dict]; list elements must be dicts."
                     )
                 return [self._validate_cell_output(r, keys_before) for r in result]
-            if isinstance(result, dict):
-                return self._validate_output(result, keys_before, is_dataframe)
             raise CustomColumnGenerationError(
                 f"Custom generator for column '{self.config.name}' with allow_resize must return "
                 f"dict or list[dict], got {type(result).__name__}"
@@ -129,7 +129,7 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
         if self.config.name not in result_keys:
             raise CustomColumnGenerationError(
                 f"Custom generator for column '{self.config.name}' did not create the expected column. "
-                f"The generator_function must add a key named '{self.config.name}' to the row."
+                f"The generator_function must add a column named '{self.config.name}' to the row."
             )
         missing = set(self.config.side_effect_columns) - result_keys
         if missing:

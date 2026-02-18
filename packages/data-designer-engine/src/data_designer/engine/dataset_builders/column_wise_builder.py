@@ -330,7 +330,7 @@ class ColumnWiseDatasetBuilder:
         if getattr(generator.config, "tool_alias", None):
             logger.info("🛠️ Tool calling enabled")
 
-        allow_resize = getattr(generator.config, "allow_resize", False)
+        allow_resize = generator.config.allow_resize
         if allow_resize:
             self._cell_resize_results = [None] * self.batch_manager.num_records_batch
             self._cell_resize_mode = True
