@@ -46,10 +46,22 @@ export default function RunPage() {
 
   useEffect(() => {
     api.getConfigInfo().then((info) => setConfigLoaded(info.loaded));
-    api.getStatus().then((s) => {
+    api.getStatus().then(async (s) => {
       setState(s.state);
       setExecType(s.type);
       setError(s.error);
+
+      // Load existing logs from the backend buffer
+      const existingLogs = await api.getLogs(0);
+      if (existingLogs.length > 0) {
+        setLogs(existingLogs);
+        logSinceRef.current = existingLogs[existingLogs.length - 1].ts;
+      }
+
+      // Resume polling if a run is still in progress
+      if (s.state === "running") {
+        pollStatus();
+      }
     });
   }, []);
 
