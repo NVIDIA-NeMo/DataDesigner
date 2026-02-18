@@ -9,61 +9,50 @@ from data_designer.cli.controllers.introspection_controller import Introspection
 
 inspect_app = typer.Typer(
     name="inspect",
-    help=(
-        "Return detailed schemas (fields, types, defaults, constraints) for configuration types,"
-        " or method signatures for the Python API. Use `list` first to discover valid type names."
-    ),
+    help="Show schemas and method signatures for configuration types. Run `list` to discover valid type names.",
     no_args_is_help=True,
 )
 
 
 @inspect_app.command(name="column")
 def columns_command(
-    type_name: str = typer.Argument(
-        help="Column type name (e.g., 'llm-text', 'sampler'). Pass 'all' to dump every column type."
-    ),
+    type_name: str = typer.Argument(help="Type name (e.g. 'llm-text', 'sampler'), or 'all'."),
 ) -> None:
-    """Return the full schema for a column config type, including field names, types, defaults, and descriptions. Run `list columns` to discover valid type names."""
+    """Show schema for a column config type. Run `list columns` for valid names."""
     IntrospectionController().show_columns(type_name)
 
 
 @inspect_app.command(name="sampler")
 def samplers_command(
-    type_name: str = typer.Argument(
-        help="Sampler type name (e.g., 'category', 'uniform'). Pass 'all' to dump every sampler type."
-    ),
+    type_name: str = typer.Argument(help="Type name (e.g. 'category', 'uniform'), or 'all'."),
 ) -> None:
-    """Return the full params schema for a sampler type, including field names, types, defaults, and descriptions. Run `list samplers` to discover valid type names."""
+    """Show schema for a sampler params type. Run `list samplers` for valid names."""
     IntrospectionController().show_samplers(type_name)
 
 
 @inspect_app.command(name="validator")
 def validators_command(
-    type_name: str = typer.Argument(
-        help="Validator type name (e.g., 'code', 'python'). Pass 'all' to dump every validator type."
-    ),
+    type_name: str = typer.Argument(help="Type name (e.g. 'code', 'python'), or 'all'."),
 ) -> None:
-    """Return the full params schema for a validator type, including field names, types, defaults, and descriptions. Run `list validators` to discover valid type names."""
+    """Show schema for a validator params type. Run `list validators` for valid names."""
     IntrospectionController().show_validators(type_name)
 
 
 @inspect_app.command(name="processor")
 def processors_command(
-    type_name: str = typer.Argument(
-        help="Processor type name (e.g., 'drop_columns'). Pass 'all' to dump every processor type."
-    ),
+    type_name: str = typer.Argument(help="Type name (e.g. 'drop_columns'), or 'all'."),
 ) -> None:
-    """Return the full config schema for a processor type, including field names, types, defaults, and descriptions. Run `list processors` to discover valid type names."""
+    """Show schema for a processor config type. Run `list processors` for valid names."""
     IntrospectionController().show_processors(type_name)
 
 
 @inspect_app.command(name="sampler-constraints")
 def constraints_command() -> None:
-    """Return schemas for sampler constraint types: ScalarInequalityConstraint, ColumnInequalityConstraint, and the InequalityOperator enum. Use when adding value constraints to sampler columns."""
+    """Show constraint schemas for sampler columns."""
     IntrospectionController().show_sampler_constraints()
 
 
 @inspect_app.command(name="config-builder")
 def config_builder_command() -> None:
-    """Return DataDesignerConfigBuilder method signatures and docstrings. Use to understand available builder methods and their parameters."""
+    """Show DataDesignerConfigBuilder method signatures and docstrings."""
     IntrospectionController().show_builder()
