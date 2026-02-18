@@ -50,6 +50,10 @@ class SaveConfigRequest(BaseModel):
     content: str
 
 
+class ReviewRequest(BaseModel):
+    model_alias: str
+
+
 class PreviewRequest(BaseModel):
     num_records: int = 10
     debug_mode: bool = False
@@ -158,6 +162,20 @@ async def validate_config() -> dict[str, Any]:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, s.validate)
     except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/config/review", tags=["execution"])
+async def review_config(req: ReviewRequest) -> dict[str, Any]:
+    """Run static analysis + LLM review of the config. Runs in a thread."""
+    s = _get_session()
+    if not s.is_loaded:
+        raise HTTPException(status_code=400, detail="No config loaded")
+    try:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, lambda: s.review_config(req.model_alias))
+    except Exception as e:
+        logger.error(f"Config review failed: {e}\n{traceback.format_exc()}")
         raise HTTPException(status_code=400, detail=str(e))
 
 

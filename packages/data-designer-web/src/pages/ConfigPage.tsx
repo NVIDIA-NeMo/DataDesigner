@@ -8,6 +8,12 @@ import {
   Save,
   Undo2,
   TableProperties,
+  Sparkles,
+  AlertTriangle,
+  Info,
+  Lightbulb,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import { api } from "../hooks/useApi";
 import { COLUMN_TYPE_META, ColumnType } from "../types/config";
@@ -49,6 +55,16 @@ export default function ConfigPage() {
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Review state
+  const [reviewModel, setReviewModel] = useState("");
+  const [reviewing, setReviewing] = useState(false);
+  const [reviewResult, setReviewResult] = useState<{
+    static_issues: { level: string; type: string; column: string | null; message: string }[];
+    llm_tips: { category: string; severity: string; column: string | null; tip: string }[];
+    model_used: string;
+  } | null>(null);
+  const [reviewOpen, setReviewOpen] = useState(true);
 
   const hasUnsavedChanges = editYaml !== savedYaml;
 
@@ -136,6 +152,21 @@ export default function ConfigPage() {
     }
   };
 
+  const handleReview = async () => {
+    if (!reviewModel) return;
+    setReviewing(true);
+    setReviewResult(null);
+    try {
+      const result = await api.reviewConfig(reviewModel);
+      setReviewResult(result);
+      setReviewOpen(true);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setReviewing(false);
+    }
+  };
+
   return (
     <div className="p-6 h-full flex flex-col">
       {/* Header */}
@@ -211,6 +242,31 @@ export default function ConfigPage() {
                 )}
                 Validate
               </button>
+              <div className="w-px h-6 bg-border mx-1" />
+              <select
+                className="select-field !w-40 !py-1.5 text-xs"
+                value={reviewModel}
+                onChange={(e) => setReviewModel(e.target.value)}
+              >
+                <option value="">Review model...</option>
+                {models.map((m: any) => (
+                  <option key={m.alias} value={m.alias}>
+                    {m.alias}
+                  </option>
+                ))}
+              </select>
+              <button
+                className="btn-secondary flex items-center gap-1.5 border-purple-700/50 text-purple-300 hover:bg-purple-900/20"
+                onClick={handleReview}
+                disabled={reviewing || !reviewModel}
+              >
+                {reviewing ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <Sparkles size={14} />
+                )}
+                Review
+              </button>
             </div>
           )}
         </div>
@@ -247,6 +303,112 @@ export default function ConfigPage() {
           )}
         </div>
       </div>
+
+      {/* Review results panel */}
+      {reviewResult && (
+        <div className="card mb-4 shrink-0 bg-surface-0 border-purple-700/30">
+          <button
+            className="w-full flex items-center gap-2 text-sm font-medium text-purple-300"
+            onClick={() => setReviewOpen(!reviewOpen)}
+          >
+            {reviewOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            <Sparkles size={14} />
+            Config Review
+            <span className="text-xs text-gray-500 font-normal ml-2">
+              via {reviewResult.model_used}
+            </span>
+            <span className="text-xs text-gray-600 font-normal ml-auto">
+              {reviewResult.static_issues.length} issues, {reviewResult.llm_tips.length} tips
+            </span>
+          </button>
+
+          {reviewOpen && (
+            <div className="mt-3 space-y-4">
+              {/* Static issues */}
+              {reviewResult.static_issues.length > 0 && (
+                <div>
+                  <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+                    Static Analysis
+                  </h3>
+                  <div className="space-y-1.5">
+                    {reviewResult.static_issues.map((issue, i) => (
+                      <div
+                        key={i}
+                        className={`flex items-start gap-2 text-xs rounded-md px-3 py-2 ${
+                          issue.level === "ERROR"
+                            ? "bg-red-900/20 border border-red-700/30"
+                            : "bg-amber-900/15 border border-amber-700/30"
+                        }`}
+                      >
+                        {issue.level === "ERROR" ? (
+                          <XCircle size={12} className="text-red-400 mt-0.5 shrink-0" />
+                        ) : (
+                          <AlertTriangle size={12} className="text-amber-400 mt-0.5 shrink-0" />
+                        )}
+                        <div className="flex-1">
+                          {issue.column && (
+                            <span className="font-mono text-gray-400 mr-1">
+                              {issue.column}:
+                            </span>
+                          )}
+                          <span className={issue.level === "ERROR" ? "text-red-300" : "text-amber-300"}>
+                            {issue.message}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* LLM tips */}
+              {reviewResult.llm_tips.length > 0 && (
+                <div>
+                  <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+                    AI Suggestions
+                  </h3>
+                  <div className="space-y-1.5">
+                    {reviewResult.llm_tips.map((tip, i) => (
+                      <div
+                        key={i}
+                        className="flex items-start gap-2 text-xs bg-surface-2 border border-border rounded-md px-3 py-2"
+                      >
+                        {tip.severity === "warning" ? (
+                          <AlertTriangle size={12} className="text-amber-400 mt-0.5 shrink-0" />
+                        ) : tip.severity === "suggestion" ? (
+                          <Lightbulb size={12} className="text-purple-400 mt-0.5 shrink-0" />
+                        ) : (
+                          <Info size={12} className="text-blue-400 mt-0.5 shrink-0" />
+                        )}
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-0.5">
+                            <span className="text-[10px] uppercase tracking-wider font-medium text-gray-500 bg-surface-3 px-1.5 py-0.5 rounded">
+                              {tip.category.replace("_", " ")}
+                            </span>
+                            {tip.column && (
+                              <span className="font-mono text-gray-500 text-[10px]">
+                                {tip.column}
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-gray-300">{tip.tip}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {reviewResult.static_issues.length === 0 && reviewResult.llm_tips.length === 0 && (
+                <p className="text-xs text-green-400 flex items-center gap-1.5">
+                  <CheckCircle2 size={12} />
+                  Config looks good! No issues or suggestions.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {!loaded ? (
         <div className="card text-center py-12 flex-1">

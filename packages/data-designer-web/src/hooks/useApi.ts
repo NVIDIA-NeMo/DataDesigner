@@ -44,6 +44,15 @@ export const api = {
 
   // Execution
   validate: () => request<{ valid: boolean; message: string }>("/config/validate", { method: "POST" }),
+  reviewConfig: (modelAlias: string) =>
+    request<{
+      static_issues: { level: string; type: string; column: string | null; message: string }[];
+      llm_tips: { category: string; severity: string; column: string | null; tip: string }[];
+      model_used: string;
+    }>("/config/review", {
+      method: "POST",
+      body: JSON.stringify({ model_alias: modelAlias }),
+    }),
   runPreview: (numRecords: number, debugMode: boolean = false) =>
     request<{ status: string }>("/preview", {
       method: "POST",

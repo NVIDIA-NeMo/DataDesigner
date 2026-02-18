@@ -45,6 +45,83 @@ class _LogCaptureHandler(logging.Handler):
             pass
 
 
+_REVIEW_SYSTEM_PROMPT = """\
+You are a Data Designer config reviewer. Data Designer is a framework for generating synthetic datasets using samplers and LLMs.
+
+Analyze the YAML config and return a JSON array of improvement tips. Each tip is an object with:
+- "category": one of "prompt_design", "model_selection", "performance", "quality_gates", "pipeline_structure", "general"
+- "severity": one of "info", "suggestion", "warning"
+- "column": column name this applies to, or null if config-wide
+- "tip": concise actionable suggestion (1-2 sentences)
+
+Best practices to check against:
+
+PROMPT DESIGN:
+- Prompts should reference other columns via {{ column_name }} for row-level diversity
+- Static prompts (no references) produce identical rows — always vary the input
+- Avoid mega-prompts — decompose complex generation into multiple focused columns
+- System prompts should set the role/constraints; user prompts should carry the variable content
+
+MODEL SELECTION:
+- Use reasoning models for logic-heavy tasks (math, code analysis, multi-step reasoning)
+- Use text models for creative generation (stories, questions, paraphrasing)
+- Temperature 0.0-0.3 for structured/deterministic output; 0.7-1.0 for creative diversity
+- If no model_configs are specified, default models are used — this is fine for getting started
+
+PERFORMANCE:
+- Set max_tokens appropriate to expected output length — too high wastes tokens, too low truncates
+- Increase max_parallel_requests (default 4) for throughput on large datasets
+- Keep structured output schemas flat — deeply nested JSON schemas are model-sensitive
+
+QUALITY GATES:
+- Code generation columns should have a validation column to check syntax/execution
+- Important outputs benefit from an llm-judge column for quality scoring
+- Consider adding expression columns to combine or post-process outputs
+
+PIPELINE STRUCTURE:
+- Build hierarchical diversity: category → subcategory → content
+- Downstream LLM columns should reference upstream column values
+- Use sampler columns for controlled variability (topics, difficulty levels, personas)
+- Expression columns are free (no LLM call) — use them for formatting and combining
+
+Return ONLY the JSON array, no other text. If the config looks good, return an empty array [].\
+"""
+
+
+def _parse_llm_tips(text: str) -> list[dict[str, Any]]:
+    """Parse LLM response text into a list of tip dicts."""
+    import json
+
+    text = text.strip()
+    # Strip markdown code fences if present
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1] if "\n" in text else text[3:]
+        if text.endswith("```"):
+            text = text[:-3]
+        text = text.strip()
+
+    try:
+        tips = json.loads(text)
+        if isinstance(tips, list):
+            return [
+                {
+                    "category": t.get("category", "general"),
+                    "severity": t.get("severity", "suggestion"),
+                    "column": t.get("column"),
+                    "tip": t.get("tip", ""),
+                }
+                for t in tips
+                if isinstance(t, dict) and t.get("tip")
+            ]
+    except json.JSONDecodeError:
+        pass
+
+    # Fallback: return the raw text as a single tip
+    if text:
+        return [{"category": "general", "severity": "info", "column": None, "tip": text}]
+    return []
+
+
 class ExecutionState(str, Enum):
     IDLE = "idle"
     RUNNING = "running"
@@ -390,6 +467,69 @@ class ExecutionSession:
 
     def get_create_result(self) -> dict[str, Any]:
         return self._create_result or {}
+
+    # -- Config Review ------------------------------------------------------
+
+    def review_config(self, model_alias: str) -> dict[str, Any]:
+        """Run static analysis + LLM review of the loaded config."""
+        if not self._builder:
+            raise RuntimeError("No config loaded")
+
+        static_issues = self._run_static_analysis()
+        llm_tips = self._run_llm_review(model_alias)
+
+        return {
+            "static_issues": static_issues,
+            "llm_tips": llm_tips,
+            "model_used": model_alias,
+        }
+
+    def _run_static_analysis(self) -> list[dict[str, Any]]:
+        from data_designer.engine.validation import validate_data_designer_config
+
+        columns = self._builder.get_column_configs()
+        processors = self._builder.get_processor_configs()
+        allowed_refs = self._builder.allowed_references
+
+        violations = validate_data_designer_config(
+            columns=columns,
+            processor_configs=processors,
+            allowed_references=allowed_refs,
+        )
+        return [
+            {
+                "level": v.level.value,
+                "type": v.type.value,
+                "column": v.column,
+                "message": v.message,
+            }
+            for v in violations
+        ]
+
+    def _run_llm_review(self, model_alias: str) -> list[dict[str, Any]]:
+        try:
+            from data_designer.interface import DataDesigner
+
+            dd = DataDesigner()
+            models = dd.get_models([model_alias])
+            facade = models[model_alias]
+
+            from data_designer.engine.models.utils import ChatMessage
+
+            config_yaml = self.get_raw_yaml()
+            system_msg = ChatMessage(role="system", content=_REVIEW_SYSTEM_PROMPT)
+            user_msg = ChatMessage(
+                role="user",
+                content=f"Review this Data Designer config and provide improvement tips as a JSON array:\n\n```yaml\n{config_yaml}\n```",
+            )
+
+            response = facade.completion([system_msg, user_msg])
+            text = response.choices[0].message.content or ""
+
+            return _parse_llm_tips(text)
+        except Exception as e:
+            logger.error(f"LLM review failed: {e}")
+            return [{"category": "error", "severity": "warning", "column": None, "tip": f"LLM review failed: {e}"}]
 
     # -- Helpers ------------------------------------------------------------
 
