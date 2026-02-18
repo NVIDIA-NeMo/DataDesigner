@@ -204,6 +204,12 @@ async def create_results() -> dict[str, Any]:
 # Utility
 # ---------------------------------------------------------------------------
 
+@router.get("/logs", tags=["utils"])
+async def get_logs(since: float = Query(0)) -> list[dict[str, Any]]:
+    """Get log entries since a given timestamp."""
+    return _get_session().get_logs(since=since)
+
+
 @router.get("/health", tags=["utils"])
 async def health() -> dict[str, str]:
     return {"status": "ok"}

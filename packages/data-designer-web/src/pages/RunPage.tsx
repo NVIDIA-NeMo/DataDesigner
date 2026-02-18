@@ -1,16 +1,30 @@
 import { useState, useEffect, useRef } from "react";
 import {
-  Play,
   Eye,
   HardDrive,
   Loader2,
   CheckCircle2,
   XCircle,
   AlertCircle,
+  Terminal,
 } from "lucide-react";
 import { api } from "../hooks/useApi";
 
 type ExecState = "idle" | "running" | "done" | "error";
+
+interface LogEntry {
+  ts: number;
+  level: string;
+  name: string;
+  message: string;
+}
+
+const LEVEL_COLORS: Record<string, string> = {
+  ERROR: "text-red-400",
+  WARNING: "text-amber-400",
+  INFO: "text-gray-300",
+  DEBUG: "text-gray-500",
+};
 
 export default function RunPage() {
   const [numRecords, setNumRecords] = useState(10);
@@ -24,7 +38,11 @@ export default function RunPage() {
     num_records?: number;
     artifact_path?: string;
   } | null>(null);
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+
   const pollRef = useRef<number | null>(null);
+  const logSinceRef = useRef<number>(0);
+  const logEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     api.getConfigInfo().then((info) => setConfigLoaded(info.loaded));
@@ -38,11 +56,26 @@ export default function RunPage() {
   const pollStatus = () => {
     if (pollRef.current) clearInterval(pollRef.current);
     pollRef.current = window.setInterval(async () => {
-      const s = await api.getStatus();
+      const [s, newLogs] = await Promise.all([
+        api.getStatus(),
+        api.getLogs(logSinceRef.current),
+      ]);
+
+      if (newLogs.length > 0) {
+        setLogs((prev) => [...prev, ...newLogs]);
+        logSinceRef.current = newLogs[newLogs.length - 1].ts;
+      }
+
       setState(s.state);
       setExecType(s.type);
       setError(s.error);
+
       if (s.state !== "running") {
+        // One final log fetch to capture any remaining entries
+        const finalLogs = await api.getLogs(logSinceRef.current);
+        if (finalLogs.length > 0) {
+          setLogs((prev) => [...prev, ...finalLogs]);
+        }
         clearInterval(pollRef.current!);
         pollRef.current = null;
         if (s.state === "done" && s.type === "create") {
@@ -50,7 +83,7 @@ export default function RunPage() {
           setCreateResult(cr);
         }
       }
-    }, 1500);
+    }, 1000);
   };
 
   useEffect(() => {
@@ -59,9 +92,16 @@ export default function RunPage() {
     };
   }, []);
 
+  // Auto-scroll log panel
+  useEffect(() => {
+    logEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [logs]);
+
   const handlePreview = async () => {
     setError(null);
     setCreateResult(null);
+    setLogs([]);
+    logSinceRef.current = 0;
     try {
       await api.runPreview(numRecords, debugMode);
       setState("running");
@@ -75,6 +115,8 @@ export default function RunPage() {
   const handleCreate = async () => {
     setError(null);
     setCreateResult(null);
+    setLogs([]);
+    logSinceRef.current = 0;
     try {
       await api.runCreate(numRecords, datasetName);
       setState("running");
@@ -88,7 +130,7 @@ export default function RunPage() {
   const isRunning = state === "running";
 
   return (
-    <div className="p-6 max-w-3xl mx-auto">
+    <div className="p-6 max-w-4xl mx-auto">
       <div className="mb-6">
         <h1 className="text-xl font-semibold text-gray-100">Run</h1>
         <p className="text-sm text-gray-500 mt-1">
@@ -105,7 +147,7 @@ export default function RunPage() {
         </div>
       )}
 
-      {error && (
+      {error && state !== "running" && (
         <div className="card border-red-700/50 bg-red-900/20 mb-4 flex items-start gap-2">
           <XCircle size={16} className="text-red-400 mt-0.5 shrink-0" />
           <p className="text-sm text-red-300">{error}</p>
@@ -172,23 +214,9 @@ export default function RunPage() {
         </button>
       </div>
 
-      {/* Status */}
-      {state === "running" && (
-        <div className="card flex items-center gap-3">
-          <Loader2 size={20} className="animate-spin text-nvidia-green" />
-          <div>
-            <p className="text-sm font-medium text-gray-200">
-              Running {execType}...
-            </p>
-            <p className="text-xs text-gray-500">
-              Generating {numRecords} records. This may take a while.
-            </p>
-          </div>
-        </div>
-      )}
-
+      {/* Status banner */}
       {state === "done" && execType === "preview" && (
-        <div className="card flex items-center gap-3 border-green-700/50">
+        <div className="card flex items-center gap-3 border-green-700/50 mb-4">
           <CheckCircle2 size={20} className="text-green-400" />
           <div>
             <p className="text-sm font-medium text-green-300">
@@ -202,7 +230,7 @@ export default function RunPage() {
       )}
 
       {state === "done" && execType === "create" && createResult && (
-        <div className="card flex items-center gap-3 border-green-700/50">
+        <div className="card flex items-center gap-3 border-green-700/50 mb-4">
           <CheckCircle2 size={20} className="text-green-400" />
           <div>
             <p className="text-sm font-medium text-green-300">
@@ -216,13 +244,55 @@ export default function RunPage() {
       )}
 
       {state === "error" && (
-        <div className="card flex items-center gap-3 border-red-700/50">
+        <div className="card flex items-center gap-3 border-red-700/50 mb-4">
           <XCircle size={20} className="text-red-400" />
           <div>
             <p className="text-sm font-medium text-red-300">
               {execType} failed
             </p>
             <p className="text-xs text-red-400">{error}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Log panel */}
+      {(isRunning || logs.length > 0) && (
+        <div className="card bg-surface-0 p-0 overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-2 bg-surface-2 border-b border-border">
+            <Terminal size={14} className="text-gray-400" />
+            <span className="text-xs font-medium text-gray-400 uppercase tracking-wider">
+              Logs
+            </span>
+            {isRunning && (
+              <Loader2 size={12} className="animate-spin text-nvidia-green ml-auto" />
+            )}
+            <span className="text-xs text-gray-600 ml-auto">
+              {logs.length} entries
+            </span>
+          </div>
+          <div className="overflow-auto max-h-[400px] p-3 font-mono text-xs leading-relaxed">
+            {logs.length === 0 && isRunning && (
+              <p className="text-gray-600">Waiting for logs...</p>
+            )}
+            {logs.map((entry, i) => (
+              <div key={i} className="flex gap-2 hover:bg-surface-2 px-1 rounded">
+                <span className="text-gray-600 shrink-0 select-none w-16 text-right">
+                  {new Date(entry.ts * 1000).toLocaleTimeString()}
+                </span>
+                <span
+                  className={`shrink-0 w-8 text-right ${LEVEL_COLORS[entry.level] ?? "text-gray-400"}`}
+                >
+                  {entry.level === "WARNING" ? "WARN" : entry.level.slice(0, 4)}
+                </span>
+                <span className="text-gray-500 shrink-0 w-20 truncate">
+                  {entry.name}
+                </span>
+                <span className={LEVEL_COLORS[entry.level] ?? "text-gray-300"}>
+                  {entry.message}
+                </span>
+              </div>
+            ))}
+            <div ref={logEndRef} />
           </div>
         </div>
       )}

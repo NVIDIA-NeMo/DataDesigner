@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from collections import deque
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,27 @@ from data_designer.config.utils.io_helpers import serialize_data
 from data_designer.config.utils.trace_type import TraceType
 
 logger = logging.getLogger(__name__)
+
+MAX_LOG_LINES = 500
+
+
+class _LogCaptureHandler(logging.Handler):
+    """Captures log records into a deque for the web UI to read."""
+
+    def __init__(self, buffer: deque) -> None:
+        super().__init__()
+        self._buffer = buffer
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            self._buffer.append({
+                "ts": record.created,
+                "level": record.levelname,
+                "name": record.name.split(".")[-1],
+                "message": self.format(record),
+            })
+        except Exception:
+            pass
 
 
 class ExecutionState(str, Enum):
@@ -48,6 +70,8 @@ class ExecutionSession:
         self._create_result: dict[str, Any] | None = None
 
         self._lock = threading.Lock()
+        self._log_buffer: deque[dict[str, Any]] = deque(maxlen=MAX_LOG_LINES)
+        self._log_handler: _LogCaptureHandler | None = None
 
         if config_path and config_path.exists():
             self.load_config(str(config_path))
@@ -141,6 +165,25 @@ class ExecutionSession:
         except Exception as e:
             return {"valid": False, "message": str(e)}
 
+    def _start_log_capture(self) -> None:
+        self._log_buffer.clear()
+        handler = _LogCaptureHandler(self._log_buffer)
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        handler.setLevel(logging.INFO)
+        root = logging.getLogger("data_designer")
+        root.addHandler(handler)
+        self._log_handler = handler
+
+    def _stop_log_capture(self) -> None:
+        if self._log_handler:
+            root = logging.getLogger("data_designer")
+            root.removeHandler(self._log_handler)
+            self._log_handler = None
+
+    def get_logs(self, since: float = 0) -> list[dict[str, Any]]:
+        """Return log entries newer than `since` (unix timestamp)."""
+        return [entry for entry in self._log_buffer if entry["ts"] > since]
+
     def run_preview(self, num_records: int = 10, debug_mode: bool = False) -> None:
         """Run preview in a background thread."""
         if not self._builder:
@@ -151,6 +194,7 @@ class ExecutionSession:
         self._exec_state = ExecutionState.RUNNING
         self._exec_type = "preview"
         self._exec_error = None
+        self._start_log_capture()
 
         def _run():
             try:
@@ -185,6 +229,8 @@ class ExecutionSession:
                 logger.error(f"Preview failed: {e}")
                 self._exec_state = ExecutionState.ERROR
                 self._exec_error = str(e)
+            finally:
+                self._stop_log_capture()
 
         thread = threading.Thread(target=_run, daemon=True)
         thread.start()
@@ -204,6 +250,7 @@ class ExecutionSession:
         self._exec_state = ExecutionState.RUNNING
         self._exec_type = "create"
         self._exec_error = None
+        self._start_log_capture()
 
         def _run():
             try:
@@ -227,6 +274,8 @@ class ExecutionSession:
                 logger.error(f"Create failed: {e}")
                 self._exec_state = ExecutionState.ERROR
                 self._exec_error = str(e)
+            finally:
+                self._stop_log_capture()
 
         thread = threading.Thread(target=_run, daemon=True)
         thread.start()

@@ -70,6 +70,12 @@ export const api = {
   getCreateResults: () =>
     request<{ num_records?: number; artifact_path?: string; columns?: string[] }>("/create/results"),
 
+  // Logs
+  getLogs: (since: number = 0) =>
+    request<{ ts: number; level: string; name: string; message: string }[]>(
+      `/logs?since=${since}`
+    ),
+
   // Utility
   health: () => request<{ status: string }>("/health"),
 };
