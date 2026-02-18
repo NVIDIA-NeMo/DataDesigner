@@ -10,7 +10,7 @@ from data_designer.config.utils.constants import DATA_DESIGNER_HOME
 
 list_app = typer.Typer(
     name="list",
-    help="List valid type names for use with `inspect` commands.",
+    help="List available types, model aliases, and persona datasets.",
     no_args_is_help=True,
 )
 
