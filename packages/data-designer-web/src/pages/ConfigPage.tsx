@@ -7,20 +7,13 @@ import {
   Loader2,
   Save,
   Undo2,
-  TableProperties,
-  Sparkles,
-  AlertTriangle,
-  Info,
-  Lightbulb,
-  ChevronDown,
-  ChevronRight,
-  Wrench,
-  Plus,
-  Trash2,
 } from "lucide-react";
 import { api } from "../hooks/useApi";
-import { COLUMN_TYPE_META, ColumnType } from "../types/config";
 import YamlHighlighter from "../components/YamlHighlighter";
+import ConfigOverview from "../components/ConfigOverview";
+import ReviewPanel from "../components/ReviewPanel";
+
+type SubTab = "editor" | "overview" | "review";
 
 interface ConfigFile {
   name: string;
@@ -28,15 +21,9 @@ interface ConfigFile {
   active: boolean;
 }
 
-interface ColumnInfo {
-  name: string;
-  column_type: string;
-  drop: boolean;
-}
-
 export default function ConfigPage() {
   const [configs, setConfigs] = useState<ConfigFile[]>([]);
-  const [columns, setColumns] = useState<ColumnInfo[]>([]);
+  const [columns, setColumns] = useState<{ name: string; column_type: string; drop: boolean }[]>([]);
   const [models, setModels] = useState<Record<string, unknown>[]>([]);
   const [outputSchema, setOutputSchema] = useState<
     { name: string; column_type: string; drop: boolean; in_output: boolean; side_effect_of?: string }[]
@@ -45,13 +32,9 @@ export default function ConfigPage() {
   const [activePath, setActivePath] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [validation, setValidation] = useState<{
-    valid: boolean;
-    message: string;
-  } | null>(null);
+  const [validation, setValidation] = useState<{ valid: boolean; message: string } | null>(null);
   const [validating, setValidating] = useState(false);
 
-  // Editor state
   const [savedYaml, setSavedYaml] = useState("");
   const [editYaml, setEditYaml] = useState("");
   const [saving, setSaving] = useState(false);
@@ -59,29 +42,7 @@ export default function ConfigPage() {
   const [editing, setEditing] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Review state
-  const [reviewModel, setReviewModel] = useState("");
-  const [reviewing, setReviewing] = useState(false);
-  const [reviewResult, setReviewResult] = useState<{
-    static_issues: { level: string; type: string; column: string | null; message: string }[];
-    llm_tips: { category: string; severity: string; column: string | null; tip: string }[];
-    model_used: string;
-  } | null>(null);
-  const [reviewOpen, setReviewOpen] = useState(true);
-
-  // MCP state
-  const [mcpStatus, setMcpStatus] = useState<{
-    required: { name: string; configured: boolean }[];
-    configured: Record<string, unknown>[];
-    all_satisfied: boolean;
-  }>({ required: [], configured: [], all_satisfied: true });
-  const [showMcpForm, setShowMcpForm] = useState(false);
-  const [mcpFormType, setMcpFormType] = useState<"sse" | "stdio">("stdio");
-  const [mcpFormName, setMcpFormName] = useState("");
-  const [mcpFormEndpoint, setMcpFormEndpoint] = useState("");
-  const [mcpFormCommand, setMcpFormCommand] = useState("");
-  const [mcpFormArgs, setMcpFormArgs] = useState("");
-  const [mcpFormEnv, setMcpFormEnv] = useState("");
+  const [subTab, setSubTab] = useState<SubTab>("editor");
 
   const hasUnsavedChanges = editYaml !== savedYaml;
 
@@ -93,7 +54,6 @@ export default function ConfigPage() {
       setColumns(info.columns);
       setModels(info.models);
       setOutputSchema(info.output_schema ?? []);
-      setMcpStatus(info.mcp_status ?? { required: [], configured: [], all_satisfied: true });
       if (info.loaded) {
         const y = await api.getConfigYaml();
         setSavedYaml(y.content);
@@ -107,8 +67,7 @@ export default function ConfigPage() {
       setError(e.message);
     }
     try {
-      const cfgs = await api.listConfigs();
-      setConfigs(cfgs);
+      setConfigs(await api.listConfigs());
     } catch {
       // non-critical
     }
@@ -170,61 +129,6 @@ export default function ConfigPage() {
     }
   };
 
-  const handleReview = async () => {
-    if (!reviewModel) return;
-    setReviewing(true);
-    setReviewResult(null);
-    try {
-      const result = await api.reviewConfig(reviewModel);
-      setReviewResult(result);
-      setReviewOpen(true);
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setReviewing(false);
-    }
-  };
-
-  const handleAddMcpProvider = async () => {
-    try {
-      const data: Record<string, unknown> = {
-        provider_type: mcpFormType,
-        name: mcpFormName,
-      };
-      if (mcpFormType === "sse") {
-        data.endpoint = mcpFormEndpoint;
-      } else {
-        data.command = mcpFormCommand;
-        if (mcpFormArgs.trim()) {
-          data.args = mcpFormArgs.split(",").map((a: string) => a.trim()).filter(Boolean);
-        }
-        if (mcpFormEnv.trim()) {
-          const env: Record<string, string> = {};
-          mcpFormEnv.split(",").forEach((pair: string) => {
-            const [k, ...v] = pair.split("=");
-            if (k && v.length) env[k.trim()] = v.join("=").trim();
-          });
-          data.env = env;
-        }
-      }
-      await api.addMcpProvider(data);
-      setShowMcpForm(false);
-      setMcpFormName("");
-      setMcpFormEndpoint("");
-      setMcpFormCommand("");
-      setMcpFormArgs("");
-      setMcpFormEnv("");
-      await refresh();
-    } catch (e: any) {
-      setError(e.message);
-    }
-  };
-
-  const handleDeleteMcpProvider = async (name: string) => {
-    await api.deleteMcpProvider(name);
-    await refresh();
-  };
-
   return (
     <div className="p-6 h-full flex flex-col">
       {/* Header */}
@@ -232,7 +136,7 @@ export default function ConfigPage() {
         <div>
           <h1 className="text-xl font-semibold text-gray-100">Configuration</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Load, edit, and save your config. Changes are written to disk.
+            Load, edit, and save your config
           </p>
         </div>
         <button className="btn-ghost" onClick={refresh} title="Reload from disk">
@@ -246,7 +150,7 @@ export default function ConfigPage() {
         </div>
       )}
 
-      {/* Config file picker + action buttons */}
+      {/* Top bar: file picker + actions */}
       <div className="card mb-4 shrink-0">
         <div className="flex items-center gap-3">
           <div className="flex-1">
@@ -259,9 +163,7 @@ export default function ConfigPage() {
             >
               <option value="">Select a config file...</option>
               {configs.map((c) => (
-                <option key={c.path} value={c.path}>
-                  {c.name}
-                </option>
+                <option key={c.path} value={c.path}>{c.name}</option>
               ))}
             </select>
           </div>
@@ -272,19 +174,11 @@ export default function ConfigPage() {
                 onClick={handleSave}
                 disabled={saving || !hasUnsavedChanges}
               >
-                {saving ? (
-                  <Loader2 size={14} className="animate-spin" />
-                ) : (
-                  <Save size={14} />
-                )}
+                {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
                 Save
               </button>
               {hasUnsavedChanges && (
-                <button
-                  className="btn-ghost text-gray-400"
-                  onClick={handleDiscard}
-                  title="Discard changes"
-                >
+                <button className="btn-ghost text-gray-400" onClick={handleDiscard} title="Discard">
                   <Undo2 size={14} />
                 </button>
               )}
@@ -293,37 +187,8 @@ export default function ConfigPage() {
                 onClick={handleValidate}
                 disabled={validating}
               >
-                {validating ? (
-                  <Loader2 size={14} className="animate-spin" />
-                ) : (
-                  <CheckCircle2 size={14} />
-                )}
+                {validating ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
                 Validate
-              </button>
-              <div className="w-px h-6 bg-border mx-1" />
-              <select
-                className="select-field !w-40 !py-1.5 text-xs"
-                value={reviewModel}
-                onChange={(e) => setReviewModel(e.target.value)}
-              >
-                <option value="">Review model...</option>
-                {models.map((m: any) => (
-                  <option key={m.alias} value={m.alias}>
-                    {m.alias}
-                  </option>
-                ))}
-              </select>
-              <button
-                className="btn-secondary flex items-center gap-1.5 border-purple-700/50 text-purple-300 hover:bg-purple-900/20"
-                onClick={handleReview}
-                disabled={reviewing || !reviewModel}
-              >
-                {reviewing ? (
-                  <Loader2 size={14} className="animate-spin" />
-                ) : (
-                  <Sparkles size={14} />
-                )}
-                Review
               </button>
             </div>
           )}
@@ -334,427 +199,96 @@ export default function ConfigPage() {
             Loading config...
           </div>
         )}
-        {/* Status messages */}
         <div className="flex items-center gap-4 mt-2 min-h-[20px]">
-          {hasUnsavedChanges && (
-            <span className="text-xs text-amber-400">Unsaved changes</span>
-          )}
+          {hasUnsavedChanges && <span className="text-xs text-amber-400">Unsaved changes</span>}
           {saveMessage && (
             <span className="text-xs text-green-400 flex items-center gap-1">
-              <CheckCircle2 size={12} />
-              {saveMessage}
+              <CheckCircle2 size={12} />{saveMessage}
             </span>
           )}
           {validation && (
-            <span
-              className={`text-xs flex items-center gap-1 ${
-                validation.valid ? "text-green-400" : "text-red-400"
-              }`}
-            >
-              {validation.valid ? (
-                <CheckCircle2 size={12} />
-              ) : (
-                <XCircle size={12} />
-              )}
+            <span className={`text-xs flex items-center gap-1 ${validation.valid ? "text-green-400" : "text-red-400"}`}>
+              {validation.valid ? <CheckCircle2 size={12} /> : <XCircle size={12} />}
               {validation.message}
             </span>
           )}
         </div>
       </div>
 
-      {/* Review results panel */}
-      {reviewResult && (
-        <div className="card mb-4 shrink-0 bg-surface-0 border-purple-700/30">
-          <button
-            className="w-full flex items-center gap-2 text-sm font-medium text-purple-300"
-            onClick={() => setReviewOpen(!reviewOpen)}
-          >
-            {reviewOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-            <Sparkles size={14} />
-            Config Review
-            <span className="text-xs text-gray-500 font-normal ml-2">
-              via {reviewResult.model_used}
-            </span>
-            <span className="text-xs text-gray-600 font-normal ml-auto">
-              {reviewResult.static_issues.length} issues, {reviewResult.llm_tips.length} tips
-            </span>
-          </button>
-
-          {reviewOpen && (
-            <div className="mt-3 space-y-4">
-              {/* Static issues */}
-              {reviewResult.static_issues.length > 0 && (
-                <div>
-                  <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
-                    Static Analysis
-                  </h3>
-                  <div className="space-y-1.5">
-                    {reviewResult.static_issues.map((issue, i) => (
-                      <div
-                        key={i}
-                        className={`flex items-start gap-2 text-xs rounded-md px-3 py-2 ${
-                          issue.level === "ERROR"
-                            ? "bg-red-900/20 border border-red-700/30"
-                            : "bg-amber-900/15 border border-amber-700/30"
-                        }`}
-                      >
-                        {issue.level === "ERROR" ? (
-                          <XCircle size={12} className="text-red-400 mt-0.5 shrink-0" />
-                        ) : (
-                          <AlertTriangle size={12} className="text-amber-400 mt-0.5 shrink-0" />
-                        )}
-                        <div className="flex-1">
-                          {issue.column && (
-                            <span className="font-mono text-gray-400 mr-1">
-                              {issue.column}:
-                            </span>
-                          )}
-                          <span className={issue.level === "ERROR" ? "text-red-300" : "text-amber-300"}>
-                            {issue.message}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* LLM tips */}
-              {reviewResult.llm_tips.length > 0 && (
-                <div>
-                  <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
-                    AI Suggestions
-                  </h3>
-                  <div className="space-y-1.5">
-                    {reviewResult.llm_tips.map((tip, i) => (
-                      <div
-                        key={i}
-                        className="flex items-start gap-2 text-xs bg-surface-2 border border-border rounded-md px-3 py-2"
-                      >
-                        {tip.severity === "warning" ? (
-                          <AlertTriangle size={12} className="text-amber-400 mt-0.5 shrink-0" />
-                        ) : tip.severity === "suggestion" ? (
-                          <Lightbulb size={12} className="text-purple-400 mt-0.5 shrink-0" />
-                        ) : (
-                          <Info size={12} className="text-blue-400 mt-0.5 shrink-0" />
-                        )}
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-0.5">
-                            <span className="text-[10px] uppercase tracking-wider font-medium text-gray-500 bg-surface-3 px-1.5 py-0.5 rounded">
-                              {tip.category.replace("_", " ")}
-                            </span>
-                            {tip.column && (
-                              <span className="font-mono text-gray-500 text-[10px]">
-                                {tip.column}
-                              </span>
-                            )}
-                          </div>
-                          <span className="text-gray-300">{tip.tip}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {reviewResult.static_issues.length === 0 && reviewResult.llm_tips.length === 0 && (
-                <p className="text-xs text-green-400 flex items-center gap-1.5">
-                  <CheckCircle2 size={12} />
-                  Config looks good! No issues or suggestions.
-                </p>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
       {!loaded ? (
         <div className="card text-center py-12 flex-1">
           <FileText size={32} className="text-gray-600 mx-auto mb-3" />
-          <p className="text-gray-500">
-            Select a config file above to get started
-          </p>
+          <p className="text-gray-500">Select a config file above to get started</p>
         </div>
       ) : (
-        <div className="flex gap-4 flex-1 min-h-0">
-          {/* Column + model summary sidebar */}
-          <div className="w-56 shrink-0 space-y-4 overflow-auto">
-            <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-              Columns ({columns.length})
-            </h2>
-            <div className="space-y-1">
-              {columns.map((col) => {
-                const meta =
-                  COLUMN_TYPE_META[col.column_type as ColumnType];
-                return (
-                  <div
-                    key={col.name}
-                    className="flex items-center gap-1.5 text-xs"
-                  >
-                    <span
-                      className={`px-1 py-0.5 rounded border font-medium shrink-0 ${
-                        meta?.color ?? "bg-surface-3 text-gray-400 border-border"
-                      }`}
-                    >
-                      {meta?.emoji ?? "?"}
-                    </span>
-                    <span className="text-gray-300 truncate">{col.name}</span>
-                  </div>
-                );
-              })}
-            </div>
-
-            {(() => {
-              const used = models.filter((m: any) => m._used);
-              const available = models.filter((m: any) => !m._used);
-              return (
-                <>
-                  <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider pt-2">
-                    Models in Use ({used.length})
-                  </h2>
-                  {used.length > 0 ? (
-                    <div className="space-y-1.5">
-                      {used.map((m: any) => (
-                        <div key={m.alias} className="text-xs">
-                          <div className="flex items-center gap-1.5">
-                            <span className="w-1.5 h-1.5 rounded-full bg-nvidia-green shrink-0" />
-                            <span className="text-nvidia-green font-semibold">
-                              {m.alias}
-                            </span>
-                          </div>
-                          <span className="text-gray-500 ml-3 truncate block text-[10px]">
-                            {m.model}
-                            {m.provider && (
-                              <span className="text-gray-600"> via {m.provider}</span>
-                            )}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-[10px] text-gray-600">
-                      No models referenced by columns
-                    </p>
-                  )}
-
-                  {available.length > 0 && (
-                    <>
-                      <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider pt-2">
-                        Available ({available.length})
-                      </h2>
-                      <div className="space-y-1">
-                        {available.map((m: any) => (
-                          <div key={m.alias} className="text-xs">
-                            <div className="flex items-center gap-1.5">
-                              <span className="w-1.5 h-1.5 rounded-full bg-gray-600 shrink-0" />
-                              <span className="text-gray-500">
-                                {m.alias}
-                              </span>
-                            </div>
-                            <span className="text-gray-700 ml-3 truncate block text-[10px]">
-                              {m.model}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </>
-                  )}
-                </>
-              );
-            })()}
-
-            {/* Output Schema */}
-            {outputSchema.length > 0 && (
-              <>
-                <div className="flex items-center gap-1.5 pt-3">
-                  <TableProperties size={12} className="text-gray-400" />
-                  <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                    Output Schema
-                  </h2>
-                </div>
-                <div className="space-y-0.5 text-xs font-mono">
-                  {outputSchema.map((field) => (
-                    <div
-                      key={field.name}
-                      className={`flex items-center gap-1.5 ${
-                        field.in_output ? "text-gray-300" : "text-gray-600 line-through"
-                      }`}
-                    >
-                      <span
-                        className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                          field.in_output ? "bg-nvidia-green" : "bg-gray-600"
-                        }`}
-                      />
-                      <span className="truncate">{field.name}</span>
-                      {field.side_effect_of && (
-                        <span className="text-[10px] text-gray-600 shrink-0">
-                          (from {field.side_effect_of})
-                        </span>
-                      )}
-                    </div>
-                  ))}
-                  <div className="text-[10px] text-gray-600 pt-1">
-                    {outputSchema.filter((f) => f.in_output).length} columns in output
-                    {outputSchema.some((f) => !f.in_output) && (
-                      <span>
-                        , {outputSchema.filter((f) => !f.in_output).length} dropped
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </>
-            )}
-
-            {/* MCP Providers */}
-            {mcpStatus.required.length > 0 && (
-              <>
-                <div className="flex items-center gap-1.5 pt-3">
-                  <Wrench size={12} className="text-gray-400" />
-                  <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                    MCP Providers
-                  </h2>
-                  {!mcpStatus.all_satisfied && (
-                    <span className="w-1.5 h-1.5 rounded-full bg-red-400" />
-                  )}
-                </div>
-                <div className="space-y-1 text-xs">
-                  {mcpStatus.required.map((p) => (
-                    <div key={p.name} className="flex items-center gap-1.5">
-                      {p.configured ? (
-                        <CheckCircle2 size={10} className="text-green-400 shrink-0" />
-                      ) : (
-                        <XCircle size={10} className="text-red-400 shrink-0" />
-                      )}
-                      <span className={p.configured ? "text-gray-300" : "text-red-300"}>
-                        {p.name}
-                      </span>
-                      {p.configured && (
-                        <button
-                          className="text-gray-600 hover:text-red-400 ml-auto"
-                          onClick={() => handleDeleteMcpProvider(p.name)}
-                          title="Remove"
-                        >
-                          <Trash2 size={10} />
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-
-                {!mcpStatus.all_satisfied && !showMcpForm && (
-                  <button
-                    className="text-[10px] text-purple-400 hover:text-purple-300 flex items-center gap-1 mt-1"
-                    onClick={() => {
-                      setShowMcpForm(true);
-                      const missing = mcpStatus.required.find((p) => !p.configured);
-                      if (missing) setMcpFormName(missing.name);
-                    }}
-                  >
-                    <Plus size={10} />
-                    Add provider
-                  </button>
-                )}
-
-                {showMcpForm && (
-                  <div className="bg-surface-2 rounded-md p-2 space-y-1.5 text-xs border border-border mt-1">
-                    <div className="flex gap-1">
-                      <button
-                        className={`px-2 py-0.5 rounded text-[10px] ${
-                          mcpFormType === "stdio"
-                            ? "bg-nvidia-green/20 text-nvidia-green"
-                            : "bg-surface-3 text-gray-500"
-                        }`}
-                        onClick={() => setMcpFormType("stdio")}
-                      >
-                        Local
-                      </button>
-                      <button
-                        className={`px-2 py-0.5 rounded text-[10px] ${
-                          mcpFormType === "sse"
-                            ? "bg-nvidia-green/20 text-nvidia-green"
-                            : "bg-surface-3 text-gray-500"
-                        }`}
-                        onClick={() => setMcpFormType("sse")}
-                      >
-                        Remote
-                      </button>
-                    </div>
-                    <input
-                      className="input-field !py-1 !text-xs"
-                      value={mcpFormName}
-                      onChange={(e) => setMcpFormName(e.target.value)}
-                      placeholder="Provider name"
-                    />
-                    {mcpFormType === "sse" ? (
-                      <input
-                        className="input-field !py-1 !text-xs"
-                        value={mcpFormEndpoint}
-                        onChange={(e) => setMcpFormEndpoint(e.target.value)}
-                        placeholder="Endpoint URL"
-                      />
-                    ) : (
-                      <>
-                        <input
-                          className="input-field !py-1 !text-xs"
-                          value={mcpFormCommand}
-                          onChange={(e) => setMcpFormCommand(e.target.value)}
-                          placeholder="Command (e.g. python)"
-                        />
-                        <input
-                          className="input-field !py-1 !text-xs"
-                          value={mcpFormArgs}
-                          onChange={(e) => setMcpFormArgs(e.target.value)}
-                          placeholder="Args (comma-separated)"
-                        />
-                      </>
-                    )}
-                    <div className="flex gap-1">
-                      <button
-                        className="btn-primary !py-0.5 !px-2 !text-[10px]"
-                        onClick={handleAddMcpProvider}
-                        disabled={!mcpFormName || (mcpFormType === "sse" ? !mcpFormEndpoint : !mcpFormCommand)}
-                      >
-                        Add
-                      </button>
-                      <button
-                        className="btn-ghost !py-0.5 !px-2 !text-[10px] text-gray-500"
-                        onClick={() => setShowMcpForm(false)}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-
-          {/* YAML editor with syntax highlighting */}
-          <div className="flex-1 flex flex-col min-h-0">
-            {editing ? (
-              <textarea
-                ref={textareaRef}
-                className="flex-1 bg-surface-0 border border-nvidia-green/40 rounded-lg p-4 font-mono text-xs text-gray-200 leading-relaxed resize-none focus:outline-none focus:ring-1 focus:ring-nvidia-green/30 transition-colors"
-                value={editYaml}
-                onChange={(e) => {
-                  setEditYaml(e.target.value);
-                  setSaveMessage(null);
-                  setValidation(null);
-                }}
-                onBlur={() => setEditing(false)}
-                spellCheck={false}
-                autoFocus
-              />
-            ) : (
-              <div
-                className="flex-1 bg-surface-0 border border-border rounded-lg p-4 overflow-auto cursor-text hover:border-border-hover transition-colors"
-                onClick={() => setEditing(true)}
+        <>
+          {/* Sub-tabs */}
+          <div className="flex gap-1 mb-4 border-b border-border shrink-0">
+            {([
+              { id: "editor" as SubTab, label: "Editor" },
+              { id: "overview" as SubTab, label: "Overview" },
+              { id: "review" as SubTab, label: "Review" },
+            ]).map((t) => (
+              <button
+                key={t.id}
+                className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
+                  subTab === t.id
+                    ? "border-nvidia-green text-nvidia-green"
+                    : "border-transparent text-gray-400 hover:text-gray-200"
+                }`}
+                onClick={() => setSubTab(t.id)}
               >
-                <YamlHighlighter code={editYaml} />
-              </div>
-            )}
+                {t.label}
+              </button>
+            ))}
           </div>
-        </div>
+
+          {/* Editor tab */}
+          {subTab === "editor" && (
+            <div className="flex-1 flex flex-col min-h-0">
+              {editing ? (
+                <textarea
+                  ref={textareaRef}
+                  className="flex-1 bg-surface-0 border border-nvidia-green/40 rounded-lg p-4 font-mono text-xs text-gray-200 leading-relaxed resize-none focus:outline-none focus:ring-1 focus:ring-nvidia-green/30 transition-colors"
+                  value={editYaml}
+                  onChange={(e) => {
+                    setEditYaml(e.target.value);
+                    setSaveMessage(null);
+                    setValidation(null);
+                  }}
+                  onBlur={() => setEditing(false)}
+                  spellCheck={false}
+                  autoFocus
+                />
+              ) : (
+                <div
+                  className="flex-1 bg-surface-0 border border-border rounded-lg p-4 overflow-auto cursor-text hover:border-border-hover transition-colors"
+                  onClick={() => setEditing(true)}
+                >
+                  <YamlHighlighter code={editYaml} />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Overview tab */}
+          {subTab === "overview" && (
+            <div className="flex-1 overflow-auto">
+              <ConfigOverview
+                columns={columns}
+                models={models}
+                outputSchema={outputSchema}
+              />
+            </div>
+          )}
+
+          {/* Review tab */}
+          {subTab === "review" && (
+            <div className="flex-1 overflow-auto">
+              <ReviewPanel models={models} loaded={loaded} />
+            </div>
+          )}
+        </>
       )}
     </div>
   );
