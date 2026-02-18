@@ -273,12 +273,16 @@ def test_run_preview_calls_to_report_when_analysis_present(mock_load_config: Mag
     mock_analysis.to_report.assert_called_once_with(save_path=None)
 
 
+@patch(f"{_CTRL}.create_sample_records_pager")
 @patch("data_designer.interface.DataDesigner")
 @patch(f"{_CTRL}.load_config_builder")
 def test_run_preview_save_results_creates_directory_structure(
-    mock_load_config: MagicMock, mock_dd_cls: MagicMock, tmp_path: Path
+    mock_load_config: MagicMock,
+    mock_dd_cls: MagicMock,
+    mock_create_pager: MagicMock,
+    tmp_path: Path,
 ) -> None:
-    """Test --save-results saves dataset, report, and sample records."""
+    """Test --save-results saves dataset, report, sample records, and sample_records_browser.html."""
     mock_load_config.return_value = MagicMock(spec=DataDesignerConfigBuilder)
     mock_dd = MagicMock()
     mock_dd_cls.return_value = mock_dd
@@ -309,15 +313,26 @@ def test_run_preview_save_results_creates_directory_structure(
 
     # Sample records saved — 2 display calls + 2 save calls = 4 total
     assert mock_results.display_sample_record.call_count == 4
+    sample_records_dir = report_save_path.parent / "sample_records"
     for i in range(2):
         mock_results.display_sample_record.assert_any_call(
-            index=i, save_path=report_save_path.parent / "sample_records" / f"record_{i}.html"
+            index=i, save_path=sample_records_dir / f"record_{i}.html", theme="dark", display_width=110
         )
 
+    # Sample records browser (pager) generated
+    mock_create_pager.assert_called_once_with(
+        sample_records_dir=sample_records_dir,
+        num_records=2,
+        theme="dark",
+    )
 
+
+@patch(f"{_CTRL}.create_sample_records_pager")
 @patch("data_designer.interface.DataDesigner")
 @patch(f"{_CTRL}.load_config_builder")
-def test_run_preview_save_results_default_artifact_path(mock_load_config: MagicMock, mock_dd_cls: MagicMock) -> None:
+def test_run_preview_save_results_default_artifact_path(
+    mock_load_config: MagicMock, mock_dd_cls: MagicMock, mock_create_pager: MagicMock
+) -> None:
     """Test --save-results with no artifact_path defaults to ./artifacts."""
     mock_load_config.return_value = MagicMock(spec=DataDesignerConfigBuilder)
     mock_dd = MagicMock()
@@ -338,6 +353,40 @@ def test_run_preview_save_results_default_artifact_path(mock_load_config: MagicM
 
     report_save_path = mock_analysis.to_report.call_args.kwargs["save_path"]
     assert report_save_path.parent.parent == Path.cwd() / "artifacts"
+    mock_create_pager.assert_called_once()
+
+
+@patch(f"{_CTRL}.create_sample_records_pager")
+@patch("data_designer.interface.DataDesigner")
+@patch(f"{_CTRL}.load_config_builder")
+def test_run_preview_save_results_with_light_theme(
+    mock_load_config: MagicMock,
+    mock_dd_cls: MagicMock,
+    mock_create_pager: MagicMock,
+    tmp_path: Path,
+) -> None:
+    """Test that theme='light' is threaded through to both records and pager."""
+    mock_load_config.return_value = MagicMock(spec=DataDesignerConfigBuilder)
+    mock_dd = MagicMock()
+    mock_dd_cls.return_value = mock_dd
+    mock_results = _make_mock_preview_results(2)
+    mock_results.analysis = None
+    mock_dd.preview.return_value = mock_results
+
+    controller = GenerationController()
+    controller.run_preview(
+        config_source="config.yaml",
+        num_records=2,
+        non_interactive=True,
+        save_results=True,
+        artifact_path=str(tmp_path),
+        theme="light",
+    )
+
+    for c in mock_results.display_sample_record.call_args_list:
+        if "save_path" in c.kwargs:
+            assert c.kwargs["theme"] == "light"
+    assert mock_create_pager.call_args.kwargs["theme"] == "light"
 
 
 @patch("data_designer.interface.DataDesigner")
@@ -355,10 +404,11 @@ def test_run_preview_skips_report_when_analysis_is_none(mock_load_config: MagicM
     controller.run_preview(config_source="config.yaml", num_records=3, non_interactive=True)
 
 
+@patch(f"{_CTRL}.create_sample_records_pager")
 @patch("data_designer.interface.DataDesigner")
 @patch(f"{_CTRL}.load_config_builder")
 def test_run_preview_save_results_without_analysis(
-    mock_load_config: MagicMock, mock_dd_cls: MagicMock, tmp_path: Path
+    mock_load_config: MagicMock, mock_dd_cls: MagicMock, mock_create_pager: MagicMock, tmp_path: Path
 ) -> None:
     """Test --save-results saves dataset and sample records even when analysis is None."""
     mock_load_config.return_value = MagicMock(spec=DataDesignerConfigBuilder)

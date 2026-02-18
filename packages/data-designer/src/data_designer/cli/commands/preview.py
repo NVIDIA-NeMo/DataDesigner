@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import click
 import typer
 
 from data_designer.cli.controllers.generation_controller import GenerationController
@@ -39,6 +40,18 @@ def preview_command(
         "-o",
         help="Directory for saved results (used with --save-results). Defaults to ./artifacts.",
     ),
+    theme: str = typer.Option(
+        "dark",
+        "--theme",
+        click_type=click.Choice(["dark", "light"], case_sensitive=False),
+        help="Color theme for saved HTML files (dark or light). Only applies when --save-results is used.",
+    ),
+    display_width: int = typer.Option(
+        110,
+        "--display-width",
+        help="Width of the rendered record output in characters.",
+        min=40,
+    ),
 ) -> None:
     """Generate a preview dataset for fast iteration on your configuration.
 
@@ -70,6 +83,9 @@ def preview_command(
 
         # Save results to a custom path
         data-designer preview my_config.yaml --save-results --artifact-path ./output
+
+        # Save results with light theme
+        data-designer preview my_config.yaml --save-results --theme light
     """
     controller = GenerationController()
     controller.run_preview(
@@ -78,4 +94,6 @@ def preview_command(
         non_interactive=non_interactive,
         save_results=save_results,
         artifact_path=artifact_path,
+        theme=theme,
+        display_width=display_width,
     )

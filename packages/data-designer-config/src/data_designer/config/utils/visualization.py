@@ -5,12 +5,14 @@ from __future__ import annotations
 
 import html
 import json
+import logging
 import os
+import re
 from collections import OrderedDict
 from enum import Enum
 from functools import cached_property
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from rich.console import Console, Group
 from rich.padding import Padding
@@ -46,6 +48,7 @@ if TYPE_CHECKING:
 
 
 console = Console()
+_logger = logging.getLogger(__name__)
 
 
 def _display_image_if_in_notebook(image_data: str, col_name: str) -> bool:
@@ -160,6 +163,8 @@ class WithRecordSamplerMixin:
         processors_to_display: list[str] | None = None,
         hide_seed_columns: bool = False,
         save_path: str | Path | None = None,
+        theme: Literal["dark", "light"] = "dark",
+        display_width: int = 110,
     ) -> None:
         """Display a sample record from the Data Designer dataset preview.
 
@@ -173,6 +178,8 @@ class WithRecordSamplerMixin:
             processors_to_display: List of processors to display the artifacts for. If None, all processors will be displayed.
             hide_seed_columns: If True, seed columns will not be displayed separately.
             save_path: Optional path to save the rendered output as an HTML or SVG file.
+            theme: Color theme for saved HTML files (dark or light).
+            display_width: Width of the rendered output in characters.
         """
         i = self._display_cycle_index if index is None else index
 
@@ -211,6 +218,8 @@ class WithRecordSamplerMixin:
             record_index=i,
             seed_column_names=seed_column_names,
             save_path=save_path,
+            theme=theme,
+            display_width=display_width,
         )
         if index is None:
             self._display_cycle_index = (self._display_cycle_index + 1) % num_records
@@ -245,7 +254,9 @@ def display_sample_record(
     record_index: int | None = None,
     seed_column_names: list[str] | None = None,
     save_path: str | Path | None = None,
-):
+    theme: Literal["dark", "light"] = "dark",
+    display_width: int = 110,
+) -> None:
     if isinstance(record, (dict, pd.Series)):
         record = pd.DataFrame([record]).iloc[0]
     elif isinstance(record, pd.DataFrame):
@@ -422,9 +433,9 @@ def display_sample_record(
         render_list.append(index_label)
 
     if save_path is not None:
-        recording_console = Console(record=True)
+        recording_console = Console(record=True, width=display_width)
         recording_console.print(Group(*render_list), markup=False)
-        _save_console_output(recording_console, save_path)
+        _save_console_output(recording_console, save_path, theme=theme)
     else:
         console.print(Group(*render_list), markup=False)
 
@@ -634,10 +645,69 @@ def _get_field_constraints(field: dict, schema: dict) -> str:
     return ", ".join(constraints)
 
 
-def _save_console_output(recorded_console: Console, save_path: str | Path) -> None:
+_SAMPLE_RECORD_DARK_CSS = """
+:root { color-scheme: dark; }
+html, body { background: #020a1d !important; color: #dbe8ff !important; }
+pre, code { color: inherit !important; }
+table, th, td { border-color: rgba(184, 210, 255, 0.5) !important; }
+"""
+
+_THEME_LISTENER_SCRIPT = """\
+<script id="data-designer-theme-listener">
+window.addEventListener("message", function(e) {
+  if (!e.data || e.data.type !== "theme") return;
+  var s = document.getElementById("data-designer-styles");
+  if (e.data.dark) {
+    if (!s) {
+      s = document.createElement("style");
+      s.id = "data-designer-styles";
+      s.textContent = ":root { color-scheme: dark; } html, body { background: #020a1d !important; color: #dbe8ff !important; } pre, code { color: inherit !important; } table, th, td { border-color: rgba(184, 210, 255, 0.5) !important; }";
+      (document.head || document.documentElement).appendChild(s);
+    }
+    s.disabled = false;
+  } else {
+    if (s) s.disabled = true;
+  }
+});
+</script>
+"""
+
+
+def _apply_html_post_processing(html_path: str | Path, *, theme: Literal["dark", "light"] = "dark") -> None:
+    """Inject viewport meta tag, optional dark-mode CSS, and theme listener script into a Rich-exported HTML file."""
+    path = Path(html_path)
+    try:
+        content = path.read_text(encoding="utf-8")
+    except (FileNotFoundError, UnicodeDecodeError) as exc:
+        _logger.warning("Could not post-process HTML at %s: %s", path, exc)
+        return
+
+    if 'id="data-designer-theme-listener"' in content:
+        return
+
+    viewport_tag = '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
+    injection = viewport_tag
+
+    if theme != "light":
+        dark_css = _SAMPLE_RECORD_DARK_CSS.strip()
+        injection += f'<style id="data-designer-styles">\n{dark_css}\n</style>\n'
+
+    injection += _THEME_LISTENER_SCRIPT
+
+    if re.search(r"</head>", content, flags=re.I):
+        content = re.sub(r"</head>", injection + "</head>", content, count=1, flags=re.I)
+    else:
+        content = injection + content
+    path.write_text(content, encoding="utf-8")
+
+
+def _save_console_output(
+    recorded_console: Console, save_path: str | Path, *, theme: Literal["dark", "light"] = "dark"
+) -> None:
     save_path = str(save_path)
     if save_path.endswith(".html"):
         recorded_console.save_html(save_path)
+        _apply_html_post_processing(save_path, theme=theme)
     elif save_path.endswith(".svg"):
         recorded_console.save_svg(save_path, title="")
     else:
