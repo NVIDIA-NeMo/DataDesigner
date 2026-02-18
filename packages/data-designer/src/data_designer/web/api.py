@@ -10,7 +10,7 @@ import traceback
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from data_designer.web.schema import (
     get_column_schemas,
@@ -36,15 +36,17 @@ session = ConfigSession()
 # ---------------------------------------------------------------------------
 
 class ColumnRequest(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     column_type: str
     name: str
-    model_config_pydantic = {"extra": "allow"}  # noqa: RUF012
 
 
 class ModelConfigRequest(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     alias: str
     model: str
-    model_config_pydantic = {"extra": "allow"}  # noqa: RUF012
 
 
 class LoadConfigRequest(BaseModel):

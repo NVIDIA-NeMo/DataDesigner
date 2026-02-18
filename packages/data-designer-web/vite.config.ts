@@ -2,9 +2,9 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   plugins: [react()],
-  base: "/ui/",
+  base: command === "build" ? "/ui/" : "/",
   build: {
     outDir: path.resolve(
       __dirname,
@@ -21,4 +21,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));
