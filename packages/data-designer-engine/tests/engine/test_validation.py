@@ -3,6 +3,8 @@
 
 from unittest.mock import Mock, patch
 
+import pytest
+
 from data_designer.config.column_configs import (
     ExpressionColumnConfig,
     LLMCodeColumnConfig,
@@ -27,6 +29,7 @@ from data_designer.engine.validation import (
     validate_code_validation,
     validate_columns_not_all_dropped,
     validate_data_designer_config,
+    validate_drop_columns_processor,
     validate_expression_references,
     validate_prompt_templates,
     validate_schema_transform_processor,
@@ -279,13 +282,20 @@ def test_validate_schema_transform_processor():
     assert violations[0].level == ViolationLevel.ERROR
 
 
-def test_validate_drop_columns_processor_accepts_reasoning_columns():
+@pytest.mark.parametrize(
+    "extract_reasoning, expected_violations",
+    [
+        (True, 0),
+        (False, 1),
+    ],
+)
+def test_validate_drop_columns_processor_reasoning_column(extract_reasoning, expected_violations):
     columns = [
         LLMTextColumnConfig(
             name="answer",
             prompt="Answer the question.",
             model_alias=STUB_MODEL_ALIAS,
-            extract_reasoning_content=True,
+            extract_reasoning_content=extract_reasoning,
         ),
     ]
     processor_configs = [
@@ -294,31 +304,8 @@ def test_validate_drop_columns_processor_accepts_reasoning_columns():
             column_names=["answer__reasoning_content"],
         ),
     ]
-    from data_designer.engine.validation import validate_drop_columns_processor
-
     violations = validate_drop_columns_processor(columns, processor_configs)
-    assert len(violations) == 0
-
-
-def test_validate_drop_columns_processor_rejects_invalid_side_effect_column():
-    columns = [
-        LLMTextColumnConfig(
-            name="answer",
-            prompt="Answer the question.",
-            model_alias=STUB_MODEL_ALIAS,
-        ),
-    ]
-    processor_configs = [
-        DropColumnsProcessorConfig(
-            name="drop_reasoning",
-            column_names=["answer__reasoning_content"],
-        ),
-    ]
-    from data_designer.engine.validation import validate_drop_columns_processor
-
-    violations = validate_drop_columns_processor(columns, processor_configs)
-    assert len(violations) == 1
-    assert violations[0].type == ViolationType.INVALID_COLUMN
+    assert len(violations) == expected_violations
 
 
 @patch("data_designer.engine.validation.Console.print")

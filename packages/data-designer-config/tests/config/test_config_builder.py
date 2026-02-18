@@ -893,13 +893,13 @@ def test_cannot_write_config_with_dataframe_seed(stub_model_configs):
 class TestAddProcessorIdempotent:
     """Tests that add_processor replaces existing processors with the same name."""
 
+    @staticmethod
+    def _add_sampler(builder, name):
+        builder.add_column(SamplerColumnConfig(name=name, sampler_type="uuid", params=UUIDSamplerParams()))
+
     def test_add_processor_replaces_existing_by_name(self, stub_empty_builder):
-        stub_empty_builder.add_column(
-            SamplerColumnConfig(name="col_a", sampler_type="uuid", params=UUIDSamplerParams()),
-        )
-        stub_empty_builder.add_column(
-            SamplerColumnConfig(name="col_b", sampler_type="uuid", params=UUIDSamplerParams()),
-        )
+        self._add_sampler(stub_empty_builder, "col_a")
+        self._add_sampler(stub_empty_builder, "col_b")
 
         stub_empty_builder.add_processor(
             DropColumnsProcessorConfig(name="cleanup", column_names=["col_a"]),
@@ -916,9 +916,7 @@ class TestAddProcessorIdempotent:
         assert stub_empty_builder.get_column_config("col_b").drop is True
 
     def test_add_processor_different_names_appends(self, stub_empty_builder):
-        stub_empty_builder.add_column(
-            SamplerColumnConfig(name="col_a", sampler_type="uuid", params=UUIDSamplerParams()),
-        )
+        self._add_sampler(stub_empty_builder, "col_a")
         stub_empty_builder.add_processor(
             DropColumnsProcessorConfig(name="cleanup_1", column_names=["col_a"]),
         )
