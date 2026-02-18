@@ -210,6 +210,7 @@ class GenerationController:
                 sample_records_dir=sample_records_dir,
                 num_records=total,
                 num_columns=len(results.dataset.columns),
+                theme=theme,
             )
 
             logger.info(f"{LOG_INDENT}Results path: {results_dir}")
