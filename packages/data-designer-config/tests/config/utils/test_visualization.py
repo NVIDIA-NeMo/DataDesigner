@@ -156,7 +156,7 @@ def test_display_sample_record_save_path_none_default(
 # ---------------------------------------------------------------------------
 
 
-def testapply_html_post_processing_injects_style(tmp_path: Path) -> None:
+def test_apply_html_post_processing_injects_style(tmp_path: Path) -> None:
     """Test that apply_html_post_processing injects viewport and dark-mode style before </head>."""
     html_file = tmp_path / "test.html"
     html_file.write_text("<html><head><title>Test</title></head><body></body></html>", encoding="utf-8")
