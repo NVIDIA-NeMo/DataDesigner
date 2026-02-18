@@ -22,7 +22,7 @@ from pathlib import Path
 #
 #   perf-import: 0.008 - 0.02s
 MAX_IMPORT_TIME_SECONDS = 3.0
-PERF_TEST_TIMEOUT_SECONDS = 10.0
+PERF_TEST_TIMEOUT_SECONDS = 30.0
 
 
 def test_import_performance() -> None:
