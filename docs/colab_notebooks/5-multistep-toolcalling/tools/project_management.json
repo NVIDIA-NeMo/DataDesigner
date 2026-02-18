@@ -1,0 +1,116 @@
+{
+  "database": "project_management",
+  "description": "Project management board for tracking tasks across teams.",
+  "data_schema": {
+    "columns": ["task_id", "task_name", "assigned_to_email", "list_name", "due_date", "board"],
+    "enums": {
+      "list_name": ["Backlog", "In Progress", "In Review", "Completed"],
+      "board": ["Back end", "Front end", "Design"]
+    }
+  },
+  "tools": [
+    {
+      "type": "function",
+      "name": "project_management_get_task_information_by_id",
+      "description": "Returns the task information for a given ID.",
+      "database": "project_management",
+      "operation_type": "read",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "task_id": {"type": "string", "description": "8-digit ID of the task"},
+          "field": {
+            "type": "string",
+            "description": "Field to return. Available fields are: 'task_id', 'task_name', 'assigned_to_email', 'list_name', 'due_date', 'board'"
+          }
+        },
+        "required": ["task_id", "field"],
+        "additionalProperties": false
+      },
+      "strict": false
+    },
+    {
+      "type": "function",
+      "name": "project_management_search_tasks",
+      "description": "Searches for tasks based on the given parameters.",
+      "database": "project_management",
+      "operation_type": "read",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "task_name": {"type": "string", "description": "Name of the task"},
+          "assigned_to_email": {"type": "string", "description": "Email address of the person assigned to the task"},
+          "list_name": {"type": "string", "description": "Name of the list the task belongs to"},
+          "due_date": {"type": "string", "description": "Due date of the task in YYYY-MM-DD format"},
+          "board": {"type": "string", "description": "Name of the board the task belongs to"}
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "strict": false
+    },
+    {
+      "type": "function",
+      "name": "project_management_create_task",
+      "description": "Creates a new task.",
+      "database": "project_management",
+      "operation_type": "create",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "task_name": {"type": "string", "description": "Name of the task"},
+          "assigned_to_email": {"type": "string", "description": "Email address of the person assigned to the task"},
+          "list_name": {
+            "type": "string",
+            "description": "Name of the list the task belongs to. One of: 'Backlog', 'In Progress', 'In Review', 'Completed'"
+          },
+          "due_date": {"type": "string", "description": "Due date of the task in YYYY-MM-DD format"},
+          "board": {
+            "type": "string",
+            "description": "Name of the board the task belongs to. One of: 'Back end', 'Front end', 'Design'"
+          }
+        },
+        "required": ["task_name", "assigned_to_email", "list_name", "due_date", "board"],
+        "additionalProperties": false
+      },
+      "strict": false
+    },
+    {
+      "type": "function",
+      "name": "project_management_delete_task",
+      "description": "Deletes a task by ID.",
+      "database": "project_management",
+      "operation_type": "delete",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "task_id": {"type": "string", "description": "8-digit ID of the task"}
+        },
+        "required": ["task_id"],
+        "additionalProperties": false
+      },
+      "strict": false
+    },
+    {
+      "type": "function",
+      "name": "project_management_update_task",
+      "description": "Updates a task by ID.",
+      "database": "project_management",
+      "operation_type": "update",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "task_id": {"type": "string", "description": "8-digit ID of the task"},
+          "field": {
+            "type": "string",
+            "description": "Field to update. Available fields are: 'task_name', 'assigned_to_email', 'list_name', 'due_date', 'board'"
+          },
+          "new_value": {"type": "string", "description": "New value for the field"}
+        },
+        "required": ["task_id", "field", "new_value"],
+        "additionalProperties": false
+      },
+      "strict": false
+    }
+  ]
+}

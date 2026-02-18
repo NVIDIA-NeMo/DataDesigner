@@ -1,0 +1,28 @@
+{
+  "database": "company_directory",
+  "description": "Employee directory for looking up email addresses by name.",
+  "data_schema": {
+    "columns": ["email_address"]
+  },
+  "tools": [
+    {
+      "type": "function",
+      "name": "company_directory_find_email_address",
+      "description": "Finds all email addresses containing the given name (case-insensitive search).",
+      "database": "company_directory",
+      "operation_type": "read",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name or partial name to search for in email addresses"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "strict": false
+    }
+  ]
+}
