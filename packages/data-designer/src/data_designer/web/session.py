@@ -107,13 +107,34 @@ class ExecutionSession:
         return self.get_config_dict()
 
     def save_config_yaml(self, yaml_content: str) -> dict[str, Any]:
-        """Save YAML content to the active config file and reload the builder."""
+        """Validate YAML, write to disk, and reload the builder.
+
+        Validates the config can be parsed BEFORE writing to disk so a
+        typo doesn't corrupt the file.  On validation failure the file
+        and builder are left untouched.
+        """
         if not self._config_path:
             raise RuntimeError("No config file path set")
 
-        self._config_path.write_text(yaml_content)
+        import tempfile
 
-        self._builder = load_config_builder(str(self._config_path))
+        # Write to a temp file and try to load it first
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".yaml", dir=self._config_path.parent, delete=False
+        )
+        try:
+            tmp.write(yaml_content)
+            tmp.close()
+            new_builder = load_config_builder(tmp.name)
+        except Exception:
+            Path(tmp.name).unlink(missing_ok=True)
+            raise
+        finally:
+            Path(tmp.name).unlink(missing_ok=True)
+
+        # Validation passed -- safe to write the real file
+        self._config_path.write_text(yaml_content)
+        self._builder = new_builder
         self._preview_dataset = None
         self._preview_columns = None
         self._preview_analysis = None

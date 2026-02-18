@@ -102,7 +102,8 @@ export default function ConfigPage() {
       setSaveMessage("Saved and reloaded");
       setTimeout(() => setSaveMessage(null), 3000);
     } catch (e: any) {
-      setError(e.message);
+      setSaveMessage(null);
+      setValidation({ valid: false, message: e.message });
     } finally {
       setSaving(false);
     }

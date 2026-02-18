@@ -98,12 +98,16 @@ async def get_config_yaml() -> dict[str, str]:
 
 @router.post("/config/save", tags=["config"])
 async def save_config(req: SaveConfigRequest) -> dict[str, Any]:
-    """Save edited YAML to the config file and reload the builder."""
+    """Validate and save edited YAML. File is NOT written if validation fails."""
     try:
         return _get_session().save_config_yaml(req.content)
     except Exception as e:
         logger.error(f"Failed to save config: {e}\n{traceback.format_exc()}")
-        raise HTTPException(status_code=422, detail=str(e))
+        msg = str(e)
+        # Extract the readable part from ConfigLoadError wrapping
+        if "Failed to load config from" in msg and ": " in msg:
+            msg = msg.split(": ", 1)[1]
+        raise HTTPException(status_code=422, detail=msg)
 
 
 @router.get("/config/export", tags=["config"])

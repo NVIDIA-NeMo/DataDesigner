@@ -22,7 +22,7 @@ data_designer:
         decimal_places: 1
 
     - name: question
-      column_type: llm-text
+      column_type: llm-text11
       model_alias: nvidia-text
       system_prompt: You are a trivia question writer. Output only the question, nothing else.
       prompt: Generate a {{ topic }} trivia question at difficulty level {{ difficulty }}/10.
