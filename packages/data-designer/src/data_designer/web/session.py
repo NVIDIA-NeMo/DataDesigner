@@ -184,6 +184,29 @@ class ExecutionSession:
             for c in self._builder.get_column_configs()
         ]
 
+    def get_output_schema(self) -> list[dict[str, Any]]:
+        """Return the expected output schema: columns that will appear in the final dataset."""
+        if not self._builder:
+            return []
+        schema = []
+        for col in self._builder.get_column_configs():
+            drop = getattr(col, "drop", False)
+            schema.append({
+                "name": col.name,
+                "column_type": col.column_type,
+                "drop": drop,
+                "in_output": not drop,
+            })
+            for side_col in col.side_effect_columns:
+                schema.append({
+                    "name": side_col,
+                    "column_type": col.column_type,
+                    "drop": drop,
+                    "in_output": not drop,
+                    "side_effect_of": col.name,
+                })
+        return schema
+
     def list_models(self) -> list[dict[str, Any]]:
         if not self._builder:
             return []

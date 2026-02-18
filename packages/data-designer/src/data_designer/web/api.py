@@ -140,6 +140,7 @@ async def config_info() -> dict[str, Any]:
         "path": s.config_path,
         "columns": s.list_columns(),
         "models": s.list_models(),
+        "output_schema": s.get_output_schema(),
     }
 
 

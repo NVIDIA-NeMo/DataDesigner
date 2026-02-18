@@ -7,6 +7,7 @@ import {
   Loader2,
   Save,
   Undo2,
+  TableProperties,
 } from "lucide-react";
 import { api } from "../hooks/useApi";
 import { COLUMN_TYPE_META, ColumnType } from "../types/config";
@@ -27,6 +28,9 @@ export default function ConfigPage() {
   const [configs, setConfigs] = useState<ConfigFile[]>([]);
   const [columns, setColumns] = useState<ColumnInfo[]>([]);
   const [models, setModels] = useState<Record<string, unknown>[]>([]);
+  const [outputSchema, setOutputSchema] = useState<
+    { name: string; column_type: string; drop: boolean; in_output: boolean; side_effect_of?: string }[]
+  >([]);
   const [loaded, setLoaded] = useState(false);
   const [activePath, setActivePath] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -52,6 +56,7 @@ export default function ConfigPage() {
       setActivePath(info.path);
       setColumns(info.columns);
       setModels(info.models);
+      setOutputSchema(info.output_schema ?? []);
       if (info.loaded) {
         const y = await api.getConfigYaml();
         setSavedYaml(y.content);
@@ -291,6 +296,48 @@ export default function ConfigPage() {
                 </div>
               ))}
             </div>
+
+            {/* Output Schema */}
+            {outputSchema.length > 0 && (
+              <>
+                <div className="flex items-center gap-1.5 pt-3">
+                  <TableProperties size={12} className="text-gray-400" />
+                  <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                    Output Schema
+                  </h2>
+                </div>
+                <div className="space-y-0.5 text-xs font-mono">
+                  {outputSchema.map((field) => (
+                    <div
+                      key={field.name}
+                      className={`flex items-center gap-1.5 ${
+                        field.in_output ? "text-gray-300" : "text-gray-600 line-through"
+                      }`}
+                    >
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                          field.in_output ? "bg-nvidia-green" : "bg-gray-600"
+                        }`}
+                      />
+                      <span className="truncate">{field.name}</span>
+                      {field.side_effect_of && (
+                        <span className="text-[10px] text-gray-600 shrink-0">
+                          (from {field.side_effect_of})
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                  <div className="text-[10px] text-gray-600 pt-1">
+                    {outputSchema.filter((f) => f.in_output).length} columns in output
+                    {outputSchema.some((f) => !f.in_output) && (
+                      <span>
+                        , {outputSchema.filter((f) => !f.in_output).length} dropped
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
           </div>
 
           {/* YAML editor */}

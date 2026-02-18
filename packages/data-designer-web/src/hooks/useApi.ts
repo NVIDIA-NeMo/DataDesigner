@@ -33,6 +33,7 @@ export const api = {
       path: string | null;
       columns: { name: string; column_type: string; drop: boolean }[];
       models: Record<string, unknown>[];
+      output_schema?: { name: string; column_type: string; drop: boolean; in_output: boolean; side_effect_of?: string }[];
     }>("/config/info"),
   exportConfig: (format: "yaml" | "json" = "yaml") =>
     request<{ format: string; content: string }>(`/config/export?format=${format}`),
