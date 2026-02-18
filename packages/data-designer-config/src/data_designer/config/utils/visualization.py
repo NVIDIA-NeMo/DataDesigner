@@ -48,7 +48,7 @@ if TYPE_CHECKING:
 
 
 console = Console()
-_logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 def _display_image_if_in_notebook(image_data: str, col_name: str) -> bool:
@@ -659,7 +659,7 @@ def _apply_html_post_processing(html_path: str | Path, *, theme: Literal["dark",
     try:
         content = path.read_text(encoding="utf-8")
     except (FileNotFoundError, UnicodeDecodeError) as exc:
-        _logger.warning("Could not post-process HTML at %s: %s", path, exc)
+        logger.warning("Could not post-process HTML at %s: %s", path, exc)
         return
 
     if 'name="viewport"' in content:
