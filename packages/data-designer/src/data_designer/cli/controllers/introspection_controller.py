@@ -34,7 +34,6 @@ class _TypedCommandSpec:
     class_label: str
     header_title: str
     case_insensitive: bool = False
-    related_inspect_tip: str | None = None
 
 
 _CONFIG_IMPORT = "import data_designer.config as dd"
@@ -55,10 +54,6 @@ class IntrospectionController:
             class_label="config_class",
             header_title="Data Designer Column Types Reference",
             case_insensitive=True,
-            related_inspect_tip=(
-                "Tip: Use 'data-designer inspect sampler <TYPE>' for sampler params,"
-                " 'inspect validator <TYPE>' for validator params."
-            ),
         ),
         "samplers": _TypedCommandSpec(
             discover_items=discover_sampler_types,
@@ -133,7 +128,6 @@ class IntrospectionController:
             class_label=spec.class_label,
             header_title=spec.header_title,
             case_insensitive=spec.case_insensitive,
-            related_inspect_tip=spec.related_inspect_tip,
         )
 
     def _show_typed_items(
@@ -176,9 +170,6 @@ class IntrospectionController:
 
         self._emit_import_hint(_CONFIG_IMPORT, f"dd.{cls.__name__}")
         typer.echo(format_model_text(cls, type_key=type_key, type_value=canonical_value))
-        if related_inspect_tip:
-            typer.echo("")
-            typer.echo(related_inspect_tip)
 
     def _show_all_typed(
         self,
