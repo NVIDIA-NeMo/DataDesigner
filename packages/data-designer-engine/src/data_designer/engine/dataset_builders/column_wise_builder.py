@@ -327,9 +327,6 @@ class ColumnWiseDatasetBuilder:
                 "generator so concurrent fan-out is not supported."
             )
 
-        if getattr(generator.config, "tool_alias", None):
-            logger.info("🛠️ Tool calling enabled")
-
         allow_resize = generator.config.allow_resize
         if allow_resize:
             self._cell_resize_results = [None] * self.batch_manager.num_records_batch

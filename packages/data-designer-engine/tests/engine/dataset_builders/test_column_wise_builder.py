@@ -570,7 +570,7 @@ def test_process_preview_with_empty_dataframe(simple_builder):
 
 
 def _make_resize_full_expand(n: int, primary_col: str, side_effect_col: str):
-    """CELL_BY_CELL: expand n times per seed_id."""
+    """FULL_COLUMN: expand n times per seed_id."""
 
     @custom_column_generator(required_columns=["seed_id"], side_effect_columns=[side_effect_col])
     def fn(df: pd.DataFrame) -> pd.DataFrame:
