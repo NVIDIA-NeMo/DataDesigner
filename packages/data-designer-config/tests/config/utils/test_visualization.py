@@ -119,7 +119,7 @@ def test_display_sample_record_save_svg(
 ) -> None:
     """Test that display_sample_record can save output as an SVG file."""
     sample_record = {"code": "print('hello world')", "code_validation_result": validation_output}
-    record_series = pd.Series(sample_record)
+    record_series = lazy.pd.Series(sample_record)
     save_path = tmp_path / "output.svg"
 
     display_sample_record(record_series, config_builder_with_validation, save_path=save_path)

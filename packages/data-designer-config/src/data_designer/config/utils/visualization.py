@@ -259,9 +259,9 @@ def display_sample_record(
     theme: Literal["dark", "light"] = "dark",
     display_width: int = DEFAULT_DISPLAY_WIDTH,
 ) -> None:
-    if isinstance(record, (dict, pd.Series)):
-        record = pd.DataFrame([record]).iloc[0]
-    elif isinstance(record, pd.DataFrame):
+    if isinstance(record, (dict, lazy.pd.Series)):
+        record = lazy.pd.DataFrame([record]).iloc[0]
+    elif isinstance(record, lazy.pd.DataFrame):
         if record.shape[0] > 1:
             raise DatasetSampleDisplayError(
                 f"The record must be a single record. You provided a DataFrame with {record.shape[0]} records."

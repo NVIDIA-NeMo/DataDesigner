@@ -254,7 +254,7 @@ def test_run_preview_tty_multiple_records_uses_interactive(
 
 
 @patch(f"{_CTRL}.create_sample_records_pager")
-@patch("data_designer.interface.DataDesigner")
+@patch(f"{_CTRL}.DataDesigner")
 @patch(f"{_CTRL}.load_config_builder")
 def test_run_preview_calls_to_report_when_analysis_present(
     mock_load_config: MagicMock, mock_dd_cls: MagicMock, mock_create_pager: MagicMock, tmp_path: Path
@@ -281,7 +281,7 @@ def test_run_preview_calls_to_report_when_analysis_present(
 
 
 @patch(f"{_CTRL}.create_sample_records_pager")
-@patch("data_designer.interface.DataDesigner")
+@patch(f"{_CTRL}.DataDesigner")
 @patch(f"{_CTRL}.load_config_builder")
 def test_run_preview_save_results_creates_directory_structure(
     mock_load_config: MagicMock,
@@ -336,7 +336,7 @@ def test_run_preview_save_results_creates_directory_structure(
 
 
 @patch(f"{_CTRL}.create_sample_records_pager")
-@patch("data_designer.interface.DataDesigner")
+@patch(f"{_CTRL}.DataDesigner")
 @patch(f"{_CTRL}.load_config_builder")
 def test_run_preview_save_results_default_artifact_path(
     mock_load_config: MagicMock, mock_dd_cls: MagicMock, mock_create_pager: MagicMock
@@ -383,7 +383,7 @@ def test_run_preview_skips_report_when_analysis_is_none(mock_load_config: MagicM
 
 
 @patch(f"{_CTRL}.create_sample_records_pager")
-@patch("data_designer.interface.DataDesigner")
+@patch(f"{_CTRL}.DataDesigner")
 @patch(f"{_CTRL}.load_config_builder")
 def test_run_preview_save_results_without_analysis(
     mock_load_config: MagicMock, mock_dd_cls: MagicMock, mock_create_pager: MagicMock, tmp_path: Path
@@ -410,7 +410,7 @@ def test_run_preview_save_results_without_analysis(
     assert len(save_path_calls) == 2
 
 
-@patch("data_designer.interface.DataDesigner")
+@patch(f"{_CTRL}.DataDesigner")
 @patch(f"{_CTRL}.load_config_builder")
 def test_run_preview_no_save_when_save_results_false(mock_load_config: MagicMock, mock_dd_cls: MagicMock) -> None:
     """Test that dataset and sample records are not saved when save_results=False."""
@@ -429,7 +429,7 @@ def test_run_preview_no_save_when_save_results_false(mock_load_config: MagicMock
 
 
 @patch(f"{_CTRL}.create_sample_records_pager")
-@patch("data_designer.interface.DataDesigner")
+@patch(f"{_CTRL}.DataDesigner")
 @patch(f"{_CTRL}.load_config_builder")
 def test_run_preview_save_results_oserror_exits(
     mock_load_config: MagicMock, mock_dd_cls: MagicMock, mock_create_pager: MagicMock, tmp_path: Path
@@ -457,7 +457,7 @@ def test_run_preview_save_results_oserror_exits(
 
 
 @patch(f"{_CTRL}.create_sample_records_pager")
-@patch("data_designer.interface.DataDesigner")
+@patch(f"{_CTRL}.DataDesigner")
 @patch(f"{_CTRL}.load_config_builder")
 def test_run_preview_save_results_non_oserror_propagates(
     mock_load_config: MagicMock, mock_dd_cls: MagicMock, mock_create_pager: MagicMock, tmp_path: Path
