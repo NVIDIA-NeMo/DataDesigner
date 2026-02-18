@@ -1,0 +1,157 @@
+tabs:
+  docs:
+    display-name: Documentation
+    slug: docs
+  api:
+    display-name: API Reference
+    slug: api
+
+navigation:
+  - tab: docs
+    layout:
+      - section: Getting Started
+        contents:
+          - page: Welcome
+            path: ../v0.5.0/pages/index.mdx
+          - page: Installation
+            path: ../v0.5.0/pages/installation.mdx
+          - page: Quick Start
+            path: ../v0.5.0/pages/quick-start.mdx
+          - page: Contributing
+            path: ../v0.5.0/pages/contributing.mdx
+      - section: Concepts
+        contents:
+          - section: Models
+            contents:
+              - page: Default Model Settings
+                path: ../v0.5.0/pages/concepts/models/default-model-settings.mdx
+              - page: Custom Model Settings
+                path: ../v0.5.0/pages/concepts/models/custom-model-settings.mdx
+              - page: Configure with CLI
+                path: ../v0.5.0/pages/concepts/models/configure-with-cli.mdx
+              - page: Model Providers
+                path: ../v0.5.0/pages/concepts/models/model-providers.mdx
+              - page: Model Configs
+                path: ../v0.5.0/pages/concepts/models/model-configs.mdx
+              - page: Inference Parameters
+                path: ../v0.5.0/pages/concepts/models/inference-parameters.mdx
+          - section: Tool Use & MCP
+            contents:
+              - page: Overview
+                path: ../v0.5.0/pages/concepts/tool-use-and-mcp.mdx
+              - page: MCP Providers
+                path: ../v0.5.0/pages/concepts/mcp/mcp-providers.mdx
+              - page: Tool Configs
+                path: ../v0.5.0/pages/concepts/mcp/tool-configs.mdx
+              - page: Enabling Tools
+                path: ../v0.5.0/pages/concepts/mcp/enabling-tools.mdx
+              - page: Configure via CLI
+                path: ../v0.5.0/pages/concepts/mcp/configure-mcp-cli.mdx
+              - page: Safety and Limits
+                path: ../v0.5.0/pages/concepts/mcp/safety-and-limits.mdx
+          - page: Columns
+            path: ../v0.5.0/pages/concepts/columns.mdx
+          - page: Traces
+            path: ../v0.5.0/pages/concepts/traces.mdx
+          - page: Validators
+            path: ../v0.5.0/pages/concepts/validators.mdx
+          - page: Processors
+            path: ../v0.5.0/pages/concepts/processors.mdx
+          - page: Person Sampling
+            path: ../v0.5.0/pages/concepts/person-sampling.mdx
+          - page: Architecture & Performance
+            path: ../v0.5.0/pages/concepts/architecture-and-performance.mdx
+          - page: Seed Datasets
+            path: ../v0.5.0/pages/concepts/seed-datasets.mdx
+          - page: Custom Columns
+            path: ../v0.5.0/pages/concepts/custom-columns.mdx
+          - page: Deployment Options
+            path: ../v0.5.0/pages/concepts/deployment-options.mdx
+      - section: Tutorials
+        contents:
+          - page: Overview
+            path: ../v0.5.0/pages/tutorials/overview.mdx
+          - page: The Basics
+            path: ../v0.5.0/pages/tutorials/the-basics.mdx
+          - page: The Basics (Notebook)
+            path: ../v0.5.0/pages/tutorials/the-basics-notebook.mdx
+          - page: Structured Outputs
+            path: ../v0.5.0/pages/tutorials/structured-outputs.mdx
+          - page: Structured Outputs (Notebook)
+            path: ../v0.5.0/pages/tutorials/structured-outputs-notebook.mdx
+          - page: Seeding with a Dataset
+            path: ../v0.5.0/pages/tutorials/seeding-with-dataset.mdx
+          - page: Seeding with a Dataset (Notebook)
+            path: ../v0.5.0/pages/tutorials/seeding-with-dataset-notebook.mdx
+          - page: Images as Context
+            path: ../v0.5.0/pages/tutorials/images-as-context.mdx
+          - page: Images as Context (Notebook)
+            path: ../v0.5.0/pages/tutorials/images-as-context-notebook.mdx
+          - page: Generating Images (Notebook)
+            path: ../v0.5.0/pages/tutorials/generating-images-notebook.mdx
+          - page: Image-to-Image Editing (Notebook)
+            path: ../v0.5.0/pages/tutorials/editing-images-notebook.mdx
+      - section: Recipes
+        contents:
+          - page: Recipe Cards
+            path: ../v0.5.0/pages/recipes/index.mdx
+          - section: Code Generation
+            contents:
+              - page: Text to Python
+                path: ../v0.5.0/pages/recipes/code-generation/text-to-python.mdx
+              - page: Text to SQL
+                path: ../v0.5.0/pages/recipes/code-generation/text-to-sql.mdx
+          - section: QA and Chat
+            contents:
+              - page: Product Info QA
+                path: ../v0.5.0/pages/recipes/qa-and-chat/product-info-qa.mdx
+              - page: Multi-Turn Chat
+                path: ../v0.5.0/pages/recipes/qa-and-chat/multi-turn-chat.mdx
+          - section: MCP & Tool Use
+            contents:
+              - page: Basic MCP
+                path: ../v0.5.0/pages/recipes/mcp-and-tooluse/basic-mcp.mdx
+              - page: PDF Document QA
+                path: ../v0.5.0/pages/recipes/mcp-and-tooluse/pdf-qa.mdx
+      - section: Dev Notes
+        contents:
+          - page: Overview
+            path: ../v0.5.0/pages/devnotes/index.mdx
+          - page: Design Principles
+            path: ../v0.5.0/pages/devnotes/design-principles.mdx
+          - page: Graduate-Level Science Reasoning (RQA)
+            path: ../v0.5.0/pages/devnotes/rqa.mdx
+          - page: Deep Research Trajectories
+            path: ../v0.5.0/pages/devnotes/deep-research-trajectories.mdx
+      - section: Plugins
+        contents:
+          - page: Overview
+            path: ../v0.5.0/pages/plugins/overview.mdx
+          - page: Example Plugin
+            path: ../v0.5.0/pages/plugins/example.mdx
+          - page: Available Plugins
+            path: ../v0.5.0/pages/plugins/available.mdx
+  - tab: api
+    layout:
+      - section: API Reference
+        contents:
+          - page: Models
+            path: ../v0.5.0/pages/api-reference/models.mdx
+          - page: Column Configs
+            path: ../v0.5.0/pages/api-reference/column-configs.mdx
+          - page: Config Builder
+            path: ../v0.5.0/pages/api-reference/config-builder.mdx
+          - page: Data Designer Config
+            path: ../v0.5.0/pages/api-reference/data-designer-config.mdx
+          - page: Sampler Params
+            path: ../v0.5.0/pages/api-reference/sampler-params.mdx
+          - page: Validator Params
+            path: ../v0.5.0/pages/api-reference/validator-params.mdx
+          - page: Processors
+            path: ../v0.5.0/pages/api-reference/processors.mdx
+          - page: Analysis
+            path: ../v0.5.0/pages/api-reference/analysis.mdx
+          - page: MCP
+            path: ../v0.5.0/pages/api-reference/mcp.mdx
+          - page: Run Config
+            path: ../v0.5.0/pages/api-reference/run-config.mdx

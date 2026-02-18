@@ -1,0 +1,103 @@
+---
+title: Use Case Recipes
+description: Ready-to-use code examples for common Data Designer use cases.
+---
+
+Recipes are a collection of code examples that demonstrate how to leverage Data Designer in specific use cases.
+Each recipe is a self-contained example that can be run independently.
+
+<Info title="New to Data Designer?">
+Recipes provide working code for specific use cases without detailed explanations. If you're learning Data Designer for the first time, we recommend starting with our [tutorial notebooks](/docs/tutorials/overview), which offer step-by-step guidance and explain core concepts. Once you're familiar with the basics, return here for practical, ready-to-use implementations.
+</Info>
+
+<Tip title="Prerequisite">
+These recipes use the OpenAI model provider by default. Ensure your OpenAI model provider has been set up using the Data Designer CLI before running a recipe.
+</Tip>
+
+<Cards>
+  <Card
+    title="Text to Python"
+    icon="code"
+    href="/docs/recipes/code-generation/text-to-python"
+  >
+    Generate a dataset of natural language instructions paired with Python code implementations, with varying complexity levels and industry focuses.
+
+    **Demonstrates:**
+    - Python code generation
+    - Python code validation
+    - LLM-as-judge
+
+    [Download Code](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/docs/assets/recipes/code_generation/text_to_python.py)
+  </Card>
+  <Card
+    title="Text to SQL"
+    icon="database"
+    href="/docs/recipes/code-generation/text-to-sql"
+  >
+    Generate a dataset of natural language instructions paired with SQL code implementations, with varying complexity levels and industry focuses.
+
+    **Demonstrates:**
+    - SQL code generation
+    - SQL code validation
+    - LLM-as-judge
+
+    [Download Code](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/docs/assets/recipes/code_generation/text_to_sql.py)
+  </Card>
+  <Card
+    title="Product Info QA"
+    icon="message-circle"
+    href="/docs/recipes/qa-and-chat/product-info-qa"
+  >
+    Generate a dataset that contains information about products and associated question/answer pairs.
+
+    **Demonstrates:**
+    - Structured outputs
+    - Expression columns
+    - LLM-as-judge
+
+    [Download Code](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/docs/assets/recipes/qa_and_chat/product_info_qa.py)
+  </Card>
+  <Card
+    title="Multi-Turn Chat"
+    icon="messages-square"
+    href="/docs/recipes/qa-and-chat/multi-turn-chat"
+  >
+    Generate a dataset of multi-turn chat conversations between a user and an AI assistant.
+
+    **Demonstrates:**
+    - Structured outputs
+    - Expression columns
+    - LLM-as-judge
+
+    [Download Code](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/docs/assets/recipes/qa_and_chat/multi_turn_chat.py)
+  </Card>
+  <Card
+    title="Basic MCP Tool Use"
+    icon="wrench"
+    href="/docs/recipes/mcp-and-tooluse/basic-mcp"
+  >
+    Minimal example of MCP tool calling with Data Designer. Defines a simple MCP server with basic tools and generates data that requires tool calls to complete.
+
+    **Demonstrates:**
+    - MCP tool calling with LocalStdioMCPProvider
+    - Simple tool server definition
+    - Tool-augmented text generation
+
+    [Download Code](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/docs/assets/recipes/mcp_and_tooluse/basic_mcp.py)
+  </Card>
+  <Card
+    title="PDF Document QA"
+    icon="file-text"
+    href="/docs/recipes/mcp-and-tooluse/pdf-qa"
+  >
+    Generate grounded Q&A pairs from PDF documents using MCP tool calls and BM25 search.
+
+    **Demonstrates:**
+    - MCP tool calling with LocalStdioMCPProvider
+    - BM25 lexical search for retrieval
+    - Retrieval-grounded QA generation
+    - Per-column trace capture
+
+    [Download Code](https://github.com/NVIDIA-NeMo/DataDesigner/blob/main/docs/assets/recipes/mcp_and_tooluse/pdf_qa.py)
+  </Card>
+</Cards>

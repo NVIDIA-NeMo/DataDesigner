@@ -1,0 +1,116 @@
+---
+title: Models
+description: API reference for model configuration objects.
+---
+
+The `models` module defines configuration objects for model-based generation. `ModelProvider` specifies connection and authentication details for custom providers. `ModelConfig` encapsulates model details including the model alias, identifier, and inference parameters. [Inference Parameters](/docs/concepts/models/inference-parameters) controls model behavior through settings like `temperature`, `top_p`, and `max_tokens`, with support for both fixed values and distribution-based sampling. The module includes `ImageContext` for providing image inputs to multimodal models, and `ImageInferenceParams` for configuring image generation models.
+
+For more information on how they are used, see below:
+
+- **[Model Providers](/docs/concepts/models/model-providers)**
+- **[Model Configs](/docs/concepts/models/model-configs)**
+- **[Images as Context](/docs/tutorials/images-as-context)**
+- **[Generating Images](/docs/tutorials/generating-images)**
+
+## ModelProvider
+
+```python
+class ModelProvider(BaseModel):
+    """Configuration for a model provider endpoint."""
+    
+    name: str  # Unique identifier for the provider
+    endpoint: str  # API endpoint URL
+    provider_type: str = "openai"  # Provider type (default: OpenAI-compatible)
+    api_key: str | None = None  # API key or environment variable name
+    extra_body: dict[str, Any] | None = None  # Additional request body parameters
+    extra_headers: dict[str, str] | None = None  # Additional headers
+```
+
+## ModelConfig
+
+```python
+class ModelConfig(BaseModel):
+    """Configuration for a specific model."""
+    
+    alias: str  # Unique identifier for this model configuration
+    model: str  # Model identifier as recognized by the provider
+    provider: str | None = None  # Reference to provider by name
+    inference_parameters: InferenceParamsT | None = None  # Inference parameters
+```
+
+## ChatCompletionInferenceParams
+
+```python
+class ChatCompletionInferenceParams(BaseModel):
+    """Parameters for chat completion inference."""
+    
+    temperature: float | Distribution | None = None  # Sampling temperature (0.0-2.0)
+    top_p: float | Distribution | None = None  # Nucleus sampling parameter (0.0-1.0)
+    max_tokens: int | None = None  # Maximum output tokens
+    max_parallel_requests: int = 4  # Maximum concurrent API requests
+    timeout: int | None = None  # Request timeout in seconds
+    extra_body: dict[str, Any] | None = None  # Additional request body parameters
+```
+
+## EmbeddingInferenceParams
+
+```python
+class EmbeddingInferenceParams(BaseModel):
+    """Parameters for embedding inference."""
+    
+    encoding_format: Literal["float", "base64"] = "float"  # Embedding encoding format
+    dimensions: int | None = None  # Number of embedding dimensions
+    max_parallel_requests: int = 4  # Maximum concurrent API requests
+    timeout: int | None = None  # Request timeout in seconds
+    extra_body: dict[str, Any] | None = None  # Additional request body parameters
+```
+
+## ImageInferenceParams
+
+```python
+class ImageInferenceParams(BaseModel):
+    """Parameters for image generation inference."""
+    
+    max_parallel_requests: int = 4  # Maximum concurrent API requests
+    timeout: int | None = None  # Request timeout in seconds
+    extra_body: dict[str, Any] | None = None  # Model-specific image options (size, quality, etc.)
+```
+
+## ImageContext
+
+```python
+class ImageContext(BaseModel):
+    """Configuration for providing image context to vision models."""
+    
+    column_name: str  # Name of column containing image data
+    data_type: ModalityDataType  # Type of image data (BASE64, URL, etc.)
+    image_format: ImageFormat | None = None  # Image format (PNG, JPEG, etc.)
+```
+
+## Distribution Types
+
+### UniformDistribution
+
+```python
+class UniformDistribution(BaseModel):
+    """Uniform distribution for parameter sampling."""
+    
+    params: UniformDistributionParams
+    
+class UniformDistributionParams(BaseModel):
+    low: float  # Lower bound
+    high: float  # Upper bound
+```
+
+### ManualDistribution
+
+```python
+class ManualDistribution(BaseModel):
+    """Manual distribution with discrete values."""
+    
+    params: ManualDistributionParams
+    
+class ManualDistributionParams(BaseModel):
+    values: list[float]  # Discrete values to sample from
+    weights: list[float] | None = None  # Optional probability weights
+```

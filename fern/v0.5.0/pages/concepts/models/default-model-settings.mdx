@@ -1,0 +1,130 @@
+---
+title: Default Model Settings
+description: Pre-configured model providers and configurations included with Data Designer.
+---
+
+Data Designer ships with pre-configured model providers and model configurations that make it easy to start generating synthetic data without manual setup.
+
+## Model Providers
+
+Data Designer includes a few default model providers that are configured automatically:
+
+### NVIDIA Provider (`nvidia`)
+
+- **Endpoint**: `https://integrate.api.nvidia.com/v1`
+- **API Key**: Set via `NVIDIA_API_KEY` environment variable
+- **Models**: Access to NVIDIA's hosted models from [build.nvidia.com](https://build.nvidia.com)
+- **Getting Started**: Sign up and get your API key at [build.nvidia.com](https://build.nvidia.com)
+
+The NVIDIA provider gives you access to state-of-the-art models including Nemotron and other NVIDIA-optimized models.
+
+### OpenAI Provider (`openai`)
+
+- **Endpoint**: `https://api.openai.com/v1`
+- **API Key**: Set via `OPENAI_API_KEY` environment variable
+- **Models**: Access to OpenAI's model catalog
+- **Getting Started**: Get your API key from [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
+
+The OpenAI provider gives you access to GPT models and other OpenAI offerings.
+
+### OpenRouter Provider (`openrouter`)
+
+- **Endpoint**: `https://openrouter.ai/api/v1`
+- **API Key**: Set via `OPENROUTER_API_KEY` environment variable
+- **Models**: Access to a wide variety of models through OpenRouter's unified API
+- **Getting Started**: Get your API key from [openrouter.ai](https://openrouter.ai)
+
+The OpenRouter provider gives you access to a unified interface for many different language models from various providers.
+
+## Model Configurations
+
+Data Designer provides pre-configured model aliases for common use cases. When you create a `DataDesignerConfigBuilder` without specifying `model_configs`, these default configurations are automatically available.
+
+### NVIDIA Models
+
+The following model configurations are automatically available when `NVIDIA_API_KEY` is set:
+
+| Alias | Model | Use Case | Inference Parameters |
+|-------|-------|----------|---------------------|
+| `nvidia-text` | `nvidia/nemotron-3-nano-30b-a3b` | General text generation | `temperature=1.0, top_p=1.0` |
+| `nvidia-reasoning` | `openai/gpt-oss-20b` | Reasoning and analysis tasks | `temperature=0.35, top_p=0.95` |
+| `nvidia-vision` | `nvidia/nemotron-nano-12b-v2-vl` | Vision and image understanding | `temperature=0.85, top_p=0.95` |
+| `nvidia-embedding` | `nvidia/llama-3.2-nv-embedqa-1b-v2` | Text embeddings | `encoding_format="float", extra_body={"input_type": "query"}` |
+
+
+### OpenAI Models
+
+The following model configurations are automatically available when `OPENAI_API_KEY` is set:
+
+| Alias | Model | Use Case | Inference Parameters |
+|-------|-------|----------|---------------------|
+| `openai-text` | `gpt-4.1` | General text generation | `temperature=0.85, top_p=0.95` |
+| `openai-reasoning` | `gpt-5` | Reasoning and analysis tasks | `temperature=0.35, top_p=0.95` |
+| `openai-vision` | `gpt-5` | Vision and image understanding | `temperature=0.85, top_p=0.95` |
+| `openai-embedding` | `text-embedding-3-large` | Text embeddings | `encoding_format="float"` |
+
+### OpenRouter Models
+
+The following model configurations are automatically available when `OPENROUTER_API_KEY` is set:
+
+| Alias | Model | Use Case | Inference Parameters |
+|-------|-------|----------|---------------------|
+| `openrouter-text` | `nvidia/nemotron-3-nano-30b-a3b` | General text generation | `temperature=1.0, top_p=1.0` |
+| `openrouter-reasoning` | `openai/gpt-oss-20b` | Reasoning and analysis tasks | `temperature=0.35, top_p=0.95` |
+| `openrouter-vision` | `nvidia/nemotron-nano-12b-v2-vl` | Vision and image understanding | `temperature=0.85, top_p=0.95` |
+| `openrouter-embedding` | `openai/text-embedding-3-large` | Text embeddings | `encoding_format="float"` |
+
+
+## Using Default Settings
+
+Default settings work out of the box - no configuration needed! Simply create `DataDesigner` and `DataDesignerConfigBuilder` instances without any arguments, and reference the default model aliases in your column configurations.
+
+For a complete example showing how to use default model settings, see the **[Quick Start Guide](/docs/quick-start)**.
+
+### How Default Model Providers and Configurations Work
+
+When the Data Designer library or the CLI is initialized, default model configurations and providers are stored in the Data Designer home directory for easy access and customization if they do not already exist. These configuration files serve as the single source of truth for model settings. By default they are saved to the following paths:
+
+- **Model Configs**: `~/.data-designer/model_configs.yaml`
+- **Model Providers**: `~/.data-designer/model_providers.yaml`
+
+<Tip>
+While these files provide a convenient way to specify settings for your model providers and configuration you use most often, they can always be set programmatically in your SDG workflow.
+</Tip>
+
+You can customize the home directory location by setting the `DATA_DESIGNER_HOME` environment variable:
+
+```bash
+# In your .bashrc, .zshrc, or similar
+export DATA_DESIGNER_HOME="/path/to/your/custom/directory"
+```
+
+These configuration files can be modified in two ways:
+
+1. **Using the CLI**: Run CLI commands to add, update, or delete model configurations and providers
+2. **Manual editing**: Directly edit the YAML files with your preferred text editor
+
+Both methods operate on the same files, ensuring consistency across your entire Data Designer setup.
+
+## Important Notes
+
+<Warning title="API Key Requirements">
+While default model configurations are always available, you need to set the appropriate API key environment variable (`NVIDIA_API_KEY`, `OPENAI_API_KEY`, or `OPENROUTER_API_KEY`) to actually use the corresponding models for data generation. Without a valid API key, any attempt to generate data using that provider's models will fail.
+</Warning>
+
+<Tip title="Environment Variables">
+Store your API keys in environment variables rather than hardcoding them in your scripts:
+
+```bash
+# In your .bashrc, .zshrc, or similar
+export NVIDIA_API_KEY="your-api-key-here"
+export OPENAI_API_KEY="your-openai-api-key-here"
+export OPENROUTER_API_KEY="your-openrouter-api-key-here"
+```
+</Tip>
+
+## See Also
+
+- **[Custom Model Settings](/docs/concepts/models/custom-model-settings)**: Learn how to create custom providers and model configurations
+- **[Configure Model Settings With the CLI](/docs/concepts/models/configure-with-cli)**: Learn how to use the CLI to manage model settings
+- **[Model Configurations](/docs/concepts/models/model-configs)**: Learn about model configurations

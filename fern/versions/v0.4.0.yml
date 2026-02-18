@@ -1,0 +1,12 @@
+tabs:
+  docs:
+    display-name: Documentation
+    slug: docs
+
+navigation:
+  - tab: docs
+    layout:
+      - section: Getting Started
+        contents:
+          - page: Welcome
+            path: ../v0.4.0/pages/index.mdx

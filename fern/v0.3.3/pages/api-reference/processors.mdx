@@ -1,0 +1,110 @@
+---
+title: Processors
+description: API reference for processor configuration objects.
+---
+
+The `processors` module defines configuration objects for post-generation data transformations. Processors run after column generation and can modify the dataset schema or content before output.
+
+## DropColumnsProcessorConfig
+
+```python
+class DropColumnsProcessorConfig(BaseModel):
+    """Configuration for dropping columns from output."""
+    
+    name: str  # Processor identifier
+    column_names: list[str]  # Columns to remove from output
+    build_stage: BuildStage = BuildStage.POST_BATCH  # When to run
+```
+
+### Behavior
+
+- Columns in `column_names` are removed from the main output
+- Dropped column values are saved to a separate file in `dropped-columns/`
+- Missing columns produce a warning but don't fail the build
+- Column configs are automatically marked with `drop=True`
+
+### Example Usage
+
+```python
+from data_designer.essentials import (
+    DataDesignerConfigBuilder,
+    DropColumnsProcessorConfig,
+)
+
+builder = DataDesignerConfigBuilder()
+# ... add columns ...
+
+builder.add_processor(
+    DropColumnsProcessorConfig(
+        name="remove_intermediate",
+        column_names=["temp_calculation", "raw_context", "debug_info"],
+    )
+)
+```
+
+## SchemaTransformProcessorConfig
+
+```python
+class SchemaTransformProcessorConfig(BaseModel):
+    """Configuration for transforming output schema."""
+    
+    name: str  # Processor identifier
+    template: dict[str, Any]  # Jinja2 template for output schema
+    build_stage: BuildStage = BuildStage.POST_BATCH  # When to run
+```
+
+### Behavior
+
+- Each key in `template` becomes a column in the transformed output
+- Values are Jinja2 templates with access to all columns
+- Complex structures (lists, nested dicts) are supported
+- Output saved to `processors-outputs/{name}/`
+- Original dataset passes through unchanged
+
+### Template Capabilities
+
+- **Variable substitution**: `{{ column_name }}`
+- **Filters**: `{{ text | upper }}`, `{{ text | lower }}`, `{{ text | trim }}`
+- **Nested structures**: Arbitrarily deep JSON structures
+- **Lists**: `["{{ col1 }}", "{{ col2 }}"]`
+- **Conditionals**: `{% if condition %}...{% endif %}`
+
+### Example Usage
+
+```python
+from data_designer.essentials import (
+    DataDesignerConfigBuilder,
+    SchemaTransformProcessorConfig,
+)
+
+builder = DataDesignerConfigBuilder()
+# ... add columns with 'question' and 'answer' ...
+
+# Transform to chat message format
+builder.add_processor(
+    SchemaTransformProcessorConfig(
+        name="chat_format",
+        template={
+            "messages": [
+                {"role": "user", "content": "{{ question }}"},
+                {"role": "assistant", "content": "{{ answer }}"},
+            ],
+            "metadata": {
+                "category": "{{ category | upper }}",
+                "generated": True,
+            },
+        },
+    )
+)
+```
+
+## BuildStage Enum
+
+```python
+class BuildStage(str, Enum):
+    """When processors run in the generation pipeline."""
+    
+    POST_BATCH = "post_batch"  # After each batch is generated
+```
+
+Currently, all processors run at the `POST_BATCH` stage. Additional stages may be added in future versions.

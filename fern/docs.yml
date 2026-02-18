@@ -1,0 +1,59 @@
+instances:
+  - url: https://nemo-datadesigner.docs.buildwithfern.com
+
+title: NeMo Data Designer
+
+versions:
+  - display-name: v0.5.0
+    path: versions/v0.5.0.yml
+    slug: v0.5.0
+  - display-name: v0.3.3
+    path: versions/v0.3.3.yml
+    slug: v0.3.3
+
+footer: ./components/CustomFooter.tsx
+
+layout:
+  searchbar-placement: header
+  page-width: 1376px
+  sidebar-width: 248px
+  content-width: 812px
+  tabs-placement: header
+  hide-feedback: true
+
+colors:
+  accentPrimary:
+    dark: "#76B900"
+    light: "#76B900"
+  background:
+    light: "#FFFFFF"
+    dark: "#000000"
+
+theme:
+  page-actions: toolbar
+  footer-nav: minimal
+
+logo:
+  dark: ./assets/NVIDIA_dark.svg
+  light: ./assets/NVIDIA_light.svg
+  height: 20
+  href: /
+  right-text: Data Designer
+
+favicon: ./assets/NVIDIA_symbol.svg
+
+css:
+  - ./main.css
+  - ./styles/notebook-viewer.css
+  - ./styles/trajectory-viewer.css
+  - ./styles/expandable-code.css
+  - ./styles/metrics-table.css
+  - ./styles/authors.css
+
+navbar-links:
+  - type: github
+    value: https://github.com/NVIDIA-NeMo/DataDesigner
+
+experimental:
+  mdx-components:
+    - ./components
