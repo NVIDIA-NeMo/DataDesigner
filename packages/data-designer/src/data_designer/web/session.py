@@ -149,6 +149,7 @@ class ExecutionSession:
         self._lock = threading.Lock()
         self._log_buffer: deque[dict[str, Any]] = deque(maxlen=MAX_LOG_LINES)
         self._log_handler: _LogCaptureHandler | None = None
+        self._annotations: dict[int, dict[str, Any]] = {}
 
         if config_path and config_path.exists():
             try:
@@ -183,8 +184,10 @@ class ExecutionSession:
         self._preview_columns = None
         self._preview_analysis = None
         self._create_result = None
+        self._annotations = {}
         self._exec_state = ExecutionState.IDLE
         self._exec_error = None
+        self._load_annotations_from_disk()
         return self.get_config_dict()
 
     def save_config_yaml(self, yaml_content: str) -> dict[str, Any]:
@@ -358,6 +361,7 @@ class ExecutionSession:
         self._exec_state = ExecutionState.RUNNING
         self._exec_type = "preview"
         self._exec_error = None
+        self._annotations = {}
         self._start_log_capture()
 
         def _run():
@@ -467,6 +471,51 @@ class ExecutionSession:
 
     def get_create_result(self) -> dict[str, Any]:
         return self._create_result or {}
+
+    # -- Annotations --------------------------------------------------------
+
+    def annotate_row(self, row: int, rating: str | None, note: str) -> None:
+        """Set or update an annotation for a preview row."""
+        self._annotations[row] = {"rating": rating, "note": note}
+        self._save_annotations_to_disk()
+
+    def get_annotations(self) -> dict[str, Any]:
+        """Return all annotations keyed by row index (as strings for JSON)."""
+        return {str(k): v for k, v in self._annotations.items()}
+
+    def get_annotations_summary(self) -> dict[str, int]:
+        total = len(self._preview_dataset) if self._preview_dataset else 0
+        good = sum(1 for a in self._annotations.values() if a.get("rating") == "good")
+        bad = sum(1 for a in self._annotations.values() if a.get("rating") == "bad")
+        return {"good": good, "bad": bad, "unreviewed": total - good - bad, "total": total}
+
+    def _annotations_file_path(self) -> Path | None:
+        if not self._config_path:
+            return None
+        reviews_dir = self._config_dir / "reviews"
+        return reviews_dir / f"{self._config_path.stem}_annotations.json"
+
+    def _save_annotations_to_disk(self) -> None:
+        path = self._annotations_file_path()
+        if not path or not self._annotations:
+            return
+        try:
+            import json
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(self._annotations, indent=2, default=str))
+        except Exception as e:
+            logger.warning(f"Failed to save annotations: {e}")
+
+    def _load_annotations_from_disk(self) -> None:
+        path = self._annotations_file_path()
+        if not path or not path.exists():
+            return
+        try:
+            import json
+            data = json.loads(path.read_text())
+            self._annotations = {int(k): v for k, v in data.items()}
+        except Exception as e:
+            logger.warning(f"Failed to load annotations: {e}")
 
     # -- Config Review ------------------------------------------------------
 

@@ -1,0 +1,80 @@
+# Basic MCP Tool Calling Config
+#
+# This config demonstrates LLM columns that call MCP tools.
+# Requires the basic-tools MCP server from the recipe to be running.
+#
+# Tools available:
+#   - get_fact(topic): Look up a fact about python, earth, water, or light
+#   - add_numbers(a, b): Add two numbers
+#   - list_topics(): List available topics
+#
+# To run the MCP server (in a separate terminal):
+#   uv run docs/assets/recipes/mcp_and_tooluse/basic_mcp.py serve
+
+data_designer:
+  tool_configs:
+    - tool_alias: basic-tools
+      providers:
+        - basic-tools
+      allow_tools:
+        - get_fact
+        - add_numbers
+        - list_topics
+      max_tool_call_turns: 5
+      timeout_sec: 30.0
+
+  columns:
+    # Topics for fact lookup
+    - name: topic
+      column_type: sampler
+      sampler_type: category
+      params:
+        sampler_type: category
+        values:
+          - python
+          - earth
+          - water
+          - light
+
+    # LLM calls get_fact tool, then summarizes
+    - name: fact_response
+      column_type: llm-text
+      model_alias: nvidia-text
+      tool_alias: basic-tools
+      with_trace: all_messages
+      system_prompt: >-
+        You must call the get_fact tool before answering.
+        Only use information from tool results.
+      prompt: >-
+        Use the get_fact tool to look up information about '{{ topic }}',
+        then provide a one-sentence summary of what you learned.
+
+    # Random numbers for addition
+    - name: num_a
+      column_type: sampler
+      sampler_type: uniform
+      params:
+        sampler_type: uniform
+        low: 1
+        high: 100
+
+    - name: num_b
+      column_type: sampler
+      sampler_type: uniform
+      params:
+        sampler_type: uniform
+        low: 1
+        high: 100
+
+    # LLM calls add_numbers tool, then reports result
+    - name: math_response
+      column_type: llm-text
+      model_alias: nvidia-text
+      tool_alias: basic-tools
+      with_trace: all_messages
+      system_prompt: >-
+        You must call the add_numbers tool to perform the calculation.
+        Report the exact result.
+      prompt: >-
+        Use the add_numbers tool to calculate {{ num_a }} + {{ num_b }},
+        then report the result in a complete sentence.

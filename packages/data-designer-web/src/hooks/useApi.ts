@@ -85,6 +85,19 @@ export const api = {
   getCreateResults: () =>
     request<{ num_records?: number; artifact_path?: string; columns?: string[] }>("/create/results"),
 
+  // Annotations
+  getAnnotations: () =>
+    request<Record<string, { rating: string | null; note: string }>>("/annotations"),
+  annotateRow: (row: number, rating: string | null, note: string) =>
+    request<{ status: string }>("/annotations", {
+      method: "POST",
+      body: JSON.stringify({ row, rating, note }),
+    }),
+  getAnnotationsSummary: () =>
+    request<{ good: number; bad: number; unreviewed: number; total: number }>(
+      "/annotations/summary"
+    ),
+
   // Logs
   getLogs: (since: number = 0) =>
     request<{ ts: number; level: string; name: string; message: string }[]>(

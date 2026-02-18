@@ -54,6 +54,12 @@ class ReviewRequest(BaseModel):
     model_alias: str
 
 
+class AnnotationRequest(BaseModel):
+    row: int
+    rating: str | None = None
+    note: str = ""
+
+
 class PreviewRequest(BaseModel):
     num_records: int = 10
     debug_mode: bool = False
@@ -235,6 +241,29 @@ async def preview_trace(row: int, column: str) -> list[dict[str, Any]]:
 async def create_results() -> dict[str, Any]:
     """Get create run results (artifact path, record count)."""
     return _get_session().get_create_result()
+
+
+# ---------------------------------------------------------------------------
+# Annotations
+# ---------------------------------------------------------------------------
+
+@router.get("/annotations", tags=["annotations"])
+async def get_annotations() -> dict[str, Any]:
+    """Return all row annotations."""
+    return _get_session().get_annotations()
+
+
+@router.post("/annotations", tags=["annotations"])
+async def annotate_row(req: AnnotationRequest) -> dict[str, str]:
+    """Set or update an annotation for a row."""
+    _get_session().annotate_row(req.row, req.rating, req.note)
+    return {"status": "ok"}
+
+
+@router.get("/annotations/summary", tags=["annotations"])
+async def annotations_summary() -> dict[str, int]:
+    """Return annotation summary counts."""
+    return _get_session().get_annotations_summary()
 
 
 # ---------------------------------------------------------------------------
