@@ -155,10 +155,6 @@ button:hover:not(:disabled) {{
   border-color: var(--btn-hover-border);
   box-shadow: var(--btn-hover-glow);
 }}
-button:disabled {{
-  opacity: 0.45;
-  cursor: not-allowed;
-}}
 #frame-wrap {{
   flex: 1;
   min-height: 0;
@@ -215,23 +211,17 @@ iframe {{
     function show() {{
       frame.src = records[index];
       jump.value = String(index);
-      prev.disabled = index === 0;
-      next.disabled = index === records.length - 1;
       counter.textContent = `${{index + 1}} of ${{records.length}}`;
     }}
 
     prev.addEventListener("click", () => {{
-      if (index > 0) {{
-        index -= 1;
-        show();
-      }}
+      index = (index - 1 + records.length) % records.length;
+      show();
     }});
 
     next.addEventListener("click", () => {{
-      if (index < records.length - 1) {{
-        index += 1;
-        show();
-      }}
+      index = (index + 1) % records.length;
+      show();
     }});
 
     jump.addEventListener("change", (event) => {{
@@ -240,11 +230,11 @@ iframe {{
     }});
 
     document.addEventListener("keydown", (event) => {{
-      if (event.key === "ArrowLeft" && index > 0) {{
-        index -= 1;
+      if (event.key === "ArrowLeft") {{
+        index = (index - 1 + records.length) % records.length;
         show();
-      }} else if (event.key === "ArrowRight" && index < records.length - 1) {{
-        index += 1;
+      }} else if (event.key === "ArrowRight") {{
+        index = (index + 1) % records.length;
         show();
       }}
     }});
