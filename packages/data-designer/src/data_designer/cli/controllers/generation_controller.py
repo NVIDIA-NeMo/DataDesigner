@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -16,6 +17,9 @@ from data_designer.cli.utils.sample_records_pager import PAGER_FILENAME, create_
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.utils.constants import DEFAULT_DISPLAY_WIDTH
 from data_designer.interface import DataDesigner
+from data_designer.logging import LOG_INDENT
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from data_designer.config.config_builder import DataDesignerConfigBuilder
@@ -65,50 +69,19 @@ class GenerationController:
             raise typer.Exit(code=1)
 
         total = len(results.dataset)
-        use_interactive = not non_interactive and sys.stdin.isatty() and sys.stdout.isatty() and total > 1
 
-        if use_interactive:
-            self._browse_records_interactively(results, total)
-        else:
-            self._display_all_records(results, total)
-
-        if results.analysis is not None:
-            console.print()
-            results.analysis.to_report()
-
-        # Save artifacts when requested
         if save_results:
-            try:
-                resolved_artifact_path = Path(artifact_path) if artifact_path else Path.cwd() / "artifacts"
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                results_dir = resolved_artifact_path / f"preview_results_{timestamp}"
-                results_dir.mkdir(parents=True, exist_ok=True)
+            self._save_preview_results(results, total, artifact_path, theme, display_width)
+        else:
+            use_interactive = not non_interactive and sys.stdin.isatty() and sys.stdout.isatty() and total > 1
+            if use_interactive:
+                self._browse_records_interactively(results, total)
+            else:
+                self._display_all_records(results, total)
 
-                if results.analysis is not None:
-                    results.analysis.to_report(save_path=results_dir / "report.html")
-
-                results.dataset.to_parquet(results_dir / "dataset.parquet")
-
-                sample_records_dir = results_dir / "sample_records"
-                sample_records_dir.mkdir(parents=True, exist_ok=True)
-                for i in range(total):
-                    results.display_sample_record(
-                        index=i,
-                        save_path=sample_records_dir / f"record_{i}.html",
-                        theme=theme,
-                        display_width=display_width,
-                    )
-                create_sample_records_pager(
-                    sample_records_dir=sample_records_dir,
-                    num_records=total,
-                    num_columns=len(results.dataset.columns),
-                )
-
-                console.print(f"  Results saved to: [bold]{results_dir}[/bold]")
-                console.print(f"  Browse records: [bold]{sample_records_dir / PAGER_FILENAME}[/bold]")
-            except OSError as e:
-                print_error(f"Failed to save preview results: {e}")
-                raise typer.Exit(code=1)
+            if results.analysis is not None:
+                console.print()
+                results.analysis.to_report()
 
         console.print()
         print_success(f"Preview complete — {total} record(s) generated")
@@ -202,6 +175,47 @@ class GenerationController:
             return load_config_builder(config_source)
         except ConfigLoadError as e:
             print_error(str(e))
+            raise typer.Exit(code=1)
+
+    def _save_preview_results(
+        self,
+        results: PreviewResults,
+        total: int,
+        artifact_path: str | None,
+        theme: Literal["dark", "light"],
+        display_width: int,
+    ) -> None:
+        """Save all preview artifacts to disk without displaying in the terminal."""
+        try:
+            resolved_artifact_path = Path(artifact_path) if artifact_path else Path.cwd() / "artifacts"
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            results_dir = resolved_artifact_path / f"preview_results_{timestamp}"
+            results_dir.mkdir(parents=True, exist_ok=True)
+
+            if results.analysis is not None:
+                results.analysis.to_report(save_path=results_dir / "report.html")
+
+            results.dataset.to_parquet(results_dir / "dataset.parquet")
+
+            sample_records_dir = results_dir / "sample_records"
+            sample_records_dir.mkdir(parents=True, exist_ok=True)
+            for i in range(total):
+                results.display_sample_record(
+                    index=i,
+                    save_path=sample_records_dir / f"record_{i}.html",
+                    theme=theme,
+                    display_width=display_width,
+                )
+            create_sample_records_pager(
+                sample_records_dir=sample_records_dir,
+                num_records=total,
+                num_columns=len(results.dataset.columns),
+            )
+
+            logger.info(f"{LOG_INDENT}Results path: {results_dir}")
+            logger.info(f"{LOG_INDENT}Browser path: {sample_records_dir / PAGER_FILENAME}")
+        except OSError as e:
+            print_error(f"Failed to save preview results: {e}")
             raise typer.Exit(code=1)
 
     def _display_record_with_header(self, results: PreviewResults, index: int, total: int) -> None:
