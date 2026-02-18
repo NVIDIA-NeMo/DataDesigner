@@ -9,6 +9,7 @@ and inspect results with traces.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import traceback
 from typing import Any
@@ -61,7 +62,7 @@ class CreateRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 @router.get("/configs", tags=["config"])
-async def list_configs() -> list[dict[str, str]]:
+async def list_configs() -> list[dict[str, Any]]:
     """List config files found in the working directory."""
     return _get_session().list_configs()
 
@@ -130,12 +131,13 @@ async def config_info() -> dict[str, Any]:
 
 @router.post("/config/validate", tags=["execution"])
 async def validate_config() -> dict[str, Any]:
-    """Validate the loaded config."""
+    """Validate the loaded config. Runs in a thread to avoid blocking the event loop."""
     s = _get_session()
     if not s.is_loaded:
         raise HTTPException(status_code=400, detail="No config loaded")
     try:
-        return s.validate()
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, s.validate)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

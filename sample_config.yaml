@@ -1,0 +1,41 @@
+data_designer:
+  columns:
+    - name: topic
+      column_type: sampler
+      sampler_type: category
+      params:
+        sampler_type: category
+        values:
+          - science
+          - history
+          - technology
+          - art
+          - sports
+
+    - name: difficulty
+      column_type: sampler
+      sampler_type: uniform
+      params:
+        sampler_type: uniform
+        low: 1.0
+        high: 10.0
+        decimal_places: 1
+
+    - name: question
+      column_type: llm-text
+      model_alias: nvidia-text
+      system_prompt: You are a trivia question writer. Output only the question, nothing else.
+      prompt: Generate a {{ topic }} trivia question at difficulty level {{ difficulty }}/10.
+
+    - name: answer
+      column_type: llm-text
+      model_alias: nvidia-text
+      system_prompt: You are a trivia expert. Provide a brief, accurate answer.
+      prompt: |-
+        Answer the following trivia question concisely:
+
+        {{ question }}
+
+    - name: qa_pair
+      column_type: expression
+      expr: '"Q: " + {{ question }} + " A: " + {{ answer }}'

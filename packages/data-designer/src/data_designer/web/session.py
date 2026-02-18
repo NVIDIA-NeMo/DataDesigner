@@ -131,21 +131,15 @@ class ExecutionSession:
         }
 
     def validate(self) -> dict[str, Any]:
-        """Validate the loaded config. Returns status dict."""
+        """Validate the loaded config via static compilation (no LLM calls)."""
         if not self._builder:
             raise RuntimeError("No config loaded")
 
-        from data_designer.config.errors import InvalidConfigError
-        from data_designer.interface import DataDesigner
-
         try:
-            dd = DataDesigner()
-            dd.validate(self._builder)
+            self._builder.build()
             return {"valid": True, "message": "Configuration is valid"}
-        except InvalidConfigError as e:
-            return {"valid": False, "message": str(e)}
         except Exception as e:
-            return {"valid": False, "message": f"Validation failed: {e}"}
+            return {"valid": False, "message": str(e)}
 
     def run_preview(self, num_records: int = 10, debug_mode: bool = False) -> None:
         """Run preview in a background thread."""

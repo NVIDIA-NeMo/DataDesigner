@@ -38,11 +38,7 @@ export default function ConfigPage() {
 
   const refresh = useCallback(async () => {
     try {
-      const [cfgs, info] = await Promise.all([
-        api.listConfigs(),
-        api.getConfigInfo(),
-      ]);
-      setConfigs(cfgs);
+      const info = await api.getConfigInfo();
       setLoaded(info.loaded);
       setActivePath(info.path);
       setColumns(info.columns);
@@ -50,10 +46,18 @@ export default function ConfigPage() {
       if (info.loaded) {
         const y = await api.getConfigYaml();
         setYaml(y.content);
+      } else {
+        setYaml("");
       }
       setError(null);
     } catch (e: any) {
       setError(e.message);
+    }
+    try {
+      const cfgs = await api.listConfigs();
+      setConfigs(cfgs);
+    } catch {
+      // config listing is non-critical
     }
   }, []);
 
