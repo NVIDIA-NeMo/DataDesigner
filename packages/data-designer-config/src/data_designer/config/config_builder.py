@@ -405,8 +405,15 @@ class DataDesignerConfigBuilder:
             if existing.name != name:
                 continue
             if existing.processor_type == ProcessorType.DROP_COLUMNS:
+                other_dropped = {
+                    col
+                    for p in self._processor_configs
+                    if p.name != name and p.processor_type == ProcessorType.DROP_COLUMNS
+                    for col in self._resolve_drop_column_names(p.column_names)
+                }
                 for col in self._resolve_drop_column_names(existing.column_names):
-                    self._column_configs[col].drop = False
+                    if col not in other_dropped:
+                        self._column_configs[col].drop = False
             self._processor_configs.remove(existing)
             return
 

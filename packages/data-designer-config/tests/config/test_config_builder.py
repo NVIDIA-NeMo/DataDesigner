@@ -963,6 +963,22 @@ class TestAddProcessorIdempotent:
         assert stub_empty_builder.get_column_config("col_a").drop is False
         assert stub_empty_builder.get_column_config("col_b").drop is True
 
+    def test_replace_preserves_drop_from_other_processor(self, stub_empty_builder):
+        self._add_sampler(stub_empty_builder, "col_a")
+        stub_empty_builder.add_processor(
+            DropColumnsProcessorConfig(name="drop1", column_names=["col_a"]),
+        )
+        stub_empty_builder.add_processor(
+            DropColumnsProcessorConfig(name="drop2", column_names=["col_a"]),
+        )
+        assert stub_empty_builder.get_column_config("col_a").drop is True
+
+        stub_empty_builder.add_processor(
+            DropColumnsProcessorConfig(name="drop1", column_names=[]),
+        )
+        assert stub_empty_builder.get_column_config("col_a").drop is True
+        assert len(stub_empty_builder.get_processor_configs()) == 2
+
 
 class TestToolConfigDuplicateValidation:
     """Tests for duplicate tool name validation at config build time."""
