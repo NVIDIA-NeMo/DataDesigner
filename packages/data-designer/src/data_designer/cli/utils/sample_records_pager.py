@@ -189,7 +189,7 @@ iframe {{
       <button id="prev" aria-label="Previous record">\u2190 Prev</button>
       <button id="next" aria-label="Next record">Next \u2192</button>
       <select id="jump" aria-label="Jump to record"></select>
-      <span id="counter" style="font-size:13px;color:var(--muted);min-width:80px;text-align:center;"></span>
+      <span id="counter" style="font-size:13px;color:var(--muted);min-width:80px;text-align:center;margin-left:auto;"></span>
     </div>
     <div id="frame-wrap">
       <iframe id="frame" title="sample record preview"></iframe>
