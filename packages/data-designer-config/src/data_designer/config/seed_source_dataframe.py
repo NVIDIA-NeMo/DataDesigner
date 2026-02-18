@@ -5,6 +5,8 @@ from __future__ import annotations
 
 from typing import Literal
 
+# Keep direct pandas import: Pydantic resolves DataFrame at module load,
+# and this also preserves IDE typing/autocomplete.
 import pandas as pd
 from pydantic import ConfigDict, Field
 from pydantic.json_schema import SkipJsonSchema
