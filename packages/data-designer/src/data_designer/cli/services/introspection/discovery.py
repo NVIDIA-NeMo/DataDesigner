@@ -3,20 +3,11 @@
 
 from __future__ import annotations
 
-import importlib
 import inspect
-import logging
-import pkgutil
 from enum import Enum
 from typing import Any, Literal, get_args, get_origin
 
-import data_designer
 import data_designer.config as dd
-import data_designer.interface as interface_mod
-from data_designer.config.preview_results import PreviewResults
-from data_designer.config.run_config import RunConfig
-
-logger = logging.getLogger(__name__)
 
 
 def _extract_literal_discriminator_value(annotation: Any) -> str | None:
@@ -125,68 +116,6 @@ def _discover_params_by_discriminator(
     return discovered
 
 
-def _walk_namespace(
-    package_path: list[str],
-    prefix: str,
-    max_depth: int,
-    current_depth: int,
-    import_errors: list[dict[str, str]],
-) -> list[dict[str, Any]]:
-    """Recursively walk a namespace package and build a tree of children nodes.
-
-    Import failures are appended to import_errors as {"module": full_name, "message": str}.
-    """
-    if current_depth >= max_depth:
-        return []
-
-    children: list[dict[str, Any]] = []
-    for importer, name, is_pkg in pkgutil.iter_modules(package_path):
-        node: dict[str, Any] = {
-            "name": name,
-            "is_package": is_pkg,
-            "children": [],
-        }
-        if is_pkg:
-            full_name = f"{prefix}.{name}"
-            try:
-                sub_mod = importlib.import_module(full_name)
-                sub_path = getattr(sub_mod, "__path__", [])
-                node["children"] = _walk_namespace(
-                    list(sub_path), full_name, max_depth, current_depth + 1, import_errors
-                )
-            except Exception as e:
-                logger.debug("Failed to import %s during namespace discovery.", full_name, exc_info=True)
-                import_errors.append({"module": full_name, "message": str(e)})
-        children.append(node)
-
-    children.sort(key=lambda n: (not n["is_package"], n["name"]))
-    return children
-
-
-def discover_namespace_tree(max_depth: int = 2) -> dict[str, Any]:
-    """Walk the data_designer namespace and return install paths plus a module tree.
-
-    Returns:
-        Dict with ``paths`` (list of install directories) and ``tree`` (nested node dict).
-
-    Raises:
-        ValueError: If max_depth < 0.
-    """
-    if max_depth < 0:
-        raise ValueError("max_depth must be >= 0.")
-    paths = list(data_designer.__path__)
-    import_errors: list[dict[str, str]] = []
-    tree: dict[str, Any] = {
-        "name": "data_designer",
-        "is_package": True,
-        "children": _walk_namespace(paths, "data_designer", max_depth, 0, import_errors),
-    }
-    result: dict[str, Any] = {"paths": paths, "tree": tree}
-    if import_errors:
-        result["import_errors"] = import_errors
-    return result
-
-
 def discover_column_configs() -> dict[str, type]:
     """Dynamically discover all ColumnConfig classes from data_designer.config.
 
@@ -260,15 +189,6 @@ def _discover_by_modules(*module_suffixes: str) -> dict[str, type]:
     return result
 
 
-def discover_model_configs() -> dict[str, type]:
-    """Return model-related configuration classes from data_designer.config.
-
-    Returns:
-        Dict mapping class names to their types.
-    """
-    return _discover_by_modules("models")
-
-
 def discover_constraint_types() -> dict[str, type]:
     """Return constraint-related classes from data_designer.config.
 
@@ -276,95 +196,3 @@ def discover_constraint_types() -> dict[str, type]:
         Dict mapping class names to their types.
     """
     return _discover_by_modules("sampler_constraints")
-
-
-def discover_seed_types() -> dict[str, type]:
-    """Return seed dataset-related classes from data_designer.config.
-
-    Returns:
-        Dict mapping class names to their types.
-    """
-    return _discover_by_modules("seed", "seed_source")
-
-
-def discover_mcp_types() -> dict[str, type]:
-    """Return MCP-related classes from data_designer.config.
-
-    Returns:
-        Dict mapping class names to their types.
-    """
-    return _discover_by_modules("mcp")
-
-
-def discover_interface_classes() -> dict[str, type]:
-    """Discover interface-layer classes plus config-layer types used in the interface workflow.
-
-    Dynamically scans ``data_designer.interface.__all__`` for non-exception classes and
-    adds ``PreviewResults`` and ``RunConfig`` from the config layer.
-
-    Returns:
-        Dict mapping class names to their types.
-    """
-    result: dict[str, type] = {}
-    for name in getattr(interface_mod, "__all__", []):
-        obj = getattr(interface_mod, name, None)
-        if obj is not None and inspect.isclass(obj) and not issubclass(obj, Exception):
-            result[name] = obj
-    result["PreviewResults"] = PreviewResults
-    result["RunConfig"] = RunConfig
-    return result
-
-
-_MODULE_CATEGORIES: dict[str, str] = {
-    "column_configs": "Column Configs",
-    "column_types": "Column Types",
-    "config_builder": "Builder",
-    "custom_column": "Custom Columns",
-    "data_designer_config": "Core Config",
-    "mcp": "MCP",
-    "models": "Model Configs",
-    "processors": "Processors",
-    "run_config": "Runtime Config",
-    "sampler_constraints": "Constraints",
-    "sampler_params": "Sampler Params",
-    "seed": "Seed Config",
-    "seed_source": "Seed Sources",
-    "validator_params": "Validator Params",
-    "analysis.column_profilers": "Analysis",
-    "utils": "Utilities",
-    "version": "Utilities",
-}
-
-
-def _categorize_module(module_path: str) -> str:
-    """Map a module path from _LAZY_IMPORTS to a human-readable category name."""
-    prefix = "data_designer.config."
-    suffix = module_path.removeprefix(prefix) if module_path.startswith(prefix) else module_path
-
-    for key, category in _MODULE_CATEGORIES.items():
-        if suffix == key or suffix.startswith(key + "."):
-            return category
-    return "Other"
-
-
-def discover_importable_names() -> dict[str, list[dict[str, str]]]:
-    """Discover all importable names from data_designer.config and data_designer.interface.
-
-    Reads _LAZY_IMPORTS from the config module and __all__ from the interface module,
-    grouping names by source-module category.
-
-    Returns:
-        Dict mapping category names to lists of ``{"name": str, "module": str}`` entries.
-    """
-    lazy_imports: dict[str, tuple[str, str]] = getattr(dd, "_LAZY_IMPORTS", {})
-
-    categories: dict[str, list[dict[str, str]]] = {}
-    for name, (module_path, _attr) in sorted(lazy_imports.items()):
-        category = _categorize_module(module_path)
-        categories.setdefault(category, []).append({"name": name, "module": "data_designer.config"})
-
-    interface_all: list[str] = getattr(interface_mod, "__all__", [])
-    if interface_all:
-        categories["Interface"] = [{"name": n, "module": "data_designer.interface"} for n in sorted(interface_all)]
-
-    return categories

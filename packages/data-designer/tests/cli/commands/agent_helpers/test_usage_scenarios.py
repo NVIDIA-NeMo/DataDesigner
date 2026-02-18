@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 import types
 from pathlib import Path
@@ -116,18 +115,8 @@ def test_usage_validate_unsupported_extension_is_actionable(tmp_path: Path) -> N
     assert "supported extensions" in normalized
 
 
-def test_usage_introspect_columns_json_contract() -> None:
-    result = runner.invoke(app, ["types", "columns", "llm-text", "--format", "json"], color=False)
-    assert result.exit_code == 0
-
-    payload = json.loads(result.output)
-    assert isinstance(payload, dict)
-    assert payload.get("class_name") == "LLMTextColumnConfig"
-    assert isinstance(payload.get("fields"), list)
-
-
 def test_usage_introspect_unknown_type_error_is_actionable() -> None:
-    result = runner.invoke(app, ["types", "columns", "nonexistent"], color=False)
+    result = runner.invoke(app, ["inspect", "column", "nonexistent"], color=False)
     normalized = _normalize_text(result.output)
 
     assert result.exit_code == 1

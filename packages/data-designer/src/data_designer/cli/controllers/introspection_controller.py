@@ -3,51 +3,25 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable
 from dataclasses import dataclass
-from enum import Enum
 
 import typer
 
 from data_designer.cli.services.introspection.discovery import (
     discover_column_configs,
     discover_constraint_types,
-    discover_importable_names,
-    discover_interface_classes,
-    discover_mcp_types,
-    discover_model_configs,
-    discover_namespace_tree,
     discover_processor_configs,
     discover_sampler_types,
-    discover_seed_types,
     discover_validator_types,
 )
 from data_designer.cli.services.introspection.formatters import (
-    format_imports_json,
-    format_imports_text,
-    format_interface_json,
-    format_interface_text,
-    format_method_info_json,
     format_method_info_text,
-    format_model_schema_json,
-    format_model_schema_text,
-    format_namespace_json,
-    format_namespace_text,
-    format_overview_text,
     format_type_list_text,
 )
 from data_designer.cli.services.introspection.method_inspector import inspect_class_methods
-from data_designer.cli.services.introspection.pydantic_inspector import build_model_schema
-from data_designer.config.base import ConfigBase
+from data_designer.cli.services.introspection.pydantic_inspector import format_model_text
 from data_designer.config.config_builder import DataDesignerConfigBuilder
-
-
-class OutputFormat(str, Enum):
-    """Supported output formats for introspect commands."""
-
-    TEXT = "text"
-    JSON = "json"
 
 
 @dataclass(frozen=True)
@@ -60,6 +34,10 @@ class _TypedCommandSpec:
     class_label: str
     header_title: str
     case_insensitive: bool = False
+    related_inspect_tip: str | None = None
+
+
+_CONFIG_IMPORT = "import data_designer.config as dd"
 
 
 class IntrospectionController:
@@ -76,6 +54,11 @@ class IntrospectionController:
             type_label="column_type",
             class_label="config_class",
             header_title="Data Designer Column Types Reference",
+            case_insensitive=True,
+            related_inspect_tip=(
+                "Tip: Use 'data-designer inspect sampler <TYPE>' for sampler params,"
+                " 'inspect validator <TYPE>' for validator params."
+            ),
         ),
         "samplers": _TypedCommandSpec(
             discover_items=discover_sampler_types,
@@ -103,8 +86,13 @@ class IntrospectionController:
         ),
     }
 
-    def __init__(self, output_format: str = "text") -> None:
-        self._format = output_format
+    def _emit_import_hint(self, import_stmt: str, access: str | None = None) -> None:
+        """Print a one-line import hint."""
+        line = f"# {import_stmt}"
+        if access:
+            line += f"  \u2192  {access}"
+        typer.echo(line)
+        typer.echo("")
 
     def show_columns(self, type_name: str | None) -> None:
         """Show column configuration types."""
@@ -122,104 +110,17 @@ class IntrospectionController:
         """Show processor types and their config classes."""
         self._show_typed_command(command_name="processors", type_name=type_name)
 
-    def show_models(self) -> None:
-        """Show model configuration types."""
-        items = discover_model_configs()
-        self._show_all_schemas(items, "Data Designer Model Configuration Reference")
-
     def show_builder(self) -> None:
         """Show DataDesignerConfigBuilder method signatures and docs."""
+        self._emit_import_hint(_CONFIG_IMPORT, "dd.DataDesignerConfigBuilder")
         methods = inspect_class_methods(DataDesignerConfigBuilder)
-        if self._format == "json":
-            typer.echo(json.dumps(format_method_info_json(methods), indent=2))
-        else:
-            typer.echo(format_method_info_text(methods, class_name="DataDesignerConfigBuilder"))
+        typer.echo(format_method_info_text(methods, class_name="DataDesignerConfigBuilder"))
 
-    def show_constraints(self) -> None:
-        """Show constraint types."""
+    def show_sampler_constraints(self) -> None:
+        """Show sampler constraint types."""
+        self._emit_import_hint(_CONFIG_IMPORT, "dd.<ClassName>")
         items = discover_constraint_types()
         self._show_all_schemas(items, "Data Designer Constraint Types Reference")
-
-    def show_seeds(self) -> None:
-        """Show seed dataset types."""
-        items = discover_seed_types()
-        self._show_all_schemas(items, "Data Designer Seed Dataset Types Reference")
-
-    def show_mcp(self) -> None:
-        """Show MCP provider types."""
-        items = discover_mcp_types()
-        self._show_all_schemas(items, "Data Designer MCP Types Reference")
-
-    def show_interface(self) -> None:
-        """Show DataDesigner, result types, and RunConfig."""
-        classes = discover_interface_classes()
-
-        classes_with_methods: list[tuple[str, list]] = []
-        pydantic_schemas = []
-        for name, cls in classes.items():
-            if isinstance(cls, type) and issubclass(cls, ConfigBase):
-                pydantic_schemas.append(build_model_schema(cls))
-            else:
-                methods = inspect_class_methods(cls)
-                classes_with_methods.append((name, methods))
-
-        if self._format == "json":
-            typer.echo(json.dumps(format_interface_json(classes_with_methods, pydantic_schemas), indent=2))
-        else:
-            typer.echo(format_interface_text(classes_with_methods, pydantic_schemas))
-
-    def show_imports(self, category: str | None = None) -> None:
-        """Show categorized import reference for data_designer.config and data_designer.interface."""
-        categories = discover_importable_names()
-
-        if category is not None:
-            matched_key = self._match_category(category, list(categories.keys()))
-            if matched_key is None:
-                available = ", ".join(sorted(categories.keys()))
-                typer.echo(f"Error: No category matching '{category}'.", err=True)
-                typer.echo(f"Available categories: {available}", err=True)
-                raise typer.Exit(code=1)
-            categories = {matched_key: categories[matched_key]}
-
-        if self._format == "json":
-            typer.echo(json.dumps(format_imports_json(categories), indent=2))
-        else:
-            typer.echo(format_imports_text(categories))
-
-    def show_code_structure(self, depth: int = 2) -> None:
-        """Show the data_designer package structure and install paths."""
-        if depth < 0:
-            typer.echo("Error: --depth must be >= 0.", err=True)
-            raise typer.Exit(code=1)
-        data = discover_namespace_tree(max_depth=depth)
-        if self._format == "json":
-            typer.echo(json.dumps(format_namespace_json(data), indent=2))
-        else:
-            typer.echo(format_namespace_text(data))
-
-    def show_overview(self) -> None:
-        """Show compact API overview cheatsheet."""
-        type_counts = {
-            "Column types": len(discover_column_configs()),
-            "Sampler types": len(discover_sampler_types()),
-            "Validator types": len(discover_validator_types()),
-            "Processor types": len(discover_processor_configs()),
-            "Model configs": len(discover_model_configs()),
-            "Constraint types": len(discover_constraint_types()),
-            "Seed types": len(discover_seed_types()),
-            "MCP types": len(discover_mcp_types()),
-        }
-
-        builder_methods = inspect_class_methods(DataDesignerConfigBuilder)
-
-        if self._format == "json":
-            typer.echo(
-                json.dumps(
-                    {"type_counts": type_counts, "builder_methods": format_method_info_json(builder_methods)}, indent=2
-                )
-            )
-        else:
-            typer.echo(format_overview_text(type_counts, builder_methods))
 
     def _show_typed_command(self, command_name: str, type_name: str | None) -> None:
         """Resolve a typed-command spec and render it."""
@@ -232,44 +133,8 @@ class IntrospectionController:
             class_label=spec.class_label,
             header_title=spec.header_title,
             case_insensitive=spec.case_insensitive,
+            related_inspect_tip=spec.related_inspect_tip,
         )
-
-    @staticmethod
-    def _match_category(query: str, keys: list[str]) -> str | None:
-        """Match a user query to a category key using progressive fuzzy matching.
-
-        Tries: exact match, first-word stem match, any-word stem match, substring match.
-        """
-        normalized = query.lower().rstrip("s")
-
-        # Exact match (case-insensitive)
-        for key in keys:
-            if key.lower() == query.lower():
-                return key
-
-        # First-word stem match
-        for key in keys:
-            first_word = key.lower().split()[0].rstrip("s")
-            if first_word == normalized:
-                return key
-
-        # Any-word stem match
-        for key in keys:
-            words = key.lower().split()
-            for word in words:
-                if word.rstrip("s") == normalized:
-                    return key
-
-        # Substring match (earliest position wins)
-        best_key: str | None = None
-        best_pos = float("inf")
-        for key in keys:
-            pos = key.lower().find(query.lower())
-            if pos != -1 and pos < best_pos:
-                best_pos = pos
-                best_key = key
-
-        return best_key
 
     def _show_typed_items(
         self,
@@ -280,13 +145,12 @@ class IntrospectionController:
         class_label: str,
         header_title: str,
         case_insensitive: bool = False,
+        related_inspect_tip: str | None = None,
     ) -> None:
         """Shared logic for type-based commands (columns, samplers, validators, processors)."""
         if type_name is None:
-            if self._format == "json":
-                typer.echo(json.dumps({k: v.__name__ for k, v in sorted(items.items())}, indent=2))
-            else:
-                typer.echo(format_type_list_text(items, type_label, class_label))
+            self._emit_import_hint(_CONFIG_IMPORT, "dd.<ClassName>")
+            typer.echo(format_type_list_text(items, type_label, class_label))
             return
 
         if type_name.lower() == "all":
@@ -310,12 +174,11 @@ class IntrospectionController:
             typer.echo(f"Available types: {available}", err=True)
             raise typer.Exit(code=1)
 
-        schema = build_model_schema(cls, type_key=type_key, type_value=canonical_value)
-
-        if self._format == "json":
-            typer.echo(json.dumps(format_model_schema_json(schema), indent=2))
-        else:
-            typer.echo(format_model_schema_text(schema))
+        self._emit_import_hint(_CONFIG_IMPORT, f"dd.{cls.__name__}")
+        typer.echo(format_model_text(cls, type_key=type_key, type_value=canonical_value))
+        if related_inspect_tip:
+            typer.echo("")
+            typer.echo(related_inspect_tip)
 
     def _show_all_typed(
         self,
@@ -324,57 +187,31 @@ class IntrospectionController:
         header_title: str,
     ) -> None:
         """Show all types for a typed command."""
+        self._emit_import_hint(_CONFIG_IMPORT, "dd.<ClassName>")
         sorted_types = sorted(items.keys())
 
-        if self._format == "json":
-            all_schemas = []
-            for type_value in sorted_types:
-                cls = items[type_value]
-                schema = build_model_schema(cls, type_key=type_key, type_value=type_value)
-                all_schemas.append(format_model_schema_json(schema))
-            typer.echo(json.dumps(all_schemas, indent=2))
-        else:
-            seen_schemas: set[str] = set()
-            lines = [f"# {header_title}", f"# {len(sorted_types)} types discovered from data_designer.config", ""]
-            for type_value in sorted_types:
-                cls = items[type_value]
-                schema = build_model_schema(cls, type_key=type_key, type_value=type_value)
-                lines.append(format_model_schema_text(schema, seen_schemas=seen_schemas))
-                lines.append("")
-            typer.echo("\n".join(lines))
+        seen_schemas: set[str] = set()
+        lines = [f"# {header_title}", f"# {len(sorted_types)} types discovered from data_designer.config", ""]
+        for type_value in sorted_types:
+            cls = items[type_value]
+            lines.append(format_model_text(cls, type_key=type_key, type_value=type_value, seen_schemas=seen_schemas))
+            lines.append("")
+        typer.echo("\n".join(lines))
 
     def _show_all_schemas(self, items: dict[str, type], header_title: str) -> None:
-        """Show all schemas for simple discovery commands (models, constraints, seeds, mcp)."""
-        if self._format == "json":
-            all_schemas = []
-            for name in sorted(items.keys()):
-                cls = items[name]
-                if hasattr(cls, "model_fields"):
-                    schema = build_model_schema(cls)
-                    all_schemas.append(format_model_schema_json(schema))
-                else:
-                    entry: dict = {
-                        "class_name": cls.__name__,
-                        "description": (cls.__doc__ or "").strip().split("\n")[0],
-                    }
-                    if hasattr(cls, "__members__"):
-                        entry["values"] = [str(member.value) for member in cls]
-                    all_schemas.append(entry)
-            typer.echo(json.dumps(all_schemas, indent=2))
-        else:
-            seen_schemas: set[str] = set()
-            lines = [f"# {header_title}", f"# {len(items)} types", ""]
-            for name in sorted(items.keys()):
-                cls = items[name]
-                if hasattr(cls, "model_fields"):
-                    schema = build_model_schema(cls)
-                    lines.append(format_model_schema_text(schema, seen_schemas=seen_schemas))
-                else:
-                    lines.append(f"{cls.__name__}:")
-                    if cls.__doc__:
-                        lines.append(f"  description: {cls.__doc__.strip().split(chr(10))[0]}")
-                    if hasattr(cls, "__members__"):
-                        members = [str(m.value) for m in cls]
-                        lines.append(f"  values: [{', '.join(members)}]")
-                lines.append("")
-            typer.echo("\n".join(lines))
+        """Show all schemas for simple discovery commands (e.g. constraints)."""
+        seen_schemas: set[str] = set()
+        lines = [f"# {header_title}", f"# {len(items)} types", ""]
+        for name in sorted(items.keys()):
+            cls = items[name]
+            if hasattr(cls, "model_fields"):
+                lines.append(format_model_text(cls, seen_schemas=seen_schemas))
+            else:
+                lines.append(f"{cls.__name__}:")
+                if cls.__doc__:
+                    lines.append(f"  description: {cls.__doc__.strip().split(chr(10))[0]}")
+                if hasattr(cls, "__members__"):
+                    members = [str(m.value) for m in cls]
+                    lines.append(f"  values: [{', '.join(members)}]")
+            lines.append("")
+        typer.echo("\n".join(lines))
