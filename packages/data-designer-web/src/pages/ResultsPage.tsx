@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Table2, ChevronDown, ChevronRight, MessageSquare } from "lucide-react";
 import { api } from "../hooks/useApi";
+import { COLUMN_TYPE_META, ColumnType } from "../types/config";
 import TraceViewer from "../components/TraceViewer";
 import StatsPanel from "../components/StatsPanel";
 
@@ -18,19 +19,30 @@ export default function ResultsPage() {
   const [loadingTrace, setLoadingTrace] = useState(false);
   const [tab, setTab] = useState<Tab>("data");
 
+  // Column metadata from config for type badges
+  const [colMeta, setColMeta] = useState<
+    Record<string, { column_type: string }>
+  >({});
+
   useEffect(() => {
-    api
-      .getPreviewResults()
-      .then((r) => {
+    Promise.all([api.getPreviewResults(), api.getConfigInfo()]).then(
+      ([r, info]) => {
         const visibleCols = r.columns.filter(
-          (c: string) => !c.endsWith("__trace") && !c.endsWith("__reasoning_content")
+          (c: string) =>
+            !c.endsWith("__trace") && !c.endsWith("__reasoning_content")
         );
         setColumns(visibleCols);
         setRows(r.rows);
         setRowCount(r.row_count);
         setAnalysis(r.analysis);
-      })
-      .catch((e) => setError(e.message));
+
+        const meta: Record<string, { column_type: string }> = {};
+        for (const col of info.columns) {
+          meta[col.name] = { column_type: col.column_type };
+        }
+        setColMeta(meta);
+      }
+    ).catch((e) => setError(e.message));
   }, []);
 
   const traceColumns = columns.filter((c) => {
@@ -62,10 +74,10 @@ export default function ResultsPage() {
     }
   };
 
-  const truncate = (val: unknown, max = 120): string => {
+  const formatCellValue = (val: unknown): string => {
     if (val === null || val === undefined) return "";
-    const s = typeof val === "object" ? JSON.stringify(val) : String(val);
-    return s.length > max ? s.slice(0, max) + "..." : s;
+    if (typeof val === "object") return JSON.stringify(val);
+    return String(val);
   };
 
   if (rowCount === 0) {
@@ -88,7 +100,7 @@ export default function ResultsPage() {
         <div>
           <h1 className="text-xl font-semibold text-gray-100">Results</h1>
           <p className="text-sm text-gray-500 mt-1">
-            {rowCount} rows generated. Click a row to inspect traces.
+            {rowCount} rows, {columns.length} columns. Click a row to inspect.
           </p>
         </div>
       </div>
@@ -128,131 +140,133 @@ export default function ResultsPage() {
         <StatsPanel analysis={analysis} numRecords={rowCount} />
       )}
 
-      {/* Data tab */}
+      {/* Data tab -- card-based layout: one card per row */}
       {tab === "data" && (
-      <div className="overflow-auto rounded-lg border border-border">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="bg-surface-2 border-b border-border">
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 w-8">
-                #
-              </th>
-              {columns.map((col) => (
-                <th
-                  key={col}
-                  className="px-3 py-2 text-left text-xs font-medium text-gray-400 max-w-[200px]"
-                >
-                  {col}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, idx) => (
-              <>
-                <tr
-                  key={idx}
-                  className={`border-b border-border cursor-pointer transition-colors ${
-                    expandedRow === idx
-                      ? "bg-surface-3"
-                      : "hover:bg-surface-2"
+        <div className="space-y-2">
+          {rows.map((row, idx) => {
+            const isExpanded = expandedRow === idx;
+            return (
+              <div key={idx} className="card p-0 overflow-hidden">
+                {/* Row header */}
+                <button
+                  className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${
+                    isExpanded ? "bg-surface-3" : "hover:bg-surface-2"
                   }`}
                   onClick={() => handleRowClick(idx)}
                 >
-                  <td className="px-3 py-2 text-gray-500">
-                    <div className="flex items-center gap-1">
-                      {expandedRow === idx ? (
-                        <ChevronDown size={12} />
-                      ) : (
-                        <ChevronRight size={12} />
-                      )}
-                      {idx + 1}
-                    </div>
-                  </td>
-                  {columns.map((col) => (
-                    <td
-                      key={col}
-                      className="px-3 py-2 text-gray-300 max-w-[200px] truncate"
-                      title={String(row[col] ?? "")}
-                    >
-                      {truncate(row[col])}
-                    </td>
-                  ))}
-                </tr>
-                {expandedRow === idx && (
-                  <tr key={`${idx}-expand`} className="bg-surface-2">
-                    <td colSpan={columns.length + 1} className="px-4 py-4">
-                      {traceColumns.length > 0 ? (
-                        <div>
-                          <div className="flex items-center gap-2 mb-3">
-                            <MessageSquare
-                              size={14}
-                              className="text-gray-400"
-                            />
-                            <span className="text-xs font-medium text-gray-400 uppercase tracking-wider">
-                              Traces
-                            </span>
-                            <div className="flex gap-1 ml-2">
-                              {traceColumns.map((tc) => (
-                                <button
-                                  key={tc}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleTraceSelect(idx, tc);
-                                  }}
-                                  className={`text-xs px-2 py-1 rounded transition-colors ${
-                                    traceColumn === tc
-                                      ? "bg-nvidia-green/20 text-nvidia-green border border-nvidia-green/40"
-                                      : "bg-surface-3 text-gray-400 hover:text-gray-200 border border-border"
-                                  }`}
+                  {isExpanded ? (
+                    <ChevronDown size={14} className="text-gray-500 shrink-0" />
+                  ) : (
+                    <ChevronRight size={14} className="text-gray-500 shrink-0" />
+                  )}
+                  <span className="text-xs text-gray-500 w-6 shrink-0">
+                    {idx + 1}
+                  </span>
+                  <div className="flex-1 flex flex-wrap gap-x-4 gap-y-1 min-w-0">
+                    {columns.map((col) => {
+                      const val = formatCellValue(row[col]);
+                      const meta = colMeta[col];
+                      const typeMeta = meta
+                        ? COLUMN_TYPE_META[meta.column_type as ColumnType]
+                        : null;
+                      return (
+                        <span key={col} className="text-xs max-w-[300px] truncate">
+                          <span className="text-gray-500">
+                            {typeMeta?.emoji ?? ""} {col}:{" "}
+                          </span>
+                          <span className="text-gray-300">
+                            {val.length > 80 ? val.slice(0, 80) + "..." : val}
+                          </span>
+                        </span>
+                      );
+                    })}
+                  </div>
+                </button>
+
+                {/* Expanded row detail */}
+                {isExpanded && (
+                  <div className="border-t border-border px-4 py-4 bg-surface-2 space-y-4">
+                    {/* All column values */}
+                    <div className="grid grid-cols-1 gap-3">
+                      {columns.map((col) => {
+                        const val = formatCellValue(row[col]);
+                        const meta = colMeta[col];
+                        const typeMeta = meta
+                          ? COLUMN_TYPE_META[meta.column_type as ColumnType]
+                          : null;
+                        const isLong = val.length > 100;
+
+                        return (
+                          <div key={col}>
+                            <div className="flex items-center gap-1.5 mb-1">
+                              {typeMeta && (
+                                <span
+                                  className={`text-[10px] px-1 py-0.5 rounded border font-medium ${typeMeta.color}`}
                                 >
-                                  {tc}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                          {traceColumn && (
-                            <TraceViewer
-                              trace={trace}
-                              loading={loadingTrace}
-                            />
-                          )}
-                          {!traceColumn && (
-                            <p className="text-xs text-gray-500">
-                              Select a column above to view its trace.
-                            </p>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="space-y-2">
-                          <p className="text-xs text-gray-500 mb-2">
-                            No traces available. Enable debug mode when running
-                            preview to capture LLM conversation traces.
-                          </p>
-                          <div className="grid grid-cols-2 gap-3">
-                            {columns.map((col) => (
-                              <div key={col}>
-                                <span className="text-xs text-gray-500">
-                                  {col}
+                                  {typeMeta.emoji}
                                 </span>
-                                <pre className="text-xs text-gray-300 bg-surface-1 rounded p-2 mt-1 max-h-32 overflow-auto whitespace-pre-wrap">
-                                  {typeof row[col] === "object"
-                                    ? JSON.stringify(row[col], null, 2)
-                                    : String(row[col] ?? "")}
-                                </pre>
-                              </div>
+                              )}
+                              <span className="text-xs font-medium text-gray-400">
+                                {col}
+                              </span>
+                            </div>
+                            {isLong ? (
+                              <pre className="text-xs text-gray-200 bg-surface-1 rounded p-2.5 whitespace-pre-wrap leading-relaxed max-h-48 overflow-auto">
+                                {val}
+                              </pre>
+                            ) : (
+                              <p className="text-sm text-gray-200 pl-0.5">
+                                {val || <span className="text-gray-600 italic">null</span>}
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Traces */}
+                    {traceColumns.length > 0 && (
+                      <div className="border-t border-border pt-3">
+                        <div className="flex items-center gap-2 mb-3">
+                          <MessageSquare size={14} className="text-gray-400" />
+                          <span className="text-xs font-medium text-gray-400 uppercase tracking-wider">
+                            Traces
+                          </span>
+                          <div className="flex gap-1 ml-2">
+                            {traceColumns.map((tc) => (
+                              <button
+                                key={tc}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleTraceSelect(idx, tc);
+                                }}
+                                className={`text-xs px-2 py-1 rounded transition-colors ${
+                                  traceColumn === tc
+                                    ? "bg-nvidia-green/20 text-nvidia-green border border-nvidia-green/40"
+                                    : "bg-surface-3 text-gray-400 hover:text-gray-200 border border-border"
+                                }`}
+                              >
+                                {tc}
+                              </button>
                             ))}
                           </div>
                         </div>
-                      )}
-                    </td>
-                  </tr>
+                        {traceColumn && (
+                          <TraceViewer trace={trace} loading={loadingTrace} />
+                        )}
+                        {!traceColumn && (
+                          <p className="text-xs text-gray-500">
+                            Select a column above to view its generation trace.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 )}
-              </>
-            ))}
-          </tbody>
-        </table>
-      </div>
+              </div>
+            );
+          })}
+        </div>
       )}
     </div>
   );
