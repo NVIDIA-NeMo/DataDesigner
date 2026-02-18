@@ -134,3 +134,21 @@ def test_create_sample_records_pager_has_iframe_theme_logic(tmp_path: Path) -> N
     content = (tmp_path / PAGER_FILENAME).read_text()
     assert "applyThemeToIframe" in content
     assert "postMessage" in content
+
+
+def test_create_sample_records_pager_has_record_counter(tmp_path: Path) -> None:
+    """Test that the pager contains a record counter element updated by the show() function."""
+    create_sample_records_pager(sample_records_dir=tmp_path, num_records=5)
+
+    content = (tmp_path / PAGER_FILENAME).read_text()
+    assert 'id="counter"' in content
+    assert "counter.textContent" in content
+
+
+def test_create_sample_records_pager_no_unused_css_vars(tmp_path: Path) -> None:
+    """Test that unused CSS variables are not present in the pager HTML."""
+    create_sample_records_pager(sample_records_dir=tmp_path, num_records=1)
+
+    content = (tmp_path / PAGER_FILENAME).read_text()
+    for var in ["--bg-primary", "--bg-secondary", "--panel-strong", "--chip-text", "--chip-bg"]:
+        assert var not in content, f"Unused CSS variable {var} should have been removed"

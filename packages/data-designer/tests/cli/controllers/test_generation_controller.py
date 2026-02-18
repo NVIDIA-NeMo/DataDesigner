@@ -270,7 +270,7 @@ def test_run_preview_calls_to_report_when_analysis_present(mock_load_config: Mag
     controller = GenerationController()
     controller.run_preview(config_source="config.yaml", num_records=3, non_interactive=True)
 
-    mock_analysis.to_report.assert_called_once_with(save_path=None)
+    mock_analysis.to_report.assert_called_once()
 
 
 @patch(f"{_CTRL}.create_sample_records_pager")

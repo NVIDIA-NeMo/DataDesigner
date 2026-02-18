@@ -12,7 +12,7 @@ import typer
 
 from data_designer.cli.ui import console, print_error, print_header, print_success, wait_for_navigation_key
 from data_designer.cli.utils.config_loader import ConfigLoadError, load_config_builder
-from data_designer.cli.utils.sample_records_pager import create_sample_records_pager
+from data_designer.cli.utils.sample_records_pager import PAGER_FILENAME, create_sample_records_pager
 
 if TYPE_CHECKING:
     from data_designer.config.config_builder import DataDesignerConfigBuilder
@@ -71,20 +71,26 @@ class GenerationController:
         else:
             self._display_all_records(results, total)
 
-        try:
-            results_dir = None
+        # Display analysis report (always, regardless of save_results)
+        if results.analysis is not None:
+            console.print()
             if save_results:
+                # Report display + saving happens inside the save block below
+                pass
+            else:
+                results.analysis.to_report()
+
+        # Save artifacts when requested
+        if save_results:
+            try:
                 resolved_artifact_path = Path(artifact_path) if artifact_path else Path.cwd() / "artifacts"
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
                 results_dir = resolved_artifact_path / f"preview_results_{timestamp}"
                 results_dir.mkdir(parents=True, exist_ok=True)
 
-            if results.analysis is not None:
-                console.print()
-                report_save_path = results_dir / "report.html" if results_dir else None
-                results.analysis.to_report(save_path=report_save_path)
+                if results.analysis is not None:
+                    results.analysis.to_report(save_path=results_dir / "report.html")
 
-            if results_dir is not None:
                 results.dataset.to_parquet(results_dir / "dataset.parquet")
 
                 sample_records_dir = results_dir / "sample_records"
@@ -104,9 +110,10 @@ class GenerationController:
                 )
 
                 console.print(f"  Results saved to: [bold]{results_dir}[/bold]")
-        except Exception as e:
-            print_error(f"Failed to save preview results: {e}")
-            raise typer.Exit(code=1)
+                console.print(f"  Browse records: [bold]{sample_records_dir / PAGER_FILENAME}[/bold]")
+            except Exception as e:
+                print_error(f"Failed to save preview results: {e}")
+                raise typer.Exit(code=1)
 
         console.print()
         print_success(f"Preview complete — {total} record(s) generated")

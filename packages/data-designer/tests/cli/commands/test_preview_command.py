@@ -20,7 +20,13 @@ def test_preview_command_delegates_to_controller(mock_ctrl_cls: MagicMock) -> No
     mock_ctrl_cls.return_value = mock_ctrl
 
     preview_command(
-        config_source="config.yaml", num_records=5, non_interactive=True, save_results=False, artifact_path=None
+        config_source="config.yaml",
+        num_records=5,
+        non_interactive=True,
+        save_results=False,
+        artifact_path=None,
+        theme="dark",
+        display_width=110,
     )
 
     mock_ctrl_cls.assert_called_once()
@@ -30,6 +36,8 @@ def test_preview_command_delegates_to_controller(mock_ctrl_cls: MagicMock) -> No
         non_interactive=True,
         save_results=False,
         artifact_path=None,
+        theme="dark",
+        display_width=110,
     )
 
 
@@ -40,7 +48,13 @@ def test_preview_command_passes_non_interactive_false(mock_ctrl_cls: MagicMock) 
     mock_ctrl_cls.return_value = mock_ctrl
 
     preview_command(
-        config_source="config.yaml", num_records=10, non_interactive=False, save_results=False, artifact_path=None
+        config_source="config.yaml",
+        num_records=10,
+        non_interactive=False,
+        save_results=False,
+        artifact_path=None,
+        theme="dark",
+        display_width=110,
     )
 
     mock_ctrl.run_preview.assert_called_once_with(
@@ -49,6 +63,8 @@ def test_preview_command_passes_non_interactive_false(mock_ctrl_cls: MagicMock) 
         non_interactive=False,
         save_results=False,
         artifact_path=None,
+        theme="dark",
+        display_width=110,
     )
 
 
@@ -59,7 +75,13 @@ def test_preview_command_passes_custom_num_records(mock_ctrl_cls: MagicMock) -> 
     mock_ctrl_cls.return_value = mock_ctrl
 
     preview_command(
-        config_source="my_config.py", num_records=20, non_interactive=True, save_results=False, artifact_path=None
+        config_source="my_config.py",
+        num_records=20,
+        non_interactive=True,
+        save_results=False,
+        artifact_path=None,
+        theme="dark",
+        display_width=110,
     )
 
     mock_ctrl.run_preview.assert_called_once_with(
@@ -68,6 +90,8 @@ def test_preview_command_passes_custom_num_records(mock_ctrl_cls: MagicMock) -> 
         non_interactive=True,
         save_results=False,
         artifact_path=None,
+        theme="dark",
+        display_width=110,
     )
 
 
@@ -83,6 +107,8 @@ def test_preview_command_passes_save_results_and_artifact_path(mock_ctrl_cls: Ma
         non_interactive=True,
         save_results=True,
         artifact_path="/custom/output",
+        theme="dark",
+        display_width=110,
     )
 
     mock_ctrl.run_preview.assert_called_once_with(
@@ -91,6 +117,35 @@ def test_preview_command_passes_save_results_and_artifact_path(mock_ctrl_cls: Ma
         non_interactive=True,
         save_results=True,
         artifact_path="/custom/output",
+        theme="dark",
+        display_width=110,
+    )
+
+
+@patch("data_designer.cli.commands.preview.GenerationController")
+def test_preview_command_passes_theme_and_display_width(mock_ctrl_cls: MagicMock) -> None:
+    """Test preview_command passes custom theme and display_width to controller."""
+    mock_ctrl = MagicMock()
+    mock_ctrl_cls.return_value = mock_ctrl
+
+    preview_command(
+        config_source="config.yaml",
+        num_records=5,
+        non_interactive=True,
+        save_results=True,
+        artifact_path=None,
+        theme="light",
+        display_width=80,
+    )
+
+    mock_ctrl.run_preview.assert_called_once_with(
+        config_source="config.yaml",
+        num_records=5,
+        non_interactive=True,
+        save_results=True,
+        artifact_path=None,
+        theme="light",
+        display_width=80,
     )
 
 

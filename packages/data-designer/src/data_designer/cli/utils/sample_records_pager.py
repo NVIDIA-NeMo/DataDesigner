@@ -194,6 +194,7 @@ iframe {{
     </div>
     <div class="toolbar">
       <select id="jump" aria-label="Jump to record"></select>
+      <span id="counter" style="font-size:13px;color:var(--muted);min-width:80px;text-align:center;"></span>
       <button id="prev" aria-label="Previous record">\u2190 Prev</button>
       <button id="next" aria-label="Next record">Next \u2192</button>
       <button id="theme-toggle" aria-label="Toggle theme"></button>
@@ -205,10 +206,7 @@ iframe {{
   <script>
     const DARK_THEME = `:root {{
   color-scheme: dark;
-  --bg-primary: #010817;
-  --bg-secondary: #03112a;
   --panel: rgba(8, 20, 46, 0.88);
-  --panel-strong: rgba(10, 26, 62, 0.92);
   --border: rgba(108, 160, 255, 0.32);
   --text: #e5efff;
   --muted: #97add2;
@@ -218,8 +216,6 @@ iframe {{
     radial-gradient(850px 460px at 95% -15%, rgba(38,73,170,0.42) 0%, transparent 60%),
     linear-gradient(180deg, #000612 0%, #03112a 45%, #010817 100%);
   --topbar-bg: linear-gradient(135deg, rgba(10,26,62,0.92) 0%, rgba(7,18,42,0.95) 100%);
-  --chip-text: #cfe5ff;
-  --chip-bg: rgba(22, 44, 89, 0.42);
   --btn-bg: linear-gradient(180deg, rgba(17,48,104,0.85) 0%, rgba(10,28,64,0.92) 100%);
   --btn-hover-border: rgba(124, 184, 255, 0.65);
   --btn-hover-glow: 0 0 0 3px rgba(59, 169, 255, 0.15);
@@ -228,18 +224,13 @@ iframe {{
 
     const LIGHT_THEME = `:root {{
   color-scheme: light;
-  --bg-primary: #f8f9fa;
-  --bg-secondary: #ffffff;
   --panel: rgba(255, 255, 255, 0.95);
-  --panel-strong: rgba(248, 249, 250, 0.98);
   --border: rgba(0, 0, 0, 0.15);
   --text: #1a1a2e;
   --muted: #6c757d;
   --shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   --body-bg: linear-gradient(180deg, #e8ecf1 0%, #ffffff 45%, #f8f9fa 100%);
   --topbar-bg: linear-gradient(135deg, rgba(248,249,250,0.98) 0%, rgba(235,238,242,0.95) 100%);
-  --chip-text: #1a1a2e;
-  --chip-bg: rgba(0, 0, 0, 0.06);
   --btn-bg: linear-gradient(180deg, rgba(230,235,245,0.9) 0%, rgba(215,220,230,0.95) 100%);
   --btn-hover-border: rgba(0, 80, 180, 0.45);
   --btn-hover-glow: 0 0 0 3px rgba(0, 80, 180, 0.1);
@@ -256,6 +247,7 @@ iframe {{
     const jump = document.getElementById("jump");
     const themeStyle = document.getElementById("theme-css");
     const themeToggle = document.getElementById("theme-toggle");
+    const counter = document.getElementById("counter");
 
     for (let i = 0; i < records.length; i += 1) {{
       const opt = document.createElement("option");
@@ -289,6 +281,7 @@ iframe {{
       jump.value = String(index);
       prev.disabled = index === 0;
       next.disabled = index === records.length - 1;
+      counter.textContent = `${{index + 1}} of ${{records.length}}`;
     }}
 
     prev.addEventListener("click", () => {{
