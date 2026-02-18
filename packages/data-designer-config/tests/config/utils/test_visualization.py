@@ -13,7 +13,7 @@ from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.utils.errors import DatasetSampleDisplayError
 from data_designer.config.utils.visualization import (
     WithRecordSamplerMixin,
-    _apply_html_post_processing,
+    apply_html_post_processing,
     display_sample_record,
     get_truncated_list_as_string,
     mask_api_key,
@@ -152,16 +152,16 @@ def test_display_sample_record_save_path_none_default(
 
 
 # ---------------------------------------------------------------------------
-# _apply_html_post_processing direct tests
+# apply_html_post_processing direct tests
 # ---------------------------------------------------------------------------
 
 
-def test_apply_html_post_processing_injects_style(tmp_path: Path) -> None:
-    """Test that _apply_html_post_processing injects viewport and dark-mode style before </head>."""
+def testapply_html_post_processing_injects_style(tmp_path: Path) -> None:
+    """Test that apply_html_post_processing injects viewport and dark-mode style before </head>."""
     html_file = tmp_path / "test.html"
     html_file.write_text("<html><head><title>Test</title></head><body></body></html>", encoding="utf-8")
 
-    _apply_html_post_processing(html_file)
+    apply_html_post_processing(html_file)
 
     content = html_file.read_text()
     assert '<meta name="viewport"' in content
@@ -170,50 +170,50 @@ def test_apply_html_post_processing_injects_style(tmp_path: Path) -> None:
     assert content.index("data-designer-styles") < content.index("</head>")
 
 
-def test_apply_html_post_processing_no_head_fallback(tmp_path: Path) -> None:
+def testapply_html_post_processing_no_head_fallback(tmp_path: Path) -> None:
     """Test that viewport tag and dark CSS are prepended when the file has no </head> tag."""
     html_file = tmp_path / "test.html"
     html_file.write_text("<body><p>Hello</p></body>", encoding="utf-8")
 
-    _apply_html_post_processing(html_file)
+    apply_html_post_processing(html_file)
 
     content = html_file.read_text()
     assert '<style id="data-designer-styles">' in content
     assert content.startswith("<meta")
 
 
-def test_apply_html_post_processing_idempotent(tmp_path: Path) -> None:
-    """Test that calling _apply_html_post_processing twice does not duplicate injected content."""
+def testapply_html_post_processing_idempotent(tmp_path: Path) -> None:
+    """Test that calling apply_html_post_processing twice does not duplicate injected content."""
     html_file = tmp_path / "test.html"
     html_file.write_text("<html><head></head><body></body></html>", encoding="utf-8")
 
-    _apply_html_post_processing(html_file)
-    _apply_html_post_processing(html_file)
+    apply_html_post_processing(html_file)
+    apply_html_post_processing(html_file)
 
     content = html_file.read_text()
     assert content.count('<style id="data-designer-styles">') == 1
     assert content.count('<meta name="viewport"') == 1
 
 
-def test_apply_html_post_processing_light_theme_skips_dark_css(tmp_path: Path) -> None:
+def testapply_html_post_processing_light_theme_skips_dark_css(tmp_path: Path) -> None:
     """Test that theme='light' injects viewport tag but no dark style block."""
     html_file = tmp_path / "test.html"
     html_file.write_text("<html><head></head><body></body></html>", encoding="utf-8")
 
-    _apply_html_post_processing(html_file, theme="light")
+    apply_html_post_processing(html_file, theme="light")
 
     content = html_file.read_text()
     assert '<meta name="viewport"' in content
     assert '<style id="data-designer-styles">' not in content
 
 
-def test_apply_html_post_processing_always_injects_viewport(tmp_path: Path) -> None:
+def testapply_html_post_processing_always_injects_viewport(tmp_path: Path) -> None:
     """Test that viewport meta tag is always injected regardless of theme."""
     for theme in ("dark", "light"):
         html_file = tmp_path / f"test_{theme}.html"
         html_file.write_text("<html><head></head><body></body></html>", encoding="utf-8")
 
-        _apply_html_post_processing(html_file, theme=theme)
+        apply_html_post_processing(html_file, theme=theme)
 
         content = html_file.read_text()
         assert '<meta name="viewport"' in content

@@ -28,7 +28,11 @@ from data_designer.config.column_types import DataDesignerColumnType
 from data_designer.config.models import ModelConfig, ModelProvider
 from data_designer.config.sampler_params import SamplerType
 from data_designer.config.utils.code_lang import code_lang_to_syntax_lexer
-from data_designer.config.utils.constants import NVIDIA_API_KEY_ENV_VAR_NAME, OPENAI_API_KEY_ENV_VAR_NAME
+from data_designer.config.utils.constants import (
+    DEFAULT_DISPLAY_WIDTH,
+    NVIDIA_API_KEY_ENV_VAR_NAME,
+    OPENAI_API_KEY_ENV_VAR_NAME,
+)
 from data_designer.config.utils.errors import DatasetSampleDisplayError
 from data_designer.config.utils.image_helpers import (
     extract_base64_from_data_uri,
@@ -164,7 +168,7 @@ class WithRecordSamplerMixin:
         hide_seed_columns: bool = False,
         save_path: str | Path | None = None,
         theme: Literal["dark", "light"] = "dark",
-        display_width: int = 110,
+        display_width: int = DEFAULT_DISPLAY_WIDTH,
     ) -> None:
         """Display a sample record from the Data Designer dataset preview.
 
@@ -255,7 +259,7 @@ def display_sample_record(
     seed_column_names: list[str] | None = None,
     save_path: str | Path | None = None,
     theme: Literal["dark", "light"] = "dark",
-    display_width: int = 110,
+    display_width: int = DEFAULT_DISPLAY_WIDTH,
 ) -> None:
     if isinstance(record, (dict, pd.Series)):
         record = pd.DataFrame([record]).iloc[0]
@@ -653,7 +657,7 @@ table, th, td { border-color: rgba(184, 210, 255, 0.5) !important; }
 """
 
 
-def _apply_html_post_processing(html_path: str | Path, *, theme: Literal["dark", "light"] = "dark") -> None:
+def apply_html_post_processing(html_path: str | Path, *, theme: Literal["dark", "light"] = "dark") -> None:
     """Inject viewport meta tag and optional dark-mode CSS into a Rich-exported HTML file."""
     path = Path(html_path)
     try:
@@ -686,7 +690,7 @@ def _save_console_output(
     suffix = Path(save_path).suffix.lower()
     if suffix == ".html":
         recorded_console.save_html(save_path)
-        _apply_html_post_processing(save_path, theme=theme)
+        apply_html_post_processing(save_path, theme=theme)
     elif suffix == ".svg":
         recorded_console.save_svg(save_path, title="")
     else:

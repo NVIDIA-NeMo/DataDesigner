@@ -7,7 +7,7 @@ import click
 import typer
 
 from data_designer.cli.controllers.generation_controller import GenerationController
-from data_designer.config.utils.constants import DEFAULT_NUM_RECORDS
+from data_designer.config.utils.constants import DEFAULT_DISPLAY_WIDTH, DEFAULT_NUM_RECORDS
 
 
 def preview_command(
@@ -47,7 +47,7 @@ def preview_command(
         help="Color theme for saved HTML files (dark or light). Only applies when --save-results is used.",
     ),
     display_width: int = typer.Option(
-        110,
+        DEFAULT_DISPLAY_WIDTH,
         "--display-width",
         help="Width of the rendered record output in characters.",
         min=40,
