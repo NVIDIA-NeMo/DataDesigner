@@ -45,6 +45,11 @@ export default function ColumnEditor({ column, onSave, onCancel }: Props) {
     api.getEnums().then(setEnums).catch(() => {});
   }, []);
 
+  // Clear stale errors whenever any form field changes
+  useEffect(() => {
+    setError(null);
+  }, [name, columnType, samplerType, samplerParams, prompt, modelAlias, systemPrompt, expression, targetColumn]);
+
   // Reset sampler params when sampler type changes
   const handleSamplerTypeChange = (newType: string) => {
     setSamplerType(newType);
