@@ -6,7 +6,6 @@ from __future__ import annotations
 import html
 import json
 from pathlib import Path
-from typing import Literal
 
 PAGER_FILENAME = "sample_records_browser.html"
 
@@ -16,7 +15,6 @@ def create_sample_records_pager(
     num_records: int,
     *,
     num_columns: int | None = None,
-    theme: Literal["dark", "light"] = "dark",
 ) -> None:
     """Generate sample_records_browser.html in the given directory.
 
@@ -27,16 +25,15 @@ def create_sample_records_pager(
         sample_records_dir: Directory containing record_0.html, record_1.html, etc.
         num_records: Number of record files (0-based indices through num_records - 1).
         num_columns: Number of columns in the dataset (displayed in the subtitle).
-        theme: Initial color theme — dark or light.
     """
     if num_records <= 0:
         return
 
-    records = [{"path": f"record_{i}.html"} for i in range(num_records)]
+    records = [f"record_{i}.html" for i in range(num_records)]
     results_dir_name = html.escape(sample_records_dir.parent.name)
     title = f"Sample Records Browser - {results_dir_name}"
 
-    pager_html = _build_pager_html(title=title, records=records, num_columns=num_columns, theme=theme)
+    pager_html = _build_pager_html(title=title, records=records, num_columns=num_columns)
     out_path = sample_records_dir / PAGER_FILENAME
     out_path.write_text(pager_html, encoding="utf-8")
 
@@ -44,13 +41,10 @@ def create_sample_records_pager(
 def _build_pager_html(
     *,
     title: str,
-    records: list[dict[str, str]],
+    records: list[str],
     num_columns: int | None = None,
-    theme: Literal["dark", "light"] = "dark",
 ) -> str:
     records_json = json.dumps(records)
-    initial_theme_js = f'"{theme}"'
-    github_icon = _GITHUB_ICON_SVG
 
     subtitle_parts = [f"Total Records: {len(records)}"]
     if num_columns is not None:
@@ -63,8 +57,24 @@ def _build_pager_html(
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title}</title>
-<style id="theme-css"></style>
 <style>
+:root {{
+  color-scheme: dark;
+  --panel: rgba(8, 20, 46, 0.88);
+  --border: rgba(108, 160, 255, 0.32);
+  --text: #e5efff;
+  --muted: #97add2;
+  --shadow: 0 16px 44px rgba(0, 6, 22, 0.58);
+  --body-bg:
+    radial-gradient(1100px 520px at 15% -20%, rgba(31,77,163,0.45) 0%, transparent 62%),
+    radial-gradient(850px 460px at 95% -15%, rgba(38,73,170,0.42) 0%, transparent 60%),
+    linear-gradient(180deg, #000612 0%, #03112a 45%, #010817 100%);
+  --topbar-bg: linear-gradient(135deg, rgba(10,26,62,0.92) 0%, rgba(7,18,42,0.95) 100%);
+  --btn-bg: linear-gradient(180deg, rgba(17,48,104,0.85) 0%, rgba(10,28,64,0.92) 100%);
+  --btn-hover-border: rgba(124, 184, 255, 0.65);
+  --btn-hover-glow: 0 0 0 3px rgba(59, 169, 255, 0.15);
+  --frame-bg: rgba(2, 10, 26, 0.85);
+}}
 * {{
   box-sizing: border-box;
 }}
@@ -149,12 +159,6 @@ button:disabled {{
   opacity: 0.45;
   cursor: not-allowed;
 }}
-#theme-toggle {{
-  margin-left: auto;
-  font-size: 18px;
-  padding: 4px 10px;
-  line-height: 1;
-}}
 #frame-wrap {{
   flex: 1;
   min-height: 0;
@@ -170,15 +174,6 @@ iframe {{
   height: 100%;
   border: 0;
 }}
-@media (max-width: 800px) {{
-  .topbar {{
-    align-items: flex-start;
-    flex-direction: column;
-  }}
-  .toolbar {{
-    flex-wrap: wrap;
-  }}
-}}
 </style>
 </head>
 <body>
@@ -188,65 +183,26 @@ iframe {{
         <h1>\U0001f3a8 NeMo Data Designer \u2013 Preview Record Browser</h1>
         <div class="subtitle">{subtitle}</div>
       </div>
-      <a class="github-link" href="https://github.com/NVIDIA-NeMo/DataDesigner" target="_blank" rel="noopener noreferrer">
-        {github_icon} GitHub
-      </a>
+      <a class="github-link" href="https://github.com/NVIDIA-NeMo/DataDesigner" target="_blank" rel="noopener noreferrer">{_GITHUB_ICON_SVG} GitHub</a>
     </div>
     <div class="toolbar">
-      <select id="jump" aria-label="Jump to record"></select>
-      <span id="counter" style="font-size:13px;color:var(--muted);min-width:80px;text-align:center;"></span>
       <button id="prev" aria-label="Previous record">\u2190 Prev</button>
       <button id="next" aria-label="Next record">Next \u2192</button>
-      <button id="theme-toggle" aria-label="Toggle theme"></button>
+      <select id="jump" aria-label="Jump to record"></select>
+      <span id="counter" style="font-size:13px;color:var(--muted);min-width:80px;text-align:center;"></span>
     </div>
     <div id="frame-wrap">
       <iframe id="frame" title="sample record preview"></iframe>
     </div>
   </div>
   <script>
-    const DARK_THEME = `:root {{
-  color-scheme: dark;
-  --panel: rgba(8, 20, 46, 0.88);
-  --border: rgba(108, 160, 255, 0.32);
-  --text: #e5efff;
-  --muted: #97add2;
-  --shadow: 0 16px 44px rgba(0, 6, 22, 0.58);
-  --body-bg:
-    radial-gradient(1100px 520px at 15% -20%, rgba(31,77,163,0.45) 0%, transparent 62%),
-    radial-gradient(850px 460px at 95% -15%, rgba(38,73,170,0.42) 0%, transparent 60%),
-    linear-gradient(180deg, #000612 0%, #03112a 45%, #010817 100%);
-  --topbar-bg: linear-gradient(135deg, rgba(10,26,62,0.92) 0%, rgba(7,18,42,0.95) 100%);
-  --btn-bg: linear-gradient(180deg, rgba(17,48,104,0.85) 0%, rgba(10,28,64,0.92) 100%);
-  --btn-hover-border: rgba(124, 184, 255, 0.65);
-  --btn-hover-glow: 0 0 0 3px rgba(59, 169, 255, 0.15);
-  --frame-bg: rgba(2, 10, 26, 0.85);
-}}`;
-
-    const LIGHT_THEME = `:root {{
-  color-scheme: light;
-  --panel: rgba(255, 255, 255, 0.95);
-  --border: rgba(0, 0, 0, 0.15);
-  --text: #1a1a2e;
-  --muted: #6c757d;
-  --shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  --body-bg: linear-gradient(180deg, #e8ecf1 0%, #ffffff 45%, #f8f9fa 100%);
-  --topbar-bg: linear-gradient(135deg, rgba(248,249,250,0.98) 0%, rgba(235,238,242,0.95) 100%);
-  --btn-bg: linear-gradient(180deg, rgba(230,235,245,0.9) 0%, rgba(215,220,230,0.95) 100%);
-  --btn-hover-border: rgba(0, 80, 180, 0.45);
-  --btn-hover-glow: 0 0 0 3px rgba(0, 80, 180, 0.1);
-  --frame-bg: rgba(245, 246, 248, 0.85);
-}}`;
-
     const records = {records_json};
     let index = 0;
-    let isDark = {initial_theme_js} === "dark";
 
     const frame = document.getElementById("frame");
     const prev = document.getElementById("prev");
     const next = document.getElementById("next");
     const jump = document.getElementById("jump");
-    const themeStyle = document.getElementById("theme-css");
-    const themeToggle = document.getElementById("theme-toggle");
     const counter = document.getElementById("counter");
 
     for (let i = 0; i < records.length; i += 1) {{
@@ -256,28 +212,8 @@ iframe {{
       jump.appendChild(opt);
     }}
 
-    function applyPagerTheme() {{
-      themeStyle.textContent = isDark ? DARK_THEME : LIGHT_THEME;
-      themeToggle.textContent = isDark ? "\u2600\ufe0f" : "\U0001f319";
-      themeToggle.title = isDark ? "Switch to light mode" : "Switch to dark mode";
-    }}
-
-    function applyThemeToIframe() {{
-      if (frame.contentWindow) {{
-        frame.contentWindow.postMessage({{type: "theme", dark: isDark}}, "*");
-      }}
-    }}
-
-    frame.addEventListener("load", applyThemeToIframe);
-
-    themeToggle.addEventListener("click", () => {{
-      isDark = !isDark;
-      applyPagerTheme();
-      applyThemeToIframe();
-    }});
-
     function show() {{
-      frame.src = records[index].path;
+      frame.src = records[index];
       jump.value = String(index);
       prev.disabled = index === 0;
       next.disabled = index === records.length - 1;
@@ -313,7 +249,6 @@ iframe {{
       }}
     }});
 
-    applyPagerTheme();
     show();
   </script>
 </body>

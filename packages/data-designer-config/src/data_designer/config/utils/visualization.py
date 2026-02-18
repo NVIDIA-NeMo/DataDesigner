@@ -183,9 +183,9 @@ class WithRecordSamplerMixin:
         """
         i = self._display_cycle_index if index is None else index
 
+        num_records = len(self._record_sampler_dataset)
         try:
             record = self._record_sampler_dataset.iloc[i]
-            num_records = len(self._record_sampler_dataset)
         except IndexError:
             raise DatasetSampleDisplayError(f"Index {i} is out of bounds for dataset of length {num_records}.")
 
@@ -561,7 +561,7 @@ def mask_api_key(api_key: str | None) -> str:
     return "***" + api_key[-4:] if len(api_key) > 4 else "***"
 
 
-def convert_to_row_element(elem):
+def convert_to_row_element(elem: Any) -> Any:
     try:
         elem = Pretty(json.loads(elem))
     except (TypeError, json.JSONDecodeError):
@@ -573,7 +573,7 @@ def convert_to_row_element(elem):
     return elem
 
 
-def pad_console_element(elem, padding=(1, 0, 1, 0)):
+def pad_console_element(elem: Any, padding: tuple[int, int, int, int] = (1, 0, 1, 0)) -> Padding:
     return Padding(elem, padding)
 
 
@@ -652,7 +652,10 @@ pre, code { color: inherit !important; }
 table, th, td { border-color: rgba(184, 210, 255, 0.5) !important; }
 """
 
-_THEME_LISTENER_SCRIPT = """\
+_SAMPLE_RECORD_DARK_CSS_INLINE = " ".join(_SAMPLE_RECORD_DARK_CSS.split())
+
+_THEME_LISTENER_SCRIPT = (
+    """\
 <script id="data-designer-theme-listener">
 window.addEventListener("message", function(e) {
   if (!e.data || e.data.type !== "theme") return;
@@ -661,7 +664,7 @@ window.addEventListener("message", function(e) {
     if (!s) {
       s = document.createElement("style");
       s.id = "data-designer-styles";
-      s.textContent = ":root { color-scheme: dark; } html, body { background: #020a1d !important; color: #dbe8ff !important; } pre, code { color: inherit !important; } table, th, td { border-color: rgba(184, 210, 255, 0.5) !important; }";
+      s.textContent = "%s";
       (document.head || document.documentElement).appendChild(s);
     }
     s.disabled = false;
@@ -671,6 +674,8 @@ window.addEventListener("message", function(e) {
 });
 </script>
 """
+    % _SAMPLE_RECORD_DARK_CSS_INLINE
+)
 
 
 def _apply_html_post_processing(html_path: str | Path, *, theme: Literal["dark", "light"] = "dark") -> None:
@@ -688,14 +693,14 @@ def _apply_html_post_processing(html_path: str | Path, *, theme: Literal["dark",
     viewport_tag = '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
     injection = viewport_tag
 
-    if theme != "light":
+    if theme == "dark":
         dark_css = _SAMPLE_RECORD_DARK_CSS.strip()
         injection += f'<style id="data-designer-styles">\n{dark_css}\n</style>\n'
 
     injection += _THEME_LISTENER_SCRIPT
 
     if re.search(r"</head>", content, flags=re.I):
-        content = re.sub(r"</head>", injection + "</head>", content, count=1, flags=re.I)
+        content = re.sub(r"</head>", lambda m: injection + m.group(), content, count=1, flags=re.I)
     else:
         content = injection + content
     path.write_text(content, encoding="utf-8")
@@ -705,10 +710,11 @@ def _save_console_output(
     recorded_console: Console, save_path: str | Path, *, theme: Literal["dark", "light"] = "dark"
 ) -> None:
     save_path = str(save_path)
-    if save_path.endswith(".html"):
+    suffix = Path(save_path).suffix.lower()
+    if suffix == ".html":
         recorded_console.save_html(save_path)
         _apply_html_post_processing(save_path, theme=theme)
-    elif save_path.endswith(".svg"):
+    elif suffix == ".svg":
         recorded_console.save_svg(save_path, title="")
     else:
         raise DatasetSampleDisplayError(

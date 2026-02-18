@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from typing import Literal, cast
+
 import click
 import typer
 
@@ -94,6 +96,6 @@ def preview_command(
         non_interactive=non_interactive,
         save_results=save_results,
         artifact_path=artifact_path,
-        theme=theme,
+        theme=cast(Literal["dark", "light"], theme),
         display_width=display_width,
     )

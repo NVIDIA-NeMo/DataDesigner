@@ -11,6 +11,7 @@ from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.utils.errors import DatasetSampleDisplayError
 from data_designer.config.utils.visualization import (
+    WithRecordSamplerMixin,
     _apply_html_post_processing,
     display_sample_record,
     get_truncated_list_as_string,
@@ -62,8 +63,6 @@ def test_display_sample_record_twice_no_errors(
 
     display_sample_record(record_series, config_builder_with_validation)
     display_sample_record(record_series, config_builder_with_validation)
-
-    assert True
 
 
 def test_mask_api_key() -> None:
@@ -237,3 +236,22 @@ def test_save_console_output_svg_no_dark_mode(
     content = save_path.read_text()
     assert "data-designer-styles" not in content
     assert "color-scheme: dark" not in content
+
+
+def test_mixin_out_of_bounds_raises_display_error(
+    validation_output: dict, config_builder_with_validation: DataDesignerConfigBuilder
+) -> None:
+    """Test that an out-of-bounds index raises DatasetSampleDisplayError, not UnboundLocalError."""
+
+    class FakeResults(WithRecordSamplerMixin):
+        def __init__(self, dataset: pd.DataFrame, config_builder: DataDesignerConfigBuilder) -> None:
+            self.dataset = dataset
+            self._config_builder = config_builder
+            self.dataset_metadata = None
+
+    sample_record = {"code": "print('hello world')", "code_validation_result": validation_output}
+    dataset = pd.DataFrame([sample_record])
+    results = FakeResults(dataset, config_builder_with_validation)
+
+    with pytest.raises(DatasetSampleDisplayError, match="out of bounds"):
+        results.display_sample_record(index=999)
