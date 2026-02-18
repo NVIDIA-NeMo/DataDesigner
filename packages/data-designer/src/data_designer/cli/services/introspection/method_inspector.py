@@ -109,12 +109,13 @@ def _format_signature(method_name: str, sig: inspect.Signature) -> str:
     """Format a method signature as a readable string, skipping 'self'."""
     params: list[str] = []
     seen_keyword_only = False
+    has_var_positional = any(p.kind == inspect.Parameter.VAR_POSITIONAL for p in sig.parameters.values())
 
     for param in sig.parameters.values():
         if param.name == "self":
             continue
 
-        if param.kind == inspect.Parameter.KEYWORD_ONLY and not seen_keyword_only:
+        if param.kind == inspect.Parameter.KEYWORD_ONLY and not seen_keyword_only and not has_var_positional:
             seen_keyword_only = True
             params.append("*")
 
@@ -134,12 +135,6 @@ def _format_signature(method_name: str, sig: inspect.Signature) -> str:
 
     return_type = _format_return_type(sig)
     params_str = ", ".join(params)
-
-    # Remove the extra "*, " if a *args was already present
-    if any(p.kind == inspect.Parameter.VAR_POSITIONAL for p in sig.parameters.values()):
-        parts = params_str.split(", ")
-        parts = [p for p in parts if p != "*"]
-        params_str = ", ".join(parts)
 
     return f"{method_name}({params_str}) -> {return_type}"
 

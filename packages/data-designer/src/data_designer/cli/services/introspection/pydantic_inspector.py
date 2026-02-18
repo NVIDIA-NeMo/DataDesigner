@@ -88,11 +88,7 @@ def _extract_nested_basemodel(annotation: Any) -> type | None:
     # Union: X | None, list[X] | None, or discriminated unions
     if origin is typing.Union or origin is types.UnionType:
         non_none_args = [a for a in get_args(annotation) if a is not type(None)]
-        basemodel_classes: list[type] = []
-        for arg in non_none_args:
-            result = _extract_nested_basemodel(arg)
-            if result is not None:
-                basemodel_classes.append(result)
+        basemodel_classes = [m for a in non_none_args if (m := _extract_nested_basemodel(a)) is not None]
         if len(basemodel_classes) == 1:
             return basemodel_classes[0]
         return None
@@ -100,11 +96,22 @@ def _extract_nested_basemodel(annotation: Any) -> type | None:
     return None
 
 
+def _unwrap_annotated_discriminator(annotation: Any) -> Any:
+    """Strip Annotated wrapper containing a Discriminator."""
+    if get_origin(annotation) is not typing.Annotated:
+        return annotation
+    args = get_args(annotation)
+    if len(args) >= 2 and any("Discriminator" in str(a) for a in args[1:]):
+        return args[0]
+    return annotation
+
+
 def format_type(annotation: Any) -> str:
     """Format a type annotation for readable display.
 
     Strips module prefixes and simplifies complex types.
     """
+    annotation = _unwrap_annotated_discriminator(annotation)
     type_str = str(annotation)
 
     # Remove module prefixes
@@ -127,19 +134,6 @@ def format_type(annotation: Any) -> str:
         match = re.search(r"Literal\[([^\]]+)\]", type_str)
         if match:
             type_str = f"Literal[{match.group(1)}]"
-
-    # Clean up Annotated types with Discriminator (too verbose)
-    if "Annotated[" in type_str and "Discriminator" in type_str:
-        start = type_str.index("Annotated[") + len("Annotated[")
-        depth = 0
-        for i, ch in enumerate(type_str[start:], start):
-            if ch in "([":
-                depth += 1
-            elif ch in ")]":
-                depth -= 1
-            elif ch == "," and depth == 0:
-                type_str = type_str[start:i].strip()
-                break
 
     return type_str
 
@@ -262,6 +256,8 @@ def format_model_text(
     indent: int = 0,
     seen_schemas: set[str] | None = None,
     max_depth: int = 3,
+    seen_types: set[type] | None = None,
+    depth: int = 0,
 ) -> str:
     """Format a Pydantic model as YAML-style text for agent context.
 
@@ -272,30 +268,12 @@ def format_model_text(
         indent: Base indentation level.
         seen_schemas: Set of schema refs already rendered (mutated for cross-model dedup).
         max_depth: Maximum recursion depth for nested models.
+        seen_types: Set of types already rendered (prevents infinite recursion).
+        depth: Current recursion depth.
     """
-    return _format_model_text(
-        cls,
-        type_key=type_key,
-        type_value=type_value,
-        indent=indent,
-        seen_schemas=seen_schemas,
-        seen_types=set(),
-        max_depth=max_depth,
-        depth=0,
-    )
+    if seen_types is None:
+        seen_types = set()
 
-
-def _format_model_text(
-    cls: type,
-    type_key: str | None,
-    type_value: str | None,
-    indent: int,
-    seen_schemas: set[str] | None,
-    seen_types: set[type],
-    max_depth: int,
-    depth: int,
-) -> str:
-    """Recursive implementation of format_model_text."""
     pad = " " * indent
     lines: list[str] = []
     lines.append(f"{pad}{cls.__name__}:")
