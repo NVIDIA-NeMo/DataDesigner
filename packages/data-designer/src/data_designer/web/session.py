@@ -74,7 +74,11 @@ class ExecutionSession:
         self._log_handler: _LogCaptureHandler | None = None
 
         if config_path and config_path.exists():
-            self.load_config(str(config_path))
+            try:
+                self.load_config(str(config_path))
+            except Exception as e:
+                logger.warning(f"Could not load config at startup: {e}")
+                self._config_path = config_path
 
     # -- Config discovery & loading -----------------------------------------
 
