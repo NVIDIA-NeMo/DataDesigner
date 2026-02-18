@@ -103,8 +103,8 @@ download_app = typer.Typer(
 app.add_typer(config_app, name="config", rich_help_panel="Setup Commands")
 app.add_typer(download_app, name="download", rich_help_panel="Setup Commands")
 
-# Add agent command groups (designed for AI agent consumption: schema introspection and valid-value discovery)
-title_agent_helpers = "Agent-Helper Commands (schema introspection and valid-value discovery)"
+# Add agent command groups
+title_agent_helpers = "Agent-Helper Commands"
 app.add_typer(inspect_cmd.inspect_app, name="inspect", rich_help_panel=title_agent_helpers)
 
 
