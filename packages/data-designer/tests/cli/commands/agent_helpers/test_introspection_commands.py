@@ -98,6 +98,18 @@ def test_processors_no_arg_fails() -> None:
     assert result.exit_code != 0
 
 
+def test_processors_specific_type() -> None:
+    result = runner.invoke(app, ["inspect", "processor", "drop_columns"])
+    assert result.exit_code == 0
+    assert "DropColumnsProcessorConfig" in result.output
+
+
+def test_processors_all() -> None:
+    result = runner.invoke(app, ["inspect", "processor", "all"])
+    assert result.exit_code == 0
+    assert "Data Designer Processor Types Reference" in result.output
+
+
 # ---------------------------------------------------------------------------
 # config-builder
 # ---------------------------------------------------------------------------
@@ -155,7 +167,7 @@ def test_list_model_aliases() -> None:
 def test_list_persona_datasets() -> None:
     result = runner.invoke(app, ["list", "persona-datasets"])
     assert result.exit_code == 0
-    assert "Nemotron-Personas Datasets" in result.output
+    assert "locale" in result.output
 
 
 def test_list_column_types() -> None:

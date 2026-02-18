@@ -132,3 +132,43 @@ def test_show_processors_list_text(capsys: pytest.CaptureFixture[str]) -> None:
     captured = capsys.readouterr()
     assert "processor_type" in captured.out
     assert "config_class" in captured.out
+
+
+def test_show_processors_specific_type(capsys: pytest.CaptureFixture[str]) -> None:
+    controller = IntrospectionController()
+    controller.show_processors(type_name="drop_columns")
+    captured = capsys.readouterr()
+    assert "DropColumnsProcessorConfig" in captured.out
+
+
+def test_show_processors_all(capsys: pytest.CaptureFixture[str]) -> None:
+    controller = IntrospectionController()
+    controller.show_processors(type_name="all")
+    captured = capsys.readouterr()
+    assert "Data Designer Processor Types Reference" in captured.out
+    assert "processor_type:" in captured.out
+
+
+def test_show_processors_nonexistent() -> None:
+    controller = IntrospectionController()
+    with pytest.raises(click.exceptions.Exit):
+        controller.show_processors(type_name="badname")
+
+
+# ---------------------------------------------------------------------------
+# case-insensitive lookup (P1-3)
+# ---------------------------------------------------------------------------
+
+
+def test_show_columns_mixed_case(capsys: pytest.CaptureFixture[str]) -> None:
+    controller = IntrospectionController()
+    controller.show_columns(type_name="LLM-TEXT")
+    captured = capsys.readouterr()
+    assert "LLMTextColumnConfig" in captured.out
+
+
+def test_show_samplers_mixed_case(capsys: pytest.CaptureFixture[str]) -> None:
+    controller = IntrospectionController()
+    controller.show_samplers(type_name="CATEGORY")
+    captured = capsys.readouterr()
+    assert "sampler_type: category" in captured.out
