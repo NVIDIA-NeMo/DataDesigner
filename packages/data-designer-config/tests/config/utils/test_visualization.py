@@ -37,6 +37,12 @@ def validation_output() -> dict:
 
 
 @pytest.fixture
+def record_series(validation_output: dict) -> pd.Series:
+    """Fixture providing a sample record as a pandas Series."""
+    return lazy.pd.Series({"code": "print('hello world')", "code_validation_result": validation_output})
+
+
+@pytest.fixture
 def config_builder_with_validation(stub_model_configs: list) -> DataDesignerConfigBuilder:
     """Fixture providing a DataDesignerConfigBuilder with a validation column."""
     builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
@@ -54,14 +60,9 @@ def config_builder_with_validation(stub_model_configs: list) -> DataDesignerConf
 
 
 def test_display_sample_record_twice_no_errors(
-    validation_output: dict, config_builder_with_validation: DataDesignerConfigBuilder
+    record_series: pd.Series, config_builder_with_validation: DataDesignerConfigBuilder
 ) -> None:
     """Test that calling display_sample_record twice on validation output produces no errors."""
-    sample_record = {"code": "print('hello world')", "code_validation_result": validation_output}
-
-    # Convert to pandas Series to match expected input format
-    record_series = lazy.pd.Series(sample_record)
-
     display_sample_record(record_series, config_builder_with_validation)
     display_sample_record(record_series, config_builder_with_validation)
 
@@ -98,11 +99,9 @@ def test_get_truncated_list_as_string() -> None:
 
 
 def test_display_sample_record_save_html(
-    validation_output: dict, config_builder_with_validation: DataDesignerConfigBuilder, tmp_path: Path
+    record_series: pd.Series, config_builder_with_validation: DataDesignerConfigBuilder, tmp_path: Path
 ) -> None:
     """Test that display_sample_record saves HTML with dark-mode style block injected."""
-    sample_record = {"code": "print('hello world')", "code_validation_result": validation_output}
-    record_series = lazy.pd.Series(sample_record)
     save_path = tmp_path / "output.html"
 
     display_sample_record(record_series, config_builder_with_validation, save_path=save_path)
@@ -115,11 +114,9 @@ def test_display_sample_record_save_html(
 
 
 def test_display_sample_record_save_svg(
-    validation_output: dict, config_builder_with_validation: DataDesignerConfigBuilder, tmp_path: Path
+    record_series: pd.Series, config_builder_with_validation: DataDesignerConfigBuilder, tmp_path: Path
 ) -> None:
     """Test that display_sample_record can save output as an SVG file."""
-    sample_record = {"code": "print('hello world')", "code_validation_result": validation_output}
-    record_series = lazy.pd.Series(sample_record)
     save_path = tmp_path / "output.svg"
 
     display_sample_record(record_series, config_builder_with_validation, save_path=save_path)
@@ -130,11 +127,9 @@ def test_display_sample_record_save_svg(
 
 
 def test_display_sample_record_save_invalid_extension(
-    validation_output: dict, config_builder_with_validation: DataDesignerConfigBuilder, tmp_path: Path
+    record_series: pd.Series, config_builder_with_validation: DataDesignerConfigBuilder, tmp_path: Path
 ) -> None:
     """Test that display_sample_record raises an error for unsupported file extensions."""
-    sample_record = {"code": "print('hello world')", "code_validation_result": validation_output}
-    record_series = lazy.pd.Series(sample_record)
     save_path = tmp_path / "output.txt"
 
     with pytest.raises(DatasetSampleDisplayError, match="must be either .html or .svg"):
@@ -142,12 +137,9 @@ def test_display_sample_record_save_invalid_extension(
 
 
 def test_display_sample_record_save_path_none_default(
-    validation_output: dict, config_builder_with_validation: DataDesignerConfigBuilder, tmp_path: Path
+    record_series: pd.Series, config_builder_with_validation: DataDesignerConfigBuilder, tmp_path: Path
 ) -> None:
     """Test that display_sample_record with save_path=None prints to console without creating files."""
-    sample_record = {"code": "print('hello world')", "code_validation_result": validation_output}
-    record_series = lazy.pd.Series(sample_record)
-
     display_sample_record(record_series, config_builder_with_validation, save_path=None)
 
     assert list(tmp_path.iterdir()) == []
@@ -222,11 +214,9 @@ def testapply_html_post_processing_always_injects_viewport(tmp_path: Path) -> No
 
 
 def test_save_console_output_svg_no_dark_mode(
-    validation_output: dict, config_builder_with_validation: DataDesignerConfigBuilder, tmp_path: Path
+    record_series: pd.Series, config_builder_with_validation: DataDesignerConfigBuilder, tmp_path: Path
 ) -> None:
     """Test that SVG files do not receive dark mode CSS injection."""
-    sample_record = {"code": "print('hello world')", "code_validation_result": validation_output}
-    record_series = lazy.pd.Series(sample_record)
     save_path = tmp_path / "output.svg"
 
     display_sample_record(record_series, config_builder_with_validation, save_path=save_path)
