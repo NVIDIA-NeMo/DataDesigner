@@ -1,0 +1,60 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    border-color: theme("colors.border.DEFAULT");
+  }
+
+  body {
+    @apply bg-surface-0 text-gray-100;
+  }
+
+  ::-webkit-scrollbar {
+    @apply w-2;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-surface-1;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-surface-4 rounded;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-nvidia-green hover:bg-nvidia-green-dark text-black font-medium
+           px-4 py-2 rounded-md transition-colors text-sm;
+  }
+  .btn-secondary {
+    @apply bg-surface-3 hover:bg-surface-4 text-gray-200 font-medium
+           px-4 py-2 rounded-md transition-colors text-sm border border-border;
+  }
+  .btn-danger {
+    @apply bg-red-900/50 hover:bg-red-900/80 text-red-200 font-medium
+           px-4 py-2 rounded-md transition-colors text-sm;
+  }
+  .btn-ghost {
+    @apply hover:bg-surface-3 text-gray-400 hover:text-gray-200
+           p-2 rounded-md transition-colors;
+  }
+  .input-field {
+    @apply bg-surface-1 border border-border rounded-md px-3 py-2
+           text-gray-100 text-sm placeholder-gray-500
+           focus:outline-none focus:border-border-focus focus:ring-1 focus:ring-nvidia-green/30
+           transition-colors w-full;
+  }
+  .select-field {
+    @apply input-field appearance-none cursor-pointer;
+  }
+  .label-text {
+    @apply text-sm font-medium text-gray-300 mb-1 block;
+  }
+  .card {
+    @apply bg-surface-1 border border-border rounded-lg p-4;
+  }
+  .card-hover {
+    @apply card hover:border-border-hover transition-colors cursor-pointer;
+  }
+}
