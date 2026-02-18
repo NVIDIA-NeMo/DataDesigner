@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Save, X } from "lucide-react";
 import { api } from "../hooks/useApi";
 import { ColumnConfig, ColumnType, COLUMN_TYPE_META } from "../types/config";
+import SamplerParamsForm from "./SamplerParamsForm";
 
 interface Props {
   column?: ColumnConfig;
@@ -13,6 +14,7 @@ const COLUMN_TYPES = Object.keys(COLUMN_TYPE_META) as ColumnType[];
 
 export default function ColumnEditor({ column, onSave, onCancel }: Props) {
   const isNew = !column;
+  const col = column as Record<string, any> | undefined;
 
   const [name, setName] = useState(column?.name ?? "");
   const [columnType, setColumnType] = useState<ColumnType>(
@@ -22,22 +24,32 @@ export default function ColumnEditor({ column, onSave, onCancel }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  // Type-specific fields
-  const [samplerType, setSamplerType] = useState(
-    (column as any)?.sampler_type ?? "category"
+  // Sampler
+  const [samplerType, setSamplerType] = useState(col?.sampler_type ?? "category");
+  const [samplerParams, setSamplerParams] = useState<Record<string, unknown>>(
+    col?.params ?? {}
   );
-  const [prompt, setPrompt] = useState((column as any)?.prompt ?? "");
-  const [modelAlias, setModelAlias] = useState(
-    (column as any)?.model_alias ?? ""
-  );
-  const [expression, setExpression] = useState((column as any)?.expr ?? "");
-  const [categoryValues, setCategoryValues] = useState(
-    ((column as Record<string, any>)?.params?.values ?? []).join(", ")
-  );
+
+  // LLM / Image
+  const [prompt, setPrompt] = useState(col?.prompt ?? "");
+  const [modelAlias, setModelAlias] = useState(col?.model_alias ?? "");
+  const [systemPrompt, setSystemPrompt] = useState(col?.system_prompt ?? "");
+
+  // Expression
+  const [expression, setExpression] = useState(col?.expr ?? "");
+
+  // Embedding
+  const [targetColumn, setTargetColumn] = useState(col?.target_column ?? "");
 
   useEffect(() => {
     api.getEnums().then(setEnums).catch(() => {});
   }, []);
+
+  // Reset sampler params when sampler type changes
+  const handleSamplerTypeChange = (newType: string) => {
+    setSamplerType(newType);
+    setSamplerParams({});
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -50,16 +62,7 @@ export default function ColumnEditor({ column, onSave, onCancel }: Props) {
 
       if (columnType === "sampler") {
         data.sampler_type = samplerType;
-        if (samplerType === "category") {
-          data.params = {
-            values: categoryValues
-              .split(",")
-              .map((v: string) => v.trim())
-              .filter(Boolean),
-          };
-        } else {
-          data.params = {};
-        }
+        data.params = samplerParams;
       } else if (
         columnType === "llm-text" ||
         columnType === "llm-code" ||
@@ -68,16 +71,15 @@ export default function ColumnEditor({ column, onSave, onCancel }: Props) {
       ) {
         data.prompt = prompt;
         data.model_alias = modelAlias;
+        if (systemPrompt) data.system_prompt = systemPrompt;
       } else if (columnType === "expression") {
         data.expr = expression;
-      } else if (columnType === "embedding" || columnType === "image") {
+      } else if (columnType === "embedding") {
         data.model_alias = modelAlias;
-        if (columnType === "image") {
-          data.prompt = prompt;
-        }
-        if (columnType === "embedding") {
-          data.target_column = prompt; // reusing prompt field for target_column
-        }
+        data.target_column = targetColumn;
+      } else if (columnType === "image") {
+        data.model_alias = modelAlias;
+        data.prompt = prompt;
       }
 
       if (isNew) {
@@ -95,6 +97,7 @@ export default function ColumnEditor({ column, onSave, onCancel }: Props) {
 
   const showPrompt = ["llm-text", "llm-code", "llm-structured", "llm-judge", "image"].includes(columnType);
   const showModelAlias = ["llm-text", "llm-code", "llm-structured", "llm-judge", "embedding", "image"].includes(columnType);
+  const showSystemPrompt = ["llm-text", "llm-code", "llm-structured", "llm-judge"].includes(columnType);
 
   return (
     <div>
@@ -114,7 +117,6 @@ export default function ColumnEditor({ column, onSave, onCancel }: Props) {
       )}
 
       <div className="grid grid-cols-2 gap-4 mb-4">
-        {/* Name */}
         <div>
           <label className="label-text">Column Name</label>
           <input
@@ -124,8 +126,6 @@ export default function ColumnEditor({ column, onSave, onCancel }: Props) {
             placeholder="e.g. topic, question, answer"
           />
         </div>
-
-        {/* Type */}
         <div>
           <label className="label-text">Column Type</label>
           <select
@@ -142,7 +142,7 @@ export default function ColumnEditor({ column, onSave, onCancel }: Props) {
         </div>
       </div>
 
-      {/* Sampler-specific fields */}
+      {/* Sampler fields */}
       {columnType === "sampler" && (
         <div className="space-y-4 mb-4">
           <div>
@@ -150,44 +150,51 @@ export default function ColumnEditor({ column, onSave, onCancel }: Props) {
             <select
               className="select-field"
               value={samplerType}
-              onChange={(e) => setSamplerType(e.target.value)}
+              onChange={(e) => handleSamplerTypeChange(e.target.value)}
             >
               {(enums.sampler_types ?? []).map((st) => (
-                <option key={st} value={st}>
-                  {st}
-                </option>
+                <option key={st} value={st}>{st}</option>
               ))}
             </select>
           </div>
-          {samplerType === "category" && (
-            <div>
-              <label className="label-text">Values (comma-separated)</label>
-              <input
-                className="input-field"
-                value={categoryValues}
-                onChange={(e) => setCategoryValues(e.target.value)}
-                placeholder="value1, value2, value3"
-              />
-            </div>
-          )}
+          <div className="bg-surface-2 rounded-md p-4 border border-border">
+            <p className="text-xs text-gray-500 mb-3 uppercase tracking-wider font-medium">
+              Parameters
+            </p>
+            <SamplerParamsForm
+              samplerType={samplerType}
+              params={samplerParams}
+              onChange={setSamplerParams}
+            />
+          </div>
         </div>
       )}
 
-      {/* LLM prompt */}
+      {/* Prompt template */}
       {showPrompt && (
         <div className="mb-4">
-          <label className="label-text">
-            {columnType === "image" ? "Prompt" : columnType === "embedding" ? "Target Column" : "Prompt Template (Jinja2)"}
-          </label>
+          <label className="label-text">Prompt Template (Jinja2)</label>
           <textarea
             className="input-field min-h-[100px] font-mono text-xs"
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
-            placeholder={
-              columnType === "embedding"
-                ? "column_name"
-                : "Generate a {{ topic }} about..."
-            }
+            placeholder="Generate a {{ topic }} about..."
+          />
+        </div>
+      )}
+
+      {/* System prompt */}
+      {showSystemPrompt && (
+        <div className="mb-4">
+          <label className="label-text">
+            System Prompt{" "}
+            <span className="text-gray-500 font-normal">(optional)</span>
+          </label>
+          <textarea
+            className="input-field min-h-[60px] font-mono text-xs"
+            value={systemPrompt}
+            onChange={(e) => setSystemPrompt(e.target.value)}
+            placeholder="You are a helpful assistant..."
           />
         </div>
       )}
@@ -214,6 +221,19 @@ export default function ColumnEditor({ column, onSave, onCancel }: Props) {
             value={expression}
             onChange={(e) => setExpression(e.target.value)}
             placeholder="{{ column_a }} + {{ column_b }}"
+          />
+        </div>
+      )}
+
+      {/* Embedding target */}
+      {columnType === "embedding" && (
+        <div className="mb-4">
+          <label className="label-text">Target Column</label>
+          <input
+            className="input-field"
+            value={targetColumn}
+            onChange={(e) => setTargetColumn(e.target.value)}
+            placeholder="Name of column to embed"
           />
         </div>
       )}
