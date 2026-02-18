@@ -46,6 +46,10 @@ class LoadConfigRequest(BaseModel):
     path: str
 
 
+class SaveConfigRequest(BaseModel):
+    content: str
+
+
 class PreviewRequest(BaseModel):
     num_records: int = 10
     debug_mode: bool = False
@@ -88,8 +92,18 @@ async def get_config() -> dict[str, Any]:
 
 @router.get("/config/yaml", tags=["config"])
 async def get_config_yaml() -> dict[str, str]:
-    """Return the loaded config as YAML text."""
-    return {"content": _get_session().get_config_yaml()}
+    """Return the raw YAML from the config file on disk."""
+    return {"content": _get_session().get_raw_yaml()}
+
+
+@router.post("/config/save", tags=["config"])
+async def save_config(req: SaveConfigRequest) -> dict[str, Any]:
+    """Save edited YAML to the config file and reload the builder."""
+    try:
+        return _get_session().save_config_yaml(req.content)
+    except Exception as e:
+        logger.error(f"Failed to save config: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=422, detail=str(e))
 
 
 @router.get("/config/export", tags=["config"])

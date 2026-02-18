@@ -22,6 +22,11 @@ export const api = {
     }),
   getConfig: () => request<Record<string, unknown>>("/config"),
   getConfigYaml: () => request<{ content: string }>("/config/yaml"),
+  saveConfig: (content: string) =>
+    request<Record<string, unknown>>("/config/save", {
+      method: "POST",
+      body: JSON.stringify({ content }),
+    }),
   getConfigInfo: () =>
     request<{
       loaded: boolean;

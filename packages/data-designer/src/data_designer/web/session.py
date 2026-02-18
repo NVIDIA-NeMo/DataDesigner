@@ -106,6 +106,28 @@ class ExecutionSession:
         self._exec_error = None
         return self.get_config_dict()
 
+    def save_config_yaml(self, yaml_content: str) -> dict[str, Any]:
+        """Save YAML content to the active config file and reload the builder."""
+        if not self._config_path:
+            raise RuntimeError("No config file path set")
+
+        self._config_path.write_text(yaml_content)
+
+        self._builder = load_config_builder(str(self._config_path))
+        self._preview_dataset = None
+        self._preview_columns = None
+        self._preview_analysis = None
+        self._create_result = None
+        self._exec_state = ExecutionState.IDLE
+        self._exec_error = None
+        return self.get_config_dict()
+
+    def get_raw_yaml(self) -> str:
+        """Read the raw YAML from the config file on disk."""
+        if self._config_path and self._config_path.exists():
+            return self._config_path.read_text()
+        return self.get_config_yaml()
+
     @property
     def is_loaded(self) -> bool:
         return self._builder is not None

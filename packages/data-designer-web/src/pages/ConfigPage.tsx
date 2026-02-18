@@ -5,6 +5,8 @@ import {
   RefreshCw,
   FileText,
   Loader2,
+  Save,
+  Undo2,
 } from "lucide-react";
 import { api } from "../hooks/useApi";
 import { COLUMN_TYPE_META, ColumnType } from "../types/config";
@@ -25,7 +27,6 @@ export default function ConfigPage() {
   const [configs, setConfigs] = useState<ConfigFile[]>([]);
   const [columns, setColumns] = useState<ColumnInfo[]>([]);
   const [models, setModels] = useState<Record<string, unknown>[]>([]);
-  const [yaml, setYaml] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [activePath, setActivePath] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -36,6 +37,14 @@ export default function ConfigPage() {
   } | null>(null);
   const [validating, setValidating] = useState(false);
 
+  // Editor state
+  const [savedYaml, setSavedYaml] = useState("");
+  const [editYaml, setEditYaml] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+
+  const hasUnsavedChanges = editYaml !== savedYaml;
+
   const refresh = useCallback(async () => {
     try {
       const info = await api.getConfigInfo();
@@ -45,9 +54,11 @@ export default function ConfigPage() {
       setModels(info.models);
       if (info.loaded) {
         const y = await api.getConfigYaml();
-        setYaml(y.content);
+        setSavedYaml(y.content);
+        setEditYaml(y.content);
       } else {
-        setYaml("");
+        setSavedYaml("");
+        setEditYaml("");
       }
       setError(null);
     } catch (e: any) {
@@ -57,7 +68,7 @@ export default function ConfigPage() {
       const cfgs = await api.listConfigs();
       setConfigs(cfgs);
     } catch {
-      // config listing is non-critical
+      // non-critical
     }
   }, []);
 
@@ -69,6 +80,7 @@ export default function ConfigPage() {
     setLoading(true);
     setError(null);
     setValidation(null);
+    setSaveMessage(null);
     try {
       await api.loadConfig(path);
       await refresh();
@@ -77,6 +89,29 @@ export default function ConfigPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    setSaveMessage(null);
+    setError(null);
+    setValidation(null);
+    try {
+      await api.saveConfig(editYaml);
+      await refresh();
+      setSaveMessage("Saved and reloaded");
+      setTimeout(() => setSaveMessage(null), 3000);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDiscard = () => {
+    setEditYaml(savedYaml);
+    setSaveMessage(null);
+    setError(null);
   };
 
   const handleValidate = async () => {
@@ -93,28 +128,29 @@ export default function ConfigPage() {
   };
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
+    <div className="p-6 h-full flex flex-col">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4 shrink-0">
         <div>
           <h1 className="text-xl font-semibold text-gray-100">Configuration</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Load a config file and inspect its contents
+            Load, edit, and save your config. Changes are written to disk.
           </p>
         </div>
-        <button className="btn-ghost" onClick={refresh} title="Refresh">
+        <button className="btn-ghost" onClick={refresh} title="Reload from disk">
           <RefreshCw size={16} />
         </button>
       </div>
 
       {error && (
-        <div className="card border-red-700/50 bg-red-900/20 mb-4">
+        <div className="card border-red-700/50 bg-red-900/20 mb-4 shrink-0">
           <p className="text-sm text-red-300">{error}</p>
         </div>
       )}
 
-      {/* Config file picker */}
-      <div className="card mb-6">
-        <div className="flex items-center gap-4">
+      {/* Config file picker + action buttons */}
+      <div className="card mb-4 shrink-0">
+        <div className="flex items-center gap-3">
           <div className="flex-1">
             <label className="label-text">Config File</label>
             <select
@@ -132,9 +168,30 @@ export default function ConfigPage() {
             </select>
           </div>
           {loaded && (
-            <div className="pt-5">
+            <div className="flex gap-2 pt-5">
               <button
-                className="btn-primary flex items-center gap-2"
+                className="btn-primary flex items-center gap-1.5"
+                onClick={handleSave}
+                disabled={saving || !hasUnsavedChanges}
+              >
+                {saving ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <Save size={14} />
+                )}
+                Save
+              </button>
+              {hasUnsavedChanges && (
+                <button
+                  className="btn-ghost text-gray-400"
+                  onClick={handleDiscard}
+                  title="Discard changes"
+                >
+                  <Undo2 size={14} />
+                </button>
+              )}
+              <button
+                className="btn-secondary flex items-center gap-1.5"
                 onClick={handleValidate}
                 disabled={validating}
               >
@@ -154,72 +211,80 @@ export default function ConfigPage() {
             Loading config...
           </div>
         )}
-        {validation && (
-          <div
-            className={`mt-3 flex items-center gap-2 text-sm ${
-              validation.valid ? "text-green-400" : "text-red-400"
-            }`}
-          >
-            {validation.valid ? (
-              <CheckCircle2 size={14} />
-            ) : (
-              <XCircle size={14} />
-            )}
-            {validation.message}
-          </div>
-        )}
+        {/* Status messages */}
+        <div className="flex items-center gap-4 mt-2 min-h-[20px]">
+          {hasUnsavedChanges && (
+            <span className="text-xs text-amber-400">Unsaved changes</span>
+          )}
+          {saveMessage && (
+            <span className="text-xs text-green-400 flex items-center gap-1">
+              <CheckCircle2 size={12} />
+              {saveMessage}
+            </span>
+          )}
+          {validation && (
+            <span
+              className={`text-xs flex items-center gap-1 ${
+                validation.valid ? "text-green-400" : "text-red-400"
+              }`}
+            >
+              {validation.valid ? (
+                <CheckCircle2 size={12} />
+              ) : (
+                <XCircle size={12} />
+              )}
+              {validation.message}
+            </span>
+          )}
+        </div>
       </div>
 
       {!loaded ? (
-        <div className="card text-center py-12">
+        <div className="card text-center py-12 flex-1">
           <FileText size={32} className="text-gray-600 mx-auto mb-3" />
           <p className="text-gray-500">
             Select a config file above to get started
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-3 gap-6">
-          {/* Column summary */}
-          <div className="col-span-1 space-y-4">
-            <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
+        <div className="flex gap-4 flex-1 min-h-0">
+          {/* Column + model summary sidebar */}
+          <div className="w-56 shrink-0 space-y-4 overflow-auto">
+            <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
               Columns ({columns.length})
             </h2>
-            <div className="space-y-1.5">
+            <div className="space-y-1">
               {columns.map((col) => {
                 const meta =
                   COLUMN_TYPE_META[col.column_type as ColumnType];
                 return (
                   <div
                     key={col.name}
-                    className="flex items-center gap-2 text-sm"
+                    className="flex items-center gap-1.5 text-xs"
                   >
                     <span
-                      className={`text-xs px-1.5 py-0.5 rounded border font-medium shrink-0 ${
+                      className={`px-1 py-0.5 rounded border font-medium shrink-0 ${
                         meta?.color ?? "bg-surface-3 text-gray-400 border-border"
                       }`}
                     >
-                      {meta?.emoji ?? "?"}{" "}
-                      {meta?.label ?? col.column_type}
+                      {meta?.emoji ?? "?"}
                     </span>
-                    <span className="text-gray-200 truncate">{col.name}</span>
-                    {col.drop && (
-                      <span className="text-xs text-gray-600">(drop)</span>
-                    )}
+                    <span className="text-gray-300 truncate">{col.name}</span>
                   </div>
                 );
               })}
             </div>
 
-            <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wider pt-4">
+            <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider pt-2">
               Models ({models.length})
             </h2>
-            <div className="space-y-1.5">
+            <div className="space-y-1">
               {models.map((m: any) => (
-                <div key={m.alias} className="text-sm">
+                <div key={m.alias} className="text-xs">
                   <span className="text-nvidia-green font-medium">
                     {m.alias}
                   </span>
-                  <span className="text-gray-500 ml-2 text-xs truncate">
+                  <span className="text-gray-600 ml-1 truncate block">
                     {m.model}
                   </span>
                 </div>
@@ -227,16 +292,18 @@ export default function ConfigPage() {
             </div>
           </div>
 
-          {/* YAML viewer */}
-          <div className="col-span-2">
-            <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-4">
-              Config YAML
-            </h2>
-            <div className="card bg-surface-0 overflow-auto max-h-[65vh]">
-              <pre className="text-xs font-mono text-gray-300 leading-relaxed whitespace-pre">
-                {yaml}
-              </pre>
-            </div>
+          {/* YAML editor */}
+          <div className="flex-1 flex flex-col min-h-0">
+            <textarea
+              className="flex-1 bg-surface-0 border border-border rounded-lg p-4 font-mono text-xs text-gray-200 leading-relaxed resize-none focus:outline-none focus:border-border-focus focus:ring-1 focus:ring-nvidia-green/30 transition-colors"
+              value={editYaml}
+              onChange={(e) => {
+                setEditYaml(e.target.value);
+                setSaveMessage(null);
+                setValidation(null);
+              }}
+              spellCheck={false}
+            />
           </div>
         </div>
       )}
