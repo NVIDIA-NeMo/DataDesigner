@@ -7,25 +7,29 @@ import typer
 
 
 def web_command(
+    config: str | None = typer.Argument(
+        None,
+        help="Path to a config file (.yaml/.yml/.json) to load on startup. If omitted, scans the current directory.",
+    ),
     host: str = typer.Option("127.0.0.1", "--host", "-h", help="Host to bind the server to."),
     port: int = typer.Option(8765, "--port", "-p", help="Port to bind the server to."),
     reload: bool = typer.Option(False, "--reload", help="Enable auto-reload for development."),
 ) -> None:
-    """Launch the Data Designer web config builder UI.
+    """Launch the Data Designer web UI.
 
-    Opens a browser-based interface for visually building, editing, previewing,
-    and exporting Data Designer configuration files.
+    Opens a browser-based dashboard for loading configs, running
+    validate/preview/create, and inspecting results with traces.
 
     Examples:
-        # Start with default settings
+        # Start and scan current directory for configs
         data-designer web
+
+        # Start with a specific config file
+        data-designer web my_config.yaml
 
         # Custom host and port
         data-designer web --host 0.0.0.0 --port 9000
-
-        # Enable auto-reload for backend development
-        data-designer web --reload
     """
     from data_designer.web.server import run_server
 
-    run_server(host=host, port=port, reload=reload)
+    run_server(host=host, port=port, reload=reload, config_path=config)

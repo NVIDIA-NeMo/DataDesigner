@@ -1,9 +1,6 @@
 const API_BASE = "/api";
 
-async function request<T>(
-  path: string,
-  init?: RequestInit
-): Promise<T> {
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     headers: { "Content-Type": "application/json", ...init?.headers },
     ...init,
@@ -16,55 +13,63 @@ async function request<T>(
 }
 
 export const api = {
-  // Schema
-  getColumnSchemas: () => request<Record<string, unknown>>("/schema/columns"),
-  getEnums: () => request<Record<string, string[]>>("/schema/enums"),
-
-  // Config
+  // Config discovery & loading
+  listConfigs: () => request<{ name: string; path: string; active: boolean }[]>("/configs"),
+  loadConfig: (path: string) =>
+    request<Record<string, unknown>>("/config/load", {
+      method: "POST",
+      body: JSON.stringify({ path }),
+    }),
   getConfig: () => request<Record<string, unknown>>("/config"),
-  loadConfig: (config: Record<string, unknown>) =>
-    request<Record<string, unknown>>("/config", {
-      method: "PUT",
-      body: JSON.stringify({ config }),
-    }),
-  resetConfig: () => request<{ status: string }>("/config", { method: "DELETE" }),
+  getConfigYaml: () => request<{ content: string }>("/config/yaml"),
+  getConfigInfo: () =>
+    request<{
+      loaded: boolean;
+      path: string | null;
+      columns: { name: string; column_type: string; drop: boolean }[];
+      models: Record<string, unknown>[];
+    }>("/config/info"),
   exportConfig: (format: "yaml" | "json" = "yaml") =>
-    request<{ format: string; content: string }>(
-      `/config/export?format=${format}`
-    ),
+    request<{ format: string; content: string }>(`/config/export?format=${format}`),
 
-  // Columns
-  listColumns: () => request<Record<string, unknown>[]>("/config/columns"),
-  addColumn: (data: Record<string, unknown>) =>
-    request<Record<string, unknown>>("/config/columns", {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
-  updateColumn: (name: string, data: Record<string, unknown>) =>
-    request<Record<string, unknown>>(`/config/columns/${encodeURIComponent(name)}`, {
-      method: "PUT",
-      body: JSON.stringify(data),
-    }),
-  deleteColumn: (name: string) =>
-    request<{ status: string }>(`/config/columns/${encodeURIComponent(name)}`, {
-      method: "DELETE",
-    }),
-
-  // Models
+  // Read-only lists
+  listColumns: () => request<{ name: string; column_type: string; drop: boolean }[]>("/config/columns"),
   listModels: () => request<Record<string, unknown>[]>("/config/models"),
-  addModel: (data: Record<string, unknown>) =>
-    request<Record<string, unknown>>("/config/models", {
+
+  // Execution
+  validate: () => request<{ valid: boolean; message: string }>("/config/validate", { method: "POST" }),
+  runPreview: (numRecords: number, debugMode: boolean = false) =>
+    request<{ status: string }>("/preview", {
       method: "POST",
-      body: JSON.stringify(data),
+      body: JSON.stringify({ num_records: numRecords, debug_mode: debugMode }),
     }),
-  deleteModel: (alias: string) =>
-    request<{ status: string }>(`/config/models/${encodeURIComponent(alias)}`, {
-      method: "DELETE",
+  runCreate: (numRecords: number, datasetName: string = "dataset", artifactPath?: string) =>
+    request<{ status: string }>("/create", {
+      method: "POST",
+      body: JSON.stringify({ num_records: numRecords, dataset_name: datasetName, artifact_path: artifactPath }),
     }),
+  getStatus: () =>
+    request<{
+      state: "idle" | "running" | "done" | "error";
+      type: string | null;
+      error: string | null;
+      has_preview: boolean;
+      has_create: boolean;
+    }>("/status"),
 
-  // References
-  getReferences: () => request<string[]>("/references"),
+  // Results
+  getPreviewResults: () =>
+    request<{
+      columns: string[];
+      rows: Record<string, unknown>[];
+      analysis: unknown;
+      row_count: number;
+    }>("/preview/results"),
+  getTrace: (row: number, column: string) =>
+    request<Record<string, unknown>[]>(`/preview/traces/${row}/${encodeURIComponent(column)}`),
+  getCreateResults: () =>
+    request<{ num_records?: number; artifact_path?: string; columns?: string[] }>("/create/results"),
 
-  // Health
+  // Utility
   health: () => request<{ status: string }>("/health"),
 };
