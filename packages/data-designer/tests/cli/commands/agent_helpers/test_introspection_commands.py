@@ -99,12 +99,12 @@ def test_processors_no_arg_fails() -> None:
 
 
 # ---------------------------------------------------------------------------
-# builder
+# config_builder
 # ---------------------------------------------------------------------------
 
 
-def test_builder() -> None:
-    result = runner.invoke(app, ["inspect", "builder"])
+def test_config_builder() -> None:
+    result = runner.invoke(app, ["inspect", "config_builder"])
     assert result.exit_code == 0
     assert "add_column" in result.output
     assert "DataDesignerConfigBuilder" in result.output
