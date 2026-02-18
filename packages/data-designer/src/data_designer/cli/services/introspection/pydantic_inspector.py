@@ -12,6 +12,8 @@ from typing import Any, get_args, get_origin
 from pydantic import BaseModel
 from pydantic_core import PydanticUndefined
 
+_NO_DESCRIPTION = "No description available."
+
 
 def _is_basemodel_subclass(cls: Any) -> bool:
     """Return True if cls is a concrete BaseModel subclass (not BaseModel itself)."""
@@ -91,8 +93,6 @@ def _extract_nested_basemodel(annotation: Any) -> type | None:
             result = _extract_nested_basemodel(arg)
             if result is not None:
                 basemodel_classes.append(result)
-            elif _is_basemodel_subclass(arg):
-                basemodel_classes.append(arg)
         if len(basemodel_classes) == 1:
             return basemodel_classes[0]
         return None
@@ -147,10 +147,11 @@ def format_type(annotation: Any) -> str:
 def get_brief_description(cls: type) -> str:
     """Extract first line from class docstring."""
     if cls.__doc__:
-        doc = cls.__doc__.strip()
-        first_line = doc.split("\n")[0].strip()
-        return first_line
-    return "No description available."
+        for line in cls.__doc__.strip().split("\n"):
+            stripped = line.strip()
+            if stripped:
+                return stripped
+    return _NO_DESCRIPTION
 
 
 def _extract_constraints(field_info: Any) -> dict[str, Any] | None:

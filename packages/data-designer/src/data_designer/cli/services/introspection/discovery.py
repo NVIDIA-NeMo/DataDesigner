@@ -75,6 +75,7 @@ def _discover_params_by_discriminator(
     Args:
         params_class_suffix: Class-name suffix to select params classes.
         discriminator_field: Field name that stores the literal discriminator.
+        enum_name: Enum class name to use for fallback name-matching.
 
     Returns:
         Dict mapping discriminator values to params classes.
