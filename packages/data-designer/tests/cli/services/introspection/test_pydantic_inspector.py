@@ -6,9 +6,11 @@ from __future__ import annotations
 from enum import Enum
 from typing import Annotated
 
+import pytest
 from pydantic import BaseModel, Field
 
 from data_designer.cli.services.introspection.pydantic_inspector import (
+    _default_to_json,
     _extract_constraints,
     _extract_enum_class,
     _extract_nested_basemodel,
@@ -450,3 +452,89 @@ def test_format_model_text_depth_limiting_blocks_deeper_nesting() -> None:
     text = format_model_text(Level1, max_depth=1)
     assert "schema (Level2):" in text
     assert "schema (Level3):" not in text
+
+
+# ---------------------------------------------------------------------------
+# _default_to_json (P1-6)
+# ---------------------------------------------------------------------------
+
+
+class _JsonTestEnum(str, Enum):
+    MEMBER = "member_value"
+
+
+class _CustomObj:
+    def __repr__(self) -> str:
+        return "CustomObj()"
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (None, None),
+        (_JsonTestEnum.MEMBER, "member_value"),
+        (True, True),
+        (42, 42),
+        (3.14, 3.14),
+        ("hello", "hello"),
+        ([1, 2], [1, 2]),
+        ({"a": 1}, {"a": 1}),
+    ],
+)
+def test_default_to_json(value: object, expected: object) -> None:
+    assert _default_to_json(value) == expected
+
+
+def test_default_to_json_custom_object() -> None:
+    obj = _CustomObj()
+    assert _default_to_json(obj) == "CustomObj()"
+
+
+# ---------------------------------------------------------------------------
+# format_type — regex branches (P1-8)
+# ---------------------------------------------------------------------------
+
+
+def test_format_type_none_type() -> None:
+    result = format_type(type(None))
+    assert result == "None"
+
+
+def test_format_type_enum_class() -> None:
+    result = format_type(ColorEnum)
+    assert result == "ColorEnum"
+
+
+def test_format_type_module_prefix_stripping() -> None:
+    import data_designer.config as dd
+
+    result = format_type(list[dd.CategorySamplerParams])
+    assert "data_designer.config." not in result
+    assert "CategorySamplerParams" in result
+
+
+def test_format_type_literal() -> None:
+    from typing import Literal
+
+    result = format_type(Literal["foo", "bar"])
+    assert "Literal[" in result
+    assert "foo" in result
+    assert "bar" in result
+
+
+# ---------------------------------------------------------------------------
+# format_model_text — empty model (P1-10)
+# ---------------------------------------------------------------------------
+
+
+class EmptyModel(BaseModel):
+    """An empty model with no fields."""
+
+
+def test_format_model_text_empty_model() -> None:
+    text = format_model_text(EmptyModel)
+    assert "EmptyModel:" in text
+    assert "fields:" in text
+    lines = text.strip().split("\n")
+    field_lines = [line for line in lines if line.startswith("    ") and ":" in line and "fields:" not in line]
+    assert len(field_lines) == 0

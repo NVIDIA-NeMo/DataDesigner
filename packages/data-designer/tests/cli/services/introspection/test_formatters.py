@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 from data_designer.cli.services.introspection.formatters import (
-    format_method_info_json,
     format_method_info_text,
     format_type_list_text,
 )
@@ -57,36 +56,6 @@ def test_format_method_info_text_no_class_name() -> None:
 
 
 # ---------------------------------------------------------------------------
-# format_method_info_json
-# ---------------------------------------------------------------------------
-
-
-def test_format_method_info_json_basic() -> None:
-    methods = [_make_method()]
-    result = format_method_info_json(methods)
-    assert isinstance(result, list)
-    assert len(result) == 1
-    entry = result[0]
-    assert entry["name"] == "do_thing"
-    assert entry["signature"] == "do_thing(x: int) -> str"
-    assert entry["return_type"] == "str"
-    assert "description" in entry
-    assert "parameters" in entry
-
-
-def test_format_method_info_json_multiple_methods() -> None:
-    methods = [
-        _make_method(name="method_a", signature="method_a() -> None", return_type="None", parameters=[]),
-        _make_method(name="method_b"),
-    ]
-    result = format_method_info_json(methods)
-    assert len(result) == 2
-    names = [e["name"] for e in result]
-    assert "method_a" in names
-    assert "method_b" in names
-
-
-# ---------------------------------------------------------------------------
 # format_type_list_text
 # ---------------------------------------------------------------------------
 
@@ -122,3 +91,43 @@ def test_format_type_list_text_alignment() -> None:
 def test_format_type_list_text_empty() -> None:
     text = format_type_list_text({}, "Type", "Class")
     assert "(no items)" in text
+
+
+# ---------------------------------------------------------------------------
+# format_method_info_text — edge cases (P1-7)
+# ---------------------------------------------------------------------------
+
+
+def test_format_method_info_text_empty_list() -> None:
+    text = format_method_info_text([], class_name="MyClass")
+    assert "MyClass Methods:" in text
+    lines = text.strip().split("\n")
+    assert len(lines) <= 2
+
+
+def test_format_method_info_text_no_description() -> None:
+    method = MethodInfo(
+        name="do_thing",
+        signature="do_thing() -> None",
+        description="",
+        return_type="None",
+        parameters=[],
+    )
+    text = format_method_info_text([method])
+    lines = text.strip().split("\n")
+    sig_line_idx = next(i for i, line in enumerate(lines) if "do_thing()" in line)
+    if sig_line_idx + 1 < len(lines):
+        next_line = lines[sig_line_idx + 1].strip()
+        assert next_line == "" or next_line.startswith("Parameters:") or "do_thing" not in next_line
+
+
+def test_format_method_info_text_no_parameters() -> None:
+    method = MethodInfo(
+        name="do_thing",
+        signature="do_thing() -> None",
+        description="Does a thing.",
+        return_type="None",
+        parameters=[],
+    )
+    text = format_method_info_text([method])
+    assert "Parameters:" not in text
