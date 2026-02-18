@@ -210,7 +210,24 @@ class ExecutionSession:
     def list_models(self) -> list[dict[str, Any]]:
         if not self._builder:
             return []
-        return [mc.model_dump(mode="json") for mc in self._builder.model_configs]
+        used_aliases = self._get_used_model_aliases()
+        result = []
+        for mc in self._builder.model_configs:
+            d = mc.model_dump(mode="json")
+            d["_used"] = mc.alias in used_aliases
+            result.append(d)
+        return result
+
+    def _get_used_model_aliases(self) -> set[str]:
+        """Return the set of model aliases actually referenced by columns."""
+        if not self._builder:
+            return set()
+        aliases = set()
+        for col in self._builder.get_column_configs():
+            alias = getattr(col, "model_alias", None)
+            if alias:
+                aliases.add(alias)
+        return aliases
 
     # -- Execution ----------------------------------------------------------
 

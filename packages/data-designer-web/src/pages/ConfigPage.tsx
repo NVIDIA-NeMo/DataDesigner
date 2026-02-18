@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   CheckCircle2,
   XCircle,
@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { api } from "../hooks/useApi";
 import { COLUMN_TYPE_META, ColumnType } from "../types/config";
+import YamlHighlighter from "../components/YamlHighlighter";
 
 interface ConfigFile {
   name: string;
@@ -46,6 +47,8 @@ export default function ConfigPage() {
   const [editYaml, setEditYaml] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const hasUnsavedChanges = editYaml !== savedYaml;
 
@@ -281,21 +284,64 @@ export default function ConfigPage() {
               })}
             </div>
 
-            <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider pt-2">
-              Models ({models.length})
-            </h2>
-            <div className="space-y-1">
-              {models.map((m: any) => (
-                <div key={m.alias} className="text-xs">
-                  <span className="text-nvidia-green font-medium">
-                    {m.alias}
-                  </span>
-                  <span className="text-gray-600 ml-1 truncate block">
-                    {m.model}
-                  </span>
-                </div>
-              ))}
-            </div>
+            {(() => {
+              const used = models.filter((m: any) => m._used);
+              const available = models.filter((m: any) => !m._used);
+              return (
+                <>
+                  <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider pt-2">
+                    Models in Use ({used.length})
+                  </h2>
+                  {used.length > 0 ? (
+                    <div className="space-y-1.5">
+                      {used.map((m: any) => (
+                        <div key={m.alias} className="text-xs">
+                          <div className="flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-nvidia-green shrink-0" />
+                            <span className="text-nvidia-green font-semibold">
+                              {m.alias}
+                            </span>
+                          </div>
+                          <span className="text-gray-500 ml-3 truncate block text-[10px]">
+                            {m.model}
+                            {m.provider && (
+                              <span className="text-gray-600"> via {m.provider}</span>
+                            )}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-gray-600">
+                      No models referenced by columns
+                    </p>
+                  )}
+
+                  {available.length > 0 && (
+                    <>
+                      <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider pt-2">
+                        Available ({available.length})
+                      </h2>
+                      <div className="space-y-1">
+                        {available.map((m: any) => (
+                          <div key={m.alias} className="text-xs">
+                            <div className="flex items-center gap-1.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-gray-600 shrink-0" />
+                              <span className="text-gray-500">
+                                {m.alias}
+                              </span>
+                            </div>
+                            <span className="text-gray-700 ml-3 truncate block text-[10px]">
+                              {m.model}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </>
+              );
+            })()}
 
             {/* Output Schema */}
             {outputSchema.length > 0 && (
@@ -340,18 +386,30 @@ export default function ConfigPage() {
             )}
           </div>
 
-          {/* YAML editor */}
+          {/* YAML editor with syntax highlighting */}
           <div className="flex-1 flex flex-col min-h-0">
-            <textarea
-              className="flex-1 bg-surface-0 border border-border rounded-lg p-4 font-mono text-xs text-gray-200 leading-relaxed resize-none focus:outline-none focus:border-border-focus focus:ring-1 focus:ring-nvidia-green/30 transition-colors"
-              value={editYaml}
-              onChange={(e) => {
-                setEditYaml(e.target.value);
-                setSaveMessage(null);
-                setValidation(null);
-              }}
-              spellCheck={false}
-            />
+            {editing ? (
+              <textarea
+                ref={textareaRef}
+                className="flex-1 bg-surface-0 border border-nvidia-green/40 rounded-lg p-4 font-mono text-xs text-gray-200 leading-relaxed resize-none focus:outline-none focus:ring-1 focus:ring-nvidia-green/30 transition-colors"
+                value={editYaml}
+                onChange={(e) => {
+                  setEditYaml(e.target.value);
+                  setSaveMessage(null);
+                  setValidation(null);
+                }}
+                onBlur={() => setEditing(false)}
+                spellCheck={false}
+                autoFocus
+              />
+            ) : (
+              <div
+                className="flex-1 bg-surface-0 border border-border rounded-lg p-4 overflow-auto cursor-text hover:border-border-hover transition-colors"
+                onClick={() => setEditing(true)}
+              >
+                <YamlHighlighter code={editYaml} />
+              </div>
+            )}
           </div>
         </div>
       )}
