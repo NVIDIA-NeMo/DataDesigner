@@ -63,7 +63,7 @@ def constraints_command() -> None:
     IntrospectionController().show_sampler_constraints()
 
 
-@inspect_app.command(name="config_builder")
+@inspect_app.command(name="config-builder")
 def config_builder_command() -> None:
     """Return DataDesignerConfigBuilder method signatures and docstrings. Use to understand available builder methods and their parameters."""
     IntrospectionController().show_builder()
