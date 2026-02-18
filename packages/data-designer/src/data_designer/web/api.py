@@ -60,6 +60,16 @@ class AnnotationRequest(BaseModel):
     note: str = ""
 
 
+class MCPProviderRequest(BaseModel):
+    provider_type: str = "sse"
+    name: str
+    endpoint: str | None = None
+    api_key: str | None = None
+    command: str | None = None
+    args: list[str] | None = None
+    env: dict[str, str] | None = None
+
+
 class PreviewRequest(BaseModel):
     num_records: int = 10
     debug_mode: bool = False
@@ -151,6 +161,7 @@ async def config_info() -> dict[str, Any]:
         "columns": s.list_columns(),
         "models": s.list_models(),
         "output_schema": s.get_output_schema(),
+        "mcp_status": s.get_mcp_status(),
     }
 
 
@@ -241,6 +252,40 @@ async def preview_trace(row: int, column: str) -> list[dict[str, Any]]:
 async def create_results() -> dict[str, Any]:
     """Get create run results (artifact path, record count)."""
     return _get_session().get_create_result()
+
+
+# ---------------------------------------------------------------------------
+# MCP Providers
+# ---------------------------------------------------------------------------
+
+@router.get("/mcp/providers", tags=["mcp"])
+async def list_mcp_providers() -> list[dict[str, Any]]:
+    """List configured MCP providers."""
+    return _get_session().list_mcp_providers()
+
+
+@router.post("/mcp/providers", tags=["mcp"])
+async def add_mcp_provider(req: MCPProviderRequest) -> dict[str, Any]:
+    """Add or update an MCP provider."""
+    try:
+        data = req.model_dump(exclude_none=True)
+        return _get_session().add_mcp_provider(data)
+    except Exception as e:
+        logger.error(f"Failed to add MCP provider: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@router.delete("/mcp/providers/{name}", tags=["mcp"])
+async def delete_mcp_provider(name: str) -> dict[str, str]:
+    """Delete an MCP provider by name."""
+    _get_session().delete_mcp_provider(name)
+    return {"status": "ok"}
+
+
+@router.get("/mcp/status", tags=["mcp"])
+async def mcp_status() -> dict[str, Any]:
+    """Return required vs configured MCP providers with status."""
+    return _get_session().get_mcp_status()
 
 
 # ---------------------------------------------------------------------------

@@ -16,8 +16,11 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from data_designer.cli.repositories.mcp_provider_repository import MCPProviderRegistry, MCPProviderRepository
 from data_designer.cli.utils.config_loader import load_config_builder
 from data_designer.config.config_builder import DataDesignerConfigBuilder
+from data_designer.config.mcp import LocalStdioMCPProvider, MCPProvider, MCPProviderT
+from data_designer.config.utils.constants import DATA_DESIGNER_HOME
 from data_designer.config.utils.io_helpers import serialize_data
 from data_designer.config.utils.trace_type import TraceType
 
@@ -150,6 +153,9 @@ class ExecutionSession:
         self._log_buffer: deque[dict[str, Any]] = deque(maxlen=MAX_LOG_LINES)
         self._log_handler: _LogCaptureHandler | None = None
         self._annotations: dict[int, dict[str, Any]] = {}
+
+        self._mcp_repo = MCPProviderRepository(config_dir=DATA_DESIGNER_HOME)
+        self._mcp_providers: list[MCPProviderT] = self._load_mcp_providers()
 
         if config_path and config_path.exists():
             try:
@@ -372,7 +378,7 @@ class ExecutionSession:
                 if debug_mode and builder:
                     builder = self._enable_traces(builder)
 
-                dd = DataDesigner()
+                dd = DataDesigner(mcp_providers=self._mcp_providers or None)
                 results = dd.preview(builder, num_records=num_records)
 
                 dataset = results.dataset
@@ -425,7 +431,7 @@ class ExecutionSession:
                 from data_designer.interface import DataDesigner
 
                 resolved_path = Path(artifact_path) if artifact_path else Path.cwd() / "artifacts"
-                dd = DataDesigner(artifact_path=resolved_path)
+                dd = DataDesigner(artifact_path=resolved_path, mcp_providers=self._mcp_providers or None)
                 results = dd.create(
                     self._builder,
                     num_records=num_records,
@@ -516,6 +522,59 @@ class ExecutionSession:
             self._annotations = {int(k): v for k, v in data.items()}
         except Exception as e:
             logger.warning(f"Failed to load annotations: {e}")
+
+    # -- MCP Provider Management --------------------------------------------
+
+    def _load_mcp_providers(self) -> list[MCPProviderT]:
+        registry = self._mcp_repo.load()
+        return list(registry.providers) if registry else []
+
+    def _save_mcp_providers(self) -> None:
+        registry = MCPProviderRegistry(providers=self._mcp_providers)
+        DATA_DESIGNER_HOME.mkdir(parents=True, exist_ok=True)
+        self._mcp_repo.save(registry)
+
+    def list_mcp_providers(self) -> list[dict[str, Any]]:
+        return [p.model_dump(mode="json") for p in self._mcp_providers]
+
+    def add_mcp_provider(self, data: dict[str, Any]) -> dict[str, Any]:
+        provider_type = data.get("provider_type", "sse")
+        if provider_type == "stdio":
+            provider = LocalStdioMCPProvider.model_validate(data)
+        else:
+            provider = MCPProvider.model_validate(data)
+
+        self._mcp_providers = [p for p in self._mcp_providers if p.name != provider.name]
+        self._mcp_providers.append(provider)
+        self._save_mcp_providers()
+        return provider.model_dump(mode="json")
+
+    def delete_mcp_provider(self, name: str) -> None:
+        self._mcp_providers = [p for p in self._mcp_providers if p.name != name]
+        self._save_mcp_providers()
+
+    def get_required_providers(self) -> list[str]:
+        if not self._builder:
+            return []
+        names: list[str] = []
+        for tc in self._builder.tool_configs:
+            names.extend(tc.providers)
+        return sorted(set(names))
+
+    def get_mcp_status(self) -> dict[str, Any]:
+        required = self.get_required_providers()
+        configured_names = {p.name for p in self._mcp_providers}
+        providers_status = []
+        for name in required:
+            providers_status.append({
+                "name": name,
+                "configured": name in configured_names,
+            })
+        return {
+            "required": providers_status,
+            "configured": self.list_mcp_providers(),
+            "all_satisfied": all(s["configured"] for s in providers_status),
+        }
 
     # -- Config Review ------------------------------------------------------
 

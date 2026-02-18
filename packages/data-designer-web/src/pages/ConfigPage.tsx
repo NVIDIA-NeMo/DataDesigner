@@ -14,6 +14,9 @@ import {
   Lightbulb,
   ChevronDown,
   ChevronRight,
+  Wrench,
+  Plus,
+  Trash2,
 } from "lucide-react";
 import { api } from "../hooks/useApi";
 import { COLUMN_TYPE_META, ColumnType } from "../types/config";
@@ -66,6 +69,20 @@ export default function ConfigPage() {
   } | null>(null);
   const [reviewOpen, setReviewOpen] = useState(true);
 
+  // MCP state
+  const [mcpStatus, setMcpStatus] = useState<{
+    required: { name: string; configured: boolean }[];
+    configured: Record<string, unknown>[];
+    all_satisfied: boolean;
+  }>({ required: [], configured: [], all_satisfied: true });
+  const [showMcpForm, setShowMcpForm] = useState(false);
+  const [mcpFormType, setMcpFormType] = useState<"sse" | "stdio">("stdio");
+  const [mcpFormName, setMcpFormName] = useState("");
+  const [mcpFormEndpoint, setMcpFormEndpoint] = useState("");
+  const [mcpFormCommand, setMcpFormCommand] = useState("");
+  const [mcpFormArgs, setMcpFormArgs] = useState("");
+  const [mcpFormEnv, setMcpFormEnv] = useState("");
+
   const hasUnsavedChanges = editYaml !== savedYaml;
 
   const refresh = useCallback(async () => {
@@ -76,6 +93,7 @@ export default function ConfigPage() {
       setColumns(info.columns);
       setModels(info.models);
       setOutputSchema(info.output_schema ?? []);
+      setMcpStatus(info.mcp_status ?? { required: [], configured: [], all_satisfied: true });
       if (info.loaded) {
         const y = await api.getConfigYaml();
         setSavedYaml(y.content);
@@ -165,6 +183,46 @@ export default function ConfigPage() {
     } finally {
       setReviewing(false);
     }
+  };
+
+  const handleAddMcpProvider = async () => {
+    try {
+      const data: Record<string, unknown> = {
+        provider_type: mcpFormType,
+        name: mcpFormName,
+      };
+      if (mcpFormType === "sse") {
+        data.endpoint = mcpFormEndpoint;
+      } else {
+        data.command = mcpFormCommand;
+        if (mcpFormArgs.trim()) {
+          data.args = mcpFormArgs.split(",").map((a: string) => a.trim()).filter(Boolean);
+        }
+        if (mcpFormEnv.trim()) {
+          const env: Record<string, string> = {};
+          mcpFormEnv.split(",").forEach((pair: string) => {
+            const [k, ...v] = pair.split("=");
+            if (k && v.length) env[k.trim()] = v.join("=").trim();
+          });
+          data.env = env;
+        }
+      }
+      await api.addMcpProvider(data);
+      setShowMcpForm(false);
+      setMcpFormName("");
+      setMcpFormEndpoint("");
+      setMcpFormCommand("");
+      setMcpFormArgs("");
+      setMcpFormEnv("");
+      await refresh();
+    } catch (e: any) {
+      setError(e.message);
+    }
+  };
+
+  const handleDeleteMcpProvider = async (name: string) => {
+    await api.deleteMcpProvider(name);
+    await refresh();
   };
 
   return (
@@ -544,6 +602,129 @@ export default function ConfigPage() {
                     )}
                   </div>
                 </div>
+              </>
+            )}
+
+            {/* MCP Providers */}
+            {mcpStatus.required.length > 0 && (
+              <>
+                <div className="flex items-center gap-1.5 pt-3">
+                  <Wrench size={12} className="text-gray-400" />
+                  <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                    MCP Providers
+                  </h2>
+                  {!mcpStatus.all_satisfied && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-red-400" />
+                  )}
+                </div>
+                <div className="space-y-1 text-xs">
+                  {mcpStatus.required.map((p) => (
+                    <div key={p.name} className="flex items-center gap-1.5">
+                      {p.configured ? (
+                        <CheckCircle2 size={10} className="text-green-400 shrink-0" />
+                      ) : (
+                        <XCircle size={10} className="text-red-400 shrink-0" />
+                      )}
+                      <span className={p.configured ? "text-gray-300" : "text-red-300"}>
+                        {p.name}
+                      </span>
+                      {p.configured && (
+                        <button
+                          className="text-gray-600 hover:text-red-400 ml-auto"
+                          onClick={() => handleDeleteMcpProvider(p.name)}
+                          title="Remove"
+                        >
+                          <Trash2 size={10} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {!mcpStatus.all_satisfied && !showMcpForm && (
+                  <button
+                    className="text-[10px] text-purple-400 hover:text-purple-300 flex items-center gap-1 mt-1"
+                    onClick={() => {
+                      setShowMcpForm(true);
+                      const missing = mcpStatus.required.find((p) => !p.configured);
+                      if (missing) setMcpFormName(missing.name);
+                    }}
+                  >
+                    <Plus size={10} />
+                    Add provider
+                  </button>
+                )}
+
+                {showMcpForm && (
+                  <div className="bg-surface-2 rounded-md p-2 space-y-1.5 text-xs border border-border mt-1">
+                    <div className="flex gap-1">
+                      <button
+                        className={`px-2 py-0.5 rounded text-[10px] ${
+                          mcpFormType === "stdio"
+                            ? "bg-nvidia-green/20 text-nvidia-green"
+                            : "bg-surface-3 text-gray-500"
+                        }`}
+                        onClick={() => setMcpFormType("stdio")}
+                      >
+                        Local
+                      </button>
+                      <button
+                        className={`px-2 py-0.5 rounded text-[10px] ${
+                          mcpFormType === "sse"
+                            ? "bg-nvidia-green/20 text-nvidia-green"
+                            : "bg-surface-3 text-gray-500"
+                        }`}
+                        onClick={() => setMcpFormType("sse")}
+                      >
+                        Remote
+                      </button>
+                    </div>
+                    <input
+                      className="input-field !py-1 !text-xs"
+                      value={mcpFormName}
+                      onChange={(e) => setMcpFormName(e.target.value)}
+                      placeholder="Provider name"
+                    />
+                    {mcpFormType === "sse" ? (
+                      <input
+                        className="input-field !py-1 !text-xs"
+                        value={mcpFormEndpoint}
+                        onChange={(e) => setMcpFormEndpoint(e.target.value)}
+                        placeholder="Endpoint URL"
+                      />
+                    ) : (
+                      <>
+                        <input
+                          className="input-field !py-1 !text-xs"
+                          value={mcpFormCommand}
+                          onChange={(e) => setMcpFormCommand(e.target.value)}
+                          placeholder="Command (e.g. python)"
+                        />
+                        <input
+                          className="input-field !py-1 !text-xs"
+                          value={mcpFormArgs}
+                          onChange={(e) => setMcpFormArgs(e.target.value)}
+                          placeholder="Args (comma-separated)"
+                        />
+                      </>
+                    )}
+                    <div className="flex gap-1">
+                      <button
+                        className="btn-primary !py-0.5 !px-2 !text-[10px]"
+                        onClick={handleAddMcpProvider}
+                        disabled={!mcpFormName || (mcpFormType === "sse" ? !mcpFormEndpoint : !mcpFormCommand)}
+                      >
+                        Add
+                      </button>
+                      <button
+                        className="btn-ghost !py-0.5 !px-2 !text-[10px] text-gray-500"
+                        onClick={() => setShowMcpForm(false)}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
               </>
             )}
           </div>

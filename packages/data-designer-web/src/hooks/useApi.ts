@@ -34,6 +34,7 @@ export const api = {
       columns: { name: string; column_type: string; drop: boolean }[];
       models: Record<string, unknown>[];
       output_schema?: { name: string; column_type: string; drop: boolean; in_output: boolean; side_effect_of?: string }[];
+      mcp_status?: { required: { name: string; configured: boolean }[]; configured: Record<string, unknown>[]; all_satisfied: boolean };
     }>("/config/info"),
   exportConfig: (format: "yaml" | "json" = "yaml") =>
     request<{ format: string; content: string }>(`/config/export?format=${format}`),
@@ -84,6 +85,24 @@ export const api = {
     request<Record<string, unknown>[]>(`/preview/traces/${row}/${encodeURIComponent(column)}`),
   getCreateResults: () =>
     request<{ num_records?: number; artifact_path?: string; columns?: string[] }>("/create/results"),
+
+  // MCP Providers
+  listMcpProviders: () => request<Record<string, unknown>[]>("/mcp/providers"),
+  addMcpProvider: (data: Record<string, unknown>) =>
+    request<Record<string, unknown>>("/mcp/providers", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  deleteMcpProvider: (name: string) =>
+    request<{ status: string }>(`/mcp/providers/${encodeURIComponent(name)}`, {
+      method: "DELETE",
+    }),
+  getMcpStatus: () =>
+    request<{
+      required: { name: string; configured: boolean }[];
+      configured: Record<string, unknown>[];
+      all_satisfied: boolean;
+    }>("/mcp/status"),
 
   // Annotations
   getAnnotations: () =>
