@@ -7,6 +7,7 @@ import {
   XCircle,
   AlertCircle,
   Terminal,
+  Wrench,
 } from "lucide-react";
 import { api } from "../hooks/useApi";
 
@@ -34,6 +35,7 @@ export default function RunPage() {
   const [execType, setExecType] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [configLoaded, setConfigLoaded] = useState(false);
+  const [mcpMissing, setMcpMissing] = useState<string[]>([]);
   const [createResult, setCreateResult] = useState<{
     num_records?: number;
     artifact_path?: string;
@@ -46,6 +48,9 @@ export default function RunPage() {
 
   useEffect(() => {
     api.getConfigInfo().then((info) => setConfigLoaded(info.loaded));
+    api.getMcpStatus().then((s) => {
+      setMcpMissing(s.required.filter((p) => !p.configured).map((p) => p.name));
+    }).catch(() => {});
     api.getStatus().then(async (s) => {
       setState(s.state);
       setExecType(s.type);
@@ -156,6 +161,21 @@ export default function RunPage() {
           <p className="text-sm text-amber-300">
             No config loaded. Go to the Config page to load one first.
           </p>
+        </div>
+      )}
+
+      {mcpMissing.length > 0 && (
+        <div className="card border-amber-700/50 bg-amber-900/20 mb-4 flex items-start gap-2">
+          <Wrench size={16} className="text-amber-400 mt-0.5 shrink-0" />
+          <div>
+            <p className="text-sm text-amber-300">
+              Missing MCP providers: <span className="font-mono font-semibold">{mcpMissing.join(", ")}</span>
+            </p>
+            <p className="text-xs text-amber-400/70 mt-1">
+              Your config uses tool calling but these providers aren't configured.
+              Go to the MCP page to set them up, or the preview will fail.
+            </p>
+          </div>
         </div>
       )}
 
