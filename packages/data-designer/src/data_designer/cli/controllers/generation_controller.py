@@ -12,10 +12,10 @@ import typer
 
 from data_designer.cli.ui import console, print_error, print_header, print_success, wait_for_navigation_key
 from data_designer.cli.utils.config_loader import ConfigLoadError, load_config_builder
-from data_designer.config.errors import InvalidConfigError
-from data_designer.interface import DataDesigner
 from data_designer.cli.utils.sample_records_pager import PAGER_FILENAME, create_sample_records_pager
+from data_designer.config.errors import InvalidConfigError
 from data_designer.config.utils.constants import DEFAULT_DISPLAY_WIDTH
+from data_designer.interface import DataDesigner
 
 if TYPE_CHECKING:
     from data_designer.config.config_builder import DataDesignerConfigBuilder
