@@ -270,7 +270,62 @@ def test_run_preview_calls_to_report_when_analysis_present(mock_load_config: Mag
     controller = GenerationController()
     controller.run_preview(config_source="config.yaml", num_records=3, non_interactive=True)
 
+    mock_analysis.to_report.assert_called_once_with(save_path=None)
+
+
+@patch("data_designer.interface.DataDesigner")
+@patch(f"{_CTRL}.load_config_builder")
+def test_run_preview_save_report_creates_html_file(
+    mock_load_config: MagicMock, mock_dd_cls: MagicMock, tmp_path: Path
+) -> None:
+    """Test --save-report passes an HTML save_path to to_report()."""
+    mock_load_config.return_value = MagicMock(spec=DataDesignerConfigBuilder)
+    mock_dd = MagicMock()
+    mock_dd_cls.return_value = mock_dd
+    mock_results = _make_mock_preview_results(3)
+    mock_analysis = MagicMock()
+    mock_results.analysis = mock_analysis
+    mock_dd.preview.return_value = mock_results
+
+    controller = GenerationController()
+    controller.run_preview(
+        config_source="config.yaml",
+        num_records=3,
+        non_interactive=True,
+        save_report=True,
+        artifact_path=str(tmp_path),
+    )
+
     mock_analysis.to_report.assert_called_once()
+    save_path = mock_analysis.to_report.call_args.kwargs["save_path"]
+    assert save_path.parent == tmp_path
+    assert save_path.name.startswith("preview_report_")
+    assert save_path.suffix == ".html"
+
+
+@patch("data_designer.interface.DataDesigner")
+@patch(f"{_CTRL}.load_config_builder")
+def test_run_preview_save_report_default_artifact_path(mock_load_config: MagicMock, mock_dd_cls: MagicMock) -> None:
+    """Test --save-report with no artifact_path defaults to ./artifacts."""
+    mock_load_config.return_value = MagicMock(spec=DataDesignerConfigBuilder)
+    mock_dd = MagicMock()
+    mock_dd_cls.return_value = mock_dd
+    mock_results = _make_mock_preview_results(3)
+    mock_analysis = MagicMock()
+    mock_results.analysis = mock_analysis
+    mock_dd.preview.return_value = mock_results
+
+    controller = GenerationController()
+    with patch.object(Path, "mkdir"):
+        controller.run_preview(
+            config_source="config.yaml",
+            num_records=3,
+            non_interactive=True,
+            save_report=True,
+        )
+
+    save_path = mock_analysis.to_report.call_args.kwargs["save_path"]
+    assert save_path.parent == Path.cwd() / "artifacts"
 
 
 @patch("data_designer.interface.DataDesigner")

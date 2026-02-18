@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -20,13 +21,22 @@ if TYPE_CHECKING:
 class GenerationController:
     """Controller for dataset generation workflows (preview, validate, create)."""
 
-    def run_preview(self, config_source: str, num_records: int, non_interactive: bool) -> None:
+    def run_preview(
+        self,
+        config_source: str,
+        num_records: int,
+        non_interactive: bool,
+        save_report: bool = False,
+        artifact_path: str | None = None,
+    ) -> None:
         """Load config, generate a preview dataset, and display the results.
 
         Args:
             config_source: Path to a config file or Python module.
             num_records: Number of records to generate.
             non_interactive: If True, display all records at once instead of browsing.
+            save_report: If True, save the analysis report as an HTML file.
+            artifact_path: Directory to save the report in, or None for ./artifacts.
         """
         from data_designer.interface import DataDesigner
 
@@ -58,7 +68,15 @@ class GenerationController:
 
         if results.analysis is not None:
             console.print()
-            results.analysis.to_report()
+            save_path = None
+            if save_report:
+                resolved_artifact_path = Path(artifact_path) if artifact_path else Path.cwd() / "artifacts"
+                resolved_artifact_path.mkdir(parents=True, exist_ok=True)
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                save_path = resolved_artifact_path / f"preview_report_{timestamp}.html"
+            results.analysis.to_report(save_path=save_path)
+            if save_path is not None:
+                console.print(f"  Report saved to: [bold]{save_path}[/bold]")
 
         console.print()
         print_success(f"Preview complete — {total} record(s) generated")

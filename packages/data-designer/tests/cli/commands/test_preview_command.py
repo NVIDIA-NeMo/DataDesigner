@@ -19,13 +19,17 @@ def test_preview_command_delegates_to_controller(mock_ctrl_cls: MagicMock) -> No
     mock_ctrl = MagicMock()
     mock_ctrl_cls.return_value = mock_ctrl
 
-    preview_command(config_source="config.yaml", num_records=5, non_interactive=True)
+    preview_command(
+        config_source="config.yaml", num_records=5, non_interactive=True, save_report=False, artifact_path=None
+    )
 
     mock_ctrl_cls.assert_called_once()
     mock_ctrl.run_preview.assert_called_once_with(
         config_source="config.yaml",
         num_records=5,
         non_interactive=True,
+        save_report=False,
+        artifact_path=None,
     )
 
 
@@ -35,12 +39,16 @@ def test_preview_command_passes_non_interactive_false(mock_ctrl_cls: MagicMock) 
     mock_ctrl = MagicMock()
     mock_ctrl_cls.return_value = mock_ctrl
 
-    preview_command(config_source="config.yaml", num_records=10, non_interactive=False)
+    preview_command(
+        config_source="config.yaml", num_records=10, non_interactive=False, save_report=False, artifact_path=None
+    )
 
     mock_ctrl.run_preview.assert_called_once_with(
         config_source="config.yaml",
         num_records=10,
         non_interactive=False,
+        save_report=False,
+        artifact_path=None,
     )
 
 
@@ -50,12 +58,39 @@ def test_preview_command_passes_custom_num_records(mock_ctrl_cls: MagicMock) -> 
     mock_ctrl = MagicMock()
     mock_ctrl_cls.return_value = mock_ctrl
 
-    preview_command(config_source="my_config.py", num_records=20, non_interactive=True)
+    preview_command(
+        config_source="my_config.py", num_records=20, non_interactive=True, save_report=False, artifact_path=None
+    )
 
     mock_ctrl.run_preview.assert_called_once_with(
         config_source="my_config.py",
         num_records=20,
         non_interactive=True,
+        save_report=False,
+        artifact_path=None,
+    )
+
+
+@patch("data_designer.cli.commands.preview.GenerationController")
+def test_preview_command_passes_save_report_and_artifact_path(mock_ctrl_cls: MagicMock) -> None:
+    """Test preview_command passes save_report and artifact_path to controller."""
+    mock_ctrl = MagicMock()
+    mock_ctrl_cls.return_value = mock_ctrl
+
+    preview_command(
+        config_source="config.yaml",
+        num_records=5,
+        non_interactive=True,
+        save_report=True,
+        artifact_path="/custom/output",
+    )
+
+    mock_ctrl.run_preview.assert_called_once_with(
+        config_source="config.yaml",
+        num_records=5,
+        non_interactive=True,
+        save_report=True,
+        artifact_path="/custom/output",
     )
 
 

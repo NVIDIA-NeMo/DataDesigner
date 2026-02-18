@@ -28,6 +28,17 @@ def preview_command(
         "--non-interactive",
         help="Display all records at once instead of browsing interactively.",
     ),
+    save_report: bool = typer.Option(
+        False,
+        "--save-report",
+        help="Save the analysis report as an HTML file in the artifact path.",
+    ),
+    artifact_path: str | None = typer.Option(
+        None,
+        "--artifact-path",
+        "-o",
+        help="Path where the report will be saved. Defaults to ./artifacts.",
+    ),
 ) -> None:
     """Generate a preview dataset for fast iteration on your configuration.
 
@@ -59,4 +70,6 @@ def preview_command(
         config_source=config_source,
         num_records=num_records,
         non_interactive=non_interactive,
+        save_report=save_report,
+        artifact_path=artifact_path,
     )
