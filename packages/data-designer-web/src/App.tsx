@@ -1,23 +1,15 @@
 import { useState } from "react";
-import {
-  FileText,
-  Play,
-  Table2,
-  FileDown,
-  Database,
-} from "lucide-react";
+import { FileText, Play, Table2, Database } from "lucide-react";
 import ConfigPage from "./pages/ConfigPage";
 import RunPage from "./pages/RunPage";
 import ResultsPage from "./pages/ResultsPage";
-import ExportView from "./components/ExportView";
 
-type Page = "config" | "run" | "results" | "export";
+type Page = "config" | "run" | "results";
 
 const NAV_ITEMS: { id: Page; label: string; icon: React.ReactNode }[] = [
   { id: "config", label: "Config", icon: <FileText size={18} /> },
   { id: "run", label: "Run", icon: <Play size={18} /> },
   { id: "results", label: "Results", icon: <Table2 size={18} /> },
-  { id: "export", label: "Export", icon: <FileDown size={18} /> },
 ];
 
 export default function App() {
@@ -55,7 +47,6 @@ export default function App() {
         {page === "config" && <ConfigPage />}
         {page === "run" && <RunPage />}
         {page === "results" && <ResultsPage />}
-        {page === "export" && <ExportView />}
       </main>
     </div>
   );
