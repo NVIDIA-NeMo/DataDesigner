@@ -52,7 +52,7 @@ def constraints_command() -> None:
     IntrospectionController().show_sampler_constraints()
 
 
-@inspect_app.command(name="builder")
-def builder_command() -> None:
-    """Show config builder method signatures and docstrings."""
+@inspect_app.command(name="config_builder")
+def config_builder_command() -> None:
+    """Show DataDesignerConfigBuilder method signatures and docstrings."""
     IntrospectionController().show_builder()
