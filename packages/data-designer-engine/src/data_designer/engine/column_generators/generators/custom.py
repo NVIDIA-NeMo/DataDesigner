@@ -198,7 +198,7 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
             if is_dataframe:
                 result = result.drop(columns=list(undeclared))
             else:
-                result = self._validate_cell_output(result, keys_before)
+                result = {k: v for k, v in result.items() if k not in undeclared}
 
         return result
 
