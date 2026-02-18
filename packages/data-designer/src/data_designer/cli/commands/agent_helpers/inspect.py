@@ -9,7 +9,7 @@ from data_designer.cli.controllers.introspection_controller import Introspection
 
 inspect_app = typer.Typer(
     name="inspect",
-    help="Show schemas and method signatures for configuration types. Run `list` to discover valid type names.",
+    help="Inspect detailed schemas for configuration objects and the Python API.",
     no_args_is_help=True,
 )
 
@@ -18,7 +18,7 @@ inspect_app = typer.Typer(
 def columns_command(
     type_name: str = typer.Argument(help="Type name (e.g. 'llm-text', 'sampler'), or 'all'."),
 ) -> None:
-    """Show schema for a column config type. Run `list columns` for valid names."""
+    """Show schema for a column config type."""
     IntrospectionController().show_columns(type_name)
 
 
@@ -26,7 +26,7 @@ def columns_command(
 def samplers_command(
     type_name: str = typer.Argument(help="Type name (e.g. 'category', 'uniform'), or 'all'."),
 ) -> None:
-    """Show schema for a sampler params type. Run `list samplers` for valid names."""
+    """Show schema for a sampler params type."""
     IntrospectionController().show_samplers(type_name)
 
 
@@ -34,7 +34,7 @@ def samplers_command(
 def validators_command(
     type_name: str = typer.Argument(help="Type name (e.g. 'code', 'python'), or 'all'."),
 ) -> None:
-    """Show schema for a validator params type. Run `list validators` for valid names."""
+    """Show schema for a validator params type."""
     IntrospectionController().show_validators(type_name)
 
 
@@ -42,7 +42,7 @@ def validators_command(
 def processors_command(
     type_name: str = typer.Argument(help="Type name (e.g. 'drop_columns'), or 'all'."),
 ) -> None:
-    """Show schema for a processor config type. Run `list processors` for valid names."""
+    """Show schema for a processor config type."""
     IntrospectionController().show_processors(type_name)
 
 
