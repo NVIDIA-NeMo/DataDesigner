@@ -308,6 +308,31 @@ def test_validate_drop_columns_processor_reasoning_column(extract_reasoning, exp
     assert len(violations) == expected_violations
 
 
+@pytest.mark.parametrize(
+    "pattern, expected_violations, expected_level",
+    [
+        ("*__reasoning_content", 0, None),
+        ("zzz_*", 1, ViolationLevel.WARNING),
+    ],
+)
+def test_validate_drop_columns_processor_glob(pattern, expected_violations, expected_level):
+    columns = [
+        LLMTextColumnConfig(
+            name="answer",
+            prompt="Answer the question.",
+            model_alias=STUB_MODEL_ALIAS,
+            extract_reasoning_content=True,
+        ),
+    ]
+    processor_configs = [
+        DropColumnsProcessorConfig(name="drop_glob", column_names=[pattern]),
+    ]
+    violations = validate_drop_columns_processor(columns, processor_configs)
+    assert len(violations) == expected_violations
+    if expected_level:
+        assert violations[0].level == expected_level
+
+
 @patch("data_designer.engine.validation.Console.print")
 def test_rich_print_violations(mock_console_print):
     rich_print_violations([])

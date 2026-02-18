@@ -936,6 +936,33 @@ class TestAddProcessorIdempotent:
         assert len(configs) == 1
         assert configs[0].template == {"x": "new"}
 
+    def test_add_processor_glob_marks_matching_columns_as_drop(self, stub_empty_builder):
+        self._add_sampler(stub_empty_builder, "col_a")
+        self._add_sampler(stub_empty_builder, "col_b")
+        self._add_sampler(stub_empty_builder, "other")
+
+        stub_empty_builder.add_processor(
+            DropColumnsProcessorConfig(name="cleanup", column_names=["col_*"]),
+        )
+        assert stub_empty_builder.get_column_config("col_a").drop is True
+        assert stub_empty_builder.get_column_config("col_b").drop is True
+        assert stub_empty_builder.get_column_config("other").drop is False
+
+    def test_add_processor_glob_revert_on_replace(self, stub_empty_builder):
+        self._add_sampler(stub_empty_builder, "col_a")
+        self._add_sampler(stub_empty_builder, "col_b")
+
+        stub_empty_builder.add_processor(
+            DropColumnsProcessorConfig(name="cleanup", column_names=["col_*"]),
+        )
+        assert stub_empty_builder.get_column_config("col_a").drop is True
+
+        stub_empty_builder.add_processor(
+            DropColumnsProcessorConfig(name="cleanup", column_names=["col_b"]),
+        )
+        assert stub_empty_builder.get_column_config("col_a").drop is False
+        assert stub_empty_builder.get_column_config("col_b").drop is True
+
 
 class TestToolConfigDuplicateValidation:
     """Tests for duplicate tool name validation at config build time."""

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import logging
 from pathlib import Path
@@ -392,9 +393,8 @@ class DataDesignerConfigBuilder:
 
         # Checks elsewhere fail if DropColumnsProcessor drops a column but it is not marked for drop
         if processor_config.processor_type == ProcessorType.DROP_COLUMNS:
-            for column in processor_config.column_names:
-                if column in self._column_configs:
-                    self._column_configs[column].drop = True
+            for col in self._resolve_drop_column_names(processor_config.column_names):
+                self._column_configs[col].drop = True
 
         self._processor_configs.append(processor_config)
         return self
@@ -405,11 +405,20 @@ class DataDesignerConfigBuilder:
             if existing.name != name:
                 continue
             if existing.processor_type == ProcessorType.DROP_COLUMNS:
-                for column in existing.column_names:
-                    if column in self._column_configs:
-                        self._column_configs[column].drop = False
+                for col in self._resolve_drop_column_names(existing.column_names):
+                    self._column_configs[col].drop = False
             self._processor_configs.remove(existing)
             return
+
+    def _resolve_drop_column_names(self, column_names: list[str]) -> list[str]:
+        """Resolve column names, expanding glob patterns against known column configs."""
+        resolved = []
+        for name in column_names:
+            if any(c in name for c in "*?["):
+                resolved.extend(fnmatch.filter(self._column_configs.keys(), name))
+            elif name in self._column_configs:
+                resolved.append(name)
+        return resolved
 
     def add_profiler(self, profiler_config: ColumnProfilerConfigT) -> Self:
         """Add a profiler to the current Data Designer configuration.
