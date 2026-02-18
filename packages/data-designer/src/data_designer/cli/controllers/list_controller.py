@@ -19,6 +19,8 @@ from data_designer.cli.services.introspection.discovery import (
 )
 from data_designer.config.default_model_settings import get_providers_with_missing_api_keys
 
+_IMPORT_HINT = "# import data_designer.config as dd"
+
 
 class ListController:
     """Controller for listing valid configuration values."""
@@ -85,13 +87,17 @@ class ListController:
     def list_persona_datasets(self) -> None:
         """List persona datasets available for PersonSamplerParams."""
         managed_locales = self._persona_repository.list_all()
+        if not managed_locales:
+            typer.echo("No persona datasets found.")
+            return
+
         entries: list[dict[str, str | bool]] = []
         for locale in managed_locales:
             installed = self._download_service.is_locale_downloaded(locale.code)
             entries.append({"locale": locale.code, "installed": installed})
 
-        typer.echo("Nemotron-Personas Datasets")
-        typer.echo("-" * 26)
+        typer.echo(_IMPORT_HINT)
+        typer.echo("")
         col1 = "locale"
         col2 = "status"
         max_width = max(len(col1), max(len(str(entry["locale"])) for entry in entries))
@@ -104,58 +110,46 @@ class ListController:
         typer.echo("Use the PersonSamplerParams locale parameter to select a dataset.")
         typer.echo("Run `data-designer download personas --locale <locale>` to install a dataset.")
 
-    def list_column_types(self) -> None:
-        """List available column configuration types."""
-        items = discover_column_configs()
-        sorted_types = sorted(items.keys())
+    def _print_type_table(
+        self,
+        items: dict[str, type],
+        col1: str,
+        col2: str,
+        inspect_command: str,
+    ) -> None:
+        """Print a two-column table of discovered types with an inspect tip."""
+        if not items:
+            typer.echo("No items found.")
+            return
 
-        col1, col2 = "column_type", "config_class"
+        sorted_types = sorted(items.keys())
         max_width = max(len(col1), max(len(t) for t in sorted_types))
+
+        typer.echo(_IMPORT_HINT)
+        typer.echo("")
         typer.echo(f"{col1:<{max_width}}  {col2}")
         typer.echo(f"{'-' * max_width}  {'-' * max(len(items[t].__name__) for t in sorted_types)}")
         for t in sorted_types:
             typer.echo(f"{t:<{max_width}}  {items[t].__name__}")
         typer.echo("")
-        typer.echo("Run `data-designer inspect column <column_type>` to see that type's full schema.")
+        typer.echo(f"Run `data-designer inspect {inspect_command}` to see that type's full schema.")
+
+    def list_column_types(self) -> None:
+        """List available column configuration types."""
+        self._print_type_table(discover_column_configs(), "column_type", "config_class", "column <column_type>")
 
     def list_sampler_types(self) -> None:
         """List available sampler types."""
-        items = discover_sampler_types()
-        sorted_types = sorted(items.keys())
-
-        col1, col2 = "sampler_type", "params_class"
-        max_width = max(len(col1), max(len(t) for t in sorted_types))
-        typer.echo(f"{col1:<{max_width}}  {col2}")
-        typer.echo(f"{'-' * max_width}  {'-' * max(len(items[t].__name__) for t in sorted_types)}")
-        for t in sorted_types:
-            typer.echo(f"{t:<{max_width}}  {items[t].__name__}")
-        typer.echo("")
-        typer.echo("Run `data-designer inspect sampler <sampler_type>` to see that type's full schema.")
+        self._print_type_table(discover_sampler_types(), "sampler_type", "params_class", "sampler <sampler_type>")
 
     def list_validator_types(self) -> None:
         """List available validator types."""
-        items = discover_validator_types()
-        sorted_types = sorted(items.keys())
-
-        col1, col2 = "validator_type", "params_class"
-        max_width = max(len(col1), max(len(t) for t in sorted_types))
-        typer.echo(f"{col1:<{max_width}}  {col2}")
-        typer.echo(f"{'-' * max_width}  {'-' * max(len(items[t].__name__) for t in sorted_types)}")
-        for t in sorted_types:
-            typer.echo(f"{t:<{max_width}}  {items[t].__name__}")
-        typer.echo("")
-        typer.echo("Run `data-designer inspect validator <validator_type>` to see that type's full schema.")
+        self._print_type_table(
+            discover_validator_types(), "validator_type", "params_class", "validator <validator_type>"
+        )
 
     def list_processor_types(self) -> None:
         """List available processor types."""
-        items = discover_processor_configs()
-        sorted_types = sorted(items.keys())
-
-        col1, col2 = "processor_type", "config_class"
-        max_width = max(len(col1), max(len(t) for t in sorted_types))
-        typer.echo(f"{col1:<{max_width}}  {col2}")
-        typer.echo(f"{'-' * max_width}  {'-' * max(len(items[t].__name__) for t in sorted_types)}")
-        for t in sorted_types:
-            typer.echo(f"{t:<{max_width}}  {items[t].__name__}")
-        typer.echo("")
-        typer.echo("Run `data-designer inspect processor <processor_type>` to see that type's full schema.")
+        self._print_type_table(
+            discover_processor_configs(), "processor_type", "config_class", "processor <processor_type>"
+        )
