@@ -9,17 +9,14 @@ from typing import Annotated
 from pydantic import BaseModel, Field
 
 from data_designer.cli.services.introspection.pydantic_inspector import (
-    FieldDetail,
-    ModelSchema,
     _extract_constraints,
     _extract_enum_class,
+    _extract_nested_basemodel,
     _is_basemodel_subclass,
     _is_enum_subclass,
-    build_model_schema,
-    extract_nested_basemodel,
+    format_model_text,
     format_type,
     get_brief_description,
-    get_field_info,
 )
 
 # ---------------------------------------------------------------------------
@@ -169,45 +166,45 @@ def test_extract_enum_class_none() -> None:
 
 
 def test_extract_nested_basemodel_direct() -> None:
-    assert extract_nested_basemodel(InnerModel) is InnerModel
+    assert _extract_nested_basemodel(InnerModel) is InnerModel
 
 
 def test_extract_nested_basemodel_list() -> None:
-    assert extract_nested_basemodel(list[InnerModel]) is InnerModel
+    assert _extract_nested_basemodel(list[InnerModel]) is InnerModel
 
 
 def test_extract_nested_basemodel_optional() -> None:
-    assert extract_nested_basemodel(InnerModel | None) is InnerModel
+    assert _extract_nested_basemodel(InnerModel | None) is InnerModel
 
 
 def test_extract_nested_basemodel_optional_list() -> None:
-    assert extract_nested_basemodel(list[InnerModel] | None) is InnerModel
+    assert _extract_nested_basemodel(list[InnerModel] | None) is InnerModel
 
 
 def test_extract_nested_basemodel_dict() -> None:
-    assert extract_nested_basemodel(dict[str, InnerModel]) is InnerModel
+    assert _extract_nested_basemodel(dict[str, InnerModel]) is InnerModel
 
 
 def test_extract_nested_basemodel_annotated() -> None:
-    assert extract_nested_basemodel(Annotated[InnerModel, "info"]) is InnerModel
+    assert _extract_nested_basemodel(Annotated[InnerModel, "info"]) is InnerModel
 
 
 def test_extract_nested_basemodel_discriminated_union_returns_none() -> None:
     """Unions of 2+ BaseModel subclasses should return None."""
-    assert extract_nested_basemodel(InnerModel | OuterModel) is None
+    assert _extract_nested_basemodel(InnerModel | OuterModel) is None
 
 
 def test_extract_nested_basemodel_primitive_returns_none() -> None:
-    assert extract_nested_basemodel(str) is None
-    assert extract_nested_basemodel(int) is None
+    assert _extract_nested_basemodel(str) is None
+    assert _extract_nested_basemodel(int) is None
 
 
 def test_extract_nested_basemodel_none_returns_none() -> None:
-    assert extract_nested_basemodel(None) is None
+    assert _extract_nested_basemodel(None) is None
 
 
 def test_extract_nested_basemodel_basemodel_itself_returns_none() -> None:
-    assert extract_nested_basemodel(BaseModel) is None
+    assert _extract_nested_basemodel(BaseModel) is None
 
 
 # ---------------------------------------------------------------------------
@@ -247,126 +244,37 @@ def test_get_brief_description_without_docstring() -> None:
 
 
 # ---------------------------------------------------------------------------
-# get_field_info
-# ---------------------------------------------------------------------------
-
-
-def test_get_field_info_returns_field_details() -> None:
-    fields = get_field_info(OuterModel)
-    assert isinstance(fields, list)
-    assert all(isinstance(f, FieldDetail) for f in fields)
-    names = [f.name for f in fields]
-    assert "plain" in names
-    assert "nested" in names
-    assert "my_enum" in names
-
-
-def test_get_field_info_enum_values_use_dot_value() -> None:
-    fields = get_field_info(OuterModel)
-    enum_field = next(f for f in fields if f.name == "my_enum")
-    assert enum_field.enum_values is not None
-    assert set(enum_field.enum_values) == {"red", "green", "blue"}
-
-
-def test_get_field_info_non_enum_has_no_enum_values() -> None:
-    fields = get_field_info(OuterModel)
-    plain_field = next(f for f in fields if f.name == "plain")
-    assert plain_field.enum_values is None
-
-
-# ---------------------------------------------------------------------------
-# required / default
-# ---------------------------------------------------------------------------
-
-
-def test_get_field_info_required_field() -> None:
-    fields = get_field_info(RequiredFieldModel)
-    req = next(f for f in fields if f.name == "required_name")
-    assert req.required is True
-    assert req.default is None
-
-
-def test_get_field_info_optional_field_default() -> None:
-    fields = get_field_info(RequiredFieldModel)
-    opt = next(f for f in fields if f.name == "optional_name")
-    assert opt.required is False
-    assert opt.default == "'default_val'"
-
-
-def test_get_field_info_default_factory() -> None:
-    fields = get_field_info(OuterModel)
-    nested = next(f for f in fields if f.name == "nested")
-    assert nested.required is False
-    assert nested.default == "InnerModel()"
-
-
-def test_get_field_info_none_default_not_shown() -> None:
-    """Fields with default=None (like SelfRefModel.child) have default_json=None in FieldDetail."""
-    fields = get_field_info(SelfRefModel)
-    child = next(f for f in fields if f.name == "child")
-    assert child.required is False
-    assert child.default_json is None
-
-
-def test_get_field_info_optional_field_default_json_native() -> None:
-    """Optional scalar defaults are stored as native default_json for machine consumption."""
-    fields = get_field_info(RequiredFieldModel)
-    opt = next(f for f in fields if f.name == "optional_name")
-    assert opt.required is False
-    assert opt.default_json == "default_val"
-    assert opt.default_factory is None
-
-
-def test_get_field_info_default_factory_set() -> None:
-    """Fields with default_factory set have default_factory name and default_json undefined."""
-    fields = get_field_info(OuterModel)
-    nested = next(f for f in fields if f.name == "nested")
-    assert nested.required is False
-    assert nested.default_factory == "InnerModel"
-
-
-def test_get_field_info_str_enum_default_json_uses_member_value() -> None:
-    """Defaults for str-enum fields should be normalized to the enum member's .value."""
-    fields = get_field_info(OuterModel)
-    enum_field = next(f for f in fields if f.name == "my_enum")
-    assert enum_field.required is False
-    assert enum_field.default_json == "red"
-    assert enum_field.default == "'red'"
-
-
-# ---------------------------------------------------------------------------
-# constraints
+# _extract_constraints
 # ---------------------------------------------------------------------------
 
 
 def test_extract_constraints_from_constrained_model() -> None:
-    fields = get_field_info(ConstrainedModel)
-    score = next(f for f in fields if f.name == "score")
-    assert score.constraints is not None
-    assert score.constraints["ge"] == 0.0
-    assert score.constraints["le"] == 1.0
+    score_info = ConstrainedModel.model_fields["score"]
+    constraints = _extract_constraints(score_info)
+    assert constraints is not None
+    assert constraints["ge"] == 0.0
+    assert constraints["le"] == 1.0
 
 
 def test_extract_constraints_gt_lt() -> None:
-    fields = get_field_info(ConstrainedModel)
-    count = next(f for f in fields if f.name == "count")
-    assert count.constraints is not None
-    assert count.constraints["gt"] == -1
-    assert count.constraints["lt"] == 1000
+    count_info = ConstrainedModel.model_fields["count"]
+    constraints = _extract_constraints(count_info)
+    assert constraints is not None
+    assert constraints["gt"] == -1
+    assert constraints["lt"] == 1000
 
 
 def test_extract_constraints_string_lengths() -> None:
-    fields = get_field_info(ConstrainedModel)
-    label = next(f for f in fields if f.name == "label")
-    assert label.constraints is not None
-    assert label.constraints["min_length"] == 1
-    assert label.constraints["max_length"] == 100
+    label_info = ConstrainedModel.model_fields["label"]
+    constraints = _extract_constraints(label_info)
+    assert constraints is not None
+    assert constraints["min_length"] == 1
+    assert constraints["max_length"] == 100
 
 
 def test_extract_constraints_none_for_unconstrained() -> None:
-    fields = get_field_info(InnerModel)
-    x_field = next(f for f in fields if f.name == "x")
-    assert x_field.constraints is None
+    x_info = InnerModel.model_fields["x"]
+    assert _extract_constraints(x_info) is None
 
 
 def test_extract_constraints_helper_with_no_metadata() -> None:
@@ -379,63 +287,166 @@ def test_extract_constraints_helper_with_no_metadata() -> None:
 
 
 # ---------------------------------------------------------------------------
-# build_model_schema
+# format_model_text
 # ---------------------------------------------------------------------------
 
 
-def test_build_model_schema_basic_structure() -> None:
-    schema = build_model_schema(OuterModel)
-    assert isinstance(schema, ModelSchema)
-    assert schema.class_name == "OuterModel"
-    assert schema.description == "Outer model for testing."
-    assert len(schema.fields) == 3
+def test_format_model_text_basic_structure() -> None:
+    text = format_model_text(OuterModel)
+    assert "OuterModel:" in text
+    assert "description: Outer model for testing." in text
+    assert "fields:" in text
+    assert "plain:" in text
+    assert "nested:" in text
+    assert "my_enum:" in text
 
 
-def test_build_model_schema_with_type_key_and_value() -> None:
-    schema = build_model_schema(OuterModel, type_key="column_type", type_value="test")
-    assert schema.type_key == "column_type"
-    assert schema.type_value == "test"
+def test_format_model_text_with_type_key_and_value() -> None:
+    text = format_model_text(OuterModel, type_key="column_type", type_value="test")
+    assert "column_type: test" in text
 
 
-def test_build_model_schema_nested_expansion() -> None:
-    schema = build_model_schema(OuterModel)
-    nested_field = next(f for f in schema.fields if f.name == "nested")
-    assert nested_field.nested_schema is not None
-    assert nested_field.nested_schema.class_name == "InnerModel"
-    nested_names = [f.name for f in nested_field.nested_schema.fields]
-    assert "x" in nested_names
-    assert "y" in nested_names
+def test_format_model_text_required_field() -> None:
+    text = format_model_text(RequiredFieldModel)
+    assert "required_name: str  [required]" in text
 
 
-def test_build_model_schema_cycle_protection() -> None:
-    schema = build_model_schema(SelfRefModel)
-    child_field = next(f for f in schema.fields if f.name == "child")
-    # First level: SelfRefModel.child should be expanded into a nested schema
-    assert child_field.nested_schema is not None, "First-level expansion must happen"
-    assert child_field.nested_schema.class_name == "SelfRefModel"
-    # Second level: the recursive child.child should NOT be expanded (cycle detected)
-    inner_child = next(f for f in child_field.nested_schema.fields if f.name == "child")
-    assert inner_child.nested_schema is None, "Cycle protection must block second-level expansion"
+def test_format_model_text_optional_field_default() -> None:
+    text = format_model_text(RequiredFieldModel)
+    assert "optional_name: str = 'default_val'" in text
+    assert "[required]" not in text.split("optional_name")[1].split("\n")[0]
 
 
-def test_build_model_schema_depth_limiting() -> None:
-    schema = build_model_schema(DeepA, max_depth=1)
-    b_field = next(f for f in schema.fields if f.name == "b")
-    # At max_depth=1, the first nested level (DeepB) should still be expanded
-    assert b_field.nested_schema is not None, "First-level nesting must be expanded at max_depth=1"
-    assert b_field.nested_schema.class_name == "DeepB"
-    # But any further nesting within DeepB should be blocked
-    for f in b_field.nested_schema.fields:
-        assert f.nested_schema is None, f"Field '{f.name}' should not be expanded beyond max_depth"
+def test_format_model_text_default_factory() -> None:
+    text = format_model_text(OuterModel)
+    assert "= InnerModel()" in text
 
 
-def test_build_model_schema_repeated_sibling_nested_expands_each_field() -> None:
+def test_format_model_text_none_default() -> None:
+    text = format_model_text(SelfRefModel)
+    assert "child:" in text
+    assert "= None" in text
+
+
+def test_format_model_text_enum_default_uses_member_value() -> None:
+    text = format_model_text(OuterModel)
+    assert "my_enum: ColorEnum = 'red'" in text
+
+
+def test_format_model_text_enum_values() -> None:
+    text = format_model_text(OuterModel)
+    assert "values: [red, green, blue]" in text
+
+
+def test_format_model_text_constraints() -> None:
+    text = format_model_text(ConstrainedModel)
+    assert "constraints: ge=0.0, le=1.0" in text
+
+
+def test_format_model_text_nested_expansion() -> None:
+    text = format_model_text(OuterModel)
+    assert "schema (InnerModel):" in text
+    # Nested fields should appear indented under the schema
+    assert "x: int = 0" in text
+    assert "y: str = 'hello'" in text
+
+
+def test_format_model_text_cycle_protection() -> None:
+    text = format_model_text(SelfRefModel)
+    # First level should expand
+    assert "schema (SelfRefModel):" in text
+    # The recursive child.child should NOT expand again (only one "schema (SelfRefModel):")
+    assert text.count("schema (SelfRefModel):") == 1
+
+
+def test_format_model_text_depth_limiting() -> None:
+    text = format_model_text(DeepA, max_depth=1)
+    # First level (DeepB) should expand
+    assert "schema (DeepB):" in text
+
+
+def test_format_model_text_sibling_nested_expands_each() -> None:
     """Sibling fields of the same nested type should each include a nested schema."""
-    schema = build_model_schema(SiblingNestedModel)
-    first = next(f for f in schema.fields if f.name == "first")
-    second = next(f for f in schema.fields if f.name == "second")
+    text = format_model_text(SiblingNestedModel)
+    # Both first and second fields should have InnerModel expanded
+    assert text.count("schema (InnerModel):") == 2
 
-    assert first.nested_schema is not None
-    assert second.nested_schema is not None
-    assert first.nested_schema.class_name == "InnerModel"
-    assert second.nested_schema.class_name == "InnerModel"
+
+def test_format_model_text_deduplication_with_seen_schemas() -> None:
+    """When seen_schemas is passed across calls, second occurrence shows a back-reference."""
+    seen: set[str] = set()
+    text1 = format_model_text(OuterModel, seen_schemas=seen)
+    text2 = format_model_text(SiblingNestedModel, seen_schemas=seen)
+    assert "schema (InnerModel):" in text1
+    assert "see InnerModel above" in text2
+
+
+def test_format_model_text_no_dedup_without_seen_set() -> None:
+    """Without seen_schemas, nested schemas always expand fully."""
+    text = format_model_text(OuterModel)
+    assert "schema (InnerModel):" in text
+
+
+def test_format_model_text_max_depth_zero_blocks_all_nesting() -> None:
+    """At max_depth=0, nested schemas should not expand."""
+    text = format_model_text(OuterModel, max_depth=0)
+    assert "schema (InnerModel):" not in text
+    assert "nested:" in text  # field still listed, just not expanded
+
+
+def test_format_model_text_dedup_distinguishes_same_name_different_module() -> None:
+    """Schemas with same __name__ but different __module__ should not dedup."""
+
+    class SharedNameA(BaseModel):
+        x: int = 0
+
+    class SharedNameB(BaseModel):
+        y: str = ""
+
+    # Make them look like same-named classes from different modules
+    SharedNameB.__name__ = "SharedNameA"
+    SharedNameB.__qualname__ = "SharedNameA"
+    SharedNameA.__module__ = "pkg.alpha"
+    SharedNameB.__module__ = "pkg.beta"
+
+    class WrapperA(BaseModel):
+        a: SharedNameA = Field(default_factory=SharedNameA)
+
+    class WrapperB(BaseModel):
+        b: SharedNameB = Field(default_factory=SharedNameB)
+
+    WrapperA.model_rebuild()
+    WrapperB.model_rebuild()
+
+    seen: set[str] = set()
+    text_a = format_model_text(WrapperA, seen_schemas=seen)
+    text_b = format_model_text(WrapperB, seen_schemas=seen)
+
+    assert "schema (SharedNameA):" in text_a
+    assert "schema (SharedNameA):" in text_b
+    assert "see SharedNameA above" not in text_b
+
+
+class Level3(BaseModel):
+    val: int = 0
+
+
+class Level2(BaseModel):
+    val: int = 0
+    child: Level3 | None = None
+
+
+class Level1(BaseModel):
+    val: int = 0
+    child: Level2 | None = None
+
+
+Level1.model_rebuild()
+Level2.model_rebuild()
+
+
+def test_format_model_text_depth_limiting_blocks_deeper_nesting() -> None:
+    """With max_depth=1, Level2 expands but Level3 does not."""
+    text = format_model_text(Level1, max_depth=1)
+    assert "schema (Level2):" in text
+    assert "schema (Level3):" not in text

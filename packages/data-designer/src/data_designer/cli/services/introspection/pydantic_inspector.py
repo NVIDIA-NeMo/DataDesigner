@@ -6,46 +6,11 @@ from __future__ import annotations
 import re
 import types
 import typing
-from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, get_args, get_origin
 
 from pydantic import BaseModel
 from pydantic_core import PydanticUndefined
-
-_UNDEFINED: Any = object()
-
-
-@dataclass
-class FieldDetail:
-    """Structured representation of a single Pydantic model field."""
-
-    name: str
-    type_str: str
-    description: str
-    required: bool = True
-    default: str | None = None
-    default_json: Any = _UNDEFINED
-    default_factory: str | None = None
-    enum_values: list[str] | None = None
-    constraints: dict[str, Any] | None = None
-    nested_schema: ModelSchema | None = None
-
-    def has_literal_default(self) -> bool:
-        """True if this field has a literal default value (including None)."""
-        return self.default_json is not _UNDEFINED
-
-
-@dataclass
-class ModelSchema:
-    """Structured representation of a Pydantic model's schema."""
-
-    class_name: str
-    description: str
-    schema_ref: str | None = None
-    type_key: str | None = None
-    type_value: str | None = None
-    fields: list[FieldDetail] = field(default_factory=list)
 
 
 def _is_basemodel_subclass(cls: Any) -> bool:
@@ -85,7 +50,7 @@ def _extract_enum_class(annotation: Any) -> type | None:
     return None
 
 
-def extract_nested_basemodel(annotation: Any) -> type | None:
+def _extract_nested_basemodel(annotation: Any) -> type | None:
     """Unwrap a type annotation to find a single nested BaseModel subclass.
 
     Handles: X, list[X], X | None, list[X] | None, dict[K, V], Annotated[X, ...].
@@ -123,7 +88,7 @@ def extract_nested_basemodel(annotation: Any) -> type | None:
         non_none_args = [a for a in get_args(annotation) if a is not type(None)]
         basemodel_classes: list[type] = []
         for arg in non_none_args:
-            result = extract_nested_basemodel(arg)
+            result = _extract_nested_basemodel(arg)
             if result is not None:
                 basemodel_classes.append(result)
             elif _is_basemodel_subclass(arg):
@@ -147,6 +112,9 @@ def format_type(annotation: Any) -> str:
     type_str = re.sub(r"pydantic\.main\.", "", type_str)
     type_str = re.sub(r"typing\.", "", type_str)
 
+    # Clean up enum members used inside Literal or other contexts: <EnumName.MEMBER: 'value'> -> 'value'
+    type_str = re.sub(r"<\w+\.\w+: '([^']+)'>", r"'\1'", type_str)
+
     # Clean up enum types BEFORE other replacements: <enum 'EnumName'> -> EnumName
     type_str = re.sub(r"<enum '(\w+)'>", r"\1", type_str)
 
@@ -162,9 +130,16 @@ def format_type(annotation: Any) -> str:
 
     # Clean up Annotated types with Discriminator (too verbose)
     if "Annotated[" in type_str and "Discriminator" in type_str:
-        match = re.search(r"Annotated\[([^,]+(?:\s*\|\s*[^,]+)*),", type_str)
-        if match:
-            type_str = match.group(1).strip()
+        start = type_str.index("Annotated[") + len("Annotated[")
+        depth = 0
+        for i, ch in enumerate(type_str[start:], start):
+            if ch in "([":
+                depth += 1
+            elif ch in ")]":
+                depth -= 1
+            elif ch == "," and depth == 0:
+                type_str = type_str[start:i].strip()
+                break
 
     return type_str
 
@@ -210,116 +185,136 @@ def _default_to_json(value: Any) -> Any:
     return repr(value)
 
 
-def get_field_info(cls: type) -> list[FieldDetail]:
-    """Extract field information from a Pydantic model.
+def _format_field(
+    field_name: str,
+    field_info: Any,
+    indent: int,
+    seen_schemas: set[str] | None,
+    seen_types: set[type],
+    max_depth: int,
+    depth: int,
+) -> list[str]:
+    """Format a single Pydantic field as YAML-style text lines, recursing into nested schemas."""
+    pad = " " * indent
+    lines: list[str] = []
 
-    Args:
-        cls: The Pydantic model class to inspect.
+    type_str = format_type(field_info.annotation)
+    description: str = field_info.description or ""
+    required: bool = field_info.is_required()
 
-    Returns:
-        List of FieldDetail objects with name, type_str, description, required,
-        default, enum_values, constraints, and nested_schema (initially None,
-        populated by build_model_schema).
-    """
-    fields: list[FieldDetail] = []
-    model_fields: dict[str, Any] = getattr(cls, "model_fields", {})
-    if model_fields:
-        for field_name, field_info in model_fields.items():
-            type_str = format_type(field_info.annotation)
-            description = field_info.description or ""
+    header = f"{pad}{field_name}: {type_str}"
+    if not required:
+        if field_info.default_factory is not None:
+            factory_name = getattr(field_info.default_factory, "__name__", repr(field_info.default_factory))
+            header += f" = {factory_name}()"
+        elif field_info.default is not PydanticUndefined:
+            header += f" = {_default_to_json(field_info.default)!r}"
+    if required:
+        header += "  [required]"
+    lines.append(header)
 
-            required = field_info.is_required()
+    if description:
+        lines.append(f"{pad}  description: {description}")
 
-            default_json: Any = _UNDEFINED
-            default_factory_name: str | None = None
-            default_display: str | None = None
-            if not required:
-                if field_info.default_factory is not None:
-                    default_factory_name = getattr(
-                        field_info.default_factory, "__name__", repr(field_info.default_factory)
+    enum_cls = _extract_enum_class(field_info.annotation)
+    if enum_cls is not None:
+        enum_values = [str(member.value) for member in enum_cls]
+        lines.append(f"{pad}  values: [{', '.join(enum_values)}]")
+
+    constraints = _extract_constraints(field_info)
+    if constraints:
+        constraint_parts = [f"{k}={v}" for k, v in constraints.items()]
+        lines.append(f"{pad}  constraints: {', '.join(constraint_parts)}")
+
+    nested_cls = _extract_nested_basemodel(field_info.annotation)
+    if nested_cls is not None and nested_cls not in seen_types and depth < max_depth:
+        schema_key = f"{nested_cls.__module__}.{nested_cls.__qualname__}"
+        schema_name = nested_cls.__name__
+        if seen_schemas is not None and schema_key in seen_schemas:
+            lines.append(f"{pad}  schema: (see {schema_name} above)")
+        else:
+            if seen_schemas is not None:
+                seen_schemas.add(schema_key)
+            lines.append(f"{pad}  schema ({schema_name}):")
+            next_seen = seen_types | {nested_cls}
+            nested_model_fields: dict[str, Any] = getattr(nested_cls, "model_fields", {})
+            for nested_name, nested_info in nested_model_fields.items():
+                lines.extend(
+                    _format_field(
+                        field_name=nested_name,
+                        field_info=nested_info,
+                        indent=indent + 4,
+                        seen_schemas=seen_schemas,
+                        seen_types=next_seen,
+                        max_depth=max_depth,
+                        depth=depth + 1,
                     )
-                elif field_info.default is not PydanticUndefined:
-                    default_json = _default_to_json(field_info.default)
-                    if default_json is not _UNDEFINED:
-                        default_display = repr(default_json)
-
-            enum_cls = _extract_enum_class(field_info.annotation)
-            enum_values: list[str] | None = None
-            if enum_cls is not None:
-                enum_values = [str(member.value) for member in enum_cls]
-
-            constraints = _extract_constraints(field_info)
-
-            if default_display is None and default_factory_name is not None:
-                default_display = f"{default_factory_name}()"
-
-            fields.append(
-                FieldDetail(
-                    name=field_name,
-                    type_str=type_str,
-                    description=description,
-                    required=required,
-                    default=default_display,
-                    default_json=default_json,
-                    default_factory=default_factory_name,
-                    enum_values=enum_values,
-                    constraints=constraints,
-                    nested_schema=None,
                 )
-            )
-    return fields
+
+    return lines
 
 
-def build_model_schema(
+def format_model_text(
     cls: type,
     type_key: str | None = None,
     type_value: str | None = None,
-    seen: set[type] | None = None,
+    indent: int = 0,
+    seen_schemas: set[str] | None = None,
     max_depth: int = 3,
-    current_depth: int = 0,
-) -> ModelSchema:
-    """Build a structured ModelSchema from a Pydantic model class.
+) -> str:
+    """Format a Pydantic model as YAML-style text for agent context.
 
     Args:
-        cls: The Pydantic model class to inspect.
-        type_key: Optional key name for the type discriminator (e.g., "column_type").
-        type_value: Optional value for the type discriminator (e.g., "llm-text").
-        seen: Set of already-expanded class names to prevent cycles.
+        cls: The Pydantic model class to format.
+        type_key: Optional discriminator key name (e.g., "column_type").
+        type_value: Optional discriminator value (e.g., "llm-text").
+        indent: Base indentation level.
+        seen_schemas: Set of schema refs already rendered (mutated for cross-model dedup).
         max_depth: Maximum recursion depth for nested models.
-        current_depth: Current recursion depth.
-
-    Returns:
-        A ModelSchema with recursively expanded nested schemas.
     """
-    if seen is None:
-        seen = set()
-
-    class_name = cls.__name__
-    description = get_brief_description(cls)
-    schema_ref = f"{cls.__module__}.{cls.__qualname__}"
-    fields = get_field_info(cls)
-
-    model_fields_raw: dict[str, Any] = getattr(cls, "model_fields", {})
-    for field_detail in fields:
-        raw_field_info = model_fields_raw.get(field_detail.name)
-        if raw_field_info is None:
-            continue
-
-        nested_cls = extract_nested_basemodel(raw_field_info.annotation)
-        if nested_cls is not None and nested_cls not in seen and current_depth < max_depth:
-            next_seen = seen | {nested_cls}
-            field_detail.nested_schema = build_model_schema(
-                nested_cls,
-                seen=next_seen,
-                max_depth=max_depth,
-                current_depth=current_depth + 1,
-            )
-
-    return ModelSchema(
-        class_name=class_name,
-        description=description,
-        schema_ref=schema_ref,
+    return _format_model_text(
+        cls,
         type_key=type_key,
         type_value=type_value,
-        fields=fields,
+        indent=indent,
+        seen_schemas=seen_schemas,
+        seen_types=set(),
+        max_depth=max_depth,
+        depth=0,
     )
+
+
+def _format_model_text(
+    cls: type,
+    type_key: str | None,
+    type_value: str | None,
+    indent: int,
+    seen_schemas: set[str] | None,
+    seen_types: set[type],
+    max_depth: int,
+    depth: int,
+) -> str:
+    """Recursive implementation of format_model_text."""
+    pad = " " * indent
+    lines: list[str] = []
+    lines.append(f"{pad}{cls.__name__}:")
+    if type_key and type_value:
+        lines.append(f"{pad}  {type_key}: {type_value}")
+    lines.append(f"{pad}  description: {get_brief_description(cls)}")
+    lines.append(f"{pad}  fields:")
+
+    model_fields: dict[str, Any] = getattr(cls, "model_fields", {})
+    for field_name, field_info in model_fields.items():
+        lines.extend(
+            _format_field(
+                field_name=field_name,
+                field_info=field_info,
+                indent=indent + 4,
+                seen_schemas=seen_schemas,
+                seen_types=seen_types,
+                max_depth=max_depth,
+                depth=depth,
+            )
+        )
+
+    return "\n".join(lines)
