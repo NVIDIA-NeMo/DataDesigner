@@ -263,7 +263,6 @@ class EmptyClass:
     """A class with no public methods (no __init__ either)."""
 
 
-
 class ClassWithBadSignature:
     """A class where one method has an uninspectable signature."""
 
