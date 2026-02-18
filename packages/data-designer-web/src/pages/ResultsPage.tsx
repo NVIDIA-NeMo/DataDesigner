@@ -2,27 +2,33 @@ import { useEffect, useState } from "react";
 import { Table2, ChevronDown, ChevronRight, MessageSquare } from "lucide-react";
 import { api } from "../hooks/useApi";
 import TraceViewer from "../components/TraceViewer";
+import StatsPanel from "../components/StatsPanel";
+
+type Tab = "data" | "stats";
 
 export default function ResultsPage() {
   const [columns, setColumns] = useState<string[]>([]);
   const [rows, setRows] = useState<Record<string, unknown>[]>([]);
   const [rowCount, setRowCount] = useState(0);
+  const [analysis, setAnalysis] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [expandedRow, setExpandedRow] = useState<number | null>(null);
   const [traceColumn, setTraceColumn] = useState<string | null>(null);
   const [trace, setTrace] = useState<Record<string, unknown>[]>([]);
   const [loadingTrace, setLoadingTrace] = useState(false);
+  const [tab, setTab] = useState<Tab>("data");
 
   useEffect(() => {
     api
       .getPreviewResults()
       .then((r) => {
         const visibleCols = r.columns.filter(
-          (c) => !c.endsWith("__trace") && !c.endsWith("__reasoning_content")
+          (c: string) => !c.endsWith("__trace") && !c.endsWith("__reasoning_content")
         );
         setColumns(visibleCols);
         setRows(r.rows);
         setRowCount(r.row_count);
+        setAnalysis(r.analysis);
       })
       .catch((e) => setError(e.message));
   }, []);
@@ -78,7 +84,7 @@ export default function ResultsPage() {
 
   return (
     <div className="p-6">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-xl font-semibold text-gray-100">Results</h1>
           <p className="text-sm text-gray-500 mt-1">
@@ -87,12 +93,43 @@ export default function ResultsPage() {
         </div>
       </div>
 
+      {/* Tabs */}
+      <div className="flex gap-1 mb-4 border-b border-border">
+        <button
+          className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
+            tab === "data"
+              ? "border-nvidia-green text-nvidia-green"
+              : "border-transparent text-gray-400 hover:text-gray-200"
+          }`}
+          onClick={() => setTab("data")}
+        >
+          Data
+        </button>
+        <button
+          className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
+            tab === "stats"
+              ? "border-nvidia-green text-nvidia-green"
+              : "border-transparent text-gray-400 hover:text-gray-200"
+          }`}
+          onClick={() => setTab("stats")}
+        >
+          Statistics
+        </button>
+      </div>
+
       {error && (
         <div className="card border-red-700/50 bg-red-900/20 mb-4">
           <p className="text-sm text-red-300">{error}</p>
         </div>
       )}
 
+      {/* Stats tab */}
+      {tab === "stats" && (
+        <StatsPanel analysis={analysis} numRecords={rowCount} />
+      )}
+
+      {/* Data tab */}
+      {tab === "data" && (
       <div className="overflow-auto rounded-lg border border-border">
         <table className="w-full text-sm">
           <thead>
@@ -216,6 +253,7 @@ export default function ResultsPage() {
           </tbody>
         </table>
       </div>
+      )}
     </div>
   );
 }
