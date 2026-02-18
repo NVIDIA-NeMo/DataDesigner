@@ -652,34 +652,9 @@ pre, code { color: inherit !important; }
 table, th, td { border-color: rgba(184, 210, 255, 0.5) !important; }
 """
 
-_SAMPLE_RECORD_DARK_CSS_INLINE = " ".join(_SAMPLE_RECORD_DARK_CSS.split())
-
-_THEME_LISTENER_SCRIPT = (
-    """\
-<script id="data-designer-theme-listener">
-window.addEventListener("message", function(e) {
-  if (!e.data || e.data.type !== "theme") return;
-  var s = document.getElementById("data-designer-styles");
-  if (e.data.dark) {
-    if (!s) {
-      s = document.createElement("style");
-      s.id = "data-designer-styles";
-      s.textContent = "%s";
-      (document.head || document.documentElement).appendChild(s);
-    }
-    s.disabled = false;
-  } else {
-    if (s) s.disabled = true;
-  }
-});
-</script>
-"""
-    % _SAMPLE_RECORD_DARK_CSS_INLINE
-)
-
 
 def _apply_html_post_processing(html_path: str | Path, *, theme: Literal["dark", "light"] = "dark") -> None:
-    """Inject viewport meta tag, optional dark-mode CSS, and theme listener script into a Rich-exported HTML file."""
+    """Inject viewport meta tag and optional dark-mode CSS into a Rich-exported HTML file."""
     path = Path(html_path)
     try:
         content = path.read_text(encoding="utf-8")
@@ -687,7 +662,7 @@ def _apply_html_post_processing(html_path: str | Path, *, theme: Literal["dark",
         _logger.warning("Could not post-process HTML at %s: %s", path, exc)
         return
 
-    if 'id="data-designer-theme-listener"' in content:
+    if 'name="viewport"' in content:
         return
 
     viewport_tag = '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
@@ -696,8 +671,6 @@ def _apply_html_post_processing(html_path: str | Path, *, theme: Literal["dark",
     if theme == "dark":
         dark_css = _SAMPLE_RECORD_DARK_CSS.strip()
         injection += f'<style id="data-designer-styles">\n{dark_css}\n</style>\n'
-
-    injection += _THEME_LISTENER_SCRIPT
 
     if re.search(r"</head>", content, flags=re.I):
         content = re.sub(r"</head>", lambda m: injection + m.group(), content, count=1, flags=re.I)

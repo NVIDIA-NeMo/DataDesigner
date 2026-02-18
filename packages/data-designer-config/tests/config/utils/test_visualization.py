@@ -111,7 +111,6 @@ def test_display_sample_record_save_html(
     assert "<html" in content.lower() or "<!doctype" in content.lower()
     assert '<style id="data-designer-styles">' in content
     assert "color-scheme: dark" in content
-    assert '<script id="data-designer-theme-listener">' in content
 
 
 def test_display_sample_record_save_svg(
@@ -159,21 +158,21 @@ def test_display_sample_record_save_path_none_default(
 
 
 def test_apply_html_post_processing_injects_style(tmp_path: Path) -> None:
-    """Test that _apply_html_post_processing injects a style block and theme listener before </head>."""
+    """Test that _apply_html_post_processing injects viewport and dark-mode style before </head>."""
     html_file = tmp_path / "test.html"
     html_file.write_text("<html><head><title>Test</title></head><body></body></html>", encoding="utf-8")
 
     _apply_html_post_processing(html_file)
 
     content = html_file.read_text()
+    assert '<meta name="viewport"' in content
     assert '<style id="data-designer-styles">' in content
     assert "color-scheme: dark" in content
-    assert '<script id="data-designer-theme-listener">' in content
     assert content.index("data-designer-styles") < content.index("</head>")
 
 
 def test_apply_html_post_processing_no_head_fallback(tmp_path: Path) -> None:
-    """Test that viewport tag, CSS, and theme listener are prepended when the file has no </head> tag."""
+    """Test that viewport tag and dark CSS are prepended when the file has no </head> tag."""
     html_file = tmp_path / "test.html"
     html_file.write_text("<body><p>Hello</p></body>", encoding="utf-8")
 
@@ -181,7 +180,6 @@ def test_apply_html_post_processing_no_head_fallback(tmp_path: Path) -> None:
 
     content = html_file.read_text()
     assert '<style id="data-designer-styles">' in content
-    assert '<script id="data-designer-theme-listener">' in content
     assert content.startswith("<meta")
 
 
@@ -195,11 +193,11 @@ def test_apply_html_post_processing_idempotent(tmp_path: Path) -> None:
 
     content = html_file.read_text()
     assert content.count('<style id="data-designer-styles">') == 1
-    assert content.count('id="data-designer-theme-listener"') == 1
+    assert content.count('<meta name="viewport"') == 1
 
 
 def test_apply_html_post_processing_light_theme_skips_dark_css(tmp_path: Path) -> None:
-    """Test that theme='light' injects viewport tag and theme listener, but no dark style block."""
+    """Test that theme='light' injects viewport tag but no dark style block."""
     html_file = tmp_path / "test.html"
     html_file.write_text("<html><head></head><body></body></html>", encoding="utf-8")
 
@@ -208,7 +206,6 @@ def test_apply_html_post_processing_light_theme_skips_dark_css(tmp_path: Path) -
     content = html_file.read_text()
     assert '<meta name="viewport"' in content
     assert '<style id="data-designer-styles">' not in content
-    assert '<script id="data-designer-theme-listener">' in content
 
 
 def test_apply_html_post_processing_always_injects_viewport(tmp_path: Path) -> None:
