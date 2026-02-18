@@ -16,7 +16,7 @@ inspect_app = typer.Typer(
 
 @inspect_app.command(name="column")
 def columns_command(
-    type_name: str = typer.Argument(help="Type name (e.g. 'llm-text', 'sampler'), or 'all'."),
+    type_name: str = typer.Argument(help="Type name (e.g. 'llm-text', 'expression'), or 'all'."),
 ) -> None:
     """Show schema for a column config type."""
     IntrospectionController().show_columns(type_name)

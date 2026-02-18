@@ -13,7 +13,7 @@ _CMD = "data_designer.cli.commands"
 # Initialize Typer app with custom configuration
 app = typer.Typer(
     name="data-designer",
-    help="Data Designer CLI - Configure model providers and models for synthetic data generation",
+    help="Data Designer CLI for humans and agents.",
     cls=create_lazy_typer_group(
         {
             "preview": {
