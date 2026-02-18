@@ -7,12 +7,22 @@ import re
 import subprocess
 from pathlib import Path
 
-# Maximum allowed average import time in seconds
-# Average of 1 cold start + 4 warm cache runs
-# Cold starts vary 4-13s due to OS caching, system load, CPU scaling
-# Warm cache consistently <3s. Average should be well under 6s.
-MAX_IMPORT_TIME_SECONDS = 6.0
-PERF_TEST_TIMEOUT_SECONDS = 30.0
+# Baseline performance measurements (for reference):
+#   import_only (pure Python import, no CLI):
+#     Cold:  0.091s
+#     Warm:  0.036s mean, 0.034s median, 0.008s stdev [0.033s - 0.058s]
+#
+#   cli_help (import + argparse setup):
+#     Cold:  1.171s
+#     Warm:  0.142s mean, 0.093s median, 0.107s stdev [0.089s - 0.405s]
+#
+#   config_list (import + config loading):
+#     Cold:  3.161s
+#     Warm:  0.554s mean, 0.267s median, 0.737s stdev [0.251s - 2.619s]
+#
+#   perf-import: 0.008 - 0.02s
+MAX_IMPORT_TIME_SECONDS = 3.0
+PERF_TEST_TIMEOUT_SECONDS = 10.0
 
 
 def test_import_performance() -> None:
