@@ -101,8 +101,8 @@ class ListController:
             status = "installed" if entry["installed"] else "not installed"
             typer.echo(f"{str(entry['locale']):<{max_width}}  {status}")
         typer.echo("")
-        typer.echo("Tip: Use the PersonSamplerParams locale parameter to select a dataset.")
-        typer.echo("The user can run `data-designer download personas --locale <LOCALE>` to install a dataset.")
+        typer.echo("Use the PersonSamplerParams locale parameter to select a dataset.")
+        typer.echo("Run `data-designer download personas --locale <locale>` to install a dataset.")
 
     def list_column_types(self) -> None:
         """List available column configuration types."""
@@ -116,7 +116,7 @@ class ListController:
         for t in sorted_types:
             typer.echo(f"{t:<{max_width}}  {items[t].__name__}")
         typer.echo("")
-        typer.echo("Tip: Run `data-designer inspect column <TYPE>` for full schema details.")
+        typer.echo("Run `data-designer inspect column <column_type>` to see that type's full schema.")
 
     def list_sampler_types(self) -> None:
         """List available sampler types."""
@@ -130,7 +130,7 @@ class ListController:
         for t in sorted_types:
             typer.echo(f"{t:<{max_width}}  {items[t].__name__}")
         typer.echo("")
-        typer.echo("Tip: Run `data-designer inspect sampler <TYPE>` for full schema details.")
+        typer.echo("Run `data-designer inspect sampler <sampler_type>` to see that type's full schema.")
 
     def list_validator_types(self) -> None:
         """List available validator types."""
@@ -144,7 +144,7 @@ class ListController:
         for t in sorted_types:
             typer.echo(f"{t:<{max_width}}  {items[t].__name__}")
         typer.echo("")
-        typer.echo("Tip: Run `data-designer inspect validator <TYPE>` for full schema details.")
+        typer.echo("Run `data-designer inspect validator <validator_type>` to see that type's full schema.")
 
     def list_processor_types(self) -> None:
         """List available processor types."""
@@ -158,4 +158,4 @@ class ListController:
         for t in sorted_types:
             typer.echo(f"{t:<{max_width}}  {items[t].__name__}")
         typer.echo("")
-        typer.echo("Tip: Run `data-designer inspect processor <TYPE>` for full schema details.")
+        typer.echo("Run `data-designer inspect processor <processor_type>` to see that type's full schema.")
