@@ -231,7 +231,7 @@ export default function RunPage() {
         <button
           className="btn-primary flex items-center gap-2 flex-1 justify-center py-3"
           onClick={handlePreview}
-          disabled={isRunning || !configLoaded}
+          disabled={isRunning || !configLoaded || mcpMissing.length > 0}
         >
           <Eye size={16} />
           Preview
@@ -239,7 +239,7 @@ export default function RunPage() {
         <button
           className="btn-secondary flex items-center gap-2 flex-1 justify-center py-3"
           onClick={handleCreate}
-          disabled={isRunning || !configLoaded}
+          disabled={isRunning || !configLoaded || mcpMissing.length > 0}
         >
           <HardDrive size={16} />
           Create
