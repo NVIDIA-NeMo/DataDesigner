@@ -6,19 +6,21 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
-from numpy.typing import NDArray
-
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.sampler_params import SamplerParamsT
 from data_designer.engine.sampling_gen.utils import check_random_state
-from data_designer.lazy_heavy_imports import np, pd, scipy
 
 if TYPE_CHECKING:
     import numpy as np
     import pandas as pd
     import scipy
+    from numpy.typing import NDArray
 
-NumpyArray1dT = NDArray[Any]
-RadomStateT = int | np.random.RandomState
+    NumpyArray1dT = NDArray[Any]
+    RadomStateT = int | np.random.RandomState
+else:
+    NumpyArray1dT = Any
+    RadomStateT = Any
 
 GenericParamsT = TypeVar("GenericParamsT", bound=SamplerParamsT)
 
@@ -110,7 +112,7 @@ class DatetimeFormatMixin:
     def validate_data_conversion(convert_to: str | None) -> None:
         if convert_to is not None:
             try:
-                pd.to_datetime(pd.to_datetime("2012-12-21").strftime(convert_to))
+                lazy.pd.to_datetime(lazy.pd.to_datetime("2012-12-21").strftime(convert_to))
             except Exception as e:
                 raise ValueError(f"Invalid datetime format: {convert_to}. {e}")
 

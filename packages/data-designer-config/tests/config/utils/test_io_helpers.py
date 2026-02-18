@@ -14,6 +14,7 @@ import pytest
 import requests
 import yaml
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.utils.io_helpers import (
     _maybe_rewrite_url,
     is_http_url,
@@ -21,17 +22,15 @@ from data_designer.config.utils.io_helpers import (
     smart_load_dataframe,
     smart_load_yaml,
 )
-from data_designer.lazy_heavy_imports import np, pd
 
 if TYPE_CHECKING:
-    import numpy as np
     import pandas as pd
 
 
 @patch("data_designer.config.utils.io_helpers.Path", autospec=True)
-@patch("data_designer.config.utils.io_helpers.pd.read_csv", autospec=True)
-@patch("data_designer.config.utils.io_helpers.pd.read_json", autospec=True)
-@patch("data_designer.config.utils.io_helpers.pd.read_parquet", autospec=True)
+@patch("data_designer.config.utils.io_helpers.lazy.pd.read_csv", autospec=True)
+@patch("data_designer.config.utils.io_helpers.lazy.pd.read_json", autospec=True)
+@patch("data_designer.config.utils.io_helpers.lazy.pd.read_parquet", autospec=True)
 def test_smart_load_dataframe(mock_read_parquet, mock_read_json, mock_read_csv, mock_path_cls, stub_dataframe):
     mock_read_parquet.return_value = stub_dataframe
     mock_read_json.return_value = stub_dataframe
@@ -349,7 +348,7 @@ def test_smart_load_yaml_rewrites_huggingface_blob_url(mock_requests: MagicMock)
     )
 
 
-@patch("data_designer.config.utils.io_helpers.pd.read_csv", autospec=True)
+@patch("data_designer.config.utils.io_helpers.lazy.pd.read_csv", autospec=True)
 def test_smart_load_dataframe_rewrites_github_blob_url(mock_read_csv: MagicMock, stub_dataframe: pd.DataFrame) -> None:
     mock_read_csv.return_value = stub_dataframe
 
@@ -358,7 +357,7 @@ def test_smart_load_dataframe_rewrites_github_blob_url(mock_read_csv: MagicMock,
     mock_read_csv.assert_called_once_with("https://raw.githubusercontent.com/org/repo/main/data.csv")
 
 
-@patch("data_designer.config.utils.io_helpers.pd.read_csv", autospec=True)
+@patch("data_designer.config.utils.io_helpers.lazy.pd.read_csv", autospec=True)
 def test_smart_load_dataframe_rewrites_github_blob_url_with_token(
     mock_read_csv: MagicMock, stub_dataframe: pd.DataFrame
 ) -> None:
@@ -369,7 +368,7 @@ def test_smart_load_dataframe_rewrites_github_blob_url_with_token(
     mock_read_csv.assert_called_once_with("https://raw.githubusercontent.com/org/repo/main/data.csv?token=secret123")
 
 
-@patch("data_designer.config.utils.io_helpers.pd.read_csv", autospec=True)
+@patch("data_designer.config.utils.io_helpers.lazy.pd.read_csv", autospec=True)
 def test_smart_load_dataframe_rewrites_huggingface_blob_url(
     mock_read_csv: MagicMock, stub_dataframe: pd.DataFrame
 ) -> None:
@@ -428,41 +427,46 @@ def test_maybe_rewrite_huggingface_url_log_does_not_leak_query(caplog: pytest.Lo
         ("serialize_decimal", {"dec": Decimal("123.45")}, '{"dec": 123.45}', None),
         ("serialize_bytes", {"b": b"hello"}, '{"b": "hello"}', None),
         ("serialize_set", {"s": {1, 2, 3}}, '{"s": [1, 2, 3]}', None),
-        ("serialize_pd_series", {"series": pd.Series([1, 2, 3])}, '{"series": [1, 2, 3]}', None),
-        ("serialize_pd_timestamp", {"ts": pd.Timestamp("2024-01-15 10:30:45")}, '{"ts": "2024-01-15T10:30:45"}', None),
-        ("serialize_pd_na", {"na": pd.NA}, '{"na": null}', None),
+        ("serialize_pd_series", {"series": lazy.pd.Series([1, 2, 3])}, '{"series": [1, 2, 3]}', None),
+        (
+            "serialize_pd_timestamp",
+            {"ts": lazy.pd.Timestamp("2024-01-15 10:30:45")},
+            '{"ts": "2024-01-15T10:30:45"}',
+            None,
+        ),
+        ("serialize_pd_na", {"na": lazy.pd.NA}, '{"na": null}', None),
         (
             "serialize_mixed_types",
             {
                 "date": date(2024, 1, 15),
                 "decimal": Decimal("99.99"),
                 "bytes": b"data",
-                "series": pd.Series([1, 2]),
+                "series": lazy.pd.Series([1, 2]),
             },
             '{"date": "2024-01-15", "decimal": 99.99, "bytes": "data", "series": [1, 2]}',
             None,
         ),
-        ("serialize_np_int32", {"val": np.int32(42)}, '{"val": 42}', None),
-        ("serialize_np_int64", {"val": np.int64(9999999999)}, '{"val": 9999999999}', None),
-        ("serialize_np_float32", {"val": np.float32(3.14)}, '{"val": 3.140000104904175}', None),
-        ("serialize_np_float64", {"val": np.float64(2.718281828)}, '{"val": 2.718281828}', None),
-        ("serialize_np_bool_true", {"val": np.bool_(True)}, '{"val": true}', None),
-        ("serialize_np_bool_false", {"val": np.bool_(False)}, '{"val": false}', None),
-        ("serialize_np_array", {"arr": np.array([1, 2, 3, 4])}, '{"arr": [1, 2, 3, 4]}', None),
+        ("serialize_np_int32", {"val": lazy.np.int32(42)}, '{"val": 42}', None),
+        ("serialize_np_int64", {"val": lazy.np.int64(9999999999)}, '{"val": 9999999999}', None),
+        ("serialize_np_float32", {"val": lazy.np.float32(3.14)}, '{"val": 3.140000104904175}', None),
+        ("serialize_np_float64", {"val": lazy.np.float64(2.718281828)}, '{"val": 2.718281828}', None),
+        ("serialize_np_bool_true", {"val": lazy.np.bool_(True)}, '{"val": true}', None),
+        ("serialize_np_bool_false", {"val": lazy.np.bool_(False)}, '{"val": false}', None),
+        ("serialize_np_array", {"arr": lazy.np.array([1, 2, 3, 4])}, '{"arr": [1, 2, 3, 4]}', None),
         (
             "serialize_np_datetime64",
-            {"dt": np.datetime64("2024-01-15T10:30:45")},
+            {"dt": lazy.np.datetime64("2024-01-15T10:30:45")},
             '{"dt": "2024-01-15T10:30:45"}',
             None,
         ),
-        ("serialize_np_timedelta64", {"td": np.timedelta64(5, "D")}, '{"td": "5 days"}', None),
+        ("serialize_np_timedelta64", {"td": lazy.np.timedelta64(5, "D")}, '{"td": "5 days"}', None),
         (
             "serialize_numpy_mixed_types",
             {
-                "int32": np.int32(100),
-                "float64": np.float64(1.5),
-                "bool": np.bool_(True),
-                "array": np.array([10, 20]),
+                "int32": lazy.np.int32(100),
+                "float64": lazy.np.float64(1.5),
+                "bool": lazy.np.bool_(True),
+                "array": lazy.np.array([10, 20]),
             },
             '{"int32": 100, "float64": 1.5, "bool": true, "array": [10, 20]}',
             None,

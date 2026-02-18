@@ -42,7 +42,6 @@ from data_designer.engine.registry.data_designer_registry import DataDesignerReg
 from data_designer.engine.resources.resource_provider import ResourceProvider
 from data_designer.engine.storage.artifact_storage import SDG_CONFIG_FILENAME, ArtifactStorage
 from data_designer.engine.storage.media_storage import StorageMode
-from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
     import pandas as pd

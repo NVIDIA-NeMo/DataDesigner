@@ -8,13 +8,13 @@ from typing import TYPE_CHECKING
 import pytest
 from pydantic import ValidationError
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.validator_params import (
     CodeValidatorParams,
     LocalCallableValidatorParams,
     RemoteValidatorParams,
 )
-from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -49,7 +49,7 @@ def test_remote_validator_params():
 
 def test_callback_validator_params():
     def stub_callback(df: pd.DataFrame) -> pd.DataFrame:
-        return pd.DataFrame([{"is_valid": True, "confidence": "0.98"}])
+        return lazy.pd.DataFrame([{"is_valid": True, "confidence": "0.98"}])
 
     params = LocalCallableValidatorParams(validation_function=stub_callback)
     assert params.validation_function == stub_callback

@@ -8,16 +8,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.engine.mcp.errors import MCPConfigurationError, MCPToolError
 from data_designer.engine.models.errors import ImageGenerationError, ModelGenerationValidationFailureError
 from data_designer.engine.models.facade import CustomRouter, ModelFacade
 from data_designer.engine.models.parsers.errors import ParserException
 from data_designer.engine.models.utils import ChatMessage
 from data_designer.engine.testing import StubMCPFacade, StubMCPRegistry, StubMessage, StubResponse
-from data_designer.lazy_heavy_imports import litellm
 
 if TYPE_CHECKING:
-    import litellm
     from litellm.types.utils import EmbeddingResponse, ModelResponse
 
 
@@ -41,14 +40,14 @@ def stub_completion_messages() -> list[ChatMessage]:
 
 @pytest.fixture
 def stub_expected_completion_response():
-    return litellm.types.utils.ModelResponse(
-        choices=litellm.types.utils.Choices(message=litellm.types.utils.Message(content="Test response"))
+    return lazy.litellm.types.utils.ModelResponse(
+        choices=lazy.litellm.types.utils.Choices(message=lazy.litellm.types.utils.Message(content="Test response"))
     )
 
 
 @pytest.fixture
 def stub_expected_embedding_response():
-    return litellm.types.utils.EmbeddingResponse(data=[{"embedding": [0.1, 0.2, 0.3]}] * 2)
+    return lazy.litellm.types.utils.EmbeddingResponse(data=[{"embedding": [0.1, 0.2, 0.3]}] * 2)
 
 
 @pytest.mark.parametrize(
@@ -114,10 +113,10 @@ def test_generate_with_system_prompt(
     # Capture messages at call time since they get mutated after the call
     captured_messages = []
 
-    def capture_and_return(*args: Any, **kwargs: Any) -> litellm.types.utils.ModelResponse:
+    def capture_and_return(*args: Any, **kwargs: Any) -> ModelResponse:
         captured_messages.append(list(args[1]))  # Copy the messages list
-        return litellm.types.utils.ModelResponse(
-            choices=litellm.types.utils.Choices(message=litellm.types.utils.Message(content="Hello!"))
+        return lazy.litellm.types.utils.ModelResponse(
+            choices=lazy.litellm.types.utils.Choices(message=lazy.litellm.types.utils.Message(content="Hello!"))
         )
 
     mock_completion.side_effect = capture_and_return
@@ -198,7 +197,7 @@ def test_completion_success(
     stub_completion_messages: list[ChatMessage],
     stub_model_configs: Any,
     stub_model_facade: ModelFacade,
-    stub_expected_completion_response: litellm.types.utils.ModelResponse,
+    stub_expected_completion_response: ModelResponse,
     skip_usage_tracking: bool,
 ) -> None:
     mock_router_completion.side_effect = lambda self, model, messages, **kwargs: stub_expected_completion_response
@@ -231,13 +230,11 @@ def test_completion_with_kwargs(
     stub_completion_messages: list[ChatMessage],
     stub_model_configs: Any,
     stub_model_facade: ModelFacade,
-    stub_expected_completion_response: litellm.types.utils.ModelResponse,
+    stub_expected_completion_response: ModelResponse,
 ) -> None:
     captured_kwargs = {}
 
-    def mock_completion(
-        self: Any, model: str, messages: list[dict[str, Any]], **kwargs: Any
-    ) -> litellm.types.utils.ModelResponse:
+    def mock_completion(self: Any, model: str, messages: list[dict[str, Any]], **kwargs: Any) -> ModelResponse:
         captured_kwargs.update(kwargs)
         return stub_expected_completion_response
 
@@ -1044,11 +1041,11 @@ def test_generate_image_diffusion_tracks_image_usage(
 ) -> None:
     """Test that generate_image tracks image usage for diffusion models."""
     # Mock response with 3 images
-    mock_response = litellm.types.utils.ImageResponse(
+    mock_response = lazy.litellm.types.utils.ImageResponse(
         data=[
-            litellm.types.utils.ImageObject(b64_json="image1_base64"),
-            litellm.types.utils.ImageObject(b64_json="image2_base64"),
-            litellm.types.utils.ImageObject(b64_json="image3_base64"),
+            lazy.litellm.types.utils.ImageObject(b64_json="image1_base64"),
+            lazy.litellm.types.utils.ImageObject(b64_json="image2_base64"),
+            lazy.litellm.types.utils.ImageObject(b64_json="image3_base64"),
         ]
     )
     mock_image_generation.return_value = mock_response
@@ -1076,19 +1073,21 @@ def test_generate_image_chat_completion_tracks_image_usage(
 ) -> None:
     """Test that generate_image tracks image usage for chat completion models."""
     # Mock response with images attribute (Message requires type and index per ImageURLListItem)
-    mock_message = litellm.types.utils.Message(
+    mock_message = lazy.litellm.types.utils.Message(
         role="assistant",
         content="",
         images=[
-            litellm.types.utils.ImageURLListItem(
+            lazy.litellm.types.utils.ImageURLListItem(
                 type="image_url", image_url={"url": "data:image/png;base64,image1"}, index=0
             ),
-            litellm.types.utils.ImageURLListItem(
+            lazy.litellm.types.utils.ImageURLListItem(
                 type="image_url", image_url={"url": "data:image/png;base64,image2"}, index=1
             ),
         ],
     )
-    mock_response = litellm.types.utils.ModelResponse(choices=[litellm.types.utils.Choices(message=mock_message)])
+    mock_response = lazy.litellm.types.utils.ModelResponse(
+        choices=[lazy.litellm.types.utils.Choices(message=mock_message)]
+    )
     mock_completion.return_value = mock_response
 
     # Verify initial state
@@ -1177,10 +1176,10 @@ def test_generate_image_skip_usage_tracking(
     stub_model_facade: ModelFacade,
 ) -> None:
     """Test that generate_image respects skip_usage_tracking flag."""
-    mock_response = litellm.types.utils.ImageResponse(
+    mock_response = lazy.litellm.types.utils.ImageResponse(
         data=[
-            litellm.types.utils.ImageObject(b64_json="image1_base64"),
-            litellm.types.utils.ImageObject(b64_json="image2_base64"),
+            lazy.litellm.types.utils.ImageObject(b64_json="image1_base64"),
+            lazy.litellm.types.utils.ImageObject(b64_json="image2_base64"),
         ]
     )
     mock_image_generation.return_value = mock_response
@@ -1206,7 +1205,7 @@ def test_generate_image_chat_completion_no_choices(
     stub_model_facade: ModelFacade,
 ) -> None:
     """Test that generate_image raises ImageGenerationError when response has no choices."""
-    mock_response = litellm.types.utils.ModelResponse(choices=[])
+    mock_response = lazy.litellm.types.utils.ModelResponse(choices=[])
     mock_completion.return_value = mock_response
 
     with patch("data_designer.engine.models.facade.is_image_diffusion_model", return_value=False):
@@ -1220,8 +1219,10 @@ def test_generate_image_chat_completion_no_image_data(
     stub_model_facade: ModelFacade,
 ) -> None:
     """Test that generate_image raises ImageGenerationError when no image data in response."""
-    mock_message = litellm.types.utils.Message(role="assistant", content="just text, no image")
-    mock_response = litellm.types.utils.ModelResponse(choices=[litellm.types.utils.Choices(message=mock_message)])
+    mock_message = lazy.litellm.types.utils.Message(role="assistant", content="just text, no image")
+    mock_response = lazy.litellm.types.utils.ModelResponse(
+        choices=[lazy.litellm.types.utils.Choices(message=mock_message)]
+    )
     mock_completion.return_value = mock_response
 
     with patch("data_designer.engine.models.facade.is_image_diffusion_model", return_value=False):
@@ -1235,7 +1236,7 @@ def test_generate_image_diffusion_no_data(
     stub_model_facade: ModelFacade,
 ) -> None:
     """Test that generate_image raises ImageGenerationError when diffusion API returns no data."""
-    mock_response = litellm.types.utils.ImageResponse(data=[])
+    mock_response = lazy.litellm.types.utils.ImageResponse(data=[])
     mock_image_generation.return_value = mock_response
 
     with patch("data_designer.engine.models.facade.is_image_diffusion_model", return_value=True):
@@ -1250,18 +1251,18 @@ def test_generate_image_accumulates_usage(
 ) -> None:
     """Test that generate_image accumulates image usage across multiple calls."""
     # First call - 2 images
-    mock_response1 = litellm.types.utils.ImageResponse(
+    mock_response1 = lazy.litellm.types.utils.ImageResponse(
         data=[
-            litellm.types.utils.ImageObject(b64_json="image1"),
-            litellm.types.utils.ImageObject(b64_json="image2"),
+            lazy.litellm.types.utils.ImageObject(b64_json="image1"),
+            lazy.litellm.types.utils.ImageObject(b64_json="image2"),
         ]
     )
     # Second call - 3 images
-    mock_response2 = litellm.types.utils.ImageResponse(
+    mock_response2 = lazy.litellm.types.utils.ImageResponse(
         data=[
-            litellm.types.utils.ImageObject(b64_json="image3"),
-            litellm.types.utils.ImageObject(b64_json="image4"),
-            litellm.types.utils.ImageObject(b64_json="image5"),
+            lazy.litellm.types.utils.ImageObject(b64_json="image3"),
+            lazy.litellm.types.utils.ImageObject(b64_json="image4"),
+            lazy.litellm.types.utils.ImageObject(b64_json="image5"),
         ]
     )
     mock_image_generation.side_effect = [mock_response1, mock_response2]
@@ -1418,10 +1419,10 @@ async def test_agenerate_image_diffusion_success(
     stub_model_facade: ModelFacade,
 ) -> None:
     """Test async image generation via diffusion API."""
-    mock_response = litellm.types.utils.ImageResponse(
+    mock_response = lazy.litellm.types.utils.ImageResponse(
         data=[
-            litellm.types.utils.ImageObject(b64_json="image1_base64"),
-            litellm.types.utils.ImageObject(b64_json="image2_base64"),
+            lazy.litellm.types.utils.ImageObject(b64_json="image1_base64"),
+            lazy.litellm.types.utils.ImageObject(b64_json="image2_base64"),
         ]
     )
     mock_aimage_generation.return_value = mock_response
@@ -1443,16 +1444,18 @@ async def test_agenerate_image_chat_completion_success(
     stub_model_facade: ModelFacade,
 ) -> None:
     """Test async image generation via chat completion API."""
-    mock_message = litellm.types.utils.Message(
+    mock_message = lazy.litellm.types.utils.Message(
         role="assistant",
         content="",
         images=[
-            litellm.types.utils.ImageURLListItem(
+            lazy.litellm.types.utils.ImageURLListItem(
                 type="image_url", image_url={"url": "data:image/png;base64,image1"}, index=0
             ),
         ],
     )
-    mock_response = litellm.types.utils.ModelResponse(choices=[litellm.types.utils.Choices(message=mock_message)])
+    mock_response = lazy.litellm.types.utils.ModelResponse(
+        choices=[lazy.litellm.types.utils.Choices(message=mock_message)]
+    )
     mock_acompletion.return_value = mock_response
 
     with patch("data_designer.engine.models.facade.is_image_diffusion_model", return_value=False):
@@ -1471,7 +1474,7 @@ async def test_agenerate_image_diffusion_no_data(
     stub_model_facade: ModelFacade,
 ) -> None:
     """Test async image generation raises error when diffusion API returns no data."""
-    mock_response = litellm.types.utils.ImageResponse(data=[])
+    mock_response = lazy.litellm.types.utils.ImageResponse(data=[])
     mock_aimage_generation.return_value = mock_response
 
     with patch("data_designer.engine.models.facade.is_image_diffusion_model", return_value=True):
@@ -1486,7 +1489,7 @@ async def test_agenerate_image_chat_completion_no_choices(
     stub_model_facade: ModelFacade,
 ) -> None:
     """Test async image generation raises error when response has no choices."""
-    mock_response = litellm.types.utils.ModelResponse(choices=[])
+    mock_response = lazy.litellm.types.utils.ModelResponse(choices=[])
     mock_acompletion.return_value = mock_response
 
     with patch("data_designer.engine.models.facade.is_image_diffusion_model", return_value=False):
@@ -1501,7 +1504,9 @@ async def test_agenerate_image_skip_usage_tracking(
     stub_model_facade: ModelFacade,
 ) -> None:
     """Test that async image generation respects skip_usage_tracking flag."""
-    mock_response = litellm.types.utils.ImageResponse(data=[litellm.types.utils.ImageObject(b64_json="image1_base64")])
+    mock_response = lazy.litellm.types.utils.ImageResponse(
+        data=[lazy.litellm.types.utils.ImageObject(b64_json="image1_base64")]
+    )
     mock_aimage_generation.return_value = mock_response
 
     with patch("data_designer.engine.models.facade.is_image_diffusion_model", return_value=True):

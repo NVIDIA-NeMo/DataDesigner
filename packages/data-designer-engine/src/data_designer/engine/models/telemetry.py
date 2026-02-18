@@ -19,11 +19,14 @@ import platform
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from pydantic import BaseModel, Field
 
-from data_designer.lazy_heavy_imports import httpx
+import data_designer.lazy_heavy_imports as lazy
+
+if TYPE_CHECKING:
+    import httpx
 
 TELEMETRY_ENABLED = os.getenv("NEMO_TELEMETRY_ENABLED", "true").lower() in ("1", "true", "yes")
 CLIENT_ID = "184482118588404"
@@ -326,7 +329,7 @@ class TelemetryHandler:
             await self._send_events(events_to_send)
 
     async def _send_events(self, events: list[QueuedEvent]) -> None:
-        async with httpx.AsyncClient() as client:
+        async with lazy.httpx.AsyncClient() as client:
             await self._send_events_with_client(client, events)
 
     async def _send_events_with_client(self, client: httpx.AsyncClient, events: list[QueuedEvent]) -> None:
@@ -351,7 +354,7 @@ class TelemetryHandler:
                 return
             if response.status_code == 408 or response.status_code >= 500:
                 self._add_to_dlq(events)
-        except httpx.HTTPError:
+        except lazy.httpx.HTTPError:
             self._add_to_dlq(events)
 
     def _add_to_dlq(self, events: list[QueuedEvent]) -> None:

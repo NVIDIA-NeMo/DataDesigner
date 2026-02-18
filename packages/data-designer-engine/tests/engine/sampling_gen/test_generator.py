@@ -5,18 +5,14 @@ from __future__ import annotations
 
 from decimal import Decimal
 from functools import partial
-from typing import TYPE_CHECKING
 
 import pytest
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.sampler_constraints import ColumnInequalityConstraint, ScalarInequalityConstraint
 from data_designer.config.sampler_params import SamplerType
 from data_designer.engine.sampling_gen.errors import RejectionSamplingError
 from data_designer.engine.sampling_gen.generator import DatasetGenerator
-from data_designer.lazy_heavy_imports import pd
-
-if TYPE_CHECKING:
-    import pandas as pd
 
 TEST_LOCALE_1 = "en_GB"
 TEST_LOCALE_2 = "fr_FR"
@@ -102,9 +98,9 @@ def test_timedelta(stub_schema_builder):
 
     assert dataset["new_date"].str.match(r"\d{4}-\d{2}-\d{2}").all()
 
-    dt = pd.to_datetime(dataset["new_date"]) - pd.to_datetime(dataset["reference_date"])
-    assert (dt <= pd.Timedelta(days=10)).all()
-    assert (dt >= pd.Timedelta(days=5)).all()
+    dt = lazy.pd.to_datetime(dataset["new_date"]) - lazy.pd.to_datetime(dataset["reference_date"])
+    assert (dt <= lazy.pd.Timedelta(days=10)).all()
+    assert (dt >= lazy.pd.Timedelta(days=5)).all()
 
 
 @pytest.mark.parametrize(
@@ -143,7 +139,7 @@ def test_dataset_column_convert_datetime_format(stub_schema_builder):
     dataset = generator.generate(NUM_SAMPLES)
     assert dataset["col_1"].dtype == "object"
     assert dataset["col_1"].str.contains(r"\d{2}/\d{2}/\d{4}").all()
-    assert pd.to_datetime(dataset["col_1"], format="%m/%d/%Y").notna().all()
+    assert lazy.pd.to_datetime(dataset["col_1"], format="%m/%d/%Y").notna().all()
 
 
 def test_dataset_with_conditionals(stub_schema_builder):
@@ -499,7 +495,7 @@ def test_e2e_example(stub_schema_builder, stub_person_generator_loader):
     df = generator.generate(NUM_SAMPLES)
 
     assert df.shape == (NUM_SAMPLES, len(sampler_columns.columns))
-    assert (pd.to_datetime(df["start_date"]) < pd.to_datetime(df["end_date"])).all()
+    assert (lazy.pd.to_datetime(df["start_date"]) < lazy.pd.to_datetime(df["end_date"])).all()
     assert df.query("department == 'clothing'")["products"].isin(["shirt", "pants", "shoes"]).all()
     for d, p in zip(
         ["electronics", "clothing", "furniture", "appliances"],

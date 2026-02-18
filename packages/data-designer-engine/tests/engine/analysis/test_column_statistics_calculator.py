@@ -3,18 +3,13 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.analysis.column_statistics import ColumnDistributionType
 from data_designer.config.column_types import DataDesignerColumnType
 from data_designer.config.sampler_params import SamplerType
 from data_designer.engine.analysis.column_profilers.base import ColumnConfigWithDataFrame
 from data_designer.engine.analysis.column_statistics import get_column_statistics_calculator
 from data_designer.engine.analysis.utils.column_statistics_calculations import ensure_hashable
-from data_designer.lazy_heavy_imports import pd
-
-if TYPE_CHECKING:
-    import pandas as pd
 
 
 def test_general_column_statistics(stub_df, column_configs):
@@ -29,7 +24,7 @@ def test_general_column_statistics(stub_df, column_configs):
         assert stats.percent_null == 0.0
         assert stats.num_records == len(stub_df)
 
-        _df = pd.DataFrame(stub_df[column_config.name].apply(ensure_hashable))
+        _df = lazy.pd.DataFrame(stub_df[column_config.name].apply(ensure_hashable))
         assert stats.num_null == _df[column_config.name].isnull().sum()
         assert stats.num_unique == _df[column_config.name].nunique()
 

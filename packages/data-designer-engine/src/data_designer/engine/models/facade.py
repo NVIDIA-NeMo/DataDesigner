@@ -9,6 +9,7 @@ from collections.abc import Callable
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.models import GenerationType, ModelConfig, ModelProvider
 from data_designer.config.utils.image_helpers import (
     extract_base64_from_data_uri,
@@ -30,7 +31,6 @@ from data_designer.engine.models.parsers.errors import ParserException
 from data_designer.engine.models.usage import ImageUsageStats, ModelUsageStats, RequestUsageStats, TokenUsageStats
 from data_designer.engine.models.utils import ChatMessage, prompt_to_messages
 from data_designer.engine.secret_resolver import SecretResolver
-from data_designer.lazy_heavy_imports import litellm
 
 if TYPE_CHECKING:
     import litellm
@@ -513,7 +513,7 @@ class ModelFacade:
             api_key = self._secret_resolver.resolve(provider.api_key)
         api_key = api_key or "not-used-but-required"
 
-        litellm_params = litellm.LiteLLM_Params(
+        litellm_params = lazy.litellm.LiteLLM_Params(
             model=f"{provider.provider_type}/{model_config.model}",
             api_base=provider.endpoint,
             api_key=api_key,
@@ -560,7 +560,7 @@ class ModelFacade:
             self._usage_stats.extend(request_usage=RequestUsageStats(successful_requests=0, failed_requests=1))
             return
 
-        if response.usage is not None and isinstance(response.usage, litellm.types.utils.ImageUsage):
+        if response.usage is not None and isinstance(response.usage, lazy.litellm.types.utils.ImageUsage):
             self._usage_stats.extend(
                 token_usage=TokenUsageStats(
                     input_tokens=response.usage.input_tokens,

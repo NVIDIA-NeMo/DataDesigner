@@ -7,12 +7,12 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.processors import SchemaTransformProcessorConfig
 from data_designer.engine.processing.ginja.environment import WithJinja2UserTemplateRendering
 from data_designer.engine.processing.processors.base import Processor
 from data_designer.engine.processing.utils import deserialize_json_values
 from data_designer.engine.storage.artifact_storage import BatchStage
-from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -72,4 +72,4 @@ class SchemaTransformProcessor(WithJinja2UserTemplateRendering, Processor[Schema
             escaped = _json_escape_record(deserialized)
             rendered = self.render_template(escaped)
             formatted_records.append(json.loads(rendered))
-        return pd.DataFrame(formatted_records)
+        return lazy.pd.DataFrame(formatted_records)

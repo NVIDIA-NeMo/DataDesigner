@@ -3,18 +3,14 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
 from unittest.mock import Mock, patch
 
 import pytest
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.processors import DropColumnsProcessorConfig
 from data_designer.engine.processing.processors.drop_columns import DropColumnsProcessor
 from data_designer.engine.storage.artifact_storage import BatchStage
-from data_designer.lazy_heavy_imports import pd
-
-if TYPE_CHECKING:
-    import pandas as pd
 
 
 @pytest.fixture
@@ -37,7 +33,7 @@ def stub_processor(stub_processor_config):
 
 @pytest.fixture
 def stub_empty_dataframe():
-    return pd.DataFrame()
+    return lazy.pd.DataFrame()
 
 
 @pytest.mark.parametrize(
@@ -90,11 +86,11 @@ def test_process_after_batch_scenarios(
         with patch("data_designer.engine.processing.processors.drop_columns.logger") as mock_logger:
             result = stub_processor.process_after_batch(stub_sample_dataframe.copy(), current_batch_number=0)
 
-            pd.testing.assert_frame_equal(result, pd.DataFrame(expected_result))
+            lazy.pd.testing.assert_frame_equal(result, lazy.pd.DataFrame(expected_result))
             mock_logger.warning.assert_called_once_with(expected_warning)
     else:
         result = stub_processor.process_after_batch(stub_sample_dataframe.copy(), current_batch_number=0)
-        pd.testing.assert_frame_equal(result, pd.DataFrame(expected_result))
+        lazy.pd.testing.assert_frame_equal(result, lazy.pd.DataFrame(expected_result))
 
 
 def test_process_after_batch_logging(stub_processor, stub_sample_dataframe):
@@ -150,7 +146,7 @@ def test_process_after_batch_empty_dataframe(stub_processor, stub_empty_datafram
     with patch("data_designer.engine.processing.processors.drop_columns.logger") as mock_logger:
         result = stub_processor.process_after_batch(stub_empty_dataframe, current_batch_number=0)
 
-        pd.testing.assert_frame_equal(result, stub_empty_dataframe)
+        lazy.pd.testing.assert_frame_equal(result, stub_empty_dataframe)
         mock_logger.warning.assert_called_once_with("⚠️ Cannot drop column: `col1` not found in the dataset.")
 
 

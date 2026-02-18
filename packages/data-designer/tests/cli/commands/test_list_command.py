@@ -34,7 +34,7 @@ def test_list_command(
     mock_display_tool_configs.assert_called_once()
 
 
-@patch("data_designer.cli.commands.list.console.print")
+@patch("data_designer.cli.ui.console.print")
 def test_display_providers(mock_console_print, stub_provider_service):
     """Test display providers."""
     display_providers(stub_provider_service.repository)
@@ -43,7 +43,7 @@ def test_display_providers(mock_console_print, stub_provider_service):
     mock_console_print.call_args_list[0][0][0].title == "Model Providers"
 
 
-@patch("data_designer.cli.commands.list.console.print")
+@patch("data_designer.cli.ui.console.print")
 def test_display_models(mock_console_print, stub_model_service):
     """Test display models."""
     display_models(stub_model_service.repository)
@@ -53,7 +53,7 @@ def test_display_models(mock_console_print, stub_model_service):
 
 
 @patch("data_designer.cli.commands.list.print_warning")
-@patch("data_designer.cli.commands.list.console.print")
+@patch("data_designer.cli.ui.console.print")
 def test_display_providers_empty_registry(mock_console_print, mock_print_warning, tmp_path: Path):
     """Test display providers with empty registry."""
     repository = ProviderRepository(tmp_path)
@@ -65,7 +65,7 @@ def test_display_providers_empty_registry(mock_console_print, mock_print_warning
 
 
 @patch("data_designer.cli.commands.list.print_error")
-@patch("data_designer.cli.commands.list.console.print")
+@patch("data_designer.cli.ui.console.print")
 def test_display_providers_exception(mock_console_print, mock_print_error, stub_provider_service):
     """Test display providers with exception."""
     with patch.object(stub_provider_service.repository, "load", side_effect=Exception("Test error")):
@@ -75,7 +75,7 @@ def test_display_providers_exception(mock_console_print, mock_print_error, stub_
 
 
 @patch("data_designer.cli.commands.list.print_warning")
-@patch("data_designer.cli.commands.list.console.print")
+@patch("data_designer.cli.ui.console.print")
 def test_display_models_empty_registry(mock_console_print, mock_print_warning, tmp_path: Path):
     """Test display models with empty registry."""
     repository = ModelRepository(tmp_path)
@@ -87,7 +87,7 @@ def test_display_models_empty_registry(mock_console_print, mock_print_warning, t
 
 
 @patch("data_designer.cli.commands.list.print_error")
-@patch("data_designer.cli.commands.list.console.print")
+@patch("data_designer.cli.ui.console.print")
 def test_display_models_exception(mock_console_print, mock_print_error, stub_model_service):
     """Test display models with exception."""
     with patch.object(stub_model_service.repository, "load", side_effect=Exception("Test error")):
@@ -96,7 +96,7 @@ def test_display_models_exception(mock_console_print, mock_print_error, stub_mod
     mock_console_print.assert_called_once()
 
 
-@patch("data_designer.cli.commands.list.console.print")
+@patch("data_designer.cli.ui.console.print")
 def test_display_mcp_providers(mock_console_print, stub_mcp_provider_service):
     """Test display MCP providers."""
     display_mcp_providers(stub_mcp_provider_service.repository)
@@ -106,7 +106,7 @@ def test_display_mcp_providers(mock_console_print, stub_mcp_provider_service):
 
 
 @patch("data_designer.cli.commands.list.print_warning")
-@patch("data_designer.cli.commands.list.console.print")
+@patch("data_designer.cli.ui.console.print")
 def test_display_mcp_providers_empty_registry(mock_console_print, mock_print_warning, tmp_path: Path):
     """Test display MCP providers with empty registry."""
     repository = MCPProviderRepository(tmp_path)
@@ -118,7 +118,7 @@ def test_display_mcp_providers_empty_registry(mock_console_print, mock_print_war
 
 
 @patch("data_designer.cli.commands.list.print_error")
-@patch("data_designer.cli.commands.list.console.print")
+@patch("data_designer.cli.ui.console.print")
 def test_display_mcp_providers_exception(mock_console_print, mock_print_error, stub_mcp_provider_service):
     """Test display MCP providers with exception."""
     with patch.object(stub_mcp_provider_service.repository, "load", side_effect=Exception("Test error")):
@@ -127,7 +127,7 @@ def test_display_mcp_providers_exception(mock_console_print, mock_print_error, s
     mock_console_print.assert_called_once()
 
 
-@patch("data_designer.cli.commands.list.console.print")
+@patch("data_designer.cli.ui.console.print")
 def test_display_tool_configs(mock_console_print, stub_tool_service):
     """Test display tool configs."""
     display_tool_configs(stub_tool_service.repository)
@@ -137,7 +137,7 @@ def test_display_tool_configs(mock_console_print, stub_tool_service):
 
 
 @patch("data_designer.cli.commands.list.print_warning")
-@patch("data_designer.cli.commands.list.console.print")
+@patch("data_designer.cli.ui.console.print")
 def test_display_tool_configs_empty_registry(mock_console_print, mock_print_warning, tmp_path: Path):
     """Test display tool configs with empty registry."""
     repository = ToolRepository(tmp_path)
@@ -149,7 +149,7 @@ def test_display_tool_configs_empty_registry(mock_console_print, mock_print_warn
 
 
 @patch("data_designer.cli.commands.list.print_error")
-@patch("data_designer.cli.commands.list.console.print")
+@patch("data_designer.cli.ui.console.print")
 def test_display_tool_configs_exception(mock_console_print, mock_print_error, stub_tool_service):
     """Test display tool configs with exception."""
     with patch.object(stub_tool_service.repository, "load", side_effect=Exception("Test error")):

@@ -3,11 +3,11 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
 from unittest.mock import Mock
 
 import pytest
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.sampler_params import (
     BernoulliSamplerParams,
     CategorySamplerParams,
@@ -44,11 +44,6 @@ from data_designer.engine.sampling_gen.data_sources.sources import (
     UUIDSampler,
     load_sampler,
 )
-from data_designer.lazy_heavy_imports import np, pd
-
-if TYPE_CHECKING:
-    import numpy as np
-    import pandas as pd
 
 
 @pytest.fixture
@@ -82,15 +77,15 @@ def test_scipy_stats_sampler_sample_method():
 
 
 def test_passthrough_mixin_preproc_passthrough():
-    series = pd.Series([1, 2, 3])
+    series = lazy.pd.Series([1, 2, 3])
     result = PassthroughMixin.preproc(series, "int")
-    pd.testing.assert_series_equal(result, series)
+    lazy.pd.testing.assert_series_equal(result, series)
 
 
 def test_passthrough_mixin_postproc_passthrough():
-    series = pd.Series([1, 2, 3])
+    series = lazy.pd.Series([1, 2, 3])
     result = PassthroughMixin.postproc(series, "int")
-    pd.testing.assert_series_equal(result, series)
+    lazy.pd.testing.assert_series_equal(result, series)
 
 
 def test_passthrough_mixin_validate_data_conversion_passthrough():
@@ -99,23 +94,23 @@ def test_passthrough_mixin_validate_data_conversion_passthrough():
 
 
 def test_type_conversion_mixin_preproc_type_conversion():
-    series = pd.Series([1.5, 2.7, 3.2])
+    series = lazy.pd.Series([1.5, 2.7, 3.2])
 
     result = TypeConversionMixin.preproc(series, "int")
-    expected = pd.Series([2, 3, 3], dtype="int64")
-    pd.testing.assert_series_equal(result, expected)
+    expected = lazy.pd.Series([2, 3, 3], dtype="int64")
+    lazy.pd.testing.assert_series_equal(result, expected)
 
     result = TypeConversionMixin.preproc(series, "str")
-    expected = pd.Series(["1.5", "2.7", "3.2"], dtype="str")
-    pd.testing.assert_series_equal(result, expected)
+    expected = lazy.pd.Series(["1.5", "2.7", "3.2"], dtype="str")
+    lazy.pd.testing.assert_series_equal(result, expected)
 
 
 def test_type_conversion_mixin_postproc_type_conversion():
-    series = pd.Series([1.5, 2.7, 3.2])
+    series = lazy.pd.Series([1.5, 2.7, 3.2])
 
     result = TypeConversionMixin.postproc(series, "int")
-    expected = pd.Series([2, 3, 3], dtype="int64")
-    pd.testing.assert_series_equal(result, expected)
+    expected = lazy.pd.Series([2, 3, 3], dtype="int64")
+    lazy.pd.testing.assert_series_equal(result, expected)
 
 
 def test_type_conversion_mixin_validate_data_conversion_valid():
@@ -131,16 +126,16 @@ def test_type_conversion_mixin_validate_data_conversion_invalid():
 
 
 def test_datetime_format_mixin_preproc_datetime():
-    series = pd.Series(pd.date_range("2023-01-01", periods=3))
+    series = lazy.pd.Series(lazy.pd.date_range("2023-01-01", periods=3))
     result = DatetimeFormatMixin.preproc(series, "%Y-%m-%d")
-    pd.testing.assert_series_equal(result, series)
+    lazy.pd.testing.assert_series_equal(result, series)
 
 
 def test_datetime_format_mixin_postproc_datetime_formatting():
-    series = pd.Series(pd.date_range("2023-01-01", periods=3))
+    series = lazy.pd.Series(lazy.pd.date_range("2023-01-01", periods=3))
     result = DatetimeFormatMixin.postproc(series, "%Y-%m-%d")
-    expected = pd.Series(["2023-01-01", "2023-01-02", "2023-01-03"], dtype="str")
-    pd.testing.assert_series_equal(result, expected)
+    expected = lazy.pd.Series(["2023-01-01", "2023-01-02", "2023-01-03"], dtype="str")
+    lazy.pd.testing.assert_series_equal(result, expected)
 
 
 def test_datetime_format_mixin_validate_data_conversion_valid_format():
@@ -240,7 +235,7 @@ def test_datetime_sampler_sample():
 
     result = sampler.sample(5)
     assert len(result) == 5
-    assert all(isinstance(val, np.datetime64) for val in result)
+    assert all(isinstance(val, lazy.np.datetime64) for val in result)
 
 
 def test_person_sampler_setup_with_generator(stub_people_gen):
@@ -289,7 +284,7 @@ def test_time_delta_sampler_sample():
 
     result = sampler.sample(5)
     assert len(result) == 5
-    assert all(isinstance(val, np.timedelta64) for val in result)
+    assert all(isinstance(val, lazy.np.timedelta64) for val in result)
 
 
 def test_uuid_sampler_sample_basic():

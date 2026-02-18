@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from numpy.typing import NDArray
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.base import ConfigBase
 from data_designer.config.sampler_constraints import (
     ColumnInequalityConstraint,
@@ -16,7 +17,6 @@ from data_designer.config.sampler_constraints import (
     InequalityOperator,
     ScalarInequalityConstraint,
 )
-from data_designer.lazy_heavy_imports import np, pd
 
 if TYPE_CHECKING:
     import numpy as np
@@ -40,10 +40,10 @@ class WithCompareMixin:
 
     def compare(self, lhs: float | int | NDArray, rhs: float | int | NDArray) -> bool | NDArray[np.bool_]:
         operator = {
-            InequalityOperator.LT: np.less,
-            InequalityOperator.LE: np.less_equal,
-            InequalityOperator.GT: np.greater,
-            InequalityOperator.GE: np.greater_equal,
+            InequalityOperator.LT: lazy.np.less,
+            InequalityOperator.LE: lazy.np.less_equal,
+            InequalityOperator.GT: lazy.np.greater,
+            InequalityOperator.GE: lazy.np.greater_equal,
         }[InequalityOperator(self.constraint.operator)]
         return operator(lhs, rhs)
 

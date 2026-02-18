@@ -3,13 +3,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-from data_designer.lazy_heavy_imports import jsonschema
-
-if TYPE_CHECKING:
-    import jsonschema
+import data_designer.lazy_heavy_imports as lazy
 
 
-class JSONSchemaValidationError(jsonschema.ValidationError):
+class JSONSchemaValidationError(lazy.jsonschema.ValidationError):
     """Alias of ValidationError to ease imports."""

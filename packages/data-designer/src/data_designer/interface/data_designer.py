@@ -7,6 +7,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.analysis.dataset_profiler import DatasetProfilerResults
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.data_designer_config import DataDesignerConfig
@@ -15,6 +16,7 @@ from data_designer.config.default_model_settings import (
     get_default_provider_name,
     get_default_providers,
     get_providers_with_missing_api_keys,
+    resolve_seed_default_model_settings,
 )
 from data_designer.config.interface import DataDesignerInterface
 from data_designer.config.mcp import MCPProviderT
@@ -56,17 +58,27 @@ from data_designer.interface.errors import (
     DataDesignerProfilingError,
 )
 from data_designer.interface.results import DatasetCreationResults
-from data_designer.lazy_heavy_imports import pd
-from data_designer.logging import RandomEmoji
+from data_designer.logging import RandomEmoji, configure_logging
 from data_designer.plugins.plugin import PluginType
 from data_designer.plugins.registry import PluginRegistry
 
 if TYPE_CHECKING:
-    import pandas as pd
-
     from data_designer.engine.models.facade import ModelFacade
 
 logger = logging.getLogger(__name__)
+
+
+_interface_runtime_initialized = False
+
+
+def _initialize_interface_runtime() -> None:
+    """Run one-time runtime initialization for the interface package."""
+    global _interface_runtime_initialized
+    if _interface_runtime_initialized:
+        return
+    configure_logging()
+    resolve_seed_default_model_settings()
+    _interface_runtime_initialized = True
 
 
 DEFAULT_SECRET_RESOLVER = CompositeResolver([EnvironmentResolver(), PlaintextResolver()])
@@ -116,6 +128,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         managed_assets_path: Path | str | None = None,
         mcp_providers: list[MCPProviderT] | None = None,
     ):
+        _initialize_interface_runtime()
         self._secret_resolver = secret_resolver or DEFAULT_SECRET_RESOLVER
         self._artifact_path = Path(artifact_path) if artifact_path is not None else Path.cwd() / "artifacts"
         self._run_config = RunConfig()
@@ -236,7 +249,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
 
         dropped_columns = raw_dataset.columns.difference(processed_dataset.columns)
         if len(dropped_columns) > 0:
-            dataset_for_profiler = pd.concat([processed_dataset, raw_dataset[dropped_columns]], axis=1)
+            dataset_for_profiler = lazy.pd.concat([processed_dataset, raw_dataset[dropped_columns]], axis=1)
         else:
             dataset_for_profiler = processed_dataset
 
@@ -248,7 +261,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
 
         if builder.artifact_storage.processors_outputs_path.exists():
             processor_artifacts = {
-                processor_config.name: pd.read_parquet(
+                processor_config.name: lazy.pd.read_parquet(
                     builder.artifact_storage.processors_outputs_path / f"{processor_config.name}.parquet",
                     dtype_backend="pyarrow",
                 ).to_dict(orient="records")

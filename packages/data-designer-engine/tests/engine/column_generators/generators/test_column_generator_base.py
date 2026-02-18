@@ -3,9 +3,9 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
 from unittest.mock import Mock
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.column_configs import ExpressionColumnConfig
 from data_designer.engine.column_generators.generators.base import (
     ColumnGenerator,
@@ -13,10 +13,6 @@ from data_designer.engine.column_generators.generators.base import (
     GenerationStrategy,
 )
 from data_designer.engine.resources.resource_provider import ResourceProvider
-from data_designer.lazy_heavy_imports import pd
-
-if TYPE_CHECKING:
-    import pandas as pd
 
 
 def _create_test_generator_class(strategy=GenerationStrategy.CELL_BY_CELL):
@@ -45,7 +41,7 @@ def _create_test_from_scratch_generator_class():
             return data
 
         def generate_from_scratch(self, num_records: int):
-            return pd.DataFrame({"test": [1] * num_records})
+            return lazy.pd.DataFrame({"test": [1] * num_records})
 
     return TestFromScratchGenerator
 

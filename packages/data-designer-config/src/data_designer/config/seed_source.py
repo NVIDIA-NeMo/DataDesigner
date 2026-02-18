@@ -6,8 +6,7 @@ from __future__ import annotations
 from abc import ABC
 from typing import TYPE_CHECKING, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
-from pydantic.json_schema import SkipJsonSchema
+from pydantic import BaseModel, Field, field_validator
 from typing_extensions import Self
 
 from data_designer.config.utils.io_helpers import (
@@ -15,7 +14,6 @@ from data_designer.config.utils.io_helpers import (
     validate_dataset_file_path,
     validate_path_contains_files_of_type,
 )
-from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -67,18 +65,3 @@ class HuggingFaceSeedSource(SeedSource):
     )
     token: str | None = None
     endpoint: str = "https://huggingface.co"
-
-
-class DataFrameSeedSource(SeedSource):
-    seed_type: Literal["df"] = "df"
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    df: SkipJsonSchema[pd.DataFrame] = Field(
-        ...,
-        exclude=True,
-        description=(
-            "DataFrame to use directly as the seed dataset. NOTE: if you need to write a Data Designer config, "
-            "you must use `LocalFileSeedSource` instead, since DataFrame objects are not serializable."
-        ),
-    )

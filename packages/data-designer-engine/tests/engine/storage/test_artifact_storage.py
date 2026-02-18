@@ -5,18 +5,14 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 import pytest
 from pyarrow import ArrowNotImplementedError
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
 from data_designer.engine.storage.artifact_storage import ArtifactStorage, BatchStage
-from data_designer.lazy_heavy_imports import pd
-
-if TYPE_CHECKING:
-    import pandas as pd
 
 
 @pytest.fixture
@@ -75,8 +71,8 @@ def test_artifact_storage_write_parquet_file(stub_artifact_storage, stub_sample_
     assert file_path.exists()
     assert file_path.parent == stub_artifact_storage.partial_results_path
 
-    read_df = pd.read_parquet(file_path)
-    pd.testing.assert_frame_equal(stub_sample_dataframe, read_df)
+    read_df = lazy.pd.read_parquet(file_path)
+    lazy.pd.testing.assert_frame_equal(stub_sample_dataframe, read_df)
 
 
 def test_artifact_storage_write_batch_to_parquet_file(stub_artifact_storage, stub_sample_dataframe):
@@ -97,8 +93,8 @@ def test_artifact_storage_move_partial_result_to_final_file_path(stub_artifact_s
     assert not partial_path.exists()  # Original should be gone
     assert final_path.parent == stub_artifact_storage.final_dataset_path
 
-    read_df = pd.read_parquet(final_path)
-    pd.testing.assert_frame_equal(stub_sample_dataframe, read_df)
+    read_df = lazy.pd.read_parquet(final_path)
+    lazy.pd.testing.assert_frame_equal(stub_sample_dataframe, read_df)
 
 
 def test_artifact_storage_move_partial_result_to_final_file_path_not_found(stub_artifact_storage):
@@ -158,22 +154,22 @@ def test_artifact_storage_invalid_characters_in_folder_names(tmp_path, invalid_c
 
 
 def test_artifact_storage_read_parquet_files(stub_artifact_storage):
-    df1 = pd.DataFrame([{"id": 1, "data": {"some_list": ["yes"]}}, {"id": 2, "data": {"some_list": ["no"]}}])
-    df2 = pd.DataFrame({"id": 3, "data": {"some_list": []}})
+    df1 = lazy.pd.DataFrame([{"id": 1, "data": {"some_list": ["yes"]}}, {"id": 2, "data": {"some_list": ["no"]}}])
+    df2 = lazy.pd.DataFrame({"id": 3, "data": {"some_list": []}})
 
     stub_artifact_storage.write_parquet_file("test1.parquet", df1, BatchStage.PARTIAL_RESULT)
     stub_artifact_storage.write_parquet_file("test2.parquet", df2, BatchStage.PARTIAL_RESULT)
 
     # pd.read_parquet is not able to combine the two parquet files due to mismatching schemas
     with pytest.raises(ArrowNotImplementedError) as exc:
-        pd.read_parquet(stub_artifact_storage.partial_results_path)
+        lazy.pd.read_parquet(stub_artifact_storage.partial_results_path)
     assert "Unsupported cast" in str(exc.value)
 
     read_df1 = stub_artifact_storage.read_parquet_files(stub_artifact_storage.partial_results_path / "test1.parquet")
     read_df2 = stub_artifact_storage.read_parquet_files(stub_artifact_storage.partial_results_path / "test2.parquet")
     read_df = stub_artifact_storage.read_parquet_files(stub_artifact_storage.partial_results_path)
 
-    pd.testing.assert_frame_equal(pd.concat([read_df1, read_df2], ignore_index=True), read_df)
+    lazy.pd.testing.assert_frame_equal(lazy.pd.concat([read_df1, read_df2], ignore_index=True), read_df)
 
 
 def test_artifact_storage_path_validation(stub_artifact_storage):
@@ -185,13 +181,13 @@ def test_artifact_storage_path_validation(stub_artifact_storage):
 
 
 def test_artifact_storage_file_operations(stub_artifact_storage):
-    df = pd.DataFrame({"test": [1, 2, 3]})
+    df = lazy.pd.DataFrame({"test": [1, 2, 3]})
 
     file_path = stub_artifact_storage.write_parquet_file("test.parquet", df, BatchStage.PARTIAL_RESULT)
     assert file_path.exists()
 
     read_df = stub_artifact_storage.read_parquet_files(file_path)
-    pd.testing.assert_frame_equal(df, read_df, check_dtype=False)
+    lazy.pd.testing.assert_frame_equal(df, read_df, check_dtype=False)
 
 
 @pytest.mark.parametrize("batch_number", range(5))

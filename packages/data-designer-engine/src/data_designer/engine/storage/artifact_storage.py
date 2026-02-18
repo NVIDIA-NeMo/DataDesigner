@@ -13,11 +13,11 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, PrivateAttr, field_validator, model_validator
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.utils.io_helpers import read_parquet_dataset
 from data_designer.config.utils.type_helpers import StrEnum, resolve_string_enum
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
 from data_designer.engine.storage.media_storage import MediaStorage, StorageMode
-from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -190,7 +190,7 @@ class ArtifactStorage(BaseModel):
                     "🛑 The indexes of the main and dropped columns DataFrames are not aligned. "
                     "Something unexpected must have happened to the dataset builder's artifacts."
                 )
-            df = pd.concat([df, df_dropped], axis=1)
+            df = lazy.pd.concat([df, df_dropped], axis=1)
         return df
 
     def move_partial_result_to_final_file_path(self, batch_number: int) -> Path:

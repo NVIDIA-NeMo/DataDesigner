@@ -4,18 +4,14 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
 from unittest.mock import Mock, patch
 
 import pytest
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.engine.dataset_builders.utils.dataset_batch_manager import DatasetBatchManager
 from data_designer.engine.dataset_builders.utils.errors import DatasetBatchManagementError
 from data_designer.engine.storage.artifact_storage import BatchStage
-from data_designer.lazy_heavy_imports import pd
-
-if TYPE_CHECKING:
-    import pandas as pd
 
 
 @pytest.fixture
@@ -227,9 +223,9 @@ def test_write_with_data(stub_batch_manager_with_data):
         == stub_batch_manager_with_data.artifact_storage.create_batch_file_path(0, BatchStage.PARTIAL_RESULT).name
     )
 
-    df = pd.read_parquet(result)
-    expected_df = pd.DataFrame(records)
-    pd.testing.assert_frame_equal(df, expected_df)
+    df = lazy.pd.read_parquet(result)
+    expected_df = lazy.pd.DataFrame(records)
+    lazy.pd.testing.assert_frame_equal(df, expected_df)
 
 
 def test_write_creates_partial_results_dir(stub_batch_manager_with_data):

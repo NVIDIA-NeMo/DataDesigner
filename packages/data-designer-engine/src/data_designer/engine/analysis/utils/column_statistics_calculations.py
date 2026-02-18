@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 import logging
+from functools import lru_cache
 from numbers import Number
 from typing import TYPE_CHECKING, Any
 
 import tiktoken
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.analysis.column_statistics import (
     CategoricalDistribution,
     ColumnDistributionType,
@@ -23,20 +25,23 @@ from data_designer.engine.column_generators.utils.prompt_renderer import (
     RecordBasedPromptRenderer,
     create_response_recipe,
 )
-from data_designer.lazy_heavy_imports import np, pa, pd
 
 if TYPE_CHECKING:
-    import numpy as np
     import pandas as pd
     import pyarrow as pa
 
 RANDOM_SEED = 42
 MAX_PROMPT_SAMPLE_SIZE = 1000
-TOKENIZER = tiktoken.get_encoding("cl100k_base")
 WARNING_PREFIX = "⚠️ Error during column profile calculation: "
 TEXT_FIELD_AVG_SPACE_COUNT_THRESHOLD = 0.1
 
 logger = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=1)
+def _get_tokenizer() -> tiktoken.Encoding:
+    """Lazily initialize tokenizer to avoid import-time side effects."""
+    return tiktoken.get_encoding("cl100k_base")
 
 
 def calculate_column_distribution(
@@ -65,7 +70,7 @@ def calculate_column_distribution(
 
 def calculate_general_column_info(column_name: str, df: pd.DataFrame) -> dict[str, Any]:
     try:
-        _df = pd.DataFrame(df[column_name].apply(ensure_hashable))
+        _df = lazy.pd.DataFrame(df[column_name].apply(ensure_hashable))
 
         if has_pyarrow_backend(df):
             pyarrow_dtype = str(df[column_name].dtype.pyarrow_dtype)
@@ -101,6 +106,7 @@ def calculate_input_token_stats(
     column_config: LLMTextColumnConfig, df: pd.DataFrame
 ) -> dict[str, float | MissingValue]:
     try:
+        tokenizer = _get_tokenizer()
         num_tokens = []
         num_samples = min(MAX_PROMPT_SAMPLE_SIZE, len(df))
         renderer = RecordBasedPromptRenderer(response_recipe=create_response_recipe(column_config))
@@ -112,7 +118,7 @@ def calculate_input_token_stats(
                 prompt_template=column_config.prompt, record=record, prompt_type=PromptType.USER_PROMPT
             )
             concatenated_prompt = str(system_prompt + "\n\n" + prompt)
-            num_tokens.append(len(TOKENIZER.encode(concatenated_prompt, disallowed_special=())))
+            num_tokens.append(len(tokenizer.encode(concatenated_prompt, disallowed_special=())))
     except Exception as e:
         logger.warning(f"{WARNING_PREFIX} failed to calculate input token stats for column {column_config.name!r}: {e}")
         return {
@@ -121,9 +127,9 @@ def calculate_input_token_stats(
             "input_tokens_stddev": MissingValue.CALCULATION_FAILED,
         }
     return {
-        "input_tokens_mean": np.mean(num_tokens),
-        "input_tokens_median": np.median(num_tokens),
-        "input_tokens_stddev": np.std(num_tokens),
+        "input_tokens_mean": lazy.np.mean(num_tokens),
+        "input_tokens_median": lazy.np.median(num_tokens),
+        "input_tokens_stddev": lazy.np.std(num_tokens),
     }
 
 
@@ -131,8 +137,9 @@ def calculate_output_token_stats(
     column_config: LLMTextColumnConfig, df: pd.DataFrame
 ) -> dict[str, float | MissingValue]:
     try:
+        tokenizer = _get_tokenizer()
         tokens_per_record = df[column_config.name].apply(
-            lambda value: len(TOKENIZER.encode(str(value), disallowed_special=()))
+            lambda value: len(tokenizer.encode(str(value), disallowed_special=()))
         )
         return {
             "output_tokens_mean": tokens_per_record.mean(),
@@ -166,9 +173,9 @@ def calculate_validation_column_info(column_name: str, df: pd.DataFrame) -> dict
 
 
 def convert_pyarrow_dtype_to_simple_dtype(pyarrow_dtype: pa.DataType) -> str:
-    if isinstance(pyarrow_dtype, pa.ListType):
+    if isinstance(pyarrow_dtype, lazy.pa.ListType):
         return f"list[{convert_pyarrow_dtype_to_simple_dtype(pyarrow_dtype.value_type)}]"
-    if isinstance(pyarrow_dtype, pa.StructType):
+    if isinstance(pyarrow_dtype, lazy.pa.StructType):
         return "dict"
     return convert_to_simple_dtype(str(pyarrow_dtype))
 
@@ -211,7 +218,7 @@ def ensure_hashable(x: Any) -> str:
         # Sort by keys and convert key-value pairs to tuples
         return str(sorted([(str(k), ensure_hashable(v)) for k, v in x.items()]))
 
-    if isinstance(x, (list, tuple, set, np.ndarray)):
+    if isinstance(x, (list, tuple, set, lazy.np.ndarray)):
         # Recursively make all elements hashable
         return str(sorted([ensure_hashable(e) for e in x]))
 
@@ -219,11 +226,11 @@ def ensure_hashable(x: Any) -> str:
 
 
 def ensure_boolean(v: bool | str | int | None) -> bool:
-    if isinstance(v, (bool, np.bool_)):
+    if isinstance(v, (bool, lazy.np.bool_)):
         return bool(v)
-    if isinstance(v, (int, float, np.integer, np.floating)) and v in [0, 1, 0.0, 1.0]:
+    if isinstance(v, (int, float, lazy.np.integer, lazy.np.floating)) and v in [0, 1, 0.0, 1.0]:
         return bool(v)
-    if isinstance(v, (str, np.str_)) and v.lower() in ["true", "false"]:
+    if isinstance(v, (str, lazy.np.str_)) and v.lower() in ["true", "false"]:
         return v.lower() == "true"
     if v is None:
         return False
@@ -231,4 +238,4 @@ def ensure_boolean(v: bool | str | int | None) -> bool:
 
 
 def has_pyarrow_backend(df: pd.DataFrame) -> bool:
-    return all(isinstance(dtype, pd.ArrowDtype) for dtype in df.dtypes)
+    return all(isinstance(dtype, lazy.pd.ArrowDtype) for dtype in df.dtypes)

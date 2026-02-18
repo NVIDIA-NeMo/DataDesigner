@@ -5,54 +5,97 @@ from __future__ import annotations
 
 import typer
 
-from data_designer.cli.commands import create, download, mcp, models, preview, providers, reset, tools, validate
-from data_designer.cli.commands import list as list_cmd
-from data_designer.config.default_model_settings import resolve_seed_default_model_settings
-from data_designer.config.utils.misc import can_run_data_designer_locally
+from data_designer.cli.lazy_group import create_lazy_typer_group
 
-# Resolve default model settings on import to ensure they are available when the library is used.
-if can_run_data_designer_locally():
-    resolve_seed_default_model_settings()
+_CMD = "data_designer.cli.commands"
 
 # Initialize Typer app with custom configuration
 app = typer.Typer(
     name="data-designer",
     help="Data Designer CLI - Configure model providers and models for synthetic data generation",
+    cls=create_lazy_typer_group(
+        {
+            "preview": {
+                "module": f"{_CMD}.preview",
+                "attr": "preview_command",
+                "help": "Generate a preview dataset for fast iteration",
+                "rich_help_panel": "Generation",
+            },
+            "create": {
+                "module": f"{_CMD}.create",
+                "attr": "create_command",
+                "help": "Create a full dataset and save results to disk",
+                "rich_help_panel": "Generation",
+            },
+            "validate": {
+                "module": f"{_CMD}.validate",
+                "attr": "validate_command",
+                "help": "Validate a Data Designer configuration",
+                "rich_help_panel": "Generation",
+            },
+        }
+    ),
     add_completion=False,
     no_args_is_help=True,
     rich_markup_mode="rich",
 )
 
+
 # Create config subcommand group
 config_app = typer.Typer(
     name="config",
     help="Manage configuration files",
+    cls=create_lazy_typer_group(
+        {
+            "providers": {
+                "module": f"{_CMD}.providers",
+                "attr": "providers_command",
+                "help": "Configure model providers interactively",
+            },
+            "models": {
+                "module": f"{_CMD}.models",
+                "attr": "models_command",
+                "help": "Configure models interactively",
+            },
+            "mcp": {
+                "module": f"{_CMD}.mcp",
+                "attr": "mcp_command",
+                "help": "Configure MCP providers interactively",
+            },
+            "tools": {
+                "module": f"{_CMD}.tools",
+                "attr": "tools_command",
+                "help": "Configure tool configs interactively",
+            },
+            "list": {
+                "module": f"{_CMD}.list",
+                "attr": "list_command",
+                "help": "List current configurations",
+            },
+            "reset": {
+                "module": f"{_CMD}.reset",
+                "attr": "reset_command",
+                "help": "Reset configuration files",
+            },
+        }
+    ),
     no_args_is_help=True,
 )
-config_app.command(name="providers", help="Configure model providers interactively")(providers.providers_command)
-config_app.command(name="models", help="Configure models interactively")(models.models_command)
-config_app.command(name="mcp", help="Configure MCP providers interactively")(mcp.mcp_command)
-config_app.command(name="tools", help="Configure tool configs interactively")(tools.tools_command)
-config_app.command(name="list", help="List current configurations")(list_cmd.list_command)
-config_app.command(name="reset", help="Reset configuration files")(reset.reset_command)
 
 # Create download command group
 download_app = typer.Typer(
     name="download",
     help="Download assets for Data Designer",
+    cls=create_lazy_typer_group(
+        {
+            "personas": {
+                "module": f"{_CMD}.download",
+                "attr": "personas_command",
+                "help": "Download Nemotron-Persona datasets",
+            },
+        }
+    ),
     no_args_is_help=True,
-)
-download_app.command(name="personas", help="Download Nemotron-Persona datasets")(download.personas_command)
-
-# Add generation commands
-app.command(name="preview", help="Generate a preview dataset for fast iteration", rich_help_panel="Generation")(
-    preview.preview_command
-)
-app.command(name="create", help="Create a full dataset and save results to disk", rich_help_panel="Generation")(
-    create.create_command
-)
-app.command(name="validate", help="Validate a Data Designer configuration", rich_help_panel="Generation")(
-    validate.validate_command
 )
 
 # Add setup command groups

@@ -6,12 +6,12 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.column_configs import ExpressionColumnConfig
 from data_designer.engine.column_generators.generators.base import ColumnGeneratorFullColumn
 from data_designer.engine.column_generators.utils.errors import ExpressionTemplateRenderError
 from data_designer.engine.processing.ginja.environment import WithJinja2UserTemplateRendering
 from data_designer.engine.processing.utils import deserialize_json_values
-from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -37,7 +37,7 @@ class ExpressionColumnGenerator(WithJinja2UserTemplateRendering, ColumnGenerator
             record[self.config.name] = self._cast_type(self.render_template(deserialize_json_values(record)))
             records.append(record)
 
-        return pd.DataFrame(records)
+        return lazy.pd.DataFrame(records)
 
     def _cast_type(self, value: str) -> str | float | int | bool:
         if self.config.dtype == "str":

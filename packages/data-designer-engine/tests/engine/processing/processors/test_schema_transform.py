@@ -9,11 +9,11 @@ from unittest.mock import Mock
 
 import pytest
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.processors import SchemaTransformProcessorConfig
 from data_designer.engine.processing.processors.schema_transform import SchemaTransformProcessor
 from data_designer.engine.resources.resource_provider import ResourceProvider
 from data_designer.engine.storage.artifact_storage import BatchStage
-from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -43,7 +43,7 @@ def stub_processor(
 
 @pytest.fixture
 def stub_simple_dataframe() -> pd.DataFrame:
-    return pd.DataFrame(
+    return lazy.pd.DataFrame(
         {
             "col1": ["hello", "world", "test", "data"],
             "col2": [1, 2, 3, 4],
@@ -55,7 +55,7 @@ def test_process_after_batch_returns_original_dataframe(
     stub_processor: SchemaTransformProcessor, stub_sample_dataframe: pd.DataFrame
 ) -> None:
     result = stub_processor.process_after_batch(stub_sample_dataframe, current_batch_number=0)
-    pd.testing.assert_frame_equal(result, stub_sample_dataframe)
+    lazy.pd.testing.assert_frame_equal(result, stub_sample_dataframe)
 
 
 def test_process_after_batch_writes_formatted_output_to_parquet(
@@ -65,7 +65,7 @@ def test_process_after_batch_writes_formatted_output_to_parquet(
     result = stub_processor.process_after_batch(stub_sample_dataframe, current_batch_number=0)
 
     # Verify the original dataframe is returned (formatted data is artifact-only)
-    pd.testing.assert_frame_equal(result, stub_sample_dataframe)
+    lazy.pd.testing.assert_frame_equal(result, stub_sample_dataframe)
 
     # Verify write_batch_to_parquet_file was called with correct parameters
     stub_processor.artifact_storage.write_batch_to_parquet_file.assert_called_once()
@@ -97,7 +97,7 @@ def test_process_after_batch_writes_formatted_output_to_parquet(
 
 def test_process_after_batch_with_json_serialized_values(stub_processor: SchemaTransformProcessor) -> None:
     # Test with JSON-serialized values in dataframe
-    df_with_json = pd.DataFrame(
+    df_with_json = lazy.pd.DataFrame(
         {
             "col1": ["hello", "world"],
             "col2": ['{"nested": "value1"}', '{"nested": "value2"}'],
@@ -127,7 +127,7 @@ def test_process_after_batch_with_special_characters_in_llm_output(stub_processo
     This addresses GitHub issue #227 where SchemaTransformProcessor fails with JSONDecodeError
     when LLM-generated content contains quotes, backslashes, or newlines.
     """
-    df_with_special_chars = pd.DataFrame(
+    df_with_special_chars = lazy.pd.DataFrame(
         {
             "col1": [
                 'He said "Hello"',
@@ -159,7 +159,7 @@ def test_process_after_batch_with_special_characters_in_llm_output(stub_processo
 
 def test_process_after_batch_with_mixed_special_characters(stub_processor: SchemaTransformProcessor) -> None:
     """Test complex LLM output with multiple types of special characters."""
-    df_complex = pd.DataFrame(
+    df_complex = lazy.pd.DataFrame(
         {
             "col1": [
                 'She replied: "I\'m not sure about that\\nLet me think..."',
@@ -185,7 +185,7 @@ def test_process_after_batch_preview_mode_writes_single_file(
     stub_processor.artifact_storage.write_parquet_file = Mock()
     result = stub_processor.process_after_batch(stub_sample_dataframe, current_batch_number=None)
 
-    pd.testing.assert_frame_equal(result, stub_sample_dataframe)
+    lazy.pd.testing.assert_frame_equal(result, stub_sample_dataframe)
 
     stub_processor.artifact_storage.write_batch_to_parquet_file.assert_not_called()
     stub_processor.artifact_storage.write_parquet_file.assert_called_once()
