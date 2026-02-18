@@ -75,9 +75,9 @@ class GenerationController:
         else:
             use_interactive = not non_interactive and sys.stdin.isatty() and sys.stdout.isatty() and total > 1
             if use_interactive:
-                self._browse_records_interactively(results, total)
+                self._browse_records_interactively(results, total, display_width)
             else:
-                self._display_all_records(results, total)
+                self._display_all_records(results, total, display_width)
 
             if results.analysis is not None:
                 console.print()
@@ -219,12 +219,16 @@ class GenerationController:
             print_error(f"Failed to save preview results: {e}")
             raise typer.Exit(code=1)
 
-    def _display_record_with_header(self, results: PreviewResults, index: int, total: int) -> None:
+    def _display_record_with_header(
+        self, results: PreviewResults, index: int, total: int, display_width: int = DEFAULT_DISPLAY_WIDTH
+    ) -> None:
         """Display a single record with a record number header."""
         console.print(f"  [bold]Record {index + 1} of {total}[/bold]")
-        results.display_sample_record(index=index)
+        results.display_sample_record(index=index, display_width=display_width)
 
-    def _browse_records_interactively(self, results: PreviewResults, total: int) -> None:
+    def _browse_records_interactively(
+        self, results: PreviewResults, total: int, display_width: int = DEFAULT_DISPLAY_WIDTH
+    ) -> None:
         """Interactively browse records with single-keypress navigation.
 
         Shows the first record immediately, then waits for navigation keys.
@@ -232,7 +236,7 @@ class GenerationController:
         Navigation wraps around at both ends.
         """
         current_index = 0
-        self._display_record_with_header(results, current_index, total)
+        self._display_record_with_header(results, current_index, total, display_width)
 
         while True:
             console.print()
@@ -246,9 +250,11 @@ class GenerationController:
             else:
                 current_index = (current_index + 1) % total
 
-            self._display_record_with_header(results, current_index, total)
+            self._display_record_with_header(results, current_index, total, display_width)
 
-    def _display_all_records(self, results: PreviewResults, total: int) -> None:
+    def _display_all_records(
+        self, results: PreviewResults, total: int, display_width: int = DEFAULT_DISPLAY_WIDTH
+    ) -> None:
         """Display all records without interactive prompts."""
         for i in range(total):
-            self._display_record_with_header(results, i, total)
+            self._display_record_with_header(results, i, total, display_width)
