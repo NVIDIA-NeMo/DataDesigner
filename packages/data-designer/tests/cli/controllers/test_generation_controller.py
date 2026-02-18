@@ -275,14 +275,14 @@ def test_run_preview_calls_to_report_when_analysis_present(mock_load_config: Mag
 
 @patch("data_designer.interface.DataDesigner")
 @patch(f"{_CTRL}.load_config_builder")
-def test_run_preview_save_report_creates_html_file(
+def test_run_preview_save_results_creates_directory_structure(
     mock_load_config: MagicMock, mock_dd_cls: MagicMock, tmp_path: Path
 ) -> None:
-    """Test --save-report passes an HTML save_path to to_report()."""
+    """Test --save-results saves dataset, report, and sample records."""
     mock_load_config.return_value = MagicMock(spec=DataDesignerConfigBuilder)
     mock_dd = MagicMock()
     mock_dd_cls.return_value = mock_dd
-    mock_results = _make_mock_preview_results(3)
+    mock_results = _make_mock_preview_results(2)
     mock_analysis = MagicMock()
     mock_results.analysis = mock_analysis
     mock_dd.preview.return_value = mock_results
@@ -290,27 +290,39 @@ def test_run_preview_save_report_creates_html_file(
     controller = GenerationController()
     controller.run_preview(
         config_source="config.yaml",
-        num_records=3,
+        num_records=2,
         non_interactive=True,
-        save_report=True,
+        save_results=True,
         artifact_path=str(tmp_path),
     )
 
-    mock_analysis.to_report.assert_called_once()
-    save_path = mock_analysis.to_report.call_args.kwargs["save_path"]
-    assert save_path.parent == tmp_path
-    assert save_path.name.startswith("preview_report_")
-    assert save_path.suffix == ".html"
+    # Report saved inside timestamped directory
+    report_save_path = mock_analysis.to_report.call_args.kwargs["save_path"]
+    assert report_save_path.parent.parent == tmp_path
+    assert report_save_path.name == "report.html"
+
+    # Dataset saved as parquet
+    mock_results.dataset.to_parquet.assert_called_once()
+    parquet_path = mock_results.dataset.to_parquet.call_args[0][0]
+    assert parquet_path.name == "dataset.parquet"
+    assert parquet_path.parent == report_save_path.parent
+
+    # Sample records saved — 2 display calls + 2 save calls = 4 total
+    assert mock_results.display_sample_record.call_count == 4
+    for i in range(2):
+        mock_results.display_sample_record.assert_any_call(
+            index=i, save_path=report_save_path.parent / "sample_records" / f"record_{i}.html"
+        )
 
 
 @patch("data_designer.interface.DataDesigner")
 @patch(f"{_CTRL}.load_config_builder")
-def test_run_preview_save_report_default_artifact_path(mock_load_config: MagicMock, mock_dd_cls: MagicMock) -> None:
-    """Test --save-report with no artifact_path defaults to ./artifacts."""
+def test_run_preview_save_results_default_artifact_path(mock_load_config: MagicMock, mock_dd_cls: MagicMock) -> None:
+    """Test --save-results with no artifact_path defaults to ./artifacts."""
     mock_load_config.return_value = MagicMock(spec=DataDesignerConfigBuilder)
     mock_dd = MagicMock()
     mock_dd_cls.return_value = mock_dd
-    mock_results = _make_mock_preview_results(3)
+    mock_results = _make_mock_preview_results(1)
     mock_analysis = MagicMock()
     mock_results.analysis = mock_analysis
     mock_dd.preview.return_value = mock_results
@@ -319,13 +331,13 @@ def test_run_preview_save_report_default_artifact_path(mock_load_config: MagicMo
     with patch.object(Path, "mkdir"):
         controller.run_preview(
             config_source="config.yaml",
-            num_records=3,
+            num_records=1,
             non_interactive=True,
-            save_report=True,
+            save_results=True,
         )
 
-    save_path = mock_analysis.to_report.call_args.kwargs["save_path"]
-    assert save_path.parent == Path.cwd() / "artifacts"
+    report_save_path = mock_analysis.to_report.call_args.kwargs["save_path"]
+    assert report_save_path.parent.parent == Path.cwd() / "artifacts"
 
 
 @patch("data_designer.interface.DataDesigner")
@@ -341,6 +353,51 @@ def test_run_preview_skips_report_when_analysis_is_none(mock_load_config: MagicM
 
     controller = GenerationController()
     controller.run_preview(config_source="config.yaml", num_records=3, non_interactive=True)
+
+
+@patch("data_designer.interface.DataDesigner")
+@patch(f"{_CTRL}.load_config_builder")
+def test_run_preview_save_results_without_analysis(
+    mock_load_config: MagicMock, mock_dd_cls: MagicMock, tmp_path: Path
+) -> None:
+    """Test --save-results saves dataset and sample records even when analysis is None."""
+    mock_load_config.return_value = MagicMock(spec=DataDesignerConfigBuilder)
+    mock_dd = MagicMock()
+    mock_dd_cls.return_value = mock_dd
+    mock_results = _make_mock_preview_results(2)
+    mock_results.analysis = None
+    mock_dd.preview.return_value = mock_results
+
+    controller = GenerationController()
+    controller.run_preview(
+        config_source="config.yaml",
+        num_records=2,
+        non_interactive=True,
+        save_results=True,
+        artifact_path=str(tmp_path),
+    )
+
+    mock_results.dataset.to_parquet.assert_called_once()
+    save_path_calls = [c for c in mock_results.display_sample_record.call_args_list if "save_path" in c.kwargs]
+    assert len(save_path_calls) == 2
+
+
+@patch("data_designer.interface.DataDesigner")
+@patch(f"{_CTRL}.load_config_builder")
+def test_run_preview_no_save_when_save_results_false(mock_load_config: MagicMock, mock_dd_cls: MagicMock) -> None:
+    """Test that dataset and sample records are not saved when save_results=False."""
+    mock_load_config.return_value = MagicMock(spec=DataDesignerConfigBuilder)
+    mock_dd = MagicMock()
+    mock_dd_cls.return_value = mock_dd
+    mock_results = _make_mock_preview_results(3)
+    mock_dd.preview.return_value = mock_results
+
+    controller = GenerationController()
+    controller.run_preview(config_source="config.yaml", num_records=3, non_interactive=True)
+
+    mock_results.dataset.to_parquet.assert_not_called()
+    for c in mock_results.display_sample_record.call_args_list:
+        assert "save_path" not in c.kwargs
 
 
 # ---------------------------------------------------------------------------

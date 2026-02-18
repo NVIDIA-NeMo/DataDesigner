@@ -28,16 +28,16 @@ def preview_command(
         "--non-interactive",
         help="Display all records at once instead of browsing interactively.",
     ),
-    save_report: bool = typer.Option(
+    save_results: bool = typer.Option(
         False,
-        "--save-report",
-        help="Save the analysis report as an HTML file in the artifact path.",
+        "--save-results",
+        help="Save preview results (dataset, report, and sample records) to the artifact path.",
     ),
     artifact_path: str | None = typer.Option(
         None,
         "--artifact-path",
         "-o",
-        help="Path where the report will be saved. Defaults to ./artifacts.",
+        help="Directory for saved results (used with --save-results). Defaults to ./artifacts.",
     ),
 ) -> None:
     """Generate a preview dataset for fast iteration on your configuration.
@@ -64,12 +64,18 @@ def preview_command(
 
         # Display all records without interactive browsing
         data-designer preview my_config.yaml --non-interactive
+
+        # Save preview results to disk
+        data-designer preview my_config.yaml --save-results
+
+        # Save results to a custom path
+        data-designer preview my_config.yaml --save-results --artifact-path ./output
     """
     controller = GenerationController()
     controller.run_preview(
         config_source=config_source,
         num_records=num_records,
         non_interactive=non_interactive,
-        save_report=save_report,
+        save_results=save_results,
         artifact_path=artifact_path,
     )

@@ -26,7 +26,7 @@ class GenerationController:
         config_source: str,
         num_records: int,
         non_interactive: bool,
-        save_report: bool = False,
+        save_results: bool = False,
         artifact_path: str | None = None,
     ) -> None:
         """Load config, generate a preview dataset, and display the results.
@@ -35,8 +35,8 @@ class GenerationController:
             config_source: Path to a config file or Python module.
             num_records: Number of records to generate.
             non_interactive: If True, display all records at once instead of browsing.
-            save_report: If True, save the analysis report as an HTML file.
-            artifact_path: Directory to save the report in, or None for ./artifacts.
+            save_results: If True, save all preview artifacts to the artifact path.
+            artifact_path: Directory to save results in, or None for ./artifacts.
         """
         from data_designer.interface import DataDesigner
 
@@ -66,17 +66,31 @@ class GenerationController:
         else:
             self._display_all_records(results, total)
 
-        if results.analysis is not None:
-            console.print()
-            save_path = None
-            if save_report:
+        try:
+            results_dir = None
+            if save_results:
                 resolved_artifact_path = Path(artifact_path) if artifact_path else Path.cwd() / "artifacts"
-                resolved_artifact_path.mkdir(parents=True, exist_ok=True)
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                save_path = resolved_artifact_path / f"preview_report_{timestamp}.html"
-            results.analysis.to_report(save_path=save_path)
-            if save_path is not None:
-                console.print(f"  Report saved to: [bold]{save_path}[/bold]")
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+                results_dir = resolved_artifact_path / f"preview_results_{timestamp}"
+                results_dir.mkdir(parents=True, exist_ok=True)
+
+            if results.analysis is not None:
+                console.print()
+                report_save_path = results_dir / "report.html" if results_dir else None
+                results.analysis.to_report(save_path=report_save_path)
+
+            if results_dir is not None:
+                results.dataset.to_parquet(results_dir / "dataset.parquet")
+
+                sample_records_dir = results_dir / "sample_records"
+                sample_records_dir.mkdir(parents=True, exist_ok=True)
+                for i in range(total):
+                    results.display_sample_record(index=i, save_path=sample_records_dir / f"record_{i}.html")
+
+                console.print(f"  Results saved to: [bold]{results_dir}[/bold]")
+        except Exception as e:
+            print_error(f"Failed to save preview results: {e}")
+            raise typer.Exit(code=1)
 
         console.print()
         print_success(f"Preview complete — {total} record(s) generated")
