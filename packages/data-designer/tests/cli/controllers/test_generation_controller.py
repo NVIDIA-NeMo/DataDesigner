@@ -320,11 +320,11 @@ def test_run_preview_save_results_creates_directory_structure(
         )
 
     # Sample records browser (pager) generated
-    mock_create_pager.assert_called_once_with(
-        sample_records_dir=sample_records_dir,
-        num_records=2,
-        theme="dark",
-    )
+    pager_kwargs = mock_create_pager.call_args.kwargs
+    assert pager_kwargs["sample_records_dir"] == sample_records_dir
+    assert pager_kwargs["num_records"] == 2
+    assert pager_kwargs["theme"] == "dark"
+    assert "num_columns" in pager_kwargs
 
 
 @patch(f"{_CTRL}.create_sample_records_pager")

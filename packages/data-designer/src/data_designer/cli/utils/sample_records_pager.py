@@ -12,7 +12,11 @@ PAGER_FILENAME = "sample_records_browser.html"
 
 
 def create_sample_records_pager(
-    sample_records_dir: Path, num_records: int, *, theme: Literal["dark", "light"] = "dark"
+    sample_records_dir: Path,
+    num_records: int,
+    *,
+    num_columns: int | None = None,
+    theme: Literal["dark", "light"] = "dark",
 ) -> None:
     """Generate sample_records_browser.html in the given directory.
 
@@ -22,6 +26,7 @@ def create_sample_records_pager(
     Args:
         sample_records_dir: Directory containing record_0.html, record_1.html, etc.
         num_records: Number of record files (0-based indices through num_records - 1).
+        num_columns: Number of columns in the dataset (displayed in the subtitle).
         theme: Initial color theme — dark or light.
     """
     if num_records <= 0:
@@ -31,15 +36,26 @@ def create_sample_records_pager(
     results_dir_name = html.escape(sample_records_dir.parent.name)
     title = f"Sample Records Browser - {results_dir_name}"
 
-    pager_html = _build_pager_html(title=title, records=records, theme=theme)
+    pager_html = _build_pager_html(title=title, records=records, num_columns=num_columns, theme=theme)
     out_path = sample_records_dir / PAGER_FILENAME
     out_path.write_text(pager_html, encoding="utf-8")
 
 
-def _build_pager_html(*, title: str, records: list[dict[str, str]], theme: Literal["dark", "light"] = "dark") -> str:
+def _build_pager_html(
+    *,
+    title: str,
+    records: list[dict[str, str]],
+    num_columns: int | None = None,
+    theme: Literal["dark", "light"] = "dark",
+) -> str:
     records_json = json.dumps(records)
     initial_theme_js = f'"{theme}"'
     github_icon = _GITHUB_ICON_SVG
+
+    subtitle_parts = [f"Total Records: {len(records)}"]
+    if num_columns is not None:
+        subtitle_parts.append(f"Number of Columns: {num_columns}")
+    subtitle = html.escape(", ".join(subtitle_parts))
 
     return f"""<!doctype html>
 <html>
@@ -98,19 +114,9 @@ body {{
   color: var(--text);
 }}
 .subtitle {{
-  margin-top: 3px;
+  margin-top: 6px;
   color: var(--muted);
-  font-size: 11px;
-}}
-.jump-group {{
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}}
-#count-label {{
-  color: var(--muted);
-  font-size: 10px;
-  padding-left: 2px;
+  font-size: 12px;
 }}
 .toolbar {{
   display: flex;
@@ -180,16 +186,14 @@ iframe {{
     <div class="topbar">
       <div class="title-block">
         <h1>\U0001f3a8 NeMo Data Designer \u2013 Preview Record Browser</h1>
+        <div class="subtitle">{subtitle}</div>
       </div>
       <a class="github-link" href="https://github.com/NVIDIA-NeMo/DataDesigner" target="_blank" rel="noopener noreferrer">
         {github_icon} GitHub
       </a>
     </div>
     <div class="toolbar">
-      <div class="jump-group">
-        <select id="jump" aria-label="Jump to record"></select>
-        <span id="count-label"></span>
-      </div>
+      <select id="jump" aria-label="Jump to record"></select>
       <button id="prev" aria-label="Previous record">\u2190 Prev</button>
       <button id="next" aria-label="Next record">Next \u2192</button>
       <button id="theme-toggle" aria-label="Toggle theme"></button>
@@ -250,11 +254,8 @@ iframe {{
     const prev = document.getElementById("prev");
     const next = document.getElementById("next");
     const jump = document.getElementById("jump");
-    const countLabel = document.getElementById("count-label");
     const themeStyle = document.getElementById("theme-css");
     const themeToggle = document.getElementById("theme-toggle");
-
-    countLabel.textContent = `${{records.length}} records`;
 
     for (let i = 0; i < records.length; i += 1) {{
       const opt = document.createElement("option");

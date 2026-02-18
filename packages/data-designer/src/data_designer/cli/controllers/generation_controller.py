@@ -96,7 +96,12 @@ class GenerationController:
                         theme=theme,
                         display_width=display_width,
                     )
-                create_sample_records_pager(sample_records_dir=sample_records_dir, num_records=total, theme=theme)
+                create_sample_records_pager(
+                    sample_records_dir=sample_records_dir,
+                    num_records=total,
+                    num_columns=len(results.dataset.columns),
+                    theme=theme,
+                )
 
                 console.print(f"  Results saved to: [bold]{results_dir}[/bold]")
         except Exception as e:
