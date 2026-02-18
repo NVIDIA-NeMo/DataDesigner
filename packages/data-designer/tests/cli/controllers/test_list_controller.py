@@ -381,7 +381,7 @@ def test_model_aliases_filtered_count_hint(tmp_path: Path, capsys: pytest.Captur
 def test_persona_datasets_text_none_installed(controller: ListController, capsys: pytest.CaptureFixture[str]) -> None:
     controller.list_persona_datasets()
     out = capsys.readouterr().out
-    assert "Nemotron-Personas Datasets" in out
+    assert "locale" in out
     assert "not installed" in out
 
 
@@ -460,3 +460,48 @@ def test_processor_types_text(controller: ListController, capsys: pytest.Capture
     assert "processor_type" in out
     assert "config_class" in out
     assert "data-designer inspect processor" in out
+
+
+# ---------------------------------------------------------------------------
+# list_*_types — empty discovery (P0-1)
+# ---------------------------------------------------------------------------
+
+
+def test_list_column_types_empty_discovery(controller: ListController, capsys: pytest.CaptureFixture[str]) -> None:
+    with patch("data_designer.cli.controllers.list_controller.discover_column_configs", return_value={}):
+        controller.list_column_types()
+    out = capsys.readouterr().out
+    assert "No items found" in out
+
+
+def test_list_sampler_types_empty_discovery(controller: ListController, capsys: pytest.CaptureFixture[str]) -> None:
+    with patch("data_designer.cli.controllers.list_controller.discover_sampler_types", return_value={}):
+        controller.list_sampler_types()
+    out = capsys.readouterr().out
+    assert "No items found" in out
+
+
+def test_list_validator_types_empty_discovery(controller: ListController, capsys: pytest.CaptureFixture[str]) -> None:
+    with patch("data_designer.cli.controllers.list_controller.discover_validator_types", return_value={}):
+        controller.list_validator_types()
+    out = capsys.readouterr().out
+    assert "No items found" in out
+
+
+def test_list_processor_types_empty_discovery(controller: ListController, capsys: pytest.CaptureFixture[str]) -> None:
+    with patch("data_designer.cli.controllers.list_controller.discover_processor_configs", return_value={}):
+        controller.list_processor_types()
+    out = capsys.readouterr().out
+    assert "No items found" in out
+
+
+# ---------------------------------------------------------------------------
+# list_persona_datasets — empty (P0-2)
+# ---------------------------------------------------------------------------
+
+
+def test_list_persona_datasets_empty(controller: ListController, capsys: pytest.CaptureFixture[str]) -> None:
+    with patch.object(controller._persona_repository, "list_all", return_value=[]):
+        controller.list_persona_datasets()
+    out = capsys.readouterr().out
+    assert "No persona datasets found" in out

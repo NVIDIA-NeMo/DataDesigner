@@ -3,8 +3,12 @@
 
 from __future__ import annotations
 
+from enum import Enum
+from typing import Literal
+
 from data_designer.cli.services.introspection.discovery import (
     _discover_by_modules,
+    _extract_literal_discriminator_value,
     discover_column_configs,
     discover_constraint_types,
     discover_processor_configs,
@@ -125,3 +129,30 @@ def test_discover_by_modules_with_multiple_suffixes() -> None:
 def test_discover_by_modules_unknown_suffix_returns_empty() -> None:
     result = _discover_by_modules("nonexistent_module")
     assert result == {}
+
+
+# ---------------------------------------------------------------------------
+# _extract_literal_discriminator_value (P1-5)
+# ---------------------------------------------------------------------------
+
+
+class _TestEnum(str, Enum):
+    A = "alpha"
+    B = "beta"
+
+
+def test_extract_literal_value_string() -> None:
+    assert _extract_literal_discriminator_value(Literal["foo"]) == "foo"
+
+
+def test_extract_literal_value_enum() -> None:
+    result = _extract_literal_discriminator_value(Literal[_TestEnum.A])
+    assert result == "alpha"
+
+
+def test_extract_literal_non_literal() -> None:
+    assert _extract_literal_discriminator_value(str) is None
+
+
+def test_extract_literal_int_value() -> None:
+    assert _extract_literal_discriminator_value(Literal[42]) == "42"
