@@ -25,7 +25,9 @@ class InequalityOperator(str, Enum):
 
 
 class Constraint(ConfigBase, ABC):
-    target_column: str = Field(description="Name of the column this constraint applies to")
+    """Base class for sampler column constraints."""
+
+    target_column: str = Field(description="Name of the sampler column this constraint applies to")
 
     @property
     @abstractmethod
@@ -33,7 +35,7 @@ class Constraint(ConfigBase, ABC):
 
 
 class ScalarInequalityConstraint(Constraint):
-    """Constraint that compares a column's values against a scalar threshold."""
+    """Sampler constraint that compares a sampler column's generated values against a scalar threshold."""
 
     rhs: float = Field(description="Scalar value to compare against")
     operator: InequalityOperator = Field(description="Comparison operator (lt, le, gt, ge)")
@@ -44,7 +46,7 @@ class ScalarInequalityConstraint(Constraint):
 
 
 class ColumnInequalityConstraint(Constraint):
-    """Constraint that compares a column's values against another column's values."""
+    """Sampler constraint that compares a sampler column's generated values against another sampler column's values."""
 
     rhs: str = Field(description="Name of the other column to compare against")
     operator: InequalityOperator = Field(description="Comparison operator (lt, le, gt, ge)")
