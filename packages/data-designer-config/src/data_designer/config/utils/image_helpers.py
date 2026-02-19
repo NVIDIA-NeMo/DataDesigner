@@ -8,15 +8,15 @@ from __future__ import annotations
 import base64
 import io
 import re
-from enum import Enum
 from pathlib import Path
 
 import requests
 
 import data_designer.lazy_heavy_imports as lazy
+from data_designer.config.utils.type_helpers import StrEnum
 
 
-class ImageFormat(str, Enum):
+class ImageFormat(StrEnum):
     """Supported image formats for image modality."""
 
     PNG = "png"

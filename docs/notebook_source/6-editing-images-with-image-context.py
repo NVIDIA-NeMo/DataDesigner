@@ -17,14 +17,13 @@
 #
 # #### 📚 What you'll learn
 #
-# This notebook shows how to edit existing images by combining a seed dataset with image generation. You'll load animal portrait photographs from HuggingFace, feed them as context to an autoregressive model, and generate fun edited versions with accessories like sunglasses, top hats, and bow ties.
+# This notebook shows how to chain image generation columns: first generate animal portraits from text, then edit those generated images by adding accessories and changing styles—all without loading external datasets.
 #
-# - 🌱 **Seed datasets with images**: Load a HuggingFace image dataset and use it as a seed
-# - 🖼️ **Image context for editing**: Pass existing images to an image-generation model via `multi_modal_context`
-# - 🎲 **Sampler-driven diversity**: Combine sampled accessories and settings with seed images for varied results
-# - 💾 **Preview vs create**: Preview stores base64 in the dataframe; create saves images to disk
+# - 🖼️ **Text-to-image generation**: Generate images from text prompts
+# - 🔗 **Chaining image columns**: Use `ImageContext` to pass generated images to a follow-up editing column
+# - 🎲 **Sampler-driven diversity**: Combine sampled accessories and settings for varied edits
 #
-# This tutorial uses an **autoregressive** model (one that supports both image input *and* image output via the chat completions API). Diffusion models (DALL·E, Stable Diffusion, etc.) do not support image context—see [Tutorial 5](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/5-generating-images/) for text-to-image generation with diffusion models.
+# This tutorial uses an **autoregressive** model (one that supports both text-to-image *and* image-to-image generation via the chat completions API). Diffusion models (DALL·E, Stable Diffusion, etc.) do not support image context—see [Tutorial 5](https://nvidia-nemo.github.io/DataDesigner/latest/notebooks/5-generating-images/) for text-to-image generation with diffusion models.
 #
 # > **Prerequisites**: This tutorial uses [OpenRouter](https://openrouter.ai) with the Flux 2 Pro model. Set `OPENROUTER_API_KEY` in your environment before running.
 #
@@ -40,11 +39,8 @@
 
 # %%
 import base64
-import io
-import uuid
+from pathlib import Path
 
-import pandas as pd
-from datasets import load_dataset
 from IPython.display import Image as IPImage
 from IPython.display import display
 
@@ -54,16 +50,16 @@ from data_designer.interface import DataDesigner
 # %% [markdown]
 # ### ⚙️ Initialize the Data Designer interface
 #
-# We initialize Data Designer without arguments here—the image-editing model is configured explicitly in the next cell. No default text model is needed for this tutorial.
+# We initialize Data Designer without arguments here—the image model is configured explicitly in the next cell.
 #
 
 # %%
 data_designer = DataDesigner()
 
 # %% [markdown]
-# ### 🎛️ Define an image-editing model
+# ### 🎛️ Define an image model
 #
-# We need an **autoregressive** model that supports both image input and image output via the chat completions API. This lets us pass existing images as context and receive edited images back.
+# We need an **autoregressive** model that supports both text-to-image and image-to-image generation via the chat completions API. This lets us generate images from text and then pass those images as context for editing.
 #
 # - Use `ImageInferenceParams` so Data Designer treats this model as an image generator.
 # - Image-specific options are model-dependent; pass them via `extra_body`.
@@ -74,7 +70,7 @@ data_designer = DataDesigner()
 # %%
 MODEL_PROVIDER = "openrouter"
 MODEL_ID = "black-forest-labs/flux.2-pro"
-MODEL_ALIAS = "image-editor"
+MODEL_ALIAS = "image-model"
 
 model_configs = [
     dd.ModelConfig(
@@ -88,70 +84,29 @@ model_configs = [
 ]
 
 # %% [markdown]
-# ### 🌱 Load animal portraits from HuggingFace
-#
-# We'll load animal face photographs from the [AFHQ](https://huggingface.co/datasets/huggan/AFHQv2) (Animal Faces-HQ) dataset, convert them to base64, and use them as a seed dataset.
-#
-# AFHQ contains high-quality 512×512 close-up portraits of cats, dogs, and wildlife—perfect subjects for adding fun accessories.
-#
-
-# %%
-SEED_COUNT = 10
-BASE64_IMAGE_HEIGHT = 512
-
-ANIMAL_LABELS = {0: "cat", 1: "dog", 2: "wild"}
-
-
-def resize_image(image, height: int):
-    """Resize image maintaining aspect ratio."""
-    original_width, original_height = image.size
-    width = int(original_width * (height / original_height))
-    return image.resize((width, height))
-
-
-def prepare_record(record: dict, height: int) -> dict:
-    """Convert a HuggingFace record to base64 with metadata."""
-    image = resize_image(record["image"], height)
-    img_buffer = io.BytesIO()
-    image.save(img_buffer, format="PNG")
-    base64_string = base64.b64encode(img_buffer.getvalue()).decode("utf-8")
-    return {
-        "uuid": str(uuid.uuid4()),
-        "base64_image": base64_string,
-        "animal": ANIMAL_LABELS[record["label"]],
-    }
-
-
-# %%
-print("📥 Streaming animal portraits from HuggingFace...")
-hf_dataset = load_dataset("huggan/AFHQv2", split="train", streaming=True)
-
-hf_iter = iter(hf_dataset)
-records = [prepare_record(next(hf_iter), BASE64_IMAGE_HEIGHT) for _ in range(SEED_COUNT)]
-df_seed = pd.DataFrame(records)
-
-print(f"✅ Prepared {len(df_seed)} animal portraits with columns: {list(df_seed.columns)}")
-df_seed.head()
-
-# %% [markdown]
 # ### 🏗️ Build the configuration
 #
-# We combine three ingredients:
+# We chain two image generation columns:
 #
-# 1. **Seed dataset** — original animal portraits as base64 and their species labels
-# 2. **Sampler columns** — randomly sample accessories and settings for each image
-# 3. **Image column with context** — generate an edited image using the original as reference
-#
-# The `multi_modal_context` parameter on `ImageColumnConfig` tells Data Designer to pass the seed image to the model alongside the text prompt. The model receives both the image and the editing instructions, and generates a new image.
+# 1. **Sampler columns** — randomly sample animal types, accessories, settings, and art styles
+# 2. **First image column** — generate an animal portrait from a text prompt
+# 3. **Second image column with context** — edit the generated portrait using `ImageContext`
 #
 
 # %%
 config_builder = dd.DataDesignerConfigBuilder(model_configs=model_configs)
 
-# 1. Seed the original animal portraits
-config_builder.with_seed_dataset(dd.DataFrameSeedSource(df=df_seed))
+# 1. Sampler columns for diversity
+config_builder.add_column(
+    dd.SamplerColumnConfig(
+        name="animal",
+        sampler_type=dd.SamplerType.CATEGORY,
+        params=dd.CategorySamplerParams(
+            values=["cat", "dog", "fox", "owl", "rabbit", "panda"],
+        ),
+    )
+)
 
-# 2. Add sampler columns for accessory diversity
 config_builder.add_column(
     dd.SamplerColumnConfig(
         name="accessory",
@@ -203,10 +158,19 @@ config_builder.add_column(
     )
 )
 
-# 3. Image column that reads the seed image as context and generates an edited version
+# 2. Generate animal portrait from text
 config_builder.add_column(
     dd.ImageColumnConfig(
-        name="edited_image",
+        name="animal_portrait",
+        prompt="A close-up portrait photograph of a {{ animal }} looking at the camera, studio lighting, high quality.",
+        model_alias=MODEL_ALIAS,
+    )
+)
+
+# 3. Edit the generated portrait
+config_builder.add_column(
+    dd.ImageColumnConfig(
+        name="edited_portrait",
         prompt=(
             "Edit this {{ animal }} portrait photo. "
             "Add {{ accessory }} on the animal. "
@@ -215,13 +179,7 @@ config_builder.add_column(
             "Keep the animal's face, expression, and features faithful to the original photo."
         ),
         model_alias=MODEL_ALIAS,
-        multi_modal_context=[
-            dd.ImageContext(
-                column_name="base64_image",
-                data_type=dd.ModalityDataType.BASE64,
-                image_format=dd.ImageFormat.PNG,
-            )
-        ],
+        multi_modal_context=[dd.ImageContext(column_name="animal_portrait")],
     )
 )
 
@@ -246,38 +204,33 @@ preview.dataset
 # %% [markdown]
 # ### 🔎 Compare original vs edited
 #
-# Let's display the original animal portraits next to their accessorized versions.
+# Let's display the generated animal portraits next to their edited versions.
 #
 
 
 # %%
-def display_before_after(row: pd.Series, index: int, base_path=None) -> None:
-    """Display original vs edited image for a single record.
+def display_image(image_value, base_path: Path | None = None) -> None:
+    """Display an image from base64 (preview mode) or file path (create mode)."""
+    values = image_value if isinstance(image_value, list) else [image_value]
+    for value in values:
+        if base_path is not None:
+            display(IPImage(filename=str(base_path / value)))
+        else:
+            display(IPImage(data=base64.b64decode(value)))
 
-    When base_path is None (preview mode), edited_image is decoded from base64.
-    When base_path is provided (create mode), edited_image is loaded from disk.
-    """
+
+def display_before_after(row, index: int, base_path: Path | None = None) -> None:
+    """Display original portrait vs edited version for a single record."""
     print(f"\n{'=' * 60}")
     print(f"Record {index}: {row['animal']} wearing {row['accessory']}")
-    print(f"Setting: {row['setting']}")
-    print(f"Style: {row['art_style']}")
+    print(f"Setting: {row['setting']}, Style: {row['art_style']}")
     print(f"{'=' * 60}")
 
-    print("\n📷 Original portrait:")
-    display(IPImage(data=base64.b64decode(row["base64_image"])))
+    print("\n📷 Generated portrait:")
+    display_image(row["animal_portrait"], base_path)
 
     print("\n🎨 Edited version:")
-    edited = row.get("edited_image")
-    if edited is None:
-        return
-    if base_path is None:
-        images = edited if isinstance(edited, list) else [edited]
-        for img_b64 in images:
-            display(IPImage(data=base64.b64decode(img_b64)))
-    else:
-        paths = edited if not isinstance(edited, str) else [edited]
-        for path in paths:
-            display(IPImage(filename=str(base_path / path)))
+    display_image(row["edited_portrait"], base_path)
 
 
 # %%
@@ -287,7 +240,7 @@ for index, row in preview.dataset.iterrows():
 # %% [markdown]
 # ### 🆙 Create at scale
 #
-# In **create** mode, images are saved to disk in an `images/<column_name>/` folder with UUID filenames. The dataframe stores relative paths.
+# In **create** mode, images are saved to disk in `images/<column_name>/` folders with UUID filenames. The dataframe stores relative paths. `ImageContext` auto-detection handles this transparently—generated file paths are resolved to base64 before being sent to the model for editing.
 #
 
 # %%
@@ -304,9 +257,10 @@ for index, row in dataset.head(10).iterrows():
 # %% [markdown]
 # ## ⏭️ Next steps
 #
-# - Experiment with different autoregressive models for image editing
+# - Experiment with different autoregressive models for image generation and editing
 # - Try more creative editing prompts (style transfer, background replacement, artistic filters)
-# - Combine image editing with text generation (e.g., generate captions for edited images using an LLM-Text column)
+# - Combine image generation with text generation (e.g., generate captions using an LLM-Text column with `ImageContext`)
+# - Chain more than two image columns for multi-step editing pipelines
 #
 # Related tutorials:
 #
