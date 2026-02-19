@@ -5,8 +5,9 @@ from __future__ import annotations
 
 import typer
 
-from data_designer.cli.commands import create, download, mcp, models, preview, providers, reset, tools, validate, web
+from data_designer.cli.commands import create, download, mcp, models, preview, providers, reset, tools, validate
 from data_designer.cli.commands import list as list_cmd
+from data_designer.cli.commands.web import review_command
 from data_designer.config.default_model_settings import resolve_seed_default_model_settings
 from data_designer.config.utils.misc import can_run_data_designer_locally
 
@@ -55,9 +56,9 @@ app.command(name="validate", help="Validate a Data Designer configuration", rich
     validate.validate_command
 )
 
-# Add web UI command
-app.command(name="web", help="Launch the Data Designer web config builder UI", rich_help_panel="Web UI")(
-    web.web_command
+# Add review UI command
+app.command(name="review", help="Launch the dataset review UI", rich_help_panel="Review")(
+    review_command
 )
 
 # Add setup command groups

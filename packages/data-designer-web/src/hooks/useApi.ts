@@ -13,116 +13,40 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  // Config discovery & loading
-  listConfigs: () => request<{ name: string; path: string; active: boolean }[]>("/configs"),
-  loadConfig: (path: string) =>
-    request<Record<string, unknown>>("/config/load", {
-      method: "POST",
-      body: JSON.stringify({ path }),
-    }),
-  getConfig: () => request<Record<string, unknown>>("/config"),
-  getConfigYaml: () => request<{ content: string }>("/config/yaml"),
-  saveConfig: (content: string) =>
-    request<Record<string, unknown>>("/config/save", {
-      method: "POST",
-      body: JSON.stringify({ content }),
-    }),
-  getConfigInfo: () =>
+  // Session
+  getSession: () =>
     request<{
-      loaded: boolean;
-      path: string | null;
-      columns: { name: string; column_type: string; drop: boolean }[];
-      models: Record<string, unknown>[];
-      output_schema?: { name: string; column_type: string; drop: boolean; in_output: boolean; side_effect_of?: string }[];
-      mcp_status?: { required: { name: string; configured: boolean }[]; configured: Record<string, unknown>[]; all_satisfied: boolean };
-    }>("/config/info"),
-  exportConfig: (format: "yaml" | "json" = "yaml") =>
-    request<{ format: string; content: string }>(`/config/export?format=${format}`),
-
-  // Read-only lists
-  listColumns: () => request<{ name: string; column_type: string; drop: boolean }[]>("/config/columns"),
-  listModels: () => request<Record<string, unknown>[]>("/config/models"),
-
-  // Execution
-  validate: () => request<{ valid: boolean; message: string }>("/config/validate", { method: "POST" }),
-  reviewConfig: (modelAlias: string) =>
-    request<{
-      static_issues: { level: string; type: string; column: string | null; message: string }[];
-      llm_tips: { category: string; severity: string; column: string | null; tip: string }[];
-      model_used: string;
-    }>("/config/review", {
-      method: "POST",
-      body: JSON.stringify({ model_alias: modelAlias }),
-    }),
-  runPreview: (numRecords: number, debugMode: boolean = false) =>
-    request<{ status: string }>("/preview", {
-      method: "POST",
-      body: JSON.stringify({ num_records: numRecords, debug_mode: debugMode }),
-    }),
-  runCreate: (numRecords: number, datasetName: string = "dataset", artifactPath?: string) =>
-    request<{ status: string }>("/create", {
-      method: "POST",
-      body: JSON.stringify({ num_records: numRecords, dataset_name: datasetName, artifact_path: artifactPath }),
-    }),
-  getStatus: () =>
-    request<{
-      state: "idle" | "running" | "done" | "error";
-      type: string | null;
-      error: string | null;
-      has_preview: boolean;
-      has_create: boolean;
-    }>("/status"),
-
-  // Results
-  getPreviewResults: () =>
-    request<{
-      columns: string[];
-      rows: Record<string, unknown>[];
-      analysis: unknown;
+      file_name: string;
+      file_path: string;
       row_count: number;
-    }>("/preview/results"),
+      columns: string[];
+      all_columns: string[];
+      version: number;
+      finished: boolean;
+    }>("/session"),
+  getRows: () => request<Record<string, unknown>[]>("/session/rows"),
   getTrace: (row: number, column: string) =>
-    request<Record<string, unknown>[]>(`/preview/traces/${row}/${encodeURIComponent(column)}`),
-  getCreateResults: () =>
-    request<{ num_records?: number; artifact_path?: string; columns?: string[] }>("/create/results"),
-
-  // MCP Providers
-  listMcpProviders: () => request<Record<string, unknown>[]>("/mcp/providers"),
-  addMcpProvider: (data: Record<string, unknown>) =>
-    request<Record<string, unknown>>("/mcp/providers", {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
-  deleteMcpProvider: (name: string) =>
-    request<{ status: string }>(`/mcp/providers/${encodeURIComponent(name)}`, {
-      method: "DELETE",
-    }),
-  getMcpStatus: () =>
-    request<{
-      required: { name: string; configured: boolean }[];
-      configured: Record<string, unknown>[];
-      all_satisfied: boolean;
-    }>("/mcp/status"),
+    request<Record<string, unknown>[]>(
+      `/session/traces/${row}/${encodeURIComponent(column)}`
+    ),
+  reload: () => request<Record<string, unknown>>("/session/reload", { method: "POST" }),
+  finish: () => request<Record<string, unknown>>("/session/finish", { method: "POST" }),
 
   // Annotations
   getAnnotations: () =>
-    request<Record<string, { rating: string | null; note: string }>>("/annotations"),
-  annotateRow: (row: number, rating: string | null, note: string) =>
+    request<Record<string, { rating: string | null; note: string; column: string | null }>>(
+      "/annotations"
+    ),
+  annotateRow: (row: number, rating: string | null, note: string, column: string | null = null) =>
     request<{ status: string }>("/annotations", {
       method: "POST",
-      body: JSON.stringify({ row, rating, note }),
+      body: JSON.stringify({ row, rating, note, column }),
     }),
   getAnnotationsSummary: () =>
     request<{ good: number; bad: number; unreviewed: number; total: number }>(
       "/annotations/summary"
     ),
 
-  // Logs
-  getLogs: (since: number = 0) =>
-    request<{ ts: number; level: string; name: string; message: string }[]>(
-      `/logs?since=${since}`
-    ),
-
-  // Utility
+  // Health
   health: () => request<{ status: string }>("/health"),
 };

@@ -107,6 +107,9 @@ if __name__ == "__main__":
     designer = DataDesigner()
     preview = designer.preview(config_builder=config_builder)
 
+    # Save for review UI
+    preview.dataset.to_parquet("preview.parquet")
+
     # The following command will print a random sample record
     # which you can present to the user
     preview.display_sample_record()
@@ -115,4 +118,26 @@ if __name__ == "__main__":
     # You can implenent code to display some or all of this 
     # to STDOUT so you can see the outputs and report to the user.
     preview.dataset
+```
+
+### Visual Review (recommended)
+
+For interactive review, launch the review UI after saving preview results:
+
+```bash
+uv run --with data-designer data-designer review preview.parquet --open &
+```
+
+Tell the user to review records in the browser. When they're done, read `preview_annotations.json` for their feedback:
+
+```python
+import json
+from pathlib import Path
+annotations = json.loads(Path("preview_annotations.json").read_text())
+```
+
+Use the annotations (especially the `column` field on bad ratings) to guide your next iteration. After re-running preview, reload the UI:
+
+```bash
+curl -X POST http://127.0.0.1:8765/api/session/reload
 ```

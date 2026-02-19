@@ -34,7 +34,7 @@ data_designer:
           - python
           - earth
           - water
-          - light
+
 
     # LLM calls get_fact tool, then summarizes
     - name: fact_response

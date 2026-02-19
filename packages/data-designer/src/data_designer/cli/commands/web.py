@@ -6,30 +6,30 @@ from __future__ import annotations
 import typer
 
 
-def web_command(
-    config: str | None = typer.Argument(
-        None,
-        help="Path to a config file (.yaml/.yml/.json) to load on startup. If omitted, scans the current directory.",
+def review_command(
+    data_file: str = typer.Argument(
+        help="Path to a parquet or JSON file containing preview results to review.",
     ),
     host: str = typer.Option("127.0.0.1", "--host", "-h", help="Host to bind the server to."),
     port: int = typer.Option(8765, "--port", "-p", help="Port to bind the server to."),
-    reload: bool = typer.Option(False, "--reload", help="Enable auto-reload for development."),
+    open_browser: bool = typer.Option(False, "--open", help="Auto-open the review UI in a browser."),
 ) -> None:
-    """Launch the Data Designer web UI.
+    """Launch the dataset review UI for inspecting and annotating preview results.
 
-    Opens a browser-based dashboard for loading configs, running
-    validate/preview/create, and inspecting results with traces.
+    Load a parquet or JSON file from a Data Designer preview run and open
+    an interactive browser-based UI for reviewing records, rating them
+    good/bad, and adding notes.
 
     Examples:
-        # Start and scan current directory for configs
-        data-designer web
+        # Review a parquet file
+        data-designer review preview.parquet
 
-        # Start with a specific config file
-        data-designer web my_config.yaml
+        # Review and auto-open browser
+        data-designer review preview.parquet --open
 
-        # Custom host and port
-        data-designer web --host 0.0.0.0 --port 9000
+        # Custom port
+        data-designer review preview.parquet --port 9000
     """
     from data_designer.web.server import run_server
 
-    run_server(host=host, port=port, reload=reload, config_path=config)
+    run_server(data_file=data_file, host=host, port=port, open_browser=open_browser)
