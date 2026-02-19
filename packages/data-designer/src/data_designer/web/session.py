@@ -98,8 +98,20 @@ class ReviewSession:
 
     # -- Annotations --------------------------------------------------------
 
-    def annotate_row(self, row: int, rating: str | None, note: str, column: str | None = None) -> None:
-        self._annotations[row] = {"rating": rating, "note": note, "column": column}
+    def annotate_row(self, row: int, rating: str | None, note: str) -> None:
+        """Set the overall row-level annotation."""
+        ann = self._annotations.setdefault(row, {"rating": None, "note": "", "columns": {}})
+        ann["rating"] = rating
+        ann["note"] = note
+        self._save_annotations()
+
+    def annotate_column(self, row: int, column: str, rating: str | None, note: str) -> None:
+        """Set a per-column annotation within a row."""
+        ann = self._annotations.setdefault(row, {"rating": None, "note": "", "columns": {}})
+        if rating is None and not note:
+            ann["columns"].pop(column, None)
+        else:
+            ann["columns"][column] = {"rating": rating, "note": note}
         self._save_annotations()
 
     def get_annotations(self) -> dict[str, Any]:
@@ -135,8 +147,8 @@ class ReviewSession:
             annotations_list.append({
                 "row": row_idx,
                 "rating": ann.get("rating"),
-                "column": ann.get("column"),
                 "note": ann.get("note", ""),
+                "columns": ann.get("columns", {}),
                 "data": row_data,
             })
 

@@ -35,7 +35,13 @@ class AnnotationRequest(BaseModel):
     row: int
     rating: str | None = None
     note: str = ""
-    column: str | None = None
+
+
+class ColumnAnnotationRequest(BaseModel):
+    row: int
+    column: str
+    rating: str | None = None
+    note: str = ""
 
 
 # -- Session ---------------------------------------------------------------
@@ -80,7 +86,14 @@ async def get_annotations() -> dict[str, Any]:
 
 @router.post("/annotations", tags=["annotations"])
 async def annotate_row(req: AnnotationRequest) -> dict[str, str]:
-    _get_session().annotate_row(req.row, req.rating, req.note, req.column)
+    _get_session().annotate_row(req.row, req.rating, req.note)
+    return {"status": "ok"}
+
+
+@router.post("/annotations/column", tags=["annotations"])
+async def annotate_column(req: ColumnAnnotationRequest) -> dict[str, str]:
+    """Set a per-column annotation within a row."""
+    _get_session().annotate_column(req.row, req.column, req.rating, req.note)
     return {"status": "ok"}
 
 

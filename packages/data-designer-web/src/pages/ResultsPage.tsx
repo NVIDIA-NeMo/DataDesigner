@@ -16,10 +16,15 @@ import FormattedContent from "../components/FormattedContent";
 
 type Tab = "data" | "stats" | "annotations";
 
+interface ColumnAnnotation {
+  rating: string | null;
+  note: string;
+}
+
 interface Annotation {
   rating: string | null;
   note: string;
-  column: string | null;
+  columns: Record<string, ColumnAnnotation>;
 }
 
 export default function ResultsPage() {
@@ -106,31 +111,59 @@ export default function ResultsPage() {
     const newRating = current?.rating === rating ? null : rating;
     setAnnotations((prev) => ({
       ...prev,
-      [String(rowIdx)]: { rating: newRating, note: current?.note ?? "", column: current?.column ?? null },
+      [String(rowIdx)]: { ...current, rating: newRating, note: current?.note ?? "", columns: current?.columns ?? {} },
     }));
-    await api.annotateRow(rowIdx, newRating, current?.note ?? "", current?.column ?? null);
+    await api.annotateRow(rowIdx, newRating, current?.note ?? "");
     refreshAnnotations();
-  };
-
-  const handleColumnSelect = async (rowIdx: number, col: string | null) => {
-    const current = annotations[String(rowIdx)];
-    setAnnotations((prev) => ({
-      ...prev,
-      [String(rowIdx)]: { rating: current?.rating ?? null, note: current?.note ?? "", column: col },
-    }));
-    await api.annotateRow(rowIdx, current?.rating ?? null, current?.note ?? "", col);
   };
 
   const handleNoteChange = (rowIdx: number, note: string) => {
     const current = annotations[String(rowIdx)];
     setAnnotations((prev) => ({
       ...prev,
-      [String(rowIdx)]: { rating: current?.rating ?? null, note, column: current?.column ?? null },
+      [String(rowIdx)]: { ...current, rating: current?.rating ?? null, note, columns: current?.columns ?? {} },
     }));
     if (noteTimerRef.current) clearTimeout(noteTimerRef.current);
     noteTimerRef.current = window.setTimeout(async () => {
-      await api.annotateRow(rowIdx, current?.rating ?? null, note, current?.column ?? null);
+      await api.annotateRow(rowIdx, current?.rating ?? null, note);
       refreshAnnotations();
+    }, 600);
+  };
+
+  const handleColumnRate = async (rowIdx: number, col: string, rating: "good" | "bad") => {
+    const current = annotations[String(rowIdx)];
+    const colAnn = current?.columns?.[col];
+    const newRating = colAnn?.rating === rating ? null : rating;
+    setAnnotations((prev) => {
+      const ann = prev[String(rowIdx)] ?? { rating: null, note: "", columns: {} };
+      const newCols = { ...ann.columns };
+      if (newRating === null && !colAnn?.note) {
+        delete newCols[col];
+      } else {
+        newCols[col] = { rating: newRating, note: colAnn?.note ?? "" };
+      }
+      return { ...prev, [String(rowIdx)]: { ...ann, columns: newCols } };
+    });
+    await api.annotateColumn(rowIdx, col, newRating, colAnn?.note ?? "");
+    refreshAnnotations();
+  };
+
+  const handleColumnNote = (rowIdx: number, col: string, note: string) => {
+    const current = annotations[String(rowIdx)];
+    const colAnn = current?.columns?.[col];
+    setAnnotations((prev) => {
+      const ann = prev[String(rowIdx)] ?? { rating: null, note: "", columns: {} };
+      return {
+        ...prev,
+        [String(rowIdx)]: {
+          ...ann,
+          columns: { ...ann.columns, [col]: { rating: colAnn?.rating ?? null, note } },
+        },
+      };
+    });
+    if (noteTimerRef.current) clearTimeout(noteTimerRef.current);
+    noteTimerRef.current = window.setTimeout(async () => {
+      await api.annotateColumn(rowIdx, col, colAnn?.rating ?? null, note);
     }, 600);
   };
 
@@ -228,7 +261,15 @@ export default function ResultsPage() {
                   <div className="flex-1 min-w-0">
                     <div className="text-xs text-gray-500 mb-1">
                       Row {idx + 1}
-                      {ann?.column && <span className="ml-2 font-mono text-gray-600">col: {ann.column}</span>}
+                      {ann?.columns && Object.keys(ann.columns).length > 0 && (
+                        <span className="ml-2 text-gray-600">
+                          {Object.entries(ann.columns).map(([c, ca]) => (
+                            <span key={c} className={`font-mono mr-2 ${(ca as any).rating === "bad" ? "text-red-500" : "text-green-600"}`}>
+                              {c}
+                            </span>
+                          ))}
+                        </span>
+                      )}
                     </div>
                     <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
                       {columns.slice(0, 3).map((col) => (
@@ -284,14 +325,58 @@ export default function ResultsPage() {
 
                 {isExpanded && (
                   <div className="border-t border-border px-4 py-4 bg-surface-2 space-y-4">
-                    {/* Column values */}
+                    {/* Column values with per-column review */}
                     <div className="grid grid-cols-1 gap-3">
                       {columns.map((col) => {
                         const val = formatCellValue(row[col]);
+                        const colAnn = ann?.columns?.[col];
+                        const colRating = colAnn?.rating ?? null;
                         return (
-                          <div key={col}>
-                            <span className="text-xs font-medium text-gray-400 mb-1 block">{col}</span>
+                          <div key={col} className="group/col">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-xs font-medium text-gray-400">{col}</span>
+                              <div className="flex items-center gap-1 opacity-0 group-hover/col:opacity-100 transition-opacity">
+                                <button
+                                  className={`p-0.5 rounded transition-colors ${
+                                    colRating === "good"
+                                      ? "text-green-400 opacity-100"
+                                      : "text-gray-600 hover:text-green-400"
+                                  } ${colRating === "good" ? "!opacity-100" : ""}`}
+                                  onClick={(e) => { e.stopPropagation(); handleColumnRate(idx, col, "good"); }}
+                                  title="Good"
+                                  style={colRating === "good" ? { opacity: 1 } : {}}
+                                >
+                                  <ThumbsUp size={10} />
+                                </button>
+                                <button
+                                  className={`p-0.5 rounded transition-colors ${
+                                    colRating === "bad"
+                                      ? "text-red-400 opacity-100"
+                                      : "text-gray-600 hover:text-red-400"
+                                  } ${colRating === "bad" ? "!opacity-100" : ""}`}
+                                  onClick={(e) => { e.stopPropagation(); handleColumnNote(idx, col, colAnn?.note ?? ""); handleColumnRate(idx, col, "bad"); }}
+                                  title="Bad"
+                                  style={colRating === "bad" ? { opacity: 1 } : {}}
+                                >
+                                  <ThumbsDown size={10} />
+                                </button>
+                              </div>
+                              {colRating && (
+                                <span className={`text-[10px] ${colRating === "good" ? "text-green-600" : "text-red-600"}`}>
+                                  {colRating}
+                                </span>
+                              )}
+                            </div>
                             <FormattedContent value={val} columnName={col} />
+                            {colRating === "bad" && (
+                              <input
+                                className="input-field !py-1 text-xs mt-1.5"
+                                placeholder={`What's wrong with ${col}?`}
+                                value={colAnn?.note ?? ""}
+                                onChange={(e) => handleColumnNote(idx, col, e.target.value)}
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                            )}
                           </div>
                         );
                       })}
@@ -324,17 +409,6 @@ export default function ResultsPage() {
                         >
                           <ThumbsDown size={12} /> Bad
                         </button>
-                        {rating === "bad" && (
-                          <select
-                            className="select-field !py-1 !text-xs !w-36"
-                            value={ann?.column ?? ""}
-                            onChange={(e) => { e.stopPropagation(); handleColumnSelect(idx, e.target.value || null); }}
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <option value="">Which column?</option>
-                            {columns.map((c) => <option key={c} value={c}>{c}</option>)}
-                          </select>
-                        )}
                         <input
                           className="input-field flex-1 !py-1.5 text-xs"
                           placeholder="Optional note — why is this good/bad?"

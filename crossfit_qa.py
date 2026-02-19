@@ -104,13 +104,13 @@ def build_config() -> dd.DataDesignerConfigBuilder:
         name="answer",
         model_alias="nvidia-text",
         system_prompt=(
-            "You are an experienced CrossFit Level 3 coach with deep knowledge of training, "
-            "nutrition, and competition. Give accurate, practical answers. "
-            "Adjust your language to match the audience level. "
-            "Be concise but thorough. Include specific tips when relevant."
+            "You are an experienced CrossFit Level 3 coach. "
+            "Give accurate, practical answers in 2-4 sentences. "
+            "Be direct and succinct -- no bullet lists, no tables, no markdown formatting. "
+            "Adjust your language to match the audience level."
         ),
         prompt=(
-            "Answer the following CrossFit question for a {{ audience_level }} athlete:\n\n"
+            "Answer this CrossFit question for a {{ audience_level }} athlete in 2-4 sentences:\n\n"
             "{{ question }}"
         ),
         with_trace=dd.TraceType.ALL_MESSAGES,

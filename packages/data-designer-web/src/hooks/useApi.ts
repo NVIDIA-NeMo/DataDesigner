@@ -34,13 +34,18 @@ export const api = {
 
   // Annotations
   getAnnotations: () =>
-    request<Record<string, { rating: string | null; note: string; column: string | null }>>(
+    request<Record<string, { rating: string | null; note: string; columns: Record<string, { rating: string | null; note: string }> }>>(
       "/annotations"
     ),
-  annotateRow: (row: number, rating: string | null, note: string, column: string | null = null) =>
+  annotateRow: (row: number, rating: string | null, note: string) =>
     request<{ status: string }>("/annotations", {
       method: "POST",
-      body: JSON.stringify({ row, rating, note, column }),
+      body: JSON.stringify({ row, rating, note }),
+    }),
+  annotateColumn: (row: number, column: string, rating: string | null, note: string) =>
+    request<{ status: string }>("/annotations/column", {
+      method: "POST",
+      body: JSON.stringify({ row, column, rating, note }),
     }),
   getAnnotationsSummary: () =>
     request<{ good: number; bad: number; unreviewed: number; total: number }>(
