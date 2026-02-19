@@ -5,16 +5,12 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING
 from unittest.mock import Mock
 
 import pytest
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.engine.resources.managed_storage import LocalBlobStorageProvider
-from data_designer.lazy_heavy_imports import pd
-
-if TYPE_CHECKING:
-    import pandas as pd
 
 
 @pytest.fixture
@@ -37,7 +33,7 @@ def stub_managed_dataset_repository():
 
 @pytest.fixture
 def stub_sample_dataframe():
-    return pd.DataFrame({"id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"], "age": [25, 30, 35]})
+    return lazy.pd.DataFrame({"id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"], "age": [25, 30, 35]})
 
 
 @pytest.fixture

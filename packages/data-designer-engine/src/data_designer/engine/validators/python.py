@@ -16,9 +16,9 @@ from uuid import uuid4
 from pydantic import BaseModel
 from ruff.__main__ import find_ruff_bin
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.validator_params import CodeValidatorParams
 from data_designer.engine.validators.base import BaseValidator, ValidationOutput, ValidationResult
-from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -122,7 +122,7 @@ class PythonValidator(BaseValidator):
         self.config = config
 
     def run_validation(self, data: list[dict]) -> ValidationResult:
-        df = pd.DataFrame(data)
+        df = lazy.pd.DataFrame(data)
 
         if len(df.columns) > 1:
             raise ValueError("Python validator assumes single column input")

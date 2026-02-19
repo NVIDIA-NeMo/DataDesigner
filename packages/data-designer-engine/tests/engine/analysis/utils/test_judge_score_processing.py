@@ -3,10 +3,9 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import pytest
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.analysis.column_statistics import (
     CategoricalDistribution,
     CategoricalHistogramData,
@@ -21,10 +20,6 @@ from data_designer.engine.analysis.utils.judge_score_processing import (
     extract_judge_score_distributions,
     sample_scores_and_reasoning,
 )
-from data_designer.lazy_heavy_imports import pd
-
-if TYPE_CHECKING:
-    import pandas as pd
 
 
 def test_extract_judge_score_distributions_numerical_scores(stub_judge_column_config):
@@ -35,7 +30,7 @@ def test_extract_judge_score_distributions_numerical_scores(stub_judge_column_co
         {"Quality": {"score": 1, "reasoning": "Poor implementation"}},
         {"Quality": {"score": 0, "reasoning": "Very poor implementation"}},
     ]
-    sample_judge_dataframe = pd.DataFrame({"judge_scores": sample_judge_data})
+    sample_judge_dataframe = lazy.pd.DataFrame({"judge_scores": sample_judge_data})
     result = extract_judge_score_distributions(stub_judge_column_config, sample_judge_dataframe)
 
     assert isinstance(result, JudgeScoreDistributions)
@@ -53,7 +48,7 @@ def test_extract_judge_score_distributions_categorical_scores(stub_judge_column_
         {"Quality": {"score": 2, "reasoning": "Fair implementation"}},
         {"Quality": {"score": "poor", "reasoning": "Poor implementation"}},
     ]
-    mixed_type_judge_dataframe = pd.DataFrame({"judge_scores": mixed_type_judge_data})
+    mixed_type_judge_dataframe = lazy.pd.DataFrame({"judge_scores": mixed_type_judge_data})
     result = extract_judge_score_distributions(stub_judge_column_config, mixed_type_judge_dataframe)
 
     assert isinstance(result, JudgeScoreDistributions)
@@ -69,7 +64,7 @@ def test_extract_judge_score_distributions_edge_cases(stub_judge_column_config):
         {"Quality": {"reasoning": "Missing score"}},  # Missing score field
         {"Quality": {"score": 2, "reasoning": "Valid entry"}},
     ]
-    df = pd.DataFrame({"judge_scores": malformed_data})
+    df = lazy.pd.DataFrame({"judge_scores": malformed_data})
     result = extract_judge_score_distributions(stub_judge_column_config, df)
     assert result.scores["Quality"] == [4, "None", 2]
 
@@ -77,19 +72,19 @@ def test_extract_judge_score_distributions_edge_cases(stub_judge_column_config):
         {"Quality": {"score": None, "reasoning": "No score provided"}},
         {"Quality": {"score": 4, "reasoning": "Good score"}},
     ]
-    df = pd.DataFrame({"judge_scores": none_data})
+    df = lazy.pd.DataFrame({"judge_scores": none_data})
     result = extract_judge_score_distributions(stub_judge_column_config, df)
     assert result.scores["Quality"] == ["None", 4]
     assert result.distribution_types["Quality"] == ColumnDistributionType.CATEGORICAL
 
     missing_reasoning_data = [{"Quality": {"score": 4}}]  # Missing reasoning
-    df = pd.DataFrame({"judge_scores": missing_reasoning_data})
+    df = lazy.pd.DataFrame({"judge_scores": missing_reasoning_data})
     result = extract_judge_score_distributions(stub_judge_column_config, df)
     assert result.scores["Quality"] == [4]
     assert result.reasoning["Quality"] == ["No reasoning provided"]
 
     malformed_data = ["not a dict", {"Quality": "not a dict either"}, {"Quality": {"score": 4, "reasoning": "valid"}}]
-    df = pd.DataFrame({"judge_scores": malformed_data})
+    df = lazy.pd.DataFrame({"judge_scores": malformed_data})
     result = extract_judge_score_distributions(stub_judge_column_config, df)
     assert result == MissingValue.OUTPUT_FORMAT_ERROR
 
@@ -115,7 +110,7 @@ def test_extract_judge_score_distributions_multiple_scores():
         {"Quality": {"score": 2, "reasoning": "Fair quality"}, "Clarity": {"score": 4, "reasoning": "Very clear code"}},
     ]
 
-    df = pd.DataFrame({"judge_scores": data})
+    df = lazy.pd.DataFrame({"judge_scores": data})
     result = extract_judge_score_distributions(config, df)
 
     assert isinstance(result, JudgeScoreDistributions)

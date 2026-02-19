@@ -3,11 +3,11 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
 from unittest.mock import Mock, patch
 
 import pytest
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.analysis.column_statistics import (
     CategoricalDistribution,
     CategoricalHistogramData,
@@ -24,11 +24,6 @@ from data_designer.engine.analysis.column_profilers.judge_score_profiler import 
     JudgeScoreSummary,
 )
 from data_designer.engine.analysis.utils.judge_score_processing import JudgeScoreDistributions, JudgeScoreSample
-from data_designer.lazy_heavy_imports import pa, pd
-
-if TYPE_CHECKING:
-    import pandas as pd
-    import pyarrow as pa
 
 
 @pytest.fixture
@@ -44,9 +39,9 @@ def stub_judge_data():
 
 @pytest.fixture
 def stub_dataframe(stub_judge_data):
-    df = pd.DataFrame({"judge_scores": stub_judge_data})
+    df = lazy.pd.DataFrame({"judge_scores": stub_judge_data})
     # Convert to PyArrow backend as required by ColumnConfigWithDataFrame
-    return pa.Table.from_pandas(df).to_pandas(types_mapper=pd.ArrowDtype)
+    return lazy.pa.Table.from_pandas(df).to_pandas(types_mapper=lazy.pd.ArrowDtype)
 
 
 @pytest.fixture

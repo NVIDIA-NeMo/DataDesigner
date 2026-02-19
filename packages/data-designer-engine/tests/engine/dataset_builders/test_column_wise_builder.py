@@ -8,13 +8,15 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.column_configs import CustomColumnConfig, LLMTextColumnConfig, SamplerColumnConfig
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.custom_column import custom_column_generator
 from data_designer.config.processors import DropColumnsProcessorConfig
 from data_designer.config.run_config import RunConfig
 from data_designer.config.sampler_params import SamplerType, UUIDSamplerParams
-from data_designer.config.seed_source import DataFrameSeedSource, LocalFileSeedSource
+from data_designer.config.seed_source import LocalFileSeedSource
+from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 from data_designer.engine.column_generators.generators.base import GenerationStrategy
 from data_designer.engine.dataset_builders.column_wise_builder import ColumnWiseDatasetBuilder
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError, DatasetProcessingError
@@ -23,7 +25,6 @@ from data_designer.engine.models.usage import ModelUsageStats, TokenUsageStats
 from data_designer.engine.processing.processors.base import Processor
 from data_designer.engine.registry.data_designer_registry import DataDesignerRegistry
 from data_designer.engine.resources.seed_reader import DataFrameSeedReader
-from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -64,12 +65,12 @@ def stub_batch_manager():
     mock_batch_manager.finish = Mock()
     mock_batch_manager.write = Mock()
     mock_batch_manager.add_records = Mock()
-    mock_batch_manager.update_records = Mock()
+    mock_batch_manager.replace_buffer = Mock()
     mock_batch_manager.update_record = Mock()
     mock_batch_manager.get_current_batch = Mock()
     mock_batch_manager.get_current_batch.side_effect = [
-        pd.DataFrame({"test_column": [1, 2, 3], "column_to_drop": [1, 2, 3]}),
-        pd.DataFrame({"test_column": [4, 5, 6], "column_to_drop": [4, 5, 6]}),
+        lazy.pd.DataFrame({"test_column": [1, 2, 3], "column_to_drop": [1, 2, 3]}),
+        lazy.pd.DataFrame({"test_column": [4, 5, 6], "column_to_drop": [4, 5, 6]}),
     ]
     mock_batch_manager.get_current_batch_number = Mock()
     mock_batch_manager.get_current_batch_number.side_effect = [1, 2]
@@ -87,7 +88,7 @@ def stub_column_wise_builder(stub_resource_provider, stub_test_config_builder):
 @pytest.fixture
 def seed_data_setup(stub_resource_provider, tmp_path):
     """Set up seed reader with test data and write seed file to disk."""
-    seed_df = pd.DataFrame({"seed_id": [1, 2, 3, 4, 5], "text": ["a", "b", "c", "d", "e"]})
+    seed_df = lazy.pd.DataFrame({"seed_id": [1, 2, 3, 4, 5], "text": ["a", "b", "c", "d", "e"]})
     seed_source = DataFrameSeedSource(df=seed_df)
     seed_reader = DataFrameSeedReader()
     seed_reader.attach(seed_source, Mock())
@@ -469,7 +470,9 @@ def test_run_after_generation(
     """Test that process_after_generation re-chunks output by batch_size."""
     storage = stub_resource_provider.artifact_storage
     storage.mkdir_if_needed(storage.final_dataset_path)
-    pd.DataFrame({"id": list(range(1, 10))}).to_parquet(storage.final_dataset_path / "batch_00000.parquet", index=False)
+    lazy.pd.DataFrame({"id": list(range(1, 10))}).to_parquet(
+        storage.final_dataset_path / "batch_00000.parquet", index=False
+    )
 
     mock_processor = create_mock_processor("proc", ["process_after_generation"])
     mock_processor.process_after_generation.side_effect = processor_fn
@@ -480,7 +483,7 @@ def test_run_after_generation(
     mock_processor.process_after_generation.assert_called_once()
     batch_files = sorted(storage.final_dataset_path.glob("*.parquet"))
     assert len(batch_files) == expected_files
-    assert sum(len(pd.read_parquet(f)) for f in batch_files) == expected_rows
+    assert sum(len(lazy.pd.read_parquet(f)) for f in batch_files) == expected_rows
 
 
 @pytest.mark.parametrize("mode", ["preview", "build"])
@@ -520,7 +523,7 @@ def test_processor_exception_in_process_after_batch_raises_error(simple_builder)
     simple_builder.set_processor_runner([mock_processor])
 
     with pytest.raises(DatasetProcessingError, match="Failed in process_after_batch"):
-        simple_builder._processor_runner.run_post_batch(pd.DataFrame({"id": [1, 2, 3]}), current_batch_number=0)
+        simple_builder._processor_runner.run_post_batch(lazy.pd.DataFrame({"id": [1, 2, 3]}), current_batch_number=0)
 
 
 def test_processor_with_no_implemented_stages_is_skipped(builder_with_seed):
@@ -557,8 +560,178 @@ def test_process_preview_with_empty_dataframe(simple_builder):
     mock_processor = create_mock_processor("test_processor", ["process_after_batch", "process_after_generation"])
     simple_builder.set_processor_runner([mock_processor])
 
-    result = simple_builder.process_preview(pd.DataFrame())
+    result = simple_builder.process_preview(lazy.pd.DataFrame())
 
     assert len(result) == 0
     mock_processor.process_after_batch.assert_called_once()
     mock_processor.process_after_generation.assert_called_once()
+
+
+# allow_resize integration tests
+#
+# Factory: _make_resize_full_expand. Stubs: _resize_full_keep_first, _resize_cell_*.
+
+
+def _make_resize_full_expand(n: int, primary_col: str, side_effect_col: str):
+    """FULL_COLUMN: expand n times per seed_id."""
+
+    @custom_column_generator(required_columns=["seed_id"], side_effect_columns=[side_effect_col])
+    def fn(df: pd.DataFrame) -> pd.DataFrame:
+        rows = []
+        for _, row in df.iterrows():
+            for i in range(n):
+                rows.append({**row.to_dict(), primary_col: f"{row['seed_id']}_v{i}", side_effect_col: i})
+        return lazy.pd.DataFrame(rows)
+
+    return fn
+
+
+@custom_column_generator(required_columns=["seed_id"])
+def _resize_full_keep_first(df: pd.DataFrame) -> pd.DataFrame:
+    """FULL_COLUMN: keep first row per seed_id (retraction)."""
+    return df.drop_duplicates(subset="seed_id").assign(filtered=True)
+
+
+@custom_column_generator(required_columns=["seed_id"])
+def _resize_cell_expand(row: dict) -> list[dict]:
+    """CELL_BY_CELL: one row -> two rows (doubled)."""
+    return [
+        {**row, "doubled": f"{row['seed_id']}_a"},
+        {**row, "doubled": f"{row['seed_id']}_b"},
+    ]
+
+
+@custom_column_generator(required_columns=["seed_id"])
+def _resize_cell_filter_odd(row: dict) -> dict | list[dict]:
+    """CELL_BY_CELL: drop even seed_id, keep odd."""
+    if row["seed_id"] % 2 == 0:
+        return []
+    return {**row, "kept": row["seed_id"]}
+
+
+@custom_column_generator(required_columns=["seed_id"])
+def _resize_cell_drop_all(row: dict) -> list[dict]:
+    """CELL_BY_CELL: return [] for every row (drop all)."""
+    return []
+
+
+_RESIZE_SPECS: dict[str, list[tuple[str, object, GenerationStrategy]]] = {
+    "cell_filter_odd": [("kept", _resize_cell_filter_odd, GenerationStrategy.CELL_BY_CELL)],
+    "cell_x2": [("doubled", _resize_cell_expand, GenerationStrategy.CELL_BY_CELL)],
+    "cell_drop_all": [("dropped", _resize_cell_drop_all, GenerationStrategy.CELL_BY_CELL)],
+    "full_x3": [("expanded", _make_resize_full_expand(3, "expanded", "copy"), GenerationStrategy.FULL_COLUMN)],
+    "full_chain": [
+        ("expanded", _make_resize_full_expand(3, "expanded", "copy"), GenerationStrategy.FULL_COLUMN),
+        ("filtered", _resize_full_keep_first, GenerationStrategy.FULL_COLUMN),
+        ("expanded_again", _make_resize_full_expand(3, "expanded_again", "copy2"), GenerationStrategy.FULL_COLUMN),
+    ],
+    "cell_plus_full_chain": [
+        ("doubled", _resize_cell_expand, GenerationStrategy.CELL_BY_CELL),
+        ("filtered", _resize_full_keep_first, GenerationStrategy.FULL_COLUMN),
+        ("expanded_again", _make_resize_full_expand(3, "expanded_again", "copy2"), GenerationStrategy.FULL_COLUMN),
+    ],
+}
+
+
+def _resize_columns(spec: str) -> list[CustomColumnConfig]:
+    """Return column configs for a given allow_resize recipe."""
+    return [
+        CustomColumnConfig(
+            name=name,
+            generator_function=fn,
+            generation_strategy=strat,
+            allow_resize=True,
+        )
+        for name, fn, strat in _RESIZE_SPECS[spec]
+    ]
+
+
+def _build_resize_builder(stub_resource_provider, stub_model_configs, seed_data_setup, columns):
+    """Build a ColumnWiseDatasetBuilder with the given resize column configs."""
+    config_builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
+    config_builder.with_seed_dataset(LocalFileSeedSource(path=str(seed_data_setup["seed_path"])))
+    for col in columns:
+        config_builder.add_column(col)
+    return ColumnWiseDatasetBuilder(
+        data_designer_config=config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+
+
+@pytest.mark.parametrize(
+    "spec,num_records,expected_len,check_doubled_order",
+    [
+        ("cell_filter_odd", 5, 3, False),
+        ("cell_x2", 5, 10, True),
+        ("cell_drop_all", 5, 0, False),
+        ("full_x3", 5, 15, False),
+        ("full_chain", 5, 15, False),
+        ("cell_plus_full_chain", 5, 15, False),
+    ],
+    ids=[
+        "cell_filter_odd_preview",
+        "cell_x2_preview",
+        "cell_drop_all_preview",
+        "full_x3_preview",
+        "full_chain_preview",
+        "cell_plus_full_chain_preview",
+    ],
+)
+def test_allow_resize_preview(
+    stub_resource_provider,
+    stub_model_configs,
+    seed_data_setup,
+    spec,
+    num_records,
+    expected_len,
+    check_doubled_order,
+):
+    """Preview with allow_resize columns (FULL_COLUMN and/or CELL_BY_CELL) yields expected length."""
+    columns = _resize_columns(spec)
+    builder = _build_resize_builder(stub_resource_provider, stub_model_configs, seed_data_setup, columns)
+    result = builder.build_preview(num_records=num_records)
+    assert len(result) == expected_len
+    if check_doubled_order:
+        expected = [x for i in range(1, 6) for x in (f"{i}_a", f"{i}_b")]
+        assert result["doubled"].tolist() == expected
+
+
+@pytest.mark.parametrize(
+    "spec,num_records,buffer_size,expected_total_rows",
+    [
+        ("cell_x2", 5, 2, 10),  # batches [2,2,1] -> each x2 -> 4+4+2
+        ("cell_filter_odd", 5, 2, 3),  # batches [2,2,1] -> keep odd -> 1+1+1
+        ("cell_drop_all", 5, 2, 0),  # each batch -> 0 rows
+        ("full_x3", 5, 2, 15),  # batches [2,2,1] -> each x3 -> 6+6+3
+        ("full_x3", 4, 2, 12),  # batches [2,2] -> 6+6
+        ("full_chain", 5, 2, 15),  # batches [2,2,1] -> x3, dedup, x3 -> 15
+    ],
+    ids=[
+        "cell_x2_multibatch",
+        "cell_filter_odd_multibatch",
+        "cell_drop_all_multibatch",
+        "full_x3_multibatch_5_2",
+        "full_x3_multibatch_4_2",
+        "full_chain_multibatch",
+    ],
+)
+def test_allow_resize_multiple_batches(
+    stub_resource_provider,
+    stub_model_configs,
+    seed_data_setup,
+    spec,
+    num_records,
+    buffer_size,
+    expected_total_rows,
+):
+    """Resized batches are written independently and combine to expected total rows."""
+    stub_resource_provider.run_config = RunConfig(buffer_size=buffer_size)
+    columns = _resize_columns(spec)
+    builder = _build_resize_builder(stub_resource_provider, stub_model_configs, seed_data_setup, columns)
+    builder.build(num_records=num_records)
+    final_path = builder.artifact_storage.final_dataset_path
+    if expected_total_rows == 0 and not final_path.exists():
+        df = lazy.pd.DataFrame()
+    else:
+        df = lazy.pd.read_parquet(final_path)
+    assert len(df) == expected_total_rows

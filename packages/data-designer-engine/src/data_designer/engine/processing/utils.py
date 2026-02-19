@@ -10,7 +10,7 @@ import logging
 import re
 from typing import TYPE_CHECKING, Any, TypeVar, overload
 
-from data_designer.lazy_heavy_imports import pd
+import data_designer.lazy_heavy_imports as lazy
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -27,7 +27,7 @@ def concat_datasets(datasets: list[pd.DataFrame]) -> pd.DataFrame:
     _verify_dataset_lengths_are_equal(datasets)
     emoji = " + ".join(["💾"] * len(datasets))
     logger.info(f"({emoji}) Concatenating {len(datasets)} datasets")
-    return pd.concat([df for df in datasets], axis=1)
+    return lazy.pd.concat([df for df in datasets], axis=1)
 
 
 # Overloads to help static type checker better understand

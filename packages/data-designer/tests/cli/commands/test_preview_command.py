@@ -5,6 +5,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from data_designer.cli.commands.preview import preview_command
 from data_designer.cli.ui import wait_for_navigation_key
 
@@ -13,50 +15,81 @@ from data_designer.cli.ui import wait_for_navigation_key
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        pytest.param(
+            {
+                "config_source": "config.yaml",
+                "num_records": 5,
+                "non_interactive": True,
+                "save_results": False,
+                "artifact_path": None,
+                "theme": "dark",
+                "display_width": 110,
+            },
+            id="defaults",
+        ),
+        pytest.param(
+            {
+                "config_source": "config.yaml",
+                "num_records": 10,
+                "non_interactive": False,
+                "save_results": False,
+                "artifact_path": None,
+                "theme": "dark",
+                "display_width": 110,
+            },
+            id="non_interactive_false",
+        ),
+        pytest.param(
+            {
+                "config_source": "my_config.py",
+                "num_records": 20,
+                "non_interactive": True,
+                "save_results": False,
+                "artifact_path": None,
+                "theme": "dark",
+                "display_width": 110,
+            },
+            id="custom_num_records",
+        ),
+        pytest.param(
+            {
+                "config_source": "config.yaml",
+                "num_records": 5,
+                "non_interactive": True,
+                "save_results": True,
+                "artifact_path": "/custom/output",
+                "theme": "dark",
+                "display_width": 110,
+            },
+            id="save_results_and_artifact_path",
+        ),
+        pytest.param(
+            {
+                "config_source": "config.yaml",
+                "num_records": 5,
+                "non_interactive": True,
+                "save_results": True,
+                "artifact_path": None,
+                "theme": "light",
+                "display_width": 80,
+            },
+            id="custom_theme_and_display_width",
+        ),
+    ],
+)
 @patch("data_designer.cli.commands.preview.GenerationController")
-def test_preview_command_delegates_to_controller(mock_ctrl_cls: MagicMock) -> None:
-    """Test preview_command delegates to GenerationController.run_preview."""
+def test_preview_command_delegates_to_controller(mock_ctrl_cls: MagicMock, kwargs: dict[str, object]) -> None:
+    """Test preview_command delegates all arguments to GenerationController.run_preview."""
     mock_ctrl = MagicMock()
     mock_ctrl_cls.return_value = mock_ctrl
 
-    preview_command(config_source="config.yaml", num_records=5, non_interactive=True)
+    preview_command(**kwargs)
 
     mock_ctrl_cls.assert_called_once()
-    mock_ctrl.run_preview.assert_called_once_with(
-        config_source="config.yaml",
-        num_records=5,
-        non_interactive=True,
-    )
-
-
-@patch("data_designer.cli.commands.preview.GenerationController")
-def test_preview_command_passes_non_interactive_false(mock_ctrl_cls: MagicMock) -> None:
-    """Test preview_command passes non_interactive=False by default."""
-    mock_ctrl = MagicMock()
-    mock_ctrl_cls.return_value = mock_ctrl
-
-    preview_command(config_source="config.yaml", num_records=10, non_interactive=False)
-
-    mock_ctrl.run_preview.assert_called_once_with(
-        config_source="config.yaml",
-        num_records=10,
-        non_interactive=False,
-    )
-
-
-@patch("data_designer.cli.commands.preview.GenerationController")
-def test_preview_command_passes_custom_num_records(mock_ctrl_cls: MagicMock) -> None:
-    """Test preview_command passes custom num_records to controller."""
-    mock_ctrl = MagicMock()
-    mock_ctrl_cls.return_value = mock_ctrl
-
-    preview_command(config_source="my_config.py", num_records=20, non_interactive=True)
-
-    mock_ctrl.run_preview.assert_called_once_with(
-        config_source="my_config.py",
-        num_records=20,
-        non_interactive=True,
-    )
+    mock_ctrl.run_preview.assert_called_once_with(**kwargs)
 
 
 # ---------------------------------------------------------------------------

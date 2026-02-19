@@ -4,10 +4,10 @@
 from __future__ import annotations
 
 from itertools import cycle
-from typing import TYPE_CHECKING
 
 import pytest
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.analysis.column_statistics import (
     CategoricalDistribution,
     CategoricalHistogramData,
@@ -18,6 +18,7 @@ from data_designer.config.analysis.column_statistics import (
 from data_designer.config.column_configs import LLMTextColumnConfig
 from data_designer.config.utils.numerical_helpers import prepare_number_for_reporting
 from data_designer.engine.analysis.utils.column_statistics_calculations import (
+    _get_tokenizer,
     calculate_column_distribution,
     calculate_general_column_info,
     calculate_input_token_stats,
@@ -27,12 +28,6 @@ from data_designer.engine.analysis.utils.column_statistics_calculations import (
     ensure_boolean,
     ensure_hashable,
 )
-from data_designer.lazy_heavy_imports import np, pa, pd
-
-if TYPE_CHECKING:
-    import numpy as np
-    import pandas as pd
-    import pyarrow as pa
 
 
 @pytest.fixture
@@ -47,23 +42,23 @@ def stub_column_config():
 
 @pytest.fixture
 def stub_df_responses():
-    return pd.DataFrame({"test_column": ["short", "this is a longer response"]})
+    return lazy.pd.DataFrame({"test_column": ["short", "this is a longer response"]})
 
 
 @pytest.fixture
 def stub_df_code_validation():
-    return pd.DataFrame(
+    return lazy.pd.DataFrame(
         {"test_column": [{"is_valid": True}, {"is_valid": False}, {"is_valid": True}, {"is_valid": True}]}
     )
 
 
 def test_categorical_histogram_data_from_series():
-    series = pd.Series(["A", "B", "A", "C", "B", "A"])
+    series = lazy.pd.Series(["A", "B", "A", "C", "B", "A"])
     histogram = CategoricalHistogramData.from_series(series)
     assert histogram.categories == ["A", "B", "C"]
     assert histogram.counts == [3, 2, 1]
 
-    series_numpy = pd.Series([np.int64(1), np.int64(2), np.int64(1), np.float64(3.0)])
+    series_numpy = lazy.pd.Series([lazy.np.int64(1), lazy.np.int64(2), lazy.np.int64(1), lazy.np.float64(3.0)])
     histogram_numpy = CategoricalHistogramData.from_series(series_numpy)
     assert histogram_numpy.categories == [1, 2, 3.0]
     assert histogram_numpy.counts == [2, 1, 1]
@@ -72,7 +67,7 @@ def test_categorical_histogram_data_from_series():
 
 
 def test_categorical_distribution_from_series():
-    series = pd.Series(["A", "B", "A", "C", "B", "A"])
+    series = lazy.pd.Series(["A", "B", "A", "C", "B", "A"])
     distribution = CategoricalDistribution.from_series(series)
     assert distribution.most_common_value == "A"
     assert distribution.least_common_value == "C"
@@ -80,7 +75,7 @@ def test_categorical_distribution_from_series():
     assert distribution.histogram.categories == ["A", "B", "C"]
     assert distribution.histogram.counts == [3, 2, 1]
 
-    series_numpy = pd.Series([np.int64(1), np.int64(2), np.int64(1)])
+    series_numpy = lazy.pd.Series([lazy.np.int64(1), lazy.np.int64(2), lazy.np.int64(1)])
     distribution_numpy = CategoricalDistribution.from_series(series_numpy)
     assert distribution_numpy.most_common_value == 1
     assert distribution_numpy.least_common_value == 2
@@ -89,7 +84,7 @@ def test_categorical_distribution_from_series():
 
 
 def test_numerical_distribution_from_series():
-    series = pd.Series([1, 2, 3, 4, 5])
+    series = lazy.pd.Series([1, 2, 3, 4, 5])
     distribution = NumericalDistribution.from_series(series)
     assert distribution.min == 1
     assert distribution.max == 5
@@ -97,7 +92,7 @@ def test_numerical_distribution_from_series():
     assert distribution.stddev == pytest.approx(1.58, abs=0.01)
     assert distribution.median == 3.0
 
-    series_with_nan = pd.Series([1, 2, np.nan, 4, 5])
+    series_with_nan = lazy.pd.Series([1, 2, lazy.np.nan, 4, 5])
     distribution_with_nan = NumericalDistribution.from_series(series_with_nan)
     assert distribution_with_nan.min == 1
     assert distribution_with_nan.max == 5
@@ -105,11 +100,11 @@ def test_numerical_distribution_from_series():
     assert distribution_with_nan.median == 3.0
 
     distribution_numpy = NumericalDistribution(
-        min=np.int64(1),
-        max=np.float64(5.0),
-        mean=np.float64(3.0),
-        stddev=np.float64(1.5),
-        median=np.float64(3.0),
+        min=lazy.np.int64(1),
+        max=lazy.np.float64(5.0),
+        mean=lazy.np.float64(3.0),
+        stddev=lazy.np.float64(1.5),
+        median=lazy.np.float64(3.0),
     )
     assert distribution_numpy.min == 1
     assert distribution_numpy.max == 5.0
@@ -123,13 +118,13 @@ def test_numerical_distribution_from_series():
 def test_calculate_column_distribution():
     column_name = "test_column"
 
-    df_categorical = pd.DataFrame({"test_column": ["A", "B", "A", "C", "B", "A"]})
+    df_categorical = lazy.pd.DataFrame({"test_column": ["A", "B", "A", "C", "B", "A"]})
     result = calculate_column_distribution(column_name, df_categorical, ColumnDistributionType.CATEGORICAL)
     assert result["distribution_type"] == ColumnDistributionType.CATEGORICAL
     assert isinstance(result["distribution"], CategoricalDistribution)
     assert result["distribution"].most_common_value == "A"
 
-    df_numerical = pd.DataFrame({"test_column": [1, 2, 3, 4, 5]})
+    df_numerical = lazy.pd.DataFrame({"test_column": [1, 2, 3, 4, 5]})
     result = calculate_column_distribution(column_name, df_numerical, ColumnDistributionType.NUMERICAL)
     assert result["distribution_type"] == ColumnDistributionType.NUMERICAL
     assert isinstance(result["distribution"], NumericalDistribution)
@@ -137,7 +132,7 @@ def test_calculate_column_distribution():
     assert result["distribution"].max == 5
 
     column_name = "nonexistent_column"
-    df_other = pd.DataFrame({"other_column": [1, 2, 3]})
+    df_other = lazy.pd.DataFrame({"other_column": [1, 2, 3]})
     result = calculate_column_distribution(column_name, df_other, ColumnDistributionType.CATEGORICAL)
     assert result["distribution_type"] == ColumnDistributionType.UNKNOWN
     assert result["distribution"] == MissingValue.CALCULATION_FAILED
@@ -219,26 +214,26 @@ def test_calculate_validation_column_info(stub_column_config, stub_df_code_valid
 
 
 def test_convert_pyarrow_dtype_to_simple_dtype():
-    assert convert_pyarrow_dtype_to_simple_dtype(pa.int64()) == "int"
-    assert convert_pyarrow_dtype_to_simple_dtype(pa.int32()) == "int"
-    assert convert_pyarrow_dtype_to_simple_dtype(pa.int16()) == "int"
-    assert convert_pyarrow_dtype_to_simple_dtype(pa.float64()) == "float"
-    assert convert_pyarrow_dtype_to_simple_dtype(pa.float32()) == "float"
-    assert convert_pyarrow_dtype_to_simple_dtype(pa.string()) == "string"
-    assert convert_pyarrow_dtype_to_simple_dtype(pa.timestamp("s")) == "timestamp"
-    assert convert_pyarrow_dtype_to_simple_dtype(pa.time32("s")) == "time"
-    assert convert_pyarrow_dtype_to_simple_dtype(pa.date32()) == "date"
+    assert convert_pyarrow_dtype_to_simple_dtype(lazy.pa.int64()) == "int"
+    assert convert_pyarrow_dtype_to_simple_dtype(lazy.pa.int32()) == "int"
+    assert convert_pyarrow_dtype_to_simple_dtype(lazy.pa.int16()) == "int"
+    assert convert_pyarrow_dtype_to_simple_dtype(lazy.pa.float64()) == "float"
+    assert convert_pyarrow_dtype_to_simple_dtype(lazy.pa.float32()) == "float"
+    assert convert_pyarrow_dtype_to_simple_dtype(lazy.pa.string()) == "string"
+    assert convert_pyarrow_dtype_to_simple_dtype(lazy.pa.timestamp("s")) == "timestamp"
+    assert convert_pyarrow_dtype_to_simple_dtype(lazy.pa.time32("s")) == "time"
+    assert convert_pyarrow_dtype_to_simple_dtype(lazy.pa.date32()) == "date"
 
-    list_type = pa.list_(pa.string())
+    list_type = lazy.pa.list_(lazy.pa.string())
     assert convert_pyarrow_dtype_to_simple_dtype(list_type) == "list[string]"
 
-    nested_list_type = pa.list_(pa.list_(pa.int64()))
+    nested_list_type = lazy.pa.list_(lazy.pa.list_(lazy.pa.int64()))
     assert convert_pyarrow_dtype_to_simple_dtype(nested_list_type) == "list[list[int]]"
 
-    struct_type = pa.struct([("field1", pa.string()), ("field2", pa.int64())])
+    struct_type = lazy.pa.struct([("field1", lazy.pa.string()), ("field2", lazy.pa.int64())])
     assert convert_pyarrow_dtype_to_simple_dtype(struct_type) == "dict"
 
-    unknown_type = pa.binary()
+    unknown_type = lazy.pa.binary()
     assert convert_pyarrow_dtype_to_simple_dtype(unknown_type) == str(unknown_type)
 
 
@@ -249,11 +244,11 @@ def test_prepare_number_for_reporting():
     assert prepare_number_for_reporting(3.14159, float, precision=2) == 3.14
     assert isinstance(prepare_number_for_reporting(3.14159, float, precision=2), float)
 
-    assert prepare_number_for_reporting(np.int64(5), int) == 5
-    assert not isinstance(prepare_number_for_reporting(np.int64(5), int), np.int64)
+    assert prepare_number_for_reporting(lazy.np.int64(5), int) == 5
+    assert not isinstance(prepare_number_for_reporting(lazy.np.int64(5), int), lazy.np.int64)
 
-    assert prepare_number_for_reporting(np.float64(3.14159), float, precision=2) == 3.14
-    assert not isinstance(prepare_number_for_reporting(np.float64(3.14159), float, precision=2), np.float64)
+    assert prepare_number_for_reporting(lazy.np.float64(3.14159), float, precision=2) == 3.14
+    assert not isinstance(prepare_number_for_reporting(lazy.np.float64(3.14159), float, precision=2), lazy.np.float64)
 
     assert prepare_number_for_reporting(3.14159, float, precision=3) == 3.142
 
@@ -276,27 +271,27 @@ def test_ensure_hashable():
     assert "a" in result and "b" in result
 
     with pytest.raises(TypeError):
-        hash(np.array([1, 2, 3]))
-    assert isinstance(hash(ensure_hashable(np.array([1, 2, 3]))), int)
+        hash(lazy.np.array([1, 2, 3]))
+    assert isinstance(hash(ensure_hashable(lazy.np.array([1, 2, 3]))), int)
 
 
 def test_ensure_boolean():
     assert ensure_boolean(True) is True
     assert ensure_boolean(False) is False
-    assert ensure_boolean(np.bool_(True)) is True
+    assert ensure_boolean(lazy.np.bool_(True)) is True
 
     assert ensure_boolean(1) is True
     assert ensure_boolean(0) is False
     assert ensure_boolean(1.0) is True
     assert ensure_boolean(0.0) is False
-    assert ensure_boolean(np.int64(1)) is True
-    assert ensure_boolean(np.float64(0.0)) is False
+    assert ensure_boolean(lazy.np.int64(1)) is True
+    assert ensure_boolean(lazy.np.float64(0.0)) is False
 
     assert ensure_boolean("true") is True
     assert ensure_boolean("false") is False
     assert ensure_boolean("TRUE") is True
     assert ensure_boolean("FALSE") is False
-    assert ensure_boolean(np.str_("true")) is True
+    assert ensure_boolean(lazy.np.str_("true")) is True
 
     with pytest.raises(ValueError):
         ensure_boolean("invalid")
@@ -308,9 +303,9 @@ def test_ensure_boolean():
 
 def test_calculate_general_column_info_dtype_detection():
     """Test dtype detection with PyArrow backend (preferred path)."""
-    df_pyarrow = pa.Table.from_pydict(
+    df_pyarrow = lazy.pa.Table.from_pydict(
         {"int_col": [1, 2, 3], "str_col": ["a", "b", "c"], "float_col": [1.1, 2.2, 3.3]}
-    ).to_pandas(types_mapper=pd.ArrowDtype)
+    ).to_pandas(types_mapper=lazy.pd.ArrowDtype)
 
     result = calculate_general_column_info("int_col", df_pyarrow)
     assert result["simple_dtype"] == "int"
@@ -327,7 +322,7 @@ def test_calculate_general_column_info_dtype_detection():
 
 def test_calculate_general_column_info_dtype_detection_fallback():
     """Test dtype detection fallback when PyArrow backend unavailable (mixed types)."""
-    df_mixed = pd.DataFrame({"mixed_col": [1, "two", 3.0, "four", 5]})
+    df_mixed = lazy.pd.DataFrame({"mixed_col": [1, "two", 3.0, "four", 5]})
 
     result = calculate_general_column_info("mixed_col", df_mixed)
     assert result["simple_dtype"] == "int"
@@ -338,20 +333,28 @@ def test_calculate_general_column_info_dtype_detection_fallback():
 
 def test_calculate_general_column_info_edge_cases():
     """Test edge cases: nulls, empty columns, and all-null columns."""
-    df_with_nulls = pd.DataFrame({"col_with_nulls": [None, None, 42.0, 43.0, 44.0]})
+    df_with_nulls = lazy.pd.DataFrame({"col_with_nulls": [None, None, 42.0, 43.0, 44.0]})
     result = calculate_general_column_info("col_with_nulls", df_with_nulls)
     assert result["simple_dtype"] == "float"
     assert result["num_null"] == 2
     assert result["num_unique"] == 3
 
-    df_all_nulls = pd.DataFrame({"all_nulls": [None, None, None]})
+    df_all_nulls = lazy.pd.DataFrame({"all_nulls": [None, None, None]})
     result = calculate_general_column_info("all_nulls", df_all_nulls)
     assert result["simple_dtype"] == MissingValue.CALCULATION_FAILED
     assert result["num_null"] == 3
     assert result["num_unique"] == 0
 
-    df_empty = pd.DataFrame({"empty_col": []})
+    df_empty = lazy.pd.DataFrame({"empty_col": []})
     result = calculate_general_column_info("empty_col", df_empty)
     assert result["num_records"] == 0
     assert result["num_null"] == 0
     assert result["simple_dtype"] == MissingValue.CALCULATION_FAILED
+
+
+def test_get_tokenizer_returns_cached_instance() -> None:
+    """_get_tokenizer returns the same cached tokenizer instance."""
+    _get_tokenizer.cache_clear()
+    tokenizer1 = _get_tokenizer()
+    tokenizer2 = _get_tokenizer()
+    assert tokenizer1 is tokenizer2

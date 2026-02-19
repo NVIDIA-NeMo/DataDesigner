@@ -3,11 +3,11 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
 from unittest.mock import Mock, patch
 
 import pytest
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.column_configs import ValidationColumnConfig
 from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.validator_params import (
@@ -29,10 +29,6 @@ from data_designer.engine.validators import (
     ValidationResult,
 )
 from data_designer.engine.validators.base import ValidationOutput
-from data_designer.lazy_heavy_imports import pd
-
-if TYPE_CHECKING:
-    import pandas as pd
 
 
 @pytest.mark.parametrize(
@@ -107,7 +103,7 @@ def test_validation_column_generator_generate_with_multiple_target_columns(mock_
     )
 
     generator = ValidationColumnGenerator(config=config, resource_provider=stub_resource_provider)
-    df = pd.DataFrame({"col1": [1, 2], "col2": [4, 5]})
+    df = lazy.pd.DataFrame({"col1": [1, 2], "col2": [4, 5]})
 
     result = generator.generate(df)
 
@@ -182,13 +178,13 @@ def test_validation_column_generator_generate_with_different_strategies(
             endpoint_url="http://example.com/validate",
             max_parallel_requests=max_parallel_requests,
         )
-        df = pd.DataFrame({"col1": [1, 2]})
+        df = lazy.pd.DataFrame({"col1": [1, 2]})
     elif validator_type == ValidatorType.LOCAL_CALLABLE:
         validator_params = LocalCallableValidatorParams(validation_function=lambda x: x)
-        df = pd.DataFrame({"col1": [1, 2, 3]})
+        df = lazy.pd.DataFrame({"col1": [1, 2, 3]})
     else:
         validator_params = CodeValidatorParams(code_lang=CodeLang.PYTHON)
-        df = pd.DataFrame({"col1": [1, 2, 3, 4, 5]})
+        df = lazy.pd.DataFrame({"col1": [1, 2, 3, 4, 5]})
 
     config = ValidationColumnConfig(
         name="validation_column",
@@ -225,7 +221,7 @@ def test_validation_column_generator_validate_in_parallel_failure(mock_get_valid
     )
 
     generator = ValidationColumnGenerator(config=config, resource_provider=stub_resource_provider)
-    df = pd.DataFrame({"col1": [1, 2]})
+    df = lazy.pd.DataFrame({"col1": [1, 2]})
 
     with patch(
         "data_designer.engine.column_generators.generators.validation.ConcurrentThreadExecutor"

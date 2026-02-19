@@ -9,12 +9,12 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing_extensions import Self
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.base import ConfigBase
 from data_designer.config.sampler_constraints import ColumnConstraintT
 from data_designer.config.sampler_params import SamplerType
 from data_designer.engine.sampling_gen.column import ConditionalDataColumn
 from data_designer.engine.sampling_gen.constraints import ConstraintChecker, get_constraint_checker
-from data_designer.lazy_heavy_imports import nx
 
 if TYPE_CHECKING:
     import networkx as nx
@@ -26,12 +26,12 @@ class Dag(BaseModel):
 
     @model_validator(mode="after")
     def validate_is_dag(self) -> Self:
-        if not nx.is_directed_acyclic_graph(self.to_networkx()):
+        if not lazy.nx.is_directed_acyclic_graph(self.to_networkx()):
             raise ValueError("There are circular dependencies in the definitions of your sampler columns.")
         return self
 
     def to_networkx(self) -> nx.DiGraph:
-        dag = nx.DiGraph()
+        dag = lazy.nx.DiGraph()
         for node in self.nodes:
             dag.add_node(node)
         for edge in self.edges:

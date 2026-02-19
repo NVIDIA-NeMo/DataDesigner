@@ -20,7 +20,7 @@ classifiers = [
 ]
 
 [project.scripts]
-data-designer = "data_designer.cli:main"
+data-designer = "data_designer.cli.main:main"
 
 [build-system]
 requires = ["hatchling", "uv-dynamic-versioning>=0.7.0"]

@@ -4,18 +4,14 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
 from unittest.mock import Mock, patch
 
 import pytest
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.engine.dataset_builders.utils.dataset_batch_manager import DatasetBatchManager
 from data_designer.engine.dataset_builders.utils.errors import DatasetBatchManagementError
 from data_designer.engine.storage.artifact_storage import BatchStage
-from data_designer.lazy_heavy_imports import pd
-
-if TYPE_CHECKING:
-    import pandas as pd
 
 
 @pytest.fixture
@@ -153,24 +149,59 @@ def test_update_record_invalid_index(stub_batch_manager_with_data):
         stub_batch_manager_with_data.update_record(-1, {"id": -1, "name": "test"})
 
 
-def test_update_records(stub_batch_manager_with_data):
+def test_replace_buffer(stub_batch_manager_with_data):
     records = [{"id": i, "name": f"test{i}"} for i in range(3)]
     stub_batch_manager_with_data.add_records(records)
 
     new_records = [{"id": i, "name": f"updated{i}"} for i in range(3)]
-    stub_batch_manager_with_data.update_records(new_records)
+    stub_batch_manager_with_data.replace_buffer(new_records)
 
     assert stub_batch_manager_with_data._buffer == new_records
 
 
-def test_update_records_wrong_length(stub_batch_manager_with_data):
+def test_replace_buffer_wrong_length(stub_batch_manager_with_data):
     records = [{"id": i, "name": f"test{i}"} for i in range(3)]
     stub_batch_manager_with_data.add_records(records)
 
     wrong_length_records = [{"id": i, "name": f"test{i}"} for i in range(2)]
 
-    with pytest.raises(DatasetBatchManagementError, match="Number of records to update.*must match"):
-        stub_batch_manager_with_data.update_records(wrong_length_records)
+    with pytest.raises(DatasetBatchManagementError, match="Number of records.*must match"):
+        stub_batch_manager_with_data.replace_buffer(wrong_length_records)
+
+
+@pytest.mark.parametrize(
+    "new_size",
+    [6, 1, 0],
+    ids=["expansion", "retraction", "empty"],
+)
+def test_replace_buffer_allow_resize(stub_batch_manager_with_data, new_size):
+    """allow_resize=True permits any record count change and updates bookkeeping."""
+    stub_batch_manager_with_data.add_records([{"id": i} for i in range(3)])
+
+    new_records = [{"id": i} for i in range(new_size)]
+    stub_batch_manager_with_data.replace_buffer(new_records, allow_resize=True)
+
+    assert stub_batch_manager_with_data.num_records_in_buffer == new_size
+    assert stub_batch_manager_with_data._buffer == new_records
+    assert stub_batch_manager_with_data.num_records_batch == new_size
+
+
+def test_actual_num_records_tracks_expansion(stub_batch_manager_with_data):
+    """Test that actual_num_records correctly tracks when buffer is resized."""
+    # Add 3 records, then expand to 6
+    records = [{"id": i} for i in range(3)]
+    stub_batch_manager_with_data.add_records(records)
+    expanded = [{"id": i} for i in range(6)]
+    stub_batch_manager_with_data.replace_buffer(expanded, allow_resize=True)
+
+    # Finish batch and check metadata
+    stub_batch_manager_with_data.finish_batch()
+
+    with open(stub_batch_manager_with_data.artifact_storage.metadata_file_path) as f:
+        metadata = json.load(f)
+
+    assert metadata["target_num_records"] == 13  # [6, 3, 3, 1] after resize from [3, 3, 3, 1]
+    assert metadata["actual_num_records"] == 6  # actual expanded count
 
 
 # Test write method
@@ -192,9 +223,9 @@ def test_write_with_data(stub_batch_manager_with_data):
         == stub_batch_manager_with_data.artifact_storage.create_batch_file_path(0, BatchStage.PARTIAL_RESULT).name
     )
 
-    df = pd.read_parquet(result)
-    expected_df = pd.DataFrame(records)
-    pd.testing.assert_frame_equal(df, expected_df)
+    df = lazy.pd.read_parquet(result)
+    expected_df = lazy.pd.DataFrame(records)
+    lazy.pd.testing.assert_frame_equal(df, expected_df)
 
 
 def test_write_creates_partial_results_dir(stub_batch_manager_with_data):
@@ -271,6 +302,7 @@ def test_finish_batch_metadata_content(stub_batch_manager_with_data):
         metadata = json.load(f)
 
     assert metadata["target_num_records"] == 10
+    assert metadata["actual_num_records"] == 3  # actual records written in this batch
     assert metadata["total_num_batches"] == 4
     assert metadata["buffer_size"] == 3
     assert metadata["num_completed_batches"] == 1

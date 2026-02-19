@@ -9,6 +9,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from data_designer.config.config_builder import DataDesignerConfigBuilder
+from data_designer.config.default_model_settings import resolve_seed_default_model_settings
 from data_designer.config.utils.io_helpers import VALID_CONFIG_FILE_EXTENSIONS, is_http_url
 
 
@@ -20,6 +21,18 @@ PYTHON_EXTENSIONS = {".py"}
 ALL_SUPPORTED_EXTENSIONS = VALID_CONFIG_FILE_EXTENSIONS | PYTHON_EXTENSIONS
 
 USER_MODULE_FUNC_NAME = "load_config_builder"
+
+
+_default_settings_initialized = False
+
+
+def _ensure_default_model_settings() -> None:
+    """Initialize default model/provider files once before loading CLI configs."""
+    global _default_settings_initialized
+    if _default_settings_initialized:
+        return
+    resolve_seed_default_model_settings()
+    _default_settings_initialized = True
 
 
 def load_config_builder(config_source: str) -> DataDesignerConfigBuilder:
@@ -39,6 +52,8 @@ def load_config_builder(config_source: str) -> DataDesignerConfigBuilder:
     Raises:
         ConfigLoadError: If the file cannot be loaded or is invalid.
     """
+    _ensure_default_model_settings()
+
     if is_http_url(config_source):
         return _load_from_config_url(config_source)
 

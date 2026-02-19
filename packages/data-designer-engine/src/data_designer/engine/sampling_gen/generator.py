@@ -6,17 +6,15 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.engine.sampling_gen.data_sources.base import RadomStateT
 from data_designer.engine.sampling_gen.errors import RejectionSamplingError
 from data_designer.engine.sampling_gen.jinja_utils import JinjaDataFrame
 from data_designer.engine.sampling_gen.people_gen import create_people_gen_resource
 from data_designer.engine.sampling_gen.schema import DataSchema
 from data_designer.engine.sampling_gen.utils import check_random_state
-from data_designer.lazy_heavy_imports import np, nx, pd
 
 if TYPE_CHECKING:
-    import networkx as nx
-    import numpy as np
     import pandas as pd
 
     from data_designer.engine.dataset_builders.multi_column_configs import SamplerMultiColumnConfig
@@ -79,7 +77,7 @@ class DatasetGenerator:
         name = column.name
         num_iterations = 0
         num_samples = len(df)
-        needs_samples = np.ones(num_samples, dtype=bool)
+        needs_samples = lazy.np.ones(num_samples, dtype=bool)
 
         while needs_samples.any():
             for condition in column.conditions:
@@ -90,7 +88,7 @@ class DatasetGenerator:
             df[name] = column.get_default_sampler(**self._shared_sampler_kwargs).preproc(df[name], column.convert_to)
 
             # Check all constraints on the column.
-            batch_mask = np.ones(num_samples, dtype=bool)
+            batch_mask = lazy.np.ones(num_samples, dtype=bool)
             for constraint in self.schema.get_constraint_checkers(name):
                 batch_mask &= constraint.check(df)
             needs_samples[batch_mask] = False
@@ -107,9 +105,9 @@ class DatasetGenerator:
         return df
 
     def generate(self, num_samples: int) -> pd.DataFrame:
-        dataset = pd.DataFrame(index=range(num_samples))
+        dataset = lazy.pd.DataFrame(index=range(num_samples))
 
-        for column_name in nx.topological_sort(self._dag):
+        for column_name in lazy.nx.topological_sort(self._dag):
             column = self.schema.get_column(column_name)
             dataset = self._run_rejection_sampling(dataset, column)
 

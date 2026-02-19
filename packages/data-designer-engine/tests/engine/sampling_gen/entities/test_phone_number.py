@@ -7,6 +7,8 @@ import pytest
 
 from data_designer.engine.sampling_gen.entities.phone_number import PhoneNumber, get_area_code
 
+_LOAD_TARGET = "data_designer.engine.sampling_gen.entities.phone_number._load_zip_area_code_data"
+
 
 @pytest.fixture
 def stub_sample_phone_number():
@@ -67,28 +69,24 @@ def test_str_and_repr_representations(stub_sample_phone_number):
 
 
 def test_get_area_code_exact_zipcode():
-    with patch("data_designer.engine.sampling_gen.entities.phone_number.ZIPCODE_AREA_CODE_MAP", {"12345": "555"}):
+    with patch(_LOAD_TARGET, return_value=({"12345": "555"}, {"12345": 100})):
         result = get_area_code("12345")
         assert result == "555"
 
 
 def test_get_area_code_exact_zipcode_not_found():
-    with patch("data_designer.engine.sampling_gen.entities.phone_number.ZIPCODE_AREA_CODE_MAP", {}):
+    with patch(_LOAD_TARGET, return_value=({}, {})):
         with pytest.raises(ValueError, match="ZIP code 12345 not found"):
             get_area_code("12345")
 
 
 def test_get_area_code_prefix_match():
     with patch(
-        "data_designer.engine.sampling_gen.entities.phone_number.ZIPCODE_POPULATION_MAP",
-        {"12345": 100, "12346": 200},
+        _LOAD_TARGET,
+        return_value=({"12345": "555", "12346": "666"}, {"12345": 100, "12346": 200}),
     ):
-        with patch(
-            "data_designer.engine.sampling_gen.entities.phone_number.ZIPCODE_AREA_CODE_MAP",
-            {"12345": "555", "12346": "666"},
-        ):
-            with patch("random.choices") as mock_choices:
-                mock_choices.return_value = ["12345"]
+        with patch("random.choices") as mock_choices:
+            mock_choices.return_value = ["12345"]
 
-                result = get_area_code("123")
-                assert result == "555"
+            result = get_area_code("123")
+            assert result == "555"

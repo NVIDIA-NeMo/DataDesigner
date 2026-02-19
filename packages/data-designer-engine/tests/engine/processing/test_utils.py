@@ -3,44 +3,40 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 import pytest
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.engine.processing.utils import (
     concat_datasets,
     deserialize_json_values,
     parse_list_string,
 )
-from data_designer.lazy_heavy_imports import pd
-
-if TYPE_CHECKING:
-    import pandas as pd
 
 
 @pytest.fixture
 def stub_sample_dataframes():
     return {
-        "df1": pd.DataFrame({"col1": [1, 2, 3], "col2": ["a", "b", "c"]}),
-        "df2": pd.DataFrame({"col3": [4, 5, 6], "col4": ["d", "e", "f"]}),
-        "df_single": pd.DataFrame({"col1": [1, 2, 3]}),
+        "df1": lazy.pd.DataFrame({"col1": [1, 2, 3], "col2": ["a", "b", "c"]}),
+        "df2": lazy.pd.DataFrame({"col3": [4, 5, 6], "col4": ["d", "e", "f"]}),
+        "df_single": lazy.pd.DataFrame({"col1": [1, 2, 3]}),
     }
 
 
 @pytest.fixture
 def stub_overlapping_dataframes():
     return {
-        "df1": pd.DataFrame({"col1": [1, 2, 3]}),
-        "df2": pd.DataFrame({"col1": [4, 5, 6]}),
+        "df1": lazy.pd.DataFrame({"col1": [1, 2, 3]}),
+        "df2": lazy.pd.DataFrame({"col1": [4, 5, 6]}),
     }
 
 
 @pytest.fixture
 def stub_different_length_dataframes():
     return {
-        "df1": pd.DataFrame({"col1": [1, 2, 3]}),
-        "df2": pd.DataFrame({"col2": [4, 5]}),
+        "df1": lazy.pd.DataFrame({"col1": [1, 2, 3]}),
+        "df2": lazy.pd.DataFrame({"col2": [4, 5]}),
     }
 
 
@@ -78,7 +74,7 @@ def test_concat_datasets_scenarios(request, test_case, dataframes_key, expected_
             concat_datasets(datasets)
     else:
         result = concat_datasets(datasets)
-        pd.testing.assert_frame_equal(result, pd.DataFrame(expected_result))
+        lazy.pd.testing.assert_frame_equal(result, lazy.pd.DataFrame(expected_result))
 
 
 @patch("data_designer.engine.processing.utils.logger", autospec=True)

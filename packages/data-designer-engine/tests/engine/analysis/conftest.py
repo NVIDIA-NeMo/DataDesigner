@@ -10,6 +10,7 @@ from unittest.mock import Mock, patch
 
 from pytest import fixture
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.analysis.column_statistics import (
     CategoricalHistogramData,
     ColumnDistributionType,
@@ -27,11 +28,9 @@ from data_designer.engine.models.registry import ModelRegistry
 from data_designer.engine.registry.data_designer_registry import DataDesignerRegistry
 from data_designer.engine.resources.resource_provider import ResourceProvider
 from data_designer.engine.storage.artifact_storage import ArtifactStorage
-from data_designer.lazy_heavy_imports import pa, pd
 
 if TYPE_CHECKING:
     import pandas as pd
-    import pyarrow as pa
 
 
 @fixture
@@ -51,7 +50,7 @@ def stub_dataset_path(stub_artifact_path: Path) -> Path:
 
 @fixture
 def stub_df(stub_dataset_path: Path) -> pd.DataFrame:
-    return pd.read_json(
+    return lazy.pd.read_json(
         stub_dataset_path / "dataset.json",
         orient="records",
         dtype_backend="pyarrow",
@@ -99,7 +98,7 @@ def stub_df_with_mixed_column_types():
         "string_column": ["a", "b", "c", "d", "e"],
         "int_with_nulls_column": [1, 2, None, 4, None],
     }
-    return pa.Table.from_pydict(data).to_pandas(types_mapper=pd.ArrowDtype)
+    return lazy.pa.Table.from_pydict(data).to_pandas(types_mapper=lazy.pd.ArrowDtype)
 
 
 @fixture

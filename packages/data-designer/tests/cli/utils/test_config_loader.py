@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+import data_designer.cli.utils.config_loader as config_loader_mod
 from data_designer.cli.utils.config_loader import (
     ConfigLoadError,
     load_config_builder,
@@ -287,3 +288,13 @@ def test_load_config_builder_empty_yaml(tmp_path: Path) -> None:
 
     with pytest.raises(ConfigLoadError, match="Failed to load config from"):
         load_config_builder(str(yaml_file))
+
+
+def test_ensure_default_model_settings_runs_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """_ensure_default_model_settings only calls resolve_seed_default_model_settings once."""
+    monkeypatch.setattr(config_loader_mod, "_default_settings_initialized", False)
+
+    with patch("data_designer.cli.utils.config_loader.resolve_seed_default_model_settings") as mock_resolve:
+        config_loader_mod._ensure_default_model_settings()
+        config_loader_mod._ensure_default_model_settings()
+        mock_resolve.assert_called_once()

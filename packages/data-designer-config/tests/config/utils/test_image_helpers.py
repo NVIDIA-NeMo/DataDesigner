@@ -10,6 +10,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.models import ImageFormat
 from data_designer.config.utils.image_helpers import (
     decode_base64_image,
@@ -22,13 +23,12 @@ from data_designer.config.utils.image_helpers import (
     load_image_path_to_base64,
     validate_image,
 )
-from data_designer.lazy_heavy_imports import Image
 
 
 @pytest.fixture
 def sample_png_bytes() -> bytes:
     """Create a valid 1x1 PNG as raw bytes."""
-    img = Image.new("RGB", (1, 1), color="red")
+    img = lazy.Image.new("RGB", (1, 1), color="red")
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()
@@ -100,7 +100,7 @@ def test_detect_image_format_magic_bytes(header_bytes: bytes, expected_format: I
 
 
 def test_detect_image_format_gif_magic_bytes(tmp_path: Path) -> None:
-    img = Image.new("RGB", (1, 1), color="red")
+    img = lazy.Image.new("RGB", (1, 1), color="red")
     gif_path = tmp_path / "test.gif"
     img.save(gif_path, format="GIF")
     gif_bytes = gif_path.read_bytes()
@@ -112,7 +112,7 @@ def test_detect_image_format_with_pil_fallback_jpeg() -> None:
     mock_img.format = "JPEG"
     test_bytes = b"\x00\x00\x00\x00"
 
-    with patch.object(Image, "open", return_value=mock_img):
+    with patch.object(lazy.Image, "open", return_value=mock_img):
         result = detect_image_format(test_bytes)
         assert result == ImageFormat.JPG
 
@@ -273,7 +273,7 @@ def test_validate_image_nonexistent_raises_error(tmp_path: Path) -> None:
 
 
 def test_load_image_path_to_base64_absolute_path(tmp_path: Path) -> None:
-    img = Image.new("RGB", (1, 1), color="blue")
+    img = lazy.Image.new("RGB", (1, 1), color="blue")
     image_path = tmp_path / "test.png"
     img.save(image_path)
 
@@ -285,7 +285,7 @@ def test_load_image_path_to_base64_absolute_path(tmp_path: Path) -> None:
 
 
 def test_load_image_path_to_base64_relative_with_base_path(tmp_path: Path) -> None:
-    img = Image.new("RGB", (1, 1), color="green")
+    img = lazy.Image.new("RGB", (1, 1), color="green")
     image_path = tmp_path / "subdir" / "test.png"
     image_path.parent.mkdir(exist_ok=True)
     img.save(image_path)
@@ -303,7 +303,7 @@ def test_load_image_path_to_base64_nonexistent_file() -> None:
 def test_load_image_path_to_base64_relative_with_cwd_fallback(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
 
-    img = Image.new("RGB", (1, 1), color="yellow")
+    img = lazy.Image.new("RGB", (1, 1), color="yellow")
     image_path = tmp_path / "test_cwd.png"
     img.save(image_path)
 
@@ -315,7 +315,7 @@ def test_load_image_path_to_base64_relative_with_cwd_fallback(tmp_path: Path, mo
 def test_load_image_path_to_base64_base_path_fallback_to_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
 
-    img = Image.new("RGB", (1, 1), color="red")
+    img = lazy.Image.new("RGB", (1, 1), color="red")
     image_path = tmp_path / "test.png"
     img.save(image_path)
 

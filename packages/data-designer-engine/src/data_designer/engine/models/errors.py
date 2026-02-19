@@ -10,8 +10,8 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.engine.errors import DataDesignerError
-from data_designer.lazy_heavy_imports import litellm
 
 if TYPE_CHECKING:
     import litellm
@@ -125,10 +125,10 @@ def handle_llm_exceptions(
     err_msg_parser = DownstreamLLMExceptionMessageParser(model_name, model_provider_name, purpose)
     match exception:
         # Common errors that can come from LiteLLM
-        case litellm.exceptions.APIError():
+        case lazy.litellm.exceptions.APIError():
             raise err_msg_parser.parse_api_error(exception, authentication_error) from None
 
-        case litellm.exceptions.APIConnectionError():
+        case lazy.litellm.exceptions.APIConnectionError():
             raise ModelAPIConnectionError(
                 FormattedLLMErrorMessage(
                     cause=f"Connection to model {model_name!r} hosted on model provider {model_provider_name!r} failed while {purpose}.",
@@ -136,13 +136,13 @@ def handle_llm_exceptions(
                 )
             ) from None
 
-        case litellm.exceptions.AuthenticationError():
+        case lazy.litellm.exceptions.AuthenticationError():
             raise ModelAuthenticationError(authentication_error) from None
 
-        case litellm.exceptions.ContextWindowExceededError():
+        case lazy.litellm.exceptions.ContextWindowExceededError():
             raise err_msg_parser.parse_context_window_exceeded_error(exception) from None
 
-        case litellm.exceptions.UnsupportedParamsError():
+        case lazy.litellm.exceptions.UnsupportedParamsError():
             raise ModelUnsupportedParamsError(
                 FormattedLLMErrorMessage(
                     cause=f"One or more of the parameters you provided were found to be unsupported by model {model_name!r} while {purpose}.",
@@ -150,10 +150,10 @@ def handle_llm_exceptions(
                 )
             ) from None
 
-        case litellm.exceptions.BadRequestError():
+        case lazy.litellm.exceptions.BadRequestError():
             raise err_msg_parser.parse_bad_request_error(exception) from None
 
-        case litellm.exceptions.InternalServerError():
+        case lazy.litellm.exceptions.InternalServerError():
             raise ModelInternalServerError(
                 FormattedLLMErrorMessage(
                     cause=f"Model {model_name!r} is currently experiencing internal server issues while {purpose}.",
@@ -161,7 +161,7 @@ def handle_llm_exceptions(
                 )
             ) from None
 
-        case litellm.exceptions.NotFoundError():
+        case lazy.litellm.exceptions.NotFoundError():
             raise ModelNotFoundError(
                 FormattedLLMErrorMessage(
                     cause=f"The specified model {model_name!r} could not be found while {purpose}.",
@@ -169,7 +169,7 @@ def handle_llm_exceptions(
                 )
             ) from None
 
-        case litellm.exceptions.PermissionDeniedError():
+        case lazy.litellm.exceptions.PermissionDeniedError():
             raise ModelPermissionDeniedError(
                 FormattedLLMErrorMessage(
                     cause=f"Your API key was found to lack the necessary permissions to use model {model_name!r} while {purpose}.",
@@ -177,7 +177,7 @@ def handle_llm_exceptions(
                 )
             ) from None
 
-        case litellm.exceptions.RateLimitError():
+        case lazy.litellm.exceptions.RateLimitError():
             raise ModelRateLimitError(
                 FormattedLLMErrorMessage(
                     cause=f"You have exceeded the rate limit for model {model_name!r} while {purpose}.",
@@ -185,7 +185,7 @@ def handle_llm_exceptions(
                 )
             ) from None
 
-        case litellm.exceptions.Timeout():
+        case lazy.litellm.exceptions.Timeout():
             raise ModelTimeoutError(
                 FormattedLLMErrorMessage(
                     cause=f"The request to model {model_name!r} timed out while {purpose}.",
@@ -193,7 +193,7 @@ def handle_llm_exceptions(
                 )
             ) from None
 
-        case litellm.exceptions.UnprocessableEntityError():
+        case lazy.litellm.exceptions.UnprocessableEntityError():
             raise ModelUnprocessableEntityError(
                 FormattedLLMErrorMessage(
                     cause=f"The request to model {model_name!r} failed despite correct request format while {purpose}.",

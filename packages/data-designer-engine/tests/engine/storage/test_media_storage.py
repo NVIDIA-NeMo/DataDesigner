@@ -8,8 +8,8 @@ import io
 
 import pytest
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.engine.storage.media_storage import IMAGES_SUBDIR, MediaStorage, StorageMode
-from data_designer.lazy_heavy_imports import Image
 
 
 @pytest.fixture
@@ -21,7 +21,7 @@ def media_storage(tmp_path):
 @pytest.fixture
 def sample_base64_png() -> str:
     """Create a valid 1x1 PNG as base64."""
-    img = Image.new("RGB", (1, 1), color="red")
+    img = lazy.Image.new("RGB", (1, 1), color="red")
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     png_bytes = buf.getvalue()
@@ -31,7 +31,7 @@ def sample_base64_png() -> str:
 @pytest.fixture
 def sample_base64_jpg() -> str:
     """Create a valid 1x1 JPEG as base64."""
-    img = Image.new("RGB", (1, 1), color="blue")
+    img = lazy.Image.new("RGB", (1, 1), color="blue")
     buf = io.BytesIO()
     img.save(buf, format="JPEG")
     jpg_bytes = buf.getvalue()

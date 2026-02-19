@@ -3,20 +3,26 @@
 
 from __future__ import annotations
 
+import functools
 import random
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field, field_validator
 
-from data_designer.lazy_heavy_imports import pd
+import data_designer.lazy_heavy_imports as lazy
 
-if TYPE_CHECKING:
-    import pandas as pd
 
-ZIP_AREA_CODE_DATA = pd.read_parquet(Path(__file__).parent / "assets" / "zip_area_code_map.parquet")
-ZIPCODE_AREA_CODE_MAP = dict(zip(ZIP_AREA_CODE_DATA["zipcode"], ZIP_AREA_CODE_DATA["area_code"]))
-ZIPCODE_POPULATION_MAP = dict(zip(ZIP_AREA_CODE_DATA["zipcode"], ZIP_AREA_CODE_DATA["count"]))
+@functools.lru_cache(maxsize=1)
+def _load_zip_area_code_data() -> tuple[dict[str, str], dict[str, int]]:
+    """Load and cache the ZIP-to-area-code mapping from the parquet asset.
+
+    Returns:
+        A tuple of (area_code_map, population_map).
+    """
+    data = lazy.pd.read_parquet(Path(__file__).parent / "assets" / "zip_area_code_map.parquet")
+    area_code_map = dict(zip(data["zipcode"], data["area_code"]))
+    population_map = dict(zip(data["zipcode"], data["count"]))
+    return area_code_map, population_map
 
 
 def get_area_code(zip_prefix: str | None = None) -> str:
@@ -29,21 +35,23 @@ def get_area_code(zip_prefix: str | None = None) -> str:
     Returns:
         A sampled area code matching the prefix, population-weighted.
     """
+    area_code_map, population_map = _load_zip_area_code_data()
+
     if zip_prefix is None:
-        zipcodes, weights = zip(*ZIPCODE_POPULATION_MAP.items())
+        zipcodes, weights = zip(*population_map.items())
         zipcode = random.choices(zipcodes, weights=weights, k=1)[0]
-        return str(ZIPCODE_AREA_CODE_MAP[zipcode])
+        return str(area_code_map[zipcode])
     if len(zip_prefix) == 5:
         try:
-            return str(ZIPCODE_AREA_CODE_MAP[zip_prefix])
+            return str(area_code_map[zip_prefix])
         except KeyError:
             raise ValueError(f"ZIP code {zip_prefix} not found.")
-    matching_zipcodes = [[z, c] for z, c in ZIPCODE_POPULATION_MAP.items() if z.startswith(zip_prefix)]
+    matching_zipcodes = [[z, c] for z, c in population_map.items() if z.startswith(zip_prefix)]
     zipcodes, weights = zip(*matching_zipcodes)
     if not zipcodes:
         raise ValueError(f"No ZIP codes found with prefix {zip_prefix}.")
     zipcode = random.choices(zipcodes, weights=weights, k=1)[0]
-    return str(ZIPCODE_AREA_CODE_MAP[zipcode])
+    return str(area_code_map[zipcode])
 
 
 class PhoneNumber(BaseModel):

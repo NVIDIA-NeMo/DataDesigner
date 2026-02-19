@@ -10,6 +10,7 @@ from pathlib import Path
 from rich.theme import Theme
 
 DEFAULT_NUM_RECORDS = 10
+DEFAULT_DISPLAY_WIDTH = 110
 
 EPSILON = 1e-8
 REPORTING_PRECISION = 2

@@ -42,7 +42,6 @@ from data_designer.engine.registry.data_designer_registry import DataDesignerReg
 from data_designer.engine.resources.resource_provider import ResourceProvider
 from data_designer.engine.storage.artifact_storage import SDG_CONFIG_FILENAME, ArtifactStorage
 from data_designer.engine.storage.media_storage import StorageMode
-from data_designer.lazy_heavy_imports import pd
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -79,6 +78,8 @@ class ColumnWiseDatasetBuilder:
         self.batch_manager = DatasetBatchManager(resource_provider.artifact_storage)
         self._resource_provider = resource_provider
         self._records_to_drop: set[int] = set()
+        self._cell_resize_results: list[dict | list[dict] | None] = []
+        self._cell_resize_mode = False
         self._registry = registry or DataDesignerRegistry()
 
         self._data_designer_config = compile_data_designer_config(data_designer_config, resource_provider)
@@ -276,9 +277,24 @@ class ColumnWiseDatasetBuilder:
         else:
             self._fan_out_with_threads(generator, max_workers=max_workers)
 
+    def _column_display_name(self, config: ColumnConfigT) -> str:
+        return f"columns {config.column_names}" if hasattr(config, "column_names") else config.name
+
+    def _log_resize_if_changed(self, column_name: str, original_count: int, new_count: int, allow_resize: bool) -> None:
+        if not allow_resize or new_count == original_count:
+            return
+        if new_count == 0:
+            logger.warning(f"⚠️ Column '{column_name}' reduced batch to 0 records. This batch will be skipped.")
+        else:
+            emoji = "💥" if new_count > original_count else "✂️"
+            logger.info(f"{emoji} Column '{column_name}' resized batch: {original_count} -> {new_count} records.")
+
     def _run_full_column_generator(self, generator: ColumnGenerator) -> None:
+        original_count = self.batch_manager.num_records_in_buffer
         df = generator.generate(self.batch_manager.get_current_batch(as_dataframe=True))
-        self.batch_manager.update_records(df.to_dict(orient="records"))
+        allow_resize = getattr(generator.config, "allow_resize", False)
+        self._log_resize_if_changed(self._column_display_name(generator.config), original_count, len(df), allow_resize)
+        self.batch_manager.replace_buffer(df.to_dict(orient="records"), allow_resize=allow_resize)
 
     def _run_model_health_check_if_needed(self) -> None:
         model_aliases: set[str] = set()
@@ -310,6 +326,14 @@ class ColumnWiseDatasetBuilder:
                 "generator so concurrent fan-out is not supported."
             )
 
+        allow_resize = generator.config.allow_resize
+        if allow_resize:
+            self._cell_resize_results = [None] * self.batch_manager.num_records_batch
+            self._cell_resize_mode = True
+            self._current_column_display_name = self._column_display_name(generator.config)
+        else:
+            self._cell_resize_mode = False
+
         progress_tracker = ProgressTracker(
             total_records=self.batch_manager.num_records_batch,
             label=f"{generator.config.column_type} column '{generator.config.name}'",
@@ -330,7 +354,28 @@ class ColumnWiseDatasetBuilder:
 
     def _finalize_fan_out(self, progress_tracker: ProgressTracker) -> None:
         progress_tracker.log_final()
-        if len(self._records_to_drop) > 0:
+
+        if self._cell_resize_mode:
+            # Flatten results in index order; skip indices in _records_to_drop (failed cells),
+            # so those rows are omitted from the new buffer.
+            new_records: list[dict] = []
+            for i in range(len(self._cell_resize_results)):
+                if i in self._records_to_drop:
+                    continue
+                r = self._cell_resize_results[i]
+                if r is not None:
+                    new_records.extend(r if isinstance(r, list) else [r])
+            self._log_resize_if_changed(
+                self._current_column_display_name,
+                self.batch_manager.num_records_in_buffer,
+                len(new_records),
+                True,
+            )
+            self.batch_manager.replace_buffer(new_records, allow_resize=True)
+            self._records_to_drop.clear()
+            self._cell_resize_mode = False
+            self._cell_resize_results = []
+        elif len(self._records_to_drop) > 0:
             self._cleanup_dropped_record_images(self._records_to_drop)
             self.batch_manager.drop_records(self._records_to_drop)
             self._records_to_drop.clear()
@@ -370,7 +415,7 @@ class ColumnWiseDatasetBuilder:
         return callback
 
     def _write_processed_batch(self, dataframe: pd.DataFrame) -> None:
-        self.batch_manager.update_records(dataframe.to_dict(orient="records"))
+        self.batch_manager.replace_buffer(dataframe.to_dict(orient="records"), allow_resize=False)
         self.batch_manager.write()
 
     def _validate_column_configs(self) -> None:
@@ -447,8 +492,11 @@ class ColumnWiseDatasetBuilder:
         )
         self._records_to_drop.add(context["index"])
 
-    def _worker_result_callback(self, result: dict, *, context: dict | None = None) -> None:
-        self.batch_manager.update_record(context["index"], result)
+    def _worker_result_callback(self, result: dict | list[dict], *, context: dict | None = None) -> None:
+        if self._cell_resize_mode:
+            self._cell_resize_results[context["index"]] = result
+        else:
+            self.batch_manager.update_record(context["index"], result)
 
     def _emit_batch_inference_events(
         self, batch_mode: str, usage_deltas: dict[str, ModelUsageStats], group_id: str

@@ -8,8 +8,8 @@ from typing import Any
 from data_designer.cli.forms.builder import FormBuilder
 from data_designer.cli.forms.field import TextField
 from data_designer.cli.forms.form import Form
+from data_designer.config.models import ModelProvider
 from data_designer.config.utils.io_helpers import is_http_url
-from data_designer.engine.model_provider import ModelProvider
 
 
 class ProviderFormBuilder(FormBuilder[ModelProvider]):

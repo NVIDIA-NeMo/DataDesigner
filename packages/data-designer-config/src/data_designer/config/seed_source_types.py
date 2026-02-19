@@ -8,7 +8,8 @@ from typing import Annotated
 from pydantic import Field
 from typing_extensions import TypeAlias
 
-from data_designer.config.seed_source import DataFrameSeedSource, HuggingFaceSeedSource, LocalFileSeedSource
+from data_designer.config.seed_source import HuggingFaceSeedSource, LocalFileSeedSource
+from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 from data_designer.plugin_manager import PluginManager
 
 plugin_manager = PluginManager()

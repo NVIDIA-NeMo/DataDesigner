@@ -82,9 +82,12 @@ help:
 	@echo "  update-license-headers    - Add license headers to all files"
 	@echo ""
 	@echo "⚡ Performance:"
-	@echo "  perf-import               - Profile import time and show summary"
-	@echo "  perf-import CLEAN=1       - Clean cache, then profile import time"
-	@echo "  perf-import NOFILE=1      - Profile without writing to file (for CI)"
+	@echo "  perf-import               - Profile pure import time and show summary"
+	@echo "  perf-import CLEAN=1       - Clean cache, then profile pure import time"
+	@echo "  perf-import NOFILE=1      - Profile pure import without writing to file (for CI)"
+	@echo "  perf-import-runtime       - Profile runtime init time (constructors included)"
+	@echo "  bench-cli-startup         - Benchmark CLI startup (isolated venv)"
+	@echo "  bench-cli-startup-verbose - Benchmark CLI startup with import trace"
 	@echo ""
 	@echo "🚀 Publish:"
 	@echo "  publish VERSION=X.Y.Z                        - Publish all packages to PyPI"
@@ -481,7 +484,37 @@ perf-import:
 ifdef CLEAN
 	@$(MAKE) clean-pycache
 endif
-	@echo "⚡ Profiling import time for data_designer.config and data_designer.interface.DataDesigner..."
+	@echo "⚡ Profiling pure import time for data_designer.config and DataDesigner symbol..."
+ifdef NOFILE
+	@PERF_OUTPUT=$$(uv run python -X importtime -c "import data_designer.config as dd; from data_designer.interface import DataDesigner" 2>&1); \
+	echo "$$PERF_OUTPUT"; \
+	echo ""; \
+	echo "Summary:"; \
+	echo "$$PERF_OUTPUT" | tail -1 | awk '{printf "  Total: %.3fs\n", $$5/1000000}'; \
+	echo ""; \
+	echo "💡 Top 10 slowest imports:"; \
+	printf "%-12s %-12s %s\n" "Self (s)" "Cumulative (s)" "Module"; \
+	printf "%-12s %-12s %s\n" "--------" "--------------" "------"; \
+	echo "$$PERF_OUTPUT" | grep "import time:" | sort -rn -k5 | head -10 | awk '{printf "%-12.3f %-12.3f %s", $$3/1000000, $$5/1000000, $$7; for(i=8;i<=NF;i++) printf " %s", $$i; printf "\n"}'
+else
+	@PERF_FILE="perf_import_$$(date +%Y%m%d_%H%M%S).txt"; \
+	uv run python -X importtime -c "import data_designer.config as dd; from data_designer.interface import DataDesigner" > "$$PERF_FILE" 2>&1; \
+	echo "📊 Import profile saved to $$PERF_FILE"; \
+	echo ""; \
+	echo "Summary:"; \
+	tail -1 "$$PERF_FILE" | awk '{printf "  Total: %.3fs\n", $$5/1000000}'; \
+	echo ""; \
+	echo "💡 Top 10 slowest imports:"; \
+	printf "%-12s %-12s %s\n" "Self (s)" "Cumulative (s)" "Module"; \
+	printf "%-12s %-12s %s\n" "--------" "--------------" "------"; \
+	grep "import time:" "$$PERF_FILE" | sort -rn -k5 | head -10 | awk '{printf "%-12.3f %-12.3f %s", $$3/1000000, $$5/1000000, $$7; for(i=8;i<=NF;i++) printf " %s", $$i; printf "\n"}'
+endif
+
+perf-import-runtime:
+ifdef CLEAN
+	@$(MAKE) clean-pycache
+endif
+	@echo "⚡ Profiling runtime initialization time (DataDesigner + DataDesignerConfigBuilder constructors)..."
 ifdef NOFILE
 	@PERF_OUTPUT=$$(uv run python -X importtime -c "import data_designer.config as dd; from data_designer.interface import DataDesigner; DataDesigner(); dd.DataDesignerConfigBuilder()" 2>&1); \
 	echo "$$PERF_OUTPUT"; \
@@ -494,9 +527,9 @@ ifdef NOFILE
 	printf "%-12s %-12s %s\n" "--------" "--------------" "------"; \
 	echo "$$PERF_OUTPUT" | grep "import time:" | sort -rn -k5 | head -10 | awk '{printf "%-12.3f %-12.3f %s", $$3/1000000, $$5/1000000, $$7; for(i=8;i<=NF;i++) printf " %s", $$i; printf "\n"}'
 else
-	@PERF_FILE="perf_import_$$(date +%Y%m%d_%H%M%S).txt"; \
+	@PERF_FILE="perf_import_runtime_$$(date +%Y%m%d_%H%M%S).txt"; \
 	uv run python -X importtime -c "import data_designer.config as dd; from data_designer.interface import DataDesigner; DataDesigner(); dd.DataDesignerConfigBuilder()" > "$$PERF_FILE" 2>&1; \
-	echo "📊 Import profile saved to $$PERF_FILE"; \
+	echo "📊 Runtime import profile saved to $$PERF_FILE"; \
 	echo ""; \
 	echo "Summary:"; \
 	tail -1 "$$PERF_FILE" | awk '{printf "  Total: %.3fs\n", $$5/1000000}'; \
@@ -506,6 +539,16 @@ else
 	printf "%-12s %-12s %s\n" "--------" "--------------" "------"; \
 	grep "import time:" "$$PERF_FILE" | sort -rn -k5 | head -10 | awk '{printf "%-12.3f %-12.3f %s", $$3/1000000, $$5/1000000, $$7; for(i=8;i<=NF;i++) printf " %s", $$i; printf "\n"}'
 endif
+
+BENCH_CLI_ARGS ?=
+
+bench-cli-startup:
+	@echo "⚡ Benchmarking CLI startup time (isolated venv)..."
+	uv run python scripts/benchmarks/benchmark_cli_startup.py $(BENCH_CLI_ARGS)
+
+bench-cli-startup-verbose:
+	@echo "⚡ Benchmarking CLI startup time (isolated + import trace)..."
+	uv run python scripts/benchmarks/benchmark_cli_startup.py --verbose $(BENCH_CLI_ARGS)
 
 # ==============================================================================
 # PUBLISH
@@ -576,7 +619,8 @@ clean-test-coverage:
 # PHONY TARGETS
 # ==============================================================================
 
-.PHONY: build build-config build-engine build-interface \
+.PHONY: bench-cli-startup bench-cli-startup-verbose \
+        build build-config build-engine build-interface \
         check-all check-all-fix check-config check-engine check-interface \
         check-license-headers \
         clean clean-dist clean-notebooks clean-pycache clean-test-coverage \
@@ -586,7 +630,7 @@ clean-test-coverage:
         generate-colab-notebooks help \
         install install-dev install-dev-notebooks install-dev-recipes \
         lint lint-config lint-engine lint-fix lint-fix-config lint-fix-engine lint-fix-interface lint-interface \
-        perf-import publish serve-docs-locally show-versions \
+        perf-import perf-import-runtime publish serve-docs-locally show-versions \
         health-checks \
         test test-config test-config-isolated test-e2e test-engine test-engine-isolated \
         test-interface test-interface-isolated test-isolated \

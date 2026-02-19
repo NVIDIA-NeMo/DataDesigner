@@ -3,20 +3,15 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import pytest
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.sampler_constraints import (
     ColumnInequalityConstraint,
     ConstraintType,
     ScalarInequalityConstraint,
 )
 from data_designer.engine.sampling_gen.constraints import get_constraint_checker
-from data_designer.lazy_heavy_imports import pd
-
-if TYPE_CHECKING:
-    import pandas as pd
 
 
 @pytest.mark.parametrize(
@@ -70,10 +65,10 @@ def test_constraint_scenarios(
     else:
         assert set(constraint.get_required_column_names()) == expected_columns
 
-    success_df = pd.DataFrame(test_data_success)
+    success_df = lazy.pd.DataFrame(test_data_success)
     assert constraint.check(success_df).all()
 
-    failure_df = pd.DataFrame(test_data_failure)
+    failure_df = lazy.pd.DataFrame(test_data_failure)
     assert not constraint.check(failure_df).any()
 
 

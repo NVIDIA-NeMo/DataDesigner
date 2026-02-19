@@ -5,20 +5,16 @@ from __future__ import annotations
 
 import random
 from collections import defaultdict
-from typing import TYPE_CHECKING
 
 import pytest
 from faker import Faker
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.sampler_params import SamplerType
 from data_designer.engine.sampling_gen.data_sources.base import DataSource
 from data_designer.engine.sampling_gen.data_sources.sources import SamplerRegistry
 from data_designer.engine.sampling_gen.people_gen import PeopleGenFaker, PeopleGenFromDataset
 from data_designer.engine.sampling_gen.schema_builder import SchemaBuilder
-from data_designer.lazy_heavy_imports import pd
-
-if TYPE_CHECKING:
-    import pandas as pd
 
 
 def create_person_args():
@@ -185,7 +181,7 @@ def mock_person_generator_loader(locale: str = "en_US", with_synthetic_personas:
                             record[k] = random.choice(v)
                         else:
                             record[k] = v
-            return pd.DataFrame(random.choices(records, k=size))
+            return lazy.pd.DataFrame(random.choices(records, k=size))
 
     return MockPersonGenerator()
 

@@ -4,12 +4,12 @@
 import json
 import tempfile
 from collections import Counter
-from typing import TYPE_CHECKING
 
 import pytest
 import yaml
 from pydantic import ValidationError
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.models import (
     ChatCompletionInferenceParams,
@@ -26,10 +26,6 @@ from data_designer.config.models import (
     UniformDistributionParams,
     load_model_configs,
 )
-from data_designer.lazy_heavy_imports import np
-
-if TYPE_CHECKING:
-    import numpy as np
 
 
 def test_image_context_get_contexts_single_string():
@@ -93,7 +89,7 @@ def test_image_context_get_contexts_numpy_array():
     image_context = ImageContext(
         column_name="image_base64", data_type=ModalityDataType.BASE64, image_format=ImageFormat.PNG
     )
-    numpy_array = np.array(["image1base64", "image2base64"])
+    numpy_array = lazy.np.array(["image1base64", "image2base64"])
     assert image_context.get_contexts({"image_base64": numpy_array}) == [
         {
             "type": "image_url",
@@ -106,7 +102,7 @@ def test_image_context_get_contexts_numpy_array():
     ]
 
     image_context = ImageContext(column_name="image_url", data_type=ModalityDataType.URL)
-    numpy_array = np.array(["https://example.com/image1.png", "https://example.com/image2.png"])
+    numpy_array = lazy.np.array(["https://example.com/image1.png", "https://example.com/image2.png"])
     assert image_context.get_contexts({"image_url": numpy_array}) == [
         {
             "type": "image_url",

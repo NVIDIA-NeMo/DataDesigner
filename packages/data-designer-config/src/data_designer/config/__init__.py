@@ -89,10 +89,10 @@ if TYPE_CHECKING:
         SeedConfig,
     )
     from data_designer.config.seed_source import (  # noqa: F401
-        DataFrameSeedSource,
         HuggingFaceSeedSource,
         LocalFileSeedSource,
     )
+    from data_designer.config.seed_source_dataframe import DataFrameSeedSource  # noqa: F401
     from data_designer.config.utils.code_lang import CodeLang  # noqa: F401
     from data_designer.config.utils.info import InfoType  # noqa: F401
     from data_designer.config.utils.trace_type import TraceType  # noqa: F401
@@ -196,7 +196,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "SamplingStrategy": (_MOD_SEED, "SamplingStrategy"),
     "SeedConfig": (_MOD_SEED, "SeedConfig"),
     # seed_source
-    "DataFrameSeedSource": (_MOD_SEED_SOURCE, "DataFrameSeedSource"),
+    "DataFrameSeedSource": (f"{_MOD_BASE}.seed_source_dataframe", "DataFrameSeedSource"),
     "HuggingFaceSeedSource": (_MOD_SEED_SOURCE, "HuggingFaceSeedSource"),
     "LocalFileSeedSource": (_MOD_SEED_SOURCE, "LocalFileSeedSource"),
     # utils
@@ -224,7 +224,10 @@ def __getattr__(name: str) -> object:
     if name in _LAZY_IMPORTS:
         module_path, attr_name = _LAZY_IMPORTS[name]
         module = importlib.import_module(module_path)
-        return getattr(module, attr_name)
+        attr = getattr(module, attr_name)
+        # Cache so subsequent accesses find a real attribute and skip __getattr__.
+        globals()[name] = attr
+        return attr
 
     raise AttributeError(f"module 'data_designer.config' has no attribute {name!r}")
 

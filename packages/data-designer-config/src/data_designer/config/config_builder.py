@@ -41,7 +41,7 @@ from data_designer.config.seed import (
     SamplingStrategy,
     SeedConfig,
 )
-from data_designer.config.seed_source import DataFrameSeedSource
+from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 from data_designer.config.seed_source_types import SeedSourceT
 from data_designer.config.utils.constants import DEFAULT_REPR_HTML_STYLE, REPR_HTML_TEMPLATE
 from data_designer.config.utils.info import ConfigBuilderInfo

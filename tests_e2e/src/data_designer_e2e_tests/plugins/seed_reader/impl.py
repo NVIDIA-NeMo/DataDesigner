@@ -5,8 +5,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.engine.resources.seed_reader import SeedReader
-from data_designer.lazy_heavy_imports import duckdb
 from data_designer_e2e_tests.plugins.seed_reader.config import DemoSeedSource
 
 if TYPE_CHECKING:
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 class DemoSeedReader(SeedReader[DemoSeedSource]):
     def create_duckdb_connection(self) -> duckdb.DuckDBPyConnection:
-        return duckdb.connect()
+        return lazy.duckdb.connect()
 
     def get_dataset_uri(self) -> str:
         return f"{self.source.directory}/{self.source.filename}"

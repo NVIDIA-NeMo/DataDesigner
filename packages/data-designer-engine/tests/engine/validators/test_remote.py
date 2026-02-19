@@ -9,12 +9,12 @@ from typing import TYPE_CHECKING
 import pytest
 from pytest_httpx import HTTPXMock
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.validator_params import RemoteValidatorParams
 from data_designer.engine.validators.remote import (
     RemoteEndpointClient,
     RemoteValidator,
 )
-from data_designer.lazy_heavy_imports import httpx
 
 if TYPE_CHECKING:
     import httpx
@@ -51,7 +51,7 @@ def test_remote_endpoint_client(httpx_mock: HTTPXMock):
         content = request.read().decode("utf-8")
         parsed_content = json.loads(content)
 
-        return httpx.Response(status_code=200, json={"sample_text": parsed_content["sample_content"]["text"]})
+        return lazy.httpx.Response(status_code=200, json={"sample_text": parsed_content["sample_content"]["text"]})
 
     httpx_mock.add_callback(custom_response_callback)
 
