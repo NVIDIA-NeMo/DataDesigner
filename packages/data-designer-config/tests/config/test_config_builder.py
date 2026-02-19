@@ -890,94 +890,96 @@ def test_cannot_write_config_with_dataframe_seed(stub_model_configs):
     assert "DataFrame seed dataset" in str(excinfo.value)
 
 
-class TestAddProcessorIdempotent:
-    """Tests that add_processor replaces existing processors with the same name."""
+def _add_sampler(builder, name):
+    builder.add_column(SamplerColumnConfig(name=name, sampler_type="uuid", params=UUIDSamplerParams()))
 
-    @staticmethod
-    def _add_sampler(builder, name):
-        builder.add_column(SamplerColumnConfig(name=name, sampler_type="uuid", params=UUIDSamplerParams()))
 
-    def test_add_processor_replaces_existing_by_name(self, stub_empty_builder):
-        self._add_sampler(stub_empty_builder, "col_a")
-        self._add_sampler(stub_empty_builder, "col_b")
+def test_add_processor_replaces_existing_by_name(stub_empty_builder):
+    _add_sampler(stub_empty_builder, "col_a")
+    _add_sampler(stub_empty_builder, "col_b")
 
-        stub_empty_builder.add_processor(
-            DropColumnsProcessorConfig(name="cleanup", column_names=["col_a"]),
-        )
-        assert stub_empty_builder.get_column_config("col_a").drop is True
+    stub_empty_builder.add_processor(
+        DropColumnsProcessorConfig(name="cleanup", column_names=["col_a"]),
+    )
+    assert stub_empty_builder.get_column_config("col_a").drop is True
 
-        stub_empty_builder.add_processor(
-            DropColumnsProcessorConfig(name="cleanup", column_names=["col_b"]),
-        )
-        configs = stub_empty_builder.get_processor_configs()
-        assert len(configs) == 1
-        assert configs[0].column_names == ["col_b"]
-        assert stub_empty_builder.get_column_config("col_a").drop is False
-        assert stub_empty_builder.get_column_config("col_b").drop is True
+    stub_empty_builder.add_processor(
+        DropColumnsProcessorConfig(name="cleanup", column_names=["col_b"]),
+    )
+    configs = stub_empty_builder.get_processor_configs()
+    assert len(configs) == 1
+    assert configs[0].column_names == ["col_b"]
+    assert stub_empty_builder.get_column_config("col_a").drop is False
+    assert stub_empty_builder.get_column_config("col_b").drop is True
 
-    def test_add_processor_different_names_appends(self, stub_empty_builder):
-        self._add_sampler(stub_empty_builder, "col_a")
-        stub_empty_builder.add_processor(
-            DropColumnsProcessorConfig(name="cleanup_1", column_names=["col_a"]),
-        )
-        stub_empty_builder.add_processor(
-            SchemaTransformProcessorConfig(name="transform_1", template={"x": "{{ col_a }}"}),
-        )
-        assert len(stub_empty_builder.get_processor_configs()) == 2
 
-    def test_add_processor_replaces_non_drop_processor(self, stub_empty_builder):
-        stub_empty_builder.add_processor(
-            SchemaTransformProcessorConfig(name="transform", template={"x": "old"}),
-        )
-        stub_empty_builder.add_processor(
-            SchemaTransformProcessorConfig(name="transform", template={"x": "new"}),
-        )
-        configs = stub_empty_builder.get_processor_configs()
-        assert len(configs) == 1
-        assert configs[0].template == {"x": "new"}
+def test_add_processor_different_names_appends(stub_empty_builder):
+    _add_sampler(stub_empty_builder, "col_a")
+    stub_empty_builder.add_processor(
+        DropColumnsProcessorConfig(name="cleanup_1", column_names=["col_a"]),
+    )
+    stub_empty_builder.add_processor(
+        SchemaTransformProcessorConfig(name="transform_1", template={"x": "{{ col_a }}"}),
+    )
+    assert len(stub_empty_builder.get_processor_configs()) == 2
 
-    def test_add_processor_glob_marks_matching_columns_as_drop(self, stub_empty_builder):
-        self._add_sampler(stub_empty_builder, "col_a")
-        self._add_sampler(stub_empty_builder, "col_b")
-        self._add_sampler(stub_empty_builder, "other")
 
-        stub_empty_builder.add_processor(
-            DropColumnsProcessorConfig(name="cleanup", column_names=["col_*"]),
-        )
-        assert stub_empty_builder.get_column_config("col_a").drop is True
-        assert stub_empty_builder.get_column_config("col_b").drop is True
-        assert stub_empty_builder.get_column_config("other").drop is False
+def test_add_processor_replaces_non_drop_processor(stub_empty_builder):
+    stub_empty_builder.add_processor(
+        SchemaTransformProcessorConfig(name="transform", template={"x": "old"}),
+    )
+    stub_empty_builder.add_processor(
+        SchemaTransformProcessorConfig(name="transform", template={"x": "new"}),
+    )
+    configs = stub_empty_builder.get_processor_configs()
+    assert len(configs) == 1
+    assert configs[0].template == {"x": "new"}
 
-    def test_add_processor_glob_revert_on_replace(self, stub_empty_builder):
-        self._add_sampler(stub_empty_builder, "col_a")
-        self._add_sampler(stub_empty_builder, "col_b")
 
-        stub_empty_builder.add_processor(
-            DropColumnsProcessorConfig(name="cleanup", column_names=["col_*"]),
-        )
-        assert stub_empty_builder.get_column_config("col_a").drop is True
+def test_add_processor_glob_marks_matching_columns_as_drop(stub_empty_builder):
+    _add_sampler(stub_empty_builder, "col_a")
+    _add_sampler(stub_empty_builder, "col_b")
+    _add_sampler(stub_empty_builder, "other")
 
-        stub_empty_builder.add_processor(
-            DropColumnsProcessorConfig(name="cleanup", column_names=["col_b"]),
-        )
-        assert stub_empty_builder.get_column_config("col_a").drop is False
-        assert stub_empty_builder.get_column_config("col_b").drop is True
+    stub_empty_builder.add_processor(
+        DropColumnsProcessorConfig(name="cleanup", column_names=["col_*"]),
+    )
+    assert stub_empty_builder.get_column_config("col_a").drop is True
+    assert stub_empty_builder.get_column_config("col_b").drop is True
+    assert stub_empty_builder.get_column_config("other").drop is False
 
-    def test_replace_preserves_drop_from_other_processor(self, stub_empty_builder):
-        self._add_sampler(stub_empty_builder, "col_a")
-        stub_empty_builder.add_processor(
-            DropColumnsProcessorConfig(name="drop1", column_names=["col_a"]),
-        )
-        stub_empty_builder.add_processor(
-            DropColumnsProcessorConfig(name="drop2", column_names=["col_a"]),
-        )
-        assert stub_empty_builder.get_column_config("col_a").drop is True
 
-        stub_empty_builder.add_processor(
-            DropColumnsProcessorConfig(name="drop1", column_names=[]),
-        )
-        assert stub_empty_builder.get_column_config("col_a").drop is True
-        assert len(stub_empty_builder.get_processor_configs()) == 2
+def test_add_processor_glob_revert_on_replace(stub_empty_builder):
+    _add_sampler(stub_empty_builder, "col_a")
+    _add_sampler(stub_empty_builder, "col_b")
+
+    stub_empty_builder.add_processor(
+        DropColumnsProcessorConfig(name="cleanup", column_names=["col_*"]),
+    )
+    assert stub_empty_builder.get_column_config("col_a").drop is True
+
+    stub_empty_builder.add_processor(
+        DropColumnsProcessorConfig(name="cleanup", column_names=["col_b"]),
+    )
+    assert stub_empty_builder.get_column_config("col_a").drop is False
+    assert stub_empty_builder.get_column_config("col_b").drop is True
+
+
+def test_replace_preserves_drop_from_other_processor(stub_empty_builder):
+    _add_sampler(stub_empty_builder, "col_a")
+    stub_empty_builder.add_processor(
+        DropColumnsProcessorConfig(name="drop1", column_names=["col_a"]),
+    )
+    stub_empty_builder.add_processor(
+        DropColumnsProcessorConfig(name="drop2", column_names=["col_a"]),
+    )
+    assert stub_empty_builder.get_column_config("col_a").drop is True
+
+    stub_empty_builder.add_processor(
+        DropColumnsProcessorConfig(name="drop1", column_names=[]),
+    )
+    assert stub_empty_builder.get_column_config("col_a").drop is True
+    assert len(stub_empty_builder.get_processor_configs()) == 2
 
 
 class TestToolConfigDuplicateValidation:

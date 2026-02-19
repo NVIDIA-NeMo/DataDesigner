@@ -23,20 +23,15 @@ class DropColumnsProcessor(Processor[DropColumnsProcessorConfig]):
 
     def _resolve_columns(self, available: pd.Index) -> list[str]:
         """Expand column_names entries (including glob patterns) against available columns."""
-        seen: set[str] = set()
-        resolved = []
+        resolved: dict[str, None] = {}
         for name in self.config.column_names:
             if "*" in name:
-                for col in available:
-                    if fnmatch(col, name) and col not in seen:
-                        seen.add(col)
-                        resolved.append(col)
-            elif name in available and name not in seen:
-                seen.add(name)
-                resolved.append(name)
-            elif name not in available:
+                resolved.update({col: None for col in available if fnmatch(col, name)})
+            elif name in available:
+                resolved[name] = None
+            else:
                 logger.warning(f"⚠️ Cannot drop column: `{name}` not found in the dataset.")
-        return resolved
+        return list(resolved)
 
     def process_after_batch(self, data: pd.DataFrame, *, current_batch_number: int | None) -> pd.DataFrame:
         logger.info(f"🙈 Dropping columns: {self.config.column_names}")

@@ -419,18 +419,13 @@ class DataDesignerConfigBuilder:
 
     def _resolve_drop_column_names(self, column_names: list[str]) -> list[str]:
         """Resolve column names, expanding glob patterns against known column configs."""
-        seen: set[str] = set()
-        resolved = []
+        resolved: dict[str, None] = {}
         for name in column_names:
             if "*" in name:
-                for match in fnmatch.filter(self._column_configs.keys(), name):
-                    if match not in seen:
-                        seen.add(match)
-                        resolved.append(match)
-            elif name in self._column_configs and name not in seen:
-                seen.add(name)
-                resolved.append(name)
-        return resolved
+                resolved.update(dict.fromkeys(fnmatch.filter(self._column_configs.keys(), name)))
+            elif name in self._column_configs:
+                resolved[name] = None
+        return list(resolved)
 
     def add_profiler(self, profiler_config: ColumnProfilerConfigT) -> Self:
         """Add a profiler to the current Data Designer configuration.
