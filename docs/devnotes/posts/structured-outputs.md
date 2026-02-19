@@ -4,11 +4,11 @@ authors:
   - dnathawani
 ---
 
-# **Structured Outputs for Nemotron: Teaching Models to Always Produce Valid JSON, YAML, and XML**
+# **Structured Outputs for Nemotron: Teaching Models to Produce Valid JSON, YAML, and XML**
 
-Using [NeMo Data Designer](https://github.com/NVIDIA-NeMo/DataDesigner) -- an orchestration framework for generating high-quality synthetic data at scale -- we generated a 9,949-sample structured output dataset that improved Nemotron Nano v3's JSONSchemaBench accuracy from 80.2% to 86.9% and StructEval-Text from 64.5% to 72.1%. 
+Using [NeMo Data Designer](https://github.com/NVIDIA-NeMo/DataDesigner), an orchestration framework for generating high-quality synthetic data at scale, we built an iterative pipeline that generates diverse, schema-constrained structured outputs across JSON, YAML, and XML. Through multiple rounds of prompt refinement, rejection sampling, and programmatic validation, we produced a 9,949-sample dataset of verified structured output training data.
 
-The dataset is publicly available: **[Download it on HuggingFace](https://huggingface.co/datasets/nvidia/Nemotron-RL-instruction_following-structured_outputs)** (CC BY 4.0). 
+The dataset is publicly available: **[Download it on HuggingFace](https://huggingface.co/datasets/nvidia/Nemotron-RL-instruction_following-structured_outputs)** (CC BY 4.0).
 
 This post walks through the full SDG pipeline: schema generation, multi-format rollouts, rejection sampling, and the caveats we discovered along the way.
 
@@ -16,17 +16,17 @@ This post walks through the full SDG pipeline: schema generation, multi-format r
 
 ## **Why This Matters: Reliably Building Agentic AI Applications**
 
-Every modern AI application that integrates LLMs into a software stack hits the same wall: the model needs to produce *structured* output -- JSON, YAML, XML -- that downstream code can parse and act on. Function calling, API responses, database inserts, configuration generation, form filling -- all require the model to follow a schema precisely.
+Every modern AI application that integrates LLMs into a software stack hits the same wall: the model needs to produce *structured* output (JSON, YAML, XML) that downstream code can parse and act on. Function calling, API responses, database inserts, configuration generation, and form filling all require the model to follow a schema precisely.
 
-The stakes are high. When an LLM serves as a backend for tool-calling agents, a single malformed JSON response doesn't just produce a bad answer -- it crashes the entire agentic pipeline. The function call fails, the agent can't recover, and the user sees an error. OpenAI, Anthropic, and Google have all invested heavily in structured output guarantees for exactly this reason.
+The stakes are high. When an LLM serves as a backend for tool-calling agents, a single malformed JSON response doesn't just produce a bad answer; it crashes the entire agentic pipeline. The function call fails, the agent can't recover, and the user sees an error. OpenAI, Anthropic, and Google have all invested heavily in structured output guarantees for exactly this reason.
 
-A 14.81% structured output error rate -- which is what we measured on our baseline SFT model -- means roughly 1 in 7 outputs is malformed. For an API serving thousands of requests, that's hundreds of failures per hour. Our goal was to bring this below 6% through targeted synthetic data.
+A 14.81% structured output error rate (what we measured on our baseline model) means roughly 1 in 7 outputs is malformed. For an API serving thousands of requests, that's hundreds of failures per hour. Our goal was to bring this below 6% through targeted synthetic data.
 
 ---
 
-## **The Benchmark Landscape**
+## **Impact on Model Performance**
 
-We evaluated across two public benchmarks:
+Training Nemotron Nano v3 with this data improved JSONSchemaBench accuracy from 80.2% to 86.9% and StructEval-Text from 64.5% to 72.1% (+7.6pp overall), confirming the data generalizes across formats. We evaluated across two public benchmarks:
 
 [**JSONSchemaBench**](https://github.com/guidance-ai/jsonschemabench) tests conformance to JSON schemas of varying complexity (nesting depth, field count):
 
@@ -134,7 +134,7 @@ The pipeline generates structured output training data through a multi-stage pro
 
 A simple "generate JSON from a prompt" approach won't cut it. This pipeline has several distinctive design choices:
 
-1. **Per-record schema generation.** Every training example gets a *unique* schema. The model doesn't memorize a handful of fixed structures -- it learns to follow arbitrary schemas.
+1. **Per-record schema generation.** Every training example gets a *unique* schema. The model doesn't memorize a handful of fixed structures; it learns to follow arbitrary schemas.
 
 2. **Multi-format support.** The same pipeline produces JSON, YAML, and XML training data by controlling the `output_format` sampler. Schemas are generated natively in the target format, then normalized to JSON Schema for validation.
 
@@ -179,7 +179,7 @@ The schema generation prompt instructs the model (Qwen3-235B-A22B) to produce a 
 
 ## **Step 2: Conversation and Document Generation**
 
-From each schema, we generate multi-turn Q&A pairs whose answers naturally contain the data that the schema describes. These conversation pairs are then transformed into a "document" -- either a paragraph or a bulleted list of facts, varying by detail level setting. This document provides the grounding context for the structured output generation.
+From each schema, we generate multi-turn Q&A pairs whose answers naturally contain the data that the schema describes. These conversation pairs are then transformed into a "document" (either a paragraph or a bulleted list of facts, varying by detail level setting). This document provides the grounding context for the structured output generation.
 
 ---
 
@@ -205,9 +205,9 @@ Each rollout gets a diagnostic: `valid`, `parse_error`, `schema_missing`, `schem
 
 ## **A Note on `LLMStructuredColumnConfig`**
 
-Data Designer provides `LLMStructuredColumnConfig` -- a column type that guarantees the LLM output conforms to a schema by using Pydantic models or JSON Schema as the `output_format`. This is ideal when every record shares the same structure (e.g., a `QAPair` or `ProductInfo` schema). The framework handles prompting, parsing, and retry logic automatically, ensuring zero schema drift.
+Data Designer provides `LLMStructuredColumnConfig`, a column type that guarantees the LLM output conforms to a schema by using Pydantic models or JSON Schema as the `output_format`. This is ideal when every record shares the same structure (e.g., a `QAPair` or `ProductInfo` schema). The framework handles prompting, parsing, and retry logic automatically, ensuring zero schema drift.
 
-In our pipeline, however, schemas are *dynamic* -- each record has a unique, per-record schema generated by the LLM. Since `LLMStructuredColumnConfig` requires a fixed `output_format` at config time, we use `LLMTextColumnConfig` for the generation step and validate conformance programmatically with `jsonschema.Draft202012Validator`. If your use case has a fixed output schema, `LLMStructuredColumnConfig` is the simpler and more reliable choice.
+In our pipeline, however, schemas are *dynamic*: each record has a unique, per-record schema generated by the LLM. Since `LLMStructuredColumnConfig` requires a fixed `output_format` at config time, we use `LLMTextColumnConfig` for the generation step and validate conformance programmatically with `jsonschema.Draft202012Validator`. If your use case has a fixed output schema, `LLMStructuredColumnConfig` is the simpler and more reliable choice.
 
 ---
 
@@ -237,31 +237,27 @@ The dataset is publicly available on HuggingFace:
 | License | CC BY 4.0 |
 
 Each record contains:
-- `responses_create_params` -- the full prompt (document + schema + instructions) and model response
-- `schema_str` -- the JSON Schema the output must conform to (118 chars to 8k chars)
-- `schema_type` -- format type (`json`)
-- `schema_fields_count` -- number of required top-level fields (varies from 5 to 12+)
+- `responses_create_params`: the full prompt (document + schema + instructions) and model response
+- `schema_str`: the JSON Schema the output must conform to (118 chars to 8k chars)
+- `schema_type`: format type (`json`)
+- `schema_fields_count`: number of required top-level fields (varies from 5 to 12+)
 
-The dataset is designed for use with [NeMo Gym](https://github.com/NVIDIA/NeMo-RL) for **Reinforcement Learning from Verifiable Reward (RLVR)**, where schema conformance provides a deterministic, programmatically verifiable reward signal -- no LLM judge needed.
-
-### Impact on Model Performance
-
-Training Nemotron Nano v3 with this data improved JSONSchemaBench from 80.2% to 86.9% and StructEval-Text from 64.5% to 72.1%. The StructEval-Text improvements (+7.6pp overall) confirm the data generalizes across formats.
+The dataset is designed for use with [NeMo Gym](https://github.com/NVIDIA/NeMo-RL) for **Reinforcement Learning from Verifiable Reward (RLVR)**, where schema conformance provides a deterministic, programmatically verifiable reward signal with no LLM judge needed.
 
 ---
 
 ## **Future Work**
 
-- **TOML, XML, and scaling to more formats.** TOML conformance lags significantly -- its nuances (inline tables, array of tables, datetime formats) are underrepresented in generator pretraining. XML parsing is fragile due to pre-root noise (comments, processing instructions, stray text). Markdown tables, Protocol Buffers, and SQL DDL are all structured formats that could benefit from this approach.
+- **TOML, XML, and scaling to more formats.** TOML conformance lags significantly; its nuances (inline tables, array of tables, datetime formats) are underrepresented in generator pretraining. XML parsing is fragile due to pre-root noise (comments, processing instructions, stray text). Markdown tables, Protocol Buffers, and SQL DDL are all structured formats that could benefit from this approach.
 - **Schema complexity has diminishing returns.** Depth targets of 6-8 push the generator model to its limits. Many "complex" schemas end up with artificial nesting. The sweet spot is 4-5 levels of meaningful nesting.
 
 ---
 
 ## **Key Takeaways**
 
-1. **Structured output is a learnable skill.** Targeted synthetic data dramatically improves schema conformance -- the baseline-to-trained gap proves this is not a fixed model capability.
+1. **Structured output is a learnable skill.** Targeted synthetic data dramatically improves schema conformance. The baseline-to-trained gap proves this is not a fixed model capability.
 2. **Per-record schemas are essential.** Models trained on fixed schemas generalize poorly. A unique schema per record was the single most impactful design choice.
-3. **Diversity at every level.** Diverse topics, diverse schemas (depth/width/rigidity), diverse formats, diverse prompts -- each dimension independently improves robustness.
+3. **Diversity at every level.** Diverse topics, diverse schemas (depth/width/rigidity), diverse formats, diverse prompts. Each dimension independently improves robustness.
 4. **Rejection sampling is cheap insurance.** 3x rollouts push per-record validity from ~80% to >95%. The marginal token cost is small compared to the quality gain.
 5. **Validation must be programmatic.** LLM judges assess *design quality* but cannot reliably detect *schema violations*. `jsonschema` + format parsers are non-negotiable.
 6. **The hardest formats need the most data.** TOML and XML lag behind JSON and YAML. The pipeline makes it easy to oversample hard formats.
@@ -271,8 +267,8 @@ Training Nemotron Nano v3 with this data improved JSONSchemaBench from 80.2% to 
 **Key Resources:**
 
 - **Dataset (download):** [nvidia/Nemotron-RL-instruction_following-structured_outputs](https://huggingface.co/datasets/nvidia/Nemotron-RL-instruction_following-structured_outputs) (CC BY 4.0)
-- **NeMo Data Designer:** [github.com/NVIDIA-NeMo/DataDesigner](https://github.com/NVIDIA-NeMo/DataDesigner) -- orchestration framework for generating high-quality synthetic data from scratch or from seed data
-- **NeMo Gym:** [github.com/NVIDIA/NeMo-RL](https://github.com/NVIDIA/NeMo-RL) -- RL environments for training LLMs with verifiable rewards
+- **NeMo Data Designer:** [github.com/NVIDIA-NeMo/DataDesigner](https://github.com/NVIDIA-NeMo/DataDesigner)
+- **NeMo Gym:** [github.com/NVIDIA/NeMo-RL](https://github.com/NVIDIA/NeMo-RL)
 - **Nemotron Nano v3 Technical Report:** [research.nvidia.com](https://research.nvidia.com/labs/nemotron/files/NVIDIA-Nemotron-3-Nano-Technical-Report.pdf) | [arxiv.org/abs/2512.20848](https://arxiv.org/abs/2512.20848)
 
 ---
