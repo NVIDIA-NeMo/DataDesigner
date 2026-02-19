@@ -48,10 +48,30 @@ export default function App() {
   const handleFinish = async () => {
     try {
       const result = await api.finish();
+      const sum = await api.getAnnotationsSummary();
+      setSummary(sum);
       setFinished(true);
-      setFinishMessage(
-        `Review saved to ${(result as any).file ?? "annotations file"}. Return to your coding agent to continue.`
-      );
+
+      const annotationsFile = (result as any).file ?? "annotations.json";
+      const parts: string[] = [];
+      if (sum.good > 0) parts.push(`${sum.good} good`);
+      if (sum.bad > 0) parts.push(`${sum.bad} bad`);
+      const counts = parts.length > 0 ? parts.join(", ") : "0 annotated";
+
+      const clipboardMsg =
+        `I finished my review. ${counts} out of ${sum.total} records. ` +
+        `Read \`${annotationsFile}\` for my detailed feedback.`;
+
+      try {
+        await navigator.clipboard.writeText(clipboardMsg);
+        setFinishMessage(
+          "Review saved! Message copied to clipboard — paste it in your coding agent to continue."
+        );
+      } catch {
+        setFinishMessage(
+          `Review saved to ${annotationsFile}. Tell your coding agent: "${clipboardMsg}"`
+        );
+      }
     } catch {
       // ignore
     }

@@ -75,20 +75,17 @@ if __name__ == "__main__":
     designer = DataDesigner()
     preview = designer.preview(config_builder=config_builder)
 
-    # Save for review UI
+    # Save and launch review UI (opens browser automatically)
     preview.dataset.to_parquet("preview.parquet")
     print(f"Saved {len(preview.dataset)} records to preview.parquet")
+
+    from data_designer.web.server import run_server
+    run_server(data_file="preview.parquet", open_browser=True)
 ```
 
-## Presenting Results to the User
+Run the script backgrounded: `uv run script.py &`
 
-After running the preview, launch the review UI:
-
-```bash
-uv run --with data-designer data-designer review preview.parquet --open &
-```
-
-Tell the user: "I've opened the review UI in your browser. Review the records and annotate any that need improvement. Come back here when you're done."
+The browser opens automatically with the review UI. Tell the user: "I've opened the review UI in your browser. Review the records and annotate any that need improvement. Come back here when you're done."
 
 ## Reading Feedback
 
