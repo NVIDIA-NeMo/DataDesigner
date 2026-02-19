@@ -98,6 +98,47 @@ download_app = typer.Typer(
     no_args_is_help=True,
 )
 
+# Create list command group
+list_app = typer.Typer(
+    name="list",
+    help="List available types, model aliases, and persona datasets.",
+    cls=create_lazy_typer_group(
+        {
+            "model-aliases": {
+                "module": f"{_CMD}.agent_helpers.list",
+                "attr": "model_aliases_command",
+                "help": "List configured model aliases and backing models",
+            },
+            "persona-datasets": {
+                "module": f"{_CMD}.agent_helpers.list",
+                "attr": "persona_datasets_command",
+                "help": "List Nemotron-Persona datasets and install status",
+            },
+            "columns": {
+                "module": f"{_CMD}.agent_helpers.list",
+                "attr": "column_types_command",
+                "help": "List column type names and config classes",
+            },
+            "samplers": {
+                "module": f"{_CMD}.agent_helpers.list",
+                "attr": "sampler_types_command",
+                "help": "List sampler type names and params classes",
+            },
+            "validators": {
+                "module": f"{_CMD}.agent_helpers.list",
+                "attr": "validator_types_command",
+                "help": "List validator type names and params classes",
+            },
+            "processors": {
+                "module": f"{_CMD}.agent_helpers.list",
+                "attr": "processor_types_command",
+                "help": "List processor type names and config classes",
+            },
+        }
+    ),
+    no_args_is_help=True,
+)
+
 # Create inspect command group
 inspect_app = typer.Typer(
     name="inspect",
@@ -145,6 +186,7 @@ app.add_typer(download_app, name="download", rich_help_panel="Setup Commands")
 
 # Add agent command groups
 title_agent_helpers = "Agent-Helper Commands"
+app.add_typer(list_app, name="list", rich_help_panel=title_agent_helpers)
 app.add_typer(inspect_app, name="inspect", rich_help_panel=title_agent_helpers)
 
 
