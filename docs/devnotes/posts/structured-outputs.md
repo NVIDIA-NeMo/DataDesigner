@@ -80,7 +80,7 @@ The pipeline generates structured output training data through a multi-stage pro
  │   ├─ fields: 3 / 4 / 5         ├─ turns: 2 / 3 / 4       ├─ type: imp/interr/decl   │
  │   ├─ complexity: simple/       ├─ tone                   ├─ tone: formal/neutral/…  │
  │   │   moderate/complex         └─ detail_level           ├─ mode: sys/user/both     │
- │   └─ depth: 2-3 / 4-5 / 6-8                             └─ placement: 6 orderings  │
+ │   └─ depth: 2-3 / 4-5 / 6-8                              └─ placement: 6 orderings  │
  └─────────────────────────────────────────┬───────────────────────────────────────────┘
                                            │
                                            ▼
@@ -109,8 +109,8 @@ The pipeline generates structured output training data through a multi-stage pro
  │                                                                                     │
  │   For each rollout:                                                                 │
  │     1. Parse check (json.loads / yaml.safe_load / xml.etree)                        │
- │     2. Schema conformance (jsonschema Draft202012Validator)                          │
- │     3. Diagnostic: valid / parse_error / schema_violation                            │
+ │     2. Schema conformance (jsonschema Draft202012Validator)                         │
+ │     3. Diagnostic: valid / parse_error / schema_violation                           │
  │                                                                                     │
  │   Pick best valid rollout ────► fallback: parse + length heuristic                  │
  └─────────────────────────────────────────┬───────────────────────────────────────────┘
@@ -120,7 +120,7 @@ The pipeline generates structured output training data through a multi-stage pro
  │                              OUTPUT: SFT / RLVR DATA                                │
  │                                                                                     │
  │   messages: [{system}, {user: prompt + schema + doc}, {assistant}]                  │
- │   9,949 samples  ·  JSON format  ·  CC BY 4.0                                      │
+ │   9,949 samples  ·  JSON format  ·  CC BY 4.0                                       │
  └─────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -257,6 +257,17 @@ The dataset is designed for use with [NeMo Gym](https://github.com/NVIDIA/NeMo-R
 6. **The hardest formats need the most data.** TOML and XML lag behind JSON and YAML. The pipeline makes it easy to oversample hard formats.
 
 ## **Try It Yourself**
+
+The demo below generates JSON structured outputs. To extend to YAML or XML, add an `output_format` sampler and reference it in your prompts:
+
+```python
+config.add_column(dd.SamplerColumnConfig(
+    name="output_format", sampler_type=dd.SamplerType.CATEGORY,
+    params=dd.CategorySamplerParams(values=["json", "yaml", "xml"]),
+))
+```
+
+Then update the structured output prompt to request `{{ output_format }}` and adjust your validation logic to parse each format accordingly (`json.loads`, `yaml.safe_load`, `xml.etree`).
 
 <details markdown>
 <summary><strong>Full source: <code>structured_outputs_demo.py</code></strong></summary>
