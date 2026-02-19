@@ -8,12 +8,23 @@ from __future__ import annotations
 import base64
 import io
 import re
+from enum import Enum
 from pathlib import Path
 
 import requests
 
 import data_designer.lazy_heavy_imports as lazy
-from data_designer.config.models import ImageFormat
+
+
+class ImageFormat(str, Enum):
+    """Supported image formats for image modality."""
+
+    PNG = "png"
+    JPG = "jpg"
+    JPEG = "jpeg"
+    GIF = "gif"
+    WEBP = "webp"
+
 
 # Magic bytes for image format detection
 IMAGE_FORMAT_MAGIC_BYTES = {

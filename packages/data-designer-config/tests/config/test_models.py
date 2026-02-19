@@ -1,9 +1,13 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import base64
 import json
+import struct
 import tempfile
+import zlib
 from collections import Counter
+from pathlib import Path
 
 import pytest
 import yaml
@@ -180,6 +184,81 @@ def test_image_context_get_contexts_empty_list():
 def test_image_context_validate_image_format():
     with pytest.raises(ValueError, match="image_format is required when data_type is base64"):
         ImageContext(column_name="image_base64", data_type=ModalityDataType.BASE64)
+
+
+def test_image_context_no_data_type_passes_validation() -> None:
+    """Test that ImageContext without data_type passes validation."""
+    context = ImageContext(column_name="image_col")
+    assert context.data_type is None
+    assert context.image_format is None
+
+
+def test_image_context_auto_detect_url() -> None:
+    """Test auto-detection with URL value (no data_type)."""
+    context = ImageContext(column_name="image_col")
+    result = context.get_contexts({"image_col": "https://example.com/image.png"})
+    assert result == [{"type": "image_url", "image_url": "https://example.com/image.png"}]
+
+
+def _make_minimal_png() -> str:
+    """Build a minimal valid 1x1 white PNG and return it as a base64 string."""
+    signature = b"\x89PNG\r\n\x1a\n"
+    ihdr_data = struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
+    ihdr_crc = zlib.crc32(b"IHDR" + ihdr_data) & 0xFFFFFFFF
+    ihdr = struct.pack(">I", 13) + b"IHDR" + ihdr_data + struct.pack(">I", ihdr_crc)
+    raw_data = zlib.compress(b"\x00\xff\xff\xff")
+    idat_crc = zlib.crc32(b"IDAT" + raw_data) & 0xFFFFFFFF
+    idat = struct.pack(">I", len(raw_data)) + b"IDAT" + raw_data + struct.pack(">I", idat_crc)
+    iend_crc = zlib.crc32(b"IEND") & 0xFFFFFFFF
+    iend = struct.pack(">I", 0) + b"IEND" + struct.pack(">I", iend_crc)
+    return base64.b64encode(signature + ihdr + idat + iend).decode()
+
+
+def test_image_context_auto_detect_base64() -> None:
+    """Test auto-detection with base64 value (no data_type) — auto-detects PNG format from bytes."""
+    png_base64 = _make_minimal_png()
+    context = ImageContext(column_name="image_col")
+    result = context.get_contexts({"image_col": png_base64})
+    assert len(result) == 1
+    assert result[0]["type"] == "image_url"
+    assert result[0]["image_url"]["format"] == "png"
+    assert f"base64,{png_base64}" in result[0]["image_url"]["url"]
+
+
+def test_image_context_auto_detect_file_path_resolved(tmp_path: Path) -> None:
+    """Test auto-detection with file path that exists under base_path — loaded as base64."""
+    images_dir = tmp_path / "images" / "col"
+    images_dir.mkdir(parents=True)
+    image_file = images_dir / "test.png"
+    png_bytes = b"\x89PNG\r\n\x1a\n" + b"\x00" * 50
+    image_file.write_bytes(png_bytes)
+
+    context = ImageContext(column_name="image_col")
+    result = context.get_contexts(
+        {"image_col": "images/col/test.png"},
+        base_path=str(tmp_path),
+    )
+    assert len(result) == 1
+    assert result[0]["type"] == "image_url"
+    expected_base64 = base64.b64encode(png_bytes).decode()
+    assert f"base64,{expected_base64}" in result[0]["image_url"]["url"]
+
+
+def test_image_context_auto_detect_file_path_not_resolved_without_base_path() -> None:
+    """Test auto-detection with file path when no base_path — falls through to base64 decode error."""
+    context = ImageContext(column_name="image_col")
+    with pytest.raises(ValueError, match="Invalid base64 data"):
+        context.get_contexts({"image_col": "images/col/test.png"})
+
+
+def test_image_context_auto_detect_file_path_not_exists(tmp_path: Path) -> None:
+    """Test auto-detection with non-existent file path — falls through to base64 decode error."""
+    context = ImageContext(column_name="image_col")
+    with pytest.raises(ValueError, match="Invalid base64 data"):
+        context.get_contexts(
+            {"image_col": "images/col/nonexistent.png"},
+            base_path=str(tmp_path),
+        )
 
 
 def test_inference_parameters_default_construction():
