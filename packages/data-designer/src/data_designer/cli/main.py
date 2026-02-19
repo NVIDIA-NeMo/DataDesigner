@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import typer
 
-from data_designer.cli.commands.agent_helpers import inspect as inspect_cmd
 from data_designer.cli.lazy_group import create_lazy_typer_group
 
 _CMD = "data_designer.cli.commands"
@@ -99,13 +98,54 @@ download_app = typer.Typer(
     no_args_is_help=True,
 )
 
+# Create inspect command group
+inspect_app = typer.Typer(
+    name="inspect",
+    help="Inspect detailed schemas for configuration objects and the Python API.",
+    cls=create_lazy_typer_group(
+        {
+            "column": {
+                "module": f"{_CMD}.agent_helpers.inspect",
+                "attr": "columns_command",
+                "help": "Show schema for a column config type",
+            },
+            "sampler": {
+                "module": f"{_CMD}.agent_helpers.inspect",
+                "attr": "samplers_command",
+                "help": "Show schema for a sampler params type",
+            },
+            "validator": {
+                "module": f"{_CMD}.agent_helpers.inspect",
+                "attr": "validators_command",
+                "help": "Show schema for a validator params type",
+            },
+            "processor": {
+                "module": f"{_CMD}.agent_helpers.inspect",
+                "attr": "processors_command",
+                "help": "Show schema for a processor config type",
+            },
+            "sampler-constraints": {
+                "module": f"{_CMD}.agent_helpers.inspect",
+                "attr": "constraints_command",
+                "help": "Show constraint schemas for sampler columns",
+            },
+            "config-builder": {
+                "module": f"{_CMD}.agent_helpers.inspect",
+                "attr": "config_builder_command",
+                "help": "Show DataDesignerConfigBuilder method signatures and docstrings",
+            },
+        }
+    ),
+    no_args_is_help=True,
+)
+
 # Add setup command groups
 app.add_typer(config_app, name="config", rich_help_panel="Setup Commands")
 app.add_typer(download_app, name="download", rich_help_panel="Setup Commands")
 
 # Add agent command groups
 title_agent_helpers = "Agent-Helper Commands"
-app.add_typer(inspect_cmd.inspect_app, name="inspect", rich_help_panel=title_agent_helpers)
+app.add_typer(inspect_app, name="inspect", rich_help_panel=title_agent_helpers)
 
 
 def main() -> None:
