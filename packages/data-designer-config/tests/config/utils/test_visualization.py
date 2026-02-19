@@ -242,6 +242,30 @@ def test_convert_to_row_element_renders_scalar_types() -> None:
         table.add_row(result)
 
 
+def test_convert_to_row_element_renders_non_scalar_types() -> None:
+    """Test that dicts, lists, tuples, sets, None, and JSON strings are renderable."""
+    from rich.pretty import Pretty
+    from rich.table import Table
+
+    test_cases: list[tuple[object, type]] = [
+        ({"key": "value"}, Pretty),
+        ([1, 2, 3], Pretty),
+        ((1, 2), Pretty),
+        ({1, 2}, Pretty),
+        (None, str),
+        ("plain string", str),
+        ('{"a": 1}', Pretty),  # valid JSON string -> Pretty
+    ]
+
+    for value, expected_type in test_cases:
+        result = convert_to_row_element(value)
+        assert isinstance(result, (str, Pretty)), f"Expected str or Pretty, got {type(result)} for input {value!r}"
+
+        table = Table()
+        table.add_column("Value")
+        table.add_row(result)
+
+
 def test_mixin_out_of_bounds_raises_display_error(
     validation_output: dict, config_builder_with_validation: DataDesignerConfigBuilder
 ) -> None:
