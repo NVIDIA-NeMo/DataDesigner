@@ -6,6 +6,7 @@ from __future__ import annotations
 import html
 import json
 from pathlib import Path
+from typing import Literal
 
 PAGER_FILENAME = "sample_records_browser.html"
 
@@ -15,6 +16,7 @@ def create_sample_records_pager(
     num_records: int,
     *,
     num_columns: int | None = None,
+    theme: Literal["dark", "light"] = "dark",
 ) -> None:
     """Generate sample_records_browser.html in the given directory.
 
@@ -25,6 +27,7 @@ def create_sample_records_pager(
         sample_records_dir: Directory containing record_0.html, record_1.html, etc.
         num_records: Number of record files (0-based indices through num_records - 1).
         num_columns: Number of columns in the dataset (displayed in the subtitle).
+        theme: Color theme for the pager shell (dark or light).
     """
     if num_records <= 0:
         return
@@ -33,7 +36,7 @@ def create_sample_records_pager(
     results_dir_name = html.escape(sample_records_dir.parent.name)
     title = f"Sample Records Browser - {results_dir_name}"
 
-    pager_html = _build_pager_html(title=title, records=records, num_columns=num_columns)
+    pager_html = _build_pager_html(title=title, records=records, num_columns=num_columns, theme=theme)
     out_path = sample_records_dir / PAGER_FILENAME
     out_path.write_text(pager_html, encoding="utf-8")
 
@@ -43,6 +46,7 @@ def _build_pager_html(
     title: str,
     records: list[str],
     num_columns: int | None = None,
+    theme: Literal["dark", "light"] = "dark",
 ) -> str:
     records_json = json.dumps(records)
 
@@ -50,6 +54,8 @@ def _build_pager_html(
     if num_columns is not None:
         subtitle_parts.append(f"Number of Columns: {num_columns}")
     subtitle = html.escape(", ".join(subtitle_parts))
+
+    css_vars = _LIGHT_CSS_VARS if theme == "light" else _DARK_CSS_VARS
 
     return f"""<!doctype html>
 <html>
@@ -59,21 +65,7 @@ def _build_pager_html(
 <title>{title}</title>
 <style>
 :root {{
-  color-scheme: dark;
-  --panel: rgba(8, 20, 46, 0.88);
-  --border: rgba(108, 160, 255, 0.32);
-  --text: #e5efff;
-  --muted: #97add2;
-  --shadow: 0 16px 44px rgba(0, 6, 22, 0.58);
-  --body-bg:
-    radial-gradient(1100px 520px at 15% -20%, rgba(31,77,163,0.45) 0%, transparent 62%),
-    radial-gradient(850px 460px at 95% -15%, rgba(38,73,170,0.42) 0%, transparent 60%),
-    linear-gradient(180deg, #000612 0%, #03112a 45%, #010817 100%);
-  --topbar-bg: linear-gradient(135deg, rgba(10,26,62,0.92) 0%, rgba(7,18,42,0.95) 100%);
-  --btn-bg: linear-gradient(180deg, rgba(17,48,104,0.85) 0%, rgba(10,28,64,0.92) 100%);
-  --btn-hover-border: rgba(124, 184, 255, 0.65);
-  --btn-hover-glow: 0 0 0 3px rgba(59, 169, 255, 0.15);
-  --frame-bg: rgba(2, 10, 26, 0.85);
+{css_vars}
 }}
 * {{
   box-sizing: border-box;
@@ -155,10 +147,6 @@ button:hover:not(:disabled) {{
   border-color: var(--btn-hover-border);
   box-shadow: var(--btn-hover-glow);
 }}
-button:disabled {{
-  opacity: 0.45;
-  cursor: not-allowed;
-}}
 #frame-wrap {{
   flex: 1;
   min-height: 0;
@@ -215,23 +203,17 @@ iframe {{
     function show() {{
       frame.src = records[index];
       jump.value = String(index);
-      prev.disabled = index === 0;
-      next.disabled = index === records.length - 1;
       counter.textContent = `${{index + 1}} of ${{records.length}}`;
     }}
 
     prev.addEventListener("click", () => {{
-      if (index > 0) {{
-        index -= 1;
-        show();
-      }}
+      index = (index - 1 + records.length) % records.length;
+      show();
     }});
 
     next.addEventListener("click", () => {{
-      if (index < records.length - 1) {{
-        index += 1;
-        show();
-      }}
+      index = (index + 1) % records.length;
+      show();
     }});
 
     jump.addEventListener("change", (event) => {{
@@ -240,11 +222,11 @@ iframe {{
     }});
 
     document.addEventListener("keydown", (event) => {{
-      if (event.key === "ArrowLeft" && index > 0) {{
-        index -= 1;
+      if (event.key === "ArrowLeft") {{
+        index = (index - 1 + records.length) % records.length;
         show();
-      }} else if (event.key === "ArrowRight" && index < records.length - 1) {{
-        index += 1;
+      }} else if (event.key === "ArrowRight") {{
+        index = (index + 1) % records.length;
         show();
       }}
     }});
@@ -254,6 +236,38 @@ iframe {{
 </body>
 </html>
 """
+
+
+_DARK_CSS_VARS = """\
+  color-scheme: dark;
+  --panel: rgba(8, 20, 46, 0.88);
+  --border: rgba(108, 160, 255, 0.32);
+  --text: #e5efff;
+  --muted: #97add2;
+  --shadow: 0 16px 44px rgba(0, 6, 22, 0.58);
+  --body-bg:
+    radial-gradient(1100px 520px at 15% -20%, rgba(31,77,163,0.45) 0%, transparent 62%),
+    radial-gradient(850px 460px at 95% -15%, rgba(38,73,170,0.42) 0%, transparent 60%),
+    linear-gradient(180deg, #000612 0%, #03112a 45%, #010817 100%);
+  --topbar-bg: linear-gradient(135deg, rgba(10,26,62,0.92) 0%, rgba(7,18,42,0.95) 100%);
+  --btn-bg: linear-gradient(180deg, rgba(17,48,104,0.85) 0%, rgba(10,28,64,0.92) 100%);
+  --btn-hover-border: rgba(124, 184, 255, 0.65);
+  --btn-hover-glow: 0 0 0 3px rgba(59, 169, 255, 0.15);
+  --frame-bg: rgba(2, 10, 26, 0.85);"""
+
+_LIGHT_CSS_VARS = """\
+  color-scheme: light;
+  --panel: rgba(255, 255, 255, 0.92);
+  --border: rgba(0, 0, 0, 0.12);
+  --text: #1a1a2e;
+  --muted: #5a6078;
+  --shadow: 0 16px 44px rgba(0, 0, 0, 0.08);
+  --body-bg: linear-gradient(180deg, #f0f2f8 0%, #e8eaf0 45%, #f5f6fa 100%);
+  --topbar-bg: linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(248,249,252,0.98) 100%);
+  --btn-bg: linear-gradient(180deg, rgba(255,255,255,0.9) 0%, rgba(240,242,248,0.95) 100%);
+  --btn-hover-border: rgba(59, 130, 246, 0.6);
+  --btn-hover-glow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+  --frame-bg: rgba(255, 255, 255, 0.95);"""
 
 
 _GITHUB_ICON_SVG = (

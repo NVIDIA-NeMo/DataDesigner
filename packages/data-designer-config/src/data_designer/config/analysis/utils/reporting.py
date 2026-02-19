@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import io
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -144,19 +145,20 @@ def generate_analysis_report(
 
     render_list.append(Rule(style=RULE_STYLE))
 
-    console = Console(record=save_path is not None)
-    console.print(Group(*render_list), markup=False)
-
     if save_path is not None:
+        recording_console = Console(record=True, file=io.StringIO())
+        recording_console.print(Group(*render_list), markup=False)
         save_path = str(save_path)
         if save_path.endswith(".html"):
-            console.save_html(save_path)
+            recording_console.save_html(save_path)
         elif save_path.endswith(".svg"):
-            console.save_svg(save_path, title="")
+            recording_console.save_svg(save_path, title="")
         else:
             raise AnalysisReportError(
                 f"🛑 The extension of the save path must be either .html or .svg. You provided {save_path}."
             )
+    else:
+        Console().print(Group(*render_list), markup=False)
 
 
 def create_judge_score_summary_table(

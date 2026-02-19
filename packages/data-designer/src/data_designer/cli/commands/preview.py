@@ -27,12 +27,12 @@ def preview_command(
     non_interactive: bool = typer.Option(
         False,
         "--non-interactive",
-        help="Display all records at once instead of browsing interactively.",
+        help="Display all records at once instead of browsing interactively. Ignored when --save-results is used.",
     ),
     save_results: bool = typer.Option(
         False,
         "--save-results",
-        help="Save preview results (dataset, report, and sample records) to the artifact path.",
+        help="Save results to disk without displaying sample records in the terminal.",
     ),
     artifact_path: str | None = typer.Option(
         None,
@@ -44,49 +44,16 @@ def preview_command(
         "dark",
         "--theme",
         click_type=click.Choice(["dark", "light"], case_sensitive=False),
-        help="Color theme for saved HTML files (dark or light). Only applies when --save-results is used.",
+        help="Color theme for HTML output (dark or light). Only applies when --save-results is used.",
     ),
     display_width: int = typer.Option(
         DEFAULT_DISPLAY_WIDTH,
         "--display-width",
-        help="Width of the rendered record output in characters.",
+        help="Maximum width of the rendered record output in characters.",
         min=40,
     ),
 ) -> None:
-    """Generate a preview dataset for fast iteration on your configuration.
-
-    Preview results are displayed in the terminal. Use this to quickly validate
-    your configuration before running a full dataset creation.
-
-    By default, records are displayed one at a time in interactive mode. Use
-    --non-interactive to display all records at once (also used automatically
-    when output is piped).
-
-    Examples:
-        # Preview from a YAML config
-        data-designer preview my_config.yaml
-
-        # Preview from a Python module
-        data-designer preview my_config.py
-
-        # Preview with custom number of records
-        data-designer preview my_config.yaml --num-records 5
-
-        # Preview from a remote config URL
-        data-designer preview https://example.com/my_config.yaml
-
-        # Display all records without interactive browsing
-        data-designer preview my_config.yaml --non-interactive
-
-        # Save preview results to disk
-        data-designer preview my_config.yaml --save-results
-
-        # Save results to a custom path
-        data-designer preview my_config.yaml --save-results --artifact-path ./output
-
-        # Save results with light theme
-        data-designer preview my_config.yaml --save-results --theme light
-    """
+    """Generate a preview dataset for fast iteration on your configuration."""
     controller = GenerationController()
     controller.run_preview(
         config_source=config_source,

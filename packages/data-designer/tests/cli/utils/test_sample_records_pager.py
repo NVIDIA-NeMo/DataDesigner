@@ -86,3 +86,20 @@ def test_create_sample_records_pager_has_record_counter(tmp_path: Path) -> None:
     content = (tmp_path / PAGER_FILENAME).read_text()
     assert 'id="counter"' in content
     assert "counter.textContent" in content
+
+
+def test_create_sample_records_pager_dark_theme(tmp_path: Path) -> None:
+    """Test that the default dark theme uses dark color-scheme."""
+    create_sample_records_pager(sample_records_dir=tmp_path, num_records=1)
+
+    content = (tmp_path / PAGER_FILENAME).read_text()
+    assert "color-scheme: dark" in content
+
+
+def test_create_sample_records_pager_light_theme(tmp_path: Path) -> None:
+    """Test that the light theme uses light color-scheme."""
+    create_sample_records_pager(sample_records_dir=tmp_path, num_records=1, theme="light")
+
+    content = (tmp_path / PAGER_FILENAME).read_text()
+    assert "color-scheme: light" in content
+    assert "color-scheme: dark" not in content
