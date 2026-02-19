@@ -262,6 +262,167 @@ The dataset is designed for use with [NeMo Gym](https://github.com/NVIDIA/NeMo-R
 5. **Validation must be programmatic.** LLM judges assess *design quality* but cannot reliably detect *schema violations*. `jsonschema` + format parsers are non-negotiable.
 6. **The hardest formats need the most data.** TOML and XML lag behind JSON and YAML. The pipeline makes it easy to oversample hard formats.
 
+## **Try It Yourself**
+
+<details markdown>
+<summary><strong>Full source: <code>structured_outputs_demo.py</code></strong></summary>
+
+```python
+"""Structured Outputs Demo
+
+Generate schema-conforming JSON with per-record schemas, conversations,
+LLM judge evaluation, and programmatic validation.
+
+    pip install data-designer pandas jsonschema
+    python structured_outputs_demo.py
+"""
+
+import json
+
+import pandas as pd
+
+import data_designer.config as dd
+from data_designer.config.seed import SamplingStrategy
+from data_designer.interface import DataDesigner
+
+MODEL_ALIAS = "nvidia-text"
+
+# Seed data: 20 topic pairs across 5 categories
+topics = {
+    "Leisure Activities": ["Planning a weekend activity", "Discussing a recent movie",
+                           "Talking about hobbies", "Recommending a video game"],
+    "Daily Life": ["Making dinner plans", "Weather conversation",
+                   "Morning routines", "Managing schedules"],
+    "Education": ["Choosing a college major", "Study techniques",
+                  "Learning a new language", "Online courses"],
+    "Technology": ["Smartphone features", "Home automation",
+                   "Cloud computing basics", "AI assistants"],
+    "Health": ["Workout routines", "Healthy eating",
+               "Sleep habits", "Stress management"],
+}
+rows = [{"topic_category": cat, "topic_subtopic": sub}
+        for cat, subs in topics.items() for sub in subs]
+seed_df = pd.DataFrame(rows)
+
+# Build the pipeline (uses default NVIDIA provider via NVIDIA_API_KEY)
+data_designer = DataDesigner()
+config = dd.DataDesignerConfigBuilder()
+
+config.with_seed_dataset(
+    dd.DataFrameSeedSource(df=seed_df),
+    sampling_strategy=SamplingStrategy.SHUFFLE,
+)
+
+# Diversity samplers
+config.add_column(dd.SamplerColumnConfig(
+    name="schema_rigidity", sampler_type=dd.SamplerType.CATEGORY,
+    params=dd.CategorySamplerParams(values=["strict", "moderate"]),
+))
+config.add_column(dd.SamplerColumnConfig(
+    name="schema_fields_count", sampler_type=dd.SamplerType.CATEGORY,
+    params=dd.CategorySamplerParams(values=["3", "4", "5"]),
+))
+config.add_column(dd.SamplerColumnConfig(
+    name="num_turns", sampler_type=dd.SamplerType.CATEGORY,
+    params=dd.CategorySamplerParams(values=["2", "3", "4"]),
+))
+
+# LLM columns: schema -> conversation -> structured JSON
+config.add_column(dd.LLMTextColumnConfig(
+    name="json_schema", model_alias=MODEL_ALIAS,
+    prompt=(
+        'Design a JSON Schema for a response object named "scene_response".\n'
+        "Controls:\n"
+        "- Rigidity: {{ schema_rigidity }}\n"
+        "- Number of top-level properties: {{ schema_fields_count }}\n"
+        "- Topic Category: {{ topic_category }}\n"
+        "- Topic Subtopic: {{ topic_subtopic }}\n\n"
+        "Requirements:\n"
+        '1. Include a "name" field set to "scene_response"\n'
+        '2. Include a "schema" field containing a valid JSON Schema (draft 2020-12)\n'
+        '3. Set "strict": true\n'
+        "4. Use {{ schema_fields_count }} top-level properties\n"
+        "5. Include at least one boolean and one enum property\n"
+        '6. Set "additionalProperties": false\n\n'
+        "Return ONLY the JSON object, no markdown fences."
+    ),
+))
+
+config.add_column(dd.LLMTextColumnConfig(
+    name="conversation", model_alias=MODEL_ALIAS,
+    prompt=(
+        "Create a {{ num_turns }}-turn Q&A conversation about a scene "
+        "related to {{ topic_category }} / {{ topic_subtopic }}.\n"
+        "The conversation should naturally lead to information that fits this JSON schema:\n"
+        "{{ json_schema }}\n\n"
+        "Format each turn as:\nQ: [question]\nA: [answer]"
+    ),
+))
+
+config.add_column(dd.LLMTextColumnConfig(
+    name="structured_json", model_alias=MODEL_ALIAS,
+    prompt=(
+        "Based on the following conversation and JSON schema, generate a JSON object "
+        "that strictly conforms to the schema.\n\n"
+        "Conversation:\n{{ conversation }}\n\n"
+        "JSON Schema:\n{{ json_schema }}\n\n"
+        "Return ONLY the valid JSON object, no explanation."
+    ),
+))
+
+# LLM judges: schema quality (0-3) + JSON validity (binary)
+config.add_column(dd.LLMJudgeColumnConfig(
+    name="quality_score", model_alias=MODEL_ALIAS,
+    prompt=(
+        "Evaluate the quality of this JSON schema for the topic.\n\n"
+        "Schema:\n{{ json_schema }}\n\n"
+        "Topic: {{ topic_category }} / {{ topic_subtopic }}"
+    ),
+    scores=[dd.Score(
+        name="schema_quality",
+        description="Overall quality of the JSON schema design",
+        options={3: "Excellent", 2: "Good", 1: "Fair", 0: "Poor"},
+    )],
+))
+
+config.add_column(dd.LLMJudgeColumnConfig(
+    name="json_validity_llm", model_alias=MODEL_ALIAS,
+    prompt=(
+        "Does the structured JSON conform to the schema?\n\n"
+        "JSON Schema:\n{{ json_schema }}\n\n"
+        "Structured JSON:\n{{ structured_json }}"
+    ),
+    scores=[dd.Score(
+        name="json_validity",
+        description="Does the structured JSON conform to the schema?",
+        options={1: "Valid", 0: "Invalid"},
+    )],
+))
+
+# Generate and display
+preview = data_designer.preview(config, num_records=10)
+preview.display_sample_record()
+
+# Programmatic validation
+import jsonschema
+
+df = preview.dataset if hasattr(preview, "dataset") else preview
+valid = 0
+for _, row in df.iterrows():
+    try:
+        schema_obj = json.loads(row["json_schema"]) if isinstance(row["json_schema"], str) else row["json_schema"]
+        json_obj = json.loads(row["structured_json"]) if isinstance(row["structured_json"], str) else row["structured_json"]
+        if "schema" in schema_obj:
+            jsonschema.Draft202012Validator(schema_obj["schema"]).validate(json_obj)
+        valid += 1
+    except Exception as e:
+        print(f"  Record failed: {e}")
+
+print(f"\nValidation: {valid}/{len(df)} records pass ({valid/len(df)*100:.0f}%)")
+```
+
+</details>
+
 ---
 
 **Key Resources:**
