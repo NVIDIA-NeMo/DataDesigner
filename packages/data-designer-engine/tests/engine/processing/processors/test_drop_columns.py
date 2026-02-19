@@ -75,6 +75,24 @@ def stub_empty_dataframe():
             },
             None,
         ),
+        (
+            "drop_glob_pattern",
+            ["col*"],
+            {"category": ["A", "B", "A", "B"], "other_col": [1, 2, 3, 4]},
+            None,
+        ),
+        (
+            "drop_glob_no_match",
+            ["zzz*"],
+            {
+                "col1": [1, 2, 3, 4],
+                "col2": ["a", "b", "c", "d"],
+                "col3": [True, False, True, False],
+                "category": ["A", "B", "A", "B"],
+                "other_col": [1, 2, 3, 4],
+            },
+            None,
+        ),
     ],
 )
 def test_process_after_batch_scenarios(

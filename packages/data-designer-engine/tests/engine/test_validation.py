@@ -3,6 +3,8 @@
 
 from unittest.mock import Mock, patch
 
+import pytest
+
 from data_designer.config.column_configs import (
     ExpressionColumnConfig,
     LLMCodeColumnConfig,
@@ -27,6 +29,7 @@ from data_designer.engine.validation import (
     validate_code_validation,
     validate_columns_not_all_dropped,
     validate_data_designer_config,
+    validate_drop_columns_processor,
     validate_expression_references,
     validate_prompt_templates,
     validate_schema_transform_processor,
@@ -277,6 +280,57 @@ def test_validate_schema_transform_processor():
         == "Ancillary dataset processor attempts to reference columns 'invalid_reference' in the template for 'text', but the columns are not defined in the dataset."
     )
     assert violations[0].level == ViolationLevel.ERROR
+
+
+@pytest.mark.parametrize(
+    "extract_reasoning, expected_violations",
+    [
+        (True, 0),
+        (False, 1),
+    ],
+)
+def test_validate_drop_columns_processor_reasoning_column(extract_reasoning, expected_violations):
+    columns = [
+        LLMTextColumnConfig(
+            name="answer",
+            prompt="Answer the question.",
+            model_alias=STUB_MODEL_ALIAS,
+            extract_reasoning_content=extract_reasoning,
+        ),
+    ]
+    processor_configs = [
+        DropColumnsProcessorConfig(
+            name="drop_reasoning",
+            column_names=["answer__reasoning_content"],
+        ),
+    ]
+    violations = validate_drop_columns_processor(columns, processor_configs)
+    assert len(violations) == expected_violations
+
+
+@pytest.mark.parametrize(
+    "pattern, expected_violations, expected_level",
+    [
+        ("*__reasoning_content", 0, None),
+        ("zzz_*", 1, ViolationLevel.WARNING),
+    ],
+)
+def test_validate_drop_columns_processor_glob(pattern, expected_violations, expected_level):
+    columns = [
+        LLMTextColumnConfig(
+            name="answer",
+            prompt="Answer the question.",
+            model_alias=STUB_MODEL_ALIAS,
+            extract_reasoning_content=True,
+        ),
+    ]
+    processor_configs = [
+        DropColumnsProcessorConfig(name="drop_glob", column_names=[pattern]),
+    ]
+    violations = validate_drop_columns_processor(columns, processor_configs)
+    assert len(violations) == expected_violations
+    if expected_level:
+        assert violations[0].level == expected_level
 
 
 @patch("data_designer.engine.validation.Console.print")
