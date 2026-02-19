@@ -563,17 +563,15 @@ def mask_api_key(api_key: str | None) -> str:
     return "***" + api_key[-4:] if len(api_key) > 4 else "***"
 
 
-def convert_to_row_element(elem: Any) -> Any:
+def convert_to_row_element(elem: Any) -> str | Pretty:
     try:
-        elem = Pretty(json.loads(elem))
+        return Pretty(json.loads(elem))
     except (TypeError, json.JSONDecodeError):
         pass
-    if isinstance(elem, (bool, int, float)):
-        elem = str(elem)
-    elif isinstance(elem, (lazy.np.integer, lazy.np.floating, lazy.np.ndarray)):
-        elem = str(elem)
-    elif isinstance(elem, (list, dict)):
-        elem = Pretty(elem)
+    if isinstance(elem, (list, dict, tuple, set)):
+        return Pretty(elem)
+    if not isinstance(elem, str):
+        return str(elem)
     return elem
 
 
