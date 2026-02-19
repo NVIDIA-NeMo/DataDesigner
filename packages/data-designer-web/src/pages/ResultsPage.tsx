@@ -12,6 +12,7 @@ import { api } from "../hooks/useApi";
 import { COLUMN_TYPE_META, ColumnType } from "../types/config";
 import TraceViewer from "../components/TraceViewer";
 import StatsPanel from "../components/StatsPanel";
+import FormattedContent from "../components/FormattedContent";
 
 type Tab = "data" | "stats" | "annotations";
 
@@ -287,15 +288,10 @@ export default function ResultsPage() {
                     <div className="grid grid-cols-1 gap-3">
                       {columns.map((col) => {
                         const val = formatCellValue(row[col]);
-                        const isLong = val.length > 100;
                         return (
                           <div key={col}>
-                            <span className="text-xs font-medium text-gray-400">{col}</span>
-                            {isLong ? (
-                              <pre className="text-xs text-gray-200 bg-surface-1 rounded p-2.5 whitespace-pre-wrap leading-relaxed max-h-48 overflow-auto mt-1">{val}</pre>
-                            ) : (
-                              <p className="text-sm text-gray-200 pl-0.5">{val || <span className="text-gray-600 italic">null</span>}</p>
-                            )}
+                            <span className="text-xs font-medium text-gray-400 mb-1 block">{col}</span>
+                            <FormattedContent value={val} columnName={col} />
                           </div>
                         );
                       })}

@@ -1,1 +1,1 @@
-{"root":["./src/app.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/components/statspanel.tsx","./src/components/traceviewer.tsx","./src/hooks/useapi.ts","./src/pages/resultspage.tsx","./src/types/config.ts"],"version":"5.7.3"}
+{"root":["./src/app.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/components/formattedcontent.tsx","./src/components/statspanel.tsx","./src/components/traceviewer.tsx","./src/hooks/useapi.ts","./src/pages/resultspage.tsx","./src/types/config.ts"],"version":"5.7.3"}
