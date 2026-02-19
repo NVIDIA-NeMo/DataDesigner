@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from enum import Enum
+from fnmatch import fnmatch
 from string import Formatter
 
 from jinja2 import meta
@@ -271,25 +272,42 @@ def validate_columns_not_all_dropped(
     return []
 
 
+def _is_glob(pattern: str) -> bool:
+    return "*" in pattern
+
+
 def validate_drop_columns_processor(
     columns: list[ColumnConfigT],
     processor_configs: list[ProcessorConfigT],
 ) -> list[Violation]:
     all_column_names = {c.name for c in columns}
+    for col in columns:
+        all_column_names.update(col.side_effect_columns)
+    violations = []
     for processor_config in processor_configs:
-        if processor_config.processor_type == ProcessorType.DROP_COLUMNS:
-            invalid_columns = set(processor_config.column_names) - all_column_names
-            if len(invalid_columns) > 0:
-                return [
+        if processor_config.processor_type != ProcessorType.DROP_COLUMNS:
+            continue
+        for name in processor_config.column_names:
+            if _is_glob(name):
+                if not any(fnmatch(col, name) for col in all_column_names):
+                    violations.append(
+                        Violation(
+                            column=None,
+                            type=ViolationType.INVALID_COLUMN,
+                            message=f"Drop columns processor pattern '{name}' does not match any columns.",
+                            level=ViolationLevel.WARNING,
+                        )
+                    )
+            elif name not in all_column_names:
+                violations.append(
                     Violation(
-                        column=c,
+                        column=name,
                         type=ViolationType.INVALID_COLUMN,
-                        message=f"Drop columns processor is configured to drop column '{c!r}', but the column is not defined.",
+                        message=f"Drop columns processor is configured to drop column {name!r}, but the column is not defined.",
                         level=ViolationLevel.ERROR,
                     )
-                    for c in invalid_columns
-                ]
-    return []
+                )
+    return violations
 
 
 def validate_schema_transform_processor(

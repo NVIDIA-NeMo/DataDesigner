@@ -15,6 +15,7 @@ from data_designer.config.utils.errors import DatasetSampleDisplayError
 from data_designer.config.utils.visualization import (
     WithRecordSamplerMixin,
     apply_html_post_processing,
+    convert_to_row_element,
     display_sample_record,
     get_truncated_list_as_string,
     mask_api_key,
@@ -224,6 +225,47 @@ def test_save_console_output_svg_no_dark_mode(
     content = save_path.read_text()
     assert "data-designer-styles" not in content
     assert "color-scheme: dark" not in content
+
+
+def test_convert_to_row_element_renders_scalar_types() -> None:
+    """Test that bool, int, and float values are converted to strings for Rich rendering."""
+    from rich.table import Table
+
+    import data_designer.lazy_heavy_imports as lazy
+
+    scalar_values = [True, False, 0, 1, 42, 3.14, -1.0, lazy.np.bool_(True), lazy.np.int64(42), lazy.np.float64(3.14)]
+
+    for value in scalar_values:
+        result = convert_to_row_element(value)
+        assert isinstance(result, str), f"Expected str, got {type(result)} for input {value!r}"
+
+        table = Table()
+        table.add_column("Value")
+        table.add_row(result)
+
+
+def test_convert_to_row_element_renders_non_scalar_types() -> None:
+    """Test that dicts, lists, tuples, sets, None, and JSON strings are renderable."""
+    from rich.pretty import Pretty
+    from rich.table import Table
+
+    test_cases: list[tuple[object, type]] = [
+        ({"key": "value"}, Pretty),
+        ([1, 2, 3], Pretty),
+        ((1, 2), Pretty),
+        ({1, 2}, Pretty),
+        (None, str),
+        ("plain string", str),
+        ('{"a": 1}', Pretty),  # valid JSON string -> Pretty
+    ]
+
+    for value, expected_type in test_cases:
+        result = convert_to_row_element(value)
+        assert isinstance(result, (str, Pretty)), f"Expected str or Pretty, got {type(result)} for input {value!r}"
+
+        table = Table()
+        table.add_column("Value")
+        table.add_row(result)
 
 
 def test_mixin_out_of_bounds_raises_display_error(
