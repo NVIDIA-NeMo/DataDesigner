@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import html
+import io
 import json
 import logging
 import os
@@ -435,11 +436,14 @@ def display_sample_record(
         render_list.append(index_label)
 
     if save_path is not None:
-        recording_console = Console(record=True, width=display_width)
+        recording_console = Console(record=True, width=display_width, file=io.StringIO())
         recording_console.print(Group(*render_list), markup=False)
         _save_console_output(recording_console, save_path, theme=theme)
     else:
-        console.print(Group(*render_list), markup=False)
+        terminal_width = console.width
+        capped_width = min(terminal_width, display_width)
+        display_console = Console(width=capped_width)
+        display_console.print(Group(*render_list), markup=False)
 
     # Display images at the bottom with captions (only in notebook)
     if len(images_to_display_later) > 0:

@@ -13,8 +13,10 @@ from data_designer.cli.controllers.generation_controller import GenerationContro
 from data_designer.cli.utils.config_loader import ConfigLoadError
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.errors import InvalidConfigError
+from data_designer.config.utils.constants import DEFAULT_DISPLAY_WIDTH
 
 _CTRL = "data_designer.cli.controllers.generation_controller"
+_DW = DEFAULT_DISPLAY_WIDTH
 
 
 def _make_mock_preview_results(num_records: int) -> MagicMock:
@@ -155,7 +157,13 @@ def test_run_preview_non_interactive_displays_all(mock_load_config: MagicMock, m
     controller.run_preview(config_source="config.yaml", num_records=3, non_interactive=True)
 
     assert mock_results.display_sample_record.call_count == 3
-    mock_results.display_sample_record.assert_has_calls([call(index=0), call(index=1), call(index=2)])
+    mock_results.display_sample_record.assert_has_calls(
+        [
+            call(index=0, display_width=_DW),
+            call(index=1, display_width=_DW),
+            call(index=2, display_width=_DW),
+        ]
+    )
 
 
 @patch(f"{_CTRL}.sys")
@@ -224,7 +232,7 @@ def test_run_preview_single_record_no_interactive(
     controller = GenerationController()
     controller.run_preview(config_source="config.yaml", num_records=1, non_interactive=False)
 
-    mock_results.display_sample_record.assert_called_once_with(index=0)
+    mock_results.display_sample_record.assert_called_once_with(index=0, display_width=_DW)
 
 
 @patch(f"{_CTRL}.wait_for_navigation_key", side_effect=["n", "q"])
@@ -259,7 +267,7 @@ def test_run_preview_tty_multiple_records_uses_interactive(
 def test_run_preview_calls_to_report_when_analysis_present(
     mock_load_config: MagicMock, mock_dd_cls: MagicMock, mock_create_pager: MagicMock, tmp_path: Path
 ) -> None:
-    """Test that to_report() is called for console display and file save when save_results=True."""
+    """Test that to_report() is called only for file save (not console) when save_results=True."""
     mock_load_config.return_value = MagicMock(spec=DataDesignerConfigBuilder)
     mock_dd = MagicMock()
     mock_dd_cls.return_value = mock_dd
@@ -273,11 +281,8 @@ def test_run_preview_calls_to_report_when_analysis_present(
         config_source="config.yaml", num_records=3, non_interactive=True, save_results=True, artifact_path=str(tmp_path)
     )
 
-    assert mock_analysis.to_report.call_count == 2
-    mock_analysis.to_report.assert_any_call()
-    save_call = [c for c in mock_analysis.to_report.call_args_list if "save_path" in c.kwargs]
-    assert len(save_call) == 1
-    assert save_call[0].kwargs["save_path"].name == "report.html"
+    mock_analysis.to_report.assert_called_once()
+    assert mock_analysis.to_report.call_args.kwargs["save_path"].name == "report.html"
 
 
 @patch(f"{_CTRL}.create_sample_records_pager")
@@ -307,9 +312,8 @@ def test_run_preview_save_results_creates_directory_structure(
         artifact_path=str(tmp_path),
     )
 
-    # Report displayed to console (no args) and saved to file (with save_path)
-    assert mock_analysis.to_report.call_count == 2
-    mock_analysis.to_report.assert_any_call()
+    # Report saved to file only (no console display when save_results=True)
+    mock_analysis.to_report.assert_called_once()
     report_save_path = mock_analysis.to_report.call_args.kwargs["save_path"]
     assert report_save_path.parent.parent == tmp_path
     assert report_save_path.name == "report.html"
@@ -320,8 +324,7 @@ def test_run_preview_save_results_creates_directory_structure(
     assert parquet_path.name == "dataset.parquet"
     assert parquet_path.parent == report_save_path.parent
 
-    # Sample records saved — 2 display calls + 2 save calls = 4 total
-    assert mock_results.display_sample_record.call_count == 4
+    assert mock_results.display_sample_record.call_count == 2
     sample_records_dir = report_save_path.parent / "sample_records"
     for i in range(2):
         mock_results.display_sample_record.assert_any_call(
@@ -359,7 +362,7 @@ def test_run_preview_save_results_default_artifact_path(
             save_results=True,
         )
 
-    assert mock_analysis.to_report.call_count == 2
+    mock_analysis.to_report.assert_called_once()
     report_save_path = mock_analysis.to_report.call_args.kwargs["save_path"]
     assert report_save_path.parent.parent == Path.cwd() / "artifacts"
     mock_create_pager.assert_called_once()
@@ -496,7 +499,13 @@ def test_browse_interactively_next_advances(mock_wait: MagicMock) -> None:
     controller._browse_records_interactively(mock_results, 5)
 
     assert mock_results.display_sample_record.call_count == 3
-    mock_results.display_sample_record.assert_has_calls([call(index=0), call(index=1), call(index=2)])
+    mock_results.display_sample_record.assert_has_calls(
+        [
+            call(index=0, display_width=_DW),
+            call(index=1, display_width=_DW),
+            call(index=2, display_width=_DW),
+        ]
+    )
 
 
 @patch(f"{_CTRL}.wait_for_navigation_key", side_effect=["q"])
@@ -507,7 +516,7 @@ def test_browse_interactively_quit_immediately(mock_wait: MagicMock) -> None:
 
     controller._browse_records_interactively(mock_results, 5)
 
-    mock_results.display_sample_record.assert_called_once_with(index=0)
+    mock_results.display_sample_record.assert_called_once_with(index=0, display_width=_DW)
 
 
 @patch(f"{_CTRL}.wait_for_navigation_key", side_effect=["n", "p", "q"])
@@ -519,7 +528,13 @@ def test_browse_interactively_previous(mock_wait: MagicMock) -> None:
     controller._browse_records_interactively(mock_results, 5)
 
     assert mock_results.display_sample_record.call_count == 3
-    mock_results.display_sample_record.assert_has_calls([call(index=0), call(index=1), call(index=0)])
+    mock_results.display_sample_record.assert_has_calls(
+        [
+            call(index=0, display_width=_DW),
+            call(index=1, display_width=_DW),
+            call(index=0, display_width=_DW),
+        ]
+    )
 
 
 @patch(f"{_CTRL}.wait_for_navigation_key", side_effect=["p", "q"])
@@ -531,7 +546,12 @@ def test_browse_interactively_previous_wraps_to_last(mock_wait: MagicMock) -> No
     controller._browse_records_interactively(mock_results, 3)
 
     assert mock_results.display_sample_record.call_count == 2
-    mock_results.display_sample_record.assert_has_calls([call(index=0), call(index=2)])
+    mock_results.display_sample_record.assert_has_calls(
+        [
+            call(index=0, display_width=_DW),
+            call(index=2, display_width=_DW),
+        ]
+    )
 
 
 @patch(f"{_CTRL}.wait_for_navigation_key", side_effect=["n", "n", "n", "q"])
@@ -543,7 +563,14 @@ def test_browse_interactively_next_wraps_past_last(mock_wait: MagicMock) -> None
     controller._browse_records_interactively(mock_results, 3)
 
     assert mock_results.display_sample_record.call_count == 4
-    mock_results.display_sample_record.assert_has_calls([call(index=0), call(index=1), call(index=2), call(index=0)])
+    mock_results.display_sample_record.assert_has_calls(
+        [
+            call(index=0, display_width=_DW),
+            call(index=1, display_width=_DW),
+            call(index=2, display_width=_DW),
+            call(index=0, display_width=_DW),
+        ]
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -559,7 +586,13 @@ def test_display_all_records() -> None:
     controller._display_all_records(mock_results, 3)
 
     assert mock_results.display_sample_record.call_count == 3
-    mock_results.display_sample_record.assert_has_calls([call(index=0), call(index=1), call(index=2)])
+    mock_results.display_sample_record.assert_has_calls(
+        [
+            call(index=0, display_width=_DW),
+            call(index=1, display_width=_DW),
+            call(index=2, display_width=_DW),
+        ]
+    )
 
 
 # ---------------------------------------------------------------------------
