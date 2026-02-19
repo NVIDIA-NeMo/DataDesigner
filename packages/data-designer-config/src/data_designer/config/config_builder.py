@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import logging
 from pathlib import Path
@@ -366,6 +367,9 @@ class DataDesignerConfigBuilder:
     ) -> Self:
         """Add a processor to the current Data Designer configuration.
 
+        If a processor with the same name already exists, it is replaced (upsert),
+        making notebook cells safely re-runnable.
+
         You can either provide a processor config object directly, or provide a processor type and
         additional keyword arguments to construct the processor config object.
 
@@ -385,14 +389,43 @@ class DataDesignerConfigBuilder:
                 )
             processor_config = get_processor_config_from_kwargs(processor_type=processor_type, **kwargs)
 
+        self._remove_processor_by_name(processor_config.name)
+
         # Checks elsewhere fail if DropColumnsProcessor drops a column but it is not marked for drop
         if processor_config.processor_type == ProcessorType.DROP_COLUMNS:
-            for column in processor_config.column_names:
-                if column in self._column_configs:
-                    self._column_configs[column].drop = True
+            for col in self._resolve_drop_column_names(processor_config.column_names):
+                self._column_configs[col].drop = True
 
         self._processor_configs.append(processor_config)
         return self
+
+    def _remove_processor_by_name(self, name: str) -> None:
+        """Remove an existing processor by name and undo its side-effects."""
+        for existing in self._processor_configs:
+            if existing.name != name:
+                continue
+            if existing.processor_type == ProcessorType.DROP_COLUMNS:
+                other_dropped = {
+                    col
+                    for p in self._processor_configs
+                    if p.name != name and p.processor_type == ProcessorType.DROP_COLUMNS
+                    for col in self._resolve_drop_column_names(p.column_names)
+                }
+                for col in self._resolve_drop_column_names(existing.column_names):
+                    if col not in other_dropped:
+                        self._column_configs[col].drop = False
+            self._processor_configs.remove(existing)
+            return
+
+    def _resolve_drop_column_names(self, column_names: list[str]) -> list[str]:
+        """Resolve column names, expanding glob patterns against known column configs."""
+        resolved: dict[str, None] = {}
+        for name in column_names:
+            if "*" in name:
+                resolved.update(dict.fromkeys(fnmatch.filter(self._column_configs.keys(), name)))
+            elif name in self._column_configs:
+                resolved[name] = None
+        return list(resolved)
 
     def add_profiler(self, profiler_config: ColumnProfilerConfigT) -> Self:
         """Add a profiler to the current Data Designer configuration.

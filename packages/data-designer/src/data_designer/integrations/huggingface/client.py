@@ -53,6 +53,43 @@ class HuggingFaceHubClient:
         """
         return self._token is not None
 
+    @classmethod
+    def push_to_hub_from_folder(
+        cls,
+        dataset_path: Path | str,
+        repo_id: str,
+        description: str,
+        *,
+        token: str | None = None,
+        private: bool = False,
+        tags: list[str] | None = None,
+    ) -> str:
+        """Upload a previously saved dataset folder to Hugging Face Hub.
+
+        Convenience classmethod that creates a client and delegates to upload_dataset.
+        Useful when you have artifacts from a prior DataDesigner.create() run and want
+        to push them without needing the original DatasetCreationResults object.
+
+        Args:
+            dataset_path: Path to the dataset directory (contains parquet-files/, metadata.json, etc.)
+            repo_id: Hugging Face dataset repo ID (e.g., "username/dataset-name")
+            description: Custom description text for dataset card
+            token: Hugging Face API token. If None, resolved from HF_TOKEN env var or cached credentials.
+            private: Whether to create private repo
+            tags: Additional custom tags for the dataset
+
+        Returns:
+            URL to the uploaded dataset
+        """
+        client = cls(token=token)
+        return client.upload_dataset(
+            repo_id=repo_id,
+            base_dataset_path=Path(dataset_path),
+            description=description,
+            private=private,
+            tags=tags,
+        )
+
     def upload_dataset(
         self,
         repo_id: str,
