@@ -54,7 +54,7 @@ Key observations:
 
 ---
 
-## **The SDG Pipeline**
+## **Structured Outputs Pipeline**
 
 ### High-Level Architecture
 
@@ -140,7 +140,7 @@ A simple "generate JSON from a prompt" approach won't cut it. This pipeline has 
 
 ---
 
-## **Step 1: Seed Data and Schema Generation**
+**Step 1: Seed Data and Schema Generation**
 
 We start with 200+ topic pairs spanning Leisure Activities, Daily Life, Social Interactions, Education, Events, Pets, Parenting, Fitness, Arts, Environment, Developer Configs, Business Docs, Media/Feeds, Geospatial, Civic/Alerts, IoT/Telemetry, and ML/AI.
 
@@ -171,13 +171,13 @@ The schema generation prompt instructs the model (Qwen3-235B-A22B) to produce a 
 
 ---
 
-## **Step 2: Conversation and Document Generation**
+**Step 2: Conversation and Document Generation**
 
 From each schema, we generate multi-turn Q&A pairs whose answers naturally contain the data that the schema describes. These conversation pairs are then transformed into a "document" (either a paragraph or a bulleted list of facts, varying by detail level setting). This document provides the grounding context for the structured output generation.
 
 ---
 
-## **Step 3: Prompt Assembly and Rollouts**
+**Step 3: Prompt Assembly and Rollouts**
 
 The user prompt is assembled from diverse instruction templates conditioned on length, type, and tone. It always asks for a strictly conforming structured instance in the requested `output_format`. The schema and document are placed in one of 6 ordering variants (`prompt_schema_document`, `schema_document_prompt`, etc.) to prevent the model from relying on positional cues.
 
@@ -185,7 +185,7 @@ We generate 3 rollout completions per record. Each rollout may include `<think>.
 
 ---
 
-## **Step 4: Validation and Rejection Sampling**
+**Step 4: Validation and Rejection Sampling**
 
 Each rollout goes through a three-stage validation pipeline:
 
@@ -197,7 +197,7 @@ Each rollout gets a diagnostic: `valid`, `parse_error`, `schema_missing`, `schem
 
 ---
 
-## **A Note on `LLMStructuredColumnConfig`**
+**A Note on `LLMStructuredColumnConfig`**
 
 Data Designer provides `LLMStructuredColumnConfig`, a column type that guarantees the LLM output conforms to a schema by using Pydantic models or JSON Schema as the `output_format`. This is ideal when every record shares the same structure (e.g., a `QAPair` or `ProductInfo` schema). The framework handles prompting, parsing, and retry logic automatically, ensuring zero schema drift.
 
@@ -205,7 +205,7 @@ In our pipeline, however, schemas are *dynamic*: each record has a unique, per-r
 
 ---
 
-## **Sample Record**
+**Sample Record**
 
 Here's what one complete record looks like after running `display_sample_record()` (topic: "Daily Life / Discussing home security", format: JSON, strict schema):
 
@@ -214,7 +214,7 @@ Here's what one complete record looks like after running `display_sample_record(
 
 ---
 
-## **Published Dataset**
+**Published Dataset**
 
 The dataset is publicly available on HuggingFace:
 
@@ -240,7 +240,7 @@ The dataset is designed for use with [NeMo Gym](https://github.com/NVIDIA/NeMo-R
 
 ---
 
-## **Future Work**
+**Future Work**
 
 - **TOML, XML, and scaling to more formats.** TOML conformance lags significantly; its nuances (inline tables, array of tables, datetime formats) are underrepresented in generator pretraining. XML parsing is fragile due to pre-root noise (comments, processing instructions, stray text). Markdown tables, Protocol Buffers, and SQL DDL are all structured formats that could benefit from this approach.
 - **Schema complexity has diminishing returns.** Depth targets of 6-8 push the generator model to its limits. Many "complex" schemas end up with artificial nesting. The sweet spot is 4-5 levels of meaningful nesting.
