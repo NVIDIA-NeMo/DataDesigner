@@ -61,73 +61,67 @@ Key observations:
 The pipeline generates structured output training data through a multi-stage process, with rejection sampling to select the best of multiple rollouts:
 
 ```
-                        STRUCTURED OUTPUTS SDG PIPELINE
-                        ==============================
+                              STRUCTURED OUTPUTS SDG PIPELINE
+                              ==============================
 
- ┌─────────────────────────────────────────────────────────────────┐
- │                      STAGE 1: SEED DATA                         │
- │                                                                 │
- │  topic_category (10+ categories)                                │
- │  topic_subtopic (20 per category)                               │
- │  200+ unique topic pairs across diverse domains                 │
- └───────────────────────────┬─────────────────────────────────────┘
-                             │
-                             ▼
- ┌─────────────────────────────────────────────────────────────────┐
- │                  STAGE 2: DIVERSITY CONTROLS                    │
- │                                                                 │
- │  Schema Controls          Content Controls    Prompt Controls   │
- │  ├─ rigidity: strict/mod  ├─ format: json/    ├─ length: s/m/l  │
- │  ├─ fields: 3/4/5         │   yaml/xml        ├─ type: imp/     │
- │  ├─ complexity: simple/   ├─ turns: 2/3/4     │   interr/decl   │
- │  │   moderate/complex     ├─ tone             ├─ tone: formal/  │
- │  └─ depth: 2-3/4-5/6-8    └─ detail_level     │   neutral/etc   │
- │                                               ├─ mode: sys/     │
- │                                               │   user/both     │
- │                                               └─ placement:     │
- │                                                   6 orderings   │
- └───────────────────────────┬─────────────────────────────────────┘
-                             │
-                             ▼
- ┌─────────────────────────────────────────────────────────────────┐
- │              STAGE 3: LLM GENERATION (Qwen3-235B)               │
- │                                                                 │
- │  structured_schema ──► conversation_pairs ──► document          │
- │  (unique per record)    (multi-turn Q&A)      (paragraph or     │
- │                                                bulleted facts)  │
- │                             │                                   │
- │                             ▼                                   │
- │                         user_prompt                             │
- │                    (diverse instructions)                       │
- │                             │                                   │
- |                             ▼                                   │
- │                    ┌──────────────────┐                         │
- │                    │  3x ROLLOUTS     │                         │
- │                    │  output_1        │                         │
- │                    │  output_2        │                         │
- │                    │  output_3        │                         │
- │                    └────────┬─────────┘                         │
- └─────────────────────────────┬───────────────────────────────────┘
-                               │
-                               ▼
- ┌─────────────────────────────────────────────────────────────────┐
- │              STAGE 4: VALIDATION + REJECTION SAMPLING           │
- │                                                                 │
- │  For each rollout:                                              │
- │    1. Parse check (json.loads / yaml.safe_load / xml.etree)     │
- │    2. Schema conformance (jsonschema Draft202012Validator)      │
- │    3. Diagnostic: valid / parse_error / schema_violation        │
- │                                                                 │
- │  Pick best valid rollout ──► fallback: parse + length heuristic │
- └─────────────────────────────┬───────────────────────────────────┘
-                               │
-                               ▼
- ┌─────────────────────────────────────────────────────────────────┐
- │                     OUTPUT: SFT / RLVR DATA                     │
- │                                                                 │
- │  messages: [{system}, {user: prompt+schema+doc}, {assistant}]   │
- │  9,949 samples  ·  JSON format  ·  CC BY 4.0                   │
- └─────────────────────────────────────────────────────────────────┘
+ ┌─────────────────────────────────────────────────────────────────────────────────────┐
+ │                                 STAGE 1: SEED DATA                                  │
+ │                                                                                     │
+ │   topic_category (10+ categories)    topic_subtopic (20 per category)               │
+ │   200+ unique topic pairs across diverse domains                                    │
+ └─────────────────────────────────────────┬───────────────────────────────────────────┘
+                                           │
+                                           ▼
+ ┌─────────────────────────────────────────────────────────────────────────────────────┐
+ │                             STAGE 2: DIVERSITY CONTROLS                             │
+ │                                                                                     │
+ │   Schema Controls              Content Controls          Prompt Controls            │
+ │   ├─ rigidity: strict/mod      ├─ format: json/yaml/xml  ├─ length: short/med/long  │
+ │   ├─ fields: 3 / 4 / 5         ├─ turns: 2 / 3 / 4       ├─ type: imp/interr/decl   │
+ │   ├─ complexity: simple/       ├─ tone                   ├─ tone: formal/neutral/…  │
+ │   │   moderate/complex         └─ detail_level           ├─ mode: sys/user/both     │
+ │   └─ depth: 2-3 / 4-5 / 6-8                             └─ placement: 6 orderings  │
+ └─────────────────────────────────────────┬───────────────────────────────────────────┘
+                                           │
+                                           ▼
+ ┌─────────────────────────────────────────────────────────────────────────────────────┐
+ │                        STAGE 3: LLM GENERATION (Qwen3-235B)                         │
+ │                                                                                     │
+ │   structured_schema ────► conversation_pairs ────► document                         │
+ │   (unique per record)      (multi-turn Q&A)         (paragraph or bulleted facts)   │
+ │                                    │                                                │
+ │                                    ▼                                                │
+ │                               user_prompt                                           │
+ │                          (diverse instructions)                                     │
+ │                                    │                                                │
+ │                                    ▼                                                │
+ │                          ┌────────────────────┐                                     │
+ │                          │   3x ROLLOUTS      │                                     │
+ │                          │   output_1         │                                     │
+ │                          │   output_2         │                                     │
+ │                          │   output_3         │                                     │
+ │                          └─────────┬──────────┘                                     │
+ └────────────────────────────────────┬────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+ ┌─────────────────────────────────────────────────────────────────────────────────────┐
+ │                     STAGE 4: VALIDATION + REJECTION SAMPLING                        │
+ │                                                                                     │
+ │   For each rollout:                                                                 │
+ │     1. Parse check (json.loads / yaml.safe_load / xml.etree)                        │
+ │     2. Schema conformance (jsonschema Draft202012Validator)                          │
+ │     3. Diagnostic: valid / parse_error / schema_violation                            │
+ │                                                                                     │
+ │   Pick best valid rollout ────► fallback: parse + length heuristic                  │
+ └─────────────────────────────────────────┬───────────────────────────────────────────┘
+                                           │
+                                           ▼
+ ┌─────────────────────────────────────────────────────────────────────────────────────┐
+ │                              OUTPUT: SFT / RLVR DATA                                │
+ │                                                                                     │
+ │   messages: [{system}, {user: prompt + schema + doc}, {assistant}]                  │
+ │   9,949 samples  ·  JSON format  ·  CC BY 4.0                                      │
+ └─────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### What Makes This Pipeline Different
