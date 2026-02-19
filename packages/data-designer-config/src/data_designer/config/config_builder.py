@@ -422,7 +422,7 @@ class DataDesignerConfigBuilder:
         seen: set[str] = set()
         resolved = []
         for name in column_names:
-            if any(c in name for c in "*?["):
+            if "*" in name:
                 for match in fnmatch.filter(self._column_configs.keys(), name):
                     if match not in seen:
                         seen.add(match)

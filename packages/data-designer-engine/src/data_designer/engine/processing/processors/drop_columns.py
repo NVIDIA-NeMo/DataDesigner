@@ -26,7 +26,7 @@ class DropColumnsProcessor(Processor[DropColumnsProcessorConfig]):
         seen: set[str] = set()
         resolved = []
         for name in self.config.column_names:
-            if any(c in name for c in "*?["):
+            if "*" in name:
                 for col in available:
                     if fnmatch(col, name) and col not in seen:
                         seen.add(col)

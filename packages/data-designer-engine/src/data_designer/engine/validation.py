@@ -273,7 +273,7 @@ def validate_columns_not_all_dropped(
 
 
 def _is_glob(pattern: str) -> bool:
-    return any(c in pattern for c in "*?[")
+    return "*" in pattern
 
 
 def validate_drop_columns_processor(
