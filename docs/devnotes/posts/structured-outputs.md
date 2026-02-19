@@ -20,7 +20,7 @@ Every modern AI application that integrates LLMs into a software stack hits the 
 
 The stakes are high. When an LLM serves as a backend for tool-calling agents, a single malformed JSON response doesn't just produce a bad answer; it crashes the entire agentic pipeline. The function call fails, the agent can't recover, and the user sees an error. OpenAI, Anthropic, and Google have all invested heavily in structured output guarantees for exactly this reason.
 
-A 14.81% structured output error rate (what we measured on our baseline model) means roughly 1 in 7 outputs is malformed. For an API serving thousands of requests, that's hundreds of failures per hour. Our goal was to bring this below 6% through targeted synthetic data.
+When we measured our baseline model, roughly 1 in 5 structured outputs was malformed. For an API serving thousands of requests, that's hundreds of failures per hour. Our goal was to reduce this as much as possible through targeted synthetic data.
 
 ---
 
