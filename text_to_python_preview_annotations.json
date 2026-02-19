@@ -1,0 +1,10 @@
+{
+  "source_file": "/Users/kthadaka/Playground/DataDesigner/text_to_python_preview.parquet",
+  "summary": {
+    "good": 0,
+    "bad": 0,
+    "unreviewed": 5,
+    "total": 5
+  },
+  "annotations": []
+}

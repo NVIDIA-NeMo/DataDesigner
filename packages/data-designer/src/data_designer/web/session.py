@@ -32,7 +32,8 @@ class ReviewSession:
             import pyarrow.parquet as pq
             table = pq.read_table(str(path))
             df = table.to_pandas()
-            self._rows = df.to_dict(orient="records")
+            # Convert through JSON to ensure all numpy/pyarrow types become native Python
+            self._rows = json.loads(df.to_json(orient="records"))
             self._columns = list(df.columns)
         elif path.suffix == ".json":
             data = json.loads(path.read_text())
