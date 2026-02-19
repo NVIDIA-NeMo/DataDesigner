@@ -419,11 +419,16 @@ class DataDesignerConfigBuilder:
 
     def _resolve_drop_column_names(self, column_names: list[str]) -> list[str]:
         """Resolve column names, expanding glob patterns against known column configs."""
+        seen: set[str] = set()
         resolved = []
         for name in column_names:
             if any(c in name for c in "*?["):
-                resolved.extend(fnmatch.filter(self._column_configs.keys(), name))
-            elif name in self._column_configs:
+                for match in fnmatch.filter(self._column_configs.keys(), name):
+                    if match not in seen:
+                        seen.add(match)
+                        resolved.append(match)
+            elif name in self._column_configs and name not in seen:
+                seen.add(name)
                 resolved.append(name)
         return resolved
 

@@ -23,13 +23,18 @@ class DropColumnsProcessor(Processor[DropColumnsProcessorConfig]):
 
     def _resolve_columns(self, available: pd.Index) -> list[str]:
         """Expand column_names entries (including glob patterns) against available columns."""
+        seen: set[str] = set()
         resolved = []
         for name in self.config.column_names:
             if any(c in name for c in "*?["):
-                resolved.extend(col for col in available if fnmatch(col, name))
-            elif name in available:
+                for col in available:
+                    if fnmatch(col, name) and col not in seen:
+                        seen.add(col)
+                        resolved.append(col)
+            elif name in available and name not in seen:
+                seen.add(name)
                 resolved.append(name)
-            else:
+            elif name not in available:
                 logger.warning(f"⚠️ Cannot drop column: `{name}` not found in the dataset.")
         return resolved
 
