@@ -10,10 +10,15 @@ interface Props {
 
 type ContentType = "python" | "json" | "yaml" | "text";
 
-function detectType(value: string, columnName?: string): ContentType {
+function detectType(value: string, _columnName?: string): ContentType {
   const trimmed = value.trim();
 
-  // JSON detection
+  // Only detect code from explicit code fences -- no content sniffing
+  if (/^```python/m.test(trimmed)) return "python";
+  if (/^```json/m.test(trimmed)) return "json";
+  if (/^```yaml/m.test(trimmed) || /^```yml/m.test(trimmed)) return "yaml";
+
+  // Valid JSON (starts with { or [)
   if (
     (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
     (trimmed.startsWith("[") && trimmed.endsWith("]"))
@@ -22,21 +27,8 @@ function detectType(value: string, columnName?: string): ContentType {
       JSON.parse(trimmed);
       return "json";
     } catch {
-      // not valid JSON
+      // not valid JSON, treat as text
     }
-  }
-
-  // Python detection: common patterns
-  if (
-    /^(def |class |import |from |if __name__|#!.*python|```python)/m.test(trimmed) ||
-    /\b(def |print\(|return |for .+ in |while |try:|except |with |lambda )/m.test(trimmed)
-  ) {
-    return "python";
-  }
-
-  // YAML detection
-  if (/^[a-z_]+:\s/m.test(trimmed) && trimmed.includes("\n")) {
-    return "yaml";
   }
 
   return "text";
