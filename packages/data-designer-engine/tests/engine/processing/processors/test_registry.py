@@ -15,7 +15,6 @@ from data_designer.engine.processing.processors.registry import (
     ProcessorRegistry,
     create_default_processor_registry,
 )
-from data_designer.plugins.plugin import PluginType
 from data_designer.plugins.registry import PluginRegistry
 
 
@@ -29,31 +28,17 @@ def test_create_default_processor_registry() -> None:
 
 
 def test_processor_plugins_registered(monkeypatch: pytest.MonkeyPatch) -> None:
-    class _StubConfig(ProcessorConfig):
+    class _Cfg(ProcessorConfig):
         processor_type: Literal["test-stub"] = "test-stub"
 
-    class _StubProcessor(Processor[_StubConfig]):
+    class _Impl(Processor[_Cfg]):
         pass
 
-    plugin = MagicMock()
+    plugin = MagicMock(impl_cls=_Impl, config_cls=_Cfg)
     plugin.name = "test-stub"
-    plugin.impl_cls = _StubProcessor
-    plugin.config_cls = _StubConfig
+    monkeypatch.setattr(PluginRegistry, "get_plugins", lambda self, pt: [plugin])
 
-    original_get_plugins = PluginRegistry.get_plugins
-    monkeypatch.setattr(
-        PluginRegistry,
-        "get_plugins",
-        lambda self, pt: [plugin] if pt == PluginType.PROCESSOR else original_get_plugins(self, pt),
-    )
+    create_default_processor_registry()
 
-    try:
-        create_default_processor_registry()
-
-        assert ProcessorRegistry._registry["test-stub"] == _StubProcessor
-        assert ProcessorRegistry._config_registry["test-stub"] == _StubConfig
-    finally:
-        ProcessorRegistry._registry.pop("test-stub", None)
-        ProcessorRegistry._reverse_registry.pop(_StubProcessor, None)
-        ProcessorRegistry._config_registry.pop("test-stub", None)
-        ProcessorRegistry._reverse_config_registry.pop(_StubConfig, None)
+    assert ProcessorRegistry._registry["test-stub"] == _Impl
+    assert ProcessorRegistry._config_registry["test-stub"] == _Cfg
