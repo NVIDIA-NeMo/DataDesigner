@@ -303,7 +303,7 @@ def validate_drop_columns_processor(
                     Violation(
                         column=name,
                         type=ViolationType.INVALID_COLUMN,
-                        message=f"Drop columns processor is configured to drop column '{name!r}', but the column is not defined.",
+                        message=f"Drop columns processor is configured to drop column {name!r}, but the column is not defined.",
                         level=ViolationLevel.ERROR,
                     )
                 )
