@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import base64
-import io
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -23,16 +22,6 @@ from data_designer.config.utils.image_helpers import (
     load_image_path_to_base64,
     validate_image,
 )
-
-
-@pytest.fixture
-def sample_png_bytes() -> bytes:
-    """Create a valid 1x1 PNG as raw bytes."""
-    img = lazy.Image.new("RGB", (1, 1), color="red")
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return buf.getvalue()
-
 
 # ---------------------------------------------------------------------------
 # extract_base64_from_data_uri

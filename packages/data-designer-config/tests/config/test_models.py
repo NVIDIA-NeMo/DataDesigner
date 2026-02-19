@@ -3,9 +3,7 @@
 
 import base64
 import json
-import struct
 import tempfile
-import zlib
 from collections import Counter
 from pathlib import Path
 
@@ -200,23 +198,9 @@ def test_image_context_auto_detect_url() -> None:
     assert result == [{"type": "image_url", "image_url": "https://example.com/image.png"}]
 
 
-def _make_minimal_png() -> str:
-    """Build a minimal valid 1x1 white PNG and return it as a base64 string."""
-    signature = b"\x89PNG\r\n\x1a\n"
-    ihdr_data = struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
-    ihdr_crc = zlib.crc32(b"IHDR" + ihdr_data) & 0xFFFFFFFF
-    ihdr = struct.pack(">I", 13) + b"IHDR" + ihdr_data + struct.pack(">I", ihdr_crc)
-    raw_data = zlib.compress(b"\x00\xff\xff\xff")
-    idat_crc = zlib.crc32(b"IDAT" + raw_data) & 0xFFFFFFFF
-    idat = struct.pack(">I", len(raw_data)) + b"IDAT" + raw_data + struct.pack(">I", idat_crc)
-    iend_crc = zlib.crc32(b"IEND") & 0xFFFFFFFF
-    iend = struct.pack(">I", 0) + b"IEND" + struct.pack(">I", iend_crc)
-    return base64.b64encode(signature + ihdr + idat + iend).decode()
-
-
-def test_image_context_auto_detect_base64() -> None:
+def test_image_context_auto_detect_base64(minimal_png_base64: str) -> None:
     """Test auto-detection with base64 value (no data_type) — auto-detects PNG format from bytes."""
-    png_base64 = _make_minimal_png()
+    png_base64 = minimal_png_base64
     context = ImageContext(column_name="image_col")
     result = context.get_contexts({"image_col": png_base64})
     assert len(result) == 1
