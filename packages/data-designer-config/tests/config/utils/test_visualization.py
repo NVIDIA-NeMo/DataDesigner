@@ -15,6 +15,7 @@ from data_designer.config.utils.errors import DatasetSampleDisplayError
 from data_designer.config.utils.visualization import (
     WithRecordSamplerMixin,
     apply_html_post_processing,
+    convert_to_row_element,
     display_sample_record,
     get_truncated_list_as_string,
     mask_api_key,
@@ -234,6 +235,21 @@ def test_save_console_output_svg_no_dark_mode(
     content = save_path.read_text()
     assert "data-designer-styles" not in content
     assert "color-scheme: dark" not in content
+
+
+def test_convert_to_row_element_renders_scalar_types() -> None:
+    """Test that bool, int, and float values are converted to strings for Rich rendering."""
+    from rich.table import Table
+
+    scalar_values = [True, False, 0, 1, 42, 3.14, -1.0]
+
+    for value in scalar_values:
+        result = convert_to_row_element(value)
+        assert isinstance(result, str), f"Expected str, got {type(result)} for input {value!r}"
+
+        table = Table()
+        table.add_column("Value")
+        table.add_row(result)
 
 
 def test_mixin_out_of_bounds_raises_display_error(

@@ -568,7 +568,9 @@ def convert_to_row_element(elem: Any) -> Any:
         elem = Pretty(json.loads(elem))
     except (TypeError, json.JSONDecodeError):
         pass
-    if isinstance(elem, (lazy.np.integer, lazy.np.floating, lazy.np.ndarray)):
+    if isinstance(elem, (bool, int, float)):
+        elem = str(elem)
+    elif isinstance(elem, (lazy.np.integer, lazy.np.floating, lazy.np.ndarray)):
         elem = str(elem)
     elif isinstance(elem, (list, dict)):
         elem = Pretty(elem)
