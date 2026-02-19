@@ -6,9 +6,9 @@ authors:
 
 # **Structured Outputs for Nemotron: Teaching Models to Always Produce Valid JSON, YAML, and XML**
 
-Using [NeMo Data Designer](https://github.com/NVIDIA-NeMo/DataDesigner) -- an orchestration framework for generating high-quality synthetic data at scale -- we generated a 9,949-sample structured output dataset that improved Nemotron Nano v3's JSONSchemaBench accuracy from 80.2% to 86.9% and StructEval-Text from 64.5% to 72.1%.
+Using [NeMo Data Designer](https://github.com/NVIDIA-NeMo/DataDesigner) -- an orchestration framework for generating high-quality synthetic data at scale -- we generated a 9,949-sample structured output dataset that improved Nemotron Nano v3's JSONSchemaBench accuracy from 80.2% to 86.9% and StructEval-Text from 64.5% to 72.1%. 
 
-The dataset is publicly available: **[Download it on HuggingFace](https://huggingface.co/datasets/nvidia/Nemotron-RL-instruction_following-structured_outputs)** (CC BY 4.0).
+The dataset is publicly available: **[Download it on HuggingFace](https://huggingface.co/datasets/nvidia/Nemotron-RL-instruction_following-structured_outputs)** (CC BY 4.0). 
 
 This post walks through the full SDG pipeline: schema generation, multi-format rollouts, rejection sampling, and the caveats we discovered along the way.
 
@@ -28,7 +28,7 @@ A 14.81% structured output error rate -- which is what we measured on our baseli
 
 We evaluated across two public benchmarks:
 
-**JSONSchemaBench** tests conformance to JSON schemas of varying complexity (nesting depth, field count):
+[**JSONSchemaBench**](https://github.com/guidance-ai/jsonschemabench) tests conformance to JSON schemas of varying complexity (nesting depth, field count):
 
 | Model | %Valid |
 |-------|--------|
@@ -37,7 +37,7 @@ We evaluated across two public benchmarks:
 | Baseline Qwen3-30B-A3B-Thinking | 92.8% |
 | Baseline GPT-OSS-20B | 95.8% |
 
-**StructEval-Text** tests structured output across multiple formats (CSV, JSON, TOML, XML, YAML):
+[**StructEval-Text**](https://github.com/StructEval/StructEval) tests structured output across multiple formats (CSV, JSON, TOML, XML, YAML):
 
 | Model | CSV | JSON | TOML | XML | YAML | **Overall** |
 |-------|-----|------|------|-----|------|-------------|
@@ -126,10 +126,7 @@ The pipeline generates structured output training data through a multi-stage pro
  │                     OUTPUT: SFT / RLVR DATA                     │
  │                                                                 │
  │  messages: [{system}, {user: prompt+schema+doc}, {assistant}]   │
- │  9,949 samples  ·  JSON format  ·  CC BY 4.0                    │
- │                                                                 │
- │  ► Download: huggingface.co/datasets/nvidia/                    │
- │    Nemotron-RL-instruction_following-structured_outputs         │
+ │  9,949 samples  ·  JSON format  ·  CC BY 4.0                   │
  └─────────────────────────────────────────────────────────────────┘
 ```
 
