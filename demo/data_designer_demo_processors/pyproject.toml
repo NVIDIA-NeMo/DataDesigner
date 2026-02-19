@@ -1,0 +1,38 @@
+[project]
+name = "data-designer-demo-processors"
+version = "0.1.0"
+description = "Demo processor plugins for Data Designer"
+requires-python = ">=3.10"
+dependencies = [
+  "data-designer",
+  "sentence-transformers",
+]
+
+[tool.uv.sources]
+data-designer = { path = "../../packages/data-designer" }
+
+[dependency-groups]
+dev = [
+  "pytest>=9.0.2,<10",
+]
+
+[project.entry-points."data_designer.plugins"]
+regex-filter = "data_designer_demo_processors.regex_filter.plugin:regex_filter_plugin"
+semantic-dedup = "data_designer_demo_processors.semantic_dedup.plugin:semantic_dedup_plugin"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+env = [
+  "DISABLE_DATA_DESIGNER_PLUGINS=false",
+]
+
+[tool.uv]
+package = true
+required-version = ">=0.7.10"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/data_designer_demo_processors"]
