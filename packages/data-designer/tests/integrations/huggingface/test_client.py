@@ -627,3 +627,82 @@ def test_update_metadata_paths(tmp_path: Path) -> None:
     assert updated["file_paths"]["processor-files"]["processor1"] == ["processor1/batch_00000.parquet"]
     assert updated["file_paths"]["processor-files"]["processor2"] == ["processor2/batch_00000.parquet"]
     assert "parquet-files" not in updated["file_paths"]
+
+
+# push_to_hub_from_folder tests
+
+
+def test_push_to_hub_from_folder_delegates_all_params() -> None:
+    """Test that push_to_hub_from_folder forwards all parameters to HfApi and upload_dataset."""
+    with patch("data_designer.integrations.huggingface.client.HfApi") as mock_hf_api_cls:
+        mock_hf_api_cls.return_value = MagicMock()
+
+        with patch.object(
+            HuggingFaceHubClient, "upload_dataset", return_value="https://huggingface.co/datasets/test/dataset"
+        ) as mock_upload:
+            url = HuggingFaceHubClient.push_to_hub_from_folder(
+                dataset_path="/some/path",
+                repo_id="test/dataset",
+                description="Test description",
+                token="my-token",
+                private=True,
+                tags=["tag1", "tag2"],
+            )
+
+            assert url == "https://huggingface.co/datasets/test/dataset"
+            mock_hf_api_cls.assert_called_once_with(token="my-token")
+            mock_upload.assert_called_once_with(
+                repo_id="test/dataset",
+                base_dataset_path=Path("/some/path"),
+                description="Test description",
+                private=True,
+                tags=["tag1", "tag2"],
+            )
+
+
+def test_push_to_hub_from_folder_converts_str_path_to_path() -> None:
+    """Test that a string dataset_path is converted to Path before delegation."""
+    with patch("data_designer.integrations.huggingface.client.HfApi"):
+        with patch.object(HuggingFaceHubClient, "upload_dataset", return_value="https://example.com") as mock_upload:
+            HuggingFaceHubClient.push_to_hub_from_folder(
+                dataset_path="/string/path",
+                repo_id="test/dataset",
+                description="Test",
+                token="t",
+            )
+
+            assert mock_upload.call_args.kwargs["base_dataset_path"] == Path("/string/path")
+            assert isinstance(mock_upload.call_args.kwargs["base_dataset_path"], Path)
+
+
+def test_push_to_hub_from_folder_default_optional_params() -> None:
+    """Test defaults: token=None, private=False, tags=None."""
+    with patch("data_designer.integrations.huggingface.client.HfApi") as mock_hf_api_cls:
+        mock_hf_api_cls.return_value = MagicMock()
+
+        with patch.object(HuggingFaceHubClient, "upload_dataset", return_value="https://example.com") as mock_upload:
+            HuggingFaceHubClient.push_to_hub_from_folder(
+                dataset_path="/some/path",
+                repo_id="test/dataset",
+                description="Test",
+            )
+
+            mock_hf_api_cls.assert_called_once_with(token=None)
+            mock_upload.assert_called_once_with(
+                repo_id="test/dataset",
+                base_dataset_path=Path("/some/path"),
+                description="Test",
+                private=False,
+                tags=None,
+            )
+
+
+def test_push_to_hub_from_folder_propagates_errors() -> None:
+    """Test that errors from upload_dataset propagate through push_to_hub_from_folder."""
+    with patch("data_designer.integrations.huggingface.client.HfApi"):
+        with pytest.raises(HuggingFaceHubClientUploadError, match="Invalid repo_id format"):
+            HuggingFaceHubClient.push_to_hub_from_folder(
+                dataset_path="/any/path",
+                repo_id="invalid-no-slash",
+                description="Test",
+            )
