@@ -231,7 +231,12 @@ def test_convert_to_row_element_renders_scalar_types() -> None:
     """Test that bool, int, and float values are converted to strings for Rich rendering."""
     from rich.table import Table
 
-    scalar_values = [True, False, 0, 1, 42, 3.14, -1.0]
+    import data_designer.lazy_heavy_imports as lazy
+
+    scalar_values = [
+        True, False, 0, 1, 42, 3.14, -1.0,
+        lazy.np.bool_(True), lazy.np.int64(42), lazy.np.float64(3.14)
+    ]
 
     for value in scalar_values:
         result = convert_to_row_element(value)
