@@ -111,6 +111,11 @@ class SeedConfig(ConfigBase):
             )
     """
 
-    source: SeedSourceT
-    sampling_strategy: SamplingStrategy = SamplingStrategy.ORDERED
-    selection_strategy: IndexRange | PartitionBlock | None = None
+    source: SeedSourceT = Field(description="A SeedSource defining where the seed data exists")
+    sampling_strategy: SamplingStrategy = Field(
+        default=SamplingStrategy.ORDERED,
+        description="Strategy for how to sample rows: ORDERED (sequential) or SHUFFLE (random)",
+    )
+    selection_strategy: IndexRange | PartitionBlock | None = Field(
+        default=None, description="Optional strategy to select a subset of the dataset (IndexRange or PartitionBlock)"
+    )

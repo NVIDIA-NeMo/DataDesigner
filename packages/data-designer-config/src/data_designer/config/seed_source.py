@@ -26,13 +26,17 @@ class SeedSource(BaseModel, ABC):
     This serves as a discriminated union discriminator.
     """
 
-    seed_type: str
+    seed_type: str = Field(description="Discriminator field identifying the seed source type")
 
 
 class LocalFileSeedSource(SeedSource):
-    seed_type: Literal["local"] = "local"
+    """Seed source that reads data from a local file (e.g., Parquet, CSV, JSONL)."""
 
-    path: str
+    seed_type: Literal["local"] = Field(
+        default="local", description="Seed source type discriminator, always 'local' for local file sources"
+    )
+
+    path: str = Field(description="Path to the local seed dataset file")
 
     @field_validator("path", mode="after")
     def validate_path(cls, v: str) -> str:
@@ -53,7 +57,11 @@ class LocalFileSeedSource(SeedSource):
 
 
 class HuggingFaceSeedSource(SeedSource):
-    seed_type: Literal["hf"] = "hf"
+    """Seed source that reads data from a HuggingFace dataset repository."""
+
+    seed_type: Literal["hf"] = Field(
+        default="hf", description="Seed source type discriminator, always 'hf' for HuggingFace sources"
+    )
 
     path: str = Field(
         ...,

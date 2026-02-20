@@ -35,13 +35,41 @@ class RunConfig(ConfigBase):
             Default is 0.
     """
 
-    disable_early_shutdown: bool = False
-    shutdown_error_rate: float = Field(default=0.5, ge=0.0, le=1.0)
-    shutdown_error_window: int = Field(default=10, ge=0)
-    buffer_size: int = Field(default=1000, gt=0)
-    non_inference_max_parallel_workers: int = Field(default=4, ge=1)
-    max_conversation_restarts: int = Field(default=5, ge=0)
-    max_conversation_correction_steps: int = Field(default=0, ge=0)
+    disable_early_shutdown: bool = Field(
+        default=False,
+        description="If True, disables early-shutdown behavior; generation continues regardless of error rate",
+    )
+    shutdown_error_rate: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Error rate threshold (0.0-1.0) that triggers early shutdown when early shutdown is enabled",
+    )
+    shutdown_error_window: int = Field(
+        default=10,
+        ge=0,
+        description="Minimum number of completed tasks before error rate monitoring begins",
+    )
+    buffer_size: int = Field(
+        default=1000,
+        gt=0,
+        description="Number of records to process in each batch during dataset generation",
+    )
+    non_inference_max_parallel_workers: int = Field(
+        default=4,
+        ge=1,
+        description="Maximum number of worker threads used for non-inference cell-by-cell generators",
+    )
+    max_conversation_restarts: int = Field(
+        default=5,
+        ge=0,
+        description="Maximum number of full conversation restarts permitted per ModelFacade.generate() call",
+    )
+    max_conversation_correction_steps: int = Field(
+        default=0,
+        ge=0,
+        description="Maximum number of correction rounds permitted within a single conversation",
+    )
 
     @model_validator(mode="after")
     def normalize_shutdown_settings(self) -> Self:
