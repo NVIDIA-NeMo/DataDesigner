@@ -24,6 +24,32 @@ Reviewers should validate three things first:
 2. Provider-specific concerns are isolated inside adapters (`openai_compatible`, `anthropic`) behind canonical request/response types.
 3. Rollout is reversible with feature flag and bridge adapter until parity is proven.
 
+## Locked Design Decisions (Step 1)
+
+These are explicit decisions for Step 1 review and implementation.
+
+1. `ModelFacade` public API remains unchanged.
+2. Adapter boundary uses canonical request/response types; provider SDK/HTTP shapes do not leak upward.
+3. Adaptive throttling uses:
+   - global cap key: `(provider_name, model_identifier)`
+   - domain key: `(provider_name, model_identifier, throttle_domain)`
+4. If multiple model configs target the same global cap key, effective hard cap is:
+   - `min(max_parallel_requests across matching model configs)`
+5. Throttle domain is derived from actual backend route:
+   - chat-completions-backed image generation shares `chat` domain.
+6. Auth fallback compatibility is retained:
+   - top-level `api_key` continues to work for `openai` and `anthropic`.
+7. Streaming support is out of scope for Step 1.
+8. Bedrock support is intentionally out of scope for Step 1.
+
+## Reviewer Sign-Off Questions
+
+These should be answered in review before implementation begins:
+
+1. Is bridge-first migration (`LiteLLMBridgeClient`) acceptable as mandatory Phase 0?
+2. Is the minimum-cap rule for shared provider/model concurrency acceptable?
+3. Is the proposed feature-flag rollout (`litellm_bridge|native`) sufficient for rollback needs?
+
 ## Architecture Diagram
 
 ### 1. Structural view (boundaries and ownership)
@@ -101,7 +127,7 @@ Callers
 5) On recovery, additive increase restores capacity up to effective max
 ```
 
-## Concrete Implementation Plan (Reviewer-Oriented)
+## Concrete Implementation Plan
 
 ### File-level change map
 
@@ -1090,8 +1116,24 @@ Ensure `ModelRegistry.run_health_check()` still behaves correctly for:
 1. Shared throttle state is enforced across mixed sync and async calls for same key.
 2. `max_parallel_requests` is never exceeded under concurrent load.
 3. `Retry-After` is respected by both sync and async wrappers.
-4. Two aliases pointing to same provider/model maintain independent primary limits.
-5. Optional shared upstream pressure signal propagates cooldown correctly across aliases when enabled.
+4. Two aliases pointing to same provider/model share one global cap whose effective max is the lower configured limit.
+5. Domain throttling remains route-aware (`chat`, `embedding`, `image`) under shared global cap.
+6. Optional shared upstream pressure signal propagates cooldown correctly across aliases when enabled.
+
+## Cutover Readiness Gates
+
+Native backend becomes default only when all gates pass:
+
+1. Contract tests:
+   - zero regressions across sync and async `ModelFacade` behavior.
+2. Error parity:
+   - user-facing error classes unchanged for representative failure modes.
+3. Throughput stability:
+   - no sustained degradation in records/sec under standard load profile.
+4. Throttling behavior:
+   - 429 recovery stabilizes without oscillation under stress test profile.
+5. Rollback safety:
+   - feature flag rollback validated in a single release candidate.
 
 ## Migration Phases and Deliverables
 

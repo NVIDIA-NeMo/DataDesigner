@@ -12,6 +12,47 @@ Depends on:
 
 1. `plans/343/model-facade-overhaul-plan-step-1.md`
 
+## Reviewer Snapshot
+
+Reviewers should verify:
+
+1. Step 2 reuses Step 1 abstractions (client boundary, retry, throttling, error model) without forking patterns.
+2. Bedrock-specific logic remains isolated to adapter/mappers/auth resolution.
+3. Capability gating is explicit and fails early when an operation is unsupported for a model family.
+
+## Entry Criteria
+
+Step 2 starts only when these Step 1 conditions are met:
+
+1. `ModelFacade` is fully backed by `ModelClient` abstraction.
+2. Shared retry and adaptive throttle modules are in production.
+3. OpenAI-compatible + Anthropic parity gates are complete.
+4. Feature-flag-based rollback path is validated.
+
+## Architecture Delta Diagram
+
+Step 2 extends the Step 1 client layer by adding Bedrock-specific paths only.
+
+```text
+             Step 1 (existing)
+ModelFacade -> ModelClient API -> [OpenAI Adapter | Anthropic Adapter | Bridge]
+
+             Step 2 (new)
+ModelFacade -> ModelClient API -> [OpenAI | Anthropic | Bedrock | Bridge?]
+                                         |
+                                         v
+                                 Bedrock Mapper Layer
+                           (claude/llama/nova/titan/stability)
+                                         |
+                                         v
+                               AWS Bedrock Runtime API
+```
+
+Design intent:
+
+1. No `ModelFacade` API changes in Step 2.
+2. Bedrock complexity is contained under adapter + mapper + auth resolution.
+
 ## Scope
 
 1. Add `BedrockClient` adapter under `engine/models/clients/adapters/bedrock.py`.
@@ -24,6 +65,24 @@ Out of scope:
 
 1. Re-design of `ModelFacade` public API (already covered by Step 1).
 2. Reworking shared retry/throttle abstractions except Bedrock-specific mappings.
+
+## File-Level Change Map (Step 2)
+
+New files:
+
+1. `packages/data-designer-engine/src/data_designer/engine/models/clients/adapters/bedrock.py`
+2. `packages/data-designer-engine/src/data_designer/engine/models/clients/bedrock_mappers/claude.py`
+3. `packages/data-designer-engine/src/data_designer/engine/models/clients/bedrock_mappers/llama.py`
+4. `packages/data-designer-engine/src/data_designer/engine/models/clients/bedrock_mappers/nova.py`
+5. `packages/data-designer-engine/src/data_designer/engine/models/clients/bedrock_mappers/titan.py`
+6. `packages/data-designer-engine/src/data_designer/engine/models/clients/bedrock_mappers/stability.py` (if enabled)
+
+Updated files:
+
+1. `packages/data-designer-engine/src/data_designer/engine/models/clients/factory.py` (route `provider_type=bedrock`)
+2. `packages/data-designer-config/src/data_designer/config/models.py` (Bedrock auth schema)
+3. `packages/data-designer/src/data_designer/cli/forms/provider_builder.py` (Bedrock auth input UX)
+4. `packages/data-designer-engine/src/data_designer/engine/models/errors.py` (Bedrock-specific error normalization coverage)
 
 ## Adapter Design
 
@@ -189,3 +248,26 @@ Use the same shared throttling framework introduced in Step 1.
 4. Bedrock error mapping surfaces existing user-facing `DataDesignerError` classes.
 5. Shared adaptive throttling works with Bedrock throttling signals.
 6. Test coverage includes mapper logic, auth, errors, and throttling behavior.
+
+## Risks and Mitigations
+
+### Risk: model-family payload fragmentation
+
+Mitigation:
+
+1. strict per-family mapper contracts with canonical input/output tests
+2. fail-fast unsupported-capability checks before outbound call
+
+### Risk: AWS auth misconfiguration complexity
+
+Mitigation:
+
+1. explicit auth-mode validation and actionable errors
+2. CI stub tests for all auth modes + optional smoke tests in controlled environment
+
+### Risk: throttling differences vs HTTP providers
+
+Mitigation:
+
+1. explicit mapping from Bedrock throttling exceptions to canonical `RATE_LIMIT`
+2. stress tests validating AIMD behavior under SDK exception patterns
