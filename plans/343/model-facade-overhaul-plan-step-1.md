@@ -6,6 +6,8 @@ authors:
 
 # Model Facade Overhaul Plan: Step 1 (Non-Bedrock)
 
+Review Reference: `plans/343/_review-model-facade-overhaul-plan.md`
+
 This document proposes a concrete migration plan to replace LiteLLM in Data Designer while keeping the public behavior of `ModelFacade` stable.
 
 The short version:
@@ -24,6 +26,21 @@ Reviewers should validate three things first:
 2. Provider-specific concerns are isolated inside adapters (`openai_compatible`, `anthropic`) behind canonical request/response types.
 3. Rollout is reversible with feature flag and bridge adapter until parity is proven.
 
+## Feedback Closure Matrix
+
+This section maps aggregated reviewer findings to the concrete plan updates.
+
+| Reviewer finding | Resolution in this plan |
+|---|---|
+| MCP contract for `completion`/`acompletion` is ambiguous | `Explicit MCP Compatibility Contract` defines canonical response contract and required parity tests |
+| Adaptive throttling contract had contradictions | `Adaptive Throttling` + `Sync/async throttle parity tests` now align on shared global cap + domain keys |
+| Step 1 provider type hardening could block Step 2 Bedrock | `Config and CLI Evolution` keeps provider type extensible and reserves `bedrock` for Step 2 |
+| Rollback safety conflicted with flip/removal sequencing | `PR slicing` and `Migration Phases` split default flip/soak from LiteLLM removal |
+| Auth mapping for `401/403` ambiguous | `Auth error normalization` now defines deterministic default mapping |
+| HTTP client lifecycle/pooling underspecified | `HTTP client lifecycle and pool policy` adds ownership/teardown/pool sizing contract |
+| `extra_body`/`extra_headers` precedence unclear | `Request merge / precedence contract` defines explicit merge order |
+| Anthropic capability statements inconsistent | `Capability Matrix` now matches Step 1 implementation scope (`No` for embeddings/image) |
+
 ## Locked Design Decisions (Step 1)
 
 These are explicit decisions for Step 1 review and implementation.
@@ -41,6 +58,8 @@ These are explicit decisions for Step 1 review and implementation.
    - top-level `api_key` continues to work for `openai` and `anthropic`.
 7. Streaming support is out of scope for Step 1.
 8. Bedrock support is intentionally out of scope for Step 1.
+9. `completion`/`acompletion` contract in Step 1 is canonical response shape.
+10. MCP handling is adapted in Step 1 to consume canonical responses; no long-term LiteLLM-shaped response dependency.
 
 ## Reviewer Sign-Off Questions
 
@@ -127,6 +146,22 @@ Callers
 5) On recovery, additive increase restores capacity up to effective max
 ```
 
+## Explicit MCP Compatibility Contract
+
+Step 1 chooses this migration contract:
+
+1. `ModelFacade` is refactored to consume canonical `ChatCompletionResponse` in PR-2.
+2. MCP helpers (`has_tool_calls`, `tool_call_count`, processing/refusal path) are updated for canonical tool-call fields in the same PR.
+3. Bridge adapter translates LiteLLM responses into canonical shape before `ModelFacade` sees them.
+4. This contract supersedes any phrasing that MCP helpers stay interface-identical; behavior parity is preserved, interfaces are updated.
+
+Required parity tests:
+
+1. tool-call extraction count parity
+2. refusal flow parity when tool budget is exceeded
+3. reasoning content propagation parity
+4. trace message shape parity for assistant/tool messages
+
 ## Concrete Implementation Plan
 
 ### File-level change map
@@ -148,18 +183,39 @@ Updated files (Step 1):
 1. `packages/data-designer-engine/src/data_designer/engine/models/facade.py`
 2. `packages/data-designer-engine/src/data_designer/engine/models/errors.py`
 3. `packages/data-designer-engine/src/data_designer/engine/models/factory.py`
-4. `packages/data-designer-config/src/data_designer/config/models.py` (auth schema extension)
-5. `packages/data-designer/src/data_designer/cli/forms/provider_builder.py` (provider-specific auth input)
-6. `packages/data-designer-config/src/data_designer/lazy_heavy_imports.py` (remove `litellm` after cutover)
+4. `packages/data-designer-engine/src/data_designer/engine/models/registry.py` (adapter lifecycle close/aclose ownership)
+5. `packages/data-designer-engine/src/data_designer/engine/resources/resource_provider.py` (shutdown wiring if needed)
+6. `packages/data-designer/src/data_designer/interface/data_designer.py` (invoke resource teardown hooks in generation entrypoints)
+7. `packages/data-designer-config/src/data_designer/config/models.py` (auth schema extension)
+8. `packages/data-designer/src/data_designer/cli/forms/provider_builder.py` (provider-specific auth input)
+9. `packages/data-designer-config/src/data_designer/lazy_heavy_imports.py` (remove `litellm` after cutover)
 
 ### PR slicing (recommended)
 
 1. PR-1: canonical types/interfaces/errors + bridge adapter + no behavior change.
-2. PR-2: `ModelFacade` switched to `ModelClient` + parity tests passing on bridge.
-3. PR-3: OpenAI-compatible adapter + retry + throttle + auth integration.
+   - files: `clients/base.py`, `clients/types.py`, `clients/errors.py`, `clients/adapters/litellm_bridge.py`
+   - docs: add architecture notes for canonical adapter boundary and bridge purpose.
+2. PR-2: `ModelFacade` switched to `ModelClient` + lifecycle wiring + parity tests on bridge.
+   - files: `models/facade.py`, `models/errors.py`, `models/factory.py`, `clients/factory.py`, `models/registry.py`, `resources/resource_provider.py`, `interface/data_designer.py`
+   - docs: update internal lifecycle/ownership docs for adapter teardown and resource shutdown behavior.
+3. PR-3: OpenAI-compatible adapter + shared retry/throttle + auth integration.
+   - files: `clients/retry.py`, `clients/throttle.py`, `clients/adapters/openai_compatible.py`
+   - docs: add provider docs for openai-compatible routing, endpoint expectations, and retry/throttle semantics.
 4. PR-4: Anthropic adapter + auth integration + capability gating.
-5. PR-5: CLI/config schema updates + docs + migration guards.
-6. PR-6: Cutover flag default flip + LiteLLM removal for Step 1 scope.
+   - files: `clients/adapters/anthropic.py`
+   - docs: add Anthropic capability/limitations documentation for Step 1 scope.
+5. PR-5: Config/CLI auth schema rollout + migration guards + docs.
+   - files: `config/models.py`, `cli/forms/provider_builder.py`
+   - docs: publish auth schema migration guide (legacy `api_key` fallback + typed `auth` objects) and CLI examples.
+6. PR-6: Cutover flag default flip to native while retaining bridge path.
+   - docs: update rollout runbook and env-flag guidance (`DATA_DESIGNER_MODEL_BACKEND`) for operators.
+7. PR-7: Remove LiteLLM dependency/path after soak window.
+   - files: `lazy_heavy_imports.py` and removal of legacy LiteLLM runtime path
+   - docs: remove LiteLLM references and close out migration notes.
+
+### PR coverage check (Step 1)
+
+Every file listed in `File-level change map` must map to exactly one PR above. If a PR changes additional files, they should be explicitly scoped as tests/docs only.
 
 ### Reviewer checklist per PR
 
@@ -168,7 +224,8 @@ Updated files (Step 1):
 3. Are sync and async paths symmetric in behavior?
 4. Does adaptive throttling honor global cap and domain key rules?
 5. Is any secret material exposed in logs or reprs?
-6. Is rollback possible via feature flag in the same PR?
+6. Is rollback possible via feature flag with bridge path retained during soak?
+7. Are adapter lifecycle teardown hooks wired (`ModelRegistry`/`ResourceProvider`) with no leaked clients in tests?
 
 ## Why This Plan
 
@@ -249,6 +306,7 @@ class Usage:
     input_tokens: int | None = None
     output_tokens: int | None = None
     total_tokens: int | None = None
+    generated_images: int | None = None
 
 
 @dataclass
@@ -335,6 +393,8 @@ Notes:
 1. `raw` exists for diagnostics/logging only.
 2. Canonical image output is always base64 payload.
 3. Tool calls are normalized to `id/name/arguments_json`.
+4. `Usage` includes non-token fields when providers expose them (for example `generated_images`).
+5. For image generation, if provider usage does not include image counts, `ModelFacade` tracks `generated_images` from `len(images)` to preserve current `image_usage.total_images` behavior.
 
 ## Adapter Interfaces
 
@@ -531,8 +591,11 @@ At model client creation time:
 
 Map provider auth failures into canonical errors:
 
-1. OpenAI-compatible `401/403` -> `ProviderError(kind=AUTHENTICATION | PERMISSION_DENIED)`
-2. Anthropic `401/403` -> same mapping
+1. Default mapping:
+   - `401` -> `ProviderError(kind=AUTHENTICATION)`
+   - `403` -> `ProviderError(kind=PERMISSION_DENIED)`
+2. OpenAI-compatible: follow default mapping unless provider-specific payload indicates otherwise.
+3. Anthropic: follow default mapping unless provider-specific payload indicates otherwise.
 
 Then map canonical provider errors to existing Data Designer user-facing errors:
 
@@ -577,7 +640,7 @@ from typing import Any
 
 import httpx
 
-from data_designer.engine.models.clients.errors import ProviderError
+from data_designer.engine.models.clients.errors import ProviderError, map_http_error_to_provider_error
 from data_designer.engine.models.clients.retry import RetryPolicy, run_with_retries
 from data_designer.engine.models.clients.types import (
     ChatCompletionRequest,
@@ -590,6 +653,8 @@ from data_designer.engine.models.clients.types import (
 
 
 class HTTPAdapterBase:
+    ROUTES: dict[str, str] = {}
+
     def __init__(
         self,
         *,
@@ -617,6 +682,43 @@ class HTTPAdapterBase:
             headers.update(extra_headers)
         return headers
 
+    def _resolve_url(self, route_key: str) -> str:
+        try:
+            route_path = self.ROUTES[route_key]
+        except KeyError as exc:
+            raise ValueError(f"Unknown route key {route_key!r} for provider {self.provider_name!r}") from exc
+        return f"{self.endpoint}/{route_path.lstrip('/')}"
+
+    def _post_json(
+        self,
+        route_key: str,
+        payload: dict[str, Any],
+        extra_headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        response = self._client.post(
+            self._resolve_url(route_key),
+            json=payload,
+            headers=self._headers(extra_headers),
+        )
+        if response.status_code >= 400:
+            raise map_http_error_to_provider_error(response=response, provider_name=self.provider_name)
+        return response.json()
+
+    async def _apost_json(
+        self,
+        route_key: str,
+        payload: dict[str, Any],
+        extra_headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        response = await self._aclient.post(
+            self._resolve_url(route_key),
+            json=payload,
+            headers=self._headers(extra_headers),
+        )
+        if response.status_code >= 400:
+            raise map_http_error_to_provider_error(response=response, provider_name=self.provider_name)
+        return response.json()
+
     def close(self) -> None:
         self._client.close()
 
@@ -624,10 +726,35 @@ class HTTPAdapterBase:
         await self._aclient.aclose()
 ```
 
+### HTTP client lifecycle and pool policy
+
+Lifecycle contract:
+
+1. Adapters are created by model client factory and owned by the model registry lifetime.
+2. Model registry shutdown is responsible for invoking `close`/`aclose` on all adapter instances.
+3. `ResourceProvider` exposes `close`/`aclose` and delegates to `ModelRegistry` teardown.
+4. `DataDesigner` entrypoints (`create`, `preview`, `validate`) invoke resource teardown in `finally` blocks.
+5. Tests must verify no leaked open HTTP clients after teardown.
+
+Pool sizing policy:
+
+1. Configure `httpx` limits using effective concurrency with concrete defaults:
+   - `max_connections = max(32, 2 * effective_max_parallel_requests)`
+   - `max_keepalive_connections = max(16, effective_max_parallel_requests)`
+2. Keep sync and async client limits aligned.
+3. Revisit limits per provider if transport characteristics require overrides.
+4. Pool limits are derived from the shared effective max cap at client creation time; AIMD adjusts request admission, not socket pool size.
+
 ### OpenAI-compatible adapter skeleton
 
 ```python
 class OpenAICompatibleClient(HTTPAdapterBase, ModelClient):
+    ROUTES = {
+        "chat": "/chat/completions",
+        "embedding": "/embeddings",
+        "image": "/images/generations",
+    }
+
     def supports_chat_completion(self) -> bool:
         return True
 
@@ -651,7 +778,7 @@ class OpenAICompatibleClient(HTTPAdapterBase, ModelClient):
             payload.update(request.extra_body)
 
         response_json = run_with_retries(
-            fn=lambda: self._post_json("/chat/completions", payload, request.extra_headers),
+            fn=lambda: self._post_json("chat", payload, request.extra_headers),
             policy=self.retry_policy,
         )
         return parse_openai_chat_response(response_json)
@@ -660,13 +787,40 @@ class OpenAICompatibleClient(HTTPAdapterBase, ModelClient):
         ...
 
     def embeddings(self, request: EmbeddingRequest) -> EmbeddingResponse:
-        ...
+        payload = {"model": request.model, "input": request.inputs}
+        if request.extra_body:
+            payload.update(request.extra_body)
+        response_json = run_with_retries(
+            fn=lambda: self._post_json("embedding", payload, request.extra_headers),
+            policy=self.retry_policy,
+        )
+        return parse_openai_embedding_response(response_json)
 
     async def aembeddings(self, request: EmbeddingRequest) -> EmbeddingResponse:
         ...
 
     def generate_image(self, request: ImageGenerationRequest) -> ImageGenerationResponse:
-        ...
+        # Autoregressive image models may use chat route; diffusion-style models use image route.
+        if request.messages:
+            route_key = "chat"
+            payload = openai_chat_image_payload_from_canonical(request)
+        else:
+            route_key = "image"
+            payload = {
+                "model": request.model,
+                "prompt": request.prompt,
+                "n": request.n,
+            }
+            payload = {k: v for k, v in payload.items() if v is not None}
+
+        if request.extra_body:
+            payload.update(request.extra_body)
+
+        response_json = run_with_retries(
+            fn=lambda: self._post_json(route_key, payload, request.extra_headers),
+            policy=self.retry_policy,
+        )
+        return parse_openai_image_response(response_json)
 
     async def agenerate_image(self, request: ImageGenerationRequest) -> ImageGenerationResponse:
         ...
@@ -676,6 +830,10 @@ class OpenAICompatibleClient(HTTPAdapterBase, ModelClient):
 
 ```python
 class AnthropicClient(HTTPAdapterBase, ModelClient):
+    ROUTES = {
+        "chat": "/v1/messages",
+    }
+
     def supports_chat_completion(self) -> bool:
         return True
 
@@ -688,7 +846,7 @@ class AnthropicClient(HTTPAdapterBase, ModelClient):
     def completion(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
         payload = anthropic_payload_from_canonical(request)
         response_json = run_with_retries(
-            fn=lambda: self._post_json("/v1/messages", payload, anthropic_headers(request.extra_headers)),
+            fn=lambda: self._post_json("chat", payload, anthropic_headers(request.extra_headers)),
             policy=self.retry_policy,
         )
         return parse_anthropic_chat_response(response_json)
@@ -710,6 +868,16 @@ class AnthropicClient(HTTPAdapterBase, ModelClient):
 ```
 
 ## Request and Response Mapping Details
+
+### Request merge / precedence contract
+
+To preserve current behavior, merge precedence is explicit:
+
+1. Start from model inference params (`generate_kwargs`).
+2. Overlay per-call kwargs.
+3. Merge `extra_body` with provider extra body taking precedence on key conflicts.
+4. Set `extra_headers` from provider extra headers (provider-level replacement semantics).
+5. Drop non-provider params like `purpose` before outbound request.
 
 ### Canonical -> OpenAI-compatible chat payload
 
@@ -770,7 +938,9 @@ Routing logic:
 
 1. `provider_type == "openai"` -> `OpenAICompatibleClient`
 2. `provider_type == "anthropic"` -> `AnthropicClient`
-3. unknown -> `ValueError` with supported provider types
+3. `provider_type == "bedrock"` -> fail fast with:
+   - `ValueError("provider_type='bedrock' is deferred to Step 2; see plans/343/model-facade-overhaul-plan-step-2-bedrock.md")`
+4. unknown -> `ValueError` with supported provider types
 
 Migration safety option:
 
@@ -951,7 +1121,7 @@ Minimal diff approach:
 2. Replace `_router` with `_client: ModelClient`.
 3. Convert `ChatMessage` list into canonical request.
 4. Consume canonical response shape.
-5. Preserve all MCP logic exactly as-is.
+5. Preserve MCP generation semantics (tool budget, refusal behavior, corrections, trace behavior) while updating MCP helper interfaces to canonical response fields.
 6. Move usage tracking methods to consume canonical `Usage`.
 
 Expected code updates:
@@ -960,6 +1130,7 @@ Expected code updates:
 2. `factory.py`: initialize client factory instead of applying LiteLLM patches.
 3. `errors.py`: map from canonical `ProviderError` instead of LiteLLM exception classes.
 4. `lazy_heavy_imports.py`: remove `litellm` entry after complete cutover.
+5. `registry.py` + `resource_provider.py` + `data_designer.py`: add deterministic client teardown hooks for sync/async lifecycles.
 
 ## Capability Matrix
 
@@ -969,9 +1140,9 @@ Introduce explicit capability checks at adapter and model level.
 |---|---|---|
 | Chat completion | Yes | Yes |
 | Tool calls | Yes | Yes |
-| Embeddings | Yes (endpoint/model dependent) | Provider dependent |
-| Image generation (diffusion endpoint) | Yes (provider dependent) | Provider dependent |
-| Image via chat completion | Some models | Provider dependent |
+| Embeddings | Yes (endpoint/model dependent) | No (Step 1) |
+| Image generation (diffusion endpoint) | Yes (provider dependent) | No (Step 1) |
+| Image via chat completion | Some models | No (Step 1) |
 
 If unsupported at runtime:
 
@@ -1028,13 +1199,13 @@ This matrix defines expected parity between the current LiteLLM-backed implement
 | Token usage for embeddings | From LiteLLM usage fields | From canonical `Usage` parsed by adapter | Same behavior |
 | Token usage for image generation | From LiteLLM image usage (when present) | From canonical `Usage` parsed by adapter | Same behavior; request counts still update if token usage absent |
 | Tool usage tracking | Managed in `generate/agenerate` loops | Unchanged in `ModelFacade` | Exact parity expected |
-| Image count usage | Counted from returned images | Counted from canonical image payloads | Exact parity expected |
+| Image count usage | Counted from returned images | Counted from `usage.generated_images` when provided, otherwise from canonical image payload count | Exact parity expected |
 
 ### Configuration compatibility
 
 | Config surface | Current | Target | Compatibility expectation |
 |---|---|---|---|
-| `ModelProvider.provider_type` | Free-form string | Enumerated known values in factory (later schema hardening) | Existing `"openai"` continues to work unchanged |
+| `ModelProvider.provider_type` | Free-form string | Extensible string + known-values validation | Existing `"openai"` continues to work unchanged; `bedrock` remains reserved for Step 2 |
 | `ModelProvider.api_key` | Top-level optional field | Supported as fallback for auth | Backward compatible during migration window |
 | `ModelProvider.auth` | Not present | Optional provider-specific auth object | Additive, non-breaking introduction |
 | `extra_headers` | Provider-level dict | Preserved and merged into adapter request | Same precedence behavior |
@@ -1059,12 +1230,11 @@ Current `ModelProvider.provider_type` is free-form string. Tighten this in phase
 1. Keep `str` but validate known values in factory.
 2. Emit warning for unknown values.
 
-### Phase B (breaking-ready)
+### Phase B (post-Step2 hardening)
 
-1. Migrate to a constrained literal/enum:
-   - `"openai"`
-   - `"anthropic"`
-2. Update CLI provider form with controlled options and validation.
+1. Keep provider type extensible in Step 1 while validating known values (`openai`, `anthropic`, `bedrock` reserved).
+2. Defer strict enum hardening until after Step 2 Bedrock delivery.
+3. Update CLI provider form with controlled options and validation.
 
 Related files:
 
@@ -1080,6 +1250,11 @@ Goal: prove behavior parity independent of backend.
 1. Keep existing `test_facade.py` behavior assertions.
 2. Parametrize backend selection (`litellm_bridge` vs native adapters).
 3. Ensure MCP/tool-loop/correction behavior is unchanged.
+4. Add explicit MCP parity tests for:
+   - tool-call extraction count
+   - refusal path
+   - reasoning content propagation
+   - trace message shape
 
 ### 2. Adapter unit tests
 
@@ -1091,6 +1266,7 @@ Per adapter:
 4. usage extraction tests
 5. retry behavior tests
 6. adaptive throttling behavior tests (drop on 429, gradual recovery)
+7. auth status mapping tests (`401 -> AUTHENTICATION`, `403 -> PERMISSION_DENIED`)
 
 Tools:
 
@@ -1176,7 +1352,33 @@ Exit criteria:
 1. adapter unit tests pass
 2. contract tests pass for Anthropic-configured chat workloads
 
-### Phase 3: LiteLLM deprecation and removal (non-Bedrock paths)
+### Phase 2b: Config and CLI auth schema rollout
+
+Deliverables:
+
+1. typed provider auth schema in `config/models.py` with backward-compatible `api_key` fallback
+2. provider-specific auth input flow in `cli/forms/provider_builder.py`
+3. migration docs and validation guards for legacy configs
+
+Exit criteria:
+
+1. config validation passes for legacy and typed auth examples
+2. CLI form tests cover openai/anthropic auth input paths
+
+### Phase 3: Native default flip + soak window
+
+Deliverables:
+
+1. flip default backend to native
+2. retain bridge path for rollback
+3. run soak window and monitor readiness gates for at least one release window
+
+Exit criteria:
+
+1. rollback switch validated in release candidate
+2. soak window passes with no blocker regressions
+
+### Phase 4: LiteLLM deprecation and removal (non-Bedrock paths)
 
 Deliverables:
 
@@ -1193,9 +1395,10 @@ Exit criteria:
 
 1. Feature flag backend switch during migration:
    - `DATA_DESIGNER_MODEL_BACKEND=litellm_bridge|native`
-2. Log provider, model, latency, retry_count per request for observability.
-3. Keep raw provider response in debug logs only, with PII-safe handling.
-4. Preserve timeout behavior and ensure async cancellation works cleanly.
+2. Keep bridge path available for rollback until soak/release window completes.
+3. Log provider, model, latency, retry_count per request for observability.
+4. Keep raw provider response in debug logs only, with PII-safe handling.
+5. Preserve timeout behavior and ensure async cancellation works cleanly.
 
 ## Risks and Mitigations
 
@@ -1241,14 +1444,16 @@ Mitigation:
 2. Implement `LiteLLMBridgeClient` and switch `ModelFacade` to use `ModelClient`.
 3. Add provider-specific `auth` schema parsing with compatibility fallback from `api_key`.
 4. Refactor `errors.py` to consume canonical provider errors.
-5. Implement shared adaptive throttle manager keyed by `(provider_name, model_identifier, throttle_domain)` with sync/async wrappers.
-6. Add optional shared upstream pressure signal keyed by `(provider_name, model_identifier)` with domain-aware cooldown propagation.
-7. Implement `OpenAICompatibleClient` with sync/async, retry, adaptive throttle, auth headers, and image URL-to-base64 normalization.
-8. Add adapter tests and contract parametrization by backend.
-9. Implement Anthropic adapter (chat + tools + auth headers).
-10. Update CLI provider forms for provider-specific auth input.
-11. Cut over default backend to native and run soak period.
-12. Remove LiteLLM dependency and legacy overrides for non-Bedrock paths.
+5. Add `ModelRegistry.close/aclose` and `ResourceProvider.close/aclose`, and wire teardown in `DataDesigner` entrypoints.
+6. Implement shared adaptive throttle manager keyed by `(provider_name, model_identifier, throttle_domain)` with sync/async wrappers.
+7. Add optional shared upstream pressure signal keyed by `(provider_name, model_identifier)` with domain-aware cooldown propagation.
+8. Implement `OpenAICompatibleClient` with sync/async, retry, adaptive throttle, auth headers, and image URL-to-base64 normalization.
+9. Add adapter tests and contract parametrization by backend.
+10. Implement Anthropic adapter (chat + tools + auth headers).
+11. Update CLI provider forms for provider-specific auth input.
+12. Flip default backend to native while retaining bridge rollback path.
+13. Complete soak window against cutover readiness gates.
+14. Remove LiteLLM dependency and legacy overrides for non-Bedrock paths.
 
 ## Definition of Done
 
@@ -1260,4 +1465,5 @@ The LiteLLM replacement is complete when all conditions are met:
 4. Existing model-facing behavior tests pass against native adapters.
 5. OpenAI-compatible and Anthropic adapters are available with documented capability limits.
 6. Bedrock work is explicitly deferred to `plans/343/model-facade-overhaul-plan-step-2-bedrock.md`.
-7. Documentation and CLI provider guidance are updated.
+7. Adapter teardown lifecycle is wired and validated (no leaked open HTTP clients after `create`/`preview`/`validate` flows).
+8. Documentation and CLI provider guidance are updated.

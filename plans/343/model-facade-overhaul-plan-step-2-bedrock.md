@@ -6,6 +6,8 @@ authors:
 
 # Model Facade Overhaul Plan: Step 2 (Bedrock)
 
+Review Reference: `plans/343/_review-model-facade-overhaul-plan.md`
+
 This step adds native Bedrock support after Step 1 is complete.
 
 Depends on:
@@ -38,7 +40,7 @@ Step 2 extends the Step 1 client layer by adding Bedrock-specific paths only.
 ModelFacade -> ModelClient API -> [OpenAI Adapter | Anthropic Adapter | Bridge]
 
              Step 2 (new)
-ModelFacade -> ModelClient API -> [OpenAI | Anthropic | Bedrock | Bridge?]
+ModelFacade -> ModelClient API -> [OpenAI | Anthropic | Bedrock | Bridge (optional soak fallback)]
                                          |
                                          v
                                  Bedrock Mapper Layer
@@ -97,6 +99,14 @@ Updated files:
 2. Embeddings: supported by model-family mapper.
 3. Image generation: supported by model-family mapper.
 4. Unsupported operation for chosen model -> canonical `ProviderError(kind=UNSUPPORTED_CAPABILITY)`.
+
+### Sync/async execution contract
+
+1. Step 2 keeps existing `ModelFacade` sync/async signatures unchanged.
+2. Bedrock adapter primary transport uses the sync AWS SDK client.
+3. Async adapter methods wrap SDK calls through `asyncio.to_thread(...)` to avoid blocking the event loop.
+4. Shared retry/throttle/auth logic remains identical between sync and async paths.
+5. Streaming remains out of scope.
 
 ### Model family mappers
 
@@ -172,7 +182,9 @@ BedrockAuth = Annotated[
 
 1. `UnrecognizedClientException` -> `ProviderError(kind=AUTHENTICATION)`
 2. `AccessDeniedException` -> `ProviderError(kind=PERMISSION_DENIED)`
-3. STS assume-role failures -> `ProviderError(kind=AUTHENTICATION | PERMISSION_DENIED)` based on error code
+3. STS assume-role failures:
+   - credential/identity failures -> `ProviderError(kind=AUTHENTICATION)`
+   - policy/authorization failures -> `ProviderError(kind=PERMISSION_DENIED)`
 
 ## Throttling and Concurrency
 
@@ -193,6 +205,11 @@ Use the same shared throttling framework introduced in Step 1.
 
 1. SDK throttling exceptions (`ThrottlingException` family)
 2. retry hints when present in SDK metadata
+
+### Lifecycle contract
+
+1. `BedrockClient` participates in Step 1 lifecycle ownership (`ModelRegistry` -> `ResourceProvider` teardown).
+2. Any Bedrock runtime/session object that exposes close semantics is closed from adapter `close`/`aclose`.
 
 ## Testing
 
