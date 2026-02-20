@@ -12,7 +12,7 @@ from data_designer.config.column_types import ColumnConfigT
 from data_designer.config.exportable_config import ExportableConfigBase
 from data_designer.config.mcp import ToolConfig
 from data_designer.config.models import ModelConfig
-from data_designer.config.processors import ProcessorConfigT
+from data_designer.config.processor_types import ProcessorConfigT
 from data_designer.config.sampler_constraints import ColumnConstraintT
 from data_designer.config.seed import SeedConfig
 

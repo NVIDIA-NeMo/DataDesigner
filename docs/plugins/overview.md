@@ -7,12 +7,11 @@
 
 Plugins are Python packages that extend Data Designer's capabilities without modifying the core library. Similar to [VS Code extensions](https://marketplace.visualstudio.com/vscode) and [Pytest plugins](https://docs.pytest.org/en/stable/reference/plugin_list.html), the plugin system empowers you to build specialized extensions for your specific use cases and share them with the community.
 
-**Current capabilities**: Data Designer supports two plugin types:
+**Current capabilities**: Data Designer supports three plugin types:
 
 - **Column Generator Plugins**: Custom column types you pass to the config builder's [add_column](../code_reference/config_builder.md#data_designer.config.config_builder.DataDesignerConfigBuilder.add_column) method.
 - **Seed Reader Plugins**: Custom seed dataset readers that let you load data from new sources (e.g., databases, cloud storage, custom formats).
-
-**Coming soon**: Plugin support for processors, validators, and more!
+- **Processor Plugins**: Custom processors that transform data before batches, after batches, or after generation completes. Pass them to the config builder's [add_processor](../code_reference/config_builder.md#data_designer.config.config_builder.DataDesignerConfigBuilder.add_processor) method.
 
 ## How do you use plugins?
 
@@ -39,9 +38,11 @@ Each plugin has three components, and we recommend organizing them into separate
 - **`config.py`** -- Configuration class defining user-facing parameters
     - Column generator plugins: inherit from `SingleColumnConfig` with a `column_type` discriminator
     - Seed reader plugins: inherit from `SeedSource` with a `seed_type` discriminator
+    - Processor plugins: inherit from `ProcessorConfig` with a `processor_type` discriminator
 - **`impl.py`** -- Implementation class containing the core logic
     - Column generator plugins: inherit from `ColumnGeneratorFullColumn` or `ColumnGeneratorCellByCell`
     - Seed reader plugins: inherit from `SeedReader`
+    - Processor plugins: inherit from `Processor` and override callback methods (`process_before_batch`, `process_after_batch`, `process_after_generation`)
 - **`plugin.py`** -- A `Plugin` instance that connects the config and implementation classes
 
 ### 2. Package Your Plugin
@@ -60,5 +61,24 @@ Each plugin has three components, and we recommend organizing them into separate
 
 - Publish to PyPI or another package index to make it installable by anyone via `pip install`
 - This step is only needed if you want others outside your environment to use the plugin
+
+**Example entry point for a processor plugin:**
+
+```toml
+[project.entry-points."data_designer.plugins"]
+my-processor = "my_plugin.plugin:my_processor_plugin"
+```
+
+Where `my_processor_plugin` is a `Plugin` instance with `plugin_type=PluginType.PROCESSOR`:
+
+```python
+from data_designer.plugins.plugin import Plugin, PluginType
+
+my_processor_plugin = Plugin(
+    config_qualified_name="my_plugin.config.MyProcessorConfig",
+    impl_qualified_name="my_plugin.impl.MyProcessor",
+    plugin_type=PluginType.PROCESSOR,
+)
+```
 
 **Ready to get started?** See the [Example Plugin](example.md) for a complete walkthrough of creating a column generator plugin.
