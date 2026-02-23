@@ -81,7 +81,7 @@ MODEL_PROVIDER = "nvidia"
 model_configs = [
     dd.ModelConfig(
         alias="vision",
-        model="meta/llama-4-scout-17b-16e-instruct",
+        model="nvidia/nemotron-nano-12b-v2-vl",
         provider=MODEL_PROVIDER,
         inference_parameters=dd.ChatCompletionInferenceParams(
             temperature=0.60,
