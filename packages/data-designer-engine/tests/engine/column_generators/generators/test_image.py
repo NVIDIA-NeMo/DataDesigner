@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import base64
 from unittest.mock import Mock, patch
 
 import pytest
@@ -216,3 +217,89 @@ def test_image_cell_generator_with_base64_multi_modal_context(stub_resource_prov
         assert call_args.kwargs["multi_modal_context"][0]["type"] == "image_url"
         # Should be formatted as data URI
         assert "data:image/png;base64," in call_args.kwargs["multi_modal_context"][0]["image_url"]["url"]
+
+
+def test_image_cell_generator_build_multi_modal_context_returns_none_when_not_configured(
+    stub_image_column_config: ImageColumnConfig, stub_resource_provider: None
+) -> None:
+    """Test that _build_multi_modal_context returns None when config has no multi_modal_context."""
+    generator = ImageCellGenerator(config=stub_image_column_config, resource_provider=stub_resource_provider)
+    result = generator._build_multi_modal_context({"style": "photorealistic", "subject": "cat"})
+    assert result is None
+
+
+def test_image_cell_generator_auto_resolves_generated_image_file_path(stub_resource_provider: Mock) -> None:
+    """Test that auto-detection resolves generated image file paths to base64 in create mode."""
+    # Create ImageContext with no data_type (auto-detect mode)
+    image_context = ImageContext(column_name="first_image")
+
+    config = ImageColumnConfig(
+        name="edited_image",
+        prompt="Edit this image",
+        model_alias="test_model",
+        multi_modal_context=[image_context],
+    )
+
+    # Create an actual image file under the artifact storage base_dataset_path
+    base_path = stub_resource_provider.artifact_storage.base_dataset_path
+    images_dir = base_path / "images" / "first_image"
+    images_dir.mkdir(parents=True)
+    image_file = images_dir / "uuid1.png"
+    png_bytes = b"\x89PNG\r\n\x1a\n" + b"\x00" * 50
+    image_file.write_bytes(png_bytes)
+
+    # Setup mock media storage
+    mock_storage = Mock()
+    mock_storage.save_base64_image.return_value = "images/edited_image/uuid2.png"
+    stub_resource_provider.artifact_storage.media_storage = mock_storage
+
+    with patch.object(
+        stub_resource_provider.model_registry.get_model.return_value,
+        "generate_image",
+        return_value=["base64_edited_image"],
+    ) as mock_generate:
+        generator = ImageCellGenerator(config=config, resource_provider=stub_resource_provider)
+        # Simulate create mode: first_image column has a relative file path
+        data = generator.generate(data={"first_image": "images/first_image/uuid1.png"})
+
+        assert data["edited_image"] == ["images/edited_image/uuid2.png"]
+
+        # Verify the multi_modal_context was resolved from file path to base64
+        mock_generate.assert_called_once()
+        call_args = mock_generate.call_args
+        context = call_args.kwargs["multi_modal_context"]
+        assert context is not None
+        assert len(context) == 1
+        assert context[0]["type"] == "image_url"
+        # Should contain base64 data, NOT the file path
+        expected_b64 = base64.b64encode(png_bytes).decode()
+        assert expected_b64 in context[0]["image_url"]["url"]
+
+
+def test_image_cell_generator_auto_detect_passes_through_urls(stub_resource_provider: Mock) -> None:
+    """Test that auto-detection passes through URLs without converting to base64."""
+    image_context = ImageContext(column_name="reference_image")
+
+    config = ImageColumnConfig(
+        name="test_image",
+        prompt="Generate a similar image",
+        model_alias="test_model",
+        multi_modal_context=[image_context],
+    )
+
+    mock_storage = Mock()
+    mock_storage.save_base64_image.return_value = "images/generated.png"
+    stub_resource_provider.artifact_storage.media_storage = mock_storage
+
+    with patch.object(
+        stub_resource_provider.model_registry.get_model.return_value,
+        "generate_image",
+        return_value=["base64_image"],
+    ) as mock_generate:
+        generator = ImageCellGenerator(config=config, resource_provider=stub_resource_provider)
+        generator.generate(data={"reference_image": "https://example.com/image.png"})
+
+        mock_generate.assert_called_once()
+        context = mock_generate.call_args.kwargs["multi_modal_context"]
+        assert context is not None
+        assert context[0]["image_url"] == "https://example.com/image.png"
