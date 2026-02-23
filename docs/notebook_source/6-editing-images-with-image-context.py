@@ -211,7 +211,7 @@ preview.dataset
 # %%
 def display_image(image_value, base_path: Path | None = None) -> None:
     """Display an image from base64 (preview mode) or file path (create mode)."""
-    values = image_value if isinstance(image_value, list) else [image_value]
+    values = [image_value] if isinstance(image_value, str) else list(image_value)
     for value in values:
         if base_path is not None:
             display(IPImage(filename=str(base_path / value)))
