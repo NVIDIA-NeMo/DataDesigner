@@ -20,7 +20,7 @@ Every modern AI application that integrates LLMs into a software stack hits the 
 
 The stakes are high. When an LLM serves as a backend for tool-calling agents, a single malformed JSON response doesn't just produce a bad answer; it crashes the entire agentic pipeline. The function call fails, the agent can't recover, and the user sees an error. OpenAI, Anthropic, and Google have all invested heavily in structured output guarantees for exactly this reason.
 
-On standard benchmarks, our baseline model failed to produce valid structured outputs upto 35% of the time, depending on schema complexity and format. For an API serving thousands of requests, that's hundreds of failures per hour. Our goal was to reduce this as much as possible through targeted synthetic data.
+On standard benchmarks, our baseline model failed to produce valid structured outputs up to 35% of the time, depending on schema complexity and format. For an API serving thousands of requests, that's hundreds of failures per hour. Our goal was to reduce this as much as possible through targeted synthetic data.
 
 ---
 
