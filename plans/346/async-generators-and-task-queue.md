@@ -89,24 +89,29 @@ Full-column generators operate on their entire row group at once, same as today.
 
 ### 4. Concurrency control
 
-Two independent layers:
+Three independent layers:
 
 1. **Scheduler semaphore** — a coarse resource guard bounding total in-flight
-   tasks to limit CPU/memory pressure (e.g., configurable cap, default ~128).
-   This is **not** the source of truth for API concurrency; it only prevents
-   unbounded coroutine fan-out.
+   active execution to limit CPU/memory pressure (e.g., configurable cap, default
+   ~128). This is **not** the source of truth for API concurrency.
 
 2. **Throttle manager** (from PR #344) — gates every outbound LLM call, keyed
    by `provider+model(+domain)`. Dynamically adjusts per-key limits on 429s
    via AIMD. This is the real API concurrency control.
+
+3. **Submission budget** — a hard cap on "submitted but not finished" tasks
+   (running + waiting on throttle/backoff), e.g., `async_scheduler_max_submitted_tasks`.
+   This prevents unbounded parked coroutines when tasks release scheduler slots
+   before throttle acquire.
 
 Tasks must **not hold scheduler slots while waiting on throttle backoff**. A task
 acquires a scheduler slot, prepares its request, then releases the slot before
 awaiting the throttle permit. This ensures a throttled model key doesn't starve
 unrelated keys by hogging scheduler capacity.
 
-This replaces per-column fan-out and composes cleanly with PR #344's adaptive
-throttling without the two systems fighting each other.
+Task admission is therefore bounded by the submission budget, while active
+execution is bounded by the scheduler semaphore. This composes cleanly with
+PR #344's adaptive throttling without the two systems fighting each other.
 
 ### 5. Generator statefulness and reentrancy
 
@@ -191,9 +196,10 @@ Build the dependency map from column configs at builder init time.
   - Also register side-effect output columns (`__trace`, `__reasoning_content`, etc.)
     and map them back to their producer column, so downstream references resolve correctly
   - For `MultiColumnConfig`, all sub-columns share the same dependencies
-  - Validate: every required column must appear earlier in the config list or be a
-    registered side-effect output (detect cycles / missing refs)
-- [ ] Add `topological_order(dependency_map) -> list[str]` — returns columns in valid execution order (should match config order; this is a validation step)
+  - Validate: every required column must resolve to a known producer (including
+    registered side-effect outputs), and the graph must be acyclic
+- [ ] Add `topological_order(dependency_map) -> list[str]` — returns a valid DAG
+  execution order used for validation (not required to match config declaration order)
 - [ ] Unit tests for dependency map construction and validation
 
 **Files**: new module `engine/dataset_builders/utils/dependency_map.py`, tests
@@ -235,7 +241,7 @@ Simple dataclass representing a unit of work.
 The core orchestrator that replaces `_run_batch` for the async path.
 
 - [ ] `AsyncTaskScheduler` class:
-  - Constructor takes: generators (by column name), dependency map, completion tracker, row group definitions, concurrency limit, error/result callbacks
+  - Constructor takes: generators (by column name), dependency map, completion tracker, row group definitions, concurrency limit, submission budget, error/result callbacks
   - `async run()` — main loop:
     1. Dispatch `from_scratch` tasks, respecting `is_stateful`: stateful generators
        serialize per-instance (row group N completes before N+1 starts for that
@@ -244,10 +250,13 @@ The core orchestrator that replaces `_run_batch` for the async path.
        `asyncio.create_task()` behind scheduler semaphore → on completion, update
        tracker → repeat until all tasks done or early shutdown
     3. When ready queue drains, run salvage rounds over deferred retryable failures
-       (up to `async_scheduler_max_retries` rounds)
+       (up to `async_salvage_max_rounds` rounds)
     4. After each row group completes: run post-batch processors, checkpoint
   - Task dispatch: acquire scheduler semaphore slot → prepare request → release
     slot → await throttle permit (for LLM tasks) → execute → write result
+  - Admission control: never allow more than `async_scheduler_max_submitted_tasks`
+    tasks in submitted/running/waiting states; hold remaining ready tasks in the
+    scheduler queue until slots free up
   - Error handling: classify failures as retryable vs non-retryable; retryable
     go to deferred queue with backoff; same early-shutdown logic as
     `AsyncConcurrentExecutor` (error rate threshold within sliding window)
@@ -265,8 +274,12 @@ Make all generator types async-capable and declare statefulness.
 to be implemented. The base class provides automatic bridging in both directions:
 - If only `generate()` is implemented → `agenerate()` wraps it via `asyncio.to_thread`
   (already exists from PR #280).
-- If only `agenerate()` is implemented → `generate()` wraps it via `asyncio.run()`
-  (new fallback). This is safe because the sync builder never has a running event loop.
+- If only `agenerate()` is implemented → `generate()` uses a safe sync runner
+  helper:
+  - no running loop in current thread: use `asyncio.run(self.agenerate(data))`
+  - running loop detected: submit to the builder's dedicated background event loop
+    thread via `asyncio.run_coroutine_threadsafe(...).result(timeout=...)`
+  This avoids nested-loop errors while keeping async-first plugins ergonomic.
 
 This means sync-first generators (most built-ins, existing plugins) work unchanged,
 and async-first generators (new plugins doing native async I/O) only need to implement
@@ -274,7 +287,9 @@ and async-first generators (new plugins doing native async I/O) only need to imp
 
 - [ ] Add symmetric bridging on the base `ColumnGenerator`:
   - `agenerate()` default: `asyncio.to_thread(self.generate, data)` (already exists)
-  - `generate()` default: `asyncio.run(self.agenerate(data))` (new, for async-first generators)
+  - `generate()` default: call a safe sync runner helper that:
+    - uses `asyncio.run()` if no loop is running in the current thread
+    - otherwise submits to the background loop with `run_coroutine_threadsafe(...).result(timeout=...)`
   - Detect which one the subclass overrides to avoid infinite recursion
 - [ ] Add `is_stateful` property to base `ColumnGenerator` (default `False`).
   Stateful generators are serialized per-instance by the scheduler.
@@ -344,8 +359,12 @@ Wire the new scheduler into `ColumnWiseDatasetBuilder`.
   non-retryable failure drops immediately; retry budget exhaustion drops correctly
 - [ ] Integration test: throttling fairness — 429 on model key A does not stall
   unrelated model key B tasks
+- [ ] Integration test: bounded submission — with many ready tasks and a tight
+  throttle key, submitted task count never exceeds `async_scheduler_max_submitted_tasks`
 - [ ] Integration test: eager row-drop — failure on column B drops the row across
   all columns, independent column C does not process the dropped row
+- [ ] Integration test: row-drop with in-flight full-column task — completed task
+  may still compute dropped rows, but writeback is suppressed and row remains dropped
 - [ ] Integration test: out-of-order row group completion produces correctly named
   parquet files; final dataset loads in correct row order
 - [ ] Integration test: pre-batch processor failure skips the row group, remaining
@@ -360,15 +379,37 @@ Wire the new scheduler into `ColumnWiseDatasetBuilder`.
   peak memory. Mitigation: limit max concurrent row groups (e.g., 2-3) via a separate
   semaphore or by feeding row groups into the scheduler incrementally.
 
+- **Unbounded parked coroutines during throttle waits**: Releasing scheduler slots
+  before throttle acquire improves fairness, but can create large numbers of parked
+  tasks if admission is not bounded. Mitigation: enforce
+  `async_scheduler_max_submitted_tasks` as a hard cap on submitted/running/waiting
+  tasks.
+
 - **Eager row-drop propagation**: When a task fails non-recoverably (non-retryable,
   or retry budget exhausted), the **entire row** must be marked as dropped across all
   columns — not just the failed column. Otherwise, independent columns that don't
   depend on the failed column will continue processing that row, wasting compute on
   a row that can never be complete. The completion tracker needs a `drop_row(row_group,
-  row_index)` method that cancels/skips all pending and in-flight tasks for that row.
+  row_index)` method that skips all pending tasks for that row; in-flight tasks may
+  still complete but their writeback is suppressed once the row is marked dropped.
   Retryable failures go to the deferred queue first; eager drop only happens after
   retries are exhausted. Row group is complete when all non-dropped rows have all
   columns done.
+
+- **Dropped rows vs in-flight batch/full-column work (v1 policy)**: preemptively
+  cancelling already-running full-column/batch tasks is complex and error-prone.
+  Async v1 keeps this simple: once a row is dropped, scheduler will not enqueue new
+  tasks for that row and all write paths must suppress writeback for dropped rows.
+  Already-running batch/full-column tasks may still compute values for dropped rows,
+  but those outputs are ignored. Dropped-row propagation is strictly row-scoped;
+  a row-group/batch is never dropped solely due to row-level failures. Track this
+  as "wasted work" telemetry for later optimization.
+
+- **Sync bridge in async-hosted contexts**: async-first generators need a safe
+  `generate()` fallback that works even when called from environments with an active
+  event loop (notebooks/services). Mitigation: use a sync runner helper that uses
+  `asyncio.run()` when safe, else routes through the dedicated background event loop
+  via `run_coroutine_threadsafe(...).result(timeout=...)`.
 
 - **Full-column generator ordering**: If two full-column generators have no mutual
   dependency, they could run in parallel on the same row group. This is safe as long
@@ -397,21 +438,17 @@ Wire the new scheduler into `ColumnWiseDatasetBuilder`.
 - **Backward compatibility**: The sync path must remain untouched. All new code is
   gated behind `DATA_DESIGNER_ASYNC_ENGINE=1` and sits in new modules.
 
-## Open Questions
+- **Thread pool sizing (unresolved)**: sync generators wrapped in `asyncio.to_thread`
+  use Python's default thread pool executor (typically `min(32, cpu_count + 4)`).
+  If many sync generators run concurrently, the pool could become a bottleneck even
+  when scheduler limits are higher. Decide whether to explicitly size the executor
+  to match scheduler caps, or keep defaults for v1.
 
-- **Thread pool sizing**: sync generators wrapped in `asyncio.to_thread` use Python's
-  default thread pool executor (typically `min(32, cpu_count + 4)` threads). If many
-  sync generators run concurrently, the pool could become a bottleneck even though the
-  scheduler semaphore hasn't been reached. Should we explicitly size the executor to
-  match the scheduler's concurrency cap, or is the default sufficient?
-
-- **Silent task hangs**: A sync generator wrapped in `asyncio.to_thread` could hang
-  or crash silently (e.g., native code segfault, deadlocked I/O). Per-task timeouts
-  would catch this, but risk false positives on legitimately long-running tasks (large
-  batches, big context windows). For v1, rely on upstream timeouts (HTTP timeouts on
-  LLM calls, generator-level timeouts) and the error rate shutdown for detecting
-  no-progress states. Should we add per-task timeouts with per-generator overrides, or
-  is upstream timeout coverage sufficient?
+- **Silent task hangs (unresolved)**: a sync generator wrapped in `asyncio.to_thread`
+  could hang or stall indefinitely. Per-task timeouts catch this but may produce
+  false positives on valid long-running tasks. For v1, rely on upstream/model
+  timeouts and no-progress detection; evaluate optional per-generator timeout
+  overrides as follow-up if needed.
 
 ## Notes
 

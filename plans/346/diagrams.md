@@ -107,14 +107,15 @@ E: {D}             ← full-column, waits for D
 
 ## 4. Concurrency Layers
 
-The two-layer design: scheduler semaphore (coarse resource guard) and throttle
-manager (per-key API concurrency). Tasks release scheduler slots while waiting
-for throttle permits.
+The three-layer design: submission budget (bounded admission), scheduler
+semaphore (coarse active-execution guard), and throttle manager (per-key API
+concurrency). Tasks release scheduler slots while waiting for throttle permits.
 
 ```mermaid
 flowchart TB
     S[Async Scheduler] --> Q[Ready Task Queue]
-    Q --> W[Scheduler Semaphore\ncoarse cap ~128]
+    Q --> B[Submission Budget\nmax submitted tasks]
+    B --> W[Scheduler Semaphore\ncoarse active cap ~128]
 
     W --> T{LLM-bound?}
 
