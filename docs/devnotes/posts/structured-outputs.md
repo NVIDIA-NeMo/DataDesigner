@@ -287,7 +287,6 @@ import json
 import pandas as pd
 
 import data_designer.config as dd
-from data_designer.config.seed import SamplingStrategy
 from data_designer.interface import DataDesigner
 
 MODEL_ALIAS = "nvidia-text"
@@ -315,7 +314,7 @@ config = dd.DataDesignerConfigBuilder()
 
 config.with_seed_dataset(
     dd.DataFrameSeedSource(df=seed_df),
-    sampling_strategy=SamplingStrategy.SHUFFLE,
+    sampling_strategy=dd.SamplingStrategy.SHUFFLE,
 )
 
 # Diversity samplers
