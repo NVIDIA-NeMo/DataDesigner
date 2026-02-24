@@ -104,6 +104,13 @@ throttling without the two systems fighting each other.
 
 ### 5. Generator statefulness and reentrancy
 
+Statefulness and sync/async are orthogonal concerns. Sync vs async is about the
+**I/O model** — whether the underlying work is blocking (needs a thread) or
+non-blocking (native coroutine). Statefulness is about **concurrency safety** —
+whether multiple calls to the same generator instance can safely overlap. A
+generator can be async but stateful (e.g., a cursor over an async database), or
+sync but stateless (e.g., a random sampler).
+
 Generators declare whether they are stateful via an `is_stateful` property on
 the base class (default `False`). Stateful generators maintain internal state
 across calls (e.g., `SeedDatasetColumnGenerator` has a DuckDB batch reader
