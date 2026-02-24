@@ -241,6 +241,21 @@ The core orchestrator that replaces `_run_batch` for the async path.
 
 Make all generator types async-capable and declare statefulness.
 
+**Symmetric `generate` / `agenerate` contract**: only one of the two methods needs
+to be implemented. The base class provides automatic bridging in both directions:
+- If only `generate()` is implemented → `agenerate()` wraps it via `asyncio.to_thread`
+  (already exists from PR #280).
+- If only `agenerate()` is implemented → `generate()` wraps it via `asyncio.run()`
+  (new fallback). This is safe because the sync builder never has a running event loop.
+
+This means sync-first generators (most built-ins, existing plugins) work unchanged,
+and async-first generators (new plugins doing native async I/O) only need to implement
+`agenerate()` without writing a redundant sync version.
+
+- [ ] Add symmetric bridging on the base `ColumnGenerator`:
+  - `agenerate()` default: `asyncio.to_thread(self.generate, data)` (already exists)
+  - `generate()` default: `asyncio.run(self.agenerate(data))` (new, for async-first generators)
+  - Detect which one the subclass overrides to avoid infinite recursion
 - [ ] Add `is_stateful` property to base `ColumnGenerator` (default `False`).
   Stateful generators are serialized per-instance by the scheduler.
 - [ ] `ColumnGeneratorWithModelChatCompletion.agenerate` — already implemented (PR #280), no changes needed
@@ -250,9 +265,8 @@ Make all generator types async-capable and declare statefulness.
 - [ ] `SamplerColumnGenerator`: inherits from-scratch async wrapper; `is_stateful = False`
 - [ ] `SeedDatasetColumnGenerator`: inherits from-scratch async wrapper; `is_stateful = True` (maintains DuckDB batch reader cursor and leftover-row buffer)
 - [ ] `ValidationColumnGenerator`: inherits full-column async wrapper
-- [ ] `CustomColumnGenerator`: inherits whichever strategy it uses; `is_stateful` should be overridable by custom implementations
+- [ ] `CustomColumnGenerator`: inherits whichever strategy it uses; `is_stateful` should be overridable by custom implementations. For `@custom_column_generator` functions, detect `asyncio.iscoroutinefunction` and call directly if async.
 - [ ] `ImageCellGenerator`, `EmbeddingCellGenerator`: add native `agenerate` using `model.agenerate_image` / `model.agenerate_text_embeddings`
-- [ ] Base class `ColumnGenerator.agenerate` fallback (already exists via `asyncio.to_thread`) is sufficient for non-LLM generators
 
 **Files**: `generators/base.py`, `generators/expression.py`, `generators/samplers.py`, `generators/seed_dataset.py`, `generators/image.py`, `generators/embedding.py`, tests
 
@@ -355,6 +369,29 @@ Wire the new scheduler into `ColumnWiseDatasetBuilder`.
   lightweight dynamic approach instead)
 - Removing the sync/threaded path (it stays as the default)
 - Supporting `allow_resize=True` in the async path (falls back to sync; follow-up)
+
+### Impact on plugins and custom columns
+
+This change is **backward-compatible** with all existing plugins and custom columns.
+No plugin author needs to modify their code for it to work under the async scheduler.
+
+**Column generator plugins** (registered via entry points): plugins subclass one of
+the base generator classes and implement `generate()`. The base class `agenerate()`
+fallback wraps `generate()` in `asyncio.to_thread`, so every existing plugin
+automatically gets async support. Plugins that want native async performance can
+optionally override `agenerate()` instead — the symmetric bridging means they don't
+need to implement `generate()` at all. The `is_stateful` property defaults to `False`,
+which is correct for most plugins; stateful plugins can override it.
+
+**Custom columns** (`@custom_column_generator`): user-provided sync functions are
+wrapped in `asyncio.to_thread` by the framework. If the user provides an async
+function, `CustomColumnGenerator` detects this via `asyncio.iscoroutinefunction`
+and calls it directly as a coroutine — no thread pool overhead.
+
+**Processor plugins** (`process_before_batch`, `process_after_batch`,
+`process_after_generation`): processors run at barrier points in the scheduling loop
+where no column generation is concurrent. They remain purely synchronous and are
+unaffected by this change.
 
 ### Key insight from existing code
 Every column config already has a `required_columns` property that returns the
