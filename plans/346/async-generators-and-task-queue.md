@@ -79,6 +79,12 @@ Rows are partitioned into groups of `buffer_size` (same as current batches).
 When all tasks for a row group are complete, write to parquet and free memory.
 This preserves the current checkpoint/memory semantics.
 
+Row groups may complete **out of order** (e.g., row group 2 finishes before row
+group 1 if RG1 has a slow column). Checkpoint writes use the row group index for
+file naming (`batch_0.parquet`, `batch_1.parquet`, etc.), so out-of-order writes
+produce correctly named files. When loading the final dataset, files are read in
+index order, so row ordering is preserved regardless of write order.
+
 Full-column generators operate on their entire row group at once, same as today.
 
 ### 4. Concurrency control
@@ -125,7 +131,8 @@ generators declare their own contract.
 ### 6. Pre/post-batch processors
 
 - **Pre-batch**: runs after seed generators complete for a row group, before
-  other columns. Modeled as a barrier task for the row group.
+  other columns. Modeled as a barrier task for the row group. If a pre-batch
+  processor fails, the entire row group is skipped.
 - **Post-batch**: runs after all columns complete for a row group, before
   checkpoint write.
 
@@ -141,11 +148,15 @@ would otherwise be lost.
    `attempt` count, `next_eligible_at` timestamp, and exponential backoff + jitter.
 3. **Scheduling priority**: normal ready tasks are dispatched first. When the
    ready queue drains, the scheduler runs up to `N` salvage rounds over deferred
-   tasks (configurable via `async_scheduler_max_retries`, default 2).
-4. **Throttle-aware**: retries re-enter the throttle manager acquire path, so
+   tasks (configurable via `async_salvage_max_rounds`, default 2).
+4. **Separate error threshold**: salvage rounds use their own error rate threshold
+   (e.g., `async_salvage_error_threshold=0.8`), independent of the main scheduling
+   loop, since higher failure rates are expected when retrying.
+5. **Throttle-aware**: retries re-enter the throttle manager acquire path, so
    they don't exacerbate rate limiting.
-5. **Final drop**: after retry budget is exhausted, mark the cell as failed and
-   the row as dropped. Continue row-group completion checks over remaining rows.
+6. **Final drop**: after retry budget is exhausted, mark the cell as failed and
+   the row as dropped (via eager row-drop propagation). Continue row-group
+   completion checks over remaining rows.
 
 ### 8. `allow_resize` scoping
 
@@ -196,8 +207,10 @@ A lightweight structure tracking which (column, row) pairs are done.
   - `mark_complete(column: str, row: int)` / `mark_batch_complete(column: str, row_group: int, row_group_size: int)`
   - `is_ready(column: str, row: int, dependency_map) -> bool` — checks all upstream columns for that row
   - `is_batch_ready(column: str, row_group: int, row_group_size: int, dependency_map) -> bool` — checks all rows in group
-  - `is_row_group_complete(row_group: int, row_group_size: int, all_columns: list[str]) -> bool` — all columns done for all rows
-  - `get_ready_tasks(dependency_map, columns_with_strategy, row_groups) -> list[Task]` — yields all currently dispatchable tasks
+  - `drop_row(row_group: int, row_index: int)` — marks row as dropped across all columns;
+    `get_ready_tasks` skips dropped rows, in-flight tasks for dropped rows are ignored on completion
+  - `is_row_group_complete(row_group: int, row_group_size: int, all_columns: list[str]) -> bool` — all non-dropped rows have all columns done
+  - `get_ready_tasks(dependency_map, columns_with_strategy, row_groups) -> list[Task]` — yields all currently dispatchable tasks, excluding dropped rows
 - [ ] No locks needed: all access is from the single asyncio event loop thread
 - [ ] Unit tests
 
@@ -331,6 +344,12 @@ Wire the new scheduler into `ColumnWiseDatasetBuilder`.
   non-retryable failure drops immediately; retry budget exhaustion drops correctly
 - [ ] Integration test: throttling fairness — 429 on model key A does not stall
   unrelated model key B tasks
+- [ ] Integration test: eager row-drop — failure on column B drops the row across
+  all columns, independent column C does not process the dropped row
+- [ ] Integration test: out-of-order row group completion produces correctly named
+  parquet files; final dataset loads in correct row order
+- [ ] Integration test: pre-batch processor failure skips the row group, remaining
+  row groups continue
 - [ ] Run `make test` — all existing tests pass
 - [ ] Run `make test-run-recipes` with `DATA_DESIGNER_ASYNC_ENGINE=1`
 - [ ] Benchmark: compare sync vs async on a multi-column recipe with simulated latency
@@ -341,12 +360,15 @@ Wire the new scheduler into `ColumnWiseDatasetBuilder`.
   peak memory. Mitigation: limit max concurrent row groups (e.g., 2-3) via a separate
   semaphore or by feeding row groups into the scheduler incrementally.
 
-- **Record dropping across columns**: If row 5 fails on column B, we must prevent
-  column C from processing row 5. The completion tracker naturally handles this — a
-  failed task is never marked complete, so downstream tasks never become ready. But we
-  need to detect when a row group is "done enough" to checkpoint (some rows dropped).
-  Solution: track dropped rows per row group; row group is complete when all non-dropped
-  rows have all columns done.
+- **Eager row-drop propagation**: When a task fails non-recoverably (non-retryable,
+  or retry budget exhausted), the **entire row** must be marked as dropped across all
+  columns — not just the failed column. Otherwise, independent columns that don't
+  depend on the failed column will continue processing that row, wasting compute on
+  a row that can never be complete. The completion tracker needs a `drop_row(row_group,
+  row_index)` method that cancels/skips all pending and in-flight tasks for that row.
+  Retryable failures go to the deferred queue first; eager drop only happens after
+  retries are exhausted. Row group is complete when all non-dropped rows have all
+  columns done.
 
 - **Full-column generator ordering**: If two full-column generators have no mutual
   dependency, they could run in parallel on the same row group. This is safe as long
@@ -358,7 +380,14 @@ Wire the new scheduler into `ColumnWiseDatasetBuilder`.
 - **Pre-batch processors mutating data**: Pre-batch processors (e.g., schema transform)
   can add/remove/modify rows. This changes the row count and invalidates the completion
   tracker's row indices. Solution: treat pre-batch as a barrier that resets the tracker
-  state for that row group (re-index rows after processor runs).
+  state for that row group (re-index rows after processor runs). If a pre-batch
+  processor **fails**, the entire row group is skipped (treated as a fatal row-group
+  error — log, skip, continue with remaining row groups).
+
+- **Undersized last row group**: If `num_records` is not a multiple of `buffer_size`,
+  the last row group has fewer rows. This is the same as the sync path and should not
+  require special handling, but full-column generators and batch-level logic must not
+  assume uniform row group sizes.
 
 - **`allow_resize` incompatibility**: Any generator with `allow_resize=True` can change
   the row count mid-pipeline, invalidating per-row completion state for all downstream
@@ -367,6 +396,22 @@ Wire the new scheduler into `ColumnWiseDatasetBuilder`.
 
 - **Backward compatibility**: The sync path must remain untouched. All new code is
   gated behind `DATA_DESIGNER_ASYNC_ENGINE=1` and sits in new modules.
+
+## Open Questions
+
+- **Thread pool sizing**: sync generators wrapped in `asyncio.to_thread` use Python's
+  default thread pool executor (typically `min(32, cpu_count + 4)` threads). If many
+  sync generators run concurrently, the pool could become a bottleneck even though the
+  scheduler semaphore hasn't been reached. Should we explicitly size the executor to
+  match the scheduler's concurrency cap, or is the default sufficient?
+
+- **Silent task hangs**: A sync generator wrapped in `asyncio.to_thread` could hang
+  or crash silently (e.g., native code segfault, deadlocked I/O). Per-task timeouts
+  would catch this, but risk false positives on legitimately long-running tasks (large
+  batches, big context windows). For v1, rely on upstream timeouts (HTTP timeouts on
+  LLM calls, generator-level timeouts) and the error rate shutdown for detecting
+  no-progress states. Should we add per-task timeouts with per-generator overrides, or
+  is upstream timeout coverage sufficient?
 
 ## Notes
 
