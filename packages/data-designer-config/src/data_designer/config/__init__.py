@@ -41,7 +41,6 @@ if TYPE_CHECKING:
         EmbeddingInferenceParams,
         GenerationType,
         ImageContext,
-        ImageFormat,
         ImageInferenceParams,
         ManualDistribution,
         ManualDistributionParams,
@@ -94,6 +93,7 @@ if TYPE_CHECKING:
     )
     from data_designer.config.seed_source_dataframe import DataFrameSeedSource  # noqa: F401
     from data_designer.config.utils.code_lang import CodeLang  # noqa: F401
+    from data_designer.config.utils.image_helpers import ImageFormat  # noqa: F401
     from data_designer.config.utils.info import InfoType  # noqa: F401
     from data_designer.config.utils.trace_type import TraceType  # noqa: F401
     from data_designer.config.validator_params import (  # noqa: F401
@@ -152,7 +152,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "EmbeddingInferenceParams": (_MOD_MODELS, "EmbeddingInferenceParams"),
     "GenerationType": (_MOD_MODELS, "GenerationType"),
     "ImageContext": (_MOD_MODELS, "ImageContext"),
-    "ImageFormat": (_MOD_MODELS, "ImageFormat"),
+    "ImageFormat": (f"{_MOD_UTILS}.image_helpers", "ImageFormat"),
     "ImageInferenceParams": (_MOD_MODELS, "ImageInferenceParams"),
     "ManualDistribution": (_MOD_MODELS, "ManualDistribution"),
     "ManualDistributionParams": (_MOD_MODELS, "ManualDistributionParams"),

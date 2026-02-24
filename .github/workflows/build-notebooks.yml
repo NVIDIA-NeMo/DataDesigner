@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   schedule:
     - cron: "0 12 * * MON"
-  
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -12,6 +12,7 @@ jobs:
       contents: write
     env:
       NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.TEST_OPENROUTER_API_KEY }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2

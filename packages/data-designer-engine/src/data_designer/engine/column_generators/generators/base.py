@@ -7,7 +7,7 @@ import asyncio
 import functools
 import logging
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, overload
+from typing import TYPE_CHECKING, Any, overload
 
 from data_designer.config.column_configs import GenerationStrategy
 from data_designer.engine.configurable_task import ConfigurableTask, DataT, TaskConfigT
@@ -97,6 +97,27 @@ class ColumnGeneratorWithModel(ColumnGeneratorWithModelRegistry[TaskConfigT], AB
     @functools.cached_property
     def inference_parameters(self) -> BaseInferenceParams:
         return self.model_config.inference_parameters
+
+    def _build_multi_modal_context(self, record: dict) -> list[dict[str, Any]] | None:
+        """Build multi-modal context from the config's multi_modal_context list.
+
+        Passes base_path to get_contexts() so that generated image file paths
+        (stored under base_dataset_path in create mode) can be resolved to base64
+        before being sent to the model endpoint.
+
+        Args:
+            record: The deserialized record containing column values.
+
+        Returns:
+            A list of multi-modal context dicts, or None if no context is configured.
+        """
+        if not hasattr(self.config, "multi_modal_context") or not self.config.multi_modal_context:
+            return None
+        base_path = str(self.base_dataset_path)
+        multi_modal_context: list[dict[str, Any]] = []
+        for context in self.config.multi_modal_context:
+            multi_modal_context.extend(context.get_contexts(record, base_path=base_path))
+        return multi_modal_context
 
     def log_pre_generation(self) -> None:
         logger.info(
