@@ -61,7 +61,7 @@ row group 0 column C is still running).
   tasks are ready by checking whether all upstream columns for a given row are done.
 
 The graph is column-granularity only — no cell-level nodes — so it stays small
-(N columns, N edges) regardless of row count. Scheduling remains dynamic: the
+(O(C) nodes, O(C²) edges worst-case) regardless of row count. Scheduling remains dynamic: the
 completion tracker drives readiness checks as tasks complete, with no upfront
 planning of execution order. The static graph adds inspectability (visualization,
 critical path, upfront task counts, error attribution) without changing how the
@@ -204,8 +204,8 @@ incompatible and make an explicit choice (see Follow-ups).
 ### Step 1: Execution Graph
 
 Build a column-level static execution graph from column configs at builder init time.
-The graph is column-granularity only — no cell-level nodes — so it stays small (N columns,
-N edges) regardless of row count and avoids the barrier/checkpoint problems of a cell-level
+The graph is column-granularity only — no cell-level nodes — so it stays small (O(C) nodes,
+O(C²) edges worst-case) regardless of row count and avoids the barrier/checkpoint problems of a cell-level
 graph.
 
 - [ ] `ExecutionGraph` class:
@@ -247,8 +247,8 @@ matching the buffer manager's per-row-group addressing.
   - `is_batch_ready(column: str, row_group: int, row_group_size: int, graph: ExecutionGraph) -> bool` — checks all rows in group
   - `drop_row(row_group: int, row_index: int)` — marks row as dropped across all columns;
     `get_ready_tasks` skips dropped rows, in-flight tasks for dropped rows are ignored on completion
-  - `is_row_group_complete(row_group: int, row_group_size: int, all_columns: list[str]) -> bool` — all non-dropped rows have all columns done
-  - `get_ready_tasks(graph: ExecutionGraph, row_groups) -> list[Task]` — yields all currently dispatchable tasks, excluding dropped rows; reads `graph.strategy(column)` to determine task granularity per column
+  - `is_row_group_complete(row_group: int, row_group_size: int, all_columns: list[str]) -> bool` — all non-dropped rows have all columns done; `row_group_size` is the original size, dropped rows (via `drop_row`) are excluded internally
+  - `get_ready_tasks(graph: ExecutionGraph, row_groups, dispatched: set[Task]) -> list[Task]` — yields all currently dispatchable tasks, excluding dropped rows and already-dispatched/in-flight tasks; reads `graph.strategy(column)` to determine task granularity per column
 - [ ] No locks needed: all access is from the single asyncio event loop thread
 - [ ] Unit tests
 
@@ -660,8 +660,8 @@ column anywhere in the pipeline blocks all checkpointing until the entire datase
 completes, because no row is "done" until every column, including the barrier, finishes.
 Cell-level nodes also scale to O(C × R), which is large for realistic dataset sizes.
 
-We use a **column-level** `ExecutionGraph` instead — N columns, N edges, fixed size
-regardless of row count. This still provides the full value of a static graph (visualization,
+We use a **column-level** `ExecutionGraph` instead — O(C) nodes, O(C²) edges worst-case,
+fixed size regardless of row count. This still provides the full value of a static graph (visualization,
 critical path, upfront task counts, error attribution via `downstream()`) without the
 checkpoint problem or the node explosion. Full-column tasks are scoped to a **row group**:
 the effective barrier is just that FULL_COLUMN task waiting for all rows *in that group*,
