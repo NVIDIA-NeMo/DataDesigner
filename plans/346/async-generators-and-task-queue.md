@@ -245,6 +245,12 @@ Simple dataclass representing a unit of work.
   - `row_index: int | None` (None for batch tasks)
   - `task_type: Literal["from_scratch", "cell", "batch", "pre_batch_processor", "post_batch_processor"]`
 - [ ] `TaskResult` with status, output, error info
+- [ ] `TaskTrace` dataclass (only instantiated when tracing is enabled):
+  - `column: str`, `row_group: int`, `row_index: int | None`, `task_type: str`
+  - `dispatched_at: float` — `perf_counter()` when `create_task()` fires
+  - `slot_acquired_at: float` — after scheduler semaphore acquired
+  - `completed_at: float` — in `finally` block after generator returns
+  - `status: str`, `error: str | None`
 - [ ] Hashable so we can track dispatched/pending sets
 
 **Files**: new module `engine/dataset_builders/utils/task_model.py` — must be its own module
@@ -256,7 +262,8 @@ inlining would create import cycles.
 The core orchestrator that replaces `_run_batch` for the async path.
 
 - [ ] `AsyncTaskScheduler` class:
-  - Constructor takes: generators (by column name), dependency map, completion tracker, row group definitions, concurrency limit (`async_scheduler_max_submitted_tasks`), row group semaphore (`async_max_concurrent_row_groups`), salvage config, error/result callbacks
+  - Constructor takes: generators (by column name), dependency map, completion tracker, row group definitions, concurrency limit (`async_scheduler_max_submitted_tasks`), row group semaphore (`async_max_concurrent_row_groups`), salvage config, error/result callbacks, `trace: bool = False`
+  - When `trace=True`, populates `scheduler.traces: list[TaskTrace]` (one record per task); otherwise no `TaskTrace` objects are created. See Profiling.
   - `async run()` — main loop:
     1. Acquire the row group semaphore (`async_max_concurrent_row_groups`) before
        admitting a new row group's seed tasks. Dispatch `from_scratch` tasks,
@@ -412,7 +419,7 @@ Wire the new scheduler into `ColumnWiseDatasetBuilder`.
   row groups continue
 - [ ] Run `make test` — all existing tests pass
 - [ ] Run `make test-run-recipes` with `DATA_DESIGNER_ASYNC_ENGINE=1`
-- [ ] Benchmark: compare sync vs async on a multi-column recipe with simulated latency
+- [ ] Benchmark: compare sync vs async on a multi-column recipe with simulated latency; use `trace=True` and load `scheduler.traces` into a DataFrame to measure per-column dispatch and execution times
 
 ## Risks & Considerations
 
@@ -532,6 +539,71 @@ Wire the new scheduler into `ColumnWiseDatasetBuilder`.
 - **Row ordering**: the final dataset rows are always in the declared order regardless of
   out-of-order row group completion.
 - **Checkpoint file naming and format**: parquet files use the same naming scheme and schema.
+
+## Profiling
+
+Task execution tracing is opt-in, enabled by passing `trace=True` to `build()` or setting
+`DATA_DESIGNER_ASYNC_TRACE=1`. When disabled (the default), no `TaskTrace` objects are
+created and there is no overhead. When enabled, the scheduler collects one `TaskTrace`
+record per task and exposes the list as `scheduler.traces: list[TaskTrace]`, which is
+surfaced on the result object after the run.
+
+### Instrumentation points
+
+Three timestamps are recorded inside the task coroutine — all on the event loop thread,
+so no locking is needed:
+
+1. `dispatched_at` — set in the scheduler loop right before `asyncio.create_task()`
+2. `slot_acquired_at` — set inside the coroutine immediately after `await semaphore.acquire()`
+3. `completed_at` + `status` — set in a `try/finally` block wrapping the generator call
+
+The `TaskTrace` object is created at dispatch time and passed into the coroutine closure;
+the coroutine mutates it in-place. On completion it is appended to `scheduler.traces` via
+the result callback.
+
+### What the data shows
+
+- `slot_acquired_at - dispatched_at`: time waiting on the scheduler semaphore (contention indicator)
+- `completed_at - slot_acquired_at`: actual generator execution time
+- Dispatch timestamps across tasks: verify dependency order and parallelism (e.g. two
+  independent columns should show overlapping `slot_acquired_at`–`completed_at` ranges)
+
+### Example output
+
+Two-column config (`topic` → `question` → `answer`), 2 row groups, 3 rows each:
+
+```
+column    rg  row  type          dispatched  slot_acquired  completed  duration  status
+--------  --  ---  ------------  ----------  -------------  ---------  --------  ------
+topic      0   -   from_scratch   0.000       0.001          0.012      0.011    ok
+topic      1   -   from_scratch   0.001       0.001          0.013      0.012    ok     ← RG0+1 overlap (stateless)
+question   0   0   cell           0.013       0.014          0.142      0.128    ok
+question   0   1   cell           0.013       0.014          0.189      0.175    ok
+question   0   2   cell           0.013       0.015          0.201      0.186    ok
+question   1   3   cell           0.014       0.015          0.155      0.141    ok
+question   1   4   cell           0.014       0.016          0.210      0.194    ok
+question   1   5   cell           0.015       0.016          0.198      0.182    ok
+answer     0   0   cell           0.143       0.143          0.312      0.169    ok     ← dispatched as question[0,0] completes
+answer     0   1   cell           0.190       0.190          0.398      0.208    ok
+answer     0   2   cell           0.202       0.202          0.445      0.243    ok
+answer     1   3   cell           0.156       0.156          0.334      0.178    ok
+...
+```
+
+`topic` RG0 and RG1 dispatch 1ms apart and run concurrently (stateless). `question` rows
+are all dispatched the moment `topic` completes for their row group. `answer[0,0]` is
+dispatched at `t=0.143`, exactly when `question[0,0]` finishes — confirming cell-level
+pipelining across row groups.
+
+### Usage
+
+```python
+result = data_designer.build(num_records=100, trace=True)
+df = pd.DataFrame([asdict(t) for t in result.traces])
+df["wait"] = df["slot_acquired_at"] - df["dispatched_at"]
+df["duration"] = df["completed_at"] - df["slot_acquired_at"]
+df.groupby("column")[["wait", "duration"]].describe()
+```
 
 ## Relation to PR #269
 
