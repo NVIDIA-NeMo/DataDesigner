@@ -3,9 +3,12 @@
 
 from pathlib import Path
 
+import pandas as pd
+
 import data_designer.config as dd
 from data_designer.interface import DataDesigner
 from data_designer_e2e_tests.plugins.column_generator.config import DemoColumnGeneratorConfig
+from data_designer_e2e_tests.plugins.regex_filter.config import RegexFilterProcessorConfig
 from data_designer_e2e_tests.plugins.seed_reader.config import DemoSeedSource
 
 
@@ -65,3 +68,35 @@ def test_seed_reader_plugin() -> None:
     full_names = set(preview.dataset["full_name"].values)
 
     assert full_names == {"John + Coltrane", "Miles + Davis", "Bill + Evans"}
+
+
+def test_processor_plugin() -> None:
+    seed_data = pd.DataFrame(
+        {
+            "category": ["keep", "drop", "keep", "drop"],
+            "value": ["a", "b", "c", "d"],
+        }
+    )
+
+    data_designer = DataDesigner()
+
+    config_builder = dd.DataDesignerConfigBuilder()
+    config_builder.with_seed_dataset(dd.DataFrameSeedSource(df=seed_data))
+    config_builder.add_column(
+        dd.SamplerColumnConfig(
+            name="irrelevant",
+            sampler_type=dd.SamplerType.CATEGORY,
+            params=dd.CategorySamplerParams(values=["irrelevant"]),
+        )
+    )
+    config_builder.add_processor(
+        RegexFilterProcessorConfig(
+            name="keep_only",
+            column="category",
+            pattern="^keep$",
+        )
+    )
+
+    preview = data_designer.preview(config_builder)
+    assert len(preview.dataset) > 0
+    assert all(v == "keep" for v in preview.dataset["category"].values)
