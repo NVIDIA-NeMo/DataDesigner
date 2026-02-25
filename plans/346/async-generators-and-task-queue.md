@@ -133,6 +133,13 @@ dispatch all row groups concurrently.
 This is a generator-level attribute, not a type-level assumption. Custom
 generators declare their own contract.
 
+The row group admission semaphore (`async_max_concurrent_row_groups`) and stateful
+serialization are complementary, not conflicting: the semaphore controls how many row
+groups are admitted into the scheduler at once; serialization controls the dispatch
+order of seed tasks within the admitted set. A stateful generator with 3 row groups
+admitted will still run their seeds in order (0 → 1 → 2); other columns in those row
+groups remain free to pipeline.
+
 ### 6. Pre/post-batch processors
 
 - **Pre-batch**: runs after seed generators complete for a row group, before
@@ -152,8 +159,11 @@ would otherwise be lost.
 2. **Deferred queue**: retryable failures are placed in a deferred queue with
    `attempt` count, `next_eligible_at` timestamp, and exponential backoff + jitter.
 3. **Scheduling priority**: normal ready tasks are dispatched first. When the
-   ready queue drains, the scheduler runs up to `N` salvage rounds over deferred
-   tasks (configurable via `async_salvage_max_rounds`, default 2).
+   ready queue drains, the scheduler sweeps the deferred queue and re-dispatches
+   all tasks whose backoff has elapsed — this is one salvage round. The scheduler
+   runs at most `async_salvage_max_rounds` such rounds (default 2) before dropping
+   all remaining deferred tasks. A task that keeps failing is retried once per round,
+   so the maximum attempts per task is `async_salvage_max_rounds + 1`.
 4. **Separate error threshold**: salvage rounds use their own error rate threshold
    (e.g., `async_salvage_error_threshold=0.8`), independent of the main scheduling
    loop, since higher failure rates are expected when retrying.
@@ -170,9 +180,12 @@ lets any generator change the row count mid-pipeline, which invalidates all
 per-row completion state for downstream columns. Supporting this under parallel
 execution would require dynamic rescheduling and row identity tracking.
 
-**Async v1 scope**: if any column config has `allow_resize=True`, the builder
-falls back to the sync path. This is safe because resize is opt-in and the sync
-path handles it naturally. Full async support for resize is a follow-up.
+**Async v1 scope**: if any column config has `allow_resize=True` and
+`DATA_DESIGNER_ASYNC_ENGINE=1`, the builder raises a `DatasetGenerationError`
+at startup (before any generation begins). The user must either remove
+`allow_resize=True` from their config or disable the async engine. Silent
+fallback is intentionally avoided — the user should know these two settings are
+incompatible and make an explicit choice (see Follow-ups).
 
 ## Success Criteria
 
@@ -234,18 +247,22 @@ Simple dataclass representing a unit of work.
 - [ ] `TaskResult` with status, output, error info
 - [ ] Hashable so we can track dispatched/pending sets
 
-**Files**: new module `engine/dataset_builders/utils/task_model.py` (or inline in scheduler)
+**Files**: new module `engine/dataset_builders/utils/task_model.py` — must be its own module
+since `CompletionTracker`, `AsyncTaskScheduler`, and the buffer manager all reference `Task`/`TaskResult`;
+inlining would create import cycles.
 
 ### Step 4: Async Task Scheduler
 
 The core orchestrator that replaces `_run_batch` for the async path.
 
 - [ ] `AsyncTaskScheduler` class:
-  - Constructor takes: generators (by column name), dependency map, completion tracker, row group definitions, concurrency limit, submission budget, error/result callbacks
+  - Constructor takes: generators (by column name), dependency map, completion tracker, row group definitions, concurrency limit (`async_scheduler_max_submitted_tasks`), row group semaphore (`async_max_concurrent_row_groups`), salvage config, error/result callbacks
   - `async run()` — main loop:
-    1. Dispatch `from_scratch` tasks, respecting `is_stateful`: stateful generators
-       serialize per-instance (row group N completes before N+1 starts for that
-       generator); stateless generators dispatch all row groups concurrently
+    1. Acquire the row group semaphore (`async_max_concurrent_row_groups`) before
+       admitting a new row group's seed tasks. Dispatch `from_scratch` tasks,
+       respecting `is_stateful`: stateful generators serialize per-instance (row group
+       N's seed completes before N+1's seed starts for that generator); stateless
+       generators dispatch all admitted row groups concurrently
     2. Loop: query `completion_tracker.get_ready_tasks()` → dispatch each via
        `asyncio.create_task()` behind scheduler semaphore → on completion, update
        tracker → repeat until all tasks done or early shutdown
@@ -260,8 +277,15 @@ The core orchestrator that replaces `_run_batch` for the async path.
   - Error handling: classify failures as retryable vs non-retryable; retryable
     go to deferred queue with backoff; same early-shutdown logic as
     `AsyncConcurrentExecutor` (error rate threshold within sliding window)
-  - Progress tracking: reuse `ProgressTracker` per column
-- [ ] Use `asyncio.Event` or `asyncio.Condition` to wake the scheduler when a task completes (avoids polling)
+  - Progress tracking: create one `ProgressTracker` per column for accounting
+    (success/failure counts, rate, ETA), but suppress per-completion interval logs
+    in async mode. A separate background coroutine (`asyncio.create_task`) emits a
+    single consolidated summary line every 10 seconds across all active columns;
+    it is cancelled once all tasks complete. See UX Considerations.
+- [ ] Use `asyncio.Event` to wake the scheduler when a task completes (avoids polling).
+  `Event` is sufficient — the scheduler resets it and re-checks ready tasks on each wake;
+  `Condition` would be needed only if waiting on a specific predicate, which the tracker
+  already handles.
 - [ ] Unit tests with mock generators
 
 **Files**: new module `engine/dataset_builders/async_scheduler.py`, tests
@@ -294,13 +318,28 @@ and async-first generators (new plugins doing native async I/O) only need to imp
 - [ ] Add `is_stateful` property to base `ColumnGenerator` (default `False`).
   Stateful generators are serialized per-instance by the scheduler.
 - [ ] `ColumnGeneratorWithModelChatCompletion.agenerate` — already implemented (PR #280), no changes needed
-- [ ] `FromScratchColumnGenerator`: add `async agenerate_from_scratch(num_records) -> DataFrame` — wraps sync in `asyncio.to_thread` with defensive `df.copy()` on shared data
-- [ ] `ColumnGeneratorFullColumn`: add `async agenerate(data: DataFrame) -> DataFrame` — wraps sync in `asyncio.to_thread` with defensive `df.copy()` (see Risks)
+- [ ] `FromScratchColumnGenerator`: add both async wrappers — `async agenerate_from_scratch(num_records) -> DataFrame`
+  (wraps `generate_from_scratch` in `asyncio.to_thread`) and `async agenerate(data: DataFrame) -> DataFrame`
+  (wraps `generate` in `asyncio.to_thread` with defensive `df.copy()`). Both are needed because the
+  scheduler dispatches subclasses via either path depending on whether the buffer is empty.
+- [ ] `ColumnGeneratorFullColumn`: add `async agenerate(data: DataFrame) -> DataFrame` — wraps sync in
+  `asyncio.to_thread` with defensive `df.copy()` (see Risks). This intentionally overrides the base
+  `ColumnGenerator.agenerate(dict)` with a DataFrame-typed signature; the scheduler dispatches the
+  correct variant based on generation strategy.
 - [ ] `ExpressionColumnGenerator`: inherits full-column async wrapper
-- [ ] `SamplerColumnGenerator`: inherits from-scratch async wrapper; `is_stateful = False`
-- [ ] `SeedDatasetColumnGenerator`: inherits from-scratch async wrapper; `is_stateful = True` (maintains DuckDB batch reader cursor and leftover-row buffer)
-- [ ] `ValidationColumnGenerator`: inherits full-column async wrapper
-- [ ] `CustomColumnGenerator`: inherits whichever strategy it uses; `is_stateful` should be overridable by custom implementations. For `@custom_column_generator` functions, detect `asyncio.iscoroutinefunction` and call directly if async.
+- [ ] `SamplerColumnGenerator`: inherits both wrappers from `FromScratchColumnGenerator`; no custom implementation needed. `is_stateful = False`
+- [ ] `SeedDatasetColumnGenerator`: inherits both wrappers from `FromScratchColumnGenerator`; no custom implementation needed. `is_stateful = True` (maintains DuckDB batch reader cursor and leftover-row buffer)
+- [ ] `ValidationColumnGenerator`: inherits full-column async wrapper. Note: for `REMOTE` validators
+  with `max_parallel_requests > 1`, `generate()` internally uses `ConcurrentThreadExecutor`, so the
+  async wrapper spawns a thread that itself spawns more threads — bypassing the scheduler's concurrency
+  controls for those HTTP calls. Acceptable for v1 (see Follow-ups).
+- [ ] `CustomColumnGenerator`: inherits directly from `ColumnGenerator` (not from `ColumnGeneratorCellByCell`
+  or `ColumnGeneratorFullColumn`), so it does not automatically inherit either async wrapper. Needs its own
+  `agenerate` that branches on strategy:
+  - `CELL_BY_CELL`: if the user function is a coroutine (`asyncio.iscoroutinefunction`), call it directly;
+    otherwise wrap in `asyncio.to_thread`
+  - `FULL_COLUMN`: wrap `generate(DataFrame)` in `asyncio.to_thread` with defensive `df.copy()`
+  `is_stateful` defaults to `False`; custom implementations can override it.
 - [ ] `ImageCellGenerator`, `EmbeddingCellGenerator`: add native `agenerate` using `model.agenerate_image` / `model.agenerate_text_embeddings`
 
 **Files**: `generators/base.py`, `generators/expression.py`, `generators/samplers.py`, `generators/seed_dataset.py`, `generators/image.py`, `generators/embedding.py`, tests
@@ -331,10 +370,12 @@ Wire the new scheduler into `ColumnWiseDatasetBuilder`.
   1. Build dependency map from `self._column_configs`
   2. Partition rows into row groups
   3. Create `CompletionTracker`, `AsyncTaskScheduler`
-  4. Run scheduler on the background event loop (reuse `_ensure_async_engine_loop()`)
+  4. Run scheduler on the background event loop (reuse `_ensure_async_engine_loop()`
+     from `dataset_builders/utils/async_concurrency.py` — already exists)
   5. Scheduler handles checkpointing via callbacks
-- [ ] `build()` dispatches to `_build_async()` when `DATA_DESIGNER_ASYNC_ENGINE=1`
-    **and** no column config has `allow_resize=True`; else existing sync path
+- [ ] `build()` raises `DatasetGenerationError` at startup if `DATA_DESIGNER_ASYNC_ENGINE=1`
+    and any column config has `allow_resize=True`, naming the offending column(s);
+    otherwise dispatches to `_build_async()`
 - [ ] `build_preview()` uses the same async path (single row group, no checkpoint)
 - [ ] Error handling: `DatasetGenerationError` wrapping, record dropping, telemetry events
 - [ ] Processor integration:
@@ -352,7 +393,7 @@ Wire the new scheduler into `ColumnWiseDatasetBuilder`.
 - [ ] Integration test: mixed cell-by-cell + full-column generators
 - [ ] Integration test: error rate shutdown
 - [ ] Integration test: checkpoint correctness (row groups written in order, parquet valid)
-- [ ] Integration test: `allow_resize=True` falls back to sync path
+- [ ] Integration test: `allow_resize=True` with async engine raises `DatasetGenerationError` at startup, naming the column
 - [ ] Integration test: stateful generator (`is_stateful=True`) serializes per-instance
   across row groups; stateless generators run concurrently
 - [ ] Integration test: retry salvage — transient failure is retried and succeeds;
@@ -376,8 +417,9 @@ Wire the new scheduler into `ColumnWiseDatasetBuilder`.
 ## Risks & Considerations
 
 - **Memory with concurrent row groups**: Having multiple row groups in-flight increases
-  peak memory. Mitigation: limit max concurrent row groups (e.g., 2-3) via a separate
-  semaphore or by feeding row groups into the scheduler incrementally.
+  peak memory. Mitigation: a dedicated semaphore caps concurrent in-flight row groups,
+  controlled by `async_max_concurrent_row_groups` (default 3). The scheduler only admits
+  a new row group's seed tasks once a slot is available.
 
 - **Unbounded parked coroutines during throttle waits**: Releasing scheduler slots
   before throttle acquire improves fairness, but can create large numbers of parked
@@ -402,8 +444,7 @@ Wire the new scheduler into `ColumnWiseDatasetBuilder`.
   tasks for that row and all write paths must suppress writeback for dropped rows.
   Already-running batch/full-column tasks may still compute values for dropped rows,
   but those outputs are ignored. Dropped-row propagation is strictly row-scoped;
-  a row-group/batch is never dropped solely due to row-level failures. Track this
-  as "wasted work" telemetry for later optimization.
+  a row-group/batch is never dropped solely due to row-level failures.
 
 - **Sync bridge in async-hosted contexts**: async-first generators need a safe
   `generate()` fallback that works even when called from environments with an active
@@ -433,31 +474,87 @@ Wire the new scheduler into `ColumnWiseDatasetBuilder`.
 - **`allow_resize` incompatibility**: Any generator with `allow_resize=True` can change
   the row count mid-pipeline, invalidating per-row completion state for all downstream
   columns. Dynamic rescheduling and row identity tracking would be needed to support
-  this. **Async v1 falls back to the sync path** when any config uses `allow_resize`.
+  this. **Async v1 raises a `DatasetGenerationError` at startup** when any config uses
+  `allow_resize=True` with the async engine enabled, naming the offending column(s).
+  The user must resolve the conflict explicitly.
 
 - **Backward compatibility**: The sync path must remain untouched. All new code is
   gated behind `DATA_DESIGNER_ASYNC_ENGINE=1` and sits in new modules.
 
-- **Thread pool sizing (unresolved)**: sync generators wrapped in `asyncio.to_thread`
-  use Python's default thread pool executor (typically `min(32, cpu_count + 4)`).
-  If many sync generators run concurrently, the pool could become a bottleneck even
-  when scheduler limits are higher. Decide whether to explicitly size the executor
-  to match scheduler caps, or keep defaults for v1.
+- **Thread pool sizing**: sync generators wrapped in `asyncio.to_thread` use Python's
+  default thread pool executor (`min(32, cpu_count + 4)`). For v1, keep the default —
+  the scheduler semaphore and row group cap already bound actual concurrency to levels
+  where the default pool is unlikely to be a bottleneck (see Follow-ups).
 
-- **Silent task hangs (unresolved)**: a sync generator wrapped in `asyncio.to_thread`
-  could hang or stall indefinitely. Per-task timeouts catch this but may produce
-  false positives on valid long-running tasks. For v1, rely on upstream/model
-  timeouts and no-progress detection; evaluate optional per-generator timeout
-  overrides as follow-up if needed.
+- **Silent task hangs**: a sync generator wrapped in `asyncio.to_thread` could hang
+  indefinitely. For v1, rely on upstream model timeouts (see Follow-ups).
+
+## UX Considerations
+
+- **Interleaved log output**: with parallel columns and row groups, log lines will interleave.
+  All async log output should include `(column=X, row_group=N)` context so output remains
+  readable during debugging.
+
+- **Progress display**: in the async path, per-column `ProgressTracker` interval logs are
+  suppressed to avoid interleaved noise. Instead, the scheduler runs a lightweight background
+  coroutine (`asyncio.create_task`) that emits a single consolidated summary line on a fixed
+  timer (e.g., every 10 seconds):
+  ```
+  Progress: col_A 45/100 (45%, 2.1 rec/s) | col_B 32/100 (32%) | col_C 78/100 (78%, eta 12s)
+  ```
+  The coroutine reads completion counters from existing `ProgressTracker` instances and is
+  cancelled once all tasks are done. The sync path is unchanged.
+
+- **Peak memory**: multiple in-flight row groups increase peak memory. The cap is
+  `async_max_concurrent_row_groups` (default 3), exposed so users can lower it in
+  memory-constrained environments.
+
+- **New config knobs**: `async_scheduler_max_submitted_tasks`, `async_max_concurrent_row_groups`,
+  `async_salvage_max_rounds`, and `async_salvage_error_threshold` are new parameters users may
+  encounter in error messages or docs. Each must have a sensible default; users should not need
+  to tune them in the common case.
+
+- **Async custom columns**: users can now write `async def` functions with
+  `@custom_column_generator` and get native async execution without thread overhead. Worth
+  surfacing in the changelog and docs.
+
+- **Plugin async upgrade path**: plugin authors who want native async performance can
+  override `agenerate()` instead of `generate()` — the symmetric bridging means they don't
+  need to implement both. Stateful plugins should override `is_stateful = True`. Worth
+  documenting in the plugin authoring guide.
+
+### What stays the same
+
+- **Config API**: no schema changes — existing configs work without modification.
+- **Sync path**: `DATA_DESIGNER_ASYNC_ENGINE=0` (the default) is untouched; existing users
+  see no behavioral change.
+- **Existing plugins and sync custom columns**: all continue to work unchanged.
+- **Row ordering**: the final dataset rows are always in the declared order regardless of
+  out-of-order row group completion.
+- **Checkpoint file naming and format**: parquet files use the same naming scheme and schema.
 
 ## Notes
 
-### What we're NOT doing in this PR
+### Out of scope for this PR
 - Overhauling `ModelFacade` internals (PR #344's scope)
 - Building a heavyweight static execution graph (PR #269's approach — we take the
   lightweight dynamic approach instead)
 - Removing the sync/threaded path (it stays as the default)
-- Supporting `allow_resize=True` in the async path (falls back to sync; follow-up)
+
+### Follow-ups
+- **`allow_resize` async support**: currently raises at startup when the async engine is
+  enabled; full support requires dynamic rescheduling and row identity tracking.
+- **Native async `RemoteValidator`**: `ValidationColumnGenerator` wraps `generate()` in
+  `asyncio.to_thread`, which spawns a thread that itself uses `ConcurrentThreadExecutor`
+  for parallel HTTP calls, bypassing the scheduler's concurrency controls. Fix: native
+  async `agenerate` on `RemoteValidator`.
+- **Per-generator task timeouts**: sync generators wrapped in `asyncio.to_thread` can
+  hang indefinitely. For v1 we rely on upstream model timeouts; optional per-generator
+  timeout overrides are the follow-up.
+- **Wasted-work telemetry**: in-flight full-column/batch tasks continue computing after
+  a row is dropped; add telemetry to track compute wasted on dropped rows.
+- **Thread pool sizing**: if profiling shows saturation of the default executor
+  (`min(32, cpu_count + 4)`), explicitly size it to match the scheduler caps.
 
 ### Impact on plugins and custom columns
 
