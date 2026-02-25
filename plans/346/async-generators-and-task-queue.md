@@ -660,6 +660,17 @@ PRs 1 and 2 can be developed and reviewed in parallel.
 - **Silent task hangs**: a sync generator wrapped in `asyncio.to_thread` could hang
   indefinitely. For v1, rely on upstream model timeouts (see Follow-ups).
 
+- **Compute-bound generators and GIL contention**: sync generators wrapped in
+  `asyncio.to_thread` run in Python's thread pool, which protects the event loop
+  from starvation. However, for CPU-bound Python code, the GIL serializes threads —
+  many concurrent compute-heavy tasks get threading overhead with no parallelism.
+  Built-in compute-bound generators (expression eval, samplers) are microsecond-fast,
+  so GIL contention is invisible. The risk is custom generators doing heavy CPU work.
+  Native async generators that do CPU work without yielding are worse — they block
+  the event loop thread entirely, freezing all scheduling. For v1, `asyncio.to_thread`
+  is sufficient; a future `is_cpu_bound` property could route compute-heavy generators
+  to a `ProcessPoolExecutor` for true parallelism (see Follow-ups).
+
 ## UX Considerations
 
 - **Interleaved log output**: with parallel columns and row groups, log lines will interleave.
@@ -858,6 +869,9 @@ builder integration — extend that foundation to a deployable implementation.
   a row is dropped; add telemetry to track compute wasted on dropped rows.
 - **Thread pool sizing**: if profiling shows saturation of the default executor
   (`min(32, cpu_count + 4)`), explicitly size it to match the scheduler caps.
+- **`ProcessPoolExecutor` for compute-bound generators**: if custom generators doing
+  heavy CPU work cause GIL contention, add an `is_cpu_bound` property and route those
+  generators to a `ProcessPoolExecutor` for true parallelism.
 
 ### Impact on plugins and custom columns
 
