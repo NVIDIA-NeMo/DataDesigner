@@ -456,6 +456,28 @@ Implementation expectations:
 5. Normalize tool calls and reasoning fields.
 6. Normalize image outputs from either `b64_json`, data URI, or URL download.
 
+### Image routing ownership contract
+
+1. `ModelFacade` remains responsible for deciding diffusion-vs-chat image generation using current model semantics (`is_image_diffusion_model(model_name)` and multimodal context).
+2. `ModelFacade` constructs `ImageGenerationRequest` accordingly:
+   - chat-based path: set `messages` and chat-oriented payload fields
+   - diffusion path: omit `messages` and use prompt/image endpoint payload fields
+3. Adapter routing is intentionally dumb and request-shape-based:
+   - `request.messages is not None` -> chat route
+   - otherwise -> image-generation route
+
+### OpenAI-compatible image extraction waterfall
+
+`parse_openai_image_response` must handle all currently observed formats:
+
+1. `choices[0].message.images` entries as dicts containing nested `image_url`/data-URI data
+2. `choices[0].message.images` entries as plain strings (base64 or data URI)
+3. provider image objects with `b64_json`
+4. provider image objects with `url` (requires outbound fetch + base64 normalization)
+5. `choices[0].message.content` containing raw base64 image payloads
+
+URL-to-base64 fetches happen in adapter helpers, using a dedicated outbound HTTP fetch client (separate from provider API transport), with timeouts and redacted logging.
+
 ### Anthropic adapter
 
 File: `clients/adapters/anthropic.py`
@@ -524,6 +546,8 @@ Back-compat rule:
 
 1. If `auth` is absent and `api_key` is present:
    - for `openai` and `anthropic`, treat as `auth.mode=api_key`
+2. If both `auth` and `api_key` are absent for OpenAI-compatible providers:
+   - treat as explicit no-auth mode and do not send `Authorization` header.
 
 ### Proposed typed auth schema
 
@@ -535,17 +559,24 @@ from typing import Literal
 from pydantic import BaseModel
 
 
-class OpenAIAuth(BaseModel):
+class OpenAIApiKeyAuth(BaseModel):
     mode: Literal["api_key"] = "api_key"
     api_key: str
     organization: str | None = None
     project: str | None = None
 
 
+class OpenAINoAuth(BaseModel):
+    mode: Literal["none"] = "none"
+
+
 class AnthropicAuth(BaseModel):
     mode: Literal["api_key"] = "api_key"
     api_key: str
     anthropic_version: str = "2023-06-01"
+
+
+OpenAIAuth = OpenAIApiKeyAuth | OpenAINoAuth
 ```
 
 ### Adapter auth behavior by provider
@@ -554,7 +585,7 @@ class AnthropicAuth(BaseModel):
 
 Headers:
 
-1. `Authorization: Bearer <api_key>`
+1. `Authorization: Bearer <api_key>` when `auth.mode == "api_key"`
 2. Optional `OpenAI-Organization: <organization>`
 3. Optional `OpenAI-Project: <project>`
 
@@ -615,7 +646,8 @@ Then map canonical provider errors to existing Data Designer user-facing errors:
 
 1. Add optional `auth` field to `ModelProvider`.
 2. Keep `api_key` as fallback.
-3. Implement adapter builders that accept both forms.
+3. Add `OpenAINoAuth` support for auth-optional OpenAI-compatible providers.
+4. Implement adapter builders that accept all supported forms.
 
 #### Phase B
 
@@ -735,6 +767,7 @@ Lifecycle contract:
 3. `ResourceProvider` exposes `close`/`aclose` and delegates to `ModelRegistry` teardown.
 4. `DataDesigner` entrypoints (`create`, `preview`, `validate`) invoke resource teardown in `finally` blocks.
 5. Tests must verify no leaked open HTTP clients after teardown.
+6. MCP session lifecycle is explicitly owned per run: `ResourceProvider.close()` invokes MCP registry/session-pool cleanup rather than relying only on process-level `atexit`.
 
 Pool sizing policy:
 
@@ -879,6 +912,10 @@ To preserve current behavior, merge precedence is explicit:
 4. Set `extra_headers` from provider extra headers (provider-level replacement semantics).
 5. Drop non-provider params like `purpose` before outbound request.
 
+Merge behavior note:
+
+1. `extra_body` merge is shallow (top-level keys only), matching current behavior.
+
 ### Canonical -> OpenAI-compatible chat payload
 
 | Canonical field | OpenAI payload field |
@@ -946,6 +983,15 @@ Migration safety option:
 
 1. `provider_type == "litellm-bridge"` or feature flag -> `LiteLLMBridgeClient`
 2. lets us verify new abstraction without immediate provider rewrite
+
+### Bridge coexistence with LiteLLM global patches
+
+During mixed bridge/native rollout:
+
+1. `apply_litellm_patches()` must run if any configured model resolves to `LiteLLMBridgeClient`.
+2. Patch application must be idempotent and safe when called multiple times.
+3. `ThreadSafeCache` + LiteLLM patch behavior remains in place until PR-7 removes bridge/LiteLLM path.
+4. PR-7 is the cleanup point for removing `litellm_overrides.py` patch side effects.
 
 ## Error Model and Mapping
 
@@ -1098,6 +1144,13 @@ Use additive-increase / multiplicative-decrease (AIMD):
 4. Re-enter acquire path for each retry attempt (so retries also obey adaptive limits).
 5. Register each `ModelFacade` limit contribution into `GlobalCapState` during initialization.
 
+### Timeout and cancellation semantics
+
+1. `inference_parameters.timeout` applies to outbound provider call duration per attempt (transport timeout), not queueing time before admission.
+2. Throttle queue wait time is tracked separately in telemetry for observability.
+3. Async throttle acquire loops must propagate `asyncio.CancelledError` immediately.
+4. Retry loops must not swallow cancellation signals.
+
 ### Config knobs (optional, with safe defaults)
 
 1. `adaptive_throttle_enabled: bool = true`
@@ -1123,6 +1176,12 @@ Minimal diff approach:
 4. Consume canonical response shape.
 5. Preserve MCP generation semantics (tool budget, refusal behavior, corrections, trace behavior) while updating MCP helper interfaces to canonical response fields.
 6. Move usage tracking methods to consume canonical `Usage`.
+7. Keep `consolidate_kwargs` as the merge source of truth and add typed request builders:
+   - `_build_chat_request(...)`
+   - `_build_embedding_request(...)`
+   - `_build_image_request(...)`
+   This preserves dynamic inference-parameter sampling semantics while moving transport to canonical request types.
+8. Preserve async MCP wrapping pattern (`asyncio.to_thread`) for MCP tool schema retrieval and completion processing where MCP services are sync/event-loop-isolated.
 
 Expected code updates:
 
@@ -1190,6 +1249,12 @@ This matrix defines expected parity between the current LiteLLM-backed implement
 | `ModelGenerationValidationFailureError` | Parser correction exhaustion | Same parser correction exhaustion path | Same class and retry/correction semantics |
 | `ImageGenerationError` | Image extraction or empty image payload | Same canonical image extraction validations | Same class and failure conditions |
 
+Provider error body normalization requirements:
+
+1. OpenAI-compatible adapters parse structured error payload fields (`error.type`, `error.code`, `error.param`, `error.message`) into canonical `ProviderError.message`.
+2. Anthropic adapters parse structured error payload fields (`error.type`, `error.message`) into canonical `ProviderError.message`.
+3. Context-window and multimodal-capability hints should remain actionable in user-facing errors when provider payload includes equivalent context.
+
 ### Usage and telemetry parity
 
 | Metric behavior | Current | Target | Compatibility expectation |
@@ -1220,6 +1285,7 @@ These are allowed differences and should be documented when encountered:
 2. Exact wording of low-level upstream exception strings.
 3. Minor token accounting differences when providers omit or redefine usage fields.
 4. Unsupported capability messages that are more explicit than current generic errors.
+5. Cross-run persistence of adaptive throttle state. In Step 1, throttle state is per `ResourceProvider` lifetime and intentionally resets between independent `create`/`preview`/`validate` runs.
 
 ## Config and CLI Evolution
 
@@ -1286,6 +1352,12 @@ Ensure `ModelRegistry.run_health_check()` still behaves correctly for:
 1. chat models
 2. embedding models
 3. image models
+
+Health-check throttle contract:
+
+1. Health checks go through the same adapter stack for realistic validation.
+2. Health checks use a dedicated throttle domain (`healthcheck`) to reduce interference with workload traffic.
+3. Health-check outcomes should not mutate adaptive AIMD state used by production generation traffic.
 
 ### 5. Sync/async throttle parity tests
 
