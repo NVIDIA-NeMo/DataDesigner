@@ -887,11 +887,19 @@ automatically gets async support. Plugins that want native async performance can
 optionally override `agenerate()` instead — the symmetric bridging means they don't
 need to implement `generate()` at all. The `is_stateful` property defaults to `False`,
 which is correct for most plugins; stateful plugins can override it.
+**Important**: only override `agenerate()` if your work is I/O-bound (network calls,
+async database queries). Compute-bound plugins should implement `generate()` and let
+the framework wrap it in `asyncio.to_thread` — this keeps CPU work off the event loop
+thread. An `agenerate()` that does CPU work without yielding blocks the event loop
+and freezes all scheduling.
 
 **Custom columns** (`@custom_column_generator`): user-provided sync functions are
 wrapped in `asyncio.to_thread` by the framework. If the user provides an async
 function, `CustomColumnGenerator` detects this via `asyncio.iscoroutinefunction`
 and calls it directly as a coroutine — no thread pool overhead.
+The same rule applies: only use `async def` for I/O-bound work. A compute-bound
+`async def` that never awaits will block the event loop. For data transformations,
+string processing, or any CPU-heavy logic, use a regular `def`.
 
 **Processor plugins** (`process_before_batch`, `process_after_batch`,
 `process_after_generation`): processors run at barrier points in the scheduling loop
