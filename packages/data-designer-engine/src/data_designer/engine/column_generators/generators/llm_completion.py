@@ -79,11 +79,7 @@ class ColumnGeneratorWithModelChatCompletion(ColumnGeneratorWithModel[TaskConfig
         # Note: This creates a new dict and doesn't mutate the original `data` argument
         deserialized_record = deserialize_json_values(data)
 
-        multi_modal_context: list[dict[str, Any]] | None = None
-        if self.config.multi_modal_context is not None and len(self.config.multi_modal_context) > 0:
-            multi_modal_context = []
-            for context in self.config.multi_modal_context:
-                multi_modal_context.extend(context.get_contexts(deserialized_record))
+        multi_modal_context = self._build_multi_modal_context(deserialized_record)
 
         return {
             "prompt": self.prompt_renderer.render(

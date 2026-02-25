@@ -60,11 +60,7 @@ class ImageCellGenerator(WithJinja2UserTemplateRendering, ColumnGeneratorWithMod
             raise ValueError(f"Rendered prompt for column {self.config.name!r} is empty")
 
         # Process multi-modal context if provided
-        multi_modal_context = None
-        if self.config.multi_modal_context is not None and len(self.config.multi_modal_context) > 0:
-            multi_modal_context = []
-            for context in self.config.multi_modal_context:
-                multi_modal_context.extend(context.get_contexts(deserialized_record))
+        multi_modal_context = self._build_multi_modal_context(deserialized_record)
 
         # Generate images (returns list of base64 strings)
         base64_images = self.model.generate_image(prompt=prompt, multi_modal_context=multi_modal_context)

@@ -23,7 +23,7 @@ PLUGINS_DISABLED = os.getenv("DISABLE_DATA_DESIGNER_PLUGINS", "false").lower() =
 class PluginRegistry:
     _instance = None
     _plugins_discovered = False
-    _lock = threading.Lock()
+    _lock = threading.RLock()
 
     _plugins: dict[str, Plugin] = {}
 

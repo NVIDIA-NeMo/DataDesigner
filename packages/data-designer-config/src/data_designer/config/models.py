@@ -22,6 +22,14 @@ from data_designer.config.utils.constants import (
     MIN_TEMPERATURE,
     MIN_TOP_P,
 )
+from data_designer.config.utils.image_helpers import (
+    ImageFormat,
+    decode_base64_image,
+    detect_image_format,
+    is_image_path,
+    is_image_url,
+    load_image_path_to_base64,
+)
 from data_designer.config.utils.io_helpers import smart_load_yaml
 
 logger = logging.getLogger(__name__)
@@ -40,16 +48,6 @@ class ModalityDataType(str, Enum):
     BASE64 = "base64"
 
 
-class ImageFormat(str, Enum):
-    """Supported image formats for image modality."""
-
-    PNG = "png"
-    JPG = "jpg"
-    JPEG = "jpeg"
-    GIF = "gif"
-    WEBP = "webp"
-
-
 class DistributionType(str, Enum):
     """Types of distributions for sampling inference parameters."""
 
@@ -60,10 +58,10 @@ class DistributionType(str, Enum):
 class ModalityContext(ABC, BaseModel):
     modality: Modality
     column_name: str
-    data_type: ModalityDataType
+    data_type: ModalityDataType | None = None
 
     @abstractmethod
-    def get_contexts(self, record: dict) -> list[dict[str, Any]]: ...
+    def get_contexts(self, record: dict, *, base_path: str | None = None) -> list[dict[str, Any]]: ...
 
 
 class ImageContext(ModalityContext):
@@ -72,14 +70,16 @@ class ImageContext(ModalityContext):
     Attributes:
         modality: The modality type (always "image").
         column_name: Name of the column containing image data.
-        data_type: Format of the image data ("url" or "base64").
-        image_format: Image format (required for base64 data).
+        data_type: Format of the image data ("url", "base64", or None for auto-detection).
+            When None, the format is auto-detected: URLs are passed through, file paths that
+            exist under base_path are loaded as base64, and other values are assumed to be base64.
+        image_format: Image format (required when data_type is explicitly "base64").
     """
 
     modality: Modality = Modality.IMAGE
     image_format: ImageFormat | None = None
 
-    def get_contexts(self, record: dict) -> list[dict[str, Any]]:
+    def get_contexts(self, record: dict, *, base_path: str | None = None) -> list[dict[str, Any]]:
         """Get the contexts for the image modality.
 
         Args:
@@ -87,6 +87,10 @@ class ImageContext(ModalityContext):
                 - A JSON serialized list of strings
                 - A list of strings
                 - A single string
+            base_path: Optional base path for resolving relative file paths.
+                When provided, file paths that exist under this directory are loaded
+                and converted to base64. This enables generated images (stored as relative
+                paths in create mode) to be sent to remote model endpoints.
 
         Returns:
             A list of image contexts.
@@ -116,16 +120,53 @@ class ImageContext(ModalityContext):
         contexts = []
         for context_value in context_values:
             context = dict(type="image_url")
-            if self.data_type == ModalityDataType.URL:
-                context["image_url"] = context_value
+            if self.data_type is not None:
+                # Explicit data_type: use existing behavior
+                if self.data_type == ModalityDataType.URL:
+                    context["image_url"] = context_value
+                else:
+                    context["image_url"] = {
+                        "url": f"data:image/{self.image_format.value};base64,{context_value}",
+                        "format": self.image_format.value,
+                    }
             else:
-                context["image_url"] = {
-                    "url": f"data:image/{self.image_format.value};base64,{context_value}",
-                    "format": self.image_format.value,
-                }
+                # Auto-detect: resolve file paths, pass through URLs, assume base64 otherwise
+                context["image_url"] = self._auto_resolve_context_value(context_value, base_path)
             contexts.append(context)
 
         return contexts
+
+    def _auto_resolve_context_value(self, context_value: str, base_path: str | None) -> str | dict[str, str]:
+        """Auto-detect the format of a context value and resolve it.
+
+        Resolution rules:
+        - File path that exists under base_path → load to base64 (generated artifact)
+        - URL (http/https) → pass through as-is
+        - Otherwise → assume base64 data
+        """
+        if base_path is not None and is_image_path(context_value):
+            base64_data = load_image_path_to_base64(context_value, base_path=base_path)
+            if base64_data is not None:
+                return self._format_base64_context(base64_data)
+
+        if is_image_url(context_value):
+            return context_value
+
+        return self._format_base64_context(context_value)
+
+    def _format_base64_context(self, base64_data: str) -> dict[str, str]:
+        """Format base64 image data as an image_url context dict.
+
+        Uses self.image_format if set, otherwise detects from the image bytes.
+        """
+        image_format = self.image_format
+        if image_format is None:
+            image_bytes = decode_base64_image(base64_data)
+            image_format = detect_image_format(image_bytes)
+        return {
+            "url": f"data:image/{image_format.value};base64,{base64_data}",
+            "format": image_format.value,
+        }
 
     @model_validator(mode="after")
     def _validate_image_format(self) -> Self:
