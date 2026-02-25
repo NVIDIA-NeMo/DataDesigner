@@ -533,6 +533,57 @@ Wire the new scheduler into `ColumnWiseDatasetBuilder`.
   out-of-order row group completion.
 - **Checkpoint file naming and format**: parquet files use the same naming scheme and schema.
 
+## Relation to PR #269
+
+PR #269 ("feat: add execution graph builder plan with reference implementation") is a
+companion design by @johnnygreco that we reviewed before finalising this plan. It proposes
+a static `ExecutionGraph` with typed node IDs (`CellNodeId`, `BarrierNodeId`), an
+`ExecutionTraits` flag enum, and a `CompletionTracker`. It intentionally stops at the
+graph/tracker layer; this plan covers the full stack on top of that foundation.
+
+### What we adopted
+
+- **Dependency source**: derive the graph from `required_columns` on existing configs,
+  extended with a side-effect mapping for columns like `summary__trace`. No config schema
+  changes in either approach.
+- **Trait inference from properties, not class names**: `GraphBuilder._infer_traits()`
+  inspects `can_generate_from_scratch` and `get_generation_strategy()` rather than
+  matching class names. We apply the same principle, keeping plugin generators compatible.
+- **Lightweight completion tracking**: a `dict[str, set[int]]` mapping column → completed
+  rows, rather than materialising O(C × R) cell-level state. Our `CompletionTracker`
+  follows the same design.
+- **Statefulness as a separate concern from execution strategy**: PR #269 separates
+  execution traits (how a generator runs) from per-instance concurrency safety. We
+  formalise this with the `is_stateful` property.
+
+### What we changed, and why
+
+**Row-group tasks instead of cell-level nodes.** PR #269 models every `(row, column)` pair
+as a virtual `CellNodeId`. Full-column generators become `BARRIER` nodes — a synthetic
+node that must complete before any output cells are ready. This faithfully models
+dependencies but creates a problem the PR itself flags as an open issue: a validation
+column anywhere in the pipeline blocks all checkpointing until the entire dataset
+completes, because no row is "done" until every column, including the barrier, finishes.
+
+We scope full-column tasks to a **row group** (the existing `buffer_size` batch). The
+effective barrier is just the FULL_COLUMN task waiting for all rows *in that group* — not
+the whole dataset. Checkpoints happen as each row group completes, so a failure mid-run
+loses at most one batch.
+
+**`ROW_STREAMABLE` trait omitted.** PR #269 introduces `is_row_streamable` so full-column
+generators that process rows independently (e.g., `ExpressionColumnGenerator`) can be
+scheduled row-by-row, recovering some pipelining within a barrier. In our row-group model
+this is unnecessary: even a full-column generator only blocks one batch, preserving
+checkpoint cadence without subdividing tasks further. Expression columns run in
+microseconds and are never the scheduling bottleneck. We note this as a potential
+follow-up if profiling shows otherwise.
+
+**Scheduler and concurrency layers added.** PR #269 deliberately stops at the graph and
+tracker. Steps 1–3 of this plan (dependency map, completion tracker, task model) are
+directly informed by PR #269 and we treat it as the reference design for that layer. The
+remaining steps — scheduler, concurrency controls, retry/salvage, buffer manager, and
+builder integration — extend that foundation to a deployable implementation.
+
 ## Notes
 
 ### Out of scope for this PR

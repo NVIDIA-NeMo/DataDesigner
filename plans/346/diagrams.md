@@ -33,14 +33,18 @@ The overall orchestration flow from start to row group checkpoint.
 
 ```mermaid
 flowchart TD
-    START[Start] --> SEED[Dispatch from_scratch tasks]
+    START[Start] --> ADMIT[Admit row group\nacquire async_max_concurrent_row_groups slot]
+    ADMIT --> SEED[Dispatch from_scratch tasks]
     SEED --> SEED_CHECK{Stateful generator?}
     SEED_CHECK -->|Yes| SER[Serialize per-instance\nrow group N before N+1]
-    SEED_CHECK -->|No| PAR[Dispatch all row groups\nconcurrently]
+    SEED_CHECK -->|No| PAR[Dispatch concurrently\nwithin admitted set]
     SER --> PRE
     PAR --> PRE
 
-    PRE[Pre-batch barrier\nrun processors, reset tracker] --> LOOP
+    PRE[Pre-batch barrier\nrun processors, reset tracker] --> PRE_OK{Processor\nsucceeded?}
+    PRE_OK -->|No| SKIP[Skip row group\nrelease semaphore slot]
+    SKIP --> DONE
+    PRE_OK -->|Yes| LOOP
 
     LOOP[Query tracker:\nget_ready_tasks] --> READY{Tasks ready?}
 
@@ -56,14 +60,14 @@ flowchart TD
     DEFERRED -->|No, or budget exhausted| RG_CHECK{Row group\ncomplete?}
 
     RG_CHECK -->|Yes| POST[Post-batch processors]
-    POST --> CP[Checkpoint to parquet\nfree memory]
+    POST --> CP[Checkpoint to parquet\nfree memory\nrelease semaphore slot]
     CP --> DONE{All row groups\ndone?}
 
     RG_CHECK -->|No| WAIT[Wait for in-flight\ntasks to complete]
     WAIT --> LOOP
 
     DONE -->|Yes| FIN[Done]
-    DONE -->|No| LOOP
+    DONE -->|No| ADMIT
 ```
 
 ## 3. Dependency Resolution Example
