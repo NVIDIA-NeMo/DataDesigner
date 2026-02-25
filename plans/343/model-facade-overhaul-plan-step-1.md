@@ -267,10 +267,11 @@ Suggested files:
 2. `types.py` - Canonical request/response objects
 3. `errors.py` - Provider-agnostic transport/provider exceptions
 4. `retry.py` - Backoff policy and retry decision logic
-5. `factory.py` - Adapter selection by `provider_type`
-6. `adapters/openai_compatible.py`
-7. `adapters/anthropic.py`
-8. `adapters/litellm_bridge.py` (temporary bridge for migration safety)
+5. `throttle.py` - Adaptive concurrency state and AIMD controller
+6. `factory.py` - Adapter selection by `provider_type`
+7. `adapters/openai_compatible.py`
+8. `adapters/anthropic.py`
+9. `adapters/litellm_bridge.py` (temporary bridge for migration safety)
 
 ### 2. Keep `ModelFacade` as orchestrator
 
@@ -554,9 +555,9 @@ Back-compat rule:
 ```python
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class OpenAIApiKeyAuth(BaseModel):
@@ -576,7 +577,7 @@ class AnthropicAuth(BaseModel):
     anthropic_version: str = "2023-06-01"
 
 
-OpenAIAuth = OpenAIApiKeyAuth | OpenAINoAuth
+OpenAIAuth = Annotated[OpenAIApiKeyAuth | OpenAINoAuth, Field(discriminator="mode")]
 ```
 
 ### Adapter auth behavior by provider
@@ -706,10 +707,14 @@ class HTTPAdapterBase:
         self._client = httpx.Client(timeout=self.timeout_s)
         self._aclient = httpx.AsyncClient(timeout=self.timeout_s)
 
+    def _auth_headers(self) -> dict[str, str]:
+        if not self.api_key:
+            return {}
+        return {"Authorization": f"Bearer {self.api_key}"}
+
     def _headers(self, extra_headers: dict[str, str] | None = None) -> dict[str, str]:
         headers = dict(self.default_headers)
-        if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
+        headers.update(self._auth_headers())
         if extra_headers:
             headers.update(extra_headers)
         return headers
@@ -876,10 +881,19 @@ class AnthropicClient(HTTPAdapterBase, ModelClient):
     def supports_image_generation(self) -> bool:
         return False
 
+    def _auth_headers(self) -> dict[str, str]:
+        headers = {
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        }
+        if self.api_key:
+            headers["x-api-key"] = self.api_key
+        return headers
+
     def completion(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
         payload = anthropic_payload_from_canonical(request)
         response_json = run_with_retries(
-            fn=lambda: self._post_json("chat", payload, anthropic_headers(request.extra_headers)),
+            fn=lambda: self._post_json("chat", payload, request.extra_headers),
             policy=self.retry_policy,
         )
         return parse_anthropic_chat_response(response_json)

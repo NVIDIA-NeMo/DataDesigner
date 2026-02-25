@@ -76,3 +76,14 @@ class PluginManager:
         """
         seed_source_type = self._plugin_registry.add_plugin_types_to_union(seed_source_type, PluginType.SEED_READER)
         return seed_source_type
+
+    def inject_into_processor_config_type_union(self, processor_config_type: type[TypeAlias]) -> type[TypeAlias]:
+        """Inject plugins into the processor config type.
+
+        Args:
+            processor_config_type: The processor config type to inject plugins into.
+
+        Returns:
+            The processor config type with plugins injected.
+        """
+        return self._plugin_registry.add_plugin_types_to_union(processor_config_type, PluginType.PROCESSOR)
