@@ -167,23 +167,32 @@ class TaskTrace:
 class AsyncTaskScheduler:
     def __init__(
         self,
-        generators: dict[str, ColumnGenerator],
+        generators: dict[str, ColumnGenerator],  # column name → generator (multi-column: same instance)
         graph: ExecutionGraph,
         tracker: CompletionTracker,
         row_groups: list[tuple[int, int]],  # (rg_id, rg_size)
         *,
         max_concurrent_row_groups: int = 3,
         max_submitted_tasks: int = 256,
+        max_execution_slots: int = 128,
         salvage_max_rounds: int = 2,
         trace: bool = False,
     ) -> None:
+        self._generators = generators
         self._graph = graph
         self._tracker = tracker
         self._rg_semaphore = asyncio.Semaphore(max_concurrent_row_groups)
-        self._scheduler_semaphore = asyncio.Semaphore(max_submitted_tasks)
+        self._submission_semaphore = asyncio.Semaphore(max_submitted_tasks)
+        self._execution_semaphore = asyncio.Semaphore(max_execution_slots)
         self._dispatched: set[Task] = set()
         self._wake_event = asyncio.Event()
         self.traces: list[TaskTrace] = []
+
+        # Multi-column dedup: group output columns by generator identity
+        instance_map: dict[int, list[str]] = {}
+        for col, gen in generators.items():
+            instance_map.setdefault(id(gen), []).append(col)
+        self._instance_to_columns = instance_map
         ...
 
     async def run(self) -> None:
@@ -197,7 +206,7 @@ class AsyncTaskScheduler:
             self._wake_event.clear()
             ready = self._get_ready_tasks()
             for task in ready:
-                await self._scheduler_semaphore.acquire()
+                await self._submission_semaphore.acquire()
                 asyncio.create_task(self._execute_task(task))
             if not ready:
                 await self._wake_event.wait()
@@ -211,8 +220,12 @@ class AsyncTaskScheduler:
     def _get_ready_tasks(self) -> list[Task]:
         """The core readiness check — combines graph + tracker + scheduler policy."""
         ready: list[Task] = []
+        seen_instances: set[int] = set()
         for rg_id, rg_size in self._active_row_groups():
             for col in self._graph.topological_order():
+                gen = self._generators[col]
+                if id(gen) in seen_instances:
+                    continue  # multi-column: already dispatched via sibling
                 strategy = self._graph.strategy(col)
                 if strategy == GenerationStrategy.CELL_BY_CELL:
                     for ri in range(rg_size):
@@ -231,15 +244,24 @@ class AsyncTaskScheduler:
                     deps = self._graph.cell_dependencies(col, rg_id, None, rg_size)
                     if self._tracker.all_complete(deps):
                         ready.append(task)
+                        seen_instances.add(id(gen))
         return ready
 
     async def _execute_task(self, task: Task) -> None:
         self._dispatched.add(task)
         try:
-            self._scheduler_semaphore.release()
-            # ... optional: await throttle permit (once PR #344 lands) ...
-
             generator = self._generators[task.column]
+
+            # 1. acquire execution slot → prepare request
+            await self._execution_semaphore.acquire()
+            # ... prepare request ...
+            self._execution_semaphore.release()
+
+            # 2. await throttle permit (LLM tasks only; skipped without PR #344)
+            # ...
+
+            # 3. reacquire execution slot → execute + writeback
+            await self._execution_semaphore.acquire()
             if task.task_type == "from_scratch":
                 result_df = await generator.agenerate_from_scratch(...)
                 # write all rows to buffer
@@ -252,11 +274,19 @@ class AsyncTaskScheduler:
                 batch_df = ...  # read from buffer manager
                 result_df = await generator.agenerate(batch_df.copy())
                 # merge result columns back
+            self._execution_semaphore.release()
 
-            self._tracker.mark_complete(task.column, task.row_group, task.row_index or 0)
+            # Mark all output columns complete (handles multi-column generators)
+            output_cols = self._instance_to_columns[id(generator)]
+            for col in output_cols:
+                if task.row_index is None:
+                    self._tracker.mark_batch_complete(col, task.row_group, ...)
+                else:
+                    self._tracker.mark_complete(col, task.row_group, task.row_index)
         except Exception as exc:
             self._handle_task_failure(task, exc)
         finally:
+            self._submission_semaphore.release()
             self._wake_event.set()
             # check if row group is complete → post-batch → checkpoint
 ```
@@ -330,9 +360,10 @@ class ColumnWiseDatasetBuilder:
 
         # 3. Create tracker and scheduler
         tracker = CompletionTracker()
+        # Multi-column generators: multiple column keys → same instance
         gen_map = {g.task_config.name: g for g in generators}
         scheduler = AsyncTaskScheduler(
-            generators=gen_map,
+            generators=gen_map,  # scheduler deduplicates by identity
             graph=graph,
             tracker=tracker,
             row_groups=row_groups,
@@ -350,13 +381,13 @@ On each task completion:
 
 ```
 1. Task completes
-   → tracker.mark_complete(col, rg, row)
+   → tracker.mark_complete(col, rg, row)  # all output columns for multi-column generators
 
 2. Scheduler wakes up (_wake_event.set())
-   → for each candidate task in active row groups:
+   → for each candidate task in active row groups (deduped by generator identity):
        deps = graph.cell_dependencies(col, rg, row, rg_size)
        if tracker.all_complete(deps) and task not dispatched:
-           dispatch it
+           dispatch it (acquire submission slot → execute behind execution semaphore)
 
 3. If tracker.is_row_group_complete(rg, rg_size, all_columns):
    → run post-batch processors

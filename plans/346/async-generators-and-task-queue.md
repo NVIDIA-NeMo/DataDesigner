@@ -75,6 +75,14 @@ scheduler operates at runtime.
 | `CELL_BY_CELL` (LLM text/code/structured/judge, image, embedding, custom) | `(column, row)` | All `required_columns` complete for that row |
 | `FULL_COLUMN` (expression, validation, sampler-as-transform) | `(column, row_group)` | All `required_columns` complete for ALL rows in row group |
 
+**Multi-column generators**: `MultiColumnConfig` (e.g., a seed dataset producing
+`first_name`, `last_name`, `email`) maps multiple output columns to the same
+generator instance. The graph has individual nodes for each output column. The
+scheduler deduplicates by generator identity — it dispatches one task per unique
+instance and marks all output columns complete on completion. This mapping
+(`instance_id → output columns`) is built at scheduler init from the generator map,
+where multiple column keys point to the same object.
+
 ### 3. Row groups as checkpoint units
 
 Rows are partitioned into groups of `buffer_size` (same as current batches).
@@ -93,33 +101,31 @@ Full-column generators operate on their entire row group at once, same as today.
 
 Three independent layers:
 
-1. **Scheduler semaphore** — a coarse resource guard bounding total in-flight
-   active execution to limit CPU/memory pressure (e.g., configurable cap, default
-   ~128). This is **not** the source of truth for API concurrency.
+1. **Execution semaphore** — bounds active compute/writeback sections to limit
+   CPU/memory pressure (e.g., configurable cap, default ~128). This is **not**
+   the source of truth for API concurrency.
 
-2. **Throttle manager** (from PR #344) — gates every outbound LLM call, keyed
-   by `provider+model(+domain)`. Dynamically adjusts per-key limits on 429s
-   via AIMD. This is the real API concurrency control.
-   **Note**: PR #344 may land after the initial scheduler PRs. The scheduler
-   is designed to work without it: when no throttle manager is available, tasks
-   skip the throttle acquire step and only the scheduler semaphore + submission
-   budget bound concurrency. Once PR #344 merges, the throttle acquire call is
-   wired in — no scheduler changes needed, just a conditional `await` in the
-   task dispatch path.
+2. **Throttle manager** (from PR #344) — gates outbound LLM calls, keyed by
+   `provider+model(+domain)`. Dynamically adjusts per-key limits on 429s via AIMD.
+   This is the real API concurrency control.
+   **Note**: PR #344 may land after the initial scheduler PRs. When no throttle
+   manager is available, LLM tasks skip the throttle acquire step and only the
+   execution semaphore + submission budget bound concurrency.
 
 3. **Submission budget** — a hard cap on "submitted but not finished" tasks
    (running + waiting on throttle/backoff), e.g., `async_scheduler_max_submitted_tasks`.
-   This prevents unbounded parked coroutines when tasks release scheduler slots
-   before throttle acquire.
 
-Tasks must **not hold scheduler slots while waiting on throttle backoff**. A task
-acquires a scheduler slot, prepares its request, then releases the slot before
-awaiting the throttle permit. This ensures a throttled model key doesn't starve
-unrelated keys by hogging scheduler capacity.
+LLM tasks must **not hold execution slots while waiting on throttle/backoff**.
+Dispatch pattern:
+1. acquire execution slot — prepare request
+2. release execution slot
+3. await throttle permit (LLM tasks only; skipped without PR #344)
+4. reacquire execution slot — execute generator call + writeback
+5. release execution slot
 
-Task admission is therefore bounded by the submission budget, while active
-execution is bounded by the scheduler semaphore. This composes cleanly with
-PR #344's adaptive throttling without the two systems fighting each other.
+Task admission is bounded by the submission budget, while active compute/writeback
+is bounded by the execution semaphore. This prevents a throttled key from starving
+unrelated work while still keeping total active work bounded.
 
 ### 5. Generator statefulness and reentrancy
 
@@ -278,7 +284,7 @@ Simple dataclass representing a unit of work.
 - [ ] `TaskTrace` dataclass (only instantiated when tracing is enabled):
   - `column: str`, `row_group: int`, `row_index: int | None`, `task_type: str`
   - `dispatched_at: float` — `perf_counter()` when `create_task()` fires
-  - `slot_acquired_at: float` — after scheduler semaphore acquired
+  - `slot_acquired_at: float` — after execution semaphore acquired
   - `completed_at: float` — in `finally` block after generator returns
   - `status: str`, `error: str | None`
 - [ ] Hashable so we can track dispatched/pending sets
@@ -301,13 +307,13 @@ The core orchestrator that replaces `_run_batch` for the async path.
        N's seed completes before N+1's seed starts for that generator); stateless
        generators dispatch all admitted row groups concurrently
     2. Loop: query `completion_tracker.get_ready_tasks()` → dispatch each via
-       `asyncio.create_task()` behind scheduler semaphore → on completion, update
+       `asyncio.create_task()` behind submission budget → on completion, update
        tracker → repeat until all tasks done or early shutdown
     3. When ready queue drains, run salvage rounds over deferred retryable failures
        (up to `async_salvage_max_rounds` rounds)
     4. After each row group completes: run post-batch processors, checkpoint
-  - Task dispatch: acquire scheduler semaphore slot → prepare request → release
-    slot → await throttle permit (for LLM tasks) → execute → write result
+  - Task dispatch follows the pattern from §4: acquire execution slot → prepare →
+    release → await throttle (LLM only) → reacquire → execute + writeback → release
   - Admission control: never allow more than `async_scheduler_max_submitted_tasks`
     tasks in submitted/running/waiting states; hold remaining ready tasks in the
     scheduler queue until slots free up
@@ -586,7 +592,7 @@ PRs 1 and 2 can be developed and reviewed in parallel.
   controlled by `async_max_concurrent_row_groups` (default 3). The scheduler only admits
   a new row group's seed tasks once a slot is available.
 
-- **Unbounded parked coroutines during throttle waits**: Releasing scheduler slots
+- **Unbounded parked coroutines during throttle waits**: Releasing execution slots
   before throttle acquire improves fairness, but can create large numbers of parked
   tasks if admission is not bounded. Mitigation: enforce
   `async_scheduler_max_submitted_tasks` as a hard cap on submitted/running/waiting
@@ -648,7 +654,7 @@ PRs 1 and 2 can be developed and reviewed in parallel.
 
 - **Thread pool sizing**: sync generators wrapped in `asyncio.to_thread` use Python's
   default thread pool executor (`min(32, cpu_count + 4)`). For v1, keep the default —
-  the scheduler semaphore and row group cap already bound actual concurrency to levels
+  the execution semaphore and row group cap already bound actual concurrency to levels
   where the default pool is unlikely to be a bottleneck (see Follow-ups).
 
 - **Silent task hangs**: a sync generator wrapped in `asyncio.to_thread` could hang
@@ -721,7 +727,7 @@ the result callback.
 
 ### What the data shows
 
-- `slot_acquired_at - dispatched_at`: time waiting on the scheduler semaphore (contention indicator)
+- `slot_acquired_at - dispatched_at`: time waiting on the execution semaphore (contention indicator)
 - `completed_at - slot_acquired_at`: actual generator execution time
 - Dispatch timestamps across tasks: verify dependency order and parallelism (e.g. two
   independent columns should show overlapping `slot_acquired_at`–`completed_at` ranges)
