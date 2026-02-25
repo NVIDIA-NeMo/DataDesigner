@@ -660,16 +660,18 @@ PRs 1 and 2 can be developed and reviewed in parallel.
 - **Silent task hangs**: a sync generator wrapped in `asyncio.to_thread` could hang
   indefinitely. For v1, rely on upstream model timeouts (see Follow-ups).
 
-- **Compute-bound generators and GIL contention**: sync generators wrapped in
-  `asyncio.to_thread` run in Python's thread pool, which protects the event loop
-  from starvation. However, for CPU-bound Python code, the GIL serializes threads —
-  many concurrent compute-heavy tasks get threading overhead with no parallelism.
-  Built-in compute-bound generators (expression eval, samplers) are microsecond-fast,
-  so GIL contention is invisible. The risk is custom generators doing heavy CPU work.
-  Native async generators that do CPU work without yielding are worse — they block
-  the event loop thread entirely, freezing all scheduling. For v1, `asyncio.to_thread`
-  is sufficient; a future `is_cpu_bound` property could route compute-heavy generators
-  to a `ProcessPoolExecutor` for true parallelism (see Follow-ups).
+- **Compute-bound generators starving I/O-bound tasks**: compute-bound and I/O-bound
+  tasks share the same thread pool (via `asyncio.to_thread`). If compute-heavy tasks
+  saturate the pool, I/O-bound tasks (LLM calls, remote validators) can't acquire
+  threads and stall — even though they'd release the GIL immediately on network I/O.
+  Additionally, the GIL serializes CPU-bound threads, so compute tasks get threading
+  overhead with no parallelism. Native async generators that do CPU work without
+  yielding are worse — they block the event loop thread entirely, freezing all
+  scheduling. Built-in compute-bound generators (expression eval, samplers) are
+  microsecond-fast, so this risk is limited to custom generators doing heavy CPU work.
+  For v1, `asyncio.to_thread` is sufficient; a future `is_cpu_bound` property could
+  route compute-heavy generators to a separate `ProcessPoolExecutor`, keeping the
+  thread pool available for I/O-bound work (see Follow-ups).
 
 ## UX Considerations
 
