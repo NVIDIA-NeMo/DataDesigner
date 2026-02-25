@@ -47,23 +47,25 @@ row group 0 column C is still running).
 
 ## Key Design Decisions
 
-### 1. Dynamic dependency resolution, not a static graph
+### 1. Column-level static execution graph
 
-We don't build an explicit graph object (unlike PR #269). Instead:
-- At setup: build a **dependency map** `dict[str, set[str]]` from each column's
+- At setup: build an `ExecutionGraph` (column-level DAG) from each column's
   `config.required_columns` property (already available on all config types via
-  Jinja2 template introspection).
-- The dependency map also registers **side-effect output columns** (e.g.,
+  Jinja2 template introspection) and the generation strategy from each generator.
+- The graph also registers **side-effect output columns** (e.g.,
   `__trace`, `__reasoning_content`) and maps them back to their producer generator.
   A downstream column referencing `summary__trace` resolves to a dependency on
   the `summary` generator. This ensures side-effect columns are never missing from
-  the map or treated as unsatisfied.
+  the graph or treated as unsatisfied.
 - At runtime: a **completion tracker** (columns × rows matrix) determines which
   tasks are ready by checking whether all upstream columns for a given row are done.
 
-This is simpler, requires no new data structures beyond what configs already
-provide, and naturally handles the "dynamic" aspect — we just check readiness as
-tasks complete.
+The graph is column-granularity only — no cell-level nodes — so it stays small
+(N columns, N edges) regardless of row count. Scheduling remains dynamic: the
+completion tracker drives readiness checks as tasks complete, with no upfront
+planning of execution order. The static graph adds inspectability (visualization,
+critical path, upfront task counts, error attribution) without changing how the
+scheduler operates at runtime.
 
 ### 2. Task granularity
 
@@ -199,37 +201,54 @@ incompatible and make an explicit choice (see Follow-ups).
 
 ## Implementation Steps
 
-### Step 1: Column Dependency Map
+### Step 1: Execution Graph
 
-Build the dependency map from column configs at builder init time.
+Build a column-level static execution graph from column configs at builder init time.
+The graph is column-granularity only — no cell-level nodes — so it stays small (N columns,
+N edges) regardless of row count and avoids the barrier/checkpoint problems of a cell-level
+graph.
 
-- [ ] Add `build_dependency_map(column_configs) -> dict[str, set[str]]` utility
-  - Input: the ordered list of `ColumnConfigT` / `MultiColumnConfig`
+- [ ] `ExecutionGraph` class:
+  - Backing stores: `dict[str, set[str]]` column → upstream columns;
+    `dict[str, GenerationStrategy]` column → generation strategy
+  - `upstream(column: str) -> set[str]` — direct dependencies of a column
+  - `downstream(column: str) -> set[str]` — columns that depend on this one (for error attribution)
+  - `strategy(column: str) -> GenerationStrategy` — cell-by-cell or full-column
+  - `topological_order() -> list[str]` — valid DAG execution order (used by scheduler and for validation)
+  - `critical_path() -> list[str]` — longest dependency chain (useful for ETA estimates)
+  - `task_count(num_records: int, buffer_size: int) -> dict[str, int]` — exact task count per
+    column before the run starts; cell-by-cell columns produce `num_records` tasks,
+    full-column columns (including from-scratch generators, which report `FULL_COLUMN`)
+    produce `ceil(num_records / buffer_size)` tasks
+  - `to_mermaid() -> str` — Mermaid diagram string; nodes are annotated with strategy type
+- [ ] `build_execution_graph(column_configs, strategies: dict[str, GenerationStrategy]) -> ExecutionGraph` utility:
+  - Input: the ordered list of `ColumnConfigT` / `MultiColumnConfig`, plus a pre-computed
+    strategy map (available from generators at builder init time via `get_generation_strategy()`)
   - For each config, read `config.required_columns` → set of upstream column names
   - Also register side-effect output columns (`__trace`, `__reasoning_content`, etc.)
     and map them back to their producer column, so downstream references resolve correctly
   - For `MultiColumnConfig`, all sub-columns share the same dependencies
   - Validate: every required column must resolve to a known producer (including
     registered side-effect outputs), and the graph must be acyclic
-- [ ] Add `topological_order(dependency_map) -> list[str]` — returns a valid DAG
-  execution order used for validation (not required to match config declaration order)
-- [ ] Unit tests for dependency map construction and validation
+- [ ] Unit tests for graph construction, validation, critical path, task count, and Mermaid output
 
-**Files**: new module `engine/dataset_builders/utils/dependency_map.py`, tests
+**Files**: new module `engine/dataset_builders/utils/execution_graph.py`, tests
 
 ### Step 2: Completion Tracker
 
-A lightweight structure tracking which (column, row) pairs are done.
+A lightweight structure tracking which (column, row_group, row_index) tuples are
+done. Row indices are **local** to their row group (0-based within each group),
+matching the buffer manager's per-row-group addressing.
 
 - [ ] `CompletionTracker` class:
-  - Internal: `dict[str, set[int]]` mapping column name → set of completed row indices
-  - `mark_complete(column: str, row: int)` / `mark_batch_complete(column: str, row_group: int, row_group_size: int)`
-  - `is_ready(column: str, row: int, dependency_map) -> bool` — checks all upstream columns for that row
-  - `is_batch_ready(column: str, row_group: int, row_group_size: int, dependency_map) -> bool` — checks all rows in group
+  - Internal: `dict[int, dict[str, set[int]]]` mapping row_group → column → set of completed local row indices
+  - `mark_complete(column: str, row_group: int, row_index: int)` / `mark_batch_complete(column: str, row_group: int, row_group_size: int)`
+  - `is_ready(column: str, row_group: int, row_index: int, graph: ExecutionGraph) -> bool` — checks all upstream columns for that (row_group, row_index)
+  - `is_batch_ready(column: str, row_group: int, row_group_size: int, graph: ExecutionGraph) -> bool` — checks all rows in group
   - `drop_row(row_group: int, row_index: int)` — marks row as dropped across all columns;
     `get_ready_tasks` skips dropped rows, in-flight tasks for dropped rows are ignored on completion
   - `is_row_group_complete(row_group: int, row_group_size: int, all_columns: list[str]) -> bool` — all non-dropped rows have all columns done
-  - `get_ready_tasks(dependency_map, columns_with_strategy, row_groups) -> list[Task]` — yields all currently dispatchable tasks, excluding dropped rows
+  - `get_ready_tasks(graph: ExecutionGraph, row_groups) -> list[Task]` — yields all currently dispatchable tasks, excluding dropped rows; reads `graph.strategy(column)` to determine task granularity per column
 - [ ] No locks needed: all access is from the single asyncio event loop thread
 - [ ] Unit tests
 
@@ -262,7 +281,7 @@ inlining would create import cycles.
 The core orchestrator that replaces `_run_batch` for the async path.
 
 - [ ] `AsyncTaskScheduler` class:
-  - Constructor takes: generators (by column name), dependency map, completion tracker, row group definitions, concurrency limit (`async_scheduler_max_submitted_tasks`), row group semaphore (`async_max_concurrent_row_groups`), salvage config, error/result callbacks, `trace: bool = False`
+  - Constructor takes: generators (by column name), `graph: ExecutionGraph`, completion tracker, row group definitions, concurrency limit (`async_scheduler_max_submitted_tasks`), row group semaphore (`async_max_concurrent_row_groups`), salvage config, error/result callbacks, `trace: bool = False`
   - When `trace=True`, populates `scheduler.traces: list[TaskTrace]` (one record per task); otherwise no `TaskTrace` objects are created. See Profiling.
   - `async run()` — main loop:
     1. Acquire the row group semaphore (`async_max_concurrent_row_groups`) before
@@ -340,8 +359,8 @@ and async-first generators (new plugins doing native async I/O) only need to imp
   with `max_parallel_requests > 1`, `generate()` internally uses `ConcurrentThreadExecutor`, so the
   async wrapper spawns a thread that itself spawns more threads — bypassing the scheduler's concurrency
   controls for those HTTP calls. Acceptable for v1 (see Follow-ups).
-- [ ] `CustomColumnGenerator`: inherits directly from `ColumnGenerator` (not from `ColumnGeneratorCellByCell`
-  or `ColumnGeneratorFullColumn`), so it does not automatically inherit either async wrapper. Needs its own
+- [ ] `CustomColumnGenerator`: inherits directly from `ColumnGenerator` (not from
+  `ColumnGeneratorFullColumn`), so it does not automatically inherit the full-column async wrapper. Needs its own
   `agenerate` that branches on strategy:
   - `CELL_BY_CELL`: if the user function is a coroutine (`asyncio.iscoroutinefunction`), call it directly;
     otherwise wrap in `asyncio.to_thread`
@@ -374,7 +393,7 @@ Adapt `DatasetBatchManager` for concurrent row group processing.
 Wire the new scheduler into `ColumnWiseDatasetBuilder`.
 
 - [ ] New method `_build_async(generators, num_records, buffer_size, ...)`:
-  1. Build dependency map from `self._column_configs`
+  1. Build `ExecutionGraph` from `self._column_configs` and generator strategies
   2. Partition rows into row groups
   3. Create `CompletionTracker`, `AsyncTaskScheduler`
   4. Run scheduler on the background event loop (reuse `_ensure_async_engine_loop()`
@@ -393,8 +412,8 @@ Wire the new scheduler into `ColumnWiseDatasetBuilder`.
 
 ### Step 8: Tests & Validation
 
-- [ ] Unit tests for each new module (dependency map, completion tracker, task model, scheduler)
-- [ ] Dependency map: side-effect output columns resolve correctly (e.g., column
+- [ ] Unit tests for each new module (execution graph, completion tracker, task model, scheduler)
+- [ ] Execution graph: side-effect output columns resolve correctly (e.g., column
   depending on `summary__trace` maps to a dependency on the `summary` generator)
 - [ ] Integration test: multi-column config with known dependencies, verify parallel execution
 - [ ] Integration test: mixed cell-by-cell + full-column generators
@@ -611,10 +630,13 @@ PR #269 ("feat: add execution graph builder plan with reference implementation")
 companion design by @johnnygreco that we reviewed before finalising this plan. It proposes
 a static `ExecutionGraph` with typed node IDs (`CellNodeId`, `BarrierNodeId`), an
 `ExecutionTraits` flag enum, and a `CompletionTracker`. It intentionally stops at the
-graph/tracker layer; this plan covers the full stack on top of that foundation.
+graph/tracker layer; this plan covers the full stack from graph through to deployment.
 
 ### What we adopted
 
+- **Static `ExecutionGraph`**: we adopt the concept of building a static graph upfront,
+  inspectable before and after a run. Our graph is column-granularity rather than
+  cell-granularity — see below for why.
 - **Dependency source**: derive the graph from `required_columns` on existing configs,
   extended with a side-effect mapping for columns like `summary__trace`. No config schema
   changes in either approach.
@@ -630,17 +652,30 @@ graph/tracker layer; this plan covers the full stack on top of that foundation.
 
 ### What we changed, and why
 
-**Row-group tasks instead of cell-level nodes.** PR #269 models every `(row, column)` pair
+**Column-level graph, not cell-level.** PR #269 models every `(row, column)` pair
 as a virtual `CellNodeId`. Full-column generators become `BARRIER` nodes — a synthetic
 node that must complete before any output cells are ready. This faithfully models
 dependencies but creates a problem the PR itself flags as an open issue: a validation
 column anywhere in the pipeline blocks all checkpointing until the entire dataset
 completes, because no row is "done" until every column, including the barrier, finishes.
+Cell-level nodes also scale to O(C × R), which is large for realistic dataset sizes.
 
-We scope full-column tasks to a **row group** (the existing `buffer_size` batch). The
-effective barrier is just the FULL_COLUMN task waiting for all rows *in that group* — not
-the whole dataset. Checkpoints happen as each row group completes, so a failure mid-run
-loses at most one batch.
+We use a **column-level** `ExecutionGraph` instead — N columns, N edges, fixed size
+regardless of row count. This still provides the full value of a static graph (visualization,
+critical path, upfront task counts, error attribution via `downstream()`) without the
+checkpoint problem or the node explosion. Full-column tasks are scoped to a **row group**:
+the effective barrier is just that FULL_COLUMN task waiting for all rows *in that group*,
+not the whole dataset. Checkpoints happen as each row group completes, so a failure
+mid-run loses at most one batch.
+
+**`ExecutionTraits` replaced by `GenerationStrategy` on the graph.** PR #269 attaches an
+`ExecutionTraits` flag enum (`CELL`, `BARRIER`, `ROW_STREAMABLE`) to each node. Since our
+graph is column-level, we store `GenerationStrategy` (cell-by-cell, full-column) directly
+on each column node instead. From-scratch columns are identified by having no upstream
+dependencies in the graph; the scheduler checks `can_generate_from_scratch` on the generator
+instance to determine which method to call. This serves the same purpose as `ExecutionTraits`
+— the scheduler and `CompletionTracker` use it to determine task granularity — without
+needing typed node IDs or flag combinations.
 
 **`ROW_STREAMABLE` trait omitted.** PR #269 introduces `is_row_streamable` so full-column
 generators that process rows independently (e.g., `ExpressionColumnGenerator`) can be
@@ -651,7 +686,7 @@ microseconds and are never the scheduling bottleneck. We note this as a potentia
 follow-up if profiling shows otherwise.
 
 **Scheduler and concurrency layers added.** PR #269 deliberately stops at the graph and
-tracker. Steps 1–3 of this plan (dependency map, completion tracker, task model) are
+tracker. Steps 1–3 of this plan (execution graph, completion tracker, task model) are
 directly informed by PR #269 and we treat it as the reference design for that layer. The
 remaining steps — scheduler, concurrency controls, retry/salvage, buffer manager, and
 builder integration — extend that foundation to a deployable implementation.
@@ -660,8 +695,8 @@ builder integration — extend that foundation to a deployable implementation.
 
 ### Out of scope for this PR
 - Overhauling `ModelFacade` internals (PR #344's scope)
-- Building a heavyweight static execution graph (PR #269's approach — we take the
-  lightweight dynamic approach instead)
+- Building a cell-level static execution graph (PR #269's `CellNodeId`/`BarrierNodeId`
+  approach — we use a column-level graph instead, which avoids the barrier/checkpoint problem)
 - Removing the sync/threaded path (it stays as the default)
 
 ### Follow-ups
@@ -705,13 +740,15 @@ unaffected by this change.
 ### Key insight from existing code
 Every column config already has a `required_columns` property that returns the
 column names referenced in its Jinja2 templates. This gives us explicit dependency
-information without any config schema changes. The dependency map starts as
-`{col.name: set(col.required_columns) for col in configs}`, extended with a
-side-effect output mapping so that references to columns like `summary__trace`
-resolve to a dependency on the `summary` generator.
+information without any config schema changes. The `ExecutionGraph` dependency
+structure starts as `{col.name: set(col.required_columns) for col in configs}`,
+extended with a side-effect output mapping so that references to columns like
+`summary__trace` resolve to a dependency on the `summary` generator.
 
-### On "dynamic" graph building
-The graph is implicit in the dependency map + completion tracker. We never
-materialise a node/edge graph structure. The scheduler dynamically determines
-readiness by querying the tracker — this is what "dynamic" means in this context.
-As tasks complete, new tasks become eligible. No upfront planning of execution order.
+### On static graph vs dynamic scheduling
+The `ExecutionGraph` is a static column-level DAG built once at init time — it
+describes *what* can run and in what order. Scheduling remains dynamic: the
+completion tracker drives readiness checks as tasks complete, and new tasks become
+eligible without any upfront planning. The two concerns are complementary:
+the graph provides inspectability and upfront analysis; the tracker provides
+runtime readiness at row granularity.
