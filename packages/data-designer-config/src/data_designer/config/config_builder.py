@@ -28,7 +28,8 @@ from data_designer.config.errors import BuilderConfigurationError, BuilderSerial
 from data_designer.config.exportable_config import ExportableConfigBase
 from data_designer.config.mcp import ToolConfig
 from data_designer.config.models import ModelConfig, load_model_configs
-from data_designer.config.processors import ProcessorConfigT, ProcessorType, get_processor_config_from_kwargs
+from data_designer.config.processor_types import ProcessorConfigT
+from data_designer.config.processors import ProcessorType, get_processor_config_from_kwargs
 from data_designer.config.sampler_constraints import (
     ColumnConstraintT,
     ColumnInequalityConstraint,
