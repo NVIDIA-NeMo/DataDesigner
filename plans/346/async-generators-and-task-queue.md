@@ -100,6 +100,12 @@ Three independent layers:
 2. **Throttle manager** (from PR #344) — gates every outbound LLM call, keyed
    by `provider+model(+domain)`. Dynamically adjusts per-key limits on 429s
    via AIMD. This is the real API concurrency control.
+   **Note**: PR #344 may land after the initial scheduler PRs. The scheduler
+   is designed to work without it: when no throttle manager is available, tasks
+   skip the throttle acquire step and only the scheduler semaphore + submission
+   budget bound concurrency. Once PR #344 merges, the throttle acquire call is
+   wired in — no scheduler changes needed, just a conditional `await` in the
+   task dispatch path.
 
 3. **Submission budget** — a hard cap on "submitted but not finished" tasks
    (running + waiting on throttle/backoff), e.g., `async_scheduler_max_submitted_tasks`.
@@ -198,6 +204,11 @@ incompatible and make an explicit choice (see Follow-ups).
 - [ ] Existing sync path (`DATA_DESIGNER_ASYNC_ENGINE=0`) continues to work unchanged
 - [ ] All existing tests pass; new tests cover dependency resolution and scheduling
 - [ ] `make test-run-recipes` passes with async engine enabled
+
+## Code Sketches
+
+See [`code-sketches.md`](code-sketches.md) for structural sketches of the main
+components and how they interact.
 
 ## Implementation Steps
 
@@ -412,33 +423,161 @@ Wire the new scheduler into `ColumnWiseDatasetBuilder`.
 
 ### Step 8: Tests & Validation
 
-- [ ] Unit tests for each new module (execution graph, completion tracker, task model, scheduler)
+Tests are added incrementally with each PR, not deferred to the end.
+
+**PR 1 (foundation) — unit tests**:
+- [ ] Execution graph construction, validation, topological order, critical path
 - [ ] Execution graph: side-effect output columns resolve correctly (e.g., column
   depending on `summary__trace` maps to a dependency on the `summary` generator)
-- [ ] Integration test: multi-column config with known dependencies, verify parallel execution
-- [ ] Integration test: mixed cell-by-cell + full-column generators
-- [ ] Integration test: error rate shutdown
-- [ ] Integration test: checkpoint correctness (row groups written in order, parquet valid)
-- [ ] Integration test: `allow_resize=True` with async engine raises `DatasetGenerationError` at startup, naming the column
-- [ ] Integration test: stateful generator (`is_stateful=True`) serializes per-instance
-  across row groups; stateless generators run concurrently
-- [ ] Integration test: retry salvage — transient failure is retried and succeeds;
+- [ ] Execution graph: `cell_dependencies` returns correct deps for cell-by-cell,
+  full-column, and from-scratch columns
+- [ ] Execution graph: `task_count` and `to_mermaid` output
+- [ ] Completion tracker: `mark_complete`, `is_complete`, `all_complete`
+- [ ] Completion tracker: `drop_row`, `is_dropped`, `is_row_group_complete`
+- [ ] Task model: hashability, equality, TaskResult, TaskTrace
+
+**PR 2 (generators) — unit tests**:
+- [ ] Symmetric bridging: sync-only generator can be called via `agenerate`
+- [ ] Symmetric bridging: async-only generator can be called via `generate`
+- [ ] `is_stateful` defaults to `False`; `SeedDatasetColumnGenerator` returns `True`
+- [ ] `FromScratchColumnGenerator.agenerate_from_scratch` wraps sync correctly
+- [ ] `ColumnGeneratorFullColumn.agenerate` passes `df.copy()` to thread
+- [ ] `CustomColumnGenerator.agenerate` detects coroutine functions and calls directly
+- [ ] All existing generator tests pass unchanged (`make test`)
+
+**PR 3 (scheduler + buffer) — unit tests with mock generators**:
+- [ ] Scheduler dispatches from-scratch tasks first, then downstream as deps complete
+- [ ] Stateful generator serializes across row groups; stateless runs concurrently
+- [ ] Retry salvage: transient failure is retried and succeeds;
   non-retryable failure drops immediately; retry budget exhaustion drops correctly
-- [ ] Integration test: throttling fairness — 429 on model key A does not stall
-  unrelated model key B tasks
-- [ ] Integration test: bounded submission — with many ready tasks and a tight
-  throttle key, submitted task count never exceeds `async_scheduler_max_submitted_tasks`
-- [ ] Integration test: eager row-drop — failure on column B drops the row across
-  all columns, independent column C does not process the dropped row
-- [ ] Integration test: row-drop with in-flight full-column task — completed task
-  may still compute dropped rows, but writeback is suppressed and row remains dropped
-- [ ] Integration test: out-of-order row group completion produces correctly named
-  parquet files; final dataset loads in correct row order
-- [ ] Integration test: pre-batch processor failure skips the row group, remaining
-  row groups continue
+- [ ] Eager row-drop: failure on column B drops the row across all columns,
+  independent column C does not process the dropped row
+- [ ] Row-drop with in-flight full-column task: completed task may still compute
+  dropped rows, but writeback is suppressed and row remains dropped
+- [ ] Bounded submission: submitted task count never exceeds
+  `async_scheduler_max_submitted_tasks`
+- [ ] Error rate shutdown within sliding window
+- [ ] Buffer manager: concurrent row groups, `update_cell`, `checkpoint_row_group`
+- [ ] Buffer manager: `drop_records` within row group
+
+**PR 4 (integration) — integration tests + full validation**:
+- [ ] Multi-column config with known dependencies, verify parallel execution
+- [ ] Mixed cell-by-cell + full-column generators
+- [ ] Checkpoint correctness: row groups written in order, parquet valid
+- [ ] Out-of-order row group completion produces correctly named parquet files;
+  final dataset loads in correct row order
+- [ ] `allow_resize=True` with async engine raises `DatasetGenerationError` at startup,
+  naming the column
+- [ ] Pre-batch processor failure skips the row group, remaining row groups continue
+- [ ] Throttling fairness: 429 on model key A does not stall unrelated model key B
+  tasks (once PR #344 is available)
 - [ ] Run `make test` — all existing tests pass
 - [ ] Run `make test-run-recipes` with `DATA_DESIGNER_ASYNC_ENGINE=1`
-- [ ] Benchmark: compare sync vs async on a multi-column recipe with simulated latency; use `trace=True` and load `scheduler.traces` into a DataFrame to measure per-column dispatch and execution times
+- [ ] Benchmark: compare sync vs async on a multi-column recipe with simulated latency;
+  use `trace=True` and load `scheduler.traces` into a DataFrame to measure per-column
+  dispatch and execution times
+
+## PR Breakdown
+
+The implementation steps map to 4 PRs that can be reviewed and merged independently.
+Each PR is self-contained: it adds new modules with full test coverage but does not
+change existing behavior until the final integration PR.
+
+### PR 1: Foundation (Steps 1 + 2 + 3)
+
+**Scope**: `ExecutionGraph`, `CompletionTracker`, `Task`/`TaskResult`/`TaskTrace` dataclasses.
+
+All three are pure data structures with no side effects on the existing codebase.
+They live in new modules under `engine/dataset_builders/utils/` and are only imported
+by code introduced in later PRs.
+
+- `execution_graph.py` + tests
+- `completion_tracker.py` + tests
+- `task_model.py` + tests
+
+**Why grouped**: the three are tightly coupled (the tracker takes the graph to resolve
+readiness, the task model is the unit of work for both), small individually, and
+have no external dependencies. Splitting them into 3 separate PRs would create
+review overhead without meaningful isolation benefit.
+
+**What works after merge**: you can build an `ExecutionGraph` from any existing config,
+inspect it (`topological_order`, `critical_path`, `task_count`, `to_mermaid`), query
+cell-level dependencies, and track completion state — all in isolation, with full test
+coverage. No runtime behavior changes.
+
+**Can merge independently**: yes — no existing code imports these modules.
+
+### PR 2: Generator async migration (Step 5)
+
+**Scope**: `is_stateful` property on base class, symmetric `generate`/`agenerate`
+bridging, async wrappers on all generator subclasses.
+
+- Changes to `generators/base.py` (add `is_stateful`, symmetric bridging)
+- Changes to `generators/samplers.py`, `generators/seed_dataset.py`,
+  `generators/expression.py`, `generators/image.py`, `generators/embedding.py`
+- `CustomColumnGenerator` async branching
+- Tests for bridging, statefulness declaration, async wrappers
+
+**What works after merge**: every generator can be called via `await agenerate()` or
+`await agenerate_from_scratch()`. Sync generators auto-bridge to async via
+`asyncio.to_thread`; async-first generators auto-bridge to sync via the safe runner
+helper. `is_stateful` is queryable on every generator instance. The existing sync
+path is completely untouched — `make test` passes with no behavior change.
+
+**Can merge independently**: yes — `agenerate()` already exists on the base class
+from PR #280; this PR extends the pattern to all subclasses and adds `is_stateful`.
+Existing sync callers are unaffected.
+
+**No dependency on PR 1**: generator changes don't reference the graph/tracker/task model.
+
+### PR 3: Scheduler + buffer manager (Steps 4 + 6)
+
+**Scope**: `AsyncTaskScheduler`, row group buffer manager.
+
+- `async_scheduler.py` + tests (uses graph, tracker, and task model from PR 1)
+- Buffer manager extension in `dataset_batch_manager.py` + tests
+- Retry/salvage logic, progress consolidation, error handling
+
+**Depends on**: PR 1 (imports `ExecutionGraph`, `CompletionTracker`, `Task`), PR 2
+(calls `agenerate` / `agenerate_from_scratch`, reads `is_stateful`).
+
+**What works after merge**: the scheduler can be instantiated with mock generators and
+driven through its full lifecycle in tests — row group admission, dependency-driven
+dispatch, retry/salvage, row drops, checkpoint callbacks. The buffer manager supports
+concurrent row groups with cell-level writes. Not yet wired into the real builder.
+
+**Can merge independently**: yes — the scheduler is a new module, not yet wired into
+the builder. The buffer manager extension adds new methods without changing existing ones.
+
+### PR 4: Builder integration (Steps 7 + 8)
+
+**Scope**: Wire everything together in `ColumnWiseDatasetBuilder`.
+
+- `_build_async()` method on `ColumnWiseDatasetBuilder`
+- `allow_resize` startup check
+- Pre/post-batch processor integration
+- Integration tests, recipe tests with `DATA_DESIGNER_ASYNC_ENGINE=1`
+- Benchmark setup
+
+**Depends on**: PRs 1, 2, 3.
+
+**What works after merge**: `DATA_DESIGNER_ASYNC_ENGINE=1` enables the full async
+pipeline end-to-end. Multi-column configs run with dependency-aware parallel
+scheduling, row group checkpointing, retry/salvage, and progress reporting. The
+sync path (`DATA_DESIGNER_ASYNC_ENGINE=0`, the default) is unchanged.
+
+**This is the only PR that changes existing behavior** (gated behind
+`DATA_DESIGNER_ASYNC_ENGINE=1`).
+
+### Dependency graph
+
+```
+PR 1 (foundation) ──┐
+                     ├──→ PR 3 (scheduler + buffer) ──→ PR 4 (integration)
+PR 2 (generators) ──┘
+```
+
+PRs 1 and 2 can be developed and reviewed in parallel.
 
 ## Risks & Considerations
 
