@@ -81,7 +81,7 @@ MODEL_PROVIDER = "nvidia"
 model_configs = [
     dd.ModelConfig(
         alias="vision",
-        model="meta/llama-4-scout-17b-16e-instruct",
+        model="nvidia/nemotron-nano-12b-v2-vl",
         provider=MODEL_PROVIDER,
         inference_parameters=dd.ChatCompletionInferenceParams(
             temperature=0.60,
@@ -196,13 +196,7 @@ config_builder.add_column(
             "Start from the top of the image and then describe it from top to bottom. "
             "Place a summary at the bottom."
         ),
-        multi_modal_context=[
-            dd.ImageContext(
-                column_name="base64_image",
-                data_type=dd.ModalityDataType.BASE64,
-                image_format=dd.ImageFormat.PNG,
-            )
-        ],
+        multi_modal_context=[dd.ImageContext(column_name="base64_image")],
     )
 )
 

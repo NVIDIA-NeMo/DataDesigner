@@ -108,12 +108,12 @@ Generate synthetic image data with Data Designer:
 
 ### [6. Image-to-Image Editing](6-editing-images-with-image-context.ipynb)
 
-Edit existing images by combining seed datasets with image generation:
+Chain image generation columns to generate and then edit images:
 
-- Loading a HuggingFace image dataset and using it as a seed
-- Passing existing images to an image-generation model via `multi_modal_context`
-- Combining sampled accessories and settings with seed images for varied results
-- Comparing original vs edited images in preview and create modes
+- Generating images from text and then editing them in a follow-up column
+- Using `ImageContext` with auto-detection to pass generated images to an editing model
+- Combining sampled accessories and settings for varied edits
+- Comparing generated vs edited images in preview and create modes
 
 ## 📖 Important Documentation Sections
 
