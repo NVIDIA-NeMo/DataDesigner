@@ -469,6 +469,142 @@ The resulting `agent_solution_raw__trace` column contains the complete ChatML co
 
 ---
 
+## **Try For Yourself**
+
+<details markdown>
+<summary><strong>Full source: search agent trajectory pipeline</strong></summary>
+
+```python
+import os
+import sys
+from pathlib import Path
+
+import data_designer.config as dd
+from data_designer.config.seed import SamplingStrategy
+from data_designer.config import LocalFileSeedSource
+from data_designer.config.mcp import LocalStdioMCPProvider, ToolConfig
+from data_designer.interface import DataDesigner
+
+# --- Tavily MCP server (written to disk, launched as subprocess) ---
+TAVILY_SERVER_CODE = '''\
+import os, time, httpx
+from mcp.server.fastmcp import FastMCP
+
+mcp = FastMCP("tavily")
+
+@mcp.tool()
+async def tavily_search(query: str, max_results: int = 10, search_depth: str = "basic"):
+    """Search the web via Tavily."""
+    payload = {
+        "api_key": os.environ["TAVILY_API_KEY"],
+        "query": query, "max_results": max_results, "search_depth": search_depth,
+    }
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        r = await client.post("https://api.tavily.com/search", json=payload)
+        r.raise_for_status()
+        data = r.json()
+    data["response_time"] = round(time.monotonic(), 3)
+    return data
+
+if __name__ == "__main__":
+    mcp.run()
+'''
+
+tavily_server_path = Path("tavily_stdio_mcp_server.py").resolve()
+tavily_server_path.write_text(TAVILY_SERVER_CODE)
+
+# --- MCP provider + tool config ---
+tavily_provider = LocalStdioMCPProvider(
+    name="tavily",
+    command=sys.executable,
+    args=[str(tavily_server_path)],
+    env={"TAVILY_API_KEY": os.environ["TAVILY_API_KEY"]},
+)
+
+tool_config = ToolConfig(
+    tool_alias="tavily",
+    providers=["tavily"],
+    allow_tools=["tavily_search"],
+    max_tool_call_turns=15,
+    timeout_sec=300.0,
+)
+
+# --- Model ---
+config = dd.DataDesignerConfigBuilder(model_configs=[
+    dd.ModelConfig(alias="gen", model="qwen/qwen3-235b-a22b", provider="nvidia"),
+])
+config.add_tool_config(tool_config)
+
+# --- Seed data (Wikidata KG walks) ---
+config.with_seed_dataset(
+    LocalFileSeedSource(path="search_agent_seeds.parquet"),
+    sampling_strategy=SamplingStrategy.SHUFFLE,
+)
+
+# --- Column 1: Draft question from knowledge path ---
+config.add_column(dd.LLMTextColumnConfig(
+    name="user_query_draft",
+    model_alias="gen",
+    prompt=(
+        "You are an expert Search Evaluator designing Grandmaster-Level search tests.\n"
+        "Create a complex, multi-step search riddle based on this knowledge path:\n\n"
+        "{{ readable_path }}\n\n"
+        "Start Entity: {{ seed_entity }}\n"
+        "Final Answer Entity: {{ final_answer_entity }}\n\n"
+        "RULES:\n"
+        "1. DO NOT name the intermediate nodes. Hide them behind descriptions.\n"
+        "2. DO NOT name the Final Answer.\n"
+        "3. Chain the clues logically.\n"
+        "4. If a step is weak or nonsensical, IGNORE IT.\n"
+        "5. Output INVALID_PATH if the path is unsalvageable.\n\n"
+        "Return ONLY the question string (or INVALID_PATH)."
+    ),
+))
+
+# --- Column 2: BrowseComp-style obfuscation ---
+config.add_column(dd.LLMTextColumnConfig(
+    name="user_query_obfuscated",
+    model_alias="gen",
+    prompt=(
+        "Rewrite this search riddle to be MORE obfuscated and natural.\n\n"
+        "Original: {{ user_query_draft }}\n"
+        "Secret path: {{ readable_path }}\n\n"
+        "REQUIREMENTS:\n"
+        "1. DO NOT reveal the step-by-step plan. No breadcrumb chains.\n"
+        "2. DO NOT name intermediate or final entities.\n"
+        "3. 1-2 sentences max. Sound like a real user question.\n"
+        "4. If original == INVALID_PATH, output INVALID_PATH.\n\n"
+        "Return ONLY the rewritten question."
+    ),
+))
+
+# --- Column 3: Agent trajectory with MCP tool calling ---
+AGENT_SYSTEM_PROMPT = """You are an expert search agent that uses web search to answer questions.
+Output ONLY valid JSON: {"final_answer": "...", "supporting_urls": [...], "short_justification": "..."}
+Use "tavily_search" with {"query": "..."} for web searches. Maximum 15 tool calls.
+Start broad, refine to specific entities, cross-verify across sources."""
+
+config.add_column(dd.LLMTextColumnConfig(
+    name="agent_solution_raw",
+    model_alias="gen",
+    prompt=AGENT_SYSTEM_PROMPT + "\n\nProblem: {{ user_query_obfuscated }}",
+    tool_alias="tavily",
+    with_trace=dd.TraceType.ALL_MESSAGES,
+))
+
+# --- Run ---
+data_designer = DataDesigner(mcp_providers=[tavily_provider])
+results = data_designer.create(
+    config_builder=config,
+    num_records=1000,
+    dataset_name="search-agent-trajectories",
+)
+```
+
+</details>
+
+---
+
 Key Resources:
 
 1. [NeMo Data Designer on GitHub](https://github.com/NVIDIA-NeMo/DataDesigner)
