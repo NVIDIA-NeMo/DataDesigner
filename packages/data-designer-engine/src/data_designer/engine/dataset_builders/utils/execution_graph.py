@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
@@ -8,11 +8,11 @@ from collections import defaultdict, deque
 from dataclasses import dataclass, field
 
 from data_designer.config.column_configs import GenerationStrategy
-from data_designer.config.column_types import ColumnConfigT
-from data_designer.engine.dataset_builders.multi_column_configs import MultiColumnConfig
+from data_designer.engine.dataset_builders.multi_column_configs import (
+    DatasetBuilderColumnConfigT,
+    MultiColumnConfig,
+)
 from data_designer.engine.dataset_builders.utils.errors import DAGCircularDependencyError
-
-DatasetBuilderColumnConfigT = ColumnConfigT | MultiColumnConfig
 
 
 @dataclass
@@ -29,6 +29,7 @@ class ExecutionGraph:
     _strategies: dict[str, GenerationStrategy] = field(default_factory=dict)
     _side_effect_map: dict[str, str] = field(default_factory=dict)
     _columns: list[str] = field(default_factory=list)
+    _topological_order_cache: list[str] | None = field(default=None, repr=False)
 
     def upstream(self, column: str) -> set[str]:
         """Direct dependencies of *column*."""
@@ -47,7 +48,14 @@ class ExecutionGraph:
         return list(self._columns)
 
     def topological_order(self) -> list[str]:
-        """Return a valid topological ordering of columns (Kahn's algorithm)."""
+        """Return a valid topological ordering of columns (Kahn's algorithm).
+
+        Result is cached after first successful computation since the graph is
+        immutable after construction.
+        """
+        if self._topological_order_cache is not None:
+            return list(self._topological_order_cache)
+
         in_degree: dict[str, int] = {col: 0 for col in self._columns}
         for col, deps in self._upstream.items():
             if col in in_degree:
@@ -68,7 +76,9 @@ class ExecutionGraph:
             raise DAGCircularDependencyError(
                 f"The execution graph contains cyclic dependencies. Resolved {len(order)}/{len(self._columns)} columns."
             )
-        return order
+
+        self._topological_order_cache = order
+        return list(order)
 
     def critical_path(self) -> list[str]:
         """Longest dependency chain (by number of columns)."""

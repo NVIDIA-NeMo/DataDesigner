@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
@@ -49,6 +49,31 @@ class CompletionTracker:
                 return False
         return True
 
+    def is_ready(
+        self,
+        column: str,
+        row_group: int,
+        row_index: int,
+        graph: ExecutionGraph,
+        row_group_size: int,
+    ) -> bool:
+        """Check if all upstream columns are done for this (column, row_group, row_index)."""
+        deps = graph.cell_dependencies(column, row_group, row_index, row_group_size)
+        return self.all_complete(deps)
+
+    def is_batch_ready(
+        self,
+        column: str,
+        row_group: int,
+        row_group_size: int,
+        graph: ExecutionGraph,
+    ) -> bool:
+        """Check if all upstream columns are done for all non-dropped rows in the row group."""
+        deps = graph.cell_dependencies(column, row_group, None, row_group_size)
+        # Dropped rows don't need their upstream cells complete
+        deps = [(c, rg, ri) for c, rg, ri in deps if ri is None or not self.is_dropped(rg, ri)]
+        return self.all_complete(deps)
+
     def drop_row(self, row_group: int, row_index: int) -> None:
         self._dropped[row_group].add(row_index)
 
@@ -95,17 +120,14 @@ class CompletionTracker:
                         task = Task(column=col, row_group=rg_id, row_index=ri, task_type="cell")
                         if task in dispatched:
                             continue
-                        deps = graph.cell_dependencies(col, rg_id, ri, rg_size)
-                        if self.all_complete(deps):
+                        if self.is_ready(col, rg_id, ri, graph, rg_size):
                             ready.append(task)
                 else:
                     task = Task(column=col, row_group=rg_id, row_index=None, task_type="batch")
                     if task in dispatched:
                         continue
-                    # Check if already complete (batch-level)
                     if col in self._completed.get(rg_id, {}):
                         continue
-                    deps = graph.cell_dependencies(col, rg_id, None, rg_size)
-                    if self.all_complete(deps):
+                    if self.is_batch_ready(col, rg_id, rg_size, graph):
                         ready.append(task)
         return ready
