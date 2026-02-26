@@ -1,0 +1,277 @@
+{
+  "environment_name": "workplace_assistant",
+  "description": "A simulated workplace environment with 5 databases (email, calendar, analytics, project_management, customer_relationship_manager) plus a company directory utility, totaling 27 tools for managing business activities.",
+  "system_prompt": "Today's date is Thursday, 2026-01-29 and the current time is 23:59:00. Remember the current date and time when answering queries. Meetings must not start before 9am or end after 6pm.",
+  "databases": [
+    "company_directory",
+    "email",
+    "calendar",
+    "analytics",
+    "project_management",
+    "customer_relationship_manager"
+  ],
+  "tool_count": {
+    "company_directory": 1,
+    "email": 6,
+    "calendar": 5,
+    "analytics": 6,
+    "project_management": 5,
+    "customer_relationship_manager": 4,
+    "total": 27
+  },
+  "common_multi_step_patterns": [
+    {
+      "id": "email_lookup_send",
+      "pattern": "lookup_then_send_email",
+      "description": "Look up a person's email address, then send them an email",
+      "tools_used": ["company_directory_find_email_address", "email_send_email"],
+      "example_request": "Send an email to John about the quarterly review meeting tomorrow",
+      "expected_steps": 2
+    },
+    {
+      "id": "email_lookup_forward",
+      "pattern": "lookup_then_forward_email",
+      "description": "Search for an email, then forward it to someone after looking up their address",
+      "tools_used": ["email_search_emails", "company_directory_find_email_address", "email_forward_email"],
+      "example_request": "Forward the latest email about the budget report to Sarah",
+      "expected_steps": 3
+    },
+    {
+      "id": "email_search_reply",
+      "pattern": "search_then_reply_email",
+      "description": "Search for a specific email, then reply to it",
+      "tools_used": ["email_search_emails", "email_reply_email"],
+      "example_request": "Reply to Carlos's last email about the prototype with 'Thanks, I'll review it tomorrow'",
+      "expected_steps": 2
+    },
+    {
+      "id": "email_search_delete_batch",
+      "pattern": "search_then_batch_delete_emails",
+      "description": "Search for emails matching criteria, then delete multiple emails",
+      "tools_used": ["email_search_emails", "email_delete_email"],
+      "example_request": "Delete all emails from last week about the cancelled project",
+      "expected_steps": "2-6"
+    },
+    {
+      "id": "email_get_info_then_act",
+      "pattern": "get_email_info_then_forward",
+      "description": "Get specific information from an email, then forward it based on content",
+      "tools_used": ["email_get_email_information_by_id", "company_directory_find_email_address", "email_forward_email"],
+      "example_request": "Check who sent the email about the deadline and forward it to the project lead",
+      "expected_steps": 3
+    },
+    {
+      "id": "calendar_lookup_create",
+      "pattern": "lookup_then_create_event",
+      "description": "Look up a person's email, then create a calendar event with them",
+      "tools_used": ["company_directory_find_email_address", "calendar_create_event"],
+      "example_request": "Schedule a 30-minute meeting with Lisa tomorrow at 2pm called 'Project Sync'",
+      "expected_steps": 2
+    },
+    {
+      "id": "calendar_search_update_batch",
+      "pattern": "search_then_batch_update_events",
+      "description": "Search for calendar events, then update multiple events",
+      "tools_used": ["calendar_search_events", "calendar_update_event"],
+      "example_request": "Reschedule all of Mike's meetings on Friday to start 1 hour later",
+      "expected_steps": "2-6"
+    },
+    {
+      "id": "calendar_search_delete_batch",
+      "pattern": "search_then_batch_delete_events",
+      "description": "Search for calendar events, then delete multiple events",
+      "tools_used": ["calendar_search_events", "calendar_delete_event"],
+      "example_request": "Cancel all meetings with the vendor next week",
+      "expected_steps": "2-6"
+    },
+    {
+      "id": "calendar_get_info_update",
+      "pattern": "get_event_info_then_update",
+      "description": "Get specific event information, then update based on that info",
+      "tools_used": ["calendar_get_event_information_by_id", "calendar_update_event"],
+      "example_request": "Change the name of the last event on December 1st to 'Risk Management Forum'",
+      "expected_steps": 2
+    },
+    {
+      "id": "analytics_multi_query",
+      "pattern": "multiple_analytics_queries",
+      "description": "Query multiple analytics metrics for comparison or reporting",
+      "tools_used": ["analytics_total_visits_count", "analytics_engaged_users_count", "analytics_traffic_source_count"],
+      "example_request": "Get me the total visits, engaged users, and social media traffic for last month",
+      "expected_steps": 3
+    },
+    {
+      "id": "analytics_query_then_plot",
+      "pattern": "query_analytics_then_create_plot",
+      "description": "Query analytics data, then create a visualization",
+      "tools_used": ["analytics_total_visits_count", "analytics_create_plot"],
+      "example_request": "Show me total visits for November and create a bar chart of daily visits",
+      "expected_steps": 2
+    },
+    {
+      "id": "analytics_visitor_deep_dive",
+      "pattern": "get_visitor_info_and_session_stats",
+      "description": "Look up specific visitor information and get session statistics",
+      "tools_used": ["analytics_get_visitor_information_by_id", "analytics_get_average_session_duration"],
+      "example_request": "Get details on visitor V12345 and compare their session to the average",
+      "expected_steps": 2
+    },
+    {
+      "id": "analytics_traffic_comparison",
+      "pattern": "compare_traffic_sources",
+      "description": "Compare multiple traffic sources over a time period",
+      "tools_used": ["analytics_traffic_source_count"],
+      "example_request": "Compare direct vs referral vs search engine traffic for the last 2 weeks",
+      "expected_steps": 3
+    },
+    {
+      "id": "pm_lookup_create_task",
+      "pattern": "lookup_then_create_task",
+      "description": "Look up a person's email, then create a task assigned to them",
+      "tools_used": ["company_directory_find_email_address", "project_management_create_task"],
+      "example_request": "Create a new Backend task 'Fix login bug' in the Backlog assigned to Alex, due next Friday",
+      "expected_steps": 2
+    },
+    {
+      "id": "pm_search_update_batch",
+      "pattern": "search_then_batch_update_tasks",
+      "description": "Search for tasks, then update multiple tasks",
+      "tools_used": ["company_directory_find_email_address", "project_management_search_tasks", "project_management_update_task"],
+      "example_request": "Move all of Sarah's In Progress tasks on the Backend board to In Review",
+      "expected_steps": "3-6"
+    },
+    {
+      "id": "pm_search_delete_batch",
+      "pattern": "search_then_batch_delete_tasks",
+      "description": "Search for tasks, then delete multiple tasks",
+      "tools_used": ["project_management_search_tasks", "project_management_delete_task"],
+      "example_request": "Delete all completed tasks on the Design board from last month",
+      "expected_steps": "2-6"
+    },
+    {
+      "id": "pm_reassign_tasks",
+      "pattern": "lookup_and_reassign_tasks",
+      "description": "Look up two people's emails, search for tasks, then reassign them",
+      "tools_used": ["company_directory_find_email_address", "project_management_search_tasks", "project_management_update_task"],
+      "example_request": "Reassign all of Tom's Frontend tasks to Jennifer",
+      "expected_steps": "4-6"
+    },
+    {
+      "id": "pm_get_info_update",
+      "pattern": "get_task_info_then_update",
+      "description": "Get specific task information, then update it",
+      "tools_used": ["project_management_get_task_information_by_id", "project_management_update_task"],
+      "example_request": "Check who's assigned to task 00000123 and change the due date to next week",
+      "expected_steps": 2
+    },
+    {
+      "id": "crm_lookup_add",
+      "pattern": "lookup_then_add_customer",
+      "description": "Look up a sales rep's email, then add a new customer assigned to them",
+      "tools_used": ["company_directory_find_email_address", "customer_relationship_manager_add_customer"],
+      "example_request": "Add a new lead 'Acme Corp' interested in Software, assigned to Maria",
+      "expected_steps": 2
+    },
+    {
+      "id": "crm_search_update_batch",
+      "pattern": "search_then_batch_update_customers",
+      "description": "Search for customers, then update multiple customer records",
+      "tools_used": ["company_directory_find_email_address", "customer_relationship_manager_search_customers", "customer_relationship_manager_update_customer"],
+      "example_request": "Raj is taking over all of Akira's software leads. Reassign them in the CRM.",
+      "expected_steps": "4-6"
+    },
+    {
+      "id": "crm_search_delete_batch",
+      "pattern": "search_then_batch_delete_customers",
+      "description": "Search for customers, then delete multiple customer records",
+      "tools_used": ["company_directory_find_email_address", "customer_relationship_manager_search_customers", "customer_relationship_manager_delete_customer"],
+      "example_request": "Delete all of Lena's won customers interested in services from the CRM",
+      "expected_steps": "3-6"
+    },
+    {
+      "id": "crm_status_update",
+      "pattern": "search_then_update_status",
+      "description": "Search for customers by criteria including date, then update their status",
+      "tools_used": ["customer_relationship_manager_search_customers", "customer_relationship_manager_update_customer"],
+      "example_request": "Move all hardware proposals that haven't been contacted in 4 weeks to Lost",
+      "expected_steps": "2-6"
+    },
+    {
+      "id": "cross_email_calendar",
+      "pattern": "email_to_calendar",
+      "description": "Search emails for meeting details, then create calendar events",
+      "tools_used": ["email_search_emails", "email_get_email_information_by_id", "company_directory_find_email_address", "calendar_create_event"],
+      "example_request": "Find the email about the client meeting and schedule it on the calendar with attendees",
+      "expected_steps": "3-5"
+    },
+    {
+      "id": "cross_calendar_email",
+      "pattern": "calendar_to_email",
+      "description": "Search calendar for events, then send email notifications",
+      "tools_used": ["calendar_search_events", "calendar_get_event_information_by_id", "email_send_email"],
+      "example_request": "Find tomorrow's meetings and send a reminder email to all participants",
+      "expected_steps": "3-6"
+    },
+    {
+      "id": "cross_pm_email",
+      "pattern": "tasks_to_email",
+      "description": "Search tasks, then send email updates about them",
+      "tools_used": ["project_management_search_tasks", "company_directory_find_email_address", "email_send_email"],
+      "example_request": "Email the team lead about all overdue Backend tasks",
+      "expected_steps": "3-4"
+    },
+    {
+      "id": "cross_crm_calendar",
+      "pattern": "crm_to_calendar",
+      "description": "Search CRM for customers needing follow-up, then schedule meetings",
+      "tools_used": ["customer_relationship_manager_search_customers", "company_directory_find_email_address", "calendar_create_event"],
+      "example_request": "Schedule follow-up meetings for all qualified leads with follow-up dates this week",
+      "expected_steps": "3-6"
+    },
+    {
+      "id": "cross_crm_email",
+      "pattern": "crm_to_email",
+      "description": "Search CRM, then send emails to customers or sales reps",
+      "tools_used": ["customer_relationship_manager_search_customers", "email_send_email"],
+      "example_request": "Send a thank-you email to all customers marked as Won this month",
+      "expected_steps": "2-6"
+    },
+    {
+      "id": "cross_analytics_email",
+      "pattern": "analytics_to_email",
+      "description": "Query analytics data, then send a report via email",
+      "tools_used": ["analytics_total_visits_count", "analytics_engaged_users_count", "company_directory_find_email_address", "email_send_email"],
+      "example_request": "Get this week's website stats and email the summary to the marketing manager",
+      "expected_steps": "4-5"
+    }
+  ],
+  "tool_coverage_matrix": {
+    "company_directory_find_email_address": ["email_lookup_send", "email_lookup_forward", "calendar_lookup_create", "pm_lookup_create_task", "pm_search_update_batch", "pm_reassign_tasks", "crm_lookup_add", "crm_search_update_batch", "crm_search_delete_batch", "cross_email_calendar", "cross_pm_email", "cross_crm_calendar", "cross_analytics_email"],
+    "email_get_email_information_by_id": ["email_get_info_then_act", "cross_email_calendar"],
+    "email_search_emails": ["email_lookup_forward", "email_search_reply", "email_search_delete_batch", "cross_email_calendar"],
+    "email_send_email": ["email_lookup_send", "cross_calendar_email", "cross_pm_email", "cross_crm_email", "cross_analytics_email"],
+    "email_delete_email": ["email_search_delete_batch"],
+    "email_forward_email": ["email_lookup_forward", "email_get_info_then_act"],
+    "email_reply_email": ["email_search_reply"],
+    "calendar_get_event_information_by_id": ["calendar_get_info_update", "cross_calendar_email"],
+    "calendar_search_events": ["calendar_search_update_batch", "calendar_search_delete_batch", "cross_calendar_email"],
+    "calendar_create_event": ["calendar_lookup_create", "cross_email_calendar", "cross_crm_calendar"],
+    "calendar_delete_event": ["calendar_search_delete_batch"],
+    "calendar_update_event": ["calendar_search_update_batch", "calendar_get_info_update"],
+    "analytics_get_visitor_information_by_id": ["analytics_visitor_deep_dive"],
+    "analytics_create_plot": ["analytics_query_then_plot"],
+    "analytics_total_visits_count": ["analytics_multi_query", "analytics_query_then_plot", "cross_analytics_email"],
+    "analytics_engaged_users_count": ["analytics_multi_query", "cross_analytics_email"],
+    "analytics_traffic_source_count": ["analytics_multi_query", "analytics_traffic_comparison"],
+    "analytics_get_average_session_duration": ["analytics_visitor_deep_dive"],
+    "project_management_get_task_information_by_id": ["pm_get_info_update"],
+    "project_management_search_tasks": ["pm_search_update_batch", "pm_search_delete_batch", "pm_reassign_tasks", "cross_pm_email"],
+    "project_management_create_task": ["pm_lookup_create_task"],
+    "project_management_delete_task": ["pm_search_delete_batch"],
+    "project_management_update_task": ["pm_search_update_batch", "pm_reassign_tasks", "pm_get_info_update"],
+    "customer_relationship_manager_search_customers": ["crm_search_update_batch", "crm_search_delete_batch", "crm_status_update", "cross_crm_calendar", "cross_crm_email"],
+    "customer_relationship_manager_update_customer": ["crm_search_update_batch", "crm_status_update"],
+    "customer_relationship_manager_add_customer": ["crm_lookup_add"],
+    "customer_relationship_manager_delete_customer": ["crm_search_delete_batch"]
+  }
+}

@@ -1,0 +1,106 @@
+{
+  "database": "customer_relationship_manager",
+  "description": "CRM for managing customer records and sales pipeline.",
+  "data_schema": {
+    "columns": ["customer_id", "customer_name", "customer_email", "customer_phone", "last_contact_date", "product_interest", "status", "assigned_to_email", "notes", "follow_up_by"],
+    "enums": {
+      "status": ["Qualified", "Won", "Lost", "Lead", "Proposal"],
+      "product_interest": ["Software", "Hardware", "Services", "Consulting", "Training"]
+    }
+  },
+  "tools": [
+    {
+      "type": "function",
+      "name": "customer_relationship_manager_search_customers",
+      "description": "Searches for customers based on the given parameters with pagination support.",
+      "database": "customer_relationship_manager",
+      "operation_type": "read",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "customer_name": {"type": "string", "description": "Name of the customer"},
+          "customer_email": {"type": "string", "description": "Email address of the customer"},
+          "product_interest": {"type": "string", "description": "Product interest of the customer"},
+          "status": {"type": "string", "description": "Current status of the customer"},
+          "assigned_to_email": {"type": "string", "description": "Email address of the person assigned to the customer"},
+          "last_contact_date_min": {"type": "string", "description": "Minimum last contact date. Format: YYYY-MM-DD"},
+          "last_contact_date_max": {"type": "string", "description": "Maximum last contact date. Format: YYYY-MM-DD"},
+          "follow_up_by_min": {"type": "string", "description": "Minimum follow up date. Format: YYYY-MM-DD"},
+          "follow_up_by_max": {"type": "string", "description": "Maximum follow up date. Format: YYYY-MM-DD"},
+          "page": {"type": "integer", "description": "Page number of results to return"},
+          "page_size": {"type": "integer", "description": "Number of customers per page"}
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "strict": false
+    },
+    {
+      "type": "function",
+      "name": "customer_relationship_manager_update_customer",
+      "description": "Updates a customer record by ID.",
+      "database": "customer_relationship_manager",
+      "operation_type": "update",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "customer_id": {"type": "string", "description": "ID of the customer"},
+          "field": {
+            "type": "string",
+            "description": "Field to update. Available fields are: 'customer_name', 'assigned_to_email', 'customer_email', 'customer_phone', 'last_contact_date', 'product_interest', 'status', 'notes', 'follow_up_by'"
+          },
+          "new_value": {"type": "string", "description": "New value for the field"}
+        },
+        "required": ["customer_id", "field", "new_value"],
+        "additionalProperties": false
+      },
+      "strict": false
+    },
+    {
+      "type": "function",
+      "name": "customer_relationship_manager_add_customer",
+      "description": "Adds a new customer record.",
+      "database": "customer_relationship_manager",
+      "operation_type": "create",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "customer_name": {"type": "string", "description": "Name of the customer"},
+          "assigned_to_email": {"type": "string", "description": "Email address of the person assigned to the customer"},
+          "status": {
+            "type": "string",
+            "description": "Current status of the customer. One of: 'Qualified', 'Won', 'Lost', 'Lead', 'Proposal'"
+          },
+          "customer_email": {"type": "string", "description": "Email address of the customer"},
+          "customer_phone": {"type": "string", "description": "Phone number of the customer"},
+          "last_contact_date": {"type": "string", "description": "The last date the customer was contacted. Format: YYYY-MM-DD"},
+          "product_interest": {
+            "type": "string",
+            "description": "Product interest of the customer. One of: 'Software', 'Hardware', 'Services', 'Consulting', 'Training'"
+          },
+          "notes": {"type": "string", "description": "Notes about the customer"},
+          "follow_up_by": {"type": "string", "description": "Date for the next follow up. Format: YYYY-MM-DD"}
+        },
+        "required": ["customer_name", "assigned_to_email", "status"],
+        "additionalProperties": false
+      },
+      "strict": false
+    },
+    {
+      "type": "function",
+      "name": "customer_relationship_manager_delete_customer",
+      "description": "Deletes a customer record by ID.",
+      "database": "customer_relationship_manager",
+      "operation_type": "delete",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "customer_id": {"type": "string", "description": "ID of the customer"}
+        },
+        "required": ["customer_id"],
+        "additionalProperties": false
+      },
+      "strict": false
+    }
+  ]
+}

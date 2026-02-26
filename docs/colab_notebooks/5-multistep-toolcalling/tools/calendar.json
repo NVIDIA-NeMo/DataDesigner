@@ -1,0 +1,117 @@
+{
+  "database": "calendar",
+  "description": "Calendar for managing meetings and events.",
+  "data_schema": {
+    "columns": ["event_id", "event_name", "participant_email", "event_start", "duration"]
+  },
+  "tools": [
+    {
+      "type": "function",
+      "name": "calendar_get_event_information_by_id",
+      "description": "Returns the event for a given ID.",
+      "database": "calendar",
+      "operation_type": "read",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "event_id": {"type": "string", "description": "8-digit ID of the event"},
+          "field": {
+            "type": "string",
+            "description": "Field to return. Available fields are: 'event_id', 'event_name', 'participant_email', 'event_start', 'duration'"
+          }
+        },
+        "required": ["event_id", "field"],
+        "additionalProperties": false
+      },
+      "strict": false
+    },
+    {
+      "type": "function",
+      "name": "calendar_search_events",
+      "description": "Returns the events for a given query with pagination support.",
+      "database": "calendar",
+      "operation_type": "read",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Query to search for. Terms will be matched in the event_name and participant_email fields"
+          },
+          "time_min": {
+            "type": "string",
+            "description": "Lower bound (inclusive) for an event's end time to filter by. Format: YYYY-MM-DD HH:MM:SS"
+          },
+          "time_max": {
+            "type": "string",
+            "description": "Upper bound (inclusive) for an event's start time to filter by. Format: YYYY-MM-DD HH:MM:SS"
+          },
+          "page": {"type": "integer", "description": "Page number of results to return"},
+          "page_size": {"type": "integer", "description": "Number of events per page"}
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "strict": false
+    },
+    {
+      "type": "function",
+      "name": "calendar_create_event",
+      "description": "Creates a new event.",
+      "database": "calendar",
+      "operation_type": "create",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "event_name": {"type": "string", "description": "Name of the event"},
+          "participant_email": {"type": "string", "description": "Email of the participant"},
+          "event_start": {
+            "type": "string",
+            "description": "Start time of the event. Format: YYYY-MM-DD HH:MM:SS"
+          },
+          "duration": {"type": "string", "description": "Duration of the event in minutes"}
+        },
+        "required": ["event_name", "participant_email", "event_start", "duration"],
+        "additionalProperties": false
+      },
+      "strict": false
+    },
+    {
+      "type": "function",
+      "name": "calendar_delete_event",
+      "description": "Deletes an event.",
+      "database": "calendar",
+      "operation_type": "delete",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "event_id": {"type": "string", "description": "8-digit ID of the event"}
+        },
+        "required": ["event_id"],
+        "additionalProperties": false
+      },
+      "strict": false
+    },
+    {
+      "type": "function",
+      "name": "calendar_update_event",
+      "description": "Updates an event.",
+      "database": "calendar",
+      "operation_type": "update",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "event_id": {"type": "string", "description": "8-digit ID of the event"},
+          "field": {
+            "type": "string",
+            "description": "Field to update. Available fields are: 'event_name', 'participant_email', 'event_start', 'duration'"
+          },
+          "new_value": {"type": "string", "description": "New value for the field"}
+        },
+        "required": ["event_id", "field", "new_value"],
+        "additionalProperties": false
+      },
+      "strict": false
+    }
+  ]
+}
