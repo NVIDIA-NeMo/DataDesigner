@@ -12,9 +12,55 @@ Models behave differently based on how a question is phrased --- a "cynical seni
 
 ---
 
-## **Why This Matters: The 5-15 Point Swing**
+## **Goal**
 
-When we evaluated early Nemotron checkpoints on [LiveBench](https://livebench.ai/) and internal STEM benchmarks, we noticed a troubling pattern: the model's accuracy swung by **5-15 percentage points** depending solely on how the question was phrased. The underlying reasoning was identical --- the model could solve the problem --- but small variations in the preamble caused it to format its response differently, triggering scoring failures.
+- **Reduce LLM sensitivity to prompt phrasing** by generating diverse, high-quality prompts for both SFT and RL training data using Data Designer.
+- **Improve model robustness and generalization** across different instruction styles, tones, and structures.
+- **Specifically target variations in preambles and format instructions** while keeping the core problem unchanged.
+
+---
+
+## **What Is Prompt Sensitivity?**
+
+A prompt to an LLM typically has three distinct components: the **preamble** (high-level instructions), the **problem** (the actual question or task), and the **format instruction** (how to structure the answer). Prompt sensitivity is the phenomenon where a model's accuracy changes significantly based on how the preamble and format instruction are phrased, even when the underlying problem is identical.
+
+![Prompt Anatomy](prompt_anatomy.png)
+
+```
+                ANATOMY OF A PROMPT + RESPONSE
+                ================================
+
+ ┌──────────────────────────────────────────────────────────────┐
+ │  PREAMBLE  (variable — what we diversify)            [GREEN] │
+ │                                                              │
+ │  "Answer the following multiple choice question"             │
+ ├──────────────────────────────────────────────────────────────┤
+ │  PROBLEM  (fixed — from the source dataset)            [RED] │
+ │                                                              │
+ │  What is the capital of France?                              │
+ │  A) London                                                   │
+ │  B) Berlin                                                   │
+ │  C) Paris                                                    │
+ │  D) Madrid                                                   │
+ ├──────────────────────────────────────────────────────────────┤
+ │  FORMAT INSTRUCTION  (variable — what we diversify)  [GREEN] │
+ │                                                              │
+ │  "The last line of your response should be \boxed{LETTER}"   │
+ └──────────────────────────────────────────────┬───────────────┘
+                                                │
+                                                ▼
+ ┌──────────────────────────────────────────────────────────────┐
+ │  ROLLOUT / OUTPUT  (model's response)                        │
+ │                                                              │
+ │  <think> ... reasoning ... </think>                          │
+ │                                                              │
+ │  \boxed{C}                                                   │
+ └──────────────────────────────────────────────────────────────┘
+```
+
+The preamble and format instruction (green) are the parts we can vary freely without changing the problem. The problem itself (red) comes from the source dataset and stays fixed. When models are trained on data with only one preamble style and one format instruction, they become brittle --- they can solve the problem, but small wording changes cause them to misformat their response, triggering scoring failures.
+
+When we evaluated early Nemotron checkpoints on internal STEM benchmarks with varied prompt phrasings, we observed accuracy swings of **up to 15 percentage points** depending solely on how the question was phrased:
 
 ```
 "Select the best answer"           → 82% accuracy
@@ -22,11 +68,11 @@ When we evaluated early Nemotron checkpoints on [LiveBench](https://livebench.ai
 "Which of the following is true?"  → 74% accuracy
 ```
 
-Same questions. Same model. Same knowledge. Different scores.
+Same questions. Same model. Same knowledge. Different scores. This is a well-documented phenomenon across the industry --- models overfit to the prompt format seen during training.
 
-This is the **prompt sensitivity problem**, and it's pervasive across the industry. The root cause is simple: **the training data lacks prompt diversity**. If every STEM MCQ in your SFT dataset starts with "Answer the following question and place your answer in \boxed{}", the model learns that specific format perfectly but becomes brittle to anything else.
+The root cause is straightforward: **the training data lacks prompt diversity**. If every STEM MCQ in your SFT dataset starts with "Answer the following question and place your answer in \boxed{}", the model learns that specific format perfectly but becomes brittle to anything else.
 
-The fix is equally simple in principle --- expose the model to the same problems with many different phrasings --- but doing this manually at the scale of thousands of training examples is impractical. We needed to generate preambles that span a wide diversity space:
+The fix is equally simple in principle --- expose the model to the same problems with many different phrasings --- but doing this manually at the scale of thousands of training examples is impractical. We need preambles that span a wide diversity space:
 
 - **Sentence types:** imperative ("Select the answer"), interrogative ("Which option is correct?"), declarative ("The correct answer is to be placed in...")
 - **Tones:** formal, neutral, concise, encouraging, strict
@@ -34,15 +80,18 @@ The fix is equally simple in principle --- expose the model to the same problems
 - **Verbosity:** one-liners vs. detailed multi-sentence instructions
 - **Answer formats:** `\boxed{}`, `\boxed{LETTER}`, `Answer: A/B/C/D`, `((X))`, `<final_answer>X</final_answer>`, and dozens more
 
-Manually writing hundreds of preambles covering all combinations is tedious and inevitably misses regions of the diversity space. Data Designer's sampler-driven approach solves this systematically.
+Covering the full combinatorial space of these dimensions manually is intractable --- and this is exactly the kind of structured diversity problem that synthetic data generation is designed to solve. Data Designer's sampler-driven approach lets us define the diversity *dimensions* declaratively, and the framework handles the *combinatorics* at scale, generating thousands of validated preamble variations that no human annotator could match.
 
 ---
 
-## **Pipeline Architecture**
+## **Pipeline Architecture: QA Preamble Generation**
+
+The pipeline below shows one specific instantiation for generating diverse preambles for **QA/MCQ datasets**, designed to improve the prompt sensitivity of the question prompt. The same architecture can be adapted for Math, Code, or any domain where prompt diversity is needed.
 
 ```
-                                    PROMPT SENSITIVITY PIPELINE
-                                    ==========================
+                              PROMPT SENSITIVITY PIPELINE
+                              ==========================
+                              (QA Preamble Generation)
 
              ┌─────────────────────────────────────────────────────────────────────────────────────┐
              │                             STAGE 1: SEED EXAMPLES                                  │
@@ -65,7 +114,7 @@ Manually writing hundreds of preambles covering all combinations is tedious and 
              │   domain_context (3)   answer_format (3)                                            │
              │   general              \boxed{}                                                     │
              │   STEM                 \boxed{LETTER}    Combinatorial space:                       │
-             │   humanities           \boxed{<letter>}  3 × 5 × 3 × 3 × 3 × 3 = 1,215            │
+             │   humanities           \boxed{<letter>}  3 × 5 × 3 × 3 × 3 × 3 = 1,215              │
              └─────────────────────────────────────────┬───────────────────────────────────────────┘
                                                        │
                                                        ▼
@@ -95,7 +144,7 @@ Manually writing hundreds of preambles covering all combinations is tedious and 
              │                    STAGE 5: INTEGRATION INTO TRAINING MIXTURES                      │
              │                                                                                     │
              │   YAML-driven pipeline: add_prompt_variations.py                                    │
-             │   ├─ Load base SFT dataset (STEM MCQ, Math, Code)                                  │
+             │   ├─ Load base SFT dataset (STEM MCQ, Math, Code)                                   │
              │   ├─ Sample preambles from generated pool                                           │
              │   ├─ Prepend preamble to each problem's user prompt                                 │
              │   ├─ majority_percentage: 25% (original format) / 75% (diverse variations)          │
@@ -305,9 +354,9 @@ The result: a 1M-record training mixture where each problem appears with one of 
 
 ---
 
-## **Beyond SFT: Diverse RL Answer Formats**
+## **Regex-Paired Format Templates: Enabling Both SFT and RL**
 
-For RL training, prompt sensitivity manifests differently. The model needs to produce answers in whatever format the evaluation harness expects, and the reward signal depends on parsing the answer correctly. We generated diverse answer format templates, each paired with an extraction regex:
+The key design decision that makes this pipeline work for both SFT and RL is **pairing every format instruction with an extraction regex**. Each template defines a human-readable format instruction (which gets paraphrased by Data Designer for diversity) and a regex pattern (which stays fixed for automated answer extraction).
 
 ```yaml
 - prompt: 'End your response with ''Correct Option: A/B/C/D/...''.'
@@ -326,21 +375,12 @@ For RL training, prompt sensitivity manifests differently. The model needs to pr
   output_regex: 'Correct Answer >> ([A-Za-z])'
 ```
 
-We curated 25+ distinct format templates spanning brackets, parentheses, XML tags, markdown bold, arrows, and plain text. Each template includes the corresponding regex so the RL reward function can extract the answer regardless of format. This teaches the model to follow *arbitrary* formatting instructions, not just the one it saw most during SFT.
+We curated 25+ distinct format templates spanning `\boxed{}`, brackets, parentheses, XML tags, markdown bold, arrows, and plain text. This dual-use design means:
 
----
+- **For SFT:** The paraphrased format instructions add diversity to the training data. The model sees the same problem with many different answer format requirements, building robustness.
+- **For RL:** The paired regex lets the reward function extract the answer from model output regardless of which format was requested. The RL environment (e.g., NeMo-Gym) uses the regex to verify correctness without brittle string matching.
 
-## **Production Scale**
-
-We generated preambles for three domains, each with its own Data Designer pipeline:
-
-| Domain | Preambles Generated | Mixture Size | Packing |
-|--------|-------------------|--------------|---------|
-| STEM MCQ | 1,000 | 1,000,000 records | 128k tokens |
-| Math (boxed) | 1,000 | 1,000,000 records | 128k tokens |
-| Code (Python/C++) | 1,000 | 1,000,000 records | 128k tokens |
-
-Each domain has domain-specific answer formats (MCQ uses letter options, Math uses `\boxed{}` with numeric answers, Code uses code-only or function-signature formats) and domain-specific tone calibration.
+The preamble (generic instruction) and format instruction (answer format) are generated as separate LLM columns, then composed into a final `user_prompt` with the `{problem}` placeholder arranged in one of 8 placement orders (P + F + {problem}, {problem} + P + F, etc.). This separation lets you vary each dimension independently and prevents positional overfitting.
 
 ---
 
@@ -354,16 +394,200 @@ Each domain has domain-specific answer formats (MCQ uses letter options, Math us
 
 4. **The value is in the pipeline, not the individual records.** Any single preamble is easy to write by hand. The value is generating 1,000+ diverse, validated preambles automatically and integrating them into million-record training mixtures with controlled majority/variation ratios.
 
-5. **RL needs format diversity too.** The reward function parses answers using regex. If the model only sees `\boxed{}` during training, it can't follow "put your answer in double brackets: ((X))" at evaluation time. Paired prompt-regex templates solve this.
+5. **Regex-paired templates unify SFT and RL.** The same format templates serve double duty: paraphrased instructions add SFT diversity, while the paired regex enables RL reward parsing. One pipeline, both training paradigms.
 
 6. **Majority percentage controls the tradeoff.** Setting `majority_percentage: 25` means the model sees the canonical format 25% of the time and diverse variations 75% of the time. This ratio was tuned empirically --- too much diversity degrades canonical-format performance; too little doesn't build robustness.
+
+---
+
+## **Try For Yourself**
+
+<details markdown>
+<summary><strong>Full source: prompt sensitivity pipeline</strong></summary>
+
+```python
+import itertools
+import pandas as pd
+import data_designer.config as dd
+from data_designer.interface import DataDesigner
+
+# --- Format templates with paired regexes ---
+MCQ_FORMAT_TEMPLATES = [
+    {"format_key": "boxed_letter",
+     "seed_format_instruction": "Choose exactly one letter. Place your answer in \\boxed{LETTER} format.",
+     "output_regex": r"\\boxed\{([A-Za-z])\}"},
+    {"format_key": "correct_option",
+     "seed_format_instruction": "End your response with 'Correct Option: A/B/C/D/...'.",
+     "output_regex": r"Correct Option:\s*([A-Za-z])"},
+    {"format_key": "double_brackets",
+     "seed_format_instruction": "Put the chosen letter inside double brackets: ((X)).",
+     "output_regex": r"\(\(([A-Za-z])\)\)"},
+    {"format_key": "xml_tags",
+     "seed_format_instruction": "Wrap your final answer letter in XML-style tags: <final_answer>X</final_answer>.",
+     "output_regex": r"<final_answer>\s*([A-Za-z])\s*</final_answer>"},
+    {"format_key": "double_asterisks",
+     "seed_format_instruction": "Finish by enclosing the correct option letter in double asterisks (like **A**).",
+     "output_regex": r"\*\*([A-Za-z])\*\*"},
+    {"format_key": "square_brackets",
+     "seed_format_instruction": "Give the letter choice at the end: [Answer: X] where X is the correct letter.",
+     "output_regex": r"\[Answer:\s*([A-Za-z])\]"},
+    {"format_key": "angle_brackets",
+     "seed_format_instruction": "Provide the correct option enclosed in angle brackets: <A>.",
+     "output_regex": r"<([A-Za-z])>"},
+    {"format_key": "correct_answer_arrow",
+     "seed_format_instruction": "Conclude by stating 'Correct Answer >> A/B/C/D/...'.",
+     "output_regex": r"Correct Answer >> ([A-Za-z])"},
+    {"format_key": "curly_braces",
+     "seed_format_instruction": "End your answer by writing the correct option: 'Answer Choice: {X}'.",
+     "output_regex": r"Answer Choice:\s*\{([A-Za-z])\}"},
+    {"format_key": "selected_option",
+     "seed_format_instruction": "Provide the selected option: Selected Option -> X.",
+     "output_regex": r"Selected Option\s*->\s*([A-Za-z])"},
+]
+
+SEED_PREAMBLES = [
+    "Choose the correct answer from the options below.",
+    "Read the question carefully and select the best option.",
+    "Answer the following multiple choice question.",
+    "Consider each option and pick the correct one.",
+    "Solve the problem and select the right choice.",
+]
+
+# Cross-product seed data
+seed_df = pd.DataFrame([
+    {**fmt, "seed_preamble": preamble}
+    for fmt, preamble in itertools.product(
+        pd.DataFrame(MCQ_FORMAT_TEMPLATES).to_dict(orient="records"),
+        SEED_PREAMBLES,
+    )
+])
+
+# --- Model + config ---
+config = dd.DataDesignerConfigBuilder(model_configs=[
+    dd.ModelConfig(alias="gen", model="qwen/qwen3-235b-a22b", provider="nvidia"),
+])
+config.with_seed_dataset(
+    dd.DataFrameSeedSource(df=seed_df),
+    sampling_strategy=dd.SamplingStrategy.SHUFFLE,
+)
+
+# --- Samplers ---
+for name, values in [
+    ("sentence_type", ["imperative", "interrogative", "declarative"]),
+    ("tone", ["formal", "neutral", "concise", "encouraging", "strict"]),
+    ("strictness_level", ["low", "medium", "high"]),
+    ("verbosity_level", ["concise", "standard", "detailed"]),
+    ("domain_context", ["general", "STEM", "humanities"]),
+    ("preamble_format_order", [
+        "P + F + {problem}", "F + P + {problem}",
+        "P + {problem} + F", "F + {problem} + P",
+        "{problem} + P + F", "{problem} + F + P",
+        "PF + {problem}", "{problem} + PF",
+    ]),
+]:
+    config.add_column(dd.SamplerColumnConfig(
+        name=name,
+        sampler_type=dd.SamplerType.CATEGORY,
+        params=dd.CategorySamplerParams(values=values),
+    ))
+
+# --- LLM columns ---
+config.add_column(dd.LLMTextColumnConfig(
+    name="preamble",
+    model_alias="gen",
+    prompt=(
+        "You are writing a concise instruction line to accompany a "
+        "{{ domain_context }} question.\n"
+        "Keep it neutral and generic; do NOT include output formatting requirements.\n\n"
+        "Constraints:\n"
+        "- Sentence type: {{ sentence_type }}\n"
+        "- Tone: {{ tone }}\n"
+        "- Strictness: {{ strictness_level }}\n"
+        "- Verbosity: {{ verbosity_level }}\n\n"
+        "Seed (paraphrase; do not copy): \"{{ seed_preamble }}\"\n\n"
+        "Return ONLY the instruction line text."
+    ),
+))
+
+config.add_column(dd.LLMTextColumnConfig(
+    name="format_instruction",
+    model_alias="gen",
+    prompt=(
+        "You are writing a concise format instruction for a multiple-choice question.\n"
+        "The format must be compatible with this output pattern:\n\n"
+        "- Output regex: {{ output_regex }}\n\n"
+        "Constraints:\n"
+        "- Tone: {{ tone }}\n"
+        "- The answer must appear at the end of the response.\n\n"
+        "Seed (paraphrase; keep meaning): \"{{ seed_format_instruction }}\"\n\n"
+        "Return ONLY the format instruction."
+    ),
+))
+
+config.add_column(dd.LLMTextColumnConfig(
+    name="user_prompt",
+    model_alias="gen",
+    prompt=(
+        "Concatenate these components in the specified order:\n\n"
+        "- P (Preamble): {{ preamble }}\n"
+        "- F (Format Instruction): {{ format_instruction }}\n"
+        "- {problem}: Placeholder (keep as literal text)\n\n"
+        "Order: {{ preamble_format_order }}\n\n"
+        "Rules: arrange per order, merge if 'PF', newline before/after {problem}, "
+        "no labels like 'P:' or 'F:'.\n\n"
+        "Return ONLY the assembled prompt text."
+    ),
+))
+
+# --- Judges ---
+config.add_column(dd.LLMJudgeColumnConfig(
+    name="format_compliance",
+    model_alias="gen",
+    prompt="Does this instruction enforce the format?\n\nInstruction: {{ format_instruction }}\nRegex: {{ output_regex }}",
+    scores=[dd.Score(name="format_match", description="Format enforced?",
+                     options={1: "Yes", 0: "No"})],
+))
+
+config.add_column(dd.LLMJudgeColumnConfig(
+    name="regex_alignment",
+    model_alias="gen",
+    prompt="Does the instruction align with this regex?\n\nRegex: {{ output_regex }}\nInstruction: {{ format_instruction }}",
+    scores=[dd.Score(name="aligned", description="Regex aligned?",
+                     options={1: "Aligned", 0: "Not aligned"})],
+))
+
+config.add_column(dd.LLMJudgeColumnConfig(
+    name="order_coherence",
+    model_alias="gen",
+    prompt="Is this user prompt coherent?\n\nUser prompt: {{ user_prompt }}",
+    scores=[dd.Score(name="coherent", description="Ordering coherent?",
+                     options={1: "Coherent", 0: "Incoherent"})],
+))
+
+config.add_column(dd.LLMJudgeColumnConfig(
+    name="preamble_quality",
+    model_alias="gen",
+    prompt="Evaluate this instruction line.\n\nInstruction: {{ preamble }}\nTone: {{ tone }}\nVerbosity: {{ verbosity_level }}",
+    scores=[dd.Score(name="quality", description="Preamble quality",
+                     options={3: "Excellent", 2: "Good", 1: "Fair", 0: "Poor"})],
+))
+
+# --- Run ---
+data_designer = DataDesigner()
+results = data_designer.create(
+    config_builder=config,
+    num_records=1000,
+    dataset_name="prompt-sensitivity-mcq",
+)
+```
+
+</details>
 
 ---
 
 Key Resources:
 
 1. [NeMo Data Designer on GitHub](https://github.com/NVIDIA-NeMo/DataDesigner)
-2. [LiveBench: A Challenging, Contamination-Free LLM Benchmark](https://livebench.ai/)
 
 ---
 
