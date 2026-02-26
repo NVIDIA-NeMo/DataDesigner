@@ -1,7 +1,7 @@
 # Plan: Async Generators & Task Queue Builder
 
 Created: 2026-02-20
-Status: Planning
+Status: In Progress
 
 Issue: [#346](https://github.com/NVIDIA-NeMo/DataDesigner/issues/346)
 
@@ -225,7 +225,7 @@ The graph is column-granularity only — no cell-level nodes — so it stays sma
 O(C²) edges worst-case) regardless of row count and avoids the barrier/checkpoint problems of a cell-level
 graph.
 
-- [ ] `ExecutionGraph` class:
+- [x] `ExecutionGraph` class:
   - Backing stores: `dict[str, set[str]]` column → upstream columns;
     `dict[str, GenerationStrategy]` column → generation strategy
   - `upstream(column: str) -> set[str]` — direct dependencies of a column
@@ -238,7 +238,7 @@ graph.
     full-column columns (including from-scratch generators, which report `FULL_COLUMN`)
     produce `ceil(num_records / buffer_size)` tasks
   - `to_mermaid() -> str` — Mermaid diagram string; nodes are annotated with strategy type
-- [ ] `build_execution_graph(column_configs, strategies: dict[str, GenerationStrategy]) -> ExecutionGraph` utility:
+- [x] `build_execution_graph(column_configs, strategies: dict[str, GenerationStrategy]) -> ExecutionGraph` utility:
   - Input: the ordered list of `ColumnConfigT` / `MultiColumnConfig`, plus a pre-computed
     strategy map (available from generators at builder init time via `get_generation_strategy()`)
   - For each config, read `config.required_columns` → set of upstream column names
@@ -247,7 +247,7 @@ graph.
   - For `MultiColumnConfig`, all sub-columns share the same dependencies
   - Validate: every required column must resolve to a known producer (including
     registered side-effect outputs), and the graph must be acyclic
-- [ ] Unit tests for graph construction, validation, critical path, task count, and Mermaid output
+- [x] Unit tests for graph construction, validation, critical path, task count, and Mermaid output
 
 **Files**: new module `engine/dataset_builders/utils/execution_graph.py`, tests
 
@@ -257,7 +257,7 @@ A lightweight structure tracking which (column, row_group, row_index) tuples are
 done. Row indices are **local** to their row group (0-based within each group),
 matching the buffer manager's per-row-group addressing.
 
-- [ ] `CompletionTracker` class:
+- [x] `CompletionTracker` class:
   - Internal: `dict[int, dict[str, set[int]]]` mapping row_group → column → set of completed local row indices
   - `mark_complete(column: str, row_group: int, row_index: int)` / `mark_batch_complete(column: str, row_group: int, row_group_size: int)`
   - `is_ready(column: str, row_group: int, row_index: int, graph: ExecutionGraph) -> bool` — checks all upstream columns for that (row_group, row_index)
@@ -266,8 +266,8 @@ matching the buffer manager's per-row-group addressing.
     `get_ready_tasks` skips dropped rows, in-flight tasks for dropped rows are ignored on completion
   - `is_row_group_complete(row_group: int, row_group_size: int, all_columns: list[str]) -> bool` — all non-dropped rows have all columns done; `row_group_size` is the original size, dropped rows (via `drop_row`) are excluded internally
   - `get_ready_tasks(graph: ExecutionGraph, row_groups, dispatched: set[Task]) -> list[Task]` — yields all currently dispatchable tasks, excluding dropped rows and already-dispatched/in-flight tasks; reads `graph.strategy(column)` to determine task granularity per column
-- [ ] No locks needed: all access is from the single asyncio event loop thread
-- [ ] Unit tests
+- [x] No locks needed: all access is from the single asyncio event loop thread
+- [x] Unit tests
 
 **Files**: new module `engine/dataset_builders/utils/completion_tracker.py`, tests
 
@@ -275,19 +275,19 @@ matching the buffer manager's per-row-group addressing.
 
 Simple dataclass representing a unit of work.
 
-- [ ] `Task` dataclass:
+- [x] `Task` dataclass:
   - `column: str`
   - `row_group: int`
   - `row_index: int | None` (None for batch tasks)
   - `task_type: Literal["from_scratch", "cell", "batch", "pre_batch_processor", "post_batch_processor"]`
-- [ ] `TaskResult` with status, output, error info
-- [ ] `TaskTrace` dataclass (only instantiated when tracing is enabled):
+- [x] `TaskResult` with status, output, error info
+- [x] `TaskTrace` dataclass (only instantiated when tracing is enabled):
   - `column: str`, `row_group: int`, `row_index: int | None`, `task_type: str`
   - `dispatched_at: float` — `perf_counter()` when `create_task()` fires
   - `slot_acquired_at: float` — after execution semaphore acquired
   - `completed_at: float` — in `finally` block after generator returns
   - `status: str`, `error: str | None`
-- [ ] Hashable so we can track dispatched/pending sets
+- [x] Hashable so we can track dispatched/pending sets
 
 **Files**: new module `engine/dataset_builders/utils/task_model.py` — must be its own module
 since `CompletionTracker`, `AsyncTaskScheduler`, and the buffer manager all reference `Task`/`TaskResult`;
@@ -432,15 +432,15 @@ Wire the new scheduler into `ColumnWiseDatasetBuilder`.
 Tests are added incrementally with each PR, not deferred to the end.
 
 **PR 1 (foundation) — unit tests**:
-- [ ] Execution graph construction, validation, topological order, critical path
-- [ ] Execution graph: side-effect output columns resolve correctly (e.g., column
+- [x] Execution graph construction, validation, topological order, critical path
+- [x] Execution graph: side-effect output columns resolve correctly (e.g., column
   depending on `summary__trace` maps to a dependency on the `summary` generator)
-- [ ] Execution graph: `cell_dependencies` returns correct deps for cell-by-cell,
+- [x] Execution graph: `cell_dependencies` returns correct deps for cell-by-cell,
   full-column, and from-scratch columns
-- [ ] Execution graph: `task_count` and `to_mermaid` output
-- [ ] Completion tracker: `mark_complete`, `is_complete`, `all_complete`
-- [ ] Completion tracker: `drop_row`, `is_dropped`, `is_row_group_complete`
-- [ ] Task model: hashability, equality, TaskResult, TaskTrace
+- [x] Execution graph: `task_count` and `to_mermaid` output
+- [x] Completion tracker: `mark_complete`, `is_complete`, `all_complete`
+- [x] Completion tracker: `drop_row`, `is_dropped`, `is_row_group_complete`
+- [x] Task model: hashability, equality, TaskResult, TaskTrace
 
 **PR 2 (generators) — unit tests**:
 - [ ] Symmetric bridging: sync-only generator can be called via `agenerate`
