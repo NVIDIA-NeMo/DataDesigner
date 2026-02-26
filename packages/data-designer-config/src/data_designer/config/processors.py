@@ -4,14 +4,12 @@
 from __future__ import annotations
 
 import json
-from abc import ABC
 from enum import Enum
 from typing import Any, Literal
 
 from pydantic import Field, field_validator
-from typing_extensions import TypeAlias
 
-from data_designer.config.base import ConfigBase
+from data_designer.config.base import ProcessorConfig
 from data_designer.config.errors import InvalidConfigError
 
 
@@ -25,26 +23,6 @@ class ProcessorType(str, Enum):
 
     DROP_COLUMNS = "drop_columns"
     SCHEMA_TRANSFORM = "schema_transform"
-
-
-class ProcessorConfig(ConfigBase, ABC):
-    """Abstract base class for all processor configuration types.
-
-    Processors are transformations that run at different stages of the generation
-    pipeline. They can modify, reshape, or augment the dataset.
-
-    The processor implementation determines which stages it handles by overriding
-    the appropriate callback methods (process_before_batch, process_after_batch, process_after_generation).
-
-    Attributes:
-        name: Unique name of the processor, used to identify the processor in results
-            and to name output artifacts on disk.
-    """
-
-    name: str = Field(
-        description="The name of the processor, used to identify the processor in the results and to write the artifacts to disk.",
-    )
-    processor_type: str
 
 
 def get_processor_config_from_kwargs(processor_type: ProcessorType, **kwargs: Any) -> ProcessorConfig:
@@ -129,6 +107,3 @@ class SchemaTransformProcessorConfig(ProcessorConfig):
             if "not JSON serializable" in str(e):
                 raise InvalidConfigError("Template must be JSON serializable")
         return v
-
-
-ProcessorConfigT: TypeAlias = DropColumnsProcessorConfig | SchemaTransformProcessorConfig
