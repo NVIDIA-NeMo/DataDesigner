@@ -20,6 +20,7 @@ from data_designer.plugins.errors import PluginLoadError
 class PluginType(str, Enum):
     COLUMN_GENERATOR = "column-generator"
     SEED_READER = "seed-reader"
+    PROCESSOR = "processor"
 
     @property
     def discriminator_field(self) -> str:
@@ -27,6 +28,8 @@ class PluginType(str, Enum):
             return "column_type"
         elif self == PluginType.SEED_READER:
             return "seed_type"
+        elif self == PluginType.PROCESSOR:
+            return "processor_type"
         else:
             raise ValueError(f"Invalid plugin type: {self.value}")
 
