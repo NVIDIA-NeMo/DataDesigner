@@ -36,6 +36,7 @@ from data_designer.config.utils.info import InfoType, InterfaceInfo
 from data_designer.engine.analysis.dataset_profiler import DataDesignerDatasetProfiler, DatasetProfilerConfig
 from data_designer.engine.compiler import compile_data_designer_config
 from data_designer.engine.dataset_builders.column_wise_builder import ColumnWiseDatasetBuilder
+from data_designer.engine.mcp.io import list_tool_names as _list_tool_names
 from data_designer.engine.model_provider import resolve_model_provider_registry
 from data_designer.engine.resources.managed_storage import init_managed_blob_storage
 from data_designer.engine.resources.resource_provider import ResourceProvider, create_resource_provider
@@ -148,6 +149,25 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             InterfaceInfo object with information about the Data Designer interface.
         """
         return self._get_interface_info(self._model_providers)
+
+    def list_mcp_tool_names(self, mcp_provider_name: str, *, timeout_sec: float = 10.0) -> list[str]:
+        """Connect to a configured MCP provider and return the names of its available tools.
+
+        Args:
+            mcp_provider_name: The ``name`` field of an MCP provider passed to the constructor.
+            timeout_sec: Timeout in seconds for the MCP handshake. Defaults to 10.
+
+        Returns:
+            A list of tool name strings exposed by the MCP server.
+
+        Raises:
+            ValueError: If no provider with the given name was configured.
+        """
+        for provider in self._mcp_providers:
+            if provider.name == mcp_provider_name:
+                return _list_tool_names(provider, timeout_sec=timeout_sec)
+        configured = [p.name for p in self._mcp_providers]
+        raise ValueError(f"No MCP provider named {mcp_provider_name!r}. Configured providers: {configured}")
 
     def create(
         self,

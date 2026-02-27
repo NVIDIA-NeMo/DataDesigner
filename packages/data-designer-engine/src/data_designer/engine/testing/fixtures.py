@@ -81,6 +81,17 @@ def stub_sse_provider() -> MCPProvider:
     )
 
 
+@pytest.fixture
+def stub_streamable_http_provider() -> MCPProvider:
+    """Create a stub Streamable HTTP MCP provider for testing."""
+    return MCPProvider(
+        name="test-streamable-http",
+        endpoint="https://api.example.com/mcp",
+        api_key="test-key",
+        provider_type="streamable_http",
+    )
+
+
 # =============================================================================
 # Tool config fixtures
 # =============================================================================
