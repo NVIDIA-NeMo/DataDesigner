@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from data_designer.cli.forms.field import TextField
 from data_designer.cli.forms.form import Form
@@ -71,7 +71,9 @@ class MCPProviderFormBuilder:
             allow_back=True,
         )
 
-    def _run_remote_form(self, provider_type: str, initial_data: dict[str, Any] | None = None) -> MCPProvider | None:
+    def _run_remote_form(
+        self, provider_type: Literal["sse", "streamable_http"], initial_data: dict[str, Any] | None = None
+    ) -> MCPProvider | None:
         """Run form for a remote MCP provider (SSE or Streamable HTTP)."""
         transport_label = "SSE" if provider_type == "sse" else "Streamable HTTP"
         fields = [

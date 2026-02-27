@@ -706,8 +706,8 @@ async def test_get_or_create_session_for_streamable_http_provider(
     mcp_io.clear_session_pool()
 
     class MockContextManager:
-        async def __aenter__(self) -> tuple[Any, Any]:
-            return ("mock_read", "mock_write")
+        async def __aenter__(self) -> tuple[Any, Any, Any]:
+            return ("mock_read", "mock_write", "mock_get_session_id")
 
         async def __aexit__(self, *args: Any) -> None:
             pass
