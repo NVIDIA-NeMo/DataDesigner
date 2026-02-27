@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from data_designer.cli.forms.field import TextField
 from data_designer.cli.forms.form import Form
@@ -42,8 +42,8 @@ class MCPProviderFormBuilder:
                     return None
 
             # Run appropriate form based on provider type
-            if provider_type == "sse":
-                result = self._run_sse_form(initial_data)
+            if provider_type in ("sse", "streamable_http"):
+                result = self._run_remote_form(provider_type, initial_data)
             else:  # stdio
                 result = self._run_stdio_form(initial_data)
 
@@ -59,6 +59,7 @@ class MCPProviderFormBuilder:
         """Prompt user to select provider type."""
         options = {
             "sse": "Remote SSE server (connect to existing server)",
+            "streamable_http": "Remote Streamable HTTP server (connect to existing server)",
             "stdio": "Local stdio subprocess (launch server as subprocess)",
         }
 
@@ -70,8 +71,11 @@ class MCPProviderFormBuilder:
             allow_back=True,
         )
 
-    def _run_sse_form(self, initial_data: dict[str, Any] | None = None) -> MCPProvider | None:
-        """Run form for remote SSE provider."""
+    def _run_remote_form(
+        self, provider_type: Literal["sse", "streamable_http"], initial_data: dict[str, Any] | None = None
+    ) -> MCPProvider | None:
+        """Run form for a remote MCP provider (SSE or Streamable HTTP)."""
+        transport_label = "SSE" if provider_type == "sse" else "Streamable HTTP"
         fields = [
             TextField(
                 "name",
@@ -82,7 +86,7 @@ class MCPProviderFormBuilder:
             ),
             TextField(
                 "endpoint",
-                "SSE endpoint URL",
+                f"{transport_label} endpoint URL",
                 default=initial_data.get("endpoint") if initial_data else None,
                 required=True,
                 validator=self._validate_endpoint,
@@ -95,7 +99,7 @@ class MCPProviderFormBuilder:
             ),
         ]
 
-        form = Form("Remote SSE Provider", fields)
+        form = Form(f"Remote {transport_label} Provider", fields)
         if initial_data:
             form.set_values(initial_data)
 
@@ -108,6 +112,7 @@ class MCPProviderFormBuilder:
                 name=result["name"],
                 endpoint=result["endpoint"],
                 api_key=result.get("api_key") or None,
+                provider_type=provider_type,
             )
         except Exception as e:
             print_error(f"Configuration error: {e}")

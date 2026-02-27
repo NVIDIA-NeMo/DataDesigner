@@ -49,14 +49,15 @@ data-designer config mcp
 The wizard first asks you to choose a provider type:
 
 1. **Remote SSE**: Connect to a pre-existing MCP server via HTTP Server-Sent Events
-2. **Local stdio subprocess**: Launch an MCP server as a subprocess
+2. **Remote Streamable HTTP**: Connect to a pre-existing MCP server via Streamable HTTP
+3. **Local stdio subprocess**: Launch an MCP server as a subprocess
 
-### Remote SSE Configuration
+### Remote SSE / Streamable HTTP Configuration
 
-When configuring a Remote SSE provider, you'll be prompted for:
+When configuring a remote provider (SSE or Streamable HTTP), you'll be prompted for:
 
 - **Name**: Unique identifier (e.g., `"doc-search"`)
-- **Endpoint**: SSE endpoint URL (e.g., `"http://localhost:8080/sse"`)
+- **Endpoint**: Server endpoint URL (e.g., `"http://localhost:8080/sse"` or `"https://mcp.example.com/mcp"`)
 - **API Key**: Optional API key or environment variable name
 
 ### Local Stdio Configuration

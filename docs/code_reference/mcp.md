@@ -4,7 +4,7 @@ The `mcp` module defines configuration and execution classes for tool use via MC
 
 ## Configuration Classes
 
-[MCPProvider](#data_designer.config.mcp.MCPProvider) configures remote MCP servers via SSE transport. [LocalStdioMCPProvider](#data_designer.config.mcp.LocalStdioMCPProvider) configures local MCP servers as subprocesses via stdio transport. [ToolConfig](#data_designer.config.mcp.ToolConfig) defines which tools are available for LLM columns and how they are constrained.
+[MCPProvider](#data_designer.config.mcp.MCPProvider) configures remote MCP servers via SSE or Streamable HTTP transport. [LocalStdioMCPProvider](#data_designer.config.mcp.LocalStdioMCPProvider) configures local MCP servers as subprocesses via stdio transport. [ToolConfig](#data_designer.config.mcp.ToolConfig) defines which tools are available for LLM columns and how they are constrained.
 
 For user-facing guides, see:
 

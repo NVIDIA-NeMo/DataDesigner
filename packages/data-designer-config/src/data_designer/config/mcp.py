@@ -15,25 +15,36 @@ class MCPProvider(ConfigBase):
     """Configuration for a remote MCP server connection.
 
     MCPProvider is used to connect to pre-existing MCP servers via SSE (Server-Sent Events)
-    transport. For local subprocess-based MCP servers, use LocalStdioMCPProvider instead.
+    or Streamable HTTP transport. For local subprocess-based MCP servers, use
+    LocalStdioMCPProvider instead.
 
     Attributes:
         name (str): Unique name used to reference this MCP provider.
-        endpoint (str): SSE endpoint URL for connecting to the remote MCP server.
+        endpoint (str): Endpoint URL for connecting to the remote MCP server.
         api_key (str | None): Optional API key for authentication. Defaults to None.
-        provider_type (Literal["sse"]): Transport type discriminator, always "sse".
+        provider_type (Literal["sse", "streamable_http"]): Transport type discriminator.
+            Defaults to ``"sse"``.
 
     Examples:
-        Remote SSE transport:
+        Remote SSE transport (default):
 
         >>> MCPProvider(
         ...     name="remote-mcp",
         ...     endpoint="http://localhost:8080/sse",
         ...     api_key="your-api-key",
         ... )
+
+        Remote Streamable HTTP transport:
+
+        >>> MCPProvider(
+        ...     name="remote-mcp",
+        ...     endpoint="https://api.example.com/mcp",
+        ...     api_key="your-api-key",
+        ...     provider_type="streamable_http",
+        ... )
     """
 
-    provider_type: Literal["sse"] = "sse"
+    provider_type: Literal["sse", "streamable_http"] = "sse"
     name: str
     endpoint: str
     api_key: str | None = None
