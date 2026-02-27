@@ -55,7 +55,7 @@ def test_mark_batch_complete() -> None:
     assert not tracker.is_complete("col_a", 0, 3)
 
 
-# -- all_complete -----------------------------------------------------------
+# -- is_all_complete -----------------------------------------------------------
 
 
 def test_all_complete_cell_level() -> None:
@@ -63,25 +63,25 @@ def test_all_complete_cell_level() -> None:
     tracker.mark_complete("col_a", 0, 0)
     tracker.mark_complete("col_a", 0, 1)
 
-    assert tracker.all_complete([("col_a", 0, 0), ("col_a", 0, 1)])
-    assert not tracker.all_complete([("col_a", 0, 0), ("col_a", 0, 2)])
+    assert tracker.is_all_complete([("col_a", 0, 0), ("col_a", 0, 1)])
+    assert not tracker.is_all_complete([("col_a", 0, 0), ("col_a", 0, 2)])
 
 
 def test_all_complete_batch_level() -> None:
     tracker = CompletionTracker()
     tracker.mark_batch_complete("col_a", 0, 3)
 
-    assert tracker.all_complete([("col_a", 0, None)])
+    assert tracker.is_all_complete([("col_a", 0, None)])
 
 
 def test_all_complete_batch_not_present() -> None:
     tracker = CompletionTracker()
-    assert not tracker.all_complete([("col_a", 0, None)])
+    assert not tracker.is_all_complete([("col_a", 0, None)])
 
 
 def test_all_complete_empty_list() -> None:
     tracker = CompletionTracker()
-    assert tracker.all_complete([])
+    assert tracker.is_all_complete([])
 
 
 # -- drop_row / is_dropped -------------------------------------------------

@@ -13,6 +13,7 @@ from data_designer.engine.dataset_builders.multi_column_configs import (
     MultiColumnConfig,
 )
 from data_designer.engine.dataset_builders.utils.errors import DAGCircularDependencyError
+from data_designer.engine.dataset_builders.utils.task_model import ColumnName, RowGroup, RowIndex
 
 
 @dataclass
@@ -24,26 +25,44 @@ class ExecutionGraph:
     separately by ``CompletionTracker``.
     """
 
-    _upstream: dict[str, set[str]] = field(default_factory=lambda: defaultdict(set))
-    _downstream: dict[str, set[str]] = field(default_factory=lambda: defaultdict(set))
-    _strategies: dict[str, GenerationStrategy] = field(default_factory=dict)
-    _side_effect_map: dict[str, str] = field(default_factory=dict)
-    _columns: list[str] = field(default_factory=list)
-    _topological_order_cache: list[str] | None = field(default=None, repr=False)
+    _upstream: dict[ColumnName, set[ColumnName]] = field(default_factory=lambda: defaultdict(set))
+    _downstream: dict[ColumnName, set[ColumnName]] = field(default_factory=lambda: defaultdict(set))
+    _strategies: dict[ColumnName, GenerationStrategy] = field(default_factory=dict)
+    _side_effect_map: dict[ColumnName, ColumnName] = field(default_factory=dict)
+    _columns: list[ColumnName] = field(default_factory=list)
+    _topological_order_cache: list[ColumnName] | None = field(default=None, repr=False)
 
-    def upstream(self, column: str) -> set[str]:
+    def add_column(self, name: ColumnName, strategy: GenerationStrategy) -> None:
+        """Register a column and its generation strategy."""
+        self._columns.append(name)
+        self._strategies[name] = strategy
+
+    def add_edge(self, upstream: ColumnName, downstream: ColumnName) -> None:
+        """Add a dependency edge: *downstream* depends on *upstream*."""
+        self._upstream[downstream].add(upstream)
+        self._downstream[upstream].add(downstream)
+
+    def set_side_effect(self, side_effect_col: ColumnName, producer: ColumnName) -> None:
+        """Map a side-effect column name to its producing column."""
+        self._side_effect_map[side_effect_col] = producer
+
+    def resolve_side_effect(self, column: ColumnName) -> ColumnName:
+        """Resolve a column name through the side-effect map."""
+        return self._side_effect_map.get(column, column)
+
+    def upstream(self, column: ColumnName) -> set[ColumnName]:
         """Direct dependencies of *column*."""
         return self._upstream.get(column, set())
 
-    def downstream(self, column: str) -> set[str]:
+    def downstream(self, column: ColumnName) -> set[ColumnName]:
         """Columns that depend on *column*."""
         return self._downstream.get(column, set())
 
-    def strategy(self, column: str) -> GenerationStrategy:
+    def strategy(self, column: ColumnName) -> GenerationStrategy:
         return self._strategies[column]
 
     @property
-    def columns(self) -> list[str]:
+    def columns(self) -> list[ColumnName]:
         """All column names in insertion order."""
         return list(self._columns)
 
@@ -101,14 +120,14 @@ class ExecutionGraph:
         path.reverse()
         return path
 
-    def task_count(self, num_records: int, buffer_size: int) -> dict[str, int]:
+    def task_count(self, num_records: int, buffer_size: int) -> dict[ColumnName, int]:
         """Exact task count per column before the run starts.
 
         Cell-by-cell columns produce ``num_records`` tasks.
         Full-column columns (including from-scratch) produce ``ceil(num_records / buffer_size)`` tasks.
         """
         num_row_groups = math.ceil(num_records / buffer_size)
-        counts: dict[str, int] = {}
+        counts: dict[ColumnName, int] = {}
         for col in self._columns:
             strat = self._strategies[col]
             if strat == GenerationStrategy.CELL_BY_CELL:
@@ -119,17 +138,17 @@ class ExecutionGraph:
 
     def cell_dependencies(
         self,
-        column: str,
-        row_group: int,
-        row_index: int | None,
+        column: ColumnName,
+        row_group: RowGroup,
+        row_index: RowIndex | None,
         row_group_size: int,
-    ) -> list[tuple[str, int, int | None]]:
+    ) -> list[tuple[ColumnName, RowGroup, RowIndex | None]]:
         """Derive cell-level deps on demand from column-level DAG + strategy.
 
         Returns a list of ``(upstream_column, row_group, row_index)`` tuples
         that must be complete before this task can run.
         """
-        deps: list[tuple[str, int, int | None]] = []
+        deps: list[tuple[ColumnName, RowGroup, RowIndex | None]] = []
         for up_col in self.upstream(column):
             up_strategy = self._strategies[up_col]
             if up_strategy == GenerationStrategy.CELL_BY_CELL:
@@ -157,7 +176,7 @@ class ExecutionGraph:
 
 def build_execution_graph(
     column_configs: list[DatasetBuilderColumnConfigT],
-    strategies: dict[str, GenerationStrategy],
+    strategies: dict[ColumnName, GenerationStrategy],
 ) -> ExecutionGraph:
     """Build an ``ExecutionGraph`` from column configs and pre-computed strategies.
 
@@ -177,13 +196,12 @@ def build_execution_graph(
 
         for sub in sub_configs:
             name = sub.name
-            graph._columns.append(name)
-            graph._strategies[name] = strategies[name]
+            graph.add_column(name, strategies[name])
 
             for se_col in sub.side_effect_columns:
-                graph._side_effect_map[se_col] = name
+                graph.set_side_effect(se_col, name)
 
-    known_columns = set(graph._columns)
+    known_columns = set(graph.columns)
 
     # Second pass: build edges
     for config in column_configs:
@@ -195,15 +213,14 @@ def build_execution_graph(
         for sub in sub_configs:
             name = sub.name
             for req in sub.required_columns:
-                resolved = graph._side_effect_map.get(req, req)
+                resolved = graph.resolve_side_effect(req)
                 if resolved not in known_columns:
                     raise ValueError(
                         f"Column '{name}' requires '{req}' (resolved to '{resolved}') which is not a known producer."
                     )
                 if resolved == name:
                     continue  # skip self-dependency
-                graph._upstream[name].add(resolved)
-                graph._downstream[resolved].add(name)
+                graph.add_edge(upstream=resolved, downstream=name)
 
     # Validate acyclicity
     graph.topological_order()

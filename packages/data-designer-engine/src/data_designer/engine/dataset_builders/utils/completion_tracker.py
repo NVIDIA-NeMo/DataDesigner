@@ -7,7 +7,7 @@ from collections import defaultdict
 from typing import TYPE_CHECKING
 
 from data_designer.config.column_configs import GenerationStrategy
-from data_designer.engine.dataset_builders.utils.task_model import Task
+from data_designer.engine.dataset_builders.utils.task_model import ColumnName, RowGroup, RowIndex, Task
 
 if TYPE_CHECKING:
     from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
@@ -22,20 +22,20 @@ class CompletionTracker:
 
     def __init__(self) -> None:
         # row_group → column → set of completed local row indices
-        self._completed: dict[int, dict[str, set[int]]] = defaultdict(lambda: defaultdict(set))
+        self._completed: dict[RowGroup, dict[ColumnName, set[RowIndex]]] = defaultdict(lambda: defaultdict(set))
         # row_group → set of dropped row indices
-        self._dropped: dict[int, set[int]] = defaultdict(set)
+        self._dropped: dict[RowGroup, set[RowIndex]] = defaultdict(set)
 
-    def mark_complete(self, column: str, row_group: int, row_index: int) -> None:
+    def mark_complete(self, column: ColumnName, row_group: RowGroup, row_index: RowIndex) -> None:
         self._completed[row_group][column].add(row_index)
 
-    def mark_batch_complete(self, column: str, row_group: int, row_group_size: int) -> None:
+    def mark_batch_complete(self, column: ColumnName, row_group: RowGroup, row_group_size: int) -> None:
         self._completed[row_group][column] = set(range(row_group_size))
 
-    def is_complete(self, column: str, row_group: int, row_index: int) -> bool:
+    def is_complete(self, column: ColumnName, row_group: RowGroup, row_index: RowIndex) -> bool:
         return row_index in self._completed.get(row_group, {}).get(column, set())
 
-    def all_complete(self, cells: list[tuple[str, int, int | None]]) -> bool:
+    def is_all_complete(self, cells: list[tuple[ColumnName, RowGroup, RowIndex | None]]) -> bool:
         """Check whether all the given (column, row_group, row_index) tuples are done.
 
         A ``row_index`` of ``None`` means the entire batch for that column must
@@ -51,20 +51,20 @@ class CompletionTracker:
 
     def is_ready(
         self,
-        column: str,
-        row_group: int,
-        row_index: int,
+        column: ColumnName,
+        row_group: RowGroup,
+        row_index: RowIndex,
         graph: ExecutionGraph,
         row_group_size: int,
     ) -> bool:
         """Check if all upstream columns are done for this (column, row_group, row_index)."""
         deps = graph.cell_dependencies(column, row_group, row_index, row_group_size)
-        return self.all_complete(deps)
+        return self.is_all_complete(deps)
 
     def is_batch_ready(
         self,
-        column: str,
-        row_group: int,
+        column: ColumnName,
+        row_group: RowGroup,
         row_group_size: int,
         graph: ExecutionGraph,
     ) -> bool:
@@ -72,19 +72,19 @@ class CompletionTracker:
         deps = graph.cell_dependencies(column, row_group, None, row_group_size)
         # Dropped rows don't need their upstream cells complete
         deps = [(c, rg, ri) for c, rg, ri in deps if ri is None or not self.is_dropped(rg, ri)]
-        return self.all_complete(deps)
+        return self.is_all_complete(deps)
 
-    def drop_row(self, row_group: int, row_index: int) -> None:
+    def drop_row(self, row_group: RowGroup, row_index: RowIndex) -> None:
         self._dropped[row_group].add(row_index)
 
-    def is_dropped(self, row_group: int, row_index: int) -> bool:
+    def is_dropped(self, row_group: RowGroup, row_index: RowIndex) -> bool:
         return row_index in self._dropped.get(row_group, set())
 
     def is_row_group_complete(
         self,
-        row_group: int,
+        row_group: RowGroup,
         row_group_size: int,
-        all_columns: list[str],
+        all_columns: list[ColumnName],
     ) -> bool:
         """All non-dropped rows have all columns done."""
         dropped = self._dropped.get(row_group, set())
@@ -100,7 +100,7 @@ class CompletionTracker:
     def get_ready_tasks(
         self,
         graph: ExecutionGraph,
-        row_groups: list[tuple[int, int]],
+        row_groups: list[tuple[RowGroup, int]],
         dispatched: set[Task],
     ) -> list[Task]:
         """Return all currently dispatchable tasks.

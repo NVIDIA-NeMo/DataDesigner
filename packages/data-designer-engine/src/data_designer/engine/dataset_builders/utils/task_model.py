@@ -4,16 +4,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, TypeAlias
+
+ColumnName: TypeAlias = str
+RowGroup: TypeAlias = int
+RowIndex: TypeAlias = int
 
 
 @dataclass(frozen=True)
 class Task:
     """A unit of work for the async scheduler."""
 
-    column: str
-    row_group: int
-    row_index: int | None  # None for batch/full-column tasks
+    column: ColumnName
+    row_group: RowGroup
+    row_index: RowIndex | None  # None for batch/full-column tasks
     task_type: Literal["from_scratch", "cell", "batch", "pre_batch_processor", "post_batch_processor"]
 
 
@@ -32,9 +36,9 @@ class TaskResult:
 class TaskTrace:
     """Timing trace for a single task. Only created when tracing is enabled."""
 
-    column: str
-    row_group: int
-    row_index: int | None
+    column: ColumnName
+    row_group: RowGroup
+    row_index: RowIndex | None
     task_type: str
     dispatched_at: float = 0.0
     slot_acquired_at: float = 0.0
@@ -42,9 +46,9 @@ class TaskTrace:
     status: str = ""
     error: str | None = None
 
-    @staticmethod
-    def from_task(task: Task) -> TaskTrace:
-        return TaskTrace(
+    @classmethod
+    def from_task(cls, task: Task) -> TaskTrace:
+        return cls(
             column=task.column,
             row_group=task.row_group,
             row_index=task.row_index,
