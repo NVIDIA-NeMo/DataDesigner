@@ -404,22 +404,8 @@ def list_tools(provider: MCPProviderT, timeout_sec: float | None = None) -> tupl
     return _MCP_IO_SERVICE.list_tools(provider, timeout_sec=timeout_sec)
 
 
-def list_tool_names(provider: MCPProviderT, timeout_sec: float = 30.0) -> list[str]:
-    """Connect to an MCP provider and return the names of all available tools.
-
-    This is a convenience wrapper around :func:`list_tools` for quick discovery.
-
-    Example::
-
-        >>> from data_designer.config.mcp import MCPProvider
-        >>> provider = MCPProvider(
-        ...     name="tavily",
-        ...     endpoint="https://mcp.tavily.com/mcp/?tavilyApiKey=...",
-        ...     provider_type="streamable_http",
-        ... )
-        >>> list_tool_names(provider)
-        ['tavily_search', 'tavily_extract']
-    """
+def list_tool_names(provider: MCPProviderT, timeout_sec: float) -> list[str]:
+    """Return the names of all tools available on an MCP provider."""
     return [t.name for t in _MCP_IO_SERVICE.list_tools(provider, timeout_sec=timeout_sec)]
 
 
