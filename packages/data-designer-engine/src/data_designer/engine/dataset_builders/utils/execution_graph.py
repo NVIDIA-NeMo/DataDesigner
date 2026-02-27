@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict, deque
-from dataclasses import dataclass, field
 
 from data_designer.config.column_configs import GenerationStrategy
 from data_designer.engine.dataset_builders.multi_column_configs import (
@@ -13,10 +12,9 @@ from data_designer.engine.dataset_builders.multi_column_configs import (
     MultiColumnConfig,
 )
 from data_designer.engine.dataset_builders.utils.errors import DAGCircularDependencyError
-from data_designer.engine.dataset_builders.utils.task_model import ColumnName, RowGroup, RowIndex
+from data_designer.engine.dataset_builders.utils.task_model import ColumnName, RowGroupIndex, RowIndex
 
 
-@dataclass
 class ExecutionGraph:
     """Column-level static execution graph built from column configs.
 
@@ -25,12 +23,13 @@ class ExecutionGraph:
     separately by ``CompletionTracker``.
     """
 
-    _upstream: dict[ColumnName, set[ColumnName]] = field(default_factory=lambda: defaultdict(set))
-    _downstream: dict[ColumnName, set[ColumnName]] = field(default_factory=lambda: defaultdict(set))
-    _strategies: dict[ColumnName, GenerationStrategy] = field(default_factory=dict)
-    _side_effect_map: dict[ColumnName, ColumnName] = field(default_factory=dict)
-    _columns: list[ColumnName] = field(default_factory=list)
-    _topological_order_cache: list[ColumnName] | None = field(default=None, repr=False)
+    def __init__(self) -> None:
+        self._upstream: dict[ColumnName, set[ColumnName]] = defaultdict(set)
+        self._downstream: dict[ColumnName, set[ColumnName]] = defaultdict(set)
+        self._strategies: dict[ColumnName, GenerationStrategy] = {}
+        self._side_effect_map: dict[ColumnName, ColumnName] = {}
+        self._columns: list[ColumnName] = []
+        self._topological_order_cache: list[ColumnName] | None = None
 
     def add_column(self, name: ColumnName, strategy: GenerationStrategy) -> None:
         """Register a column and its generation strategy."""
@@ -139,16 +138,16 @@ class ExecutionGraph:
     def cell_dependencies(
         self,
         column: ColumnName,
-        row_group: RowGroup,
+        row_group: RowGroupIndex,
         row_index: RowIndex | None,
         row_group_size: int,
-    ) -> list[tuple[ColumnName, RowGroup, RowIndex | None]]:
+    ) -> list[tuple[ColumnName, RowGroupIndex, RowIndex | None]]:
         """Derive cell-level deps on demand from column-level DAG + strategy.
 
         Returns a list of ``(upstream_column, row_group, row_index)`` tuples
         that must be complete before this task can run.
         """
-        deps: list[tuple[ColumnName, RowGroup, RowIndex | None]] = []
+        deps: list[tuple[ColumnName, RowGroupIndex, RowIndex | None]] = []
         for up_col in self.upstream(column):
             up_strategy = self._strategies[up_col]
             if up_strategy == GenerationStrategy.CELL_BY_CELL:
@@ -173,6 +172,61 @@ class ExecutionGraph:
                 lines.append(f"    {dep} --> {col}")
         return "\n".join(lines)
 
+    @classmethod
+    def create(
+        cls,
+        column_configs: list[DatasetBuilderColumnConfigT],
+        strategies: dict[ColumnName, GenerationStrategy],
+    ) -> ExecutionGraph:
+        """Build an ``ExecutionGraph`` from column configs and pre-computed strategies.
+
+        Args:
+            column_configs: Ordered list of ``ColumnConfigT`` or ``MultiColumnConfig``.
+            strategies: Map of column name → ``GenerationStrategy``, obtained from
+                each generator's ``get_generation_strategy()``.
+        """
+        graph = cls()
+
+        # First pass: register all columns, strategies, and side-effect mappings
+        for config in column_configs:
+            if isinstance(config, MultiColumnConfig):
+                sub_configs = config.columns
+            else:
+                sub_configs = [config]
+
+            for sub in sub_configs:
+                name = sub.name
+                graph.add_column(name, strategies[name])
+
+                for se_col in sub.side_effect_columns:
+                    graph.set_side_effect(se_col, name)
+
+        known_columns = set(graph.columns)
+
+        # Second pass: build edges
+        for config in column_configs:
+            if isinstance(config, MultiColumnConfig):
+                sub_configs = config.columns
+            else:
+                sub_configs = [config]
+
+            for sub in sub_configs:
+                name = sub.name
+                for req in sub.required_columns:
+                    resolved = graph.resolve_side_effect(req)
+                    if resolved not in known_columns:
+                        raise ValueError(
+                            f"Column '{name}' requires '{req}' (resolved to '{resolved}') which is not a known producer."
+                        )
+                    if resolved == name:
+                        continue  # skip self-dependency
+                    graph.add_edge(upstream=resolved, downstream=name)
+
+        # Validate acyclicity
+        graph.topological_order()
+
+        return graph
+
 
 def build_execution_graph(
     column_configs: list[DatasetBuilderColumnConfigT],
@@ -180,49 +234,6 @@ def build_execution_graph(
 ) -> ExecutionGraph:
     """Build an ``ExecutionGraph`` from column configs and pre-computed strategies.
 
-    Args:
-        column_configs: Ordered list of ``ColumnConfigT`` or ``MultiColumnConfig``.
-        strategies: Map of column name → ``GenerationStrategy``, obtained from
-            each generator's ``get_generation_strategy()``.
+    .. deprecated:: Use ``ExecutionGraph.create()`` instead.
     """
-    graph = ExecutionGraph()
-
-    # First pass: register all columns, strategies, and side-effect mappings
-    for config in column_configs:
-        if isinstance(config, MultiColumnConfig):
-            sub_configs = config.columns
-        else:
-            sub_configs = [config]
-
-        for sub in sub_configs:
-            name = sub.name
-            graph.add_column(name, strategies[name])
-
-            for se_col in sub.side_effect_columns:
-                graph.set_side_effect(se_col, name)
-
-    known_columns = set(graph.columns)
-
-    # Second pass: build edges
-    for config in column_configs:
-        if isinstance(config, MultiColumnConfig):
-            sub_configs = config.columns
-        else:
-            sub_configs = [config]
-
-        for sub in sub_configs:
-            name = sub.name
-            for req in sub.required_columns:
-                resolved = graph.resolve_side_effect(req)
-                if resolved not in known_columns:
-                    raise ValueError(
-                        f"Column '{name}' requires '{req}' (resolved to '{resolved}') which is not a known producer."
-                    )
-                if resolved == name:
-                    continue  # skip self-dependency
-                graph.add_edge(upstream=resolved, downstream=name)
-
-    # Validate acyclicity
-    graph.topological_order()
-
-    return graph
+    return ExecutionGraph.create(column_configs, strategies)

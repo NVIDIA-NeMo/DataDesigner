@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Literal, TypeAlias
 
 ColumnName: TypeAlias = str
-RowGroup: TypeAlias = int
+RowGroupIndex: TypeAlias = int
 RowIndex: TypeAlias = int
 
 
@@ -16,7 +16,7 @@ class Task:
     """A unit of work for the async scheduler."""
 
     column: ColumnName
-    row_group: RowGroup
+    row_group: RowGroupIndex
     row_index: RowIndex | None  # None for batch/full-column tasks
     task_type: Literal["from_scratch", "cell", "batch", "pre_batch_processor", "post_batch_processor"]
 
@@ -37,7 +37,7 @@ class TaskTrace:
     """Timing trace for a single task. Only created when tracing is enabled."""
 
     column: ColumnName
-    row_group: RowGroup
+    row_group: RowGroupIndex
     row_index: RowIndex | None
     task_type: str
     dispatched_at: float = 0.0
