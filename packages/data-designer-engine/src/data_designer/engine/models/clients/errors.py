@@ -5,7 +5,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import Any, Protocol
+
+
+class HttpResponse(Protocol):
+    """Structural type for HTTP response objects (httpx, requests, etc.)."""
+
+    status_code: int
+    text: str
+
+    def json(self) -> Any: ...
 
 
 class ProviderErrorKind(str, Enum):
@@ -86,7 +95,7 @@ def map_http_status_to_provider_error_kind(status_code: int, body_text: str = ""
 
 def map_http_error_to_provider_error(
     *,
-    response: Any,
+    response: HttpResponse,
     provider_name: str,
     model_name: str | None = None,
 ) -> ProviderError:
@@ -111,7 +120,7 @@ def map_http_error_to_provider_error(
     )
 
 
-def _extract_response_text(response: Any) -> str:
+def _extract_response_text(response: HttpResponse) -> str:
     # Try structured JSON extraction first — most providers return structured error
     # bodies and we want the human-readable message, not raw JSON.
     structured = _extract_structured_message(response)
@@ -125,7 +134,7 @@ def _extract_response_text(response: Any) -> str:
     return ""
 
 
-def _extract_structured_message(response: Any) -> str:
+def _extract_structured_message(response: HttpResponse) -> str:
     try:
         payload = response.json()
     except Exception:

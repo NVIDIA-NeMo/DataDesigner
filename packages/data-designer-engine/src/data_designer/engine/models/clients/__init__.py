@@ -3,6 +3,7 @@
 
 from data_designer.engine.models.clients.base import ModelClient
 from data_designer.engine.models.clients.errors import (
+    HttpResponse,
     ProviderError,
     ProviderErrorKind,
     map_http_error_to_provider_error,
@@ -22,6 +23,7 @@ from data_designer.engine.models.clients.types import (
 )
 
 __all__ = [
+    "HttpResponse",
     "AssistantMessage",
     "ChatCompletionRequest",
     "ChatCompletionResponse",
