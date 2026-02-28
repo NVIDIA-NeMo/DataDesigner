@@ -20,6 +20,7 @@ Boundary contract:
 1. `ModelFacade`-facing requests/responses use canonical dataclasses in `clients/types.py`.
 2. Provider SDK and transport-specific response shapes do not leak above the adapter layer.
 3. Provider failures normalize to canonical provider errors (`ProviderError`, `ProviderErrorKind`).
+4. All adapters implement `close`/`aclose` lifecycle methods (defined on `ModelClient` protocol) for deterministic resource teardown.
 
 Canonical operation types in PR-1:
 
@@ -31,7 +32,7 @@ Canonical operation types in PR-1:
 
 `LiteLLMBridgeClient` is a temporary adapter that preserves migration safety:
 
-1. It wraps the existing LiteLLM router while emitting canonical response types.
+1. It wraps the existing LiteLLM router while emitting canonical response types. The router dependency is typed via the `LiteLLMRouter` protocol — a structural type that defines only the six methods the bridge calls, without importing anything from LiteLLM.
 2. It enables parity testing of canonical request/response contracts before native provider adapters are cut over.
 3. It remains available as a rollback path during native adapter soak windows.
 
