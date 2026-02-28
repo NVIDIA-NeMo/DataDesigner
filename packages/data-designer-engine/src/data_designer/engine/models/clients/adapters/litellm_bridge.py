@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 from typing import Any, Protocol
@@ -48,6 +49,11 @@ class LiteLLMRouter(Protocol):
 class LiteLLMBridgeClient(ModelClient):
     """Bridge adapter that wraps the existing LiteLLM router behind canonical client types."""
 
+    # "messages" and "prompt" have None defaults but are passed explicitly to choose
+    # between the chat-completion and diffusion code paths, so exclude them from the
+    # automatic optional-field forwarding.
+    _IMAGE_EXCLUDE = frozenset({"messages", "prompt"})
+
     def __init__(self, *, provider_name: str, router: LiteLLMRouter) -> None:
         self.provider_name = provider_name
         self._router = router
@@ -65,7 +71,7 @@ class LiteLLMBridgeClient(ModelClient):
         response = self._router.completion(
             model=request.model,
             messages=request.messages,
-            **_chat_request_kwargs(request),
+            **_collect_non_none_optional_fields(request),
         )
         return _parse_chat_completion_response(response)
 
@@ -73,7 +79,7 @@ class LiteLLMBridgeClient(ModelClient):
         response = await self._router.acompletion(
             model=request.model,
             messages=request.messages,
-            **_chat_request_kwargs(request),
+            **_collect_non_none_optional_fields(request),
         )
         return _parse_chat_completion_response(response)
 
@@ -81,7 +87,7 @@ class LiteLLMBridgeClient(ModelClient):
         response = self._router.embedding(
             model=request.model,
             input=request.inputs,
-            **_embedding_request_kwargs(request),
+            **_collect_non_none_optional_fields(request),
         )
         vectors = [_extract_embedding_vector(item) for item in getattr(response, "data", [])]
         return EmbeddingResponse(vectors=vectors, usage=_extract_usage(getattr(response, "usage", None)), raw=response)
@@ -90,24 +96,25 @@ class LiteLLMBridgeClient(ModelClient):
         response = await self._router.aembedding(
             model=request.model,
             input=request.inputs,
-            **_embedding_request_kwargs(request),
+            **_collect_non_none_optional_fields(request),
         )
         vectors = [_extract_embedding_vector(item) for item in getattr(response, "data", [])]
         return EmbeddingResponse(vectors=vectors, usage=_extract_usage(getattr(response, "usage", None)), raw=response)
 
     def generate_image(self, request: ImageGenerationRequest) -> ImageGenerationResponse:
+        image_kwargs = _collect_non_none_optional_fields(request, exclude=self._IMAGE_EXCLUDE)
         if request.messages is not None:
             response = self._router.completion(
                 model=request.model,
                 messages=request.messages,
-                **_image_chat_kwargs(request),
+                **image_kwargs,
             )
             images = _extract_images_from_chat_response(response)
         else:
             response = self._router.image_generation(
                 prompt=request.prompt,
                 model=request.model,
-                **_image_request_kwargs(request),
+                **image_kwargs,
             )
             images = _extract_images_from_image_response(response)
 
@@ -115,18 +122,19 @@ class LiteLLMBridgeClient(ModelClient):
         return ImageGenerationResponse(images=images, usage=usage, raw=response)
 
     async def agenerate_image(self, request: ImageGenerationRequest) -> ImageGenerationResponse:
+        image_kwargs = _collect_non_none_optional_fields(request, exclude=self._IMAGE_EXCLUDE)
         if request.messages is not None:
             response = await self._router.acompletion(
                 model=request.model,
                 messages=request.messages,
-                **_image_chat_kwargs(request),
+                **image_kwargs,
             )
             images = _extract_images_from_chat_response(response)
         else:
             response = await self._router.aimage_generation(
                 prompt=request.prompt,
                 model=request.model,
-                **_image_request_kwargs(request),
+                **image_kwargs,
             )
             images = _extract_images_from_image_response(response)
 
@@ -155,57 +163,13 @@ def _parse_chat_completion_response(response: Any) -> ChatCompletionResponse:
     return ChatCompletionResponse(message=assistant_message, usage=usage, raw=response)
 
 
-def _chat_request_kwargs(request: ChatCompletionRequest) -> dict[str, Any]:
-    kwargs: dict[str, Any] = {}
-    if request.tools is not None:
-        kwargs["tools"] = request.tools
-    if request.temperature is not None:
-        kwargs["temperature"] = request.temperature
-    if request.top_p is not None:
-        kwargs["top_p"] = request.top_p
-    if request.max_tokens is not None:
-        kwargs["max_tokens"] = request.max_tokens
-    if request.timeout is not None:
-        kwargs["timeout"] = request.timeout
-    if request.extra_body is not None:
-        kwargs["extra_body"] = request.extra_body
-    if request.extra_headers is not None:
-        kwargs["extra_headers"] = request.extra_headers
-    if request.metadata is not None:
-        kwargs["metadata"] = request.metadata
-    return kwargs
-
-
-def _embedding_request_kwargs(request: EmbeddingRequest) -> dict[str, Any]:
-    kwargs: dict[str, Any] = {}
-    if request.encoding_format is not None:
-        kwargs["encoding_format"] = request.encoding_format
-    if request.dimensions is not None:
-        kwargs["dimensions"] = request.dimensions
-    if request.timeout is not None:
-        kwargs["timeout"] = request.timeout
-    if request.extra_body is not None:
-        kwargs["extra_body"] = request.extra_body
-    if request.extra_headers is not None:
-        kwargs["extra_headers"] = request.extra_headers
-    return kwargs
-
-
-def _image_request_kwargs(request: ImageGenerationRequest) -> dict[str, Any]:
-    kwargs: dict[str, Any] = {}
-    if request.n is not None:
-        kwargs["n"] = request.n
-    if request.timeout is not None:
-        kwargs["timeout"] = request.timeout
-    if request.extra_body is not None:
-        kwargs["extra_body"] = request.extra_body
-    if request.extra_headers is not None:
-        kwargs["extra_headers"] = request.extra_headers
-    return kwargs
-
-
-def _image_chat_kwargs(request: ImageGenerationRequest) -> dict[str, Any]:
-    return _image_request_kwargs(request)
+def _collect_non_none_optional_fields(request: Any, *, exclude: frozenset[str] = frozenset()) -> dict[str, Any]:
+    """Extract non-None optional fields from a request dataclass, skipping *exclude*."""
+    return {
+        f.name: v
+        for f in dataclasses.fields(request)
+        if f.name not in exclude and f.default is None and (v := getattr(request, f.name)) is not None
+    }
 
 
 def _extract_embedding_vector(item: Any) -> list[float]:
