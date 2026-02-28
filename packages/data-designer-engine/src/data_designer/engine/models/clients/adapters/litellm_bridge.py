@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import Any, Protocol
 
 from data_designer.config.utils.image_helpers import (
     extract_base64_from_data_uri,
@@ -29,10 +29,26 @@ from data_designer.engine.models.clients.types import (
 logger = logging.getLogger(__name__)
 
 
+class LiteLLMRouter(Protocol):
+    """Structural type for the LiteLLM router methods the bridge depends on."""
+
+    def completion(self, *, model: str, messages: list[dict[str, Any]], **kwargs: Any) -> Any: ...
+
+    async def acompletion(self, *, model: str, messages: list[dict[str, Any]], **kwargs: Any) -> Any: ...
+
+    def embedding(self, *, model: str, input: list[str], **kwargs: Any) -> Any: ...
+
+    async def aembedding(self, *, model: str, input: list[str], **kwargs: Any) -> Any: ...
+
+    def image_generation(self, *, prompt: str, model: str, **kwargs: Any) -> Any: ...
+
+    async def aimage_generation(self, *, prompt: str, model: str, **kwargs: Any) -> Any: ...
+
+
 class LiteLLMBridgeClient(ModelClient):
     """Bridge adapter that wraps the existing LiteLLM router behind canonical client types."""
 
-    def __init__(self, *, provider_name: str, router: Any) -> None:
+    def __init__(self, *, provider_name: str, router: LiteLLMRouter) -> None:
         self.provider_name = provider_name
         self._router = router
 
