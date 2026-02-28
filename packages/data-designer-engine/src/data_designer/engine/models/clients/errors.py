@@ -33,6 +33,11 @@ class ProviderError(Exception):
     model_name: str | None = None
     cause: Exception | None = None
 
+    def __post_init__(self) -> None:
+        Exception.__init__(self, self.message)
+        if self.cause is not None:
+            self.__cause__ = self.cause
+
     def __str__(self) -> str:
         return self.message
 
@@ -107,10 +112,20 @@ def map_http_error_to_provider_error(
 
 
 def _extract_response_text(response: Any) -> str:
+    # Try structured JSON extraction first — most providers return structured error
+    # bodies and we want the human-readable message, not raw JSON.
+    structured = _extract_structured_message(response)
+    if structured:
+        return structured
+
     response_text = getattr(response, "text", None)
     if isinstance(response_text, str) and response_text.strip():
         return response_text.strip()
 
+    return ""
+
+
+def _extract_structured_message(response: Any) -> str:
     try:
         payload = response.json()
     except Exception:

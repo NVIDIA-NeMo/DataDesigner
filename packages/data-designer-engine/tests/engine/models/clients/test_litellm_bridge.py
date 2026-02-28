@@ -196,9 +196,111 @@ def test_generate_image_uses_diffusion_path_without_messages() -> None:
     router.image_generation.assert_called_once_with(prompt="make an image", model="stub-model", n=2)
 
 
+@pytest.mark.asyncio
+async def test_aembeddings_maps_vectors_and_usage() -> None:
+    response = SimpleNamespace(
+        data=[{"embedding": [0.1, 0.2]}, SimpleNamespace(embedding=[0.3, 0.4])],
+        usage=SimpleNamespace(prompt_tokens=5, total_tokens=5),
+    )
+    router = MagicMock()
+    router.aembedding = AsyncMock(return_value=response)
+    client = LiteLLMBridgeClient(provider_name="stub-provider", router=router)
+
+    request = EmbeddingRequest(model="stub-model", inputs=["x", "y"])
+    result = await client.aembeddings(request)
+
+    assert result.vectors == [[0.1, 0.2], [0.3, 0.4]]
+    assert result.usage is not None
+    assert result.usage.input_tokens == 5
+    assert result.raw is response
+    router.aembedding.assert_awaited_once_with(model="stub-model", input=["x", "y"])
+
+
+def test_completion_coerces_list_content_blocks_to_string() -> None:
+    response = _build_chat_response(
+        content=[{"type": "text", "text": "first"}, {"type": "text", "text": "second"}],
+        reasoning_content=None,
+        tool_calls=[],
+        usage=None,
+    )
+    router = MagicMock()
+    router.completion.return_value = response
+    client = LiteLLMBridgeClient(provider_name="stub-provider", router=router)
+
+    request = ChatCompletionRequest(model="stub-model", messages=[{"role": "user", "content": "hello"}])
+    result = client.completion(request)
+
+    assert result.message.content == "first\nsecond"
+
+
+def test_close_and_aclose_are_callable() -> None:
+    router = MagicMock()
+    client = LiteLLMBridgeClient(provider_name="stub-provider", router=router)
+    client.close()
+
+
+@pytest.mark.asyncio
+async def test_aclose_is_callable() -> None:
+    router = MagicMock()
+    client = LiteLLMBridgeClient(provider_name="stub-provider", router=router)
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_agenerate_image_uses_diffusion_path_without_messages() -> None:
+    response = SimpleNamespace(
+        data=[SimpleNamespace(b64_json="YXN5bmM=")],
+        usage=SimpleNamespace(input_tokens=3, output_tokens=7),
+    )
+    router = MagicMock()
+    router.aimage_generation = AsyncMock(return_value=response)
+    client = LiteLLMBridgeClient(provider_name="stub-provider", router=router)
+
+    request = ImageGenerationRequest(model="stub-model", prompt="async image", n=1)
+    result = await client.agenerate_image(request)
+
+    assert len(result.images) == 1
+    assert result.images[0].b64_data == "YXN5bmM="
+    assert result.usage is not None
+    assert result.usage.generated_images == 1
+    router.aimage_generation.assert_awaited_once_with(prompt="async image", model="stub-model", n=1)
+
+
+def test_completion_with_empty_choices_returns_empty_message() -> None:
+    response = SimpleNamespace(choices=[], usage=None)
+    router = MagicMock()
+    router.completion.return_value = response
+    client = LiteLLMBridgeClient(provider_name="stub-provider", router=router)
+
+    request = ChatCompletionRequest(model="stub-model", messages=[{"role": "user", "content": "hello"}])
+    result = client.completion(request)
+
+    assert result.message.content is None
+    assert result.message.tool_calls == []
+    assert result.message.images == []
+
+
+def test_completion_with_tool_call_dict_arguments() -> None:
+    response = _build_chat_response(
+        content=None,
+        reasoning_content=None,
+        tool_calls=[{"id": "call-2", "function": {"name": "search", "arguments": {"q": "test"}}}],
+        usage=None,
+    )
+    router = MagicMock()
+    router.completion.return_value = response
+    client = LiteLLMBridgeClient(provider_name="stub-provider", router=router)
+
+    request = ChatCompletionRequest(model="stub-model", messages=[{"role": "user", "content": "hello"}])
+    result = client.completion(request)
+
+    assert len(result.message.tool_calls) == 1
+    assert result.message.tool_calls[0].arguments_json == '{"q": "test"}'
+
+
 def _build_chat_response(
     *,
-    content: str | None,
+    content: Any,
     reasoning_content: str | None,
     tool_calls: list[dict[str, Any]] | None,
     usage: Any,

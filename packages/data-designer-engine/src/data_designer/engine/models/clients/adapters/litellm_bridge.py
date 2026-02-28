@@ -189,10 +189,7 @@ def _image_request_kwargs(request: ImageGenerationRequest) -> dict[str, Any]:
 
 
 def _image_chat_kwargs(request: ImageGenerationRequest) -> dict[str, Any]:
-    kwargs = _image_request_kwargs(request)
-    if request.extra_body is not None:
-        kwargs["extra_body"] = request.extra_body
-    return kwargs
+    return _image_request_kwargs(request)
 
 
 def _extract_embedding_vector(item: Any) -> list[float]:
