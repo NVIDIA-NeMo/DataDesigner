@@ -5,16 +5,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Protocol
 
-
-class HttpResponse(Protocol):
-    """Structural type for HTTP response objects (httpx, requests, etc.)."""
-
-    status_code: int
-    text: str
-
-    def json(self) -> Any: ...
+from data_designer.engine.models.clients.types import HttpResponse
 
 
 class ProviderErrorKind(str, Enum):
