@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import math
-from collections import defaultdict, deque
+from collections import deque
 
 from data_designer.config.column_configs import GenerationStrategy
 from data_designer.engine.dataset_builders.multi_column_configs import (
@@ -24,12 +24,13 @@ class ExecutionGraph:
     """
 
     def __init__(self) -> None:
-        self._upstream: dict[ColumnName, set[ColumnName]] = defaultdict(set)
-        self._downstream: dict[ColumnName, set[ColumnName]] = defaultdict(set)
+        self._upstream: dict[ColumnName, set[ColumnName]] = {}
+        self._downstream: dict[ColumnName, set[ColumnName]] = {}
         self._strategies: dict[ColumnName, GenerationStrategy] = {}
         self._side_effect_map: dict[ColumnName, ColumnName] = {}
         self._columns: list[ColumnName] = []
         self._topological_order_cache: list[ColumnName] | None = None
+        self._upstream_by_strategy_cache: dict[ColumnName, tuple[list[ColumnName], list[ColumnName]]] = {}
 
     def add_column(self, name: ColumnName, strategy: GenerationStrategy) -> None:
         """Register a column and its generation strategy."""
@@ -38,8 +39,8 @@ class ExecutionGraph:
 
     def add_edge(self, upstream: ColumnName, downstream: ColumnName) -> None:
         """Add a dependency edge: *downstream* depends on *upstream*."""
-        self._upstream[downstream].add(upstream)
-        self._downstream[upstream].add(downstream)
+        self._upstream.setdefault(downstream, set()).add(upstream)
+        self._downstream.setdefault(upstream, set()).add(downstream)
 
     def set_side_effect(self, side_effect_col: ColumnName, producer: ColumnName) -> None:
         """Map a side-effect column name to its producing column."""
@@ -60,10 +61,26 @@ class ExecutionGraph:
     def strategy(self, column: ColumnName) -> GenerationStrategy:
         return self._strategies[column]
 
+    def upstream_by_strategy(self, column: ColumnName) -> tuple[list[ColumnName], list[ColumnName]]:
+        """Split upstream columns into (batch, cell_by_cell) by strategy. Cached."""
+        cached = self._upstream_by_strategy_cache.get(column)
+        if cached is not None:
+            return cached
+        batch: list[ColumnName] = []
+        cell: list[ColumnName] = []
+        for up_col in self.upstream(column):
+            if self._strategies[up_col] == GenerationStrategy.CELL_BY_CELL:
+                cell.append(up_col)
+            else:
+                batch.append(up_col)
+        result = (batch, cell)
+        self._upstream_by_strategy_cache[column] = result
+        return result
+
     @property
     def columns(self) -> list[ColumnName]:
-        """All column names in insertion order."""
-        return list(self._columns)
+        """All column names in insertion order. Do not mutate."""
+        return self._columns
 
     def topological_order(self) -> list[str]:
         """Return a valid topological ordering of columns (Kahn's algorithm).
@@ -72,7 +89,7 @@ class ExecutionGraph:
         immutable after construction.
         """
         if self._topological_order_cache is not None:
-            return list(self._topological_order_cache)
+            return self._topological_order_cache
 
         in_degree: dict[str, int] = {col: 0 for col in self._columns}
         for col, deps in self._upstream.items():
@@ -96,7 +113,7 @@ class ExecutionGraph:
             )
 
         self._topological_order_cache = order
-        return list(order)
+        return order
 
     def critical_path(self) -> list[str]:
         """Longest dependency chain (by number of columns)."""
