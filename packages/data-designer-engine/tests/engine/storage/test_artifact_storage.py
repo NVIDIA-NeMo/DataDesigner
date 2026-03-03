@@ -269,6 +269,60 @@ def test_get_processor_file_paths_with_files(stub_artifact_storage):
     assert len(paths["processor2"]) == 3
 
 
+def test_list_processor_names_empty(stub_artifact_storage):
+    assert stub_artifact_storage.list_processor_names() == []
+
+
+def test_list_processor_names_directories(stub_artifact_storage):
+    processor_dir = stub_artifact_storage.processors_outputs_path / "chat_format"
+    stub_artifact_storage.mkdir_if_needed(processor_dir)
+    (processor_dir / "batch_00000.parquet").touch()
+
+    assert stub_artifact_storage.list_processor_names() == ["chat_format"]
+
+
+def test_list_processor_names_single_files(stub_artifact_storage):
+    stub_artifact_storage.mkdir_if_needed(stub_artifact_storage.processors_outputs_path)
+    (stub_artifact_storage.processors_outputs_path / "chat_format.parquet").touch()
+
+    assert stub_artifact_storage.list_processor_names() == ["chat_format"]
+
+
+def test_list_processor_names_mixed(stub_artifact_storage):
+    # Directory-based processor
+    processor_dir = stub_artifact_storage.processors_outputs_path / "batched_proc"
+    stub_artifact_storage.mkdir_if_needed(processor_dir)
+    (processor_dir / "batch_00000.parquet").touch()
+    # Single-file processor
+    (stub_artifact_storage.processors_outputs_path / "preview_proc.parquet").touch()
+
+    names = stub_artifact_storage.list_processor_names()
+    assert sorted(names) == ["batched_proc", "preview_proc"]
+
+
+def test_load_processor_dataset_from_directory(stub_artifact_storage, stub_sample_dataframe):
+    stub_artifact_storage.write_batch_to_parquet_file(
+        0, stub_sample_dataframe, BatchStage.PROCESSORS_OUTPUTS, subfolder="chat_format"
+    )
+
+    result = stub_artifact_storage.load_processor_dataset("chat_format")
+    lazy.pd.testing.assert_frame_equal(result, stub_sample_dataframe, check_dtype=False)
+
+
+def test_load_processor_dataset_from_single_file(stub_artifact_storage, stub_sample_dataframe):
+    stub_artifact_storage.write_parquet_file(
+        "chat_format.parquet", stub_sample_dataframe, BatchStage.PROCESSORS_OUTPUTS
+    )
+
+    result = stub_artifact_storage.load_processor_dataset("chat_format")
+    lazy.pd.testing.assert_frame_equal(result, stub_sample_dataframe, check_dtype=False)
+
+
+def test_load_processor_dataset_not_found(stub_artifact_storage):
+    with pytest.raises(ArtifactStorageError, match="No artifacts found"):
+        stub_artifact_storage.load_processor_dataset("nonexistent")
+
+
 def test_read_metadata_success(stub_artifact_storage):
     """Test read_metadata successfully reads metadata file."""
     metadata = {"key1": "value1", "key2": 123}
