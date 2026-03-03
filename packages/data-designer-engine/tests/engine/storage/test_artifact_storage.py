@@ -11,13 +11,9 @@ import pytest
 from pyarrow import ArrowNotImplementedError
 
 import data_designer.lazy_heavy_imports as lazy
+from data_designer.config.utils.io_helpers import list_processor_names, load_processor_dataset
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
-from data_designer.engine.storage.artifact_storage import (
-    ArtifactStorage,
-    BatchStage,
-    list_processor_names,
-    load_processor_dataset,
-)
+from data_designer.engine.storage.artifact_storage import ArtifactStorage, BatchStage
 
 
 @pytest.fixture
@@ -459,5 +455,5 @@ def test_standalone_load_processor_dataset_from_file(tmp_path):
 
 
 def test_standalone_load_processor_dataset_not_found(tmp_path):
-    with pytest.raises(ArtifactStorageError, match="No artifacts found"):
+    with pytest.raises(FileNotFoundError, match="No artifacts found"):
         load_processor_dataset(tmp_path, "nonexistent")
