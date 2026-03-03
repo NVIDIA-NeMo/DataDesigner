@@ -12,7 +12,12 @@ from pyarrow import ArrowNotImplementedError
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
-from data_designer.engine.storage.artifact_storage import ArtifactStorage, BatchStage
+from data_designer.engine.storage.artifact_storage import (
+    ArtifactStorage,
+    BatchStage,
+    list_processor_names,
+    load_processor_dataset,
+)
 
 
 @pytest.fixture
@@ -422,3 +427,37 @@ def test_update_metadata_with_nested_structures(stub_artifact_storage):
     assert final_metadata["nested"] == {"c": 3}  # Replaced, not merged
     assert final_metadata["list"] == [1, 2, 3]  # Unchanged
     assert final_metadata["new_list"] == [4, 5, 6]
+
+
+# -- Standalone function tests (usable without ArtifactStorage) --
+
+
+def test_standalone_list_processor_names(tmp_path):
+    processors_path = tmp_path / "processors-files"
+    processors_path.mkdir()
+    (processors_path / "chat_format.parquet").touch()
+    proc_dir = processors_path / "summarize"
+    proc_dir.mkdir()
+    (proc_dir / "batch_00000.parquet").touch()
+
+    names = list_processor_names(processors_path)
+    assert sorted(names) == ["chat_format", "summarize"]
+
+
+def test_standalone_list_processor_names_nonexistent(tmp_path):
+    assert list_processor_names(tmp_path / "nope") == []
+
+
+def test_standalone_load_processor_dataset_from_file(tmp_path):
+    processors_path = tmp_path / "processors-files"
+    processors_path.mkdir()
+    df = lazy.pd.DataFrame({"col": [1, 2, 3]})
+    df.to_parquet(processors_path / "chat_format.parquet", index=False)
+
+    result = load_processor_dataset(processors_path, "chat_format")
+    lazy.pd.testing.assert_frame_equal(result, df, check_dtype=False)
+
+
+def test_standalone_load_processor_dataset_not_found(tmp_path):
+    with pytest.raises(ArtifactStorageError, match="No artifacts found"):
+        load_processor_dataset(tmp_path, "nonexistent")
