@@ -309,11 +309,11 @@ def display_sample_record(
                     record[col.name]["embeddings"] = [
                         get_truncated_list_as_string(embd) for embd in record[col.name].get("embeddings")
                     ]
+                table.add_row(col.name, convert_to_row_element(record[col.name]))
                 if col.column_type == DataDesignerColumnType.CUSTOM or is_plugin_column_type(col.column_type):
                     for output_col in col.side_effect_columns:
                         if output_col in record:
                             table.add_row(output_col, convert_to_row_element(record[output_col]))
-                table.add_row(col.name, convert_to_row_element(record[col.name]))
         render_list.append(pad_console_element(table))
 
     # Collect image generation columns (will be displayed at the end)
