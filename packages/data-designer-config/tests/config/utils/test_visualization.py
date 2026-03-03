@@ -268,6 +268,31 @@ def test_convert_to_row_element_renders_non_scalar_types() -> None:
         table.add_row(result)
 
 
+def test_display_sample_record_includes_plugin_column_types(
+    record_series: pd.Series,
+    config_builder_with_validation: DataDesignerConfigBuilder,
+) -> None:
+    """display_sample_record should query all non-dedicated column types from
+    get_column_display_order(), including plugin-registered types (fixes #345)."""
+    from unittest.mock import MagicMock, call, patch
+
+    from data_designer.config.column_types import get_column_display_order as real_get_display_order
+
+    fake_plugin_type = "fake-plugin-type"
+    extended_order = real_get_display_order() + [fake_plugin_type]
+
+    original_get_columns = config_builder_with_validation.get_columns_of_type
+    mock_get_columns = MagicMock(side_effect=lambda ct: [] if ct == fake_plugin_type else original_get_columns(ct))
+    config_builder_with_validation.get_columns_of_type = mock_get_columns
+
+    with patch("data_designer.config.utils.visualization.get_column_display_order", return_value=extended_order):
+        display_sample_record(record_series, config_builder_with_validation)
+
+    assert call(fake_plugin_type) in mock_get_columns.call_args_list, (
+        "Plugin column type was not queried by display_sample_record"
+    )
+
+
 def test_mixin_out_of_bounds_raises_display_error(
     validation_output: dict, config_builder_with_validation: DataDesignerConfigBuilder
 ) -> None:
