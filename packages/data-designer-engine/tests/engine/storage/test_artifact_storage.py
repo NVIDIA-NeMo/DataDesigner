@@ -11,7 +11,7 @@ import pytest
 from pyarrow import ArrowNotImplementedError
 
 import data_designer.lazy_heavy_imports as lazy
-from data_designer.config.utils.io_helpers import list_processor_names, load_processor_dataset
+from data_designer.config.utils.io_helpers import load_processor_dataset
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
 from data_designer.engine.storage.artifact_storage import ArtifactStorage, BatchStage
 
@@ -270,61 +270,34 @@ def test_get_processor_file_paths_with_files(stub_artifact_storage):
     assert len(paths["processor2"]) == 3
 
 
-def test_list_processor_names_empty(stub_artifact_storage):
+def test_list_processor_names(stub_artifact_storage):
     assert stub_artifact_storage.list_processor_names() == []
 
-
-def test_list_processor_names_directories(stub_artifact_storage):
-    processor_dir = stub_artifact_storage.processors_outputs_path / "chat_format"
-    stub_artifact_storage.mkdir_if_needed(processor_dir)
-    (processor_dir / "batch_00000.parquet").touch()
-
-    assert stub_artifact_storage.list_processor_names() == ["chat_format"]
-
-
-def test_list_processor_names_single_files(stub_artifact_storage):
-    stub_artifact_storage.mkdir_if_needed(stub_artifact_storage.processors_outputs_path)
-    (stub_artifact_storage.processors_outputs_path / "chat_format.parquet").touch()
-
-    assert stub_artifact_storage.list_processor_names() == ["chat_format"]
-
-
-def test_list_processor_names_mixed(stub_artifact_storage):
     # Directory-based processor
-    processor_dir = stub_artifact_storage.processors_outputs_path / "batched_proc"
-    stub_artifact_storage.mkdir_if_needed(processor_dir)
-    (processor_dir / "batch_00000.parquet").touch()
+    proc_dir = stub_artifact_storage.processors_outputs_path / "batched"
+    stub_artifact_storage.mkdir_if_needed(proc_dir)
+    (proc_dir / "batch_00000.parquet").touch()
     # Single-file processor
-    (stub_artifact_storage.processors_outputs_path / "preview_proc.parquet").touch()
+    (stub_artifact_storage.processors_outputs_path / "preview.parquet").touch()
+    # Duplicate: both dir and file with same name
+    dup_dir = stub_artifact_storage.processors_outputs_path / "both"
+    dup_dir.mkdir()
+    (dup_dir / "batch_00000.parquet").touch()
+    (stub_artifact_storage.processors_outputs_path / "both.parquet").touch()
 
-    names = stub_artifact_storage.list_processor_names()
-    assert sorted(names) == ["batched_proc", "preview_proc"]
-
-
-def test_list_processor_names_deduplicates(stub_artifact_storage):
-    # Both a directory and a file with the same processor name
-    processor_dir = stub_artifact_storage.processors_outputs_path / "chat_format"
-    stub_artifact_storage.mkdir_if_needed(processor_dir)
-    (processor_dir / "batch_00000.parquet").touch()
-    (stub_artifact_storage.processors_outputs_path / "chat_format.parquet").touch()
-
-    names = stub_artifact_storage.list_processor_names()
-    assert names == ["chat_format"]
+    assert stub_artifact_storage.list_processor_names() == ["batched", "both", "preview"]
 
 
-def test_load_processor_dataset_from_directory(stub_artifact_storage, stub_sample_dataframe):
-    stub_artifact_storage.write_batch_to_parquet_file(
-        0, stub_sample_dataframe, BatchStage.PROCESSORS_OUTPUTS, subfolder="chat_format"
-    )
-
-    result = stub_artifact_storage.load_processor_dataset("chat_format")
-    lazy.pd.testing.assert_frame_equal(result, stub_sample_dataframe, check_dtype=False)
-
-
-def test_load_processor_dataset_from_single_file(stub_artifact_storage, stub_sample_dataframe):
-    stub_artifact_storage.write_parquet_file(
-        "chat_format.parquet", stub_sample_dataframe, BatchStage.PROCESSORS_OUTPUTS
-    )
+@pytest.mark.parametrize("write_as_dir", [True, False], ids=["directory", "single_file"])
+def test_load_processor_dataset(stub_artifact_storage, stub_sample_dataframe, write_as_dir):
+    if write_as_dir:
+        stub_artifact_storage.write_batch_to_parquet_file(
+            0, stub_sample_dataframe, BatchStage.PROCESSORS_OUTPUTS, subfolder="chat_format"
+        )
+    else:
+        stub_artifact_storage.write_parquet_file(
+            "chat_format.parquet", stub_sample_dataframe, BatchStage.PROCESSORS_OUTPUTS
+        )
 
     result = stub_artifact_storage.load_processor_dataset("chat_format")
     lazy.pd.testing.assert_frame_equal(result, stub_sample_dataframe, check_dtype=False)
@@ -425,35 +398,7 @@ def test_update_metadata_with_nested_structures(stub_artifact_storage):
     assert final_metadata["new_list"] == [4, 5, 6]
 
 
-# -- Standalone function tests (usable without ArtifactStorage) --
-
-
-def test_standalone_list_processor_names(tmp_path):
-    processors_path = tmp_path / "processors-files"
-    processors_path.mkdir()
-    (processors_path / "chat_format.parquet").touch()
-    proc_dir = processors_path / "summarize"
-    proc_dir.mkdir()
-    (proc_dir / "batch_00000.parquet").touch()
-
-    names = list_processor_names(processors_path)
-    assert sorted(names) == ["chat_format", "summarize"]
-
-
-def test_standalone_list_processor_names_nonexistent(tmp_path):
-    assert list_processor_names(tmp_path / "nope") == []
-
-
-def test_standalone_load_processor_dataset_from_file(tmp_path):
-    processors_path = tmp_path / "processors-files"
-    processors_path.mkdir()
-    df = lazy.pd.DataFrame({"col": [1, 2, 3]})
-    df.to_parquet(processors_path / "chat_format.parquet", index=False)
-
-    result = load_processor_dataset(processors_path, "chat_format")
-    lazy.pd.testing.assert_frame_equal(result, df, check_dtype=False)
-
-
-def test_standalone_load_processor_dataset_not_found(tmp_path):
+def test_standalone_load_processor_dataset_raises_file_not_found(tmp_path):
+    """Standalone function raises FileNotFoundError (not ArtifactStorageError)."""
     with pytest.raises(FileNotFoundError, match="No artifacts found"):
         load_processor_dataset(tmp_path, "nonexistent")
