@@ -26,7 +26,7 @@ from rich.text import Text
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.base import ConfigBase
-from data_designer.config.column_types import DataDesignerColumnType, get_column_display_order, plugin_manager
+from data_designer.config.column_types import DataDesignerColumnType, get_column_display_order, is_plugin_column_type
 from data_designer.config.models import ModelConfig, ModelProvider
 from data_designer.config.sampler_params import SamplerType
 from data_designer.config.utils.code_lang import code_lang_to_syntax_lexer
@@ -299,7 +299,6 @@ def display_sample_record(
     for col_type in get_column_display_order():
         if col_type not in _DEDICATED_DISPLAY_COL_TYPES:
             non_code_columns.extend(config_builder.get_columns_of_type(col_type))
-    plugin_col_types = set(plugin_manager.get_plugin_column_types(DataDesignerColumnType))
     if len(non_code_columns) > 0:
         table = Table(title="Generated Columns", **table_kws)
         table.add_column("Name")
@@ -310,7 +309,7 @@ def display_sample_record(
                     record[col.name]["embeddings"] = [
                         get_truncated_list_as_string(embd) for embd in record[col.name].get("embeddings")
                     ]
-                if col.column_type == DataDesignerColumnType.CUSTOM or col.column_type in plugin_col_types:
+                if col.column_type == DataDesignerColumnType.CUSTOM or is_plugin_column_type(col.column_type):
                     for output_col in col.side_effect_columns:
                         if output_col in record:
                             table.add_row(output_col, convert_to_row_element(record[output_col]))
