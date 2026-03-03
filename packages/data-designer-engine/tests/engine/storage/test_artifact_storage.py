@@ -270,6 +270,16 @@ def test_get_processor_file_paths_with_files(stub_artifact_storage):
     assert len(paths["processor2"]) == 3
 
 
+def test_get_processor_file_paths_with_single_files(stub_artifact_storage):
+    """Test get_processor_file_paths picks up single parquet files."""
+    stub_artifact_storage.mkdir_if_needed(stub_artifact_storage.processors_outputs_path)
+    (stub_artifact_storage.processors_outputs_path / "preview.parquet").touch()
+
+    paths = stub_artifact_storage.get_processor_file_paths()
+    assert "preview" in paths
+    assert len(paths["preview"]) == 1
+
+
 def test_list_processor_names(stub_artifact_storage):
     assert stub_artifact_storage.list_processor_names() == []
 

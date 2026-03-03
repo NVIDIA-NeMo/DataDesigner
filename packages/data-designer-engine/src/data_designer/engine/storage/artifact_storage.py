@@ -252,15 +252,15 @@ class ArtifactStorage(BaseModel):
             Dictionary mapping processor names to lists of relative file paths.
         """
         processor_files: dict[str, list[str]] = {}
-        if self.processors_outputs_path.exists():
-            for processor_dir in sorted(self.processors_outputs_path.iterdir()):
-                if processor_dir.is_dir():
-                    processor_name = processor_dir.name
-                    processor_files[processor_name] = [
-                        str(f.relative_to(self.base_dataset_path))
-                        for f in sorted(processor_dir.rglob("*"))
-                        if f.is_file()
-                    ]
+        for name in self.list_processor_names():
+            dir_path = self.processors_outputs_path / name
+            file_path = self.processors_outputs_path / f"{name}.parquet"
+            if dir_path.is_dir():
+                processor_files[name] = [
+                    str(f.relative_to(self.base_dataset_path)) for f in sorted(dir_path.rglob("*")) if f.is_file()
+                ]
+            elif file_path.is_file():
+                processor_files[name] = [str(file_path.relative_to(self.base_dataset_path))]
         return processor_files
 
     def get_file_paths(self) -> dict[str, list[str] | dict[str, list[str]]]:
