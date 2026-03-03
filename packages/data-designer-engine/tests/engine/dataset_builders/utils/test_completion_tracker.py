@@ -2,7 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 
-# Helpers to build minimal graphs without real column configs
+from dataclasses import dataclass
+
+import pytest
+
 from data_designer.config.column_configs import (
     ExpressionColumnConfig,
     GenerationStrategy,
@@ -11,7 +14,7 @@ from data_designer.config.column_configs import (
 )
 from data_designer.config.sampler_params import SamplerType
 from data_designer.engine.dataset_builders.utils.completion_tracker import CompletionTracker
-from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph, build_execution_graph
+from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
 from data_designer.engine.dataset_builders.utils.task_model import Task
 
 MODEL_ALIAS = "stub"
@@ -29,7 +32,23 @@ def _build_simple_graph() -> ExecutionGraph:
         "question": GenerationStrategy.CELL_BY_CELL,
         "score": GenerationStrategy.FULL_COLUMN,
     }
-    return build_execution_graph(configs, strategies)
+    return ExecutionGraph.create(configs, strategies)
+
+
+@dataclass
+class ReadyTasksFixture:
+    tracker: CompletionTracker
+    dispatched: set[Task]
+
+
+@pytest.fixture()
+def ready_ctx() -> ReadyTasksFixture:
+    """CompletionTracker wired to the simple 3-column graph with one row group of size 3."""
+    graph = _build_simple_graph()
+    return ReadyTasksFixture(
+        tracker=CompletionTracker(graph, [(0, 3)]),
+        dispatched=set(),
+    )
 
 
 # -- mark_complete / is_complete -------------------------------------------
@@ -138,90 +157,64 @@ def test_row_group_not_complete_missing_non_dropped() -> None:
 # -- get_ready_tasks --------------------------------------------------------
 
 
-def test_get_ready_tasks_seeds_first() -> None:
-    graph = _build_simple_graph()
-    tracker = CompletionTracker(graph, [(0, 3)])
-    dispatched: set[Task] = set()
+def test_get_ready_tasks_seeds_first(ready_ctx: ReadyTasksFixture) -> None:
+    ready = ready_ctx.tracker.get_ready_tasks(ready_ctx.dispatched)
 
-    ready = tracker.get_ready_tasks(dispatched)
-
-    # Only the seed column should be ready (no upstream)
     assert len(ready) == 1
     assert ready[0].column == "topic"
     assert ready[0].task_type == "batch"
 
 
-def test_get_ready_tasks_after_seed_complete() -> None:
-    graph = _build_simple_graph()
-    tracker = CompletionTracker(graph, [(0, 3)])
-    dispatched: set[Task] = set()
+def test_get_ready_tasks_after_seed_complete(ready_ctx: ReadyTasksFixture) -> None:
+    ready_ctx.tracker.mark_batch_complete("topic", 0, 3)
 
-    tracker.mark_batch_complete("topic", 0, 3)
+    ready = ready_ctx.tracker.get_ready_tasks(ready_ctx.dispatched)
 
-    ready = tracker.get_ready_tasks(dispatched)
-
-    # All question cells should be ready (topic is done)
     question_tasks = [t for t in ready if t.column == "question"]
     assert len(question_tasks) == 3
     assert all(t.task_type == "cell" for t in question_tasks)
     assert {t.row_index for t in question_tasks} == {0, 1, 2}
 
 
-def test_get_ready_tasks_skips_dispatched() -> None:
-    graph = _build_simple_graph()
-    tracker = CompletionTracker(graph, [(0, 3)])
-    dispatched: set[Task] = set()
+def test_get_ready_tasks_skips_dispatched(ready_ctx: ReadyTasksFixture) -> None:
+    ready_ctx.tracker.mark_batch_complete("topic", 0, 3)
 
-    tracker.mark_batch_complete("topic", 0, 3)
+    ready1 = ready_ctx.tracker.get_ready_tasks(ready_ctx.dispatched)
+    ready_ctx.dispatched.update(ready1)
 
-    ready1 = tracker.get_ready_tasks(dispatched)
-    dispatched.update(ready1)
-
-    ready2 = tracker.get_ready_tasks(dispatched)
+    ready2 = ready_ctx.tracker.get_ready_tasks(ready_ctx.dispatched)
     assert len(ready2) == 0
 
 
-def test_get_ready_tasks_skips_dropped_rows() -> None:
-    graph = _build_simple_graph()
-    tracker = CompletionTracker(graph, [(0, 3)])
-    dispatched: set[Task] = set()
+def test_get_ready_tasks_skips_dropped_rows(ready_ctx: ReadyTasksFixture) -> None:
+    ready_ctx.tracker.mark_batch_complete("topic", 0, 3)
+    ready_ctx.tracker.drop_row(0, 1)
 
-    tracker.mark_batch_complete("topic", 0, 3)
-    tracker.drop_row(0, 1)
-
-    ready = tracker.get_ready_tasks(dispatched)
+    ready = ready_ctx.tracker.get_ready_tasks(ready_ctx.dispatched)
 
     question_tasks = [t for t in ready if t.column == "question"]
     assert len(question_tasks) == 2
     assert {t.row_index for t in question_tasks} == {0, 2}
 
 
-def test_get_ready_tasks_full_column_waits_for_all_cells() -> None:
-    graph = _build_simple_graph()
-    tracker = CompletionTracker(graph, [(0, 3)])
-    dispatched: set[Task] = set()
-
-    tracker.mark_batch_complete("topic", 0, 3)
-    tracker.mark_complete("question", 0, 0)
-    tracker.mark_complete("question", 0, 1)
+def test_get_ready_tasks_full_column_waits_for_all_cells(ready_ctx: ReadyTasksFixture) -> None:
+    ready_ctx.tracker.mark_batch_complete("topic", 0, 3)
+    ready_ctx.tracker.mark_complete("question", 0, 0)
+    ready_ctx.tracker.mark_complete("question", 0, 1)
     # question[0,2] not done yet
 
-    ready = tracker.get_ready_tasks(dispatched)
+    ready = ready_ctx.tracker.get_ready_tasks(ready_ctx.dispatched)
 
     score_tasks = [t for t in ready if t.column == "score"]
-    assert len(score_tasks) == 0  # score waits for all question rows
+    assert len(score_tasks) == 0
 
 
-def test_get_ready_tasks_full_column_ready_when_all_cells_done() -> None:
-    graph = _build_simple_graph()
-    tracker = CompletionTracker(graph, [(0, 3)])
-    dispatched: set[Task] = set()
-
-    tracker.mark_batch_complete("topic", 0, 3)
+def test_get_ready_tasks_full_column_ready_when_all_cells_done(ready_ctx: ReadyTasksFixture) -> None:
+    ready_ctx.tracker.mark_batch_complete("topic", 0, 3)
     for ri in range(3):
-        tracker.mark_complete("question", 0, ri)
+        ready_ctx.tracker.mark_complete("question", 0, ri)
 
-    ready = tracker.get_ready_tasks(dispatched)
+    ready = ready_ctx.tracker.get_ready_tasks(ready_ctx.dispatched)
 
     score_tasks = [t for t in ready if t.column == "score"]
     assert len(score_tasks) == 1
@@ -233,7 +226,6 @@ def test_get_ready_tasks_multiple_row_groups() -> None:
     tracker = CompletionTracker(graph, [(0, 3), (1, 2)])
     dispatched: set[Task] = set()
 
-    # Both row groups have topic done
     tracker.mark_batch_complete("topic", 0, 3)
     tracker.mark_batch_complete("topic", 1, 2)
 
@@ -243,15 +235,10 @@ def test_get_ready_tasks_multiple_row_groups() -> None:
     assert len(question_tasks) == 5  # 3 from rg0 + 2 from rg1
 
 
-def test_get_ready_tasks_skips_already_complete_batch() -> None:
-    graph = _build_simple_graph()
-    tracker = CompletionTracker(graph, [(0, 3)])
-    dispatched: set[Task] = set()
+def test_get_ready_tasks_skips_already_complete_batch(ready_ctx: ReadyTasksFixture) -> None:
+    ready_ctx.tracker.mark_batch_complete("topic", 0, 3)
 
-    tracker.mark_batch_complete("topic", 0, 3)
+    ready = ready_ctx.tracker.get_ready_tasks(ready_ctx.dispatched)
 
-    ready = tracker.get_ready_tasks(dispatched)
-
-    # topic is already complete, should not be in ready tasks
     topic_tasks = [t for t in ready if t.column == "topic"]
     assert len(topic_tasks) == 0
