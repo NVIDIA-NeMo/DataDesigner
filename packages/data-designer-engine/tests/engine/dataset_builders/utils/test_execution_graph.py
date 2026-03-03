@@ -133,6 +133,29 @@ def test_reasoning_content_side_effect() -> None:
     assert graph.upstream("reasoning") == {"answer"}
 
 
+def test_side_effect_name_collision_prefers_real_column() -> None:
+    configs = [
+        LLMTextColumnConfig(
+            name="summary",
+            prompt="Summarize",
+            model_alias=MODEL_ALIAS,
+            with_trace="last_message",
+        ),
+        SamplerColumnConfig(name="summary__trace", sampler_type=SamplerType.CATEGORY, params={"values": ["OVERRIDE"]}),
+        ExpressionColumnConfig(name="trace_len", expr="{{ summary__trace }}"),
+    ]
+    strategies = {
+        "summary": GenerationStrategy.CELL_BY_CELL,
+        "summary__trace": GenerationStrategy.FULL_COLUMN,
+        "trace_len": GenerationStrategy.FULL_COLUMN,
+    }
+    graph = build_execution_graph(configs, strategies)
+
+    assert graph.upstream("trace_len") == {"summary__trace"}
+    assert graph.downstream("summary__trace") == {"trace_len"}
+    assert graph.downstream("summary") == set()
+
+
 # -- Validation tests -------------------------------------------------------
 
 

@@ -47,7 +47,13 @@ class ExecutionGraph:
         self._side_effect_map[side_effect_col] = producer
 
     def resolve_side_effect(self, column: ColumnName) -> ColumnName:
-        """Resolve a column name through the side-effect map."""
+        """Resolve a column name through the side-effect map.
+
+        If a real column exists with the same name as a side-effect alias,
+        the real column wins.
+        """
+        if column in self._strategies:
+            return column
         return self._side_effect_map.get(column, column)
 
     def upstream(self, column: ColumnName) -> set[ColumnName]:

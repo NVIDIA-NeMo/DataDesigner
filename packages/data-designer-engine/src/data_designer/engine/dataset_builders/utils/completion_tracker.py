@@ -29,6 +29,9 @@ class CompletionTracker:
         graph: ExecutionGraph | None = None,
         row_groups: list[tuple[RowGroupIndex, int]] | None = None,
     ) -> None:
+        if (graph is None) != (row_groups is None):
+            raise ValueError("`graph` and `row_groups` must be provided together.")
+
         # row_group → column → set of completed local row indices
         self._completed: dict[RowGroupIndex, dict[ColumnName, set[RowIndex]]] = defaultdict(lambda: defaultdict(set))
         # row_group → set of dropped row indices

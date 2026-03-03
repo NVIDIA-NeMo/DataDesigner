@@ -51,6 +51,17 @@ def ready_ctx() -> ReadyTasksFixture:
     )
 
 
+def test_tracker_requires_row_groups_with_graph() -> None:
+    graph = _build_simple_graph()
+    with pytest.raises(ValueError, match="provided together"):
+        CompletionTracker(graph=graph, row_groups=None)
+
+
+def test_tracker_requires_graph_with_row_groups() -> None:
+    with pytest.raises(ValueError, match="provided together"):
+        CompletionTracker(graph=None, row_groups=[(0, 3)])
+
+
 # -- mark_complete / is_complete -------------------------------------------
 
 
