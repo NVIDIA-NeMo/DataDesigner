@@ -203,13 +203,13 @@ class ArtifactStorage(BaseModel):
         """
         if not self.processors_outputs_path.exists():
             return []
-        names = []
+        names: dict[str, None] = {}
         for entry in sorted(self.processors_outputs_path.iterdir()):
             if entry.is_dir():
-                names.append(entry.name)
+                names[entry.name] = None
             elif entry.suffix == ".parquet":
-                names.append(entry.stem)
-        return names
+                names[entry.stem] = None
+        return list(names)
 
     def load_dataset_with_dropped_columns(self) -> pd.DataFrame:
         # The pyarrow backend has better support for nested data types.

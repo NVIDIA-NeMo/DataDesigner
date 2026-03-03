@@ -300,6 +300,17 @@ def test_list_processor_names_mixed(stub_artifact_storage):
     assert sorted(names) == ["batched_proc", "preview_proc"]
 
 
+def test_list_processor_names_deduplicates(stub_artifact_storage):
+    # Both a directory and a file with the same processor name
+    processor_dir = stub_artifact_storage.processors_outputs_path / "chat_format"
+    stub_artifact_storage.mkdir_if_needed(processor_dir)
+    (processor_dir / "batch_00000.parquet").touch()
+    (stub_artifact_storage.processors_outputs_path / "chat_format.parquet").touch()
+
+    names = stub_artifact_storage.list_processor_names()
+    assert names == ["chat_format"]
+
+
 def test_load_processor_dataset_from_directory(stub_artifact_storage, stub_sample_dataframe):
     stub_artifact_storage.write_batch_to_parquet_file(
         0, stub_sample_dataframe, BatchStage.PROCESSORS_OUTPUTS, subfolder="chat_format"
