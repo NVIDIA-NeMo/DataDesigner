@@ -173,3 +173,24 @@ def test_map_http_error_retry_after_is_none_for_non_429() -> None:
     )
     error = map_http_error_to_provider_error(response=response, provider_name="stub-provider")
     assert error.retry_after is None
+
+
+def test_map_http_error_extracts_retry_after_from_http_date() -> None:
+    response = StubHttpResponse(
+        status_code=429,
+        text="Rate limit hit",
+        headers={"retry-after": "Fri, 31 Dec 2027 23:59:59 GMT"},
+    )
+    error = map_http_error_to_provider_error(response=response, provider_name="stub-provider")
+    assert error.retry_after is not None
+    assert error.retry_after > 0
+
+
+def test_map_http_error_retry_after_returns_none_for_garbage() -> None:
+    response = StubHttpResponse(
+        status_code=429,
+        text="Rate limit hit",
+        headers={"retry-after": "not-a-date-or-number"},
+    )
+    error = map_http_error_to_provider_error(response=response, provider_name="stub-provider")
+    assert error.retry_after is None

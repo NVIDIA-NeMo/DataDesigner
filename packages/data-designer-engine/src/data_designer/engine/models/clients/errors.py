@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+import calendar
+import email.utils
+import time
 from dataclasses import dataclass
 from enum import Enum
 
@@ -148,6 +151,7 @@ def _extract_structured_message(response: HttpResponse) -> str:
 
 
 def _extract_retry_after(response: HttpResponse) -> float | None:
+    """Parse Retry-After header value (delay-seconds or HTTP-date per RFC 7231)."""
     headers = getattr(response, "headers", None)
     if headers is None:
         return None
@@ -161,7 +165,18 @@ def _extract_retry_after(response: HttpResponse) -> float | None:
     try:
         return float(raw)
     except (ValueError, TypeError):
+        pass
+    return _parse_http_date_as_delay(raw)
+
+
+def _parse_http_date_as_delay(value: str) -> float | None:
+    """Convert an HTTP-date Retry-After value to seconds from now."""
+    parsed = email.utils.parsedate(value)
+    if parsed is None:
         return None
+    target = calendar.timegm(parsed)
+    delay = target - time.time()
+    return max(delay, 0.0)
 
 
 def _looks_like_context_window_error(text: str) -> bool:

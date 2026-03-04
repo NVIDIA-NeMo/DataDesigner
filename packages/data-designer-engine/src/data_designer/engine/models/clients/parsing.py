@@ -310,7 +310,12 @@ def get_first_value_or_none(values: Any) -> Any | None:
 
 
 def collect_non_none_optional_fields(request: Any, *, exclude: frozenset[str] = frozenset()) -> dict[str, Any]:
-    """Extract non-None optional fields from a request dataclass, skipping *exclude*."""
+    """Extract non-None optional fields from a request dataclass, skipping *exclude*.
+
+    The ``f.default is None`` check intentionally targets fields whose default is
+    ``None`` — i.e. truly optional kwargs the caller may or may not set.  Fields with
+    non-``None`` defaults are not "optional" in this forwarding sense and are excluded.
+    """
     return {
         f.name: v
         for f in dataclasses.fields(request)
