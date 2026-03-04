@@ -147,6 +147,12 @@ def _extract_structured_message(response: HttpResponse) -> str:
                 nested_message = value.get("message")
                 if isinstance(nested_message, str) and nested_message.strip():
                     return nested_message.strip()
+            if isinstance(value, list):
+                parts = [
+                    item.get("msg") for item in value if isinstance(item, dict) and isinstance(item.get("msg"), str)
+                ]
+                if parts:
+                    return "; ".join(parts)
     return ""
 
 

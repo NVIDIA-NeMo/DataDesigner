@@ -55,9 +55,9 @@ class LiteLLMRouter(Protocol):
 class LiteLLMBridgeClient(ModelClient):
     """Bridge adapter that wraps the existing LiteLLM router behind canonical client types."""
 
-    # "messages" and "prompt" have None defaults but are passed explicitly to choose
-    # between the chat-completion and diffusion code paths, so exclude them from the
-    # automatic optional-field forwarding.
+    # "messages" (optional, default None) and "prompt" (required) are passed explicitly
+    # to choose between the chat-completion and diffusion code paths, so exclude them
+    # from the automatic optional-field forwarding.
     _IMAGE_EXCLUDE = frozenset({"messages", "prompt"})
 
     def __init__(self, *, provider_name: str, router: LiteLLMRouter) -> None:

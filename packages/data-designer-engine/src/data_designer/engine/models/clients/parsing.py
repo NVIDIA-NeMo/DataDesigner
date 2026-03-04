@@ -85,7 +85,12 @@ async def aextract_images_from_image_response(response: Any) -> list[ImagePayloa
 
 
 def collect_raw_image_candidates(message: Any) -> tuple[list[Any], list[Any]]:
-    """Return (primary, fallback) raw image candidates from a message."""
+    """Return (primary, fallback) raw image candidates from a message.
+
+    Only string content is used as a fallback source.  List-format content blocks
+    (e.g. OpenAI multimodal ``image_url`` items) are not extracted here; that
+    parsing is deferred to adapter-specific logic in future PRs.
+    """
     primary: list[Any] = []
     raw_images = get_value_from(message, "images")
     if isinstance(raw_images, list):

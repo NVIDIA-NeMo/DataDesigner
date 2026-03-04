@@ -91,12 +91,25 @@ def test_map_http_status_to_provider_error_kind(
             ProviderErrorKind.BAD_REQUEST,
             "The request payload is invalid.",
         ),
+        (
+            422,
+            "",
+            {
+                "detail": [
+                    {"loc": ["body", "name"], "msg": "field required"},
+                    {"loc": ["body", "age"], "msg": "not a valid integer"},
+                ]
+            },
+            ProviderErrorKind.UNPROCESSABLE_ENTITY,
+            "field required; not a valid integer",
+        ),
     ],
     ids=[
         "text-when-no-json",
         "json-over-raw-text",
         "json-when-text-missing",
         "nested-error-message",
+        "fastapi-list-detail",
     ],
 )
 def test_map_http_error_to_provider_error(
