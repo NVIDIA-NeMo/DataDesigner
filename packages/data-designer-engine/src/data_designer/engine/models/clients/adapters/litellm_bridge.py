@@ -3,11 +3,17 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
+from collections.abc import Iterator
 from typing import Any, Protocol
 
 from data_designer.engine.models.clients.base import ModelClient
-from data_designer.engine.models.clients.errors import ProviderError, ProviderErrorKind
+from data_designer.engine.models.clients.errors import (
+    ProviderError,
+    ProviderErrorKind,
+    map_http_status_to_provider_error_kind,
+)
 from data_designer.engine.models.clients.parsing import (
     aextract_images_from_chat_response,
     aextract_images_from_image_response,
@@ -68,62 +74,46 @@ class LiteLLMBridgeClient(ModelClient):
         return True
 
     def completion(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
-        try:
+        with _handle_non_provider_errors(self.provider_name):
             response = self._router.completion(
                 model=request.model,
                 messages=request.messages,
                 **collect_non_none_optional_fields(request),
             )
-        except ProviderError:
-            raise
-        except Exception as exc:
-            raise _wrap_router_error(exc, provider_name=self.provider_name) from exc
         return parse_chat_completion_response(response)
 
     async def acompletion(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
-        try:
+        with _handle_non_provider_errors(self.provider_name):
             response = await self._router.acompletion(
                 model=request.model,
                 messages=request.messages,
                 **collect_non_none_optional_fields(request),
             )
-        except ProviderError:
-            raise
-        except Exception as exc:
-            raise _wrap_router_error(exc, provider_name=self.provider_name) from exc
         return parse_chat_completion_response(response)
 
     def embeddings(self, request: EmbeddingRequest) -> EmbeddingResponse:
-        try:
+        with _handle_non_provider_errors(self.provider_name):
             response = self._router.embedding(
                 model=request.model,
                 input=request.inputs,
                 **collect_non_none_optional_fields(request),
             )
-        except ProviderError:
-            raise
-        except Exception as exc:
-            raise _wrap_router_error(exc, provider_name=self.provider_name) from exc
         vectors = [extract_embedding_vector(item) for item in getattr(response, "data", [])]
         return EmbeddingResponse(vectors=vectors, usage=extract_usage(getattr(response, "usage", None)), raw=response)
 
     async def aembeddings(self, request: EmbeddingRequest) -> EmbeddingResponse:
-        try:
+        with _handle_non_provider_errors(self.provider_name):
             response = await self._router.aembedding(
                 model=request.model,
                 input=request.inputs,
                 **collect_non_none_optional_fields(request),
             )
-        except ProviderError:
-            raise
-        except Exception as exc:
-            raise _wrap_router_error(exc, provider_name=self.provider_name) from exc
         vectors = [extract_embedding_vector(item) for item in getattr(response, "data", [])]
         return EmbeddingResponse(vectors=vectors, usage=extract_usage(getattr(response, "usage", None)), raw=response)
 
     def generate_image(self, request: ImageGenerationRequest) -> ImageGenerationResponse:
         image_kwargs = collect_non_none_optional_fields(request, exclude=self._IMAGE_EXCLUDE)
-        try:
+        with _handle_non_provider_errors(self.provider_name):
             if request.messages is not None:
                 response = self._router.completion(
                     model=request.model,
@@ -138,17 +128,13 @@ class LiteLLMBridgeClient(ModelClient):
                     **image_kwargs,
                 )
                 images = extract_images_from_image_response(response)
-        except ProviderError:
-            raise
-        except Exception as exc:
-            raise _wrap_router_error(exc, provider_name=self.provider_name) from exc
 
         usage = extract_usage(getattr(response, "usage", None), generated_images=len(images))
         return ImageGenerationResponse(images=images, usage=usage, raw=response)
 
     async def agenerate_image(self, request: ImageGenerationRequest) -> ImageGenerationResponse:
         image_kwargs = collect_non_none_optional_fields(request, exclude=self._IMAGE_EXCLUDE)
-        try:
+        with _handle_non_provider_errors(self.provider_name):
             if request.messages is not None:
                 response = await self._router.acompletion(
                     model=request.model,
@@ -163,10 +149,6 @@ class LiteLLMBridgeClient(ModelClient):
                     **image_kwargs,
                 )
                 images = await aextract_images_from_image_response(response)
-        except ProviderError:
-            raise
-        except Exception as exc:
-            raise _wrap_router_error(exc, provider_name=self.provider_name) from exc
 
         usage = extract_usage(getattr(response, "usage", None), generated_images=len(images))
         return ImageGenerationResponse(images=images, usage=usage, raw=response)
@@ -178,23 +160,27 @@ class LiteLLMBridgeClient(ModelClient):
         return None
 
 
-def _wrap_router_error(exc: Exception, *, provider_name: str) -> ProviderError:
-    """Normalize a raw router/LiteLLM exception into a canonical ProviderError."""
-    status_code = getattr(exc, "status_code", None)
-    if isinstance(status_code, int):
-        from data_designer.engine.models.clients.errors import map_http_status_to_provider_error_kind
+@contextlib.contextmanager
+def _handle_non_provider_errors(provider_name: str) -> Iterator[None]:
+    """Catch non-ProviderError exceptions from the router and re-raise as ProviderError."""
+    try:
+        yield
+    except ProviderError:
+        raise
+    except Exception as exc:
+        status_code = getattr(exc, "status_code", None)
+        if isinstance(status_code, int):
+            kind = map_http_status_to_provider_error_kind(status_code=status_code, body_text=str(exc))
+        else:
+            kind = _infer_error_kind(exc)
 
-        kind = map_http_status_to_provider_error_kind(status_code=status_code, body_text=str(exc))
-    else:
-        kind = _infer_error_kind(exc)
-
-    return ProviderError(
-        kind=kind,
-        message=str(exc),
-        status_code=status_code if isinstance(status_code, int) else None,
-        provider_name=provider_name,
-        cause=exc,
-    )
+        raise ProviderError(
+            kind=kind,
+            message=str(exc),
+            status_code=status_code if isinstance(status_code, int) else None,
+            provider_name=provider_name,
+            cause=exc,
+        ) from exc
 
 
 def _infer_error_kind(exc: Exception) -> ProviderErrorKind:
