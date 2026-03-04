@@ -32,6 +32,7 @@ class ProviderError(Exception):
     status_code: int | None = None
     provider_name: str | None = None
     model_name: str | None = None
+    retry_after: float | None = None
     cause: Exception | None = None
 
     def __post_init__(self) -> None:
@@ -103,12 +104,14 @@ def map_http_error_to_provider_error(
         )
 
     kind = map_http_status_to_provider_error_kind(status_code=status_code, body_text=body_text)
+    retry_after = _extract_retry_after(response) if status_code == 429 else None
     return ProviderError(
         kind=kind,
         message=body_text or f"Provider {provider_name!r} request failed with status code {status_code}.",
         status_code=status_code,
         provider_name=provider_name,
         model_name=model_name,
+        retry_after=retry_after,
     )
 
 
@@ -142,6 +145,23 @@ def _extract_structured_message(response: HttpResponse) -> str:
                 if isinstance(nested_message, str) and nested_message.strip():
                     return nested_message.strip()
     return ""
+
+
+def _extract_retry_after(response: HttpResponse) -> float | None:
+    headers = getattr(response, "headers", None)
+    if headers is None:
+        return None
+    raw = (
+        headers.get("retry-after")
+        if isinstance(headers, dict)
+        else getattr(headers, "get", lambda _: None)("retry-after")
+    )
+    if raw is None:
+        return None
+    try:
+        return float(raw)
+    except (ValueError, TypeError):
+        return None
 
 
 def _looks_like_context_window_error(text: str) -> bool:

@@ -16,10 +16,18 @@ from data_designer.engine.models.clients.errors import (
 
 
 class StubHttpResponse:
-    def __init__(self, *, status_code: int, text: str = "", json_payload: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        status_code: int,
+        text: str = "",
+        json_payload: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> None:
         self.status_code = status_code
         self.text = text
         self._json_payload = json_payload
+        self.headers = headers or {}
 
     def json(self) -> dict[str, Any]:
         if self._json_payload is None:
@@ -52,58 +60,58 @@ def test_map_http_status_to_provider_error_kind(
     assert map_http_status_to_provider_error_kind(status_code=status_code, body_text=body_text) == expected_kind
 
 
-def test_map_http_error_to_provider_error_uses_text_when_no_json() -> None:
-    response = StubHttpResponse(status_code=429, text="Rate limit hit")
+@pytest.mark.parametrize(
+    "status_code,text,json_payload,expected_kind,expected_message",
+    [
+        (
+            429,
+            "Rate limit hit",
+            None,
+            ProviderErrorKind.RATE_LIMIT,
+            "Rate limit hit",
+        ),
+        (
+            400,
+            '{"error": {"type": "invalid_request_error", "message": "Context too long."}}',
+            {"error": {"type": "invalid_request_error", "message": "Context too long."}},
+            ProviderErrorKind.BAD_REQUEST,
+            "Context too long.",
+        ),
+        (
+            403,
+            "",
+            {"error": "Insufficient permissions for model"},
+            ProviderErrorKind.PERMISSION_DENIED,
+            "Insufficient permissions for model",
+        ),
+        (
+            400,
+            "",
+            {"error": {"type": "invalid_request_error", "message": "The request payload is invalid."}},
+            ProviderErrorKind.BAD_REQUEST,
+            "The request payload is invalid.",
+        ),
+    ],
+    ids=[
+        "text-when-no-json",
+        "json-over-raw-text",
+        "json-when-text-missing",
+        "nested-error-message",
+    ],
+)
+def test_map_http_error_to_provider_error(
+    status_code: int,
+    text: str,
+    json_payload: dict[str, Any] | None,
+    expected_kind: ProviderErrorKind,
+    expected_message: str,
+) -> None:
+    response = StubHttpResponse(status_code=status_code, text=text, json_payload=json_payload)
     error = map_http_error_to_provider_error(response=response, provider_name="stub-provider", model_name="stub-model")
     assert isinstance(error, ProviderError)
-    assert error.kind == ProviderErrorKind.RATE_LIMIT
-    assert error.message == "Rate limit hit"
-    assert error.status_code == 429
+    assert error.kind == expected_kind
+    assert error.message == expected_message
     assert error.provider_name == "stub-provider"
-    assert error.model_name == "stub-model"
-
-
-def test_map_http_error_to_provider_error_prefers_json_over_raw_text() -> None:
-    response = StubHttpResponse(
-        status_code=400,
-        text='{"error": {"type": "invalid_request_error", "message": "Context too long."}}',
-        json_payload={
-            "error": {
-                "type": "invalid_request_error",
-                "message": "Context too long.",
-            }
-        },
-    )
-    error = map_http_error_to_provider_error(response=response, provider_name="stub-provider")
-    assert error.kind == ProviderErrorKind.BAD_REQUEST
-    assert error.message == "Context too long."
-
-
-def test_map_http_error_to_provider_error_uses_json_payload_when_text_missing() -> None:
-    response = StubHttpResponse(
-        status_code=403,
-        text="",
-        json_payload={"error": "Insufficient permissions for model"},
-    )
-    error = map_http_error_to_provider_error(response=response, provider_name="stub-provider")
-    assert error.kind == ProviderErrorKind.PERMISSION_DENIED
-    assert error.message == "Insufficient permissions for model"
-
-
-def test_map_http_error_to_provider_error_uses_nested_error_message_payload() -> None:
-    response = StubHttpResponse(
-        status_code=400,
-        text="",
-        json_payload={
-            "error": {
-                "type": "invalid_request_error",
-                "message": "The request payload is invalid.",
-            }
-        },
-    )
-    error = map_http_error_to_provider_error(response=response, provider_name="stub-provider")
-    assert error.kind == ProviderErrorKind.BAD_REQUEST
-    assert error.message == "The request payload is invalid."
 
 
 def test_provider_error_unsupported_capability_helper() -> None:
@@ -145,3 +153,23 @@ def test_provider_error_is_catchable_as_exception() -> None:
         raise error
     assert exc_info.value.kind == ProviderErrorKind.AUTHENTICATION
     assert str(exc_info.value) == "Invalid API key"
+
+
+def test_map_http_error_extracts_retry_after_on_429() -> None:
+    response = StubHttpResponse(
+        status_code=429,
+        text="Rate limit hit",
+        headers={"retry-after": "2.5"},
+    )
+    error = map_http_error_to_provider_error(response=response, provider_name="stub-provider")
+    assert error.retry_after == 2.5
+
+
+def test_map_http_error_retry_after_is_none_for_non_429() -> None:
+    response = StubHttpResponse(
+        status_code=500,
+        text="Internal server error",
+        headers={"retry-after": "10"},
+    )
+    error = map_http_error_to_provider_error(response=response, provider_name="stub-provider")
+    assert error.retry_after is None
