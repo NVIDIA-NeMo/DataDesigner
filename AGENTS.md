@@ -369,6 +369,34 @@ Follow PEP 8 naming conventions:
           pass
   ```
 
+### Code Organization
+
+- **Public before private**: Public functions/methods appear before private ones in modules and classes
+- **Class method order**: Static methods, then class methods, then instance methods
+- **Prefer public over private for testability**: Use public functions (no `_` prefix) for helpers that benefit from direct testing
+- **Section comments in larger modules**: Use `# ---` separators to delineate logical groups (e.g. image parsing, usage extraction, generic accessors)
+
+### Naming
+
+- **Function and method names must start with an action verb**: e.g. `get_value_from` not `value_from`, `coerce_to_int` not `to_int`, `extract_usage` not `usage`
+
+### Design Principles
+
+**DRY**
+- Extract shared logic into pure helper functions rather than duplicating across similar call sites
+
+**KISS**
+- Prefer flat, obvious code over clever abstractions — three similar lines is better than a premature helper
+
+**YAGNI**
+- Don't add parameters, config, or abstraction layers for hypothetical future use cases
+- Don't generalize until the second or third caller appears
+
+**SOLID**
+- Wrap third-party exceptions at module boundaries — callers depend on canonical error types, not leaked internals
+- Use `Protocol` for contracts between layers
+- One function, one job — separate logic from I/O
+
 ### Common Pitfalls to Avoid
 
 1. **Mutable default arguments**:
@@ -482,13 +510,22 @@ The project uses `pytest` with the following patterns:
 - **HTTP mocking**: pytest-httpx for mocking HTTP requests
 - **Coverage**: Track test coverage with pytest-cov
 
+### Test Guidelines
+
+- **Parametrize over duplicate**: Use `@pytest.mark.parametrize` instead of writing multiple test functions for variations of the same behavior
+- **Minimal fixtures**: Fixtures should be simple — one fixture, one responsibility, just setup with no behavior logic
+- **Shared fixtures in `conftest.py`**: Place fixtures shared across a test directory in `conftest.py`
+- **Mock at boundaries**: Mock external dependencies (APIs, databases, third-party services), not internal functions
+- **Test behavior, not implementation**: Assert on outputs and side effects, not internal call counts (unless verifying routing)
+- **Keep mocking shallow**: If a test requires deeply nested mocking, the code under test may need refactoring
+
 Example test structure:
 
 ```python
 import pytest
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 
-def test_something(stub_model_configs):
+def test_something(stub_model_configs: dict[str, Any]) -> None:
     """Test description."""
     builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
     # ... test implementation
