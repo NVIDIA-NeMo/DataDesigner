@@ -11,6 +11,7 @@ authors:
 You just generated 10k multilingual greetings (or some other cool dataset). Now what — email a parquet file?
 Nah. Call `.push_to_hub()` and you've got a live dataset page on Hugging Face. Done and dusted 🚢.
 
+<!-- more -->
 
 Here's the full flow — build a multilingual greeting dataset with a conversation
 training processor, generate it, and push it to the Hub in one go:
@@ -71,7 +72,6 @@ url = results.push_to_hub(
 )
 print(url)  # https://huggingface.co/datasets/my-org/multilingual-greetings
 ```
-<!-- more -->
 
 ---
 ## Two Ways In - same outcome
@@ -91,8 +91,6 @@ url = HuggingFaceHubClient.push_to_hub_from_folder(
     description="10k synthetic agent/user conversations across 5 languages.",
 )
 ```
-
-<!-- more -->
 
 ---
 ## What Gets Uploaded
@@ -123,7 +121,6 @@ all of it.
 
 Re-pushing to the same `repo_id` updates the existing repo — no need to delete
 and recreate.
-<!-- more -->
 
 ---
 ## Processors Get First-Class Treatment
@@ -212,7 +209,6 @@ the actual HF repo structure.
 
 If there are no processors, all of this is silently skipped — no empty
 directories, no phantom configs.
-<!-- more -->
 
 ---
 ## The Auto-Generated Dataset Card
@@ -232,7 +228,6 @@ Size category (`n<1K`, `1K<n<10K`, etc.) is auto-computed.
 
 The template lives at `integrations/huggingface/dataset_card_template.md` if you
 want to see the Jinja2 source.
-<!-- more -->
 
 ---
 ## Auth
@@ -244,7 +239,6 @@ Token resolution follows the standard `huggingface_hub` chain:
 3. Cached creds from `hf auth login`
 
 If none of those work, you get a clear error telling you what to do.
-<!-- more -->
 
 ---
 ## Reproducible Pipelines — The Round-Trip
@@ -286,7 +280,6 @@ results.push_to_hub(
 
 So the full loop is: **design → generate → push → share URL → recreate → iterate**.
 The `builder_config.json` on HuggingFace *is* the reproducibility artifact.
-<!-- more -->
 
 ---
 ## Gotchas
