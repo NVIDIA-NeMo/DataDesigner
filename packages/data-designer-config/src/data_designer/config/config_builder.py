@@ -705,7 +705,7 @@ class DataDesignerConfigBuilder:
         Returns:
             A formatted string showing the builder's configuration including seed dataset and column information grouped by type.
         """
-        if len(self._column_configs) == 0:
+        if len(self._column_configs) == 0 and self._seed_config is None:
             return f"{self.__class__.__name__}()"
 
         props_to_repr = {

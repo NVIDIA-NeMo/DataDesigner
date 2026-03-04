@@ -39,8 +39,9 @@ from typing import Any
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.sse import sse_client
 from mcp.client.stdio import stdio_client
+from mcp.client.streamable_http import streamablehttp_client
 
-from data_designer.config.mcp import LocalStdioMCPProvider, MCPProviderT
+from data_designer.config.mcp import LocalStdioMCPProvider, MCPProvider, MCPProviderT
 from data_designer.engine.mcp.errors import MCPToolError
 from data_designer.engine.mcp.registry import MCPToolDefinition, MCPToolResult
 
@@ -211,11 +212,15 @@ class MCPIOService:
                         env=provider.env,
                     )
                     ctx = stdio_client(params)
+                elif isinstance(provider, MCPProvider) and provider.provider_type == "streamable_http":
+                    headers = _build_auth_headers(provider.api_key)
+                    ctx = streamablehttp_client(provider.endpoint, headers=headers)
                 else:
                     headers = _build_auth_headers(provider.api_key)
                     ctx = sse_client(provider.endpoint, headers=headers)
 
-                read, write = await ctx.__aenter__()
+                ctx_result = await ctx.__aenter__()
+                read, write = ctx_result[0], ctx_result[1]
                 new_session = ClientSession(read, write)
                 await new_session.__aenter__()
                 await new_session.initialize()
@@ -399,6 +404,11 @@ def list_tools(provider: MCPProviderT, timeout_sec: float | None = None) -> tupl
     return _MCP_IO_SERVICE.list_tools(provider, timeout_sec=timeout_sec)
 
 
+def list_tool_names(provider: MCPProviderT, timeout_sec: float) -> list[str]:
+    """Return the names of all tools available on an MCP provider."""
+    return [t.name for t in _MCP_IO_SERVICE.list_tools(provider, timeout_sec=timeout_sec)]
+
+
 def call_tools(
     calls: list[tuple[MCPProviderT, str, dict[str, Any]]],
     *,
@@ -434,7 +444,7 @@ def get_session_pool_info() -> dict[str, Any]:
 
 
 def _build_auth_headers(api_key: str | None) -> dict[str, Any] | None:
-    """Build authentication headers for SSE client."""
+    """Build authentication headers for remote MCP clients."""
     if not api_key:
         return None
     return {"Authorization": f"Bearer {api_key}"}

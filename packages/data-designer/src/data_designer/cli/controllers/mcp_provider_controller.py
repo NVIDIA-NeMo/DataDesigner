@@ -218,7 +218,8 @@ class MCPProviderController:
         options = {}
         for p in providers:
             if isinstance(p, MCPProvider):
-                options[p.name] = f"{p.name} (SSE: {p.endpoint})"
+                transport_label = "Streamable HTTP" if p.provider_type == "streamable_http" else "SSE"
+                options[p.name] = f"{p.name} ({transport_label}: {p.endpoint})"
             elif isinstance(p, LocalStdioMCPProvider):
                 options[p.name] = f"{p.name} (stdio: {p.command})"
             else:
