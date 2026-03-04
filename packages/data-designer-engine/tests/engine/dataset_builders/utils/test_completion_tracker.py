@@ -15,7 +15,7 @@ from data_designer.config.column_configs import (
 from data_designer.config.sampler_params import SamplerType
 from data_designer.engine.dataset_builders.utils.completion_tracker import CompletionTracker
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
-from data_designer.engine.dataset_builders.utils.task_model import Task
+from data_designer.engine.dataset_builders.utils.task_model import CellRef, Task
 
 MODEL_ALIAS = "stub"
 
@@ -62,12 +62,12 @@ def test_tracker_requires_graph_with_row_groups() -> None:
         CompletionTracker(graph=None, row_groups=[(0, 3)])
 
 
-# -- mark_complete / is_complete -------------------------------------------
+# -- mark_cell_complete / is_complete --------------------------------------
 
 
 def test_mark_and_check_complete() -> None:
     tracker = CompletionTracker()
-    tracker.mark_complete("col_a", row_group=0, row_index=0)
+    tracker.mark_cell_complete("col_a", row_group=0, row_index=0)
 
     assert tracker.is_complete("col_a", 0, 0)
     assert not tracker.is_complete("col_a", 0, 1)
@@ -75,9 +75,9 @@ def test_mark_and_check_complete() -> None:
     assert not tracker.is_complete("col_b", 0, 0)
 
 
-def test_mark_batch_complete() -> None:
+def test_mark_row_range_complete() -> None:
     tracker = CompletionTracker()
-    tracker.mark_batch_complete("col_a", row_group=0, row_group_size=3)
+    tracker.mark_row_range_complete("col_a", row_group=0, row_group_size=3)
 
     assert tracker.is_complete("col_a", 0, 0)
     assert tracker.is_complete("col_a", 0, 1)
@@ -85,28 +85,46 @@ def test_mark_batch_complete() -> None:
     assert not tracker.is_complete("col_a", 0, 3)
 
 
+def test_mark_row_range_complete_raises_on_size_mismatch(ready_ctx: ReadyTasksFixture) -> None:
+    with pytest.raises(ValueError, match="Row-group size mismatch"):
+        ready_ctx.tracker.mark_row_range_complete("topic", row_group=0, row_group_size=2)
+
+
+def test_mark_cell_complete_raises_on_unknown_row_group(ready_ctx: ReadyTasksFixture) -> None:
+    with pytest.raises(ValueError, match="Unknown row_group"):
+        ready_ctx.tracker.mark_cell_complete("topic", row_group=999, row_index=0)
+
+
 # -- is_all_complete -----------------------------------------------------------
 
 
 def test_all_complete_cell_level() -> None:
     tracker = CompletionTracker()
-    tracker.mark_complete("col_a", 0, 0)
-    tracker.mark_complete("col_a", 0, 1)
+    tracker.mark_cell_complete("col_a", 0, 0)
+    tracker.mark_cell_complete("col_a", 0, 1)
 
-    assert tracker.is_all_complete([("col_a", 0, 0), ("col_a", 0, 1)])
-    assert not tracker.is_all_complete([("col_a", 0, 0), ("col_a", 0, 2)])
+    assert tracker.is_all_complete([CellRef("col_a", 0, 0), CellRef("col_a", 0, 1)])
+    assert not tracker.is_all_complete([CellRef("col_a", 0, 0), CellRef("col_a", 0, 2)])
 
 
 def test_all_complete_batch_level() -> None:
     tracker = CompletionTracker()
-    tracker.mark_batch_complete("col_a", 0, 3)
+    tracker.mark_row_range_complete("col_a", 0, 3)
 
-    assert tracker.is_all_complete([("col_a", 0, None)])
+    assert tracker.is_all_complete([CellRef("col_a", 0, None)])
+
+
+def test_all_complete_batch_single_cell_not_sufficient() -> None:
+    """mark_cell_complete on one row must NOT make is_all_complete return True for batch check."""
+    tracker = CompletionTracker()
+    tracker.mark_cell_complete("col_a", 0, 0)
+
+    assert not tracker.is_all_complete([CellRef("col_a", 0, None)])
 
 
 def test_all_complete_batch_not_present() -> None:
     tracker = CompletionTracker()
-    assert not tracker.is_all_complete([("col_a", 0, None)])
+    assert not tracker.is_all_complete([CellRef("col_a", 0, None)])
 
 
 def test_all_complete_empty_list() -> None:
@@ -131,25 +149,25 @@ def test_drop_row() -> None:
 
 def test_row_group_complete() -> None:
     tracker = CompletionTracker()
-    tracker.mark_batch_complete("col_a", 0, 3)
-    tracker.mark_batch_complete("col_b", 0, 3)
+    tracker.mark_row_range_complete("col_a", 0, 3)
+    tracker.mark_row_range_complete("col_b", 0, 3)
 
     assert tracker.is_row_group_complete(0, 3, ["col_a", "col_b"])
 
 
 def test_row_group_incomplete() -> None:
     tracker = CompletionTracker()
-    tracker.mark_batch_complete("col_a", 0, 3)
+    tracker.mark_row_range_complete("col_a", 0, 3)
 
     assert not tracker.is_row_group_complete(0, 3, ["col_a", "col_b"])
 
 
 def test_row_group_complete_with_dropped_rows() -> None:
     tracker = CompletionTracker()
-    tracker.mark_complete("col_a", 0, 0)
-    tracker.mark_complete("col_a", 0, 2)
-    tracker.mark_complete("col_b", 0, 0)
-    tracker.mark_complete("col_b", 0, 2)
+    tracker.mark_cell_complete("col_a", 0, 0)
+    tracker.mark_cell_complete("col_a", 0, 2)
+    tracker.mark_cell_complete("col_b", 0, 0)
+    tracker.mark_cell_complete("col_b", 0, 2)
     tracker.drop_row(0, 1)  # row 1 is dropped
 
     assert tracker.is_row_group_complete(0, 3, ["col_a", "col_b"])
@@ -157,8 +175,8 @@ def test_row_group_complete_with_dropped_rows() -> None:
 
 def test_row_group_not_complete_missing_non_dropped() -> None:
     tracker = CompletionTracker()
-    tracker.mark_complete("col_a", 0, 0)
-    tracker.mark_complete("col_b", 0, 0)
+    tracker.mark_cell_complete("col_a", 0, 0)
+    tracker.mark_cell_complete("col_b", 0, 0)
     tracker.drop_row(0, 1)
     # row 2 is not dropped and not complete
 
@@ -177,7 +195,7 @@ def test_get_ready_tasks_seeds_first(ready_ctx: ReadyTasksFixture) -> None:
 
 
 def test_get_ready_tasks_after_seed_complete(ready_ctx: ReadyTasksFixture) -> None:
-    ready_ctx.tracker.mark_batch_complete("topic", 0, 3)
+    ready_ctx.tracker.mark_row_range_complete("topic", 0, 3)
 
     ready = ready_ctx.tracker.get_ready_tasks(ready_ctx.dispatched)
 
@@ -188,7 +206,7 @@ def test_get_ready_tasks_after_seed_complete(ready_ctx: ReadyTasksFixture) -> No
 
 
 def test_get_ready_tasks_skips_dispatched(ready_ctx: ReadyTasksFixture) -> None:
-    ready_ctx.tracker.mark_batch_complete("topic", 0, 3)
+    ready_ctx.tracker.mark_row_range_complete("topic", 0, 3)
 
     ready1 = ready_ctx.tracker.get_ready_tasks(ready_ctx.dispatched)
     ready_ctx.dispatched.update(ready1)
@@ -198,7 +216,7 @@ def test_get_ready_tasks_skips_dispatched(ready_ctx: ReadyTasksFixture) -> None:
 
 
 def test_get_ready_tasks_skips_dropped_rows(ready_ctx: ReadyTasksFixture) -> None:
-    ready_ctx.tracker.mark_batch_complete("topic", 0, 3)
+    ready_ctx.tracker.mark_row_range_complete("topic", 0, 3)
     ready_ctx.tracker.drop_row(0, 1)
 
     ready = ready_ctx.tracker.get_ready_tasks(ready_ctx.dispatched)
@@ -209,9 +227,9 @@ def test_get_ready_tasks_skips_dropped_rows(ready_ctx: ReadyTasksFixture) -> Non
 
 
 def test_get_ready_tasks_full_column_waits_for_all_cells(ready_ctx: ReadyTasksFixture) -> None:
-    ready_ctx.tracker.mark_batch_complete("topic", 0, 3)
-    ready_ctx.tracker.mark_complete("question", 0, 0)
-    ready_ctx.tracker.mark_complete("question", 0, 1)
+    ready_ctx.tracker.mark_row_range_complete("topic", 0, 3)
+    ready_ctx.tracker.mark_cell_complete("question", 0, 0)
+    ready_ctx.tracker.mark_cell_complete("question", 0, 1)
     # question[0,2] not done yet
 
     ready = ready_ctx.tracker.get_ready_tasks(ready_ctx.dispatched)
@@ -221,9 +239,9 @@ def test_get_ready_tasks_full_column_waits_for_all_cells(ready_ctx: ReadyTasksFi
 
 
 def test_get_ready_tasks_full_column_ready_when_all_cells_done(ready_ctx: ReadyTasksFixture) -> None:
-    ready_ctx.tracker.mark_batch_complete("topic", 0, 3)
+    ready_ctx.tracker.mark_row_range_complete("topic", 0, 3)
     for ri in range(3):
-        ready_ctx.tracker.mark_complete("question", 0, ri)
+        ready_ctx.tracker.mark_cell_complete("question", 0, ri)
 
     ready = ready_ctx.tracker.get_ready_tasks(ready_ctx.dispatched)
 
@@ -237,8 +255,8 @@ def test_get_ready_tasks_multiple_row_groups() -> None:
     tracker = CompletionTracker(graph, [(0, 3), (1, 2)])
     dispatched: set[Task] = set()
 
-    tracker.mark_batch_complete("topic", 0, 3)
-    tracker.mark_batch_complete("topic", 1, 2)
+    tracker.mark_row_range_complete("topic", 0, 3)
+    tracker.mark_row_range_complete("topic", 1, 2)
 
     ready = tracker.get_ready_tasks(dispatched)
 
@@ -247,7 +265,7 @@ def test_get_ready_tasks_multiple_row_groups() -> None:
 
 
 def test_get_ready_tasks_skips_already_complete_batch(ready_ctx: ReadyTasksFixture) -> None:
-    ready_ctx.tracker.mark_batch_complete("topic", 0, 3)
+    ready_ctx.tracker.mark_row_range_complete("topic", 0, 3)
 
     ready = ready_ctx.tracker.get_ready_tasks(ready_ctx.dispatched)
 

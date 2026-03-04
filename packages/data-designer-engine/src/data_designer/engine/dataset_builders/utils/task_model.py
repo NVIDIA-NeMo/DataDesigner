@@ -4,20 +4,24 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal, TypeAlias
+from typing import Any, Literal, NamedTuple
 
-ColumnName: TypeAlias = str
-RowGroupIndex: TypeAlias = int
-RowIndex: TypeAlias = int
+
+class CellRef(NamedTuple):
+    """Reference to a cell (or batch when row_index is None) in the dataset grid."""
+
+    column: str
+    row_group: int
+    row_index: int | None = None
 
 
 @dataclass(frozen=True)
 class Task:
     """A unit of work for the async scheduler."""
 
-    column: ColumnName
-    row_group: RowGroupIndex
-    row_index: RowIndex | None  # None for batch/full-column tasks
+    column: str
+    row_group: int
+    row_index: int | None  # None for batch/full-column tasks
     task_type: Literal["from_scratch", "cell", "batch", "pre_batch_processor", "post_batch_processor"]
 
 
@@ -36,9 +40,9 @@ class TaskResult:
 class TaskTrace:
     """Timing trace for a single task. Only created when tracing is enabled."""
 
-    column: ColumnName
-    row_group: RowGroupIndex
-    row_index: RowIndex | None
+    column: str
+    row_group: int
+    row_index: int | None
     task_type: str
     dispatched_at: float = 0.0
     slot_acquired_at: float = 0.0

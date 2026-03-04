@@ -12,7 +12,7 @@ from data_designer.engine.dataset_builders.multi_column_configs import (
     MultiColumnConfig,
 )
 from data_designer.engine.dataset_builders.utils.errors import DAGCircularDependencyError
-from data_designer.engine.dataset_builders.utils.task_model import ColumnName, RowGroupIndex, RowIndex
+from data_designer.engine.dataset_builders.utils.task_model import CellRef
 
 
 class ExecutionGraph:
@@ -24,29 +24,29 @@ class ExecutionGraph:
     """
 
     def __init__(self) -> None:
-        self._upstream: dict[ColumnName, set[ColumnName]] = {}
-        self._downstream: dict[ColumnName, set[ColumnName]] = {}
-        self._strategies: dict[ColumnName, GenerationStrategy] = {}
-        self._side_effect_map: dict[ColumnName, ColumnName] = {}
-        self._columns: list[ColumnName] = []
-        self._topological_order_cache: list[ColumnName] | None = None
-        self._upstream_by_strategy_cache: dict[ColumnName, tuple[list[ColumnName], list[ColumnName]]] = {}
+        self._upstream: dict[str, set[str]] = {}
+        self._downstream: dict[str, set[str]] = {}
+        self._strategies: dict[str, GenerationStrategy] = {}
+        self._side_effect_map: dict[str, str] = {}
+        self._columns: list[str] = []
+        self._topological_order_cache: list[str] | None = None
+        self._upstream_by_strategy_cache: dict[str, tuple[list[str], list[str]]] = {}
 
-    def add_column(self, name: ColumnName, strategy: GenerationStrategy) -> None:
+    def add_column(self, name: str, strategy: GenerationStrategy) -> None:
         """Register a column and its generation strategy."""
         self._columns.append(name)
         self._strategies[name] = strategy
 
-    def add_edge(self, upstream: ColumnName, downstream: ColumnName) -> None:
+    def add_edge(self, upstream: str, downstream: str) -> None:
         """Add a dependency edge: *downstream* depends on *upstream*."""
         self._upstream.setdefault(downstream, set()).add(upstream)
         self._downstream.setdefault(upstream, set()).add(downstream)
 
-    def set_side_effect(self, side_effect_col: ColumnName, producer: ColumnName) -> None:
+    def set_side_effect(self, side_effect_col: str, producer: str) -> None:
         """Map a side-effect column name to its producing column."""
         self._side_effect_map[side_effect_col] = producer
 
-    def resolve_side_effect(self, column: ColumnName) -> ColumnName:
+    def resolve_side_effect(self, column: str) -> str:
         """Resolve a column name through the side-effect map.
 
         If a real column exists with the same name as a side-effect alias,
@@ -56,25 +56,25 @@ class ExecutionGraph:
             return column
         return self._side_effect_map.get(column, column)
 
-    def upstream(self, column: ColumnName) -> set[ColumnName]:
+    def get_upstream_columns(self, column: str) -> set[str]:
         """Direct dependencies of *column*."""
         return self._upstream.get(column, set())
 
-    def downstream(self, column: ColumnName) -> set[ColumnName]:
+    def get_downstream_columns(self, column: str) -> set[str]:
         """Columns that depend on *column*."""
         return self._downstream.get(column, set())
 
-    def strategy(self, column: ColumnName) -> GenerationStrategy:
+    def strategy(self, column: str) -> GenerationStrategy:
         return self._strategies[column]
 
-    def upstream_by_strategy(self, column: ColumnName) -> tuple[list[ColumnName], list[ColumnName]]:
+    def upstream_by_strategy(self, column: str) -> tuple[list[str], list[str]]:
         """Split upstream columns into (batch, cell_by_cell) by strategy. Cached."""
         cached = self._upstream_by_strategy_cache.get(column)
         if cached is not None:
             return cached
-        batch: list[ColumnName] = []
-        cell: list[ColumnName] = []
-        for up_col in self.upstream(column):
+        batch: list[str] = []
+        cell: list[str] = []
+        for up_col in self.get_upstream_columns(column):
             if self._strategies[up_col] == GenerationStrategy.CELL_BY_CELL:
                 cell.append(up_col)
             else:
@@ -84,7 +84,7 @@ class ExecutionGraph:
         return result
 
     @property
-    def columns(self) -> list[ColumnName]:
+    def columns(self) -> list[str]:
         """All column names in insertion order. Do not mutate."""
         return self._columns
 
@@ -95,7 +95,7 @@ class ExecutionGraph:
         immutable after construction.
         """
         if self._topological_order_cache is not None:
-            return self._topological_order_cache
+            return list(self._topological_order_cache)
 
         in_degree: dict[str, int] = {col: 0 for col in self._columns}
         for col, deps in self._upstream.items():
@@ -119,11 +119,13 @@ class ExecutionGraph:
             )
 
         self._topological_order_cache = order
-        return order
+        return list(order)
 
-    def critical_path(self) -> list[str]:
+    def get_longest_dependency_chain(self) -> list[str]:
         """Longest dependency chain (by number of columns)."""
         order = self.topological_order()
+        if not order:
+            return []
         dist: dict[str, int] = {col: 0 for col in order}
         pred: dict[str, str | None] = {col: None for col in order}
 
@@ -142,14 +144,14 @@ class ExecutionGraph:
         path.reverse()
         return path
 
-    def task_count(self, num_records: int, buffer_size: int) -> dict[ColumnName, int]:
+    def task_count(self, num_records: int, buffer_size: int) -> dict[str, int]:
         """Exact task count per column before the run starts.
 
         Cell-by-cell columns produce ``num_records`` tasks.
         Full-column columns (including from-scratch) produce ``ceil(num_records / buffer_size)`` tasks.
         """
         num_row_groups = math.ceil(num_records / buffer_size)
-        counts: dict[ColumnName, int] = {}
+        counts: dict[str, int] = {}
         for col in self._columns:
             strat = self._strategies[col]
             if strat == GenerationStrategy.CELL_BY_CELL:
@@ -160,27 +162,26 @@ class ExecutionGraph:
 
     def cell_dependencies(
         self,
-        column: ColumnName,
-        row_group: RowGroupIndex,
-        row_index: RowIndex | None,
+        column: str,
+        row_group: int,
+        row_index: int | None,
         row_group_size: int,
-    ) -> list[tuple[ColumnName, RowGroupIndex, RowIndex | None]]:
+    ) -> list[CellRef]:
         """Derive cell-level deps on demand from column-level DAG + strategy.
 
-        Returns a list of ``(upstream_column, row_group, row_index)`` tuples
-        that must be complete before this task can run.
+        Returns a list of ``CellRef`` that must be complete before this task can run.
         """
-        deps: list[tuple[ColumnName, RowGroupIndex, RowIndex | None]] = []
-        for up_col in self.upstream(column):
+        deps: list[CellRef] = []
+        for up_col in self.get_upstream_columns(column):
             up_strategy = self._strategies[up_col]
             if up_strategy == GenerationStrategy.CELL_BY_CELL:
                 if row_index is not None:
-                    deps.append((up_col, row_group, row_index))
+                    deps.append(CellRef(up_col, row_group, row_index))
                 else:
                     for ri in range(row_group_size):
-                        deps.append((up_col, row_group, ri))
+                        deps.append(CellRef(up_col, row_group, ri))
             else:
-                deps.append((up_col, row_group, None))
+                deps.append(CellRef(up_col, row_group, None))
         return deps
 
     def to_mermaid(self) -> str:
@@ -199,7 +200,7 @@ class ExecutionGraph:
     def create(
         cls,
         column_configs: list[DatasetBuilderColumnConfigT],
-        strategies: dict[ColumnName, GenerationStrategy],
+        strategies: dict[str, GenerationStrategy],
     ) -> ExecutionGraph:
         """Build an ``ExecutionGraph`` from column configs and pre-computed strategies.
 
@@ -249,14 +250,3 @@ class ExecutionGraph:
         graph.topological_order()
 
         return graph
-
-
-def build_execution_graph(
-    column_configs: list[DatasetBuilderColumnConfigT],
-    strategies: dict[ColumnName, GenerationStrategy],
-) -> ExecutionGraph:
-    """Build an ``ExecutionGraph`` from column configs and pre-computed strategies.
-
-    .. deprecated:: Use ``ExecutionGraph.create()`` instead.
-    """
-    return ExecutionGraph.create(column_configs, strategies)

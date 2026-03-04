@@ -18,10 +18,8 @@ from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.validator_params import CodeValidatorParams
 from data_designer.engine.dataset_builders.multi_column_configs import SamplerMultiColumnConfig
 from data_designer.engine.dataset_builders.utils.errors import DAGCircularDependencyError
-from data_designer.engine.dataset_builders.utils.execution_graph import (
-    ExecutionGraph,
-    build_execution_graph,
-)
+from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
+from data_designer.engine.dataset_builders.utils.task_model import CellRef
 
 MODEL_ALIAS = "stub-model-alias"
 
@@ -55,7 +53,7 @@ def simple_graph(
     simple_pipeline_configs: list,
     simple_pipeline_strategies: dict[str, GenerationStrategy],
 ) -> ExecutionGraph:
-    return build_execution_graph(simple_pipeline_configs, simple_pipeline_strategies)
+    return ExecutionGraph.create(simple_pipeline_configs, simple_pipeline_strategies)
 
 
 # -- Graph construction tests ------------------------------------------------
@@ -63,17 +61,17 @@ def simple_graph(
 
 def test_build_basic_graph(simple_graph: ExecutionGraph) -> None:
     assert simple_graph.columns == ["topic", "question", "answer", "score"]
-    assert simple_graph.upstream("topic") == set()
-    assert simple_graph.upstream("question") == {"topic"}
-    assert simple_graph.upstream("answer") == {"question"}
-    assert simple_graph.upstream("score") == {"answer"}
+    assert simple_graph.get_upstream_columns("topic") == set()
+    assert simple_graph.get_upstream_columns("question") == {"topic"}
+    assert simple_graph.get_upstream_columns("answer") == {"question"}
+    assert simple_graph.get_upstream_columns("score") == {"answer"}
 
 
-def test_downstream(simple_graph: ExecutionGraph) -> None:
-    assert simple_graph.downstream("topic") == {"question"}
-    assert simple_graph.downstream("question") == {"answer"}
-    assert simple_graph.downstream("answer") == {"score"}
-    assert simple_graph.downstream("score") == set()
+def test_get_downstream_columns(simple_graph: ExecutionGraph) -> None:
+    assert simple_graph.get_downstream_columns("topic") == {"question"}
+    assert simple_graph.get_downstream_columns("question") == {"answer"}
+    assert simple_graph.get_downstream_columns("answer") == {"score"}
+    assert simple_graph.get_downstream_columns("score") == set()
 
 
 def test_strategy(simple_graph: ExecutionGraph) -> None:
@@ -81,14 +79,14 @@ def test_strategy(simple_graph: ExecutionGraph) -> None:
     assert simple_graph.strategy("question") == GenerationStrategy.CELL_BY_CELL
 
 
-def test_unknown_column_upstream() -> None:
+def test_unknown_column_get_upstream_columns() -> None:
     graph = ExecutionGraph()
-    assert graph.upstream("nonexistent") == set()
+    assert graph.get_upstream_columns("nonexistent") == set()
 
 
-def test_unknown_column_downstream() -> None:
+def test_unknown_column_get_downstream_columns() -> None:
     graph = ExecutionGraph()
-    assert graph.downstream("nonexistent") == set()
+    assert graph.get_downstream_columns("nonexistent") == set()
 
 
 # -- Side-effect resolution -------------------------------------------------
@@ -108,10 +106,10 @@ def test_side_effect_column_resolution() -> None:
         "summary": GenerationStrategy.CELL_BY_CELL,
         "trace_len": GenerationStrategy.FULL_COLUMN,
     }
-    graph = build_execution_graph(configs, strategies)
+    graph = ExecutionGraph.create(configs, strategies)
 
-    assert graph.upstream("trace_len") == {"summary"}
-    assert graph.downstream("summary") == {"trace_len"}
+    assert graph.get_upstream_columns("trace_len") == {"summary"}
+    assert graph.get_downstream_columns("summary") == {"trace_len"}
 
 
 def test_reasoning_content_side_effect() -> None:
@@ -128,9 +126,9 @@ def test_reasoning_content_side_effect() -> None:
         "answer": GenerationStrategy.CELL_BY_CELL,
         "reasoning": GenerationStrategy.FULL_COLUMN,
     }
-    graph = build_execution_graph(configs, strategies)
+    graph = ExecutionGraph.create(configs, strategies)
 
-    assert graph.upstream("reasoning") == {"answer"}
+    assert graph.get_upstream_columns("reasoning") == {"answer"}
 
 
 def test_side_effect_name_collision_prefers_real_column() -> None:
@@ -149,11 +147,11 @@ def test_side_effect_name_collision_prefers_real_column() -> None:
         "summary__trace": GenerationStrategy.FULL_COLUMN,
         "trace_len": GenerationStrategy.FULL_COLUMN,
     }
-    graph = build_execution_graph(configs, strategies)
+    graph = ExecutionGraph.create(configs, strategies)
 
-    assert graph.upstream("trace_len") == {"summary__trace"}
-    assert graph.downstream("summary__trace") == {"trace_len"}
-    assert graph.downstream("summary") == set()
+    assert graph.get_upstream_columns("trace_len") == {"summary__trace"}
+    assert graph.get_downstream_columns("summary__trace") == {"trace_len"}
+    assert graph.get_downstream_columns("summary") == set()
 
 
 # -- Validation tests -------------------------------------------------------
@@ -169,7 +167,7 @@ def test_circular_dependency_raises() -> None:
         "col_b": GenerationStrategy.CELL_BY_CELL,
     }
     with pytest.raises(DAGCircularDependencyError):
-        build_execution_graph(configs, strategies)
+        ExecutionGraph.create(configs, strategies)
 
 
 def test_unknown_required_column_raises() -> None:
@@ -178,7 +176,7 @@ def test_unknown_required_column_raises() -> None:
     ]
     strategies = {"col_a": GenerationStrategy.CELL_BY_CELL}
     with pytest.raises(ValueError, match="not a known producer"):
-        build_execution_graph(configs, strategies)
+        ExecutionGraph.create(configs, strategies)
 
 
 # -- Topological order ------------------------------------------------------
@@ -207,7 +205,7 @@ def test_parallel_columns_topological_order() -> None:
         "branch_b": GenerationStrategy.CELL_BY_CELL,
         "merge": GenerationStrategy.FULL_COLUMN,
     }
-    graph = build_execution_graph(configs, strategies)
+    graph = ExecutionGraph.create(configs, strategies)
     order = graph.topological_order()
     idx = {col: i for i, col in enumerate(order)}
 
@@ -220,12 +218,17 @@ def test_parallel_columns_topological_order() -> None:
 # -- Critical path ----------------------------------------------------------
 
 
-def test_critical_path(simple_graph: ExecutionGraph) -> None:
-    path = simple_graph.critical_path()
+def test_get_longest_dependency_chain_empty_graph() -> None:
+    graph = ExecutionGraph()
+    assert graph.get_longest_dependency_chain() == []
+
+
+def test_get_longest_dependency_chain(simple_graph: ExecutionGraph) -> None:
+    path = simple_graph.get_longest_dependency_chain()
     assert path == ["topic", "question", "answer", "score"]
 
 
-def test_critical_path_diamond() -> None:
+def test_get_longest_dependency_chain_diamond() -> None:
     """Diamond: seed → (a, b) → merge. Path is seed → a/b → merge (length 3)."""
     configs = [
         SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["X"]}),
@@ -239,8 +242,8 @@ def test_critical_path_diamond() -> None:
         "b": GenerationStrategy.CELL_BY_CELL,
         "merge": GenerationStrategy.FULL_COLUMN,
     }
-    graph = build_execution_graph(configs, strategies)
-    path = graph.critical_path()
+    graph = ExecutionGraph.create(configs, strategies)
+    path = graph.get_longest_dependency_chain()
 
     assert len(path) == 3
     assert path[0] == "seed"
@@ -273,13 +276,13 @@ def test_cell_deps_cell_by_cell_upstream(simple_graph: ExecutionGraph) -> None:
     """question depends on topic (full-column); answer depends on question (cell-by-cell)."""
     # answer[rg=0, row=2] should depend on question[rg=0, row=2]
     deps = simple_graph.cell_dependencies("answer", row_group=0, row_index=2, row_group_size=5)
-    assert deps == [("question", 0, 2)]
+    assert deps == [CellRef("question", 0, 2)]
 
 
 def test_cell_deps_full_column_upstream(simple_graph: ExecutionGraph) -> None:
     """question depends on topic (full-column)."""
     deps = simple_graph.cell_dependencies("question", row_group=0, row_index=1, row_group_size=5)
-    assert deps == [("topic", 0, None)]
+    assert deps == [CellRef("topic", 0, None)]
 
 
 def test_cell_deps_no_upstream(simple_graph: ExecutionGraph) -> None:
@@ -291,7 +294,7 @@ def test_cell_deps_no_upstream(simple_graph: ExecutionGraph) -> None:
 def test_cell_deps_full_column_downstream_of_cell_by_cell(simple_graph: ExecutionGraph) -> None:
     """score (full-column) depends on answer (cell-by-cell) → needs ALL rows."""
     deps = simple_graph.cell_dependencies("score", row_group=0, row_index=None, row_group_size=3)
-    assert sorted(deps) == [("answer", 0, 0), ("answer", 0, 1), ("answer", 0, 2)]
+    assert sorted(deps) == [CellRef("answer", 0, 0), CellRef("answer", 0, 1), CellRef("answer", 0, 2)]
 
 
 # -- Mermaid output ----------------------------------------------------------
@@ -324,11 +327,11 @@ def test_multi_column_config() -> None:
         "first_name": GenerationStrategy.FULL_COLUMN,
         "last_name": GenerationStrategy.FULL_COLUMN,
     }
-    graph = build_execution_graph(configs, strategies)
+    graph = ExecutionGraph.create(configs, strategies)
 
     assert set(graph.columns) == {"first_name", "last_name"}
-    assert graph.upstream("first_name") == set()
-    assert graph.upstream("last_name") == set()
+    assert graph.get_upstream_columns("first_name") == set()
+    assert graph.get_upstream_columns("last_name") == set()
 
 
 def test_multi_column_with_downstream_dependency() -> None:
@@ -349,9 +352,9 @@ def test_multi_column_with_downstream_dependency() -> None:
         "last_name": GenerationStrategy.FULL_COLUMN,
         "greeting": GenerationStrategy.CELL_BY_CELL,
     }
-    graph = build_execution_graph(configs, strategies)
+    graph = ExecutionGraph.create(configs, strategies)
 
-    assert graph.upstream("greeting") == {"first_name", "last_name"}
+    assert graph.get_upstream_columns("greeting") == {"first_name", "last_name"}
 
 
 # -- Validation column dependency -------------------------------------------
@@ -376,10 +379,10 @@ def test_validation_column_dependency() -> None:
         "code": GenerationStrategy.CELL_BY_CELL,
         "validation": GenerationStrategy.FULL_COLUMN,
     }
-    graph = build_execution_graph(configs, strategies)
+    graph = ExecutionGraph.create(configs, strategies)
 
-    assert graph.upstream("validation") == {"code"}
-    assert graph.downstream("code") == {"validation"}
+    assert graph.get_upstream_columns("validation") == {"code"}
+    assert graph.get_downstream_columns("code") == {"validation"}
 
 
 # -- Judge column dependency ------------------------------------------------
@@ -399,6 +402,6 @@ def test_judge_column_dependency() -> None:
         "text": GenerationStrategy.CELL_BY_CELL,
         "judge": GenerationStrategy.CELL_BY_CELL,
     }
-    graph = build_execution_graph(configs, strategies)
+    graph = ExecutionGraph.create(configs, strategies)
 
-    assert graph.upstream("judge") == {"text"}
+    assert graph.get_upstream_columns("judge") == {"text"}
