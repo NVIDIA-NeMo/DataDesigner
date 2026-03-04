@@ -374,7 +374,7 @@ Follow PEP 8 naming conventions:
 ### Code Organization
 
 - **Public before private**: Public functions/methods appear before private ones in modules and classes
-- **Class method order**: Static methods, then class methods, then instance methods
+- **Class method order**: `__init__` and other dunder methods first, then properties, then public methods, then private helpers. Group related method types together (e.g., all `@staticmethod`s in one block, all `@classmethod`s in one block).
 - **Prefer public over private for testability**: Use public functions (no `_` prefix) for helpers that benefit from direct testing
 - **Section comments in larger modules**: Use `# ---` separators to delineate logical groups (e.g. image parsing, usage extraction, generic accessors)
 
