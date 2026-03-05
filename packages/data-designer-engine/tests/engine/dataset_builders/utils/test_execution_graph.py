@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 import pytest
 
 from data_designer.config.column_configs import (
@@ -75,8 +77,8 @@ def test_get_downstream_columns(simple_graph: ExecutionGraph) -> None:
 
 
 def test_strategy(simple_graph: ExecutionGraph) -> None:
-    assert simple_graph.strategy("topic") == GenerationStrategy.FULL_COLUMN
-    assert simple_graph.strategy("question") == GenerationStrategy.CELL_BY_CELL
+    assert simple_graph.get_strategy("topic") == GenerationStrategy.FULL_COLUMN
+    assert simple_graph.get_strategy("question") == GenerationStrategy.CELL_BY_CELL
 
 
 def test_unknown_column_get_upstream_columns() -> None:
@@ -183,7 +185,7 @@ def test_unknown_required_column_raises() -> None:
 
 
 def test_topological_order(simple_graph: ExecutionGraph) -> None:
-    order = simple_graph.topological_order()
+    order = simple_graph.get_topological_order()
     idx = {col: i for i, col in enumerate(order)}
 
     assert idx["topic"] < idx["question"]
@@ -206,7 +208,7 @@ def test_parallel_columns_topological_order() -> None:
         "merge": GenerationStrategy.FULL_COLUMN,
     }
     graph = ExecutionGraph.create(configs, strategies)
-    order = graph.topological_order()
+    order = graph.get_topological_order()
     idx = {col: i for i, col in enumerate(order)}
 
     assert idx["seed"] < idx["branch_a"]
@@ -254,7 +256,7 @@ def test_get_longest_dependency_chain_diamond() -> None:
 
 
 def test_task_count(simple_graph: ExecutionGraph) -> None:
-    counts = simple_graph.task_count(num_records=10, buffer_size=3)
+    counts = simple_graph.compute_task_count(num_records=10, buffer_size=3)
 
     assert counts["topic"] == 4  # ceil(10/3) = 4 row groups
     assert counts["question"] == 10  # cell-by-cell
@@ -263,7 +265,7 @@ def test_task_count(simple_graph: ExecutionGraph) -> None:
 
 
 def test_task_count_exact_divisor(simple_graph: ExecutionGraph) -> None:
-    counts = simple_graph.task_count(num_records=9, buffer_size=3)
+    counts = simple_graph.compute_task_count(num_records=9, buffer_size=3)
 
     assert counts["topic"] == 3
     assert counts["question"] == 9
@@ -275,25 +277,25 @@ def test_task_count_exact_divisor(simple_graph: ExecutionGraph) -> None:
 def test_cell_deps_cell_by_cell_upstream(simple_graph: ExecutionGraph) -> None:
     """question depends on topic (full-column); answer depends on question (cell-by-cell)."""
     # answer[rg=0, row=2] should depend on question[rg=0, row=2]
-    deps = simple_graph.cell_dependencies("answer", row_group=0, row_index=2, row_group_size=5)
+    deps = simple_graph.compute_cell_dependencies("answer", row_group=0, row_index=2, row_group_size=5)
     assert deps == [CellRef("question", 0, 2)]
 
 
 def test_cell_deps_full_column_upstream(simple_graph: ExecutionGraph) -> None:
     """question depends on topic (full-column)."""
-    deps = simple_graph.cell_dependencies("question", row_group=0, row_index=1, row_group_size=5)
+    deps = simple_graph.compute_cell_dependencies("question", row_group=0, row_index=1, row_group_size=5)
     assert deps == [CellRef("topic", 0, None)]
 
 
 def test_cell_deps_no_upstream(simple_graph: ExecutionGraph) -> None:
     """topic has no upstream."""
-    deps = simple_graph.cell_dependencies("topic", row_group=0, row_index=None, row_group_size=5)
+    deps = simple_graph.compute_cell_dependencies("topic", row_group=0, row_index=None, row_group_size=5)
     assert deps == []
 
 
 def test_cell_deps_full_column_downstream_of_cell_by_cell(simple_graph: ExecutionGraph) -> None:
     """score (full-column) depends on answer (cell-by-cell) → needs ALL rows."""
-    deps = simple_graph.cell_dependencies("score", row_group=0, row_index=None, row_group_size=3)
+    deps = simple_graph.compute_cell_dependencies("score", row_group=0, row_index=None, row_group_size=3)
     assert sorted(deps) == [CellRef("answer", 0, 0), CellRef("answer", 0, 1), CellRef("answer", 0, 2)]
 
 
@@ -407,9 +409,9 @@ def test_mutating_downstream_does_not_affect_graph(simple_graph: ExecutionGraph)
 
 
 def test_mutating_topological_order_does_not_affect_cache(simple_graph: ExecutionGraph) -> None:
-    order1 = simple_graph.topological_order()
+    order1 = simple_graph.get_topological_order()
     order1.reverse()
-    order2 = simple_graph.topological_order()
+    order2 = simple_graph.get_topological_order()
     assert order2[0] == "topic"
 
 
