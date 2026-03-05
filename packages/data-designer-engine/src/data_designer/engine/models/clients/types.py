@@ -133,12 +133,12 @@ class TransportKwargs:
         2. Pops ``extra_body`` and merges its keys into the top-level body dict.
         3. Pops ``extra_headers`` into a separate headers dict.
         """
-        fields = cls._collect_optional_fields(request, exclude=exclude | cls._META_FIELDS)
+        optional_fields = cls._collect_optional_fields(request, exclude=exclude | cls._META_FIELDS)
 
         extra_body = getattr(request, "extra_body", None) or {}
         extra_headers = getattr(request, "extra_headers", None) or {}
 
-        return cls(body={**fields, **extra_body}, headers=dict(extra_headers))
+        return cls(body={**optional_fields, **extra_body}, headers=dict(extra_headers))
 
     @staticmethod
     def _collect_optional_fields(request: Any, *, exclude: frozenset[str] = frozenset()) -> dict[str, Any]:

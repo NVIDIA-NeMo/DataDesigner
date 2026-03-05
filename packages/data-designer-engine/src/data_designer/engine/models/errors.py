@@ -125,9 +125,15 @@ def handle_llm_exceptions(
     err_msg_parser = DownstreamLLMExceptionMessageParser(model_name, model_provider_name, purpose)
     match exception:
         # Canonical ProviderError from the client adapter layer
-        case ProviderError(kind=kind):
+        case ProviderError():
             _raise_from_provider_error(
-                exception, kind, model_name, model_provider_name, purpose, authentication_error, err_msg_parser
+                exception,
+                exception.kind,
+                model_name,
+                model_provider_name,
+                purpose,
+                authentication_error,
+                err_msg_parser,
             )
 
         # LiteLLM-specific errors (safety net during bridge period)

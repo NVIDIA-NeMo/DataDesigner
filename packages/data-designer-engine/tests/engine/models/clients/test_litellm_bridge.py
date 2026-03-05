@@ -307,7 +307,7 @@ def test_completion_wraps_router_exception_with_status_code(
     assert exc_info.value.kind == ProviderErrorKind.RATE_LIMIT
     assert exc_info.value.status_code == 429
     assert exc_info.value.provider_name == "stub-provider"
-    assert exc_info.value.cause is exc
+    assert exc_info.value.__cause__ is exc
 
 
 def test_completion_wraps_generic_router_exception(

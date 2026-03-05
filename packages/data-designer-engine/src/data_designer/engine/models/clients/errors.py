@@ -7,7 +7,6 @@ import calendar
 import email.utils
 import json
 import time
-from dataclasses import dataclass
 from enum import Enum
 
 from data_designer.engine.models.clients.types import HttpResponse
@@ -29,20 +28,26 @@ class ProviderErrorKind(str, Enum):
     UNSUPPORTED_CAPABILITY = "unsupported_capability"
 
 
-@dataclass
 class ProviderError(Exception):
-    kind: ProviderErrorKind
-    message: str
-    status_code: int | None = None
-    provider_name: str | None = None
-    model_name: str | None = None
-    retry_after: float | None = None
-    cause: Exception | None = None
-
-    def __post_init__(self) -> None:
-        Exception.__init__(self, self.message)
-        if self.cause is not None:
-            self.__cause__ = self.cause
+    def __init__(
+        self,
+        kind: ProviderErrorKind,
+        message: str,
+        status_code: int | None = None,
+        provider_name: str | None = None,
+        model_name: str | None = None,
+        retry_after: float | None = None,
+        cause: Exception | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.kind = kind
+        self.message = message
+        self.status_code = status_code
+        self.provider_name = provider_name
+        self.model_name = model_name
+        self.retry_after = retry_after
+        if cause is not None:
+            self.__cause__ = cause
 
     def __str__(self) -> str:
         return self.message
