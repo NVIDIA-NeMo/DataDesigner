@@ -35,7 +35,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "Cache miss — seeding from last successful build artifact..."
+          # Only seed when the cache dir is truly empty (no partial restore).
+          # A partial restore already has correct per-file hashes — seeding
+          # over it would write current hashes for old notebooks, masking changes.
+          if [ -d .notebook-cache ] && [ -n "$(ls -A .notebook-cache 2>/dev/null)" ]; then
+            echo "Partial cache restored — skipping artifact seed"
+            exit 0
+          fi
+          echo "Empty cache — seeding from last successful build artifact..."
           LAST_RUN_ID=$(gh run list --workflow build-notebooks.yml --status success --limit 1 --json databaseId -q '.[0].databaseId' 2>/dev/null || true)
           if [ -n "$LAST_RUN_ID" ]; then
             SEED_TMPDIR=$(mktemp -d)
@@ -45,7 +52,9 @@ jobs:
                 name="$(basename "$src" .py)"
                 nb="$SEED_TMPDIR/${name}.ipynb"
                 if [ -f "$nb" ]; then
+                  hash="$(sha256sum "$src" | cut -d' ' -f1)"
                   cp "$nb" ".notebook-cache/${name}.ipynb"
+                  echo "$hash" > ".notebook-cache/${name}.sha256"
                   echo "  Seeded: ${name}"
                 fi
               done
