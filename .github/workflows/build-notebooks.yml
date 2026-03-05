@@ -22,8 +22,45 @@ jobs:
           version: "0.9.5"
       - name: Set up Python
         run: uv python install 3.11
-      - name: Convert and execute notebooks
-        run: make convert-execute-notebooks
+      - name: Restore notebook cache
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: .notebook-cache
+          key: notebooks-${{ hashFiles('docs/notebook_source/*.py') }}
+          restore-keys: |
+            notebooks-
+      - name: Seed cache from last successful artifact
+        if: steps.cache.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Cache miss — seeding from last successful build artifact..."
+          LAST_RUN_ID=$(gh run list --workflow build-notebooks.yml --status success --limit 1 --json databaseId -q '.[0].databaseId' 2>/dev/null || true)
+          if [ -n "$LAST_RUN_ID" ]; then
+            TMPDIR=$(mktemp -d)
+            if gh run download "$LAST_RUN_ID" --name notebooks --dir "$TMPDIR" 2>/dev/null; then
+              mkdir -p .notebook-cache
+              for src in docs/notebook_source/*.py; do
+                name="$(basename "$src" .py)"
+                nb="$TMPDIR/${name}.ipynb"
+                if [ -f "$nb" ]; then
+                  hash="$(sha256sum "$src" | cut -d' ' -f1)"
+                  cp "$nb" ".notebook-cache/${name}.ipynb"
+                  echo "$hash" > ".notebook-cache/${name}.sha256"
+                  echo "  Seeded: ${name}"
+                fi
+              done
+              echo "Cache seeded from run $LAST_RUN_ID"
+            else
+              echo "Could not download artifact from run $LAST_RUN_ID, proceeding without cache"
+            fi
+            rm -rf "$TMPDIR"
+          else
+            echo "No previous successful run found, proceeding without cache"
+          fi
+      - name: Convert and execute notebooks (cached)
+        run: make convert-execute-notebooks USE_CACHE=1
       - name: Upload notebooks as artifacts
         uses: actions/upload-artifact@v4
         with:
