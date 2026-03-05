@@ -4,10 +4,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal, NamedTuple
+from typing import Any, Literal
 
 
-class CellRef(NamedTuple):
+@dataclass(frozen=True, order=True)
+class CellRef:
     """Reference to a cell (or batch when row_index is None) in the dataset grid."""
 
     column: str

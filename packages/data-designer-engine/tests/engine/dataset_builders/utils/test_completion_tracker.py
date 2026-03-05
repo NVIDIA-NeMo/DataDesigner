@@ -70,20 +70,20 @@ def test_mark_and_check_complete() -> None:
     tracker = CompletionTracker()
     tracker.mark_cell_complete("col_a", row_group=0, row_index=0)
 
-    assert tracker.is_complete("col_a", 0, 0)
-    assert not tracker.is_complete("col_a", 0, 1)
-    assert not tracker.is_complete("col_a", 1, 0)
-    assert not tracker.is_complete("col_b", 0, 0)
+    assert tracker.is_complete(CellRef("col_a", 0, 0))
+    assert not tracker.is_complete(CellRef("col_a", 0, 1))
+    assert not tracker.is_complete(CellRef("col_a", 1, 0))
+    assert not tracker.is_complete(CellRef("col_b", 0, 0))
 
 
 def test_mark_row_range_complete() -> None:
     tracker = CompletionTracker()
     tracker.mark_row_range_complete("col_a", row_group=0, row_group_size=3)
 
-    assert tracker.is_complete("col_a", 0, 0)
-    assert tracker.is_complete("col_a", 0, 1)
-    assert tracker.is_complete("col_a", 0, 2)
-    assert not tracker.is_complete("col_a", 0, 3)
+    assert tracker.is_complete(CellRef("col_a", 0, 0))
+    assert tracker.is_complete(CellRef("col_a", 0, 1))
+    assert tracker.is_complete(CellRef("col_a", 0, 2))
+    assert not tracker.is_complete(CellRef("col_a", 0, 3))
 
 
 def test_mark_row_range_complete_raises_on_size_mismatch(ready_ctx: ReadyTasksFixture) -> None:

@@ -65,8 +65,8 @@ class CompletionTracker:
             self._frontier.discard(Task(column=column, row_group=row_group, row_index=None, task_type="batch"))
             self._enqueue_downstream(column, row_group, row_index=None)
 
-    def is_complete(self, column: str, row_group: int, row_index: int) -> bool:
-        return row_index in self._completed.get(row_group, {}).get(column, set())
+    def is_complete(self, cell: CellRef) -> bool:
+        return cell.row_index in self._completed.get(cell.row_group, {}).get(cell.column, set())
 
     def is_all_complete(self, cells: list[CellRef]) -> bool:
         """Check whether all the given cells are done.
@@ -74,11 +74,11 @@ class CompletionTracker:
         A ``row_index`` of ``None`` means the entire batch for that column must
         have been completed via ``mark_row_range_complete``.
         """
-        for col, rg, ri in cells:
-            if ri is None:
-                if col not in self._batch_complete.get(rg, set()):
+        for cell in cells:
+            if cell.row_index is None:
+                if cell.column not in self._batch_complete.get(cell.row_group, set()):
                     return False
-            elif not self.is_complete(col, rg, ri):
+            elif not self.is_complete(cell):
                 return False
         return True
 
@@ -172,7 +172,7 @@ class CompletionTracker:
                             self._frontier.add(task)
             else:
                 # FULL_COLUMN downstream: ready when all cell upstreams are fully complete
-                if down not in rg_completed and self._are_cell_ups_complete(
+                if down not in rg_batch_complete and self._are_cell_ups_complete(
                     cell_ups, rg_completed, rg_size, rg_dropped
                 ):
                     task = Task(column=down, row_group=row_group, row_index=None, task_type="batch")
@@ -189,7 +189,7 @@ class CompletionTracker:
         for col in self._graph.get_topological_order():
             if self._graph.get_strategy(col) != GenerationStrategy.FULL_COLUMN:
                 continue
-            if col in rg_completed:
+            if col in rg_batch_complete:
                 continue
             batch_ups, cell_ups = self._graph.split_upstream_by_strategy(col)
             if any(up not in rg_batch_complete for up in batch_ups):
