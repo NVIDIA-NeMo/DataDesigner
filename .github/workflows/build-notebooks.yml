@@ -24,6 +24,7 @@ jobs:
       - name: Set up Python
         run: uv python install 3.11
       - name: Restore notebook cache
+        if: github.event_name == 'workflow_call'
         id: cache
         uses: actions/cache@v4
         with:
@@ -32,7 +33,7 @@ jobs:
           restore-keys: |
             notebooks-
       - name: Seed cache from last successful artifact
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: github.event_name == 'workflow_call' && steps.cache.outputs.cache-hit != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -67,8 +68,13 @@ jobs:
           else
             echo "No previous successful run found, proceeding without cache"
           fi
-      - name: Convert and execute notebooks (cached)
-        run: make convert-execute-notebooks USE_CACHE=1
+      - name: Convert and execute notebooks
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_call" ]; then
+            make convert-execute-notebooks USE_CACHE=1
+          else
+            make convert-execute-notebooks
+          fi
       - name: Upload notebooks as artifacts
         uses: actions/upload-artifact@v4
         with:
