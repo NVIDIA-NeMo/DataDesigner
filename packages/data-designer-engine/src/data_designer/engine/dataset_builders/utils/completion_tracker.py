@@ -84,13 +84,13 @@ class CompletionTracker:
         assert self._graph is not None
         rg_completed = self._completed.get(row_group, {})
         rg_dropped = self._dropped.get(row_group, set())
+        rg_batch_complete = self._batch_complete.get(row_group, set())
         rg_size = self._row_group_sizes[row_group]
 
         for down in self._graph.get_downstream_columns(column):
             batch_ups, cell_ups = self._graph.upstream_by_strategy(down)
 
-            # All batch upstreams must be present in completed dict
-            if any(up not in rg_completed for up in batch_ups):
+            if any(up not in rg_batch_complete for up in batch_ups):
                 continue
 
             down_strategy = self._graph.strategy(down)
@@ -156,6 +156,7 @@ class CompletionTracker:
         assert self._graph is not None
         rg_completed = self._completed.get(row_group, {})
         rg_dropped = self._dropped.get(row_group, set())
+        rg_batch_complete = self._batch_complete.get(row_group, set())
         rg_size = self._row_group_sizes[row_group]
 
         for col in self._graph.topological_order():
@@ -164,7 +165,7 @@ class CompletionTracker:
             if col in rg_completed:
                 continue
             batch_ups, cell_ups = self._graph.upstream_by_strategy(col)
-            if any(up not in rg_completed for up in batch_ups):
+            if any(up not in rg_batch_complete for up in batch_ups):
                 continue
             if self._are_cell_ups_complete(cell_ups, rg_completed, rg_size, rg_dropped):
                 task = Task(column=col, row_group=row_group, row_index=None, task_type="batch")

@@ -34,6 +34,8 @@ class ExecutionGraph:
 
     def add_column(self, name: str, strategy: GenerationStrategy) -> None:
         """Register a column and its generation strategy."""
+        if name in self._strategies:
+            raise ValueError(f"Column '{name}' is already registered.")
         self._columns.append(name)
         self._strategies[name] = strategy
 
@@ -150,6 +152,8 @@ class ExecutionGraph:
         Cell-by-cell columns produce ``num_records`` tasks.
         Full-column columns (including from-scratch) produce ``ceil(num_records / buffer_size)`` tasks.
         """
+        if buffer_size <= 0:
+            raise ValueError(f"buffer_size must be a positive integer, got {buffer_size}")
         num_row_groups = math.ceil(num_records / buffer_size)
         counts: dict[str, int] = {}
         for col in self._columns:

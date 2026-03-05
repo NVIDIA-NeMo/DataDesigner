@@ -385,9 +385,6 @@ def test_validation_column_dependency() -> None:
     assert graph.get_downstream_columns("code") == {"validation"}
 
 
-# -- Judge column dependency ------------------------------------------------
-
-
 # -- Immutability tests -----------------------------------------------------
 
 
