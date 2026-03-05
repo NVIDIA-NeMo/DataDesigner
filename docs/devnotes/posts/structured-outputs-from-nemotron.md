@@ -8,6 +8,8 @@ authors:
 
 Using [NeMo Data Designer](https://github.com/NVIDIA-NeMo/DataDesigner), an orchestration framework for generating high-quality synthetic data at scale, we built an iterative pipeline that generates diverse, schema-constrained structured outputs across JSON, YAML, and XML. Through multiple rounds of prompt refinement, rejection sampling, and programmatic validation, we produced a 9,949-sample dataset of verified structured output training data.
 
+<!-- more -->
+
 The dataset is publicly available: **[Download it on HuggingFace](https://huggingface.co/datasets/nvidia/Nemotron-RL-instruction_following-structured_outputs)** (CC BY 4.0).
 
 This post walks through the full SDG pipeline: schema generation, multi-format rollouts, rejection sampling, and the caveats we discovered along the way.

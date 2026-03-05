@@ -5,10 +5,12 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import TYPE_CHECKING
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 import data_designer.lazy_heavy_imports as lazy
+from data_designer.config.column_types import get_column_display_order
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.utils.code_lang import CodeLang
 from data_designer.config.utils.errors import DatasetSampleDisplayError
@@ -266,6 +268,55 @@ def test_convert_to_row_element_renders_non_scalar_types() -> None:
         table = Table()
         table.add_column("Value")
         table.add_row(result)
+
+
+def test_display_sample_record_includes_plugin_column_types(
+    validation_output: dict,
+    config_builder_with_validation: DataDesignerConfigBuilder,
+    tmp_path: Path,
+) -> None:
+    """Plugin columns and their side-effect columns should appear in the rendered output (fixes #345)."""
+    from types import SimpleNamespace
+
+    fake_plugin_type = "fake-plugin-type"
+    fake_col = SimpleNamespace(
+        name="plugin_output",
+        column_type=fake_plugin_type,
+        drop=False,
+        side_effect_columns=["plugin_side_effect"],
+    )
+
+    record = lazy.pd.Series(
+        {
+            "code": "print('hello world')",
+            "code_validation_result": validation_output,
+            "plugin_output": "primary plugin value",
+            "plugin_side_effect": "side effect value",
+        }
+    )
+
+    extended_order = get_column_display_order() + [fake_plugin_type]
+    original_get_columns = config_builder_with_validation.get_columns_of_type
+    mock_get_columns = MagicMock(
+        side_effect=lambda ct: [fake_col] if ct == fake_plugin_type else original_get_columns(ct)
+    )
+    config_builder_with_validation.get_columns_of_type = mock_get_columns
+
+    save_path = tmp_path / "output.html"
+    with (
+        patch("data_designer.config.utils.visualization.get_column_display_order", return_value=extended_order),
+        patch(
+            "data_designer.config.utils.visualization.is_plugin_column_type",
+            side_effect=lambda ct: ct == fake_plugin_type,
+        ),
+    ):
+        display_sample_record(record, config_builder_with_validation, save_path=save_path)
+
+    content = save_path.read_text()
+    assert "plugin_output" in content, "Plugin column name missing from rendered output"
+    assert "primary plugin value" in content, "Plugin column value missing from rendered output"
+    assert "plugin_side_effect" in content, "Plugin side-effect column name missing from rendered output"
+    assert "side effect value" in content, "Plugin side-effect column value missing from rendered output"
 
 
 def test_mixin_out_of_bounds_raises_display_error(
