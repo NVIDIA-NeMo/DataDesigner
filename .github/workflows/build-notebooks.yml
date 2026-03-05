@@ -1,7 +1,16 @@
 name: Build notebooks
 on:
   workflow_call:
+    inputs:
+      use_cache:
+        type: boolean
+        default: true
   workflow_dispatch:
+    inputs:
+      use_cache:
+        description: "Use cached notebooks for unchanged sources"
+        type: boolean
+        default: false
   schedule:
     - cron: "0 12 * * MON"
 
@@ -24,7 +33,7 @@ jobs:
       - name: Set up Python
         run: uv python install 3.11
       - name: Restore notebook cache
-        if: github.event_name == 'workflow_call'
+        if: inputs.use_cache
         id: cache
         uses: actions/cache@v4
         with:
@@ -33,7 +42,7 @@ jobs:
           restore-keys: |
             notebooks-
       - name: Seed cache from last successful artifact
-        if: github.event_name == 'workflow_call' && steps.cache.outputs.cache-hit != 'true'
+        if: inputs.use_cache && steps.cache.outputs.cache-hit != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -69,12 +78,7 @@ jobs:
             echo "No previous successful run found, proceeding without cache"
           fi
       - name: Convert and execute notebooks
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_call" ]; then
-            make convert-execute-notebooks USE_CACHE=1
-          else
-            make convert-execute-notebooks
-          fi
+        run: make convert-execute-notebooks ${{ inputs.use_cache && 'USE_CACHE=1' || '' }}
       - name: Upload notebooks as artifacts
         uses: actions/upload-artifact@v4
         with:
