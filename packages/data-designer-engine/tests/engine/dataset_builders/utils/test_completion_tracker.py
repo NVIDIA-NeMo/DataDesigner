@@ -93,7 +93,7 @@ def test_mark_row_range_complete_raises_on_size_mismatch(ready_ctx: ReadyTasksFi
 
 def test_mark_cell_complete_raises_on_unknown_row_group(ready_ctx: ReadyTasksFixture) -> None:
     with pytest.raises(ValueError, match="Unknown row_group"):
-        ready_ctx.tracker.mark_cell_complete("topic", row_group=999, row_index=0)
+        ready_ctx.tracker.mark_cell_complete("question", row_group=999, row_index=0)
 
 
 # -- is_all_complete -----------------------------------------------------------
