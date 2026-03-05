@@ -17,7 +17,6 @@ from data_designer.engine.models.clients.errors import (
 from data_designer.engine.models.clients.parsing import (
     aextract_images_from_chat_response,
     aextract_images_from_image_response,
-    collect_non_none_optional_fields,
     extract_embedding_vector,
     extract_images_from_chat_response,
     extract_images_from_image_response,
@@ -31,6 +30,7 @@ from data_designer.engine.models.clients.types import (
     EmbeddingResponse,
     ImageGenerationRequest,
     ImageGenerationResponse,
+    TransportKwargs,
 )
 
 logger = logging.getLogger(__name__)
@@ -74,58 +74,68 @@ class LiteLLMBridgeClient(ModelClient):
         return True
 
     def completion(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
+        transport = TransportKwargs.from_request(request)
         with _handle_non_provider_errors(self.provider_name):
             response = self._router.completion(
                 model=request.model,
                 messages=request.messages,
-                **collect_non_none_optional_fields(request),
+                extra_headers=transport.headers or None,
+                **transport.body,
             )
         return parse_chat_completion_response(response)
 
     async def acompletion(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
+        transport = TransportKwargs.from_request(request)
         with _handle_non_provider_errors(self.provider_name):
             response = await self._router.acompletion(
                 model=request.model,
                 messages=request.messages,
-                **collect_non_none_optional_fields(request),
+                extra_headers=transport.headers or None,
+                **transport.body,
             )
         return parse_chat_completion_response(response)
 
     def embeddings(self, request: EmbeddingRequest) -> EmbeddingResponse:
+        transport = TransportKwargs.from_request(request)
         with _handle_non_provider_errors(self.provider_name):
             response = self._router.embedding(
                 model=request.model,
                 input=request.inputs,
-                **collect_non_none_optional_fields(request),
+                extra_headers=transport.headers or None,
+                **transport.body,
             )
         vectors = [extract_embedding_vector(item) for item in getattr(response, "data", [])]
         return EmbeddingResponse(vectors=vectors, usage=extract_usage(getattr(response, "usage", None)), raw=response)
 
     async def aembeddings(self, request: EmbeddingRequest) -> EmbeddingResponse:
+        transport = TransportKwargs.from_request(request)
         with _handle_non_provider_errors(self.provider_name):
             response = await self._router.aembedding(
                 model=request.model,
                 input=request.inputs,
-                **collect_non_none_optional_fields(request),
+                extra_headers=transport.headers or None,
+                **transport.body,
             )
         vectors = [extract_embedding_vector(item) for item in getattr(response, "data", [])]
         return EmbeddingResponse(vectors=vectors, usage=extract_usage(getattr(response, "usage", None)), raw=response)
 
     def generate_image(self, request: ImageGenerationRequest) -> ImageGenerationResponse:
-        image_kwargs = collect_non_none_optional_fields(request, exclude=self._IMAGE_EXCLUDE)
+        transport = TransportKwargs.from_request(request, exclude=self._IMAGE_EXCLUDE)
         with _handle_non_provider_errors(self.provider_name):
             if request.messages is not None:
                 response = self._router.completion(
                     model=request.model,
                     messages=request.messages,
-                    **image_kwargs,
+                    extra_headers=transport.headers or None,
+                    **transport.body,
                 )
                 images = extract_images_from_chat_response(response)
             else:
                 response = self._router.image_generation(
                     prompt=request.prompt,
                     model=request.model,
-                    **image_kwargs,
+                    extra_headers=transport.headers or None,
+                    **transport.body,
                 )
                 images = extract_images_from_image_response(response)
 
@@ -133,20 +143,22 @@ class LiteLLMBridgeClient(ModelClient):
         return ImageGenerationResponse(images=images, usage=usage, raw=response)
 
     async def agenerate_image(self, request: ImageGenerationRequest) -> ImageGenerationResponse:
-        image_kwargs = collect_non_none_optional_fields(request, exclude=self._IMAGE_EXCLUDE)
+        transport = TransportKwargs.from_request(request, exclude=self._IMAGE_EXCLUDE)
         with _handle_non_provider_errors(self.provider_name):
             if request.messages is not None:
                 response = await self._router.acompletion(
                     model=request.model,
                     messages=request.messages,
-                    **image_kwargs,
+                    extra_headers=transport.headers or None,
+                    **transport.body,
                 )
                 images = await aextract_images_from_chat_response(response)
             else:
                 response = await self._router.aimage_generation(
                     prompt=request.prompt,
                     model=request.model,
-                    **image_kwargs,
+                    extra_headers=transport.headers or None,
+                    **transport.body,
                 )
                 images = await aextract_images_from_image_response(response)
 

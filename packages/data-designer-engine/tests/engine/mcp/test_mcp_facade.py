@@ -33,29 +33,29 @@ def _make_response(
 
 
 # =============================================================================
-# tool_call_count() tests
+# get_tool_call_count() tests
 # =============================================================================
 
 
 def test_tool_call_count_no_tools(mock_completion_response_no_tools: ChatCompletionResponse) -> None:
     """Returns 0 when response has no tool calls."""
-    assert MCPFacade.tool_call_count(mock_completion_response_no_tools) == 0
+    assert MCPFacade.get_tool_call_count(mock_completion_response_no_tools) == 0
 
 
 def test_tool_call_count_single_tool(mock_completion_response_single_tool: ChatCompletionResponse) -> None:
     """Returns 1 for single tool call."""
-    assert MCPFacade.tool_call_count(mock_completion_response_single_tool) == 1
+    assert MCPFacade.get_tool_call_count(mock_completion_response_single_tool) == 1
 
 
 def test_tool_call_count_parallel_tools(mock_completion_response_parallel_tools: ChatCompletionResponse) -> None:
     """Returns correct count for parallel tool calls (e.g., 3)."""
-    assert MCPFacade.tool_call_count(mock_completion_response_parallel_tools) == 3
+    assert MCPFacade.get_tool_call_count(mock_completion_response_parallel_tools) == 3
 
 
 def test_tool_call_count_none_tool_calls_attribute() -> None:
     """Returns 0 when tool_calls is empty."""
     response = _make_response(content="Hello")
-    assert MCPFacade.tool_call_count(response) == 0
+    assert MCPFacade.get_tool_call_count(response) == 0
 
 
 # =============================================================================

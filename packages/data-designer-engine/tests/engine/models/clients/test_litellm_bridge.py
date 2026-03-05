@@ -58,13 +58,13 @@ def test_completion_maps_canonical_fields_from_litellm_response(
     mock_router.completion.assert_called_once_with(
         model="stub-model",
         messages=[{"role": "user", "content": "hello"}],
+        extra_headers={"x-trace": "1"},
         tools=[{"type": "function", "function": {"name": "lookup"}}],
         temperature=0.2,
         top_p=0.8,
         max_tokens=256,
-        extra_body={"foo": "bar"},
-        extra_headers={"x-trace": "1"},
         metadata={"trace_id": "abc"},
+        foo="bar",
     )
 
 
@@ -84,6 +84,7 @@ async def test_acompletion_maps_canonical_fields_from_litellm_response(
     mock_router.acompletion.assert_awaited_once_with(
         model="stub-model",
         messages=[{"role": "user", "content": "hello"}],
+        extra_headers=None,
     )
 
 
@@ -108,6 +109,7 @@ def test_embeddings_maps_vectors_and_usage(
     mock_router.embedding.assert_called_once_with(
         model="stub-model",
         input=["a", "b"],
+        extra_headers=None,
         encoding_format="float",
         dimensions=32,
     )
@@ -148,6 +150,7 @@ def test_generate_image_uses_chat_completion_path_when_messages_provided(
     mock_router.completion.assert_called_once_with(
         model="stub-model",
         messages=messages,
+        extra_headers=None,
         n=1,
     )
     mock_router.image_generation.assert_not_called()
@@ -176,7 +179,9 @@ def test_generate_image_uses_diffusion_path_without_messages(
     assert result.usage.output_tokens == 12
     assert result.usage.total_tokens == 21
     assert result.usage.generated_images == 2
-    mock_router.image_generation.assert_called_once_with(prompt="make an image", model="stub-model", n=2)
+    mock_router.image_generation.assert_called_once_with(
+        prompt="make an image", model="stub-model", extra_headers=None, n=2
+    )
 
 
 @pytest.mark.asyncio
@@ -197,7 +202,7 @@ async def test_aembeddings_maps_vectors_and_usage(
     assert result.usage is not None
     assert result.usage.input_tokens == 5
     assert result.raw is response
-    mock_router.aembedding.assert_awaited_once_with(model="stub-model", input=["x", "y"])
+    mock_router.aembedding.assert_awaited_once_with(model="stub-model", input=["x", "y"], extra_headers=None)
 
 
 def test_completion_coerces_list_content_blocks_to_string(
@@ -245,7 +250,9 @@ async def test_agenerate_image_uses_diffusion_path_without_messages(
     assert result.images[0].b64_data == "YXN5bmM="
     assert result.usage is not None
     assert result.usage.generated_images == 1
-    mock_router.aimage_generation.assert_awaited_once_with(prompt="async image", model="stub-model", n=1)
+    mock_router.aimage_generation.assert_awaited_once_with(
+        prompt="async image", model="stub-model", extra_headers=None, n=1
+    )
 
 
 def test_completion_with_empty_choices_returns_empty_message(

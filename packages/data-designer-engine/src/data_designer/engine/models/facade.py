@@ -95,6 +95,18 @@ class ModelFacade:
     def usage_stats(self) -> ModelUsageStats:
         return self._usage_stats
 
+    def consolidate_kwargs(self, **kwargs: Any) -> dict[str, Any]:
+        # Remove purpose from kwargs to avoid passing it to the model
+        kwargs.pop("purpose", None)
+        kwargs = {**self._model_config.inference_parameters.generate_kwargs, **kwargs}
+        if self.model_provider.extra_body:
+            kwargs["extra_body"] = {**kwargs.get("extra_body", {}), **self.model_provider.extra_body}
+        if self.model_provider.extra_headers:
+            kwargs["extra_headers"] = self.model_provider.extra_headers
+        return kwargs
+
+    # --- completion / acompletion ---
+
     def completion(
         self, messages: list[ChatMessage], skip_usage_tracking: bool = False, **kwargs: Any
     ) -> ChatCompletionResponse:
@@ -122,15 +134,34 @@ class ModelFacade:
             if not skip_usage_tracking and response is not None:
                 self._track_usage(response.usage, is_request_successful=True)
 
-    def consolidate_kwargs(self, **kwargs: Any) -> dict[str, Any]:
-        # Remove purpose from kwargs to avoid passing it to the model
-        kwargs.pop("purpose", None)
-        kwargs = {**self._model_config.inference_parameters.generate_kwargs, **kwargs}
-        if self.model_provider.extra_body:
-            kwargs["extra_body"] = {**kwargs.get("extra_body", {}), **self.model_provider.extra_body}
-        if self.model_provider.extra_headers:
-            kwargs["extra_headers"] = self.model_provider.extra_headers
-        return kwargs
+    async def acompletion(
+        self, messages: list[ChatMessage], skip_usage_tracking: bool = False, **kwargs: Any
+    ) -> ChatCompletionResponse:
+        message_payloads = [message.to_dict() for message in messages]
+        logger.debug(
+            f"Prompting model {self.model_name!r}...",
+            extra={"model": self.model_name, "messages": message_payloads},
+        )
+        response = None
+        kwargs = self.consolidate_kwargs(**kwargs)
+        try:
+            request = self._build_chat_completion_request(message_payloads, kwargs)
+            response = await self._client.acompletion(request)
+            logger.debug(
+                f"Received completion from model {self.model_name!r}",
+                extra={
+                    "model": self.model_name,
+                    "response": response,
+                    "text": response.message.content,
+                    "usage": self._usage_stats.model_dump(),
+                },
+            )
+            return response
+        finally:
+            if not skip_usage_tracking and response is not None:
+                self._track_usage(response.usage, is_request_successful=True)
+
+    # --- generate / agenerate ---
 
     @catch_llm_exceptions
     def generate(
@@ -227,7 +258,7 @@ class ModelFacade:
             # Process any tool calls in the response (handles parallel tool calling)
             if mcp_facade is not None and mcp_facade.has_tool_calls(completion_response):
                 tool_call_turns += 1
-                total_tool_calls += mcp_facade.tool_call_count(completion_response)
+                total_tool_calls += mcp_facade.get_tool_call_count(completion_response)
 
                 if tool_call_turns > mcp_facade.max_tool_call_turns:
                     # Gracefully refuse tool calls when budget is exhausted
@@ -280,6 +311,105 @@ class ModelFacade:
 
         return output_obj, messages
 
+    @acatch_llm_exceptions
+    async def agenerate(
+        self,
+        prompt: str,
+        *,
+        parser: Callable[[str], Any] = _identity,
+        system_prompt: str | None = None,
+        multi_modal_context: list[dict[str, Any]] | None = None,
+        tool_alias: str | None = None,
+        max_correction_steps: int = 0,
+        max_conversation_restarts: int = 0,
+        skip_usage_tracking: bool = False,
+        purpose: str | None = None,
+        **kwargs: Any,
+    ) -> tuple[Any, list[ChatMessage]]:
+        output_obj = None
+        tool_schemas = None
+        tool_call_turns = 0
+        total_tool_calls = 0
+        curr_num_correction_steps = 0
+        curr_num_restarts = 0
+
+        mcp_facade = self._get_mcp_facade(tool_alias)
+
+        restart_checkpoint = prompt_to_messages(
+            user_prompt=prompt, system_prompt=system_prompt, multi_modal_context=multi_modal_context
+        )
+        checkpoint_tool_call_turns = 0
+        messages: list[ChatMessage] = deepcopy(restart_checkpoint)
+
+        if mcp_facade is not None:
+            tool_schemas = await asyncio.to_thread(mcp_facade.get_tool_schemas)
+
+        while True:
+            completion_kwargs = dict(kwargs)
+            if tool_schemas is not None:
+                completion_kwargs["tools"] = tool_schemas
+
+            completion_response = await self.acompletion(
+                messages,
+                skip_usage_tracking=skip_usage_tracking,
+                **completion_kwargs,
+            )
+
+            if mcp_facade is not None and mcp_facade.has_tool_calls(completion_response):
+                tool_call_turns += 1
+                total_tool_calls += mcp_facade.get_tool_call_count(completion_response)
+
+                if tool_call_turns > mcp_facade.max_tool_call_turns:
+                    messages.extend(mcp_facade.refuse_completion_response(completion_response))
+                else:
+                    messages.extend(
+                        await asyncio.to_thread(mcp_facade.process_completion_response, completion_response)
+                    )
+
+                restart_checkpoint = deepcopy(messages)
+                checkpoint_tool_call_turns = tool_call_turns
+
+                continue
+
+            response = (completion_response.message.content or "").strip()
+            reasoning_trace = completion_response.message.reasoning_content
+            messages.append(ChatMessage.as_assistant(content=response, reasoning_content=reasoning_trace or None))
+            curr_num_correction_steps += 1
+
+            try:
+                output_obj = parser(response)
+                break
+            except ParserException as exc:
+                if max_correction_steps == 0 and max_conversation_restarts == 0:
+                    raise GenerationValidationFailureError(
+                        "Unsuccessful generation attempt. No retries were attempted."
+                    ) from exc
+
+                if curr_num_correction_steps <= max_correction_steps:
+                    messages.append(ChatMessage.as_user(content=str(get_exception_primary_cause(exc))))
+
+                elif curr_num_restarts < max_conversation_restarts:
+                    curr_num_correction_steps = 0
+                    curr_num_restarts += 1
+                    messages = deepcopy(restart_checkpoint)
+                    tool_call_turns = checkpoint_tool_call_turns
+
+                else:
+                    raise GenerationValidationFailureError(
+                        f"Unsuccessful generation despite {max_correction_steps} correction steps "
+                        f"and {max_conversation_restarts} conversation restarts."
+                    ) from exc
+
+        if not skip_usage_tracking and mcp_facade is not None:
+            self._usage_stats.tool_usage.extend(
+                tool_calls=total_tool_calls,
+                tool_call_turns=tool_call_turns,
+            )
+
+        return output_obj, messages
+
+    # --- generate_text_embeddings / agenerate_text_embeddings ---
+
     @catch_llm_exceptions
     def generate_text_embeddings(
         self, input_texts: list[str], skip_usage_tracking: bool = False, **kwargs: Any
@@ -310,6 +440,39 @@ class ModelFacade:
         finally:
             if not skip_usage_tracking and response is not None:
                 self._track_usage(response.usage, is_request_successful=True)
+
+    @acatch_llm_exceptions
+    async def agenerate_text_embeddings(
+        self, input_texts: list[str], skip_usage_tracking: bool = False, **kwargs: Any
+    ) -> list[list[float]]:
+        logger.debug(
+            f"Generating embeddings with model {self.model_name!r}...",
+            extra={
+                "model": self.model_name,
+                "input_count": len(input_texts),
+            },
+        )
+        kwargs = self.consolidate_kwargs(**kwargs)
+        response: EmbeddingResponse | None = None
+        try:
+            request = self._build_embedding_request(input_texts, kwargs)
+            response = await self._client.aembeddings(request)
+            logger.debug(
+                f"Received embeddings from model {self.model_name!r}",
+                extra={
+                    "model": self.model_name,
+                    "embedding_count": len(response.vectors),
+                    "usage": self._usage_stats.model_dump(),
+                },
+            )
+            if len(response.vectors) == len(input_texts):
+                return response.vectors
+            raise ValueError(f"Expected {len(input_texts)} embeddings, but received {len(response.vectors)}")
+        finally:
+            if not skip_usage_tracking and response is not None:
+                self._track_usage(response.usage, is_request_successful=True)
+
+    # --- generate_image / agenerate_image ---
 
     @catch_llm_exceptions
     def generate_image(
@@ -355,12 +518,73 @@ class ModelFacade:
         if not images:
             raise ImageGenerationError("No image data found in image generation response")
 
-        # Track image usage
         if not skip_usage_tracking and images:
             self._usage_stats.extend(image_usage=ImageUsageStats(total_images=len(images)))
             self._track_usage(response.usage, is_request_successful=True)
 
         return images
+
+    @acatch_llm_exceptions
+    async def agenerate_image(
+        self,
+        prompt: str,
+        multi_modal_context: list[dict[str, Any]] | None = None,
+        skip_usage_tracking: bool = False,
+        **kwargs: Any,
+    ) -> list[str]:
+        """Async version of generate_image. Generate image(s) and return base64-encoded data.
+
+        Automatically detects the appropriate API based on model name:
+        - Diffusion models (DALL-E, Stable Diffusion, Imagen, etc.) -> image_generation API
+        - All other models -> chat/completions API (default)
+
+        Both paths return base64-encoded image data. If the API returns multiple images,
+        all are returned in the list.
+
+        Args:
+            prompt: The prompt for image generation
+            multi_modal_context: Optional list of image contexts for multi-modal generation.
+                Only used with autoregressive models via chat completions API.
+            skip_usage_tracking: Whether to skip usage tracking
+            **kwargs: Additional arguments to pass to the model (including n=number of images)
+
+        Returns:
+            List of base64-encoded image strings (without data URI prefix)
+
+        Raises:
+            ImageGenerationError: If image generation fails or returns invalid data
+        """
+        logger.debug(
+            f"Generating image with model {self.model_name!r}...",
+            extra={"model": self.model_name, "prompt": prompt},
+        )
+
+        kwargs = self.consolidate_kwargs(**kwargs)
+        request = self._build_image_generation_request(prompt, multi_modal_context, kwargs)
+        response = await self._client.agenerate_image(request)
+
+        images = [img.b64_data for img in response.images]
+
+        if not images:
+            raise ImageGenerationError("No image data found in image generation response")
+
+        if not skip_usage_tracking and images:
+            self._usage_stats.extend(image_usage=ImageUsageStats(total_images=len(images)))
+            self._track_usage(response.usage, is_request_successful=True)
+
+        return images
+
+    # --- close / aclose ---
+
+    def close(self) -> None:
+        """Release resources held by the underlying client."""
+        self._client.close()
+
+    async def aclose(self) -> None:
+        """Async release resources held by the underlying client."""
+        await self._client.aclose()
+
+    # --- private helpers ---
 
     def _get_mcp_facade(self, tool_alias: str | None) -> MCPFacade | None:
         if tool_alias is None:
@@ -450,217 +674,3 @@ class ModelFacade:
             token_usage=token_usage,
             request_usage=RequestUsageStats(successful_requests=1, failed_requests=0),
         )
-
-    async def acompletion(
-        self, messages: list[ChatMessage], skip_usage_tracking: bool = False, **kwargs: Any
-    ) -> ChatCompletionResponse:
-        message_payloads = [message.to_dict() for message in messages]
-        logger.debug(
-            f"Prompting model {self.model_name!r}...",
-            extra={"model": self.model_name, "messages": message_payloads},
-        )
-        response = None
-        kwargs = self.consolidate_kwargs(**kwargs)
-        try:
-            request = self._build_chat_completion_request(message_payloads, kwargs)
-            response = await self._client.acompletion(request)
-            logger.debug(
-                f"Received completion from model {self.model_name!r}",
-                extra={
-                    "model": self.model_name,
-                    "response": response,
-                    "text": response.message.content,
-                    "usage": self._usage_stats.model_dump(),
-                },
-            )
-            return response
-        finally:
-            if not skip_usage_tracking and response is not None:
-                self._track_usage(response.usage, is_request_successful=True)
-
-    @acatch_llm_exceptions
-    async def agenerate_text_embeddings(
-        self, input_texts: list[str], skip_usage_tracking: bool = False, **kwargs: Any
-    ) -> list[list[float]]:
-        logger.debug(
-            f"Generating embeddings with model {self.model_name!r}...",
-            extra={
-                "model": self.model_name,
-                "input_count": len(input_texts),
-            },
-        )
-        kwargs = self.consolidate_kwargs(**kwargs)
-        response: EmbeddingResponse | None = None
-        try:
-            request = self._build_embedding_request(input_texts, kwargs)
-            response = await self._client.aembeddings(request)
-            logger.debug(
-                f"Received embeddings from model {self.model_name!r}",
-                extra={
-                    "model": self.model_name,
-                    "embedding_count": len(response.vectors),
-                    "usage": self._usage_stats.model_dump(),
-                },
-            )
-            if len(response.vectors) == len(input_texts):
-                return response.vectors
-            raise ValueError(f"Expected {len(input_texts)} embeddings, but received {len(response.vectors)}")
-        finally:
-            if not skip_usage_tracking and response is not None:
-                self._track_usage(response.usage, is_request_successful=True)
-
-    @acatch_llm_exceptions
-    async def agenerate(
-        self,
-        prompt: str,
-        *,
-        parser: Callable[[str], Any] = _identity,
-        system_prompt: str | None = None,
-        multi_modal_context: list[dict[str, Any]] | None = None,
-        tool_alias: str | None = None,
-        max_correction_steps: int = 0,
-        max_conversation_restarts: int = 0,
-        skip_usage_tracking: bool = False,
-        purpose: str | None = None,
-        **kwargs: Any,
-    ) -> tuple[Any, list[ChatMessage]]:
-        output_obj = None
-        tool_schemas = None
-        tool_call_turns = 0
-        total_tool_calls = 0
-        curr_num_correction_steps = 0
-        curr_num_restarts = 0
-
-        mcp_facade = self._get_mcp_facade(tool_alias)
-
-        restart_checkpoint = prompt_to_messages(
-            user_prompt=prompt, system_prompt=system_prompt, multi_modal_context=multi_modal_context
-        )
-        checkpoint_tool_call_turns = 0
-        messages: list[ChatMessage] = deepcopy(restart_checkpoint)
-
-        if mcp_facade is not None:
-            tool_schemas = await asyncio.to_thread(mcp_facade.get_tool_schemas)
-
-        while True:
-            completion_kwargs = dict(kwargs)
-            if tool_schemas is not None:
-                completion_kwargs["tools"] = tool_schemas
-
-            completion_response = await self.acompletion(
-                messages,
-                skip_usage_tracking=skip_usage_tracking,
-                **completion_kwargs,
-            )
-
-            if mcp_facade is not None and mcp_facade.has_tool_calls(completion_response):
-                tool_call_turns += 1
-                total_tool_calls += mcp_facade.tool_call_count(completion_response)
-
-                if tool_call_turns > mcp_facade.max_tool_call_turns:
-                    messages.extend(mcp_facade.refuse_completion_response(completion_response))
-                else:
-                    messages.extend(
-                        await asyncio.to_thread(mcp_facade.process_completion_response, completion_response)
-                    )
-
-                restart_checkpoint = deepcopy(messages)
-                checkpoint_tool_call_turns = tool_call_turns
-
-                continue
-
-            response = (completion_response.message.content or "").strip()
-            reasoning_trace = completion_response.message.reasoning_content
-            messages.append(ChatMessage.as_assistant(content=response, reasoning_content=reasoning_trace or None))
-            curr_num_correction_steps += 1
-
-            try:
-                output_obj = parser(response)
-                break
-            except ParserException as exc:
-                if max_correction_steps == 0 and max_conversation_restarts == 0:
-                    raise GenerationValidationFailureError(
-                        "Unsuccessful generation attempt. No retries were attempted."
-                    ) from exc
-
-                if curr_num_correction_steps <= max_correction_steps:
-                    messages.append(ChatMessage.as_user(content=str(get_exception_primary_cause(exc))))
-
-                elif curr_num_restarts < max_conversation_restarts:
-                    curr_num_correction_steps = 0
-                    curr_num_restarts += 1
-                    messages = deepcopy(restart_checkpoint)
-                    tool_call_turns = checkpoint_tool_call_turns
-
-                else:
-                    raise GenerationValidationFailureError(
-                        f"Unsuccessful generation despite {max_correction_steps} correction steps "
-                        f"and {max_conversation_restarts} conversation restarts."
-                    ) from exc
-
-        if not skip_usage_tracking and mcp_facade is not None:
-            self._usage_stats.tool_usage.extend(
-                tool_calls=total_tool_calls,
-                tool_call_turns=tool_call_turns,
-            )
-
-        return output_obj, messages
-
-    @acatch_llm_exceptions
-    async def agenerate_image(
-        self,
-        prompt: str,
-        multi_modal_context: list[dict[str, Any]] | None = None,
-        skip_usage_tracking: bool = False,
-        **kwargs: Any,
-    ) -> list[str]:
-        """Async version of generate_image. Generate image(s) and return base64-encoded data.
-
-        Automatically detects the appropriate API based on model name:
-        - Diffusion models (DALL-E, Stable Diffusion, Imagen, etc.) -> image_generation API
-        - All other models -> chat/completions API (default)
-
-        Both paths return base64-encoded image data. If the API returns multiple images,
-        all are returned in the list.
-
-        Args:
-            prompt: The prompt for image generation
-            multi_modal_context: Optional list of image contexts for multi-modal generation.
-                Only used with autoregressive models via chat completions API.
-            skip_usage_tracking: Whether to skip usage tracking
-            **kwargs: Additional arguments to pass to the model (including n=number of images)
-
-        Returns:
-            List of base64-encoded image strings (without data URI prefix)
-
-        Raises:
-            ImageGenerationError: If image generation fails or returns invalid data
-        """
-        logger.debug(
-            f"Generating image with model {self.model_name!r}...",
-            extra={"model": self.model_name, "prompt": prompt},
-        )
-
-        kwargs = self.consolidate_kwargs(**kwargs)
-        request = self._build_image_generation_request(prompt, multi_modal_context, kwargs)
-        response = await self._client.agenerate_image(request)
-
-        images = [img.b64_data for img in response.images]
-
-        if not images:
-            raise ImageGenerationError("No image data found in image generation response")
-
-        # Track image usage
-        if not skip_usage_tracking and images:
-            self._usage_stats.extend(image_usage=ImageUsageStats(total_images=len(images)))
-            self._track_usage(response.usage, is_request_successful=True)
-
-        return images
-
-    def close(self) -> None:
-        """Release resources held by the underlying client."""
-        self._client.close()
-
-    async def aclose(self) -> None:
-        """Async release resources held by the underlying client."""
-        await self._client.aclose()

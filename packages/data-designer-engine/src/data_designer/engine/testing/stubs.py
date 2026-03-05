@@ -229,7 +229,7 @@ class StubMCPFacade:
     def get_tool_schemas(self) -> list[dict[str, Any]]:
         return self._tool_schemas
 
-    def tool_call_count(self, completion_response: ChatCompletionResponse) -> int:
+    def get_tool_call_count(self, completion_response: ChatCompletionResponse) -> int:
         return len(completion_response.message.tool_calls)
 
     def has_tool_calls(self, completion_response: ChatCompletionResponse) -> bool:

@@ -72,7 +72,7 @@ class MCPFacade:
         return self._tool_config.timeout_sec
 
     @staticmethod
-    def tool_call_count(completion_response: ChatCompletionResponse) -> int:
+    def get_tool_call_count(completion_response: ChatCompletionResponse) -> int:
         """Count the number of tool calls in a completion response."""
         return len(completion_response.message.tool_calls)
 
@@ -80,14 +80,6 @@ class MCPFacade:
     def has_tool_calls(completion_response: ChatCompletionResponse) -> bool:
         """Returns True if tool calls are present in the completion response."""
         return len(completion_response.message.tool_calls) > 0
-
-    def _resolve_provider(self, provider: MCPProviderT) -> MCPProviderT:
-        """Resolve secret references in an MCP provider's api_key."""
-        api_key_ref = getattr(provider, "api_key", None)
-        if not api_key_ref:
-            return provider
-        resolved_key = self._secret_resolver.resolve(api_key_ref)
-        return provider.model_copy(update={"api_key": resolved_key})
 
     def get_tool_schemas(self) -> list[dict[str, Any]]:
         """Get OpenAI-compatible tool schemas for this configuration.
@@ -182,7 +174,7 @@ class MCPFacade:
             ]
 
         # Has tool calls - execute and return all messages
-        tool_call_dicts = _canonical_tool_calls_to_dicts(tool_calls)
+        tool_call_dicts = _convert_canonical_tool_calls_to_dicts(tool_calls)
         assistant_message = self._build_assistant_tool_message(response_content, tool_call_dicts, reasoning_content)
         tool_messages = self._execute_tool_calls_from_canonical(tool_calls)
 
@@ -227,7 +219,7 @@ class MCPFacade:
             ]
 
         # Build assistant message with tool calls (same as normal)
-        tool_call_dicts = _canonical_tool_calls_to_dicts(tool_calls)
+        tool_call_dicts = _convert_canonical_tool_calls_to_dicts(tool_calls)
         assistant_message = self._build_assistant_tool_message(response_content, tool_call_dicts, reasoning_content)
 
         # Build refusal messages instead of executing tools
@@ -235,6 +227,14 @@ class MCPFacade:
         tool_messages = [ChatMessage.as_tool(content=refusal, tool_call_id=tc.id) for tc in tool_calls]
 
         return [assistant_message, *tool_messages]
+
+    def _resolve_provider(self, provider: MCPProviderT) -> MCPProviderT:
+        """Resolve secret references in an MCP provider's api_key."""
+        api_key_ref = getattr(provider, "api_key", None)
+        if not api_key_ref:
+            return provider
+        resolved_key = self._secret_resolver.resolve(api_key_ref)
+        return provider.model_copy(update={"api_key": resolved_key})
 
     def _build_assistant_tool_message(
         self,
@@ -299,7 +299,7 @@ class MCPFacade:
         raise MCPConfigurationError(f"Tool {tool_name!r} not found on any configured provider.")
 
 
-def _canonical_tool_calls_to_dicts(tool_calls: list[ToolCall]) -> list[dict[str, Any]]:
+def _convert_canonical_tool_calls_to_dicts(tool_calls: list[ToolCall]) -> list[dict[str, Any]]:
     """Convert canonical ToolCall objects to the internal dict format for ChatMessage."""
     return [
         {
