@@ -62,6 +62,7 @@ class CompletionTracker:
 
     def mark_cell_complete(self, column: str, row_group: int, row_index: int) -> None:
         self._validate_row_group(row_group)
+        self._validate_strategy(column, GenerationStrategy.CELL_BY_CELL, "mark_cell_complete")
         self._completed[row_group][column].add(row_index)
         if self._graph is not None:
             self._frontier.discard(Task(column=column, row_group=row_group, row_index=row_index, task_type="cell"))
@@ -69,6 +70,7 @@ class CompletionTracker:
 
     def mark_row_range_complete(self, column: str, row_group: int, row_group_size: int) -> None:
         expected = self._validate_row_group(row_group)
+        self._validate_strategy(column, GenerationStrategy.FULL_COLUMN, "mark_row_range_complete")
         if expected is not None and row_group_size != expected:
             raise ValueError(f"Row-group size mismatch for rg={row_group}: got {row_group_size}, expected {expected}")
         self._completed[row_group][column] = set(range(row_group_size))
@@ -209,6 +211,14 @@ class CompletionTracker:
                 if ri not in rg_dropped and ri not in up_completed:
                     return False
         return True
+
+    def _validate_strategy(self, column: str, expected: GenerationStrategy, method: str) -> None:
+        """Validate that *column* matches the expected strategy in graph-enabled mode."""
+        if self._graph is None:
+            return
+        actual = self._graph.strategy(column)
+        if actual != expected:
+            raise ValueError(f"{method}() requires {expected.value} strategy, but column '{column}' has {actual.value}")
 
     def _validate_row_group(self, row_group: int) -> int | None:
         """Validate row-group id in graph-enabled mode and return its expected size."""

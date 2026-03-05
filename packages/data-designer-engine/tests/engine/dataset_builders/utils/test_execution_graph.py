@@ -388,6 +388,37 @@ def test_validation_column_dependency() -> None:
 # -- Judge column dependency ------------------------------------------------
 
 
+# -- Immutability tests -----------------------------------------------------
+
+
+def test_mutating_columns_does_not_affect_graph(simple_graph: ExecutionGraph) -> None:
+    cols = simple_graph.columns
+    cols.append("injected")
+    assert "injected" not in simple_graph.columns
+
+
+def test_mutating_upstream_does_not_affect_graph(simple_graph: ExecutionGraph) -> None:
+    ups = simple_graph.get_upstream_columns("question")
+    ups.add("injected")
+    assert "injected" not in simple_graph.get_upstream_columns("question")
+
+
+def test_mutating_downstream_does_not_affect_graph(simple_graph: ExecutionGraph) -> None:
+    downs = simple_graph.get_downstream_columns("topic")
+    downs.add("injected")
+    assert "injected" not in simple_graph.get_downstream_columns("topic")
+
+
+def test_mutating_topological_order_does_not_affect_cache(simple_graph: ExecutionGraph) -> None:
+    order1 = simple_graph.topological_order()
+    order1.reverse()
+    order2 = simple_graph.topological_order()
+    assert order2[0] == "topic"
+
+
+# -- Judge column dependency ------------------------------------------------
+
+
 def test_judge_column_dependency() -> None:
     configs = [
         LLMTextColumnConfig(name="text", prompt="Write something", model_alias=MODEL_ALIAS),

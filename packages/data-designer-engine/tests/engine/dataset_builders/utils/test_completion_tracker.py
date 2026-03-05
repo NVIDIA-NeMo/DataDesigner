@@ -271,3 +271,78 @@ def test_get_ready_tasks_skips_already_complete_batch(ready_ctx: ReadyTasksFixtu
 
     topic_tasks = [t for t in ready if t.column == "topic"]
     assert len(topic_tasks) == 0
+
+
+# -- Strategy-safe completion API ------------------------------------------
+
+
+def test_mark_cell_complete_raises_for_full_column_strategy(ready_ctx: ReadyTasksFixture) -> None:
+    with pytest.raises(ValueError, match="mark_cell_complete.*requires cell_by_cell.*full_column"):
+        ready_ctx.tracker.mark_cell_complete("topic", row_group=0, row_index=0)
+
+
+def test_mark_row_range_complete_raises_for_cell_by_cell_strategy(ready_ctx: ReadyTasksFixture) -> None:
+    ready_ctx.tracker.mark_row_range_complete("topic", 0, 3)
+    with pytest.raises(ValueError, match="mark_row_range_complete.*requires full_column.*cell_by_cell"):
+        ready_ctx.tracker.mark_row_range_complete("question", row_group=0, row_group_size=3)
+
+
+# -- Re-enqueue regression tests -------------------------------------------
+
+
+def test_completed_cell_not_reenqueued_after_later_upstream(ready_ctx: ReadyTasksFixture) -> None:
+    """A → B → C chain: completing C[row=0] then completing another A upstream must not re-enqueue C[row=0]."""
+    graph = _build_simple_graph()
+    tracker = CompletionTracker(graph, [(0, 2)])
+    dispatched: set[Task] = set()
+
+    # Complete the full pipeline for row 0
+    tracker.mark_row_range_complete("topic", 0, 2)
+    tracker.mark_cell_complete("question", 0, 0)
+    tracker.mark_cell_complete("question", 0, 1)
+
+    # score should now be ready
+    ready = tracker.get_ready_tasks(dispatched)
+    score_tasks = [t for t in ready if t.column == "score"]
+    assert len(score_tasks) == 1
+
+    # Complete score, then re-complete an upstream cell — score must not reappear
+    tracker.mark_row_range_complete("score", 0, 2)
+
+    ready = tracker.get_ready_tasks(dispatched)
+    score_tasks = [t for t in ready if t.column == "score"]
+    assert len(score_tasks) == 0
+
+
+def test_completed_batch_not_reenqueued_by_upstream_cell() -> None:
+    """After a FULL_COLUMN downstream is completed, a late cell upstream event must not re-add it."""
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="gen", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+        ExpressionColumnConfig(name="agg", expr="{{ gen }}"),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "gen": GenerationStrategy.CELL_BY_CELL,
+        "agg": GenerationStrategy.FULL_COLUMN,
+    }
+    graph = ExecutionGraph.create(configs, strategies)
+    tracker = CompletionTracker(graph, [(0, 2)])
+    dispatched: set[Task] = set()
+
+    # Complete seed and gen[0] — agg not ready yet
+    tracker.mark_row_range_complete("seed", 0, 2)
+    tracker.mark_cell_complete("gen", 0, 0)
+
+    ready = tracker.get_ready_tasks(dispatched)
+    assert not any(t.column == "agg" for t in ready)
+
+    # Complete gen[1] — agg becomes ready
+    tracker.mark_cell_complete("gen", 0, 1)
+    ready = tracker.get_ready_tasks(dispatched)
+    assert any(t.column == "agg" for t in ready)
+
+    # Complete agg, then verify it doesn't reappear
+    tracker.mark_row_range_complete("agg", 0, 2)
+    ready = tracker.get_ready_tasks(dispatched)
+    assert not any(t.column == "agg" for t in ready)

@@ -58,11 +58,11 @@ class ExecutionGraph:
 
     def get_upstream_columns(self, column: str) -> set[str]:
         """Direct dependencies of *column*."""
-        return self._upstream.get(column, set())
+        return set(self._upstream.get(column, set()))
 
     def get_downstream_columns(self, column: str) -> set[str]:
         """Columns that depend on *column*."""
-        return self._downstream.get(column, set())
+        return set(self._downstream.get(column, set()))
 
     def strategy(self, column: str) -> GenerationStrategy:
         return self._strategies[column]
@@ -85,8 +85,8 @@ class ExecutionGraph:
 
     @property
     def columns(self) -> list[str]:
-        """All column names in insertion order. Do not mutate."""
-        return self._columns
+        """All column names in insertion order."""
+        return list(self._columns)
 
     def topological_order(self) -> list[str]:
         """Return a valid topological ordering of columns (Kahn's algorithm).
