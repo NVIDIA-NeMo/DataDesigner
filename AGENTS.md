@@ -130,29 +130,29 @@ make coverage       # Run tests with coverage report
   # SPDX-License-Identifier: Apache-2.0
   ```
   Use `make update-license-headers` to add headers to all files automatically.
-- **Imports**: Avoid importing Python modules inside method definitions. Prefer module-level imports for better performance and clarity.
-- **Type annotations**: ALWAYS add type annotations to all functions, methods, and class attributes (including tests).
+- **`from __future__ import annotations`**: Include at the top of all Python source files for deferred type evaluation.
+- **Imports**: Avoid importing Python modules inside method definitions. Prefer module-level imports for better performance and clarity. See [Code Style](#code-style) for detailed import and type annotation guidelines.
 
 ## Code Style
 
-This project uses `ruff` (v0.12.3) for linting and formatting. Follow these guidelines to avoid linter errors:
+This project uses `ruff` (>=0.14.10) for linting and formatting. Follow these guidelines to avoid linter errors:
 
 ### General Formatting
 
 - **Line length**: Maximum 120 characters per line
 - **Quote style**: Always use double quotes (`"`) for strings
 - **Indentation**: Use 4 spaces (never tabs)
-- **Target version**: Python 3.11+
+- **Target version**: Python 3.10+
 
 ### Type Annotations
 
-Type annotations are REQUIRED for all code in this project. This is strictly enforced for code quality and maintainability.
+Type annotations are REQUIRED for all code in this project. This is strictly enforced for code quality and maintainability. Modern type syntax is enforced by ruff rules `UP006`, `UP007`, and `UP045`.
 
 - **ALWAYS** add type annotations to all functions, methods, and class attributes (including tests)
-- Use primitive types when possible: `list` not `List`, `dict` not `Dict`, `set` not `Set`, `tuple` not `Tuple`
-- Use modern union syntax with `|` for optional and union types (Python 3.10+):
-  - `str | None` not `Optional[str]`
-  - `int | str` not `Union[int, str]`
+- Use primitive types when possible: `list` not `List`, `dict` not `Dict`, `set` not `Set`, `tuple` not `Tuple` (enforced by `UP006`)
+- Use modern union syntax with `|` for optional and union types:
+  - `str | None` not `Optional[str]` (enforced by `UP045`)
+  - `int | str` not `Union[int, str]` (enforced by `UP007`)
 - Only import from `typing` when absolutely necessary for complex generic types
 - For Pydantic models, use field-level type annotations
 
@@ -173,7 +173,8 @@ Type annotations are REQUIRED for all code in this project. This is strictly enf
 
 ### Import Style
 
-- **ALWAYS** use absolute imports, never relative imports
+- **ALWAYS** include `from __future__ import annotations` at the top of every Python source file (after the license header) for deferred type evaluation
+- **ALWAYS** use absolute imports, never relative imports (enforced by `TID`)
 - Place imports at module level, not inside functions (exception: it is unavoidable for performance reasons)
 - Import sorting is handled by `ruff`'s `isort` - imports should be grouped and sorted:
   1. Standard library imports
@@ -263,7 +264,7 @@ If you add a new dependency with significant import cost (>100ms):
 **For internal data_designer imports:**
 
 ```python
-from __future__ import annotations  # Always include at top
+from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
@@ -349,6 +350,7 @@ Follow PEP 8 naming conventions:
 - **Classes**: `PascalCase`
 - **Constants**: `UPPER_SNAKE_CASE`
 - **Private attributes**: prefix with single underscore `_private_var`
+- **Function and method names must start with an action verb**: e.g. `get_value_from` not `value_from`, `coerce_to_int` not `to_int`, `extract_usage` not `usage`
 
   ```python
   # Good
@@ -368,6 +370,32 @@ Follow PEP 8 naming conventions:
       def GenerateDataset(self, Config):  # Should be snake_case
           pass
   ```
+
+### Code Organization
+
+- **Public before private**: Public functions/methods appear before private ones in modules and classes
+- **Class method order**: `__init__` and other dunder methods first, then properties, then public methods, then private helpers. Group related method types together (e.g., all `@staticmethod`s in one block, all `@classmethod`s in one block).
+- **Prefer public over private for testability**: Use public functions (no `_` prefix) for helpers that benefit from direct testing
+- **Section comments in larger modules**: Use `# ---` separators to delineate logical groups (e.g. image parsing, usage extraction, generic accessors)
+
+### Design Principles
+
+**DRY**
+- Extract shared logic into pure helper functions rather than duplicating across similar call sites
+- Rule of thumb: tolerate duplication until the third occurrence, then extract
+
+**KISS**
+- Prefer flat, obvious code over clever abstractions — two similar lines is better than a premature helper
+- When in doubt between DRY and KISS, favor readability over deduplication
+
+**YAGNI**
+- Don't add parameters, config, or abstraction layers for hypothetical future use cases
+- Don't generalize until the third caller appears
+
+**SOLID**
+- Wrap third-party exceptions at module boundaries — callers depend on canonical error types, not leaked internals
+- Use `Protocol` for contracts between layers
+- One function, one job — separate logic from I/O
 
 ### Common Pitfalls to Avoid
 
@@ -468,8 +496,12 @@ The following ruff linter rules are currently enabled (see [pyproject.toml](pypr
 - `I`: isort (import sorting)
 - `ICN`: flake8-import-conventions (standard import names)
 - `PIE`: flake8-pie (miscellaneous lints)
+- `TID`: flake8-tidy-imports (bans relative imports)
+- `UP006`: `List[A]` -> `list[A]`
+- `UP007`: `Union[A, B]` -> `A | B`
+- `UP045`: `Optional[A]` -> `A | None`
 
-**Note**: Additional rules (E, N, UP, ANN, B, C4, DTZ, RET, SIM, PTH) are commented out but may be enabled in the future. Write code that would pass these checks for future-proofing.
+**Note**: Additional rules (E, N, ANN, B, C4, DTZ, RET, SIM, PTH) are commented out but may be enabled in the future. Write code that would pass these checks for future-proofing.
 
 ## Testing Patterns
 
@@ -482,13 +514,23 @@ The project uses `pytest` with the following patterns:
 - **HTTP mocking**: pytest-httpx for mocking HTTP requests
 - **Coverage**: Track test coverage with pytest-cov
 
+### Test Guidelines
+
+- **Parametrize over duplicate**: Use `@pytest.mark.parametrize` instead of writing multiple test functions for variations of the same behavior
+- **Minimal fixtures**: Fixtures should be simple — one fixture, one responsibility, just setup with no behavior logic
+- **Shared fixtures in `conftest.py`**: Place fixtures shared across a test directory in `conftest.py`
+- **Mock at boundaries**: Mock external dependencies (APIs, databases, third-party services), not internal functions
+- **Test behavior, not implementation**: Assert on outputs and side effects, not internal call counts (unless verifying routing)
+- **Keep mocking shallow**: If a test requires deeply nested mocking, the code under test may need refactoring
+
 Example test structure:
 
 ```python
-import pytest
+from typing import Any
+
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 
-def test_something(stub_model_configs):
+def test_something(stub_model_configs: dict[str, Any]) -> None:
     """Test description."""
     builder = DataDesignerConfigBuilder(model_configs=stub_model_configs)
     # ... test implementation
@@ -567,6 +609,10 @@ make test
 # Generate coverage report
 make coverage
 # View htmlcov/index.html in browser
+
+# Profile import performance (use after adding heavy dependencies)
+make perf-import            # Profile import time
+make perf-import CLEAN=1    # Clean cache first, then profile
 ```
 
 ## Additional Resources

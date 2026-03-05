@@ -1,7 +1,16 @@
 name: Build notebooks
 on:
   workflow_call:
+    inputs:
+      use_cache:
+        type: boolean
+        default: true
   workflow_dispatch:
+    inputs:
+      use_cache:
+        description: "Use cached notebooks for unchanged sources"
+        type: boolean
+        default: false
   schedule:
     - cron: "0 12 * * MON"
 
@@ -9,6 +18,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: write
     env:
       NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
@@ -22,8 +32,53 @@ jobs:
           version: "0.9.5"
       - name: Set up Python
         run: uv python install 3.11
+      - name: Restore notebook cache
+        if: inputs.use_cache
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: .notebook-cache
+          key: notebooks-${{ hashFiles('docs/notebook_source/*.py') }}
+          restore-keys: |
+            notebooks-
+      - name: Seed cache from last successful artifact
+        if: inputs.use_cache && steps.cache.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Only seed when the cache dir is truly empty (no partial restore).
+          # A partial restore already has correct per-file hashes — seeding
+          # over it would write current hashes for old notebooks, masking changes.
+          if [ -d .notebook-cache ] && [ -n "$(ls -A .notebook-cache 2>/dev/null)" ]; then
+            echo "Partial cache restored — skipping artifact seed"
+            exit 0
+          fi
+          echo "Empty cache — seeding from last successful build artifact..."
+          LAST_RUN_ID=$(gh run list --workflow build-notebooks.yml --status success --branch main --limit 1 --json databaseId -q '.[0].databaseId // empty' 2>/dev/null || true)
+          if [ -n "$LAST_RUN_ID" ]; then
+            SEED_TMPDIR=$(mktemp -d)
+            if gh run download "$LAST_RUN_ID" --name notebooks --dir "$SEED_TMPDIR" 2>/dev/null; then
+              mkdir -p .notebook-cache
+              for src in docs/notebook_source/*.py; do
+                name="$(basename "$src" .py)"
+                nb="$SEED_TMPDIR/${name}.ipynb"
+                if [ -f "$nb" ]; then
+                  hash="$(sha256sum "$src" | cut -d' ' -f1)"
+                  cp "$nb" ".notebook-cache/${name}.ipynb"
+                  echo "$hash" > ".notebook-cache/${name}.sha256"
+                  echo "  Seeded: ${name}"
+                fi
+              done
+              echo "Cache seeded from run $LAST_RUN_ID"
+            else
+              echo "Could not download artifact from run $LAST_RUN_ID, proceeding without cache"
+            fi
+            rm -rf "$SEED_TMPDIR"
+          else
+            echo "No previous successful run found, proceeding without cache"
+          fi
       - name: Convert and execute notebooks
-        run: make convert-execute-notebooks
+        run: make convert-execute-notebooks ${{ inputs.use_cache && 'USE_CACHE=1' || '' }}
       - name: Upload notebooks as artifacts
         uses: actions/upload-artifact@v4
         with:
