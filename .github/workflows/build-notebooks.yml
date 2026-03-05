@@ -45,7 +45,7 @@ jobs:
             exit 0
           fi
           echo "Empty cache — seeding from last successful build artifact..."
-          LAST_RUN_ID=$(gh run list --workflow build-notebooks.yml --status success --branch main --limit 1 --json databaseId -q '.[0].databaseId' 2>/dev/null || true)
+          LAST_RUN_ID=$(gh run list --workflow build-notebooks.yml --status success --branch main --limit 1 --json databaseId -q '.[0].databaseId // empty' 2>/dev/null || true)
           if [ -n "$LAST_RUN_ID" ]; then
             SEED_TMPDIR=$(mktemp -d)
             if gh run download "$LAST_RUN_ID" --name notebooks --dir "$SEED_TMPDIR" 2>/dev/null; then
