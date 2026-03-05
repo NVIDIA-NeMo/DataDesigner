@@ -23,6 +23,7 @@ from data_designer.config.column_types import (
     DataDesignerColumnType,
     get_column_config_from_kwargs,
     get_column_display_order,
+    is_plugin_column_type,
 )
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.sampler_params import (
@@ -58,6 +59,12 @@ def test_data_designer_column_type_get_display_order():
         DataDesignerColumnType.EXPRESSION,
         DataDesignerColumnType.CUSTOM,
     ]
+
+
+@pytest.mark.parametrize("col_type", list(DataDesignerColumnType))
+def test_is_plugin_column_type_false_for_builtins(col_type: DataDesignerColumnType) -> None:
+    assert is_plugin_column_type(col_type) is False
+    assert is_plugin_column_type(col_type.value) is False
 
 
 def test_sampler_column_config():
