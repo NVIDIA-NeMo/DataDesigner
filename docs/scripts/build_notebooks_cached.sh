@@ -12,6 +12,14 @@
 
 set -euo pipefail
 
+compute_sha256() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | cut -d' ' -f1
+    else
+        shasum -a 256 "$1" | cut -d' ' -f1
+    fi
+}
+
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SOURCE_DIR="$REPO_ROOT/docs/notebook_source"
 OUTPUT_DIR="$REPO_ROOT/docs/notebooks"
@@ -27,7 +35,7 @@ needs_cleanup=false
 
 for src in "$SOURCE_DIR"/*.py; do
     name="$(basename "$src" .py)"
-    hash="$(shasum -a 256 "$src" | cut -d' ' -f1)"
+    hash="$(compute_sha256 "$src")"
     cached_hash_file="$CACHE_DIR/${name}.sha256"
     cached_notebook="$CACHE_DIR/${name}.ipynb"
 

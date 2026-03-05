@@ -38,16 +38,14 @@ jobs:
           echo "Cache miss — seeding from last successful build artifact..."
           LAST_RUN_ID=$(gh run list --workflow build-notebooks.yml --status success --limit 1 --json databaseId -q '.[0].databaseId' 2>/dev/null || true)
           if [ -n "$LAST_RUN_ID" ]; then
-            TMPDIR=$(mktemp -d)
-            if gh run download "$LAST_RUN_ID" --name notebooks --dir "$TMPDIR" 2>/dev/null; then
+            SEED_TMPDIR=$(mktemp -d)
+            if gh run download "$LAST_RUN_ID" --name notebooks --dir "$SEED_TMPDIR" 2>/dev/null; then
               mkdir -p .notebook-cache
               for src in docs/notebook_source/*.py; do
                 name="$(basename "$src" .py)"
-                nb="$TMPDIR/${name}.ipynb"
+                nb="$SEED_TMPDIR/${name}.ipynb"
                 if [ -f "$nb" ]; then
-                  hash="$(sha256sum "$src" | cut -d' ' -f1)"
                   cp "$nb" ".notebook-cache/${name}.ipynb"
-                  echo "$hash" > ".notebook-cache/${name}.sha256"
                   echo "  Seeded: ${name}"
                 fi
               done
@@ -55,7 +53,7 @@ jobs:
             else
               echo "Could not download artifact from run $LAST_RUN_ID, proceeding without cache"
             fi
-            rm -rf "$TMPDIR"
+            rm -rf "$SEED_TMPDIR"
           else
             echo "No previous successful run found, proceeding without cache"
           fi
