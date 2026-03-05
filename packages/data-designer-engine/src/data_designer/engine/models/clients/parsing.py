@@ -47,6 +47,21 @@ def parse_chat_completion_response(response: Any) -> ChatCompletionResponse:
     return ChatCompletionResponse(message=assistant_message, usage=usage, raw=response)
 
 
+async def aparse_chat_completion_response(response: Any) -> ChatCompletionResponse:
+    first_choice = get_first_value_or_none(getattr(response, "choices", None))
+    message = get_value_from(first_choice, "message")
+    tool_calls = extract_tool_calls(get_value_from(message, "tool_calls"))
+    images = await aextract_images_from_chat_message(message)
+    assistant_message = AssistantMessage(
+        content=coerce_message_content(get_value_from(message, "content")),
+        reasoning_content=get_value_from(message, "reasoning_content"),
+        tool_calls=tool_calls,
+        images=images,
+    )
+    usage = extract_usage(getattr(response, "usage", None), generated_images=len(images) if images else None)
+    return ChatCompletionResponse(message=assistant_message, usage=usage, raw=response)
+
+
 # ---------------------------------------------------------------------------
 # Image extraction
 # ---------------------------------------------------------------------------
@@ -124,7 +139,7 @@ def parse_image_payload(raw_image: Any) -> ImagePayload | None:
             return ImagePayload(b64_data=load_image_url_to_base64(result), mime_type=None)
         return result
     except Exception:
-        logger.debug("Unable to parse image payload from response object.", exc_info=True)
+        logger.warning("Failed to parse image payload from response object; image dropped.", exc_info=True)
         return None
 
 
@@ -135,7 +150,7 @@ async def aparse_image_payload(raw_image: Any) -> ImagePayload | None:
             return ImagePayload(b64_data=await aload_image_url_to_base64(result), mime_type=None)
         return result
     except Exception:
-        logger.debug("Unable to parse image payload from response object.", exc_info=True)
+        logger.warning("Failed to parse image payload from response object; image dropped.", exc_info=True)
         return None
 
 
@@ -230,7 +245,11 @@ def extract_usage(raw_usage: Any, generated_images: int | None = None) -> Usage 
     if output_tokens is None:
         output_tokens = get_value_from(raw_usage, "output_tokens")
 
-    if total_tokens is None and isinstance(input_tokens, int) and isinstance(output_tokens, int):
+    input_tokens = coerce_to_int_or_none(input_tokens)
+    output_tokens = coerce_to_int_or_none(output_tokens)
+    total_tokens = coerce_to_int_or_none(total_tokens)
+
+    if total_tokens is None and input_tokens is not None and output_tokens is not None:
         total_tokens = input_tokens + output_tokens
 
     if generated_images is None:
@@ -238,14 +257,16 @@ def extract_usage(raw_usage: Any, generated_images: int | None = None) -> Usage 
     if generated_images is None and raw_usage is not None:
         generated_images = get_value_from(raw_usage, "images")
 
+    generated_images = coerce_to_int_or_none(generated_images)
+
     if input_tokens is None and output_tokens is None and total_tokens is None and generated_images is None:
         return None
 
     return Usage(
-        input_tokens=coerce_to_int_or_none(input_tokens),
-        output_tokens=coerce_to_int_or_none(output_tokens),
-        total_tokens=coerce_to_int_or_none(total_tokens),
-        generated_images=coerce_to_int_or_none(generated_images),
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        total_tokens=total_tokens,
+        generated_images=generated_images,
     )
 
 
