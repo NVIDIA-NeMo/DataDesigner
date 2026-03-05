@@ -1,6 +1,11 @@
 name: Build docs
 on:
   workflow_dispatch:
+    inputs:
+      use_cache:
+        description: "Use cached notebooks for unchanged sources"
+        type: boolean
+        default: true
   release:
     types:
       - published
@@ -8,6 +13,8 @@ on:
 jobs:
   build-notebooks:
     uses: ./.github/workflows/build-notebooks.yml
+    with:
+      use_cache: ${{ github.event_name == 'workflow_dispatch' && inputs.use_cache || false }}
     secrets: inherit
   deploy:
     needs: build-notebooks
