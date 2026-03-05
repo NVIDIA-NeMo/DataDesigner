@@ -97,7 +97,12 @@ class CompletionTracker:
                 cell_up_completed = [rg_completed.get(up, set()) for up in cell_ups]
                 if row_index is not None:
                     # Cell completion: only check the same row
-                    if row_index not in rg_dropped and all(row_index in s for s in cell_up_completed):
+                    down_completed = rg_completed.get(down, set())
+                    if (
+                        row_index not in rg_dropped
+                        and row_index not in down_completed
+                        and all(row_index in s for s in cell_up_completed)
+                    ):
                         task = Task(column=down, row_group=row_group, row_index=row_index, task_type="cell")
                         self._frontier.add(task)
                 else:
@@ -111,7 +116,9 @@ class CompletionTracker:
                             self._frontier.add(task)
             else:
                 # FULL_COLUMN downstream: ready when all cell upstreams are fully complete
-                if self._are_cell_ups_complete(cell_ups, rg_completed, rg_size, rg_dropped):
+                if down not in rg_completed and self._are_cell_ups_complete(
+                    cell_ups, rg_completed, rg_size, rg_dropped
+                ):
                     task = Task(column=down, row_group=row_group, row_index=None, task_type="batch")
                     self._frontier.add(task)
 
