@@ -17,6 +17,7 @@ from data_designer.engine.models.clients.errors import (
 from data_designer.engine.models.clients.parsing import (
     aextract_images_from_chat_response,
     aextract_images_from_image_response,
+    aparse_chat_completion_response,
     extract_embedding_vector,
     extract_images_from_chat_response,
     extract_images_from_image_response,
@@ -93,7 +94,7 @@ class LiteLLMBridgeClient(ModelClient):
                 extra_headers=transport.headers or None,
                 **transport.body,
             )
-        return parse_chat_completion_response(response)
+        return await aparse_chat_completion_response(response)
 
     def embeddings(self, request: EmbeddingRequest) -> EmbeddingResponse:
         transport = TransportKwargs.from_request(request)
@@ -129,7 +130,6 @@ class LiteLLMBridgeClient(ModelClient):
                     extra_headers=transport.headers or None,
                     **transport.body,
                 )
-                images = extract_images_from_chat_response(response)
             else:
                 response = self._router.image_generation(
                     prompt=request.prompt,
@@ -137,7 +137,11 @@ class LiteLLMBridgeClient(ModelClient):
                     extra_headers=transport.headers or None,
                     **transport.body,
                 )
-                images = extract_images_from_image_response(response)
+
+        if request.messages is not None:
+            images = extract_images_from_chat_response(response)
+        else:
+            images = extract_images_from_image_response(response)
 
         usage = extract_usage(getattr(response, "usage", None), generated_images=len(images))
         return ImageGenerationResponse(images=images, usage=usage, raw=response)
@@ -152,7 +156,6 @@ class LiteLLMBridgeClient(ModelClient):
                     extra_headers=transport.headers or None,
                     **transport.body,
                 )
-                images = await aextract_images_from_chat_response(response)
             else:
                 response = await self._router.aimage_generation(
                     prompt=request.prompt,
@@ -160,7 +163,11 @@ class LiteLLMBridgeClient(ModelClient):
                     extra_headers=transport.headers or None,
                     **transport.body,
                 )
-                images = await aextract_images_from_image_response(response)
+
+        if request.messages is not None:
+            images = await aextract_images_from_chat_response(response)
+        else:
+            images = await aextract_images_from_image_response(response)
 
         usage = extract_usage(getattr(response, "usage", None), generated_images=len(images))
         return ImageGenerationResponse(images=images, usage=usage, raw=response)
