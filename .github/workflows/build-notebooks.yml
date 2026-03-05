@@ -9,6 +9,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: write
     env:
       NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
