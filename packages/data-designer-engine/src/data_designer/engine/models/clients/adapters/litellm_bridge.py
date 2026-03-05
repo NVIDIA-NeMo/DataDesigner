@@ -12,6 +12,7 @@ from data_designer.engine.models.clients.base import ModelClient
 from data_designer.engine.models.clients.errors import (
     ProviderError,
     ProviderErrorKind,
+    extract_message_from_exception_string,
     map_http_status_to_provider_error_kind,
 )
 from data_designer.engine.models.clients.parsing import (
@@ -195,7 +196,7 @@ def _handle_non_provider_errors(provider_name: str) -> Iterator[None]:
 
         raise ProviderError(
             kind=kind,
-            message=str(exc),
+            message=extract_message_from_exception_string(str(exc)),
             status_code=status_code if isinstance(status_code, int) else None,
             provider_name=provider_name,
             cause=exc,
