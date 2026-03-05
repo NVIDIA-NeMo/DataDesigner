@@ -37,17 +37,23 @@ def create_model_registry(
     Returns:
         A configured ModelRegistry instance.
     """
+    from data_designer.engine.models.clients.factory import create_model_client
     from data_designer.engine.models.facade import ModelFacade
     from data_designer.engine.models.litellm_overrides import apply_litellm_patches
     from data_designer.engine.models.registry import ModelRegistry
 
     apply_litellm_patches()
 
-    def model_facade_factory(model_config, secret_resolver, model_provider_registry):
+    def model_facade_factory(
+        model_config: ModelConfig,
+        secret_resolver: SecretResolver,
+        model_provider_registry: ModelProviderRegistry,
+    ) -> ModelFacade:
+        client = create_model_client(model_config, secret_resolver, model_provider_registry)
         return ModelFacade(
             model_config,
-            secret_resolver,
             model_provider_registry,
+            client=client,
             mcp_registry=mcp_registry,
         )
 

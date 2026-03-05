@@ -9,16 +9,18 @@ from collections.abc import Callable
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
-import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.models import GenerationType, ModelConfig, ModelProvider
-from data_designer.config.utils.image_helpers import (
-    extract_base64_from_data_uri,
-    is_base64_image,
-    is_image_diffusion_model,
-    load_image_url_to_base64,
-)
+from data_designer.config.utils.image_helpers import is_image_diffusion_model
 from data_designer.engine.mcp.errors import MCPConfigurationError
 from data_designer.engine.model_provider import ModelProviderRegistry
+from data_designer.engine.models.clients.types import (
+    ChatCompletionRequest,
+    ChatCompletionResponse,
+    EmbeddingRequest,
+    EmbeddingResponse,
+    ImageGenerationRequest,
+    Usage,
+)
 from data_designer.engine.models.errors import (
     GenerationValidationFailureError,
     ImageGenerationError,
@@ -26,17 +28,14 @@ from data_designer.engine.models.errors import (
     catch_llm_exceptions,
     get_exception_primary_cause,
 )
-from data_designer.engine.models.litellm_overrides import CustomRouter, LiteLLMRouterDefaultKwargs
 from data_designer.engine.models.parsers.errors import ParserException
 from data_designer.engine.models.usage import ImageUsageStats, ModelUsageStats, RequestUsageStats, TokenUsageStats
 from data_designer.engine.models.utils import ChatMessage, prompt_to_messages
-from data_designer.engine.secret_resolver import SecretResolver
 
 if TYPE_CHECKING:
-    import litellm
-
     from data_designer.engine.mcp.facade import MCPFacade
     from data_designer.engine.mcp.registry import MCPRegistry
+    from data_designer.engine.models.clients.base import ModelClient
 
 
 def _identity(x: Any) -> Any:
@@ -44,50 +43,28 @@ def _identity(x: Any) -> Any:
     return x
 
 
-def _try_extract_base64(source: str | litellm.types.utils.ImageObject) -> str | None:
-    """Try to extract base64 image data from a data URI string or image response object.
-
-    Args:
-        source: Either a data URI string (e.g. "data:image/png;base64,...")
-            or a litellm ImageObject with b64_json/url attributes.
-
-    Returns:
-        Base64-encoded image string, or None if extraction fails.
-    """
-    try:
-        if isinstance(source, str):
-            return extract_base64_from_data_uri(source)
-
-        if getattr(source, "b64_json", None):
-            return source.b64_json
-
-        if getattr(source, "url", None):
-            return load_image_url_to_base64(source.url)
-    except Exception:
-        logger.debug(f"Failed to extract base64 from source of type {type(source).__name__}")
-        return None
-
-    return None
-
-
 logger = logging.getLogger(__name__)
+
+
+# Known keyword arguments extracted into ChatCompletionRequest fields.
+_COMPLETION_REQUEST_FIELDS = frozenset(
+    {"temperature", "top_p", "max_tokens", "timeout", "tools", "extra_body", "extra_headers"}
+)
 
 
 class ModelFacade:
     def __init__(
         self,
         model_config: ModelConfig,
-        secret_resolver: SecretResolver,
         model_provider_registry: ModelProviderRegistry,
         *,
+        client: ModelClient,
         mcp_registry: MCPRegistry | None = None,
     ) -> None:
         self._model_config = model_config
-        self._secret_resolver = secret_resolver
         self._model_provider_registry = model_provider_registry
+        self._client = client
         self._mcp_registry = mcp_registry
-        self._litellm_deployment = self._get_litellm_deployment(model_config)
-        self._router = CustomRouter([self._litellm_deployment], **LiteLLMRouterDefaultKwargs().model_dump())
         self._usage_stats = ModelUsageStats()
 
     @property
@@ -119,8 +96,8 @@ class ModelFacade:
         return self._usage_stats
 
     def completion(
-        self, messages: list[ChatMessage], skip_usage_tracking: bool = False, **kwargs
-    ) -> litellm.ModelResponse:
+        self, messages: list[ChatMessage], skip_usage_tracking: bool = False, **kwargs: Any
+    ) -> ChatCompletionResponse:
         message_payloads = [message.to_dict() for message in messages]
         logger.debug(
             f"Prompting model {self.model_name!r}...",
@@ -129,24 +106,23 @@ class ModelFacade:
         response = None
         kwargs = self.consolidate_kwargs(**kwargs)
         try:
-            response = self._router.completion(model=self.model_name, messages=message_payloads, **kwargs)
+            request = self._build_chat_completion_request(message_payloads, kwargs)
+            response = self._client.completion(request)
             logger.debug(
                 f"Received completion from model {self.model_name!r}",
                 extra={
                     "model": self.model_name,
                     "response": response,
-                    "text": response.choices[0].message.content,
+                    "text": response.message.content,
                     "usage": self._usage_stats.model_dump(),
                 },
             )
             return response
-        except Exception as e:
-            raise e
         finally:
             if not skip_usage_tracking and response is not None:
-                self._track_token_usage_from_completion(response)
+                self._track_usage(response.usage, is_request_successful=True)
 
-    def consolidate_kwargs(self, **kwargs) -> dict[str, Any]:
+    def consolidate_kwargs(self, **kwargs: Any) -> dict[str, Any]:
         # Remove purpose from kwargs to avoid passing it to the model
         kwargs.pop("purpose", None)
         kwargs = {**self._model_config.inference_parameters.generate_kwargs, **kwargs}
@@ -169,7 +145,7 @@ class ModelFacade:
         max_conversation_restarts: int = 0,
         skip_usage_tracking: bool = False,
         purpose: str | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> tuple[Any, list[ChatMessage]]:
         """Generate a parsed output with correction steps.
 
@@ -266,8 +242,8 @@ class ModelFacade:
                 continue  # Back to top
 
             # No tool calls remaining to process
-            response = (completion_response.choices[0].message.content or "").strip()
-            reasoning_trace = getattr(completion_response.choices[0].message, "reasoning_content", None)
+            response = (completion_response.message.content or "").strip()
+            reasoning_trace = completion_response.message.reasoning_content
             messages.append(ChatMessage.as_assistant(content=response, reasoning_content=reasoning_trace or None))
             curr_num_correction_steps += 1
 
@@ -306,7 +282,7 @@ class ModelFacade:
 
     @catch_llm_exceptions
     def generate_text_embeddings(
-        self, input_texts: list[str], skip_usage_tracking: bool = False, **kwargs
+        self, input_texts: list[str], skip_usage_tracking: bool = False, **kwargs: Any
     ) -> list[list[float]]:
         logger.debug(
             f"Generating embeddings with model {self.model_name!r}...",
@@ -316,26 +292,24 @@ class ModelFacade:
             },
         )
         kwargs = self.consolidate_kwargs(**kwargs)
-        response = None
+        response: EmbeddingResponse | None = None
         try:
-            response = self._router.embedding(model=self.model_name, input=input_texts, **kwargs)
+            request = self._build_embedding_request(input_texts, kwargs)
+            response = self._client.embeddings(request)
             logger.debug(
                 f"Received embeddings from model {self.model_name!r}",
                 extra={
                     "model": self.model_name,
-                    "embedding_count": len(response.data) if response.data else 0,
+                    "embedding_count": len(response.vectors),
                     "usage": self._usage_stats.model_dump(),
                 },
             )
-            if response.data and len(response.data) == len(input_texts):
-                return [data["embedding"] for data in response.data]
-            else:
-                raise ValueError(f"Expected {len(input_texts)} embeddings, but received {len(response.data)}")
-        except Exception as e:
-            raise e
+            if len(response.vectors) == len(input_texts):
+                return response.vectors
+            raise ValueError(f"Expected {len(input_texts)} embeddings, but received {len(response.vectors)}")
         finally:
             if not skip_usage_tracking and response is not None:
-                self._track_token_usage_from_embedding(response)
+                self._track_usage(response.usage, is_request_successful=True)
 
     @catch_llm_exceptions
     def generate_image(
@@ -343,13 +317,13 @@ class ModelFacade:
         prompt: str,
         multi_modal_context: list[dict[str, Any]] | None = None,
         skip_usage_tracking: bool = False,
-        **kwargs,
+        **kwargs: Any,
     ) -> list[str]:
         """Generate image(s) and return base64-encoded data.
 
         Automatically detects the appropriate API based on model name:
-        - Diffusion models (DALL-E, Stable Diffusion, Imagen, etc.) → image_generation API
-        - All other models → chat/completions API (default)
+        - Diffusion models (DALL-E, Stable Diffusion, Imagen, etc.) -> image_generation API
+        - All other models -> chat/completions API (default)
 
         Both paths return base64-encoded image data. If the API returns multiple images,
         all are returned in the list.
@@ -372,15 +346,19 @@ class ModelFacade:
             extra={"model": self.model_name, "prompt": prompt},
         )
 
-        # Auto-detect API type based on model name
-        if is_image_diffusion_model(self.model_name):
-            images = self._generate_image_diffusion(prompt, skip_usage_tracking, **kwargs)
-        else:
-            images = self._generate_image_chat_completion(prompt, multi_modal_context, skip_usage_tracking, **kwargs)
+        kwargs = self.consolidate_kwargs(**kwargs)
+        request = self._build_image_generation_request(prompt, multi_modal_context, kwargs)
+        response = self._client.generate_image(request)
+
+        images = [img.b64_data for img in response.images]
+
+        if not images:
+            raise ImageGenerationError("No image data found in image generation response")
 
         # Track image usage
-        if not skip_usage_tracking and len(images) > 0:
+        if not skip_usage_tracking and images:
             self._usage_stats.extend(image_usage=ImageUsageStats(total_images=len(images)))
+            self._track_usage(response.usage, is_request_successful=True)
 
         return images
 
@@ -395,186 +373,87 @@ class ModelFacade:
         except ValueError as exc:
             raise MCPConfigurationError(f"Tool alias {tool_alias!r} is not registered.") from exc
 
-    def _generate_image_chat_completion(
+    def _build_chat_completion_request(
+        self, messages: list[dict[str, Any]], kwargs: dict[str, Any]
+    ) -> ChatCompletionRequest:
+        """Build a ChatCompletionRequest from message payloads and consolidated kwargs."""
+        request_fields: dict[str, Any] = {"model": self.model_name, "messages": messages}
+        metadata: dict[str, Any] = {}
+
+        for key, value in kwargs.items():
+            if key in _COMPLETION_REQUEST_FIELDS:
+                request_fields[key] = value
+            else:
+                metadata[key] = value
+
+        if metadata:
+            request_fields["metadata"] = metadata
+
+        return ChatCompletionRequest(**request_fields)
+
+    def _build_embedding_request(self, input_texts: list[str], kwargs: dict[str, Any]) -> EmbeddingRequest:
+        """Build an EmbeddingRequest from input texts and consolidated kwargs."""
+        return EmbeddingRequest(
+            model=self.model_name,
+            inputs=input_texts,
+            timeout=kwargs.get("timeout"),
+            extra_body=kwargs.get("extra_body"),
+            extra_headers=kwargs.get("extra_headers"),
+        )
+
+    def _build_image_generation_request(
         self,
         prompt: str,
-        multi_modal_context: list[dict[str, Any]] | None = None,
-        skip_usage_tracking: bool = False,
-        **kwargs,
-    ) -> list[str]:
-        """Generate image(s) using autoregressive model via chat completions API.
+        multi_modal_context: list[dict[str, Any]] | None,
+        kwargs: dict[str, Any],
+    ) -> ImageGenerationRequest:
+        """Build an ImageGenerationRequest, choosing chat-completion vs diffusion path."""
+        is_diffusion = is_image_diffusion_model(self.model_name)
 
-        Args:
-            prompt: The prompt for image generation
-            multi_modal_context: Optional list of image contexts for multi-modal generation
-            skip_usage_tracking: Whether to skip usage tracking
-            **kwargs: Additional arguments to pass to the model
-
-        Returns:
-            List of base64-encoded image strings
-        """
-        messages = prompt_to_messages(user_prompt=prompt, multi_modal_context=multi_modal_context)
-
-        response = None
-        try:
-            response = self.completion(
-                messages=messages,
-                skip_usage_tracking=skip_usage_tracking,
-                **kwargs,
+        if is_diffusion:
+            return ImageGenerationRequest(
+                model=self.model_name,
+                prompt=prompt,
+                n=kwargs.get("n"),
+                timeout=kwargs.get("timeout"),
+                extra_body=kwargs.get("extra_body"),
+                extra_headers=kwargs.get("extra_headers"),
             )
 
-            logger.debug(
-                f"Received image(s) from autoregressive model {self.model_name!r}",
-                extra={"model": self.model_name, "response": response},
-            )
-
-            # Validate response structure
-            if not response.choices or len(response.choices) == 0:
-                raise ImageGenerationError("Image generation response missing choices")
-
-            message = response.choices[0].message
-            images = []
-
-            # Extract base64 from images attribute (primary path)
-            if hasattr(message, "images") and message.images:
-                for image in message.images:
-                    # Handle different response formats
-                    if isinstance(image, dict) and "image_url" in image:
-                        image_url = image["image_url"]
-
-                        if isinstance(image_url, dict) and "url" in image_url:
-                            if (b64 := _try_extract_base64(image_url["url"])) is not None:
-                                images.append(b64)
-                        elif isinstance(image_url, str):
-                            if (b64 := _try_extract_base64(image_url)) is not None:
-                                images.append(b64)
-                    # Fallback: treat as base64 string
-                    elif isinstance(image, str):
-                        if (b64 := _try_extract_base64(image)) is not None:
-                            images.append(b64)
-
-            # Fallback: check content field if it looks like image data
-            if not images:
-                content = message.content or ""
-                if content and (content.startswith("data:image/") or is_base64_image(content)):
-                    if (b64 := _try_extract_base64(content)) is not None:
-                        images.append(b64)
-
-            if not images:
-                raise ImageGenerationError("No image data found in image generation response")
-
-            return images
-
-        except Exception:
-            raise
-
-    def _generate_image_diffusion(self, prompt: str, skip_usage_tracking: bool = False, **kwargs) -> list[str]:
-        """Generate image(s) using diffusion model via image_generation API.
-
-        Always returns base64. If the API returns URLs instead of inline base64,
-        the images are downloaded and converted automatically.
-
-        Returns:
-            List of base64-encoded image strings
-        """
-        kwargs = self.consolidate_kwargs(**kwargs)
-
-        response = None
-
-        try:
-            response = self._router.image_generation(prompt=prompt, model=self.model_name, **kwargs)
-
-            logger.debug(
-                f"Received {len(response.data)} image(s) from diffusion model {self.model_name!r}",
-                extra={"model": self.model_name, "response": response},
-            )
-
-            # Validate response
-            if not response.data or len(response.data) == 0:
-                raise ImageGenerationError("Image generation returned no data")
-
-            images = [b64 for img in response.data if (b64 := _try_extract_base64(img)) is not None]
-
-            if not images:
-                raise ImageGenerationError("No image data could be extracted from response")
-
-            return images
-
-        except Exception:
-            raise
-        finally:
-            if not skip_usage_tracking and response is not None:
-                self._track_token_usage_from_image_diffusion(response)
-
-    def _get_litellm_deployment(self, model_config: ModelConfig) -> litellm.DeploymentTypedDict:
-        provider = self._model_provider_registry.get_provider(model_config.provider)
-        api_key = None
-        if provider.api_key:
-            api_key = self._secret_resolver.resolve(provider.api_key)
-        api_key = api_key or "not-used-but-required"
-
-        litellm_params = lazy.litellm.LiteLLM_Params(
-            model=f"{provider.provider_type}/{model_config.model}",
-            api_base=provider.endpoint,
-            api_key=api_key,
-            max_parallel_requests=model_config.inference_parameters.max_parallel_requests,
+        chat_messages = [
+            m.to_dict() for m in prompt_to_messages(user_prompt=prompt, multi_modal_context=multi_modal_context)
+        ]
+        return ImageGenerationRequest(
+            model=self.model_name,
+            prompt=prompt,
+            messages=chat_messages,
+            n=kwargs.get("n"),
+            timeout=kwargs.get("timeout"),
+            extra_body=kwargs.get("extra_body"),
+            extra_headers=kwargs.get("extra_headers"),
         )
-        return {
-            "model_name": model_config.model,
-            "litellm_params": litellm_params.model_dump(),
-        }
 
-    def _track_token_usage_from_completion(self, response: litellm.types.utils.ModelResponse | None) -> None:
-        if response is None:
-            self._usage_stats.extend(request_usage=RequestUsageStats(successful_requests=0, failed_requests=1))
-            return
-        if (
-            response.usage is not None
-            and response.usage.prompt_tokens is not None
-            and response.usage.completion_tokens is not None
-        ):
-            self._usage_stats.extend(
-                token_usage=TokenUsageStats(
-                    input_tokens=response.usage.prompt_tokens,
-                    output_tokens=response.usage.completion_tokens,
-                ),
-                request_usage=RequestUsageStats(successful_requests=1, failed_requests=0),
-            )
-
-    def _track_token_usage_from_embedding(self, response: litellm.types.utils.EmbeddingResponse | None) -> None:
-        if response is None:
-            self._usage_stats.extend(request_usage=RequestUsageStats(successful_requests=0, failed_requests=1))
-            return
-        if response.usage is not None and response.usage.prompt_tokens is not None:
-            self._usage_stats.extend(
-                token_usage=TokenUsageStats(
-                    input_tokens=response.usage.prompt_tokens,
-                    output_tokens=0,
-                ),
-                request_usage=RequestUsageStats(successful_requests=1, failed_requests=0),
-            )
-
-    def _track_token_usage_from_image_diffusion(self, response: litellm.types.utils.ImageResponse | None) -> None:
-        """Track token usage from image_generation API response."""
-        if response is None:
+    def _track_usage(self, usage: Usage | None, *, is_request_successful: bool) -> None:
+        """Unified usage tracking from canonical Usage type."""
+        if not is_request_successful:
             self._usage_stats.extend(request_usage=RequestUsageStats(successful_requests=0, failed_requests=1))
             return
 
-        if response.usage is not None and isinstance(response.usage, lazy.litellm.types.utils.ImageUsage):
-            self._usage_stats.extend(
-                token_usage=TokenUsageStats(
-                    input_tokens=response.usage.input_tokens,
-                    output_tokens=response.usage.output_tokens,
-                ),
-                request_usage=RequestUsageStats(successful_requests=1, failed_requests=0),
+        token_usage = None
+        if usage is not None and usage.input_tokens is not None:
+            token_usage = TokenUsageStats(
+                input_tokens=usage.input_tokens,
+                output_tokens=usage.output_tokens or 0,
             )
-        else:
-            # Successful response but no token usage data (some providers don't report it)
-            self._usage_stats.extend(request_usage=RequestUsageStats(successful_requests=1, failed_requests=0))
+
+        self._usage_stats.extend(
+            token_usage=token_usage,
+            request_usage=RequestUsageStats(successful_requests=1, failed_requests=0),
+        )
 
     async def acompletion(
         self, messages: list[ChatMessage], skip_usage_tracking: bool = False, **kwargs: Any
-    ) -> litellm.ModelResponse:
+    ) -> ChatCompletionResponse:
         message_payloads = [message.to_dict() for message in messages]
         logger.debug(
             f"Prompting model {self.model_name!r}...",
@@ -583,22 +462,21 @@ class ModelFacade:
         response = None
         kwargs = self.consolidate_kwargs(**kwargs)
         try:
-            response = await self._router.acompletion(model=self.model_name, messages=message_payloads, **kwargs)
+            request = self._build_chat_completion_request(message_payloads, kwargs)
+            response = await self._client.acompletion(request)
             logger.debug(
                 f"Received completion from model {self.model_name!r}",
                 extra={
                     "model": self.model_name,
                     "response": response,
-                    "text": response.choices[0].message.content,
+                    "text": response.message.content,
                     "usage": self._usage_stats.model_dump(),
                 },
             )
             return response
-        except Exception as e:
-            raise e
         finally:
             if not skip_usage_tracking and response is not None:
-                self._track_token_usage_from_completion(response)
+                self._track_usage(response.usage, is_request_successful=True)
 
     @acatch_llm_exceptions
     async def agenerate_text_embeddings(
@@ -612,26 +490,24 @@ class ModelFacade:
             },
         )
         kwargs = self.consolidate_kwargs(**kwargs)
-        response = None
+        response: EmbeddingResponse | None = None
         try:
-            response = await self._router.aembedding(model=self.model_name, input=input_texts, **kwargs)
+            request = self._build_embedding_request(input_texts, kwargs)
+            response = await self._client.aembeddings(request)
             logger.debug(
                 f"Received embeddings from model {self.model_name!r}",
                 extra={
                     "model": self.model_name,
-                    "embedding_count": len(response.data) if response.data else 0,
+                    "embedding_count": len(response.vectors),
                     "usage": self._usage_stats.model_dump(),
                 },
             )
-            if response.data and len(response.data) == len(input_texts):
-                return [data["embedding"] for data in response.data]
-            else:
-                raise ValueError(f"Expected {len(input_texts)} embeddings, but received {len(response.data)}")
-        except Exception as e:
-            raise e
+            if len(response.vectors) == len(input_texts):
+                return response.vectors
+            raise ValueError(f"Expected {len(input_texts)} embeddings, but received {len(response.vectors)}")
         finally:
             if not skip_usage_tracking and response is not None:
-                self._track_token_usage_from_embedding(response)
+                self._track_usage(response.usage, is_request_successful=True)
 
     @acatch_llm_exceptions
     async def agenerate(
@@ -693,8 +569,8 @@ class ModelFacade:
 
                 continue
 
-            response = (completion_response.choices[0].message.content or "").strip()
-            reasoning_trace = getattr(completion_response.choices[0].message, "reasoning_content", None)
+            response = (completion_response.message.content or "").strip()
+            reasoning_trace = completion_response.message.reasoning_content
             messages.append(ChatMessage.as_assistant(content=response, reasoning_content=reasoning_trace or None))
             curr_num_correction_steps += 1
 
@@ -741,8 +617,8 @@ class ModelFacade:
         """Async version of generate_image. Generate image(s) and return base64-encoded data.
 
         Automatically detects the appropriate API based on model name:
-        - Diffusion models (DALL-E, Stable Diffusion, Imagen, etc.) → image_generation API
-        - All other models → chat/completions API (default)
+        - Diffusion models (DALL-E, Stable Diffusion, Imagen, etc.) -> image_generation API
+        - All other models -> chat/completions API (default)
 
         Both paths return base64-encoded image data. If the API returns multiple images,
         all are returned in the list.
@@ -765,133 +641,26 @@ class ModelFacade:
             extra={"model": self.model_name, "prompt": prompt},
         )
 
-        # Auto-detect API type based on model name
-        if is_image_diffusion_model(self.model_name):
-            images = await self._agenerate_image_diffusion(prompt, skip_usage_tracking, **kwargs)
-        else:
-            images = await self._agenerate_image_chat_completion(
-                prompt, multi_modal_context, skip_usage_tracking, **kwargs
-            )
+        kwargs = self.consolidate_kwargs(**kwargs)
+        request = self._build_image_generation_request(prompt, multi_modal_context, kwargs)
+        response = await self._client.agenerate_image(request)
+
+        images = [img.b64_data for img in response.images]
+
+        if not images:
+            raise ImageGenerationError("No image data found in image generation response")
 
         # Track image usage
-        if not skip_usage_tracking and len(images) > 0:
+        if not skip_usage_tracking and images:
             self._usage_stats.extend(image_usage=ImageUsageStats(total_images=len(images)))
+            self._track_usage(response.usage, is_request_successful=True)
 
         return images
 
-    async def _agenerate_image_chat_completion(
-        self,
-        prompt: str,
-        multi_modal_context: list[dict[str, Any]] | None = None,
-        skip_usage_tracking: bool = False,
-        **kwargs: Any,
-    ) -> list[str]:
-        """Async version of _generate_image_chat_completion.
+    def close(self) -> None:
+        """Release resources held by the underlying client."""
+        self._client.close()
 
-        Generate image(s) using autoregressive model via chat completions API.
-
-        Args:
-            prompt: The prompt for image generation
-            multi_modal_context: Optional list of image contexts for multi-modal generation
-            skip_usage_tracking: Whether to skip usage tracking
-            **kwargs: Additional arguments to pass to the model
-
-        Returns:
-            List of base64-encoded image strings
-        """
-        messages = prompt_to_messages(user_prompt=prompt, multi_modal_context=multi_modal_context)
-
-        response = None
-        try:
-            response = await self.acompletion(
-                messages=messages,
-                skip_usage_tracking=skip_usage_tracking,
-                **kwargs,
-            )
-
-            logger.debug(
-                f"Received image(s) from autoregressive model {self.model_name!r}",
-                extra={"model": self.model_name, "response": response},
-            )
-
-            # Validate response structure
-            if not response.choices or len(response.choices) == 0:
-                raise ImageGenerationError("Image generation response missing choices")
-
-            message = response.choices[0].message
-            images = []
-
-            # Extract base64 from images attribute (primary path)
-            if hasattr(message, "images") and message.images:
-                for image in message.images:
-                    # Handle different response formats
-                    if isinstance(image, dict) and "image_url" in image:
-                        image_url = image["image_url"]
-
-                        if isinstance(image_url, dict) and "url" in image_url:
-                            if (b64 := _try_extract_base64(image_url["url"])) is not None:
-                                images.append(b64)
-                        elif isinstance(image_url, str):
-                            if (b64 := _try_extract_base64(image_url)) is not None:
-                                images.append(b64)
-                    # Fallback: treat as base64 string
-                    elif isinstance(image, str):
-                        if (b64 := _try_extract_base64(image)) is not None:
-                            images.append(b64)
-
-            # Fallback: check content field if it looks like image data
-            if not images:
-                content = message.content or ""
-                if content and (content.startswith("data:image/") or is_base64_image(content)):
-                    if (b64 := _try_extract_base64(content)) is not None:
-                        images.append(b64)
-
-            if not images:
-                raise ImageGenerationError("No image data found in image generation response")
-
-            return images
-
-        except Exception:
-            raise
-
-    async def _agenerate_image_diffusion(
-        self, prompt: str, skip_usage_tracking: bool = False, **kwargs: Any
-    ) -> list[str]:
-        """Async version of _generate_image_diffusion.
-
-        Generate image(s) using diffusion model via image_generation API.
-
-        Always returns base64. If the API returns URLs instead of inline base64,
-        the images are downloaded and converted automatically.
-
-        Returns:
-            List of base64-encoded image strings
-        """
-        kwargs = self.consolidate_kwargs(**kwargs)
-
-        response = None
-
-        try:
-            response = await self._router.aimage_generation(prompt=prompt, model=self.model_name, **kwargs)
-
-            logger.debug(
-                f"Received {len(response.data)} image(s) from diffusion model {self.model_name!r}",
-                extra={"model": self.model_name, "response": response},
-            )
-
-            # Validate response
-            if not response.data or len(response.data) == 0:
-                raise ImageGenerationError("Image generation returned no data")
-
-            images = [b64 for img in response.data if (b64 := _try_extract_base64(img)) is not None]
-
-            if not images:
-                raise ImageGenerationError("No image data could be extracted from response")
-
-            return images
-
-        except Exception:
-            raise
-        finally:
-            if not skip_usage_tracking and response is not None:
-                self._track_token_usage_from_image_diffusion(response)
+    async def aclose(self) -> None:
+        """Async release resources held by the underlying client."""
+        await self._client.aclose()

@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.engine.errors import DataDesignerError
+from data_designer.engine.models.clients.errors import ProviderError, ProviderErrorKind
 
 if TYPE_CHECKING:
     import litellm
@@ -34,8 +35,7 @@ def get_exception_primary_cause(exception: BaseException) -> BaseException:
     """
     if exception.__cause__ is None:
         return exception
-    else:
-        return get_exception_primary_cause(exception.__cause__)
+    return get_exception_primary_cause(exception.__cause__)
 
 
 class GenerationValidationFailureError(Exception): ...
@@ -124,7 +124,13 @@ def handle_llm_exceptions(
     )
     err_msg_parser = DownstreamLLMExceptionMessageParser(model_name, model_provider_name, purpose)
     match exception:
-        # Common errors that can come from LiteLLM
+        # Canonical ProviderError from the client adapter layer
+        case ProviderError(kind=kind):
+            _raise_from_provider_error(
+                exception, kind, model_name, model_provider_name, purpose, authentication_error, err_msg_parser
+            )
+
+        # LiteLLM-specific errors (safety net during bridge period)
         case lazy.litellm.exceptions.APIError():
             raise err_msg_parser.parse_api_error(exception, authentication_error) from None
 
@@ -228,7 +234,7 @@ def catch_llm_exceptions(func: Callable) -> Callable:
     """
 
     @wraps(func)
-    def wrapper(model_facade: Any, *args, **kwargs):
+    def wrapper(model_facade: Any, *args: Any, **kwargs: Any) -> Any:
         try:
             return func(model_facade, *args, **kwargs)
         except Exception as e:
@@ -315,7 +321,7 @@ class DownstreamLLMExceptionMessageParser:
             )
 
     def parse_api_error(
-        self, exception: litellm.exceptions.InternalServerError, auth_error_msg: FormattedLLMErrorMessage
+        self, exception: litellm.exceptions.APIError, auth_error_msg: FormattedLLMErrorMessage
     ) -> DataDesignerError:
         if "Error code: 403" in str(exception):
             return ModelAuthenticationError(auth_error_msg)
@@ -326,3 +332,96 @@ class DownstreamLLMExceptionMessageParser:
                 solution=f"Try again in a few moments. Check with your model provider {self.model_provider_name!r} if the issue persists.",
             )
         )
+
+
+def _raise_from_provider_error(
+    exception: ProviderError,
+    kind: ProviderErrorKind,
+    model_name: str,
+    model_provider_name: str,
+    purpose: str,
+    authentication_error: FormattedLLMErrorMessage,
+    err_msg_parser: DownstreamLLMExceptionMessageParser,
+) -> None:
+    """Map a canonical ProviderError to the appropriate DataDesignerError subclass."""
+    _KIND_MAP: dict[ProviderErrorKind, type[DataDesignerError]] = {
+        ProviderErrorKind.RATE_LIMIT: ModelRateLimitError,
+        ProviderErrorKind.TIMEOUT: ModelTimeoutError,
+        ProviderErrorKind.NOT_FOUND: ModelNotFoundError,
+        ProviderErrorKind.PERMISSION_DENIED: ModelPermissionDeniedError,
+        ProviderErrorKind.UNSUPPORTED_PARAMS: ModelUnsupportedParamsError,
+        ProviderErrorKind.INTERNAL_SERVER: ModelInternalServerError,
+        ProviderErrorKind.UNPROCESSABLE_ENTITY: ModelUnprocessableEntityError,
+        ProviderErrorKind.API_CONNECTION: ModelAPIConnectionError,
+    }
+
+    _MESSAGES: dict[ProviderErrorKind, tuple[str, str]] = {
+        ProviderErrorKind.RATE_LIMIT: (
+            f"You have exceeded the rate limit for model {model_name!r} while {purpose}.",
+            "Wait and try again in a few moments.",
+        ),
+        ProviderErrorKind.TIMEOUT: (
+            f"The request to model {model_name!r} timed out while {purpose}.",
+            "Check your connection and try again. You may need to increase the timeout setting for the model.",
+        ),
+        ProviderErrorKind.NOT_FOUND: (
+            f"The specified model {model_name!r} could not be found while {purpose}.",
+            f"Check that the model name is correct and supported by your model provider {model_provider_name!r} and try again.",
+        ),
+        ProviderErrorKind.PERMISSION_DENIED: (
+            f"Your API key was found to lack the necessary permissions to use model {model_name!r} while {purpose}.",
+            f"Use an API key that has the right permissions for the model or use a model the API key in use has access to in model provider {model_provider_name!r}.",
+        ),
+        ProviderErrorKind.UNSUPPORTED_PARAMS: (
+            f"One or more of the parameters you provided were found to be unsupported by model {model_name!r} while {purpose}.",
+            f"Review the documentation for model provider {model_provider_name!r} and adjust your request.",
+        ),
+        ProviderErrorKind.INTERNAL_SERVER: (
+            f"Model {model_name!r} is currently experiencing internal server issues while {purpose}.",
+            f"Try again in a few moments. Check with your model provider {model_provider_name!r} if the issue persists.",
+        ),
+        ProviderErrorKind.UNPROCESSABLE_ENTITY: (
+            f"The request to model {model_name!r} failed despite correct request format while {purpose}.",
+            "This is most likely temporary. Try again in a few moments.",
+        ),
+        ProviderErrorKind.API_CONNECTION: (
+            f"Connection to model {model_name!r} hosted on model provider {model_provider_name!r} failed while {purpose}.",
+            "Check your network/proxy/firewall settings.",
+        ),
+    }
+
+    if kind == ProviderErrorKind.AUTHENTICATION:
+        raise ModelAuthenticationError(authentication_error) from None
+
+    if kind == ProviderErrorKind.CONTEXT_WINDOW_EXCEEDED:
+        raise ModelContextWindowExceededError(
+            FormattedLLMErrorMessage(
+                cause=f"The input data for model '{model_name}' was found to exceed its supported context width while {purpose}.",
+                solution="Check the model's supported max context width. Adjust the length of your input along with completions and try again.",
+            )
+        ) from None
+
+    if kind == ProviderErrorKind.BAD_REQUEST:
+        err_msg = FormattedLLMErrorMessage(
+            cause=f"The request for model {model_name!r} was found to be malformed or missing required parameters while {purpose}.",
+            solution="Check your request parameters and try again.",
+        )
+        if "is not a multimodal model" in str(exception):
+            err_msg = FormattedLLMErrorMessage(
+                cause=f"Model {model_name!r} is not a multimodal model, but it looks like you are trying to provide multimodal context while {purpose}.",
+                solution="Check your request parameters and try again.",
+            )
+        raise ModelBadRequestError(err_msg) from None
+
+    if kind in _KIND_MAP and kind in _MESSAGES:
+        error_cls = _KIND_MAP[kind]
+        cause_str, solution_str = _MESSAGES[kind]
+        raise error_cls(FormattedLLMErrorMessage(cause=cause_str, solution=solution_str)) from None
+
+    # Fallback for API_ERROR and UNSUPPORTED_CAPABILITY
+    raise ModelAPIError(
+        FormattedLLMErrorMessage(
+            cause=f"An unexpected API error occurred with model {model_name!r} while {purpose}.",
+            solution=f"Try again in a few moments. Check with your model provider {model_provider_name!r} if the issue persists.",
+        )
+    ) from None

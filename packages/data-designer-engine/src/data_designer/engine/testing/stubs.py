@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 from data_designer.config.base import ConfigBase, SingleColumnConfig
 from data_designer.engine.column_generators.generators.base import ColumnGeneratorCellByCell
+from data_designer.engine.models.clients.types import AssistantMessage, ChatCompletionResponse, ToolCall
 from data_designer.engine.models.utils import ChatMessage
 from data_designer.engine.resources.seed_reader import SeedReader
 from data_designer.plugins.plugin import Plugin, PluginType
@@ -24,7 +25,7 @@ class StubHuggingFaceSeedReader(SeedReader):
     def get_dataset_uri(self) -> str:
         return "unused in these tests"
 
-    def create_duckdb_connection(self):
+    def create_duckdb_connection(self) -> None:
         pass
 
     def get_seed_type(self) -> str:
@@ -41,7 +42,7 @@ class ValidTestConfig(SingleColumnConfig):
 class ValidTestTask(ColumnGeneratorCellByCell[ValidTestConfig]):
     """Valid task for testing plugin creation."""
 
-    def generate(self, data: dict) -> dict:
+    def generate(self, data: dict[str, Any]) -> dict[str, Any]:
         return data
 
 
@@ -70,12 +71,12 @@ class StubPluginConfigB(SingleColumnConfig):
 
 
 class StubPluginTaskA(ColumnGeneratorCellByCell[StubPluginConfigA]):
-    def generate(self, data: dict) -> dict:
+    def generate(self, data: dict[str, Any]) -> dict[str, Any]:
         return data
 
 
 class StubPluginTaskB(ColumnGeneratorCellByCell[StubPluginConfigB]):
-    def generate(self, data: dict) -> dict:
+    def generate(self, data: dict[str, Any]) -> dict[str, Any]:
         return data
 
 
@@ -95,17 +96,17 @@ class StubPluginConfigBlobsAndSeeds(SingleColumnConfig):
 
 
 class StubPluginTaskModels(ColumnGeneratorCellByCell[StubPluginConfigModels]):
-    def generate(self, data: dict) -> dict:
+    def generate(self, data: dict[str, Any]) -> dict[str, Any]:
         return data
 
 
 class StubPluginTaskModelsAndBlobs(ColumnGeneratorCellByCell[StubPluginConfigModelsAndBlobs]):
-    def generate(self, data: dict) -> dict:
+    def generate(self, data: dict[str, Any]) -> dict[str, Any]:
         return data
 
 
 class StubPluginTaskBlobsAndSeeds(ColumnGeneratorCellByCell[StubPluginConfigBlobsAndSeeds]):
-    def generate(self, data: dict) -> dict:
+    def generate(self, data: dict[str, Any]) -> dict[str, Any]:
         return data
 
 
@@ -135,7 +136,7 @@ plugin_blobs_and_seeds = Plugin(
 
 
 # =============================================================================
-# Stub LLM response classes for testing
+# Stub LLM response classes for testing (legacy, kept for backward compat)
 # =============================================================================
 
 
@@ -174,6 +175,26 @@ class StubResponse:
 
 
 # =============================================================================
+# Canonical stub helpers
+# =============================================================================
+
+
+def make_stub_completion_response(
+    content: str | None = None,
+    reasoning_content: str | None = None,
+    tool_calls: list[ToolCall] | None = None,
+) -> ChatCompletionResponse:
+    """Factory helper for creating canonical ChatCompletionResponse test objects."""
+    return ChatCompletionResponse(
+        message=AssistantMessage(
+            content=content,
+            reasoning_content=reasoning_content,
+            tool_calls=tool_calls or [],
+        ),
+    )
+
+
+# =============================================================================
 # Stub MCP classes for testing tool calling
 # =============================================================================
 
@@ -195,8 +216,8 @@ class StubMCPFacade:
         self,
         max_tool_call_turns: int = 3,
         tool_schemas: list[dict[str, Any]] | None = None,
-        process_fn: Callable[[Any], list[ChatMessage]] | None = None,
-        refuse_fn: Callable[[Any], list[ChatMessage]] | None = None,
+        process_fn: Callable[[ChatCompletionResponse], list[ChatMessage]] | None = None,
+        refuse_fn: Callable[[ChatCompletionResponse], list[ChatMessage]] | None = None,
     ) -> None:
         self.tool_alias = "tools"
         self.providers = ["tools"]
@@ -208,34 +229,49 @@ class StubMCPFacade:
     def get_tool_schemas(self) -> list[dict[str, Any]]:
         return self._tool_schemas
 
-    def tool_call_count(self, completion_response: Any) -> int:
-        tool_calls = getattr(completion_response.choices[0].message, "tool_calls", None)
-        return len(tool_calls) if tool_calls else 0
+    def tool_call_count(self, completion_response: ChatCompletionResponse) -> int:
+        return len(completion_response.message.tool_calls)
 
-    def has_tool_calls(self, completion_response: Any) -> bool:
-        return completion_response.choices[0].message.tool_calls is not None
+    def has_tool_calls(self, completion_response: ChatCompletionResponse) -> bool:
+        return len(completion_response.message.tool_calls) > 0
 
-    def process_completion_response(self, completion_response: Any) -> list[ChatMessage]:
+    def process_completion_response(self, completion_response: ChatCompletionResponse) -> list[ChatMessage]:
         if self._process_fn:
             return self._process_fn(completion_response)
-        message = completion_response.choices[0].message
-        tool_calls = message.tool_calls or []
+        message = completion_response.message
+        tool_calls = message.tool_calls
+        tool_call_dicts = [
+            {
+                "id": tc.id,
+                "type": "function",
+                "function": {"name": tc.name, "arguments": tc.arguments_json},
+            }
+            for tc in tool_calls
+        ]
         return [
-            ChatMessage.as_assistant(content=message.content or "", tool_calls=tool_calls),
-            *[ChatMessage.as_tool(content="tool-result", tool_call_id=tc["id"]) for tc in tool_calls],
+            ChatMessage.as_assistant(content=message.content or "", tool_calls=tool_call_dicts),
+            *[ChatMessage.as_tool(content="tool-result", tool_call_id=tc.id) for tc in tool_calls],
         ]
 
-    def refuse_completion_response(self, completion_response: Any) -> list[ChatMessage]:
+    def refuse_completion_response(self, completion_response: ChatCompletionResponse) -> list[ChatMessage]:
         if self._refuse_fn:
             return self._refuse_fn(completion_response)
-        message = completion_response.choices[0].message
-        tool_calls = message.tool_calls or []
+        message = completion_response.message
+        tool_calls = message.tool_calls
+        tool_call_dicts = [
+            {
+                "id": tc.id,
+                "type": "function",
+                "function": {"name": tc.name, "arguments": tc.arguments_json},
+            }
+            for tc in tool_calls
+        ]
         return [
-            ChatMessage.as_assistant(content="", tool_calls=tool_calls),
+            ChatMessage.as_assistant(content="", tool_calls=tool_call_dicts),
             *[
                 ChatMessage.as_tool(
                     content="Tool call refused: maximum tool-calling turns reached.",
-                    tool_call_id=tc["id"],
+                    tool_call_id=tc.id,
                 )
                 for tc in tool_calls
             ],
@@ -243,14 +279,7 @@ class StubMCPFacade:
 
 
 class StubMCPRegistry:
-    """Stub MCP registry that returns a configurable StubMCPFacade.
-
-    This stub provides a simple registry implementation for testing that
-    returns the configured StubMCPFacade instance.
-
-    Args:
-        facade: The StubMCPFacade instance to return. If None, creates a default one.
-    """
+    """Stub MCP registry that returns a configurable StubMCPFacade."""
 
     def __init__(self, facade: StubMCPFacade | None = None) -> None:
         self._facade = facade or StubMCPFacade()
