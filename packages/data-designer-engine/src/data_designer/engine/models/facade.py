@@ -19,6 +19,7 @@ from data_designer.engine.models.clients.types import (
     EmbeddingRequest,
     EmbeddingResponse,
     ImageGenerationRequest,
+    ImageGenerationResponse,
     Usage,
 )
 from data_designer.engine.models.errors import (
@@ -536,19 +537,26 @@ class ModelFacade:
         )
 
         kwargs = self.consolidate_kwargs(**kwargs)
-        request = self._build_image_generation_request(prompt, multi_modal_context, kwargs)
-        response = self._client.generate_image(request)
+        response: ImageGenerationResponse | None = None
+        try:
+            request = self._build_image_generation_request(prompt, multi_modal_context, kwargs)
+            response = self._client.generate_image(request)
 
-        images = [img.b64_data for img in response.images]
+            images = [img.b64_data for img in response.images]
 
-        if not images:
-            raise ImageGenerationError("No image data found in image generation response")
+            if not images:
+                raise ImageGenerationError("No image data found in image generation response")
 
-        if not skip_usage_tracking and images:
-            self._usage_stats.extend(image_usage=ImageUsageStats(total_images=len(images)))
-            self._track_usage(response.usage, is_request_successful=True)
+            if not skip_usage_tracking:
+                self._usage_stats.extend(image_usage=ImageUsageStats(total_images=len(images)))
 
-        return images
+            return images
+        finally:
+            if not skip_usage_tracking:
+                self._track_usage(
+                    response.usage if response is not None else None,
+                    is_request_successful=response is not None,
+                )
 
     @acatch_llm_exceptions
     async def agenerate_image(
@@ -586,19 +594,26 @@ class ModelFacade:
         )
 
         kwargs = self.consolidate_kwargs(**kwargs)
-        request = self._build_image_generation_request(prompt, multi_modal_context, kwargs)
-        response = await self._client.agenerate_image(request)
+        response: ImageGenerationResponse | None = None
+        try:
+            request = self._build_image_generation_request(prompt, multi_modal_context, kwargs)
+            response = await self._client.agenerate_image(request)
 
-        images = [img.b64_data for img in response.images]
+            images = [img.b64_data for img in response.images]
 
-        if not images:
-            raise ImageGenerationError("No image data found in image generation response")
+            if not images:
+                raise ImageGenerationError("No image data found in image generation response")
 
-        if not skip_usage_tracking and images:
-            self._usage_stats.extend(image_usage=ImageUsageStats(total_images=len(images)))
-            self._track_usage(response.usage, is_request_successful=True)
+            if not skip_usage_tracking:
+                self._usage_stats.extend(image_usage=ImageUsageStats(total_images=len(images)))
 
-        return images
+            return images
+        finally:
+            if not skip_usage_tracking:
+                self._track_usage(
+                    response.usage if response is not None else None,
+                    is_request_successful=response is not None,
+                )
 
     # --- close / aclose ---
 
