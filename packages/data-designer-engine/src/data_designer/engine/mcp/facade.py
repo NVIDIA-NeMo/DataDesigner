@@ -270,7 +270,8 @@ class MCPFacade:
                 providers_str = ", ".join(repr(p) for p in self._tool_config.providers)
                 raise MCPToolError(f"Tool {tc.name!r} is not permitted for providers: {providers_str}.")
 
-            arguments = json.loads(tc.arguments_json) if tc.arguments_json else {}
+            arguments_raw = json.loads(tc.arguments_json) if tc.arguments_json else {}
+            arguments = arguments_raw if isinstance(arguments_raw, dict) else {}
             resolved_provider = self._find_resolved_provider_for_tool(tc.name)
             calls_to_execute.append((resolved_provider, tc.name, arguments, tc.id))
 

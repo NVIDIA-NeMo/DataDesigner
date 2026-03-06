@@ -54,6 +54,12 @@ class ChatCompletionRequest:
     temperature: float | None = None
     top_p: float | None = None
     max_tokens: int | None = None
+    stop: str | list[str] | None = None
+    seed: int | None = None
+    response_format: dict[str, Any] | None = None
+    frequency_penalty: float | None = None
+    presence_penalty: float | None = None
+    n: int | None = None
     timeout: float | None = None
     extra_body: dict[str, Any] | None = None
     extra_headers: dict[str, str] | None = None

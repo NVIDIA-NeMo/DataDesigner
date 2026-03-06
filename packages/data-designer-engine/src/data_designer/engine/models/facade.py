@@ -48,7 +48,21 @@ logger = logging.getLogger(__name__)
 
 # Known keyword arguments extracted into ChatCompletionRequest fields.
 _COMPLETION_REQUEST_FIELDS = frozenset(
-    {"temperature", "top_p", "max_tokens", "timeout", "tools", "extra_body", "extra_headers"}
+    {
+        "temperature",
+        "top_p",
+        "max_tokens",
+        "stop",
+        "seed",
+        "response_format",
+        "frequency_penalty",
+        "presence_penalty",
+        "n",
+        "timeout",
+        "tools",
+        "extra_body",
+        "extra_headers",
+    }
 )
 
 
@@ -131,8 +145,11 @@ class ModelFacade:
             )
             return response
         finally:
-            if not skip_usage_tracking and response is not None:
-                self._track_usage(response.usage, is_request_successful=True)
+            if not skip_usage_tracking:
+                self._track_usage(
+                    response.usage if response is not None else None,
+                    is_request_successful=response is not None,
+                )
 
     async def acompletion(
         self, messages: list[ChatMessage], skip_usage_tracking: bool = False, **kwargs: Any
@@ -158,8 +175,11 @@ class ModelFacade:
             )
             return response
         finally:
-            if not skip_usage_tracking and response is not None:
-                self._track_usage(response.usage, is_request_successful=True)
+            if not skip_usage_tracking:
+                self._track_usage(
+                    response.usage if response is not None else None,
+                    is_request_successful=response is not None,
+                )
 
     # --- generate / agenerate ---
 
@@ -438,8 +458,11 @@ class ModelFacade:
                 return response.vectors
             raise ValueError(f"Expected {len(input_texts)} embeddings, but received {len(response.vectors)}")
         finally:
-            if not skip_usage_tracking and response is not None:
-                self._track_usage(response.usage, is_request_successful=True)
+            if not skip_usage_tracking:
+                self._track_usage(
+                    response.usage if response is not None else None,
+                    is_request_successful=response is not None,
+                )
 
     @acatch_llm_exceptions
     async def agenerate_text_embeddings(
@@ -469,8 +492,11 @@ class ModelFacade:
                 return response.vectors
             raise ValueError(f"Expected {len(input_texts)} embeddings, but received {len(response.vectors)}")
         finally:
-            if not skip_usage_tracking and response is not None:
-                self._track_usage(response.usage, is_request_successful=True)
+            if not skip_usage_tracking:
+                self._track_usage(
+                    response.usage if response is not None else None,
+                    is_request_successful=response is not None,
+                )
 
     # --- generate_image / agenerate_image ---
 
@@ -611,6 +637,11 @@ class ModelFacade:
                 metadata[key] = value
 
         if metadata:
+            logger.debug(
+                "Unknown kwargs %s routed to LiteLLM metadata (not forwarded as model parameters). "
+                "Use 'extra_body' to pass non-standard parameters to the model.",
+                sorted(metadata.keys()),
+            )
             request_fields["metadata"] = metadata
 
         return ChatCompletionRequest(**request_fields)
