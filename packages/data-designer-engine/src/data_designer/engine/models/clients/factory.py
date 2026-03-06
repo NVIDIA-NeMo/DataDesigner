@@ -38,7 +38,8 @@ def create_model_client(
     provider = model_provider_registry.get_provider(model_config.provider)
     api_key = _resolve_api_key(provider.api_key, secret_resolver)
     max_parallel = model_config.inference_parameters.max_parallel_requests
-    timeout_s = float(model_config.inference_parameters.timeout or 60)
+    raw_timeout = model_config.inference_parameters.timeout
+    timeout_s = float(raw_timeout if raw_timeout is not None else 60)
 
     backend = os.environ.get(_BACKEND_ENV_VAR, "").strip().lower()
     use_native = backend != _BACKEND_BRIDGE and provider.provider_type == "openai"

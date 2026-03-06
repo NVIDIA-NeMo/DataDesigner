@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 
 def parse_chat_completion_response(response: Any) -> ChatCompletionResponse:
-    first_choice = get_first_value_or_none(getattr(response, "choices", None))
+    first_choice = get_first_value_or_none(get_value_from(response, "choices"))
     message = get_value_from(first_choice, "message")
     tool_calls = extract_tool_calls(get_value_from(message, "tool_calls"))
     images = extract_images_from_chat_message(message)
@@ -43,12 +43,12 @@ def parse_chat_completion_response(response: Any) -> ChatCompletionResponse:
         tool_calls=tool_calls,
         images=images,
     )
-    usage = extract_usage(getattr(response, "usage", None), generated_images=len(images) if images else None)
+    usage = extract_usage(get_value_from(response, "usage"), generated_images=len(images) if images else None)
     return ChatCompletionResponse(message=assistant_message, usage=usage, raw=response)
 
 
 async def aparse_chat_completion_response(response: Any) -> ChatCompletionResponse:
-    first_choice = get_first_value_or_none(getattr(response, "choices", None))
+    first_choice = get_first_value_or_none(get_value_from(response, "choices"))
     message = get_value_from(first_choice, "message")
     tool_calls = extract_tool_calls(get_value_from(message, "tool_calls"))
     images = await aextract_images_from_chat_message(message)
@@ -58,7 +58,7 @@ async def aparse_chat_completion_response(response: Any) -> ChatCompletionRespon
         tool_calls=tool_calls,
         images=images,
     )
-    usage = extract_usage(getattr(response, "usage", None), generated_images=len(images) if images else None)
+    usage = extract_usage(get_value_from(response, "usage"), generated_images=len(images) if images else None)
     return ChatCompletionResponse(message=assistant_message, usage=usage, raw=response)
 
 
@@ -68,13 +68,13 @@ async def aparse_chat_completion_response(response: Any) -> ChatCompletionRespon
 
 
 def extract_images_from_chat_response(response: Any) -> list[ImagePayload]:
-    first_choice = get_first_value_or_none(getattr(response, "choices", None))
+    first_choice = get_first_value_or_none(get_value_from(response, "choices"))
     message = get_value_from(first_choice, "message")
     return extract_images_from_chat_message(message)
 
 
 async def aextract_images_from_chat_response(response: Any) -> list[ImagePayload]:
-    first_choice = get_first_value_or_none(getattr(response, "choices", None))
+    first_choice = get_first_value_or_none(get_value_from(response, "choices"))
     message = get_value_from(first_choice, "message")
     return await aextract_images_from_chat_message(message)
 
@@ -92,11 +92,11 @@ async def aextract_images_from_chat_message(message: Any) -> list[ImagePayload]:
 
 
 def extract_images_from_image_response(response: Any) -> list[ImagePayload]:
-    return parse_image_list(getattr(response, "data", []))
+    return parse_image_list(get_value_from(response, "data") or [])
 
 
 async def aextract_images_from_image_response(response: Any) -> list[ImagePayload]:
-    return await aparse_image_list(getattr(response, "data", []))
+    return await aparse_image_list(get_value_from(response, "data") or [])
 
 
 def collect_raw_image_candidates(message: Any) -> tuple[list[Any], list[Any]]:

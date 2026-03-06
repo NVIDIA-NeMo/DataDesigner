@@ -444,6 +444,7 @@ class ModelFacade:
         )
         kwargs = self.consolidate_kwargs(**kwargs)
         response: EmbeddingResponse | None = None
+        request_successful = False
         try:
             request = self._build_embedding_request(input_texts, kwargs)
             response = self._client.embeddings(request)
@@ -455,14 +456,15 @@ class ModelFacade:
                     "usage": self._usage_stats.model_dump(),
                 },
             )
-            if len(response.vectors) == len(input_texts):
-                return response.vectors
-            raise ValueError(f"Expected {len(input_texts)} embeddings, but received {len(response.vectors)}")
+            if len(response.vectors) != len(input_texts):
+                raise ValueError(f"Expected {len(input_texts)} embeddings, but received {len(response.vectors)}")
+            request_successful = True
+            return response.vectors
         finally:
             if not skip_usage_tracking:
                 self._track_usage(
                     response.usage if response is not None else None,
-                    is_request_successful=response is not None,
+                    is_request_successful=request_successful,
                 )
 
     @acatch_llm_exceptions
@@ -478,6 +480,7 @@ class ModelFacade:
         )
         kwargs = self.consolidate_kwargs(**kwargs)
         response: EmbeddingResponse | None = None
+        request_successful = False
         try:
             request = self._build_embedding_request(input_texts, kwargs)
             response = await self._client.aembeddings(request)
@@ -489,14 +492,15 @@ class ModelFacade:
                     "usage": self._usage_stats.model_dump(),
                 },
             )
-            if len(response.vectors) == len(input_texts):
-                return response.vectors
-            raise ValueError(f"Expected {len(input_texts)} embeddings, but received {len(response.vectors)}")
+            if len(response.vectors) != len(input_texts):
+                raise ValueError(f"Expected {len(input_texts)} embeddings, but received {len(response.vectors)}")
+            request_successful = True
+            return response.vectors
         finally:
             if not skip_usage_tracking:
                 self._track_usage(
                     response.usage if response is not None else None,
-                    is_request_successful=response is not None,
+                    is_request_successful=request_successful,
                 )
 
     # --- generate_image / agenerate_image ---
@@ -538,6 +542,7 @@ class ModelFacade:
 
         kwargs = self.consolidate_kwargs(**kwargs)
         response: ImageGenerationResponse | None = None
+        image_count = 0
         try:
             request = self._build_image_generation_request(prompt, multi_modal_context, kwargs)
             response = self._client.generate_image(request)
@@ -547,15 +552,14 @@ class ModelFacade:
             if not images:
                 raise ImageGenerationError("No image data found in image generation response")
 
-            if not skip_usage_tracking:
-                self._usage_stats.extend(image_usage=ImageUsageStats(total_images=len(images)))
-
+            image_count = len(images)
             return images
         finally:
             if not skip_usage_tracking:
                 self._track_usage(
                     response.usage if response is not None else None,
-                    is_request_successful=response is not None,
+                    is_request_successful=image_count > 0,
+                    image_count=image_count,
                 )
 
     @acatch_llm_exceptions
@@ -595,6 +599,7 @@ class ModelFacade:
 
         kwargs = self.consolidate_kwargs(**kwargs)
         response: ImageGenerationResponse | None = None
+        image_count = 0
         try:
             request = self._build_image_generation_request(prompt, multi_modal_context, kwargs)
             response = await self._client.agenerate_image(request)
@@ -604,15 +609,14 @@ class ModelFacade:
             if not images:
                 raise ImageGenerationError("No image data found in image generation response")
 
-            if not skip_usage_tracking:
-                self._usage_stats.extend(image_usage=ImageUsageStats(total_images=len(images)))
-
+            image_count = len(images)
             return images
         finally:
             if not skip_usage_tracking:
                 self._track_usage(
                     response.usage if response is not None else None,
-                    is_request_successful=response is not None,
+                    is_request_successful=image_count > 0,
+                    image_count=image_count,
                 )
 
     # --- close / aclose ---
@@ -705,7 +709,7 @@ class ModelFacade:
             extra_headers=kwargs.get("extra_headers"),
         )
 
-    def _track_usage(self, usage: Usage | None, *, is_request_successful: bool) -> None:
+    def _track_usage(self, usage: Usage | None, *, is_request_successful: bool, image_count: int = 0) -> None:
         """Unified usage tracking from canonical Usage type."""
         if not is_request_successful:
             self._usage_stats.extend(request_usage=RequestUsageStats(successful_requests=0, failed_requests=1))
@@ -721,4 +725,5 @@ class ModelFacade:
         self._usage_stats.extend(
             token_usage=token_usage,
             request_usage=RequestUsageStats(successful_requests=1, failed_requests=0),
+            image_usage=ImageUsageStats(total_images=image_count) if image_count > 0 else None,
         )

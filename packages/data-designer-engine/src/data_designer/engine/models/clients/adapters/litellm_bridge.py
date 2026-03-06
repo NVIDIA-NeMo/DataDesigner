@@ -11,8 +11,8 @@ from typing import Any, Protocol
 from data_designer.engine.models.clients.base import ModelClient
 from data_designer.engine.models.clients.errors import (
     ProviderError,
-    ProviderErrorKind,
     extract_message_from_exception_string,
+    infer_error_kind_from_exception,
     map_http_status_to_provider_error_kind,
 )
 from data_designer.engine.models.clients.parsing import (
@@ -192,7 +192,7 @@ def _handle_non_provider_errors(provider_name: str) -> Iterator[None]:
         if isinstance(status_code, int):
             kind = map_http_status_to_provider_error_kind(status_code=status_code, body_text=str(exc))
         else:
-            kind = _infer_error_kind(exc)
+            kind = infer_error_kind_from_exception(exc)
 
         raise ProviderError(
             kind=kind,
@@ -201,17 +201,3 @@ def _handle_non_provider_errors(provider_name: str) -> Iterator[None]:
             provider_name=provider_name,
             cause=exc,
         ) from exc
-
-
-def _infer_error_kind(exc: Exception) -> ProviderErrorKind:
-    """Infer error kind from exception type name when no status code is available."""
-    type_name = type(exc).__name__.lower()
-    if "timeout" in type_name:
-        return ProviderErrorKind.TIMEOUT
-    if "connection" in type_name or "connect" in type_name:
-        return ProviderErrorKind.API_CONNECTION
-    if "auth" in type_name:
-        return ProviderErrorKind.AUTHENTICATION
-    if "ratelimit" in type_name:
-        return ProviderErrorKind.RATE_LIMIT
-    return ProviderErrorKind.API_ERROR

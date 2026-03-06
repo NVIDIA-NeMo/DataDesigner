@@ -11,6 +11,7 @@ from data_designer.engine.models.clients.base import ModelClient
 from data_designer.engine.models.clients.errors import (
     ProviderError,
     ProviderErrorKind,
+    infer_error_kind_from_exception,
     map_http_error_to_provider_error,
 )
 from data_designer.engine.models.clients.parsing import (
@@ -40,13 +41,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Route paths for OpenAI-compatible APIs.
-_ROUTE_CHAT = "/chat/completions"
-_ROUTE_EMBEDDING = "/embeddings"
-_ROUTE_IMAGE = "/images/generations"
-
-_IMAGE_EXCLUDE = frozenset({"messages", "prompt"})
-
 
 class OpenAICompatibleClient(ModelClient):
     """Native HTTP adapter for OpenAI-compatible provider APIs.
@@ -54,6 +48,11 @@ class OpenAICompatibleClient(ModelClient):
     Uses ``httpx`` with ``httpx_retries.RetryTransport`` for resilient HTTP
     calls and a shared ``ThrottleManager`` for adaptive concurrency control.
     """
+
+    _ROUTE_CHAT = "/chat/completions"
+    _ROUTE_EMBEDDING = "/embeddings"
+    _ROUTE_IMAGE = "/images/generations"
+    _IMAGE_EXCLUDE = frozenset({"messages", "prompt"})
 
     def __init__(
         self,
@@ -74,6 +73,7 @@ class OpenAICompatibleClient(ModelClient):
         self._throttle = throttle_manager
         self._timeout_s = timeout_s
 
+        # 2x headroom for burst traffic across domains; floor of 32/16 for low-concurrency configs.
         pool_max = max(32, 2 * max_parallel_requests)
         pool_keepalive = max(16, max_parallel_requests)
         limits = lazy.httpx.Limits(
@@ -111,34 +111,18 @@ class OpenAICompatibleClient(ModelClient):
     def completion(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
         transport = TransportKwargs.from_request(request)
         payload = {"model": request.model, "messages": request.messages, **transport.body}
-        self._acquire_throttle_sync(ThrottleDomain.CHAT)
-        try:
-            response_json = self._post_sync(_ROUTE_CHAT, payload, transport.headers, request.model)
-        except ProviderError as exc:
-            self._handle_provider_error(exc, ThrottleDomain.CHAT)
-            raise
-        except Exception:
-            self._release_throttle_failure(ThrottleDomain.CHAT)
-            raise
-        else:
-            self._release_throttle_success(ThrottleDomain.CHAT)
-        return _parse_chat_json(response_json)
+        response_json = self._throttled_post_sync(
+            self._ROUTE_CHAT, payload, transport.headers, request.model, ThrottleDomain.CHAT
+        )
+        return parse_chat_completion_response(response_json)
 
     async def acompletion(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
         transport = TransportKwargs.from_request(request)
         payload = {"model": request.model, "messages": request.messages, **transport.body}
-        await self._acquire_throttle_async(ThrottleDomain.CHAT)
-        try:
-            response_json = await self._apost(_ROUTE_CHAT, payload, transport.headers, request.model)
-        except ProviderError as exc:
-            self._handle_provider_error(exc, ThrottleDomain.CHAT)
-            raise
-        except Exception:
-            self._release_throttle_failure(ThrottleDomain.CHAT)
-            raise
-        else:
-            self._release_throttle_success(ThrottleDomain.CHAT)
-        return await _aparse_chat_json(response_json)
+        response_json = await self._athrottled_post(
+            self._ROUTE_CHAT, payload, transport.headers, request.model, ThrottleDomain.CHAT
+        )
+        return await aparse_chat_completion_response(response_json)
 
     # -------------------------------------------------------------------
     # Embeddings
@@ -147,33 +131,17 @@ class OpenAICompatibleClient(ModelClient):
     def embeddings(self, request: EmbeddingRequest) -> EmbeddingResponse:
         transport = TransportKwargs.from_request(request)
         payload = {"model": request.model, "input": request.inputs, **transport.body}
-        self._acquire_throttle_sync(ThrottleDomain.EMBEDDING)
-        try:
-            response_json = self._post_sync(_ROUTE_EMBEDDING, payload, transport.headers, request.model)
-        except ProviderError as exc:
-            self._handle_provider_error(exc, ThrottleDomain.EMBEDDING)
-            raise
-        except Exception:
-            self._release_throttle_failure(ThrottleDomain.EMBEDDING)
-            raise
-        else:
-            self._release_throttle_success(ThrottleDomain.EMBEDDING)
+        response_json = self._throttled_post_sync(
+            self._ROUTE_EMBEDDING, payload, transport.headers, request.model, ThrottleDomain.EMBEDDING
+        )
         return _parse_embedding_json(response_json)
 
     async def aembeddings(self, request: EmbeddingRequest) -> EmbeddingResponse:
         transport = TransportKwargs.from_request(request)
         payload = {"model": request.model, "input": request.inputs, **transport.body}
-        await self._acquire_throttle_async(ThrottleDomain.EMBEDDING)
-        try:
-            response_json = await self._apost(_ROUTE_EMBEDDING, payload, transport.headers, request.model)
-        except ProviderError as exc:
-            self._handle_provider_error(exc, ThrottleDomain.EMBEDDING)
-            raise
-        except Exception:
-            self._release_throttle_failure(ThrottleDomain.EMBEDDING)
-            raise
-        else:
-            self._release_throttle_success(ThrottleDomain.EMBEDDING)
+        response_json = await self._athrottled_post(
+            self._ROUTE_EMBEDDING, payload, transport.headers, request.model, ThrottleDomain.EMBEDDING
+        )
         return _parse_embedding_json(response_json)
 
     # -------------------------------------------------------------------
@@ -181,49 +149,25 @@ class OpenAICompatibleClient(ModelClient):
     # -------------------------------------------------------------------
 
     def generate_image(self, request: ImageGenerationRequest) -> ImageGenerationResponse:
-        transport = TransportKwargs.from_request(request, exclude=_IMAGE_EXCLUDE)
+        transport = TransportKwargs.from_request(request, exclude=self._IMAGE_EXCLUDE)
         if request.messages is not None:
-            route, domain = _ROUTE_CHAT, ThrottleDomain.CHAT
+            route, domain = self._ROUTE_CHAT, ThrottleDomain.CHAT
             payload = {"model": request.model, "messages": request.messages, **transport.body}
         else:
-            route, domain = _ROUTE_IMAGE, ThrottleDomain.IMAGE
+            route, domain = self._ROUTE_IMAGE, ThrottleDomain.IMAGE
             payload = {"model": request.model, "prompt": request.prompt, **transport.body}
-
-        self._acquire_throttle_sync(domain)
-        try:
-            response_json = self._post_sync(route, payload, transport.headers, request.model)
-        except ProviderError as exc:
-            self._handle_provider_error(exc, domain)
-            raise
-        except Exception:
-            self._release_throttle_failure(domain)
-            raise
-        else:
-            self._release_throttle_success(domain)
-
+        response_json = self._throttled_post_sync(route, payload, transport.headers, request.model, domain)
         return _parse_image_json(response_json, is_chat_route=request.messages is not None)
 
     async def agenerate_image(self, request: ImageGenerationRequest) -> ImageGenerationResponse:
-        transport = TransportKwargs.from_request(request, exclude=_IMAGE_EXCLUDE)
+        transport = TransportKwargs.from_request(request, exclude=self._IMAGE_EXCLUDE)
         if request.messages is not None:
-            route, domain = _ROUTE_CHAT, ThrottleDomain.CHAT
+            route, domain = self._ROUTE_CHAT, ThrottleDomain.CHAT
             payload = {"model": request.model, "messages": request.messages, **transport.body}
         else:
-            route, domain = _ROUTE_IMAGE, ThrottleDomain.IMAGE
+            route, domain = self._ROUTE_IMAGE, ThrottleDomain.IMAGE
             payload = {"model": request.model, "prompt": request.prompt, **transport.body}
-
-        await self._acquire_throttle_async(domain)
-        try:
-            response_json = await self._apost(route, payload, transport.headers, request.model)
-        except ProviderError as exc:
-            self._handle_provider_error(exc, domain)
-            raise
-        except Exception:
-            self._release_throttle_failure(domain)
-            raise
-        else:
-            self._release_throttle_success(domain)
-
+        response_json = await self._athrottled_post(route, payload, transport.headers, request.model, domain)
         return await _aparse_image_json(response_json, is_chat_route=request.messages is not None)
 
     # -------------------------------------------------------------------
@@ -239,6 +183,48 @@ class OpenAICompatibleClient(ModelClient):
     # -------------------------------------------------------------------
     # HTTP helpers
     # -------------------------------------------------------------------
+
+    def _throttled_post_sync(
+        self,
+        route: str,
+        payload: dict[str, Any],
+        extra_headers: dict[str, str],
+        model_name: str,
+        domain: ThrottleDomain,
+    ) -> dict[str, Any]:
+        """POST with throttle acquire/release lifecycle."""
+        self._acquire_throttle_sync(domain)
+        try:
+            result = self._post_sync(route, payload, extra_headers, model_name)
+        except ProviderError as exc:
+            self._handle_provider_error(exc, domain)
+            raise
+        except Exception:
+            self._release_throttle_failure(domain)
+            raise
+        self._release_throttle_success(domain)
+        return result
+
+    async def _athrottled_post(
+        self,
+        route: str,
+        payload: dict[str, Any],
+        extra_headers: dict[str, str],
+        model_name: str,
+        domain: ThrottleDomain,
+    ) -> dict[str, Any]:
+        """Async POST with throttle acquire/release lifecycle."""
+        await self._acquire_throttle_async(domain)
+        try:
+            result = await self._apost(route, payload, extra_headers, model_name)
+        except ProviderError as exc:
+            self._handle_provider_error(exc, domain)
+            raise
+        except Exception:
+            self._release_throttle_failure(domain)
+            raise
+        self._release_throttle_success(domain)
+        return result
 
     def _build_headers(self, extra_headers: dict[str, str]) -> dict[str, str]:
         headers: dict[str, str] = {"Content-Type": "application/json"}
@@ -265,7 +251,7 @@ class OpenAICompatibleClient(ModelClient):
             raise map_http_error_to_provider_error(
                 response=response, provider_name=self.provider_name, model_name=model_name
             )
-        return response.json()
+        return _parse_json_body(response, self.provider_name, model_name)
 
     async def _apost(
         self,
@@ -284,7 +270,7 @@ class OpenAICompatibleClient(ModelClient):
             raise map_http_error_to_provider_error(
                 response=response, provider_name=self.provider_name, model_name=model_name
             )
-        return response.json()
+        return _parse_json_body(response, self.provider_name, model_name)
 
     # -------------------------------------------------------------------
     # Throttle helpers
@@ -325,72 +311,50 @@ class OpenAICompatibleClient(ModelClient):
 # ---------------------------------------------------------------------------
 
 
-class _DictProxy:
-    """Wraps a dict so ``getattr(proxy, key)`` delegates to ``dict.get(key)``.
-
-    ``parsing.py`` helpers use ``getattr`` / ``get_value_from`` which works on
-    both objects and dicts.  Raw JSON from httpx is a dict, so we wrap the
-    top-level response to give it attribute-style access where the parsers
-    expect it (e.g. ``response.choices``, ``response.usage``).
-    """
-
-    def __init__(self, data: dict[str, Any]) -> None:
-        self._data = data
-
-    def __getattr__(self, name: str) -> Any:
-        try:
-            return self._data[name]
-        except KeyError:
-            return None
-
-
-def _parse_chat_json(response_json: dict[str, Any]) -> ChatCompletionResponse:
-    return parse_chat_completion_response(_DictProxy(response_json))
-
-
-async def _aparse_chat_json(response_json: dict[str, Any]) -> ChatCompletionResponse:
-    return await aparse_chat_completion_response(_DictProxy(response_json))
-
-
 def _parse_embedding_json(response_json: dict[str, Any]) -> EmbeddingResponse:
-    proxy = _DictProxy(response_json)
-    data = getattr(proxy, "data") or []
+    data = response_json.get("data") or []
     vectors = [extract_embedding_vector(item) for item in data]
-    usage = extract_usage(getattr(proxy, "usage"))
+    usage = extract_usage(response_json.get("usage"))
     return EmbeddingResponse(vectors=vectors, usage=usage, raw=response_json)
 
 
 def _parse_image_json(response_json: dict[str, Any], *, is_chat_route: bool) -> ImageGenerationResponse:
-    proxy = _DictProxy(response_json)
     if is_chat_route:
-        images = extract_images_from_chat_response(proxy)
+        images = extract_images_from_chat_response(response_json)
     else:
-        images = extract_images_from_image_response(proxy)
-    usage = extract_usage(getattr(proxy, "usage"), generated_images=len(images))
+        images = extract_images_from_image_response(response_json)
+    usage = extract_usage(response_json.get("usage"), generated_images=len(images))
     return ImageGenerationResponse(images=images, usage=usage, raw=response_json)
 
 
 async def _aparse_image_json(response_json: dict[str, Any], *, is_chat_route: bool) -> ImageGenerationResponse:
-    proxy = _DictProxy(response_json)
     if is_chat_route:
-        images = await aextract_images_from_chat_response(proxy)
+        images = await aextract_images_from_chat_response(response_json)
     else:
-        images = await aextract_images_from_image_response(proxy)
-    usage = extract_usage(getattr(proxy, "usage"), generated_images=len(images))
+        images = await aextract_images_from_image_response(response_json)
+    usage = extract_usage(response_json.get("usage"), generated_images=len(images))
     return ImageGenerationResponse(images=images, usage=usage, raw=response_json)
+
+
+def _parse_json_body(response: httpx.Response, provider_name: str, model_name: str) -> dict[str, Any]:
+    """Parse JSON from a successful HTTP response, wrapping decode errors as ``ProviderError``."""
+    try:
+        return response.json()
+    except Exception as exc:
+        raise ProviderError(
+            kind=ProviderErrorKind.API_ERROR,
+            message=f"Provider {provider_name!r} returned a non-JSON response (status {response.status_code}).",
+            status_code=getattr(response, "status_code", None),
+            provider_name=provider_name,
+            model_name=model_name,
+            cause=exc,
+        ) from exc
 
 
 def _wrap_transport_error(exc: Exception, provider_name: str, model_name: str) -> ProviderError:
     """Convert httpx transport exceptions into canonical ``ProviderError``."""
-    type_name = type(exc).__name__.lower()
-    if "timeout" in type_name:
-        kind = ProviderErrorKind.TIMEOUT
-    elif "connect" in type_name:
-        kind = ProviderErrorKind.API_CONNECTION
-    else:
-        kind = ProviderErrorKind.API_ERROR
     return ProviderError(
-        kind=kind,
+        kind=infer_error_kind_from_exception(exc),
         message=str(exc) or f"Transport error from provider {provider_name!r}",
         provider_name=provider_name,
         model_name=model_name,
