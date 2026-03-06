@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel, ConfigDict, PrivateAttr, field_validator, model_validator
 
 import data_designer.lazy_heavy_imports as lazy
-from data_designer.config.utils.io_helpers import read_parquet_dataset
+from data_designer.config.utils.io_helpers import list_processor_names, load_processor_dataset, read_parquet_dataset
 from data_designer.config.utils.type_helpers import StrEnum, resolve_string_enum
 from data_designer.engine.dataset_builders.errors import ArtifactStorageError
 from data_designer.engine.storage.media_storage import MediaStorage, StorageMode
@@ -169,6 +169,17 @@ class ArtifactStorage(BaseModel):
     def load_dataset(self, batch_stage: BatchStage = BatchStage.FINAL_RESULT) -> pd.DataFrame:
         return read_parquet_dataset(self._get_stage_path(batch_stage))
 
+    def load_processor_dataset(self, processor_name: str) -> pd.DataFrame:
+        """Load a processor's output dataset. Raises ArtifactStorageError if not found."""
+        try:
+            return load_processor_dataset(self.processors_outputs_path, processor_name)
+        except FileNotFoundError as e:
+            raise ArtifactStorageError(str(e)) from e
+
+    def list_processor_names(self) -> list[str]:
+        """Discover processor names from the processor outputs directory."""
+        return list_processor_names(self.processors_outputs_path)
+
     def load_dataset_with_dropped_columns(self) -> pd.DataFrame:
         # The pyarrow backend has better support for nested data types.
         df = self.load_dataset()
@@ -241,15 +252,15 @@ class ArtifactStorage(BaseModel):
             Dictionary mapping processor names to lists of relative file paths.
         """
         processor_files: dict[str, list[str]] = {}
-        if self.processors_outputs_path.exists():
-            for processor_dir in sorted(self.processors_outputs_path.iterdir()):
-                if processor_dir.is_dir():
-                    processor_name = processor_dir.name
-                    processor_files[processor_name] = [
-                        str(f.relative_to(self.base_dataset_path))
-                        for f in sorted(processor_dir.rglob("*"))
-                        if f.is_file()
-                    ]
+        for name in self.list_processor_names():
+            dir_path = self.processors_outputs_path / name
+            file_path = self.processors_outputs_path / f"{name}.parquet"
+            if dir_path.is_dir():
+                processor_files[name] = [
+                    str(f.relative_to(self.base_dataset_path)) for f in sorted(dir_path.rglob("*")) if f.is_file()
+                ]
+            elif file_path.is_file():
+                processor_files[name] = [str(file_path.relative_to(self.base_dataset_path))]
         return processor_files
 
     def get_file_paths(self) -> dict[str, list[str] | dict[str, list[str]]]:
