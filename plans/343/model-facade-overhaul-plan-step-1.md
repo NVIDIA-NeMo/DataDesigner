@@ -455,7 +455,7 @@ Implementation expectations:
    - Fallback mode: chat-completion image extraction for autoregressive models
 4. Parse usage from provider response if present.
 5. Normalize tool calls and reasoning fields.
-   - Reasoning extraction must check both `message.reasoning_content` (legacy/LiteLLM-normalized) and `message.reasoning` (vLLM >= 0.16.0 / OpenAI-compatible canonical), with `reasoning_content` taking precedence when both are present.
+   - Reasoning extraction must check both `message.reasoning` (vLLM >= 0.16.0 / OpenAI-compatible canonical) and `message.reasoning_content` (legacy/LiteLLM-normalized fallback), with `reasoning` taking precedence when both are present.
    - This dual-field check should live in a shared helper in `parsing.py` so it is reusable across adapters.
    - Internal canonical field remains `reasoning_content`; no downstream contract change.
    - See: [GitHub issue #374](https://github.com/NVIDIA-NeMo/DataDesigner/issues/374)
@@ -951,7 +951,7 @@ OpenAI-compatible response parsing:
 
 1. `choices[0].message.content` -> canonical `message.content`
 2. `choices[0].message.tool_calls[*]` -> canonical `ToolCall`
-3. `choices[0].message.reasoning_content` **or** `choices[0].message.reasoning` -> canonical `reasoning_content` (`reasoning_content` takes precedence; `reasoning` is the vLLM >= 0.16.0 field name)
+3. `choices[0].message.reasoning` **or** `choices[0].message.reasoning_content` -> canonical `reasoning_content` (`reasoning` takes precedence as the vLLM >= 0.16.0 canonical field; `reasoning_content` is the legacy/LiteLLM fallback)
 4. `usage.prompt_tokens/completion_tokens` -> canonical `Usage`
 
 ### Canonical -> Anthropic messages payload
@@ -1354,7 +1354,7 @@ Per adapter:
 8. reasoning field migration tests:
    - response with only `message.reasoning` (no `reasoning_content`) populates canonical `reasoning_content`
    - response with only `message.reasoning_content` still works (backward compat)
-   - response with both fields uses `reasoning_content` (precedence rule)
+   - response with both fields uses `reasoning` (precedence rule)
 
 Tools:
 
@@ -1529,7 +1529,7 @@ Mitigation:
 Mitigation:
 
 1. vLLM >= 0.16.0 uses `message.reasoning` as canonical field; `reasoning_content` is deprecated/backward-compat. LiteLLM currently normalizes this for us, masking the gap.
-2. Shared reasoning extraction helper in `parsing.py` checks both `reasoning_content` and `reasoning` with explicit precedence.
+2. Shared reasoning extraction helper in `parsing.py` checks `reasoning` first (canonical), falling back to `reasoning_content` (legacy).
 3. Adapter unit tests cover all three cases (only `reasoning`, only `reasoning_content`, both present).
 4. Ref: [GitHub issue #374](https://github.com/NVIDIA-NeMo/DataDesigner/issues/374)
 
