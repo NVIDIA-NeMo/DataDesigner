@@ -1,6 +1,6 @@
 ---
 name: review-code
-description: Perform a thorough code review of the current branch or a GitHub PR by number. Use when the user asks to review code changes, audit a branch or PR, or wants a pre-merge quality check.
+description: Perform a thorough code review of the current branch or a GitHub PR by number.
 argument-hint: [pr-number] [special instructions]
 disable-model-invocation: true
 ---
@@ -36,19 +36,24 @@ Run these commands in parallel using `gh`:
 2. **PR diff**: `gh pr diff <number>`
 3. **PR files**: `gh pr diff <number> --name-only`
 4. **PR commits**: `gh pr view <number> --json commits --jq '.commits[].messageHeadline'`
-5. **Existing review comments**: `gh api repos/{owner}/{repo}/pulls/<number>/comments --jq '.[].body'`
+5. **Existing inline review comments**: `gh api repos/{owner}/{repo}/pulls/<number>/comments --jq '.[].body'`
+5b. **Existing PR-level reviews** (top-level review bodies from "Review changes"): `gh api repos/{owner}/{repo}/pulls/<number>/reviews --jq '.[].body'`
 6. **Repo info**: `gh repo view --json nameWithOwner -q '.nameWithOwner'`
 
-Then checkout the PR branch for full file access:
+Then get the PR branch locally for full file access. Prefer a **worktree** so your current branch and uncommitted work are untouched:
 
 ```bash
-gh pr checkout <number>
+git fetch origin pull/<number>/head:pr-<number>
+git worktree add checkouts/review-<number> pr-<number>
+# Run the rest of the review from checkouts/review-<number>; when done: git worktree remove checkouts/review-<number>
 ```
+
+If worktrees aren't suitable, you can use `gh pr checkout <number>` (this switches your current branch — only if you have no uncommitted work).
 
 If checkout isn't possible (e.g., external fork), use `gh api` to fetch file contents:
 
 ```bash
-gh api repos/{owner}/{repo}/contents/{path}?ref={head-branch} --jq '.content' | base64 -d
+gh api repos/{owner}/{repo}/contents/{path}?ref={head-branch} --jq '.content' | base64 --decode
 ```
 
 **Important checks:**
@@ -97,7 +102,7 @@ Before diving into details, build a mental model:
 3. **Group changed files** by module/package to identify which areas are affected
 4. **Identify the primary goal** (feature, refactor, bugfix, etc.)
 5. **Note cross-cutting concerns** (e.g., a rename that touches many files vs. substantive logic changes)
-6. **Check existing review comments** (PR mode) to avoid duplicating feedback already given
+6. **Check existing feedback** (PR mode): inspect both inline comments (step 1.5) and PR-level review bodies (step 1.5b) so you don't duplicate feedback already given
 
 ## Step 4: Review Each Changed File (Multi-Pass)
 
@@ -111,6 +116,9 @@ Read each changed file in full (not just the diff), but evaluate only the **new 
 
 - Logic errors, off-by-one, wrong operator, inverted condition
 - Missing edge case handling (None, empty collections, boundary values)
+- Truthy/falsy checks on values where 0, empty string, or None is valid (e.g. `if index:` when index can be 0)
+- Defensive `getattr(obj, attr, fallback)` or `.get()` on Pydantic models where the field always exists with a default
+- Silent behavior changes for existing users that aren't called out in the PR description
 - Race conditions or concurrency issues
 - Resource leaks (unclosed files, connections, missing cleanup)
 - Incorrect error handling (swallowed exceptions, wrong exception type)
@@ -130,6 +138,9 @@ Re-read the changed files with a focus on **structure and design of the new/modi
 - Are return types precise (not overly broad like `Any`)?
 - Could the new API be misused easily? Is it hard to use incorrectly?
 - Are breaking changes to existing interfaces intentional and documented?
+- Unnecessary wrapper functions or dead code left behind after refactors
+- Scalability: in-memory operations that could OOM on large datasets
+- Raw exceptions leaking instead of being normalized to project error types (see AGENTS.md / interface errors)
 - Obvious inefficiencies introduced by this change (N+1 queries, repeated computation, unnecessary copies)
 - Appropriate data structures for the access pattern
 
@@ -139,7 +150,9 @@ Final pass focused on **project conventions and test quality for new/modified co
 
 **Testing:**
 - Are new code paths covered by tests?
-- Do new tests verify behavior, not implementation details?
+- Do new tests verify behavior, not implementation details? (Flag tests that only verify plumbing — e.g. "mock was called" — without exercising actual behavior.)
+- Duplicate test setup across tests that should use fixtures or `@pytest.mark.parametrize`
+- Prefer flat test functions over test classes unless grouping is meaningful
 - Are edge cases tested?
 - Are mocks/stubs used appropriately (at boundaries, not deep internals)?
 - Do new test names clearly describe what they verify?
@@ -148,7 +161,7 @@ Final pass focused on **project conventions and test quality for new/modified co
 
 Verify the items below on lines introduced or changed by this branch. Refer to the full `AGENTS.md` loaded in Step 2 for details and examples.
 
-- License headers (`SPDX-FileCopyrightText` / `SPDX-License-Identifier`) on new files
+- License headers: if present, they should be correct (wrong year or format → suggest `make update-license-headers`; don't treat as critical if CI enforces this)
 - `from __future__ import annotations` in new files
 - Type annotations on new/modified functions, methods, and class attributes
 - Modern type syntax (`list[str]`, `str | None` — not `List[str]`, `Optional[str]`)
@@ -162,18 +175,22 @@ Verify the items below on lines introduced or changed by this branch. Refer to t
 
 ## Step 5: Run Linter
 
-Run the linter on all changed files (requires local checkout):
+Run the linter on all changed files (requires local checkout). Use the venv directly to avoid sandbox permission issues in some environments (e.g. Claude Code):
 
 ```bash
-uv run ruff check <changed-files>
-uv run ruff format --check <changed-files>
+.venv/bin/ruff check <changed-files>
+.venv/bin/ruff format --check <changed-files>
 ```
+
+> **Note**: This runs ruff only on the changed files for speed. For a full project-wide check, use `make check-all` or `uv run ruff check` (and `ruff format --check`) without file arguments.
 
 If the branch isn't checked out locally (e.g., external fork in PR mode), skip this step and note it in the review.
 
 ## Step 6: Produce the Review
 
 Output a structured review using the format below. Use the **PR template** or **Branch template** for the overview depending on the mode.
+
+Write the review to a **temporary markdown file** (e.g. `review-<pr-or-branch>.md` or `.review-output.md`) so other agents or tools can consume it. Do not commit this file; treat it as ephemeral.
 
 ---
 
@@ -234,6 +251,14 @@ One of:
 - **Needs changes** — Has issues that should be addressed before merge
 - **Needs discussion** — Architectural or design questions that need team input
 
+### Next steps (optional)
+
+After the summary, you may suggest follow-ups when useful:
+
+- Deep dive into a specific file or finding
+- Check a specific concern in more detail
+- Install dev deps and add smoke tests (e.g. `uv sync --all-extras`, then run tests or suggest minimal smoke tests)
+
 ---
 
 ## Review Principles
@@ -245,7 +270,14 @@ One of:
 - **Consider intent**: Review what the author was trying to do, not what you would have done differently
 - **Batch related issues**: If the same pattern appears in multiple places, note it once and list all locations
 - **Read the full file**: Diff-only reviews miss context — always read the surrounding code, but only flag new issues
-- **Don't repeat existing feedback**: In PR mode, check existing review comments and skip issues already raised
+- **Don't repeat existing feedback**: In PR mode, check both inline comments and PR-level review bodies and skip issues already raised
+
+**Do not flag (focus on what CI won't catch):**
+
+- Issues that are supposed to be caught by CI (linter, typechecker, formatter) — mention "run `make check-all`" if relevant, but don't list every style nit
+- Pre-existing issues on unmodified lines
+- Pedantic nits that don't affect correctness or maintainability
+- Intentional functionality or API changes that are clearly documented
 
 ## Edge Cases
 
