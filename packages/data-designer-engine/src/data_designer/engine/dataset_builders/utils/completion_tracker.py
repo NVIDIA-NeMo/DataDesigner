@@ -16,35 +16,32 @@ if TYPE_CHECKING:
 class CompletionTracker:
     """Tracks which cells (column, row_group, row_index) are done.
 
-    All access is from the single asyncio event loop thread — no locks needed.
     Row indices are local to their row group (0-based).
 
-    When *graph* and *row_groups* are provided, an event-driven frontier is
-    maintained so that ``get_ready_tasks`` returns in O(frontier) instead of
-    scanning all columns × rows × row groups.
+    Use ``with_graph`` to create a frontier-enabled tracker where
+    ``get_ready_tasks`` returns in O(frontier) instead of scanning all
+    columns x rows x row groups.
     """
 
-    def __init__(
-        self,
-        graph: ExecutionGraph | None = None,
-        row_groups: list[tuple[int, int]] | None = None,
-    ) -> None:
-        if (graph is None) != (row_groups is None):
-            raise ValueError("`graph` and `row_groups` must be provided together.")
-
+    def __init__(self) -> None:
         # row_group → column → set of completed local row indices
         self._completed: dict[int, dict[str, set[int]]] = defaultdict(lambda: defaultdict(set))
         # row_group → set of dropped row indices
         self._dropped: dict[int, set[int]] = defaultdict(set)
 
-        self._graph = graph
+        self._graph: ExecutionGraph | None = None
         self._row_group_sizes: dict[int, int] = {}
         self._batch_complete: dict[int, set[str]] = defaultdict(set)
         self._frontier: set[Task] = set()
 
-        if graph is not None and row_groups is not None:
-            self._row_group_sizes = {rg_id: size for rg_id, size in row_groups}
-            self._seed_frontier()
+    @classmethod
+    def with_graph(cls, graph: ExecutionGraph, row_groups: list[tuple[int, int]]) -> CompletionTracker:
+        """Create a frontier-enabled tracker backed by an execution graph."""
+        tracker = cls()
+        tracker._graph = graph
+        tracker._row_group_sizes = {rg_id: size for rg_id, size in row_groups}
+        tracker._seed_frontier()
+        return tracker
 
     def mark_cell_complete(self, column: str, row_group: int, row_index: int) -> None:
         self._validate_row_group(row_group)
@@ -121,10 +118,9 @@ class CompletionTracker:
 
     def _seed_frontier(self) -> None:
         """Populate the frontier with root tasks (columns with no upstream deps)."""
-        assert self._graph is not None
-        for col in self._graph.get_topological_order():
-            if self._graph.get_upstream_columns(col):
-                continue
+        if self._graph is None:
+            raise RuntimeError("This method requires a graph to be set.")
+        for col in self._graph.get_root_columns():
             strategy = self._graph.get_strategy(col)
             for rg_id, rg_size in self._row_group_sizes.items():
                 if strategy == GenerationStrategy.CELL_BY_CELL:
@@ -135,7 +131,8 @@ class CompletionTracker:
 
     def _enqueue_downstream(self, column: str, row_group: int, row_index: int | None) -> None:
         """Add newly-ready downstream tasks to the frontier."""
-        assert self._graph is not None
+        if self._graph is None:
+            raise RuntimeError("This method requires a graph to be set.")
         rg_completed = self._completed.get(row_group, {})
         rg_dropped = self._dropped.get(row_group, set())
         rg_batch_complete = self._batch_complete.get(row_group, set())
@@ -180,7 +177,8 @@ class CompletionTracker:
 
     def _reevaluate_batch_tasks(self, row_group: int) -> None:
         """Check if any batch tasks became ready after a row was dropped."""
-        assert self._graph is not None
+        if self._graph is None:
+            raise RuntimeError("This method requires a graph to be set.")
         rg_completed = self._completed.get(row_group, {})
         rg_dropped = self._dropped.get(row_group, set())
         rg_batch_complete = self._batch_complete.get(row_group, set())

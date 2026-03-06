@@ -47,20 +47,9 @@ def ready_ctx() -> ReadyTasksFixture:
     """CompletionTracker wired to the simple 3-column graph with one row group of size 3."""
     graph = _build_simple_graph()
     return ReadyTasksFixture(
-        tracker=CompletionTracker(graph, [(0, 3)]),
+        tracker=CompletionTracker.with_graph(graph, [(0, 3)]),
         dispatched=set(),
     )
-
-
-def test_tracker_requires_row_groups_with_graph() -> None:
-    graph = _build_simple_graph()
-    with pytest.raises(ValueError, match="provided together"):
-        CompletionTracker(graph=graph, row_groups=None)
-
-
-def test_tracker_requires_graph_with_row_groups() -> None:
-    with pytest.raises(ValueError, match="provided together"):
-        CompletionTracker(graph=None, row_groups=[(0, 3)])
 
 
 # -- mark_cell_complete / is_complete --------------------------------------
@@ -253,7 +242,7 @@ def test_get_ready_tasks_full_column_ready_when_all_cells_done(ready_ctx: ReadyT
 
 def test_get_ready_tasks_multiple_row_groups() -> None:
     graph = _build_simple_graph()
-    tracker = CompletionTracker(graph, [(0, 3), (1, 2)])
+    tracker = CompletionTracker.with_graph(graph, [(0, 3), (1, 2)])
     dispatched: set[Task] = set()
 
     tracker.mark_row_range_complete("topic", 0, 3)
@@ -291,24 +280,20 @@ def test_mark_row_range_complete_raises_for_cell_by_cell_strategy(ready_ctx: Rea
 # -- Re-enqueue regression tests -------------------------------------------
 
 
-def test_completed_cell_not_reenqueued_after_later_upstream(ready_ctx: ReadyTasksFixture) -> None:
-    """A → B → C chain: completing C[row=0] then completing another A upstream must not re-enqueue C[row=0]."""
+def test_completed_cell_not_reenqueued_after_later_upstream() -> None:
+    """A → B → C chain: completing C then firing a late upstream event must not re-enqueue C."""
     graph = _build_simple_graph()
-    tracker = CompletionTracker(graph, [(0, 2)])
+    tracker = CompletionTracker.with_graph(graph, [(0, 2)])
     dispatched: set[Task] = set()
 
-    # Complete the full pipeline for row 0
+    # Complete the full pipeline
     tracker.mark_row_range_complete("topic", 0, 2)
     tracker.mark_cell_complete("question", 0, 0)
     tracker.mark_cell_complete("question", 0, 1)
-
-    # score should now be ready
-    ready = tracker.get_ready_tasks(dispatched)
-    score_tasks = [t for t in ready if t.column == "score"]
-    assert len(score_tasks) == 1
-
-    # Complete score, then re-complete an upstream cell — score must not reappear
     tracker.mark_row_range_complete("score", 0, 2)
+
+    # Fire a late upstream cell event after score is already done
+    tracker.mark_cell_complete("question", 0, 0)
 
     ready = tracker.get_ready_tasks(dispatched)
     score_tasks = [t for t in ready if t.column == "score"]
@@ -328,7 +313,7 @@ def test_completed_batch_not_reenqueued_by_upstream_cell() -> None:
         "agg": GenerationStrategy.FULL_COLUMN,
     }
     graph = ExecutionGraph.create(configs, strategies)
-    tracker = CompletionTracker(graph, [(0, 2)])
+    tracker = CompletionTracker.with_graph(graph, [(0, 2)])
     dispatched: set[Task] = set()
 
     # Complete seed and gen[0] — agg not ready yet

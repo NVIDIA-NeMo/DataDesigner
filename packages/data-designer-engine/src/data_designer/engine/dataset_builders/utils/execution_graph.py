@@ -129,6 +129,10 @@ class ExecutionGraph:
     def get_strategy(self, column: str) -> GenerationStrategy:
         return self._strategies[column]
 
+    def get_root_columns(self) -> list[str]:
+        """Columns with no upstream dependencies, in topological order."""
+        return [col for col in self.get_topological_order() if not self._upstream.get(col)]
+
     def split_upstream_by_strategy(self, column: str) -> tuple[list[str], list[str]]:
         """Split upstream columns into (batch, cell_by_cell) by strategy. Cached."""
         cached = self._upstream_by_strategy_cache.get(column)
