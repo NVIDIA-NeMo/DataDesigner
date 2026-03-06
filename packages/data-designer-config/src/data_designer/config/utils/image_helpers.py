@@ -260,6 +260,25 @@ def load_image_url_to_base64(url: str, timeout: int = 60) -> str:
     return base64.b64encode(resp.content).decode()
 
 
+async def aload_image_url_to_base64(url: str, timeout: int = 60) -> str:
+    """Download an image from a URL asynchronously and return as base64.
+
+    Args:
+        url: HTTP(S) URL pointing to an image.
+        timeout: Request timeout in seconds.
+
+    Returns:
+        Base64-encoded image data.
+
+    Raises:
+        httpx.HTTPStatusError: If the download fails with a non-2xx status.
+    """
+    async with lazy.httpx.AsyncClient() as client:
+        resp = await client.get(url, timeout=timeout)
+        resp.raise_for_status()
+        return base64.b64encode(resp.content).decode()
+
+
 def validate_image(image_path: Path) -> None:
     """Validate that an image file is readable and not corrupted.
 

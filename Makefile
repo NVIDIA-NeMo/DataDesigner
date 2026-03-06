@@ -75,7 +75,7 @@ help:
 	@echo "  clean-dist                - Remove dist directories from all packages"
 	@echo "  verify-imports            - Verify all package imports work"
 	@echo "  show-versions             - Show versions of all packages"
-	@echo "  convert-execute-notebooks - Convert notebooks from .py to .ipynb using jupytext"
+	@echo "  convert-execute-notebooks - Convert notebooks from .py to .ipynb using jupytext (USE_CACHE=1 to skip unchanged)"
 	@echo "  generate-colab-notebooks  - Generate Colab-compatible notebooks"
 	@echo "  serve-docs-locally        - Serve documentation locally"
 	@echo "  check-license-headers     - Check if all files have license headers"
@@ -461,6 +461,10 @@ serve-docs-locally:
 	uv run mkdocs serve --livereload
 
 convert-execute-notebooks:
+ifeq ($(USE_CACHE),1)
+	@echo "📓 Converting Python tutorials to notebooks (with caching)..."
+	@bash docs/scripts/build_notebooks_cached.sh
+else
 	@echo "📓 Converting Python tutorials to notebooks and executing..."
 	@mkdir -p docs/notebooks
 	cp docs/notebook_source/_README.md docs/notebooks/README.md
@@ -470,6 +474,7 @@ convert-execute-notebooks:
 	rm -r docs/notebook_source/artifacts
 	rm docs/notebook_source/*.csv
 	@echo "✅ Notebooks created in docs/notebooks/"
+endif
 
 generate-colab-notebooks:
 	@echo "📓 Generating Colab-compatible notebooks..."
@@ -624,7 +629,8 @@ clean-test-coverage:
         check-all check-all-fix check-config check-engine check-interface \
         check-license-headers \
         clean clean-dist clean-notebooks clean-pycache clean-test-coverage \
-        convert-execute-notebooks coverage coverage-config coverage-engine coverage-interface \
+        convert-execute-notebooks \
+        coverage coverage-config coverage-engine coverage-interface \
         format format-check format-check-config format-check-engine format-check-interface \
         format-config format-engine format-interface \
         generate-colab-notebooks help \
