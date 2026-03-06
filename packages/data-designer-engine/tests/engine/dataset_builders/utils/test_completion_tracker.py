@@ -176,12 +176,10 @@ def test_row_group_not_complete_missing_non_dropped() -> None:
 # -- get_ready_tasks --------------------------------------------------------
 
 
-def test_get_ready_tasks_seeds_first(ready_ctx: ReadyTasksFixture) -> None:
+def test_get_ready_tasks_no_roots_in_frontier(ready_ctx: ReadyTasksFixture) -> None:
+    """Root tasks are dispatched by the scheduler, not seeded in the frontier."""
     ready = ready_ctx.tracker.get_ready_tasks(ready_ctx.dispatched)
-
-    assert len(ready) == 1
-    assert ready[0].column == "topic"
-    assert ready[0].task_type == "batch"
+    assert len(ready) == 0
 
 
 def test_get_ready_tasks_after_seed_complete(ready_ctx: ReadyTasksFixture) -> None:

@@ -109,25 +109,18 @@ class CompletionTracker:
                     return False
         return True
 
-    def get_ready_tasks(self, dispatched: set[Task]) -> list[Task]:
+    def get_ready_tasks(self, dispatched: set[Task], admitted_rgs: set[int] | None = None) -> list[Task]:
         """Return all currently dispatchable tasks from the frontier.
 
-        Excludes already-dispatched/in-flight tasks.
+        Excludes already-dispatched/in-flight tasks and tasks for row groups
+        not yet admitted (if ``admitted_rgs`` is provided).
         """
-        return [t for t in self._frontier if t not in dispatched]
+        return [
+            t for t in self._frontier if t not in dispatched and (admitted_rgs is None or t.row_group in admitted_rgs)
+        ]
 
     def _seed_frontier(self) -> None:
-        """Populate the frontier with root tasks (columns with no upstream deps)."""
-        if self._graph is None:
-            raise RuntimeError("This method requires a graph to be set.")
-        for col in self._graph.get_root_columns():
-            strategy = self._graph.get_strategy(col)
-            for rg_id, rg_size in self._row_group_sizes.items():
-                if strategy == GenerationStrategy.CELL_BY_CELL:
-                    for ri in range(rg_size):
-                        self._frontier.add(Task(column=col, row_group=rg_id, row_index=ri, task_type="cell"))
-                else:
-                    self._frontier.add(Task(column=col, row_group=rg_id, row_index=None, task_type="batch"))
+        """No-op: root tasks are dispatched by the scheduler's ``_dispatch_seeds``."""
 
     def _enqueue_downstream(self, column: str, row_group: int, row_index: int | None) -> None:
         """Add newly-ready downstream tasks to the frontier."""
