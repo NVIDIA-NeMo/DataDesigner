@@ -74,7 +74,6 @@ class OpenAICompatibleClient(ModelClient):
         self._throttle = throttle_manager
         self._timeout_s = timeout_s
 
-        transport = create_retry_transport(retry_config)
         pool_max = max(32, 2 * max_parallel_requests)
         pool_keepalive = max(16, max_parallel_requests)
         limits = lazy.httpx.Limits(
@@ -82,12 +81,12 @@ class OpenAICompatibleClient(ModelClient):
             max_keepalive_connections=pool_keepalive,
         )
         self._client: httpx.Client = lazy.httpx.Client(
-            transport=transport,
+            transport=create_retry_transport(retry_config),
             limits=limits,
             timeout=lazy.httpx.Timeout(timeout_s),
         )
         self._aclient: httpx.AsyncClient = lazy.httpx.AsyncClient(
-            transport=transport,
+            transport=create_retry_transport(retry_config),
             limits=limits,
             timeout=lazy.httpx.Timeout(timeout_s),
         )

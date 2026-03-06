@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from data_designer.config.models import GenerationType, ModelConfig
@@ -14,6 +13,8 @@ from data_designer.engine.secret_resolver import SecretResolver
 from data_designer.logging import LOG_INDENT
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from data_designer.engine.models.clients.retry import RetryConfig
     from data_designer.engine.models.clients.throttle import ThrottleManager
     from data_designer.engine.models.facade import ModelFacade

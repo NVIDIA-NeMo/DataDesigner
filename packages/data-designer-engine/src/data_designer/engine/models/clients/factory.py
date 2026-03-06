@@ -3,12 +3,11 @@
 
 from __future__ import annotations
 
-import logging
 import os
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.models import ModelConfig
-from data_designer.engine.model_provider import ModelProviderRegistry
+from data_designer.engine.model_provider import ModelProvider, ModelProviderRegistry
 from data_designer.engine.models.clients.adapters.litellm_bridge import LiteLLMBridgeClient
 from data_designer.engine.models.clients.adapters.openai_compatible import OpenAICompatibleClient
 from data_designer.engine.models.clients.base import ModelClient
@@ -17,11 +16,8 @@ from data_designer.engine.models.clients.throttle import ThrottleManager
 from data_designer.engine.models.litellm_overrides import CustomRouter, LiteLLMRouterDefaultKwargs
 from data_designer.engine.secret_resolver import SecretResolver
 
-logger = logging.getLogger(__name__)
-
 _BACKEND_ENV_VAR = "DATA_DESIGNER_MODEL_BACKEND"
 _BACKEND_BRIDGE = "litellm_bridge"
-_BACKEND_NATIVE = "native"
 
 
 def create_model_client(
@@ -83,18 +79,14 @@ def _resolve_api_key(api_key_ref: str | None, secret_resolver: SecretResolver) -
 
 def _create_bridge_client(
     model_config: ModelConfig,
-    provider: object,
+    provider: ModelProvider,
     api_key: str | None,
     max_parallel: int,
 ) -> LiteLLMBridgeClient:
     bridge_key = api_key or "not-used-but-required"
-    provider_name: str = getattr(provider, "name", "unknown")
-    provider_type: str = getattr(provider, "provider_type", "openai")
-    endpoint: str = getattr(provider, "endpoint", "")
-
     litellm_params = lazy.litellm.LiteLLM_Params(
-        model=f"{provider_type}/{model_config.model}",
-        api_base=endpoint,
+        model=f"{provider.provider_type}/{model_config.model}",
+        api_base=provider.endpoint,
         api_key=bridge_key,
         max_parallel_requests=max_parallel,
     )
@@ -103,4 +95,4 @@ def _create_bridge_client(
         "litellm_params": litellm_params.model_dump(),
     }
     router = CustomRouter([deployment], **LiteLLMRouterDefaultKwargs().model_dump())
-    return LiteLLMBridgeClient(provider_name=provider_name, router=router)
+    return LiteLLMBridgeClient(provider_name=provider.name, router=router)
