@@ -36,19 +36,19 @@ Run these commands in parallel using `gh`:
 2. **PR diff**: `gh pr diff <number>`
 3. **PR files**: `gh pr diff <number> --name-only`
 4. **PR commits**: `gh pr view <number> --json commits --jq '.commits[].messageHeadline'`
-5. **Existing inline review comments**: `gh api repos/{owner}/{repo}/pulls/<number>/comments --jq '.[].body'`
-5b. **Existing PR-level reviews** (top-level review bodies from "Review changes"): `gh api repos/{owner}/{repo}/pulls/<number>/reviews --jq '.[].body'`
+5. **Existing inline review comments**: `gh api repos/{owner}/{repo}/pulls/<number>/comments --paginate --jq '.[].body'`
+5b. **Existing PR-level reviews** (top-level review bodies from "Review changes"): `gh api repos/{owner}/{repo}/pulls/<number>/reviews --paginate --jq '.[].body'`
 6. **Repo info**: `gh repo view --json nameWithOwner -q '.nameWithOwner'`
 
 Then get the PR branch locally for full file access. Prefer a **worktree** so your current branch and uncommitted work are untouched:
 
 ```bash
-git fetch origin pull/<number>/head:pr-<number>
-git worktree add checkouts/review-<number> pr-<number>
-# Run the rest of the review from checkouts/review-<number>; when done: git worktree remove checkouts/review-<number>
+git fetch origin pull/<number>/head:pr-<number> --force
+git worktree add /tmp/review-<number> pr-<number>
+# Cleanup when done: git worktree remove /tmp/review-<number> && git branch -D pr-<number>
 ```
 
-If worktrees aren't suitable, you can use `gh pr checkout <number>` (this switches your current branch — only if you have no uncommitted work).
+If worktrees aren't suitable, you can use `gh pr checkout <number>` (this switches your current branch — only if you have no uncommitted work). Run the rest of the review from `/tmp/review-<number>`.
 
 If checkout isn't possible (e.g., external fork), use `gh api` to fetch file contents:
 
@@ -64,7 +64,11 @@ gh api repos/{owner}/{repo}/contents/{path}?ref={head-branch} --jq '.content' | 
 
 ### If Branch mode (no number)
 
-Run these commands in parallel:
+First, fetch the base branch to ensure the remote ref is current:
+
+0. **Fetch base**: `git fetch origin <base>`
+
+Then run these commands in parallel:
 
 1. **Current branch**: `git branch --show-current`
 2. **Commits on branch**: `git log origin/<base>..HEAD --oneline`
@@ -102,7 +106,7 @@ Before diving into details, build a mental model:
 3. **Group changed files** by module/package to identify which areas are affected
 4. **Identify the primary goal** (feature, refactor, bugfix, etc.)
 5. **Note cross-cutting concerns** (e.g., a rename that touches many files vs. substantive logic changes)
-6. **Check existing feedback** (PR mode): inspect both inline comments (step 1.5) and PR-level review bodies (step 1.5b) so you don't duplicate feedback already given
+6. **Check existing feedback** (PR mode): inspect both inline comments (Step 1, item 5) and PR-level review bodies (Step 1, item 5b) so you don't duplicate feedback already given
 
 ## Step 4: Review Each Changed File (Multi-Pass)
 
@@ -190,7 +194,7 @@ If the branch isn't checked out locally (e.g., external fork in PR mode), skip t
 
 Output a structured review using the format below. Use the **PR template** or **Branch template** for the overview depending on the mode.
 
-Write the review to a **temporary markdown file** (e.g. `review-<pr-or-branch>.md` or `.review-output.md`) so other agents or tools can consume it. Do not commit this file; treat it as ephemeral.
+Write the review to a **temporary markdown file outside the repository** (e.g. `/tmp/review-<pr-or-branch>.md`) so other agents or tools can consume it without polluting `git status`. Do not commit this file; treat it as ephemeral.
 
 ---
 
