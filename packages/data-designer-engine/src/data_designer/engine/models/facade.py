@@ -651,6 +651,8 @@ class ModelFacade:
         return EmbeddingRequest(
             model=self.model_name,
             inputs=input_texts,
+            encoding_format=kwargs.get("encoding_format"),
+            dimensions=kwargs.get("dimensions"),
             timeout=kwargs.get("timeout"),
             extra_body=kwargs.get("extra_body"),
             extra_headers=kwargs.get("extra_headers"),

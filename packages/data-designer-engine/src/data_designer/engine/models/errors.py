@@ -133,7 +133,6 @@ def handle_llm_exceptions(
                 model_provider_name,
                 purpose,
                 authentication_error,
-                err_msg_parser,
             )
 
         # LiteLLM-specific errors (safety net during bridge period)
@@ -347,7 +346,6 @@ def _raise_from_provider_error(
     model_provider_name: str,
     purpose: str,
     authentication_error: FormattedLLMErrorMessage,
-    err_msg_parser: DownstreamLLMExceptionMessageParser,
 ) -> None:
     """Map a canonical ProviderError to the appropriate DataDesignerError subclass."""
     _KIND_MAP: dict[ProviderErrorKind, type[DataDesignerError]] = {
