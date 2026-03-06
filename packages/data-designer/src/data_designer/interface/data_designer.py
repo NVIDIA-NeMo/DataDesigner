@@ -279,16 +279,9 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         except Exception as e:
             raise DataDesignerProfilingError(f"🛑 Error profiling preview dataset: {e}")
 
-        if builder.artifact_storage.processors_outputs_path.exists():
-            processor_artifacts = {
-                processor_config.name: lazy.pd.read_parquet(
-                    builder.artifact_storage.processors_outputs_path / f"{processor_config.name}.parquet",
-                    dtype_backend="pyarrow",
-                ).to_dict(orient="records")
-                for processor_config in config_builder.get_processor_configs()
-            }
-        else:
-            processor_artifacts = {}
+        processor_artifacts: dict[str, list[dict]] = {}
+        for name in builder.artifact_storage.list_processor_names():
+            processor_artifacts[name] = builder.artifact_storage.load_processor_dataset(name).to_dict(orient="records")
 
         if (
             len(processed_dataset) > 0
