@@ -768,6 +768,16 @@ def test_with_seed_dataset_sampling_strategy(stub_empty_builder):
     assert seed_config.sampling_strategy == SamplingStrategy.SHUFFLE
 
 
+def test_repr_includes_seed_dataset_when_no_columns(stub_empty_builder) -> None:
+    """repr should still show seed dataset when it is the only configured item."""
+    source = HuggingFaceSeedSource(path="datasets/test-repo/testing/data.csv")
+    stub_empty_builder.with_seed_dataset(source)
+
+    repr_string = repr(stub_empty_builder)
+
+    assert "seed_dataset: hf seed" in repr_string
+
+
 def test_add_model_config(stub_empty_builder):
     assert len(stub_empty_builder.model_configs) == 1
     assert stub_empty_builder.model_configs[0].alias == "stub-model"

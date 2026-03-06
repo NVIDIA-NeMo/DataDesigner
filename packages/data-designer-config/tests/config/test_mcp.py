@@ -14,9 +14,30 @@ def test_mcp_provider_requires_endpoint() -> None:
     provider = MCPProvider(name="sse", endpoint="http://localhost:8080")
     assert provider.endpoint == "http://localhost:8080"
     assert provider.api_key is None
+    assert provider.provider_type == "sse"
 
     provider_with_key = MCPProvider(name="sse-auth", endpoint="http://localhost:8080", api_key="secret")
     assert provider_with_key.api_key == "secret"
+
+
+def test_mcp_provider_streamable_http() -> None:
+    provider = MCPProvider(
+        name="streamable",
+        endpoint="https://api.example.com/mcp",
+        provider_type="streamable_http",
+    )
+    assert provider.provider_type == "streamable_http"
+    assert provider.endpoint == "https://api.example.com/mcp"
+    assert provider.api_key is None
+
+    provider_with_key = MCPProvider(
+        name="streamable-auth",
+        endpoint="https://api.example.com/mcp",
+        provider_type="streamable_http",
+        api_key="secret",
+    )
+    assert provider_with_key.api_key == "secret"
+    assert provider_with_key.provider_type == "streamable_http"
 
 
 def test_local_stdio_mcp_provider_requires_command() -> None:

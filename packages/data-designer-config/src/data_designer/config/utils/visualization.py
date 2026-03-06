@@ -26,7 +26,7 @@ from rich.text import Text
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.base import ConfigBase
-from data_designer.config.column_types import DataDesignerColumnType
+from data_designer.config.column_types import DataDesignerColumnType, get_column_display_order, is_plugin_column_type
 from data_designer.config.models import ModelConfig, ModelProvider
 from data_designer.config.sampler_params import SamplerType
 from data_designer.config.utils.code_lang import code_lang_to_syntax_lexer
@@ -52,6 +52,14 @@ if TYPE_CHECKING:
 
 console = Console()
 logger = logging.getLogger(__name__)
+
+_DEDICATED_DISPLAY_COL_TYPES = {
+    DataDesignerColumnType.SEED_DATASET,
+    DataDesignerColumnType.IMAGE,
+    DataDesignerColumnType.LLM_CODE,
+    DataDesignerColumnType.VALIDATION,
+    DataDesignerColumnType.LLM_JUDGE,
+}
 
 
 def _display_image_if_in_notebook(image_data: str, col_name: str) -> bool:
@@ -287,14 +295,10 @@ def display_sample_record(
                 table.add_row(col_name, convert_to_row_element(record[col_name]))
         render_list.append(pad_console_element(table))
 
-    non_code_columns = (
-        config_builder.get_columns_of_type(DataDesignerColumnType.SAMPLER)
-        + config_builder.get_columns_of_type(DataDesignerColumnType.EXPRESSION)
-        + config_builder.get_columns_of_type(DataDesignerColumnType.LLM_TEXT)
-        + config_builder.get_columns_of_type(DataDesignerColumnType.LLM_STRUCTURED)
-        + config_builder.get_columns_of_type(DataDesignerColumnType.EMBEDDING)
-        + config_builder.get_columns_of_type(DataDesignerColumnType.CUSTOM)
-    )
+    non_code_columns = []
+    for col_type in get_column_display_order():
+        if col_type not in _DEDICATED_DISPLAY_COL_TYPES:
+            non_code_columns.extend(config_builder.get_columns_of_type(col_type))
     if len(non_code_columns) > 0:
         table = Table(title="Generated Columns", **table_kws)
         table.add_column("Name")
@@ -306,8 +310,7 @@ def display_sample_record(
                         get_truncated_list_as_string(embd) for embd in record[col.name].get("embeddings")
                     ]
                 table.add_row(col.name, convert_to_row_element(record[col.name]))
-                # Also display side_effect_columns for custom generators
-                if col.column_type == DataDesignerColumnType.CUSTOM:
+                if col.column_type == DataDesignerColumnType.CUSTOM or is_plugin_column_type(col.column_type):
                     for output_col in col.side_effect_columns:
                         if output_col in record:
                             table.add_row(output_col, convert_to_row_element(record[output_col]))

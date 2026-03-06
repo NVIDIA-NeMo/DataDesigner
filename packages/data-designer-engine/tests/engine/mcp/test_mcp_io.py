@@ -694,6 +694,59 @@ async def test_get_or_create_session_for_stdio_provider(
 
 
 # =============================================================================
+# Streamable HTTP session creation tests
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_session_for_streamable_http_provider(
+    monkeypatch: pytest.MonkeyPatch, stub_streamable_http_provider: MCPProvider
+) -> None:
+    """Test that _get_or_create_session uses streamablehttp_client for streamable_http providers."""
+    mcp_io.clear_session_pool()
+
+    class MockContextManager:
+        async def __aenter__(self) -> tuple[Any, Any, Any]:
+            return ("mock_read", "mock_write", "mock_get_session_id")
+
+        async def __aexit__(self, *args: Any) -> None:
+            pass
+
+    class MockSession:
+        async def __aenter__(self) -> "MockSession":
+            return self
+
+        async def __aexit__(self, *args: Any) -> None:
+            pass
+
+        async def initialize(self) -> None:
+            pass
+
+    streamable_http_client_called = False
+    received_endpoint: str | None = None
+    received_headers: dict[str, Any] | None = None
+
+    def mock_streamablehttp_client(endpoint: str, headers: dict[str, Any] | None = None) -> MockContextManager:
+        nonlocal streamable_http_client_called, received_endpoint, received_headers
+        streamable_http_client_called = True
+        received_endpoint = endpoint
+        received_headers = headers
+        return MockContextManager()
+
+    monkeypatch.setattr(mcp_io, "streamablehttp_client", mock_streamablehttp_client)
+    monkeypatch.setattr(mcp_io, "ClientSession", lambda r, w: MockSession())
+
+    session = await mcp_io._MCP_IO_SERVICE._get_or_create_session(stub_streamable_http_provider)
+
+    assert streamable_http_client_called
+    assert received_endpoint == stub_streamable_http_provider.endpoint
+    assert received_headers == {"Authorization": "Bearer test-key"}
+    assert session is not None
+
+    mcp_io.clear_session_pool()
+
+
+# =============================================================================
 # Session cleanup exception handling tests
 # =============================================================================
 
