@@ -33,3 +33,11 @@ class EmbeddingCellGenerator(ColumnGeneratorWithModel[EmbeddingColumnConfig]):
         embeddings = self.model.generate_text_embeddings(input_texts=input_texts)
         data[self.config.name] = EmbeddingGenerationResult(embeddings=embeddings).model_dump(mode="json")
         return data
+
+    async def agenerate(self, data: dict) -> dict:
+        """Native async generate using model.agenerate_text_embeddings."""
+        deserialized_record = deserialize_json_values(data)
+        input_texts = parse_list_string(deserialized_record[self.config.target_column])
+        embeddings = await self.model.agenerate_text_embeddings(input_texts=input_texts)
+        data[self.config.name] = EmbeddingGenerationResult(embeddings=embeddings).model_dump(mode="json")
+        return data

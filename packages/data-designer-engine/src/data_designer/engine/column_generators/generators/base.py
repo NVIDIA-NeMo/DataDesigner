@@ -4,14 +4,19 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import functools
 import logging
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, overload
+from typing import TYPE_CHECKING, Any, Coroutine, TypeVar, overload
 
 from data_designer.config.column_configs import GenerationStrategy
 from data_designer.engine.configurable_task import ConfigurableTask, DataT, TaskConfigT
 from data_designer.logging import LOG_DOUBLE_INDENT, LOG_INDENT
+
+_T = TypeVar("_T")
+
+_SYNC_BRIDGE_TIMEOUT = 300
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -23,9 +28,33 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _run_coroutine_sync(coro: Coroutine[Any, Any, _T]) -> _T:
+    """Run an async coroutine from sync context.
+
+    - No running event loop → ``asyncio.run(coro)``
+    - Running event loop (e.g. notebook/service) → run in a background thread
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(asyncio.run, coro)
+        return future.result(timeout=_SYNC_BRIDGE_TIMEOUT)
+
+
 class ColumnGenerator(ConfigurableTask[TaskConfigT], ABC):
     @property
     def can_generate_from_scratch(self) -> bool:
+        return False
+
+    @property
+    def is_stateful(self) -> bool:
+        """Whether this generator maintains state across calls.
+
+        Stateful generators are serialized per-instance by the async scheduler
+        (row group N must complete before N+1 starts for that generator).
+        """
         return False
 
     @staticmethod
@@ -33,18 +62,24 @@ class ColumnGenerator(ConfigurableTask[TaskConfigT], ABC):
     def get_generation_strategy() -> GenerationStrategy: ...
 
     @overload
-    @abstractmethod
     def generate(self, data: dict) -> dict: ...
 
     @overload
-    @abstractmethod
     def generate(self, data: pd.DataFrame) -> pd.DataFrame: ...
 
-    @abstractmethod
-    def generate(self, data: DataT) -> DataT: ...
+    def generate(self, data: DataT) -> DataT:
+        """Sync generate — overridden by most concrete generators.
+
+        Default bridges to ``agenerate()`` for async-first subclasses that only
+        implement ``agenerate()``. Raises ``NotImplementedError`` if neither
+        ``generate()`` nor ``agenerate()`` is overridden.
+        """
+        if type(self).agenerate is ColumnGenerator.agenerate:
+            raise NotImplementedError(f"{type(self).__name__} must implement either generate() or agenerate()")
+        return _run_coroutine_sync(self.agenerate(data))
 
     async def agenerate(self, data: dict) -> dict:
-        """Async fallback — delegates to sync generate via thread pool.
+        """Async generate — delegates to sync ``generate()`` via thread pool.
 
         Subclasses with native async support (e.g. ColumnGeneratorWithModelChatCompletion)
         should override this with a direct async implementation.
@@ -67,6 +102,14 @@ class FromScratchColumnGenerator(ColumnGenerator[TaskConfigT], ABC):
 
     @abstractmethod
     def generate_from_scratch(self, num_records: int) -> pd.DataFrame: ...
+
+    async def agenerate_from_scratch(self, num_records: int) -> pd.DataFrame:
+        """Async wrapper — wraps sync ``generate_from_scratch()`` in a thread."""
+        return await asyncio.to_thread(self.generate_from_scratch, num_records)
+
+    async def agenerate(self, data: pd.DataFrame) -> pd.DataFrame:
+        """Async wrapper — wraps sync ``generate()`` in a thread with defensive copy."""
+        return await asyncio.to_thread(self.generate, data.copy())
 
 
 class ColumnGeneratorWithModelRegistry(ColumnGenerator[TaskConfigT], ABC):
@@ -155,3 +198,7 @@ class ColumnGeneratorFullColumn(ColumnGenerator[TaskConfigT], ABC):
 
     @abstractmethod
     def generate(self, data: pd.DataFrame) -> pd.DataFrame: ...
+
+    async def agenerate(self, data: pd.DataFrame) -> pd.DataFrame:
+        """Async wrapper — wraps sync ``generate()`` in a thread with defensive copy."""
+        return await asyncio.to_thread(self.generate, data.copy())

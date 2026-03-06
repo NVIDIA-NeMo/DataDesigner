@@ -30,6 +30,10 @@ class SeedDatasetColumnGenerator(FromScratchColumnGenerator[SeedDatasetMultiColu
         return GenerationStrategy.FULL_COLUMN
 
     @property
+    def is_stateful(self) -> bool:
+        return True
+
+    @property
     def num_records_sampled(self) -> int:
         return self._num_records_sampled
 

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
 
 from data_designer.config.column_configs import ImageColumnConfig
@@ -71,6 +72,38 @@ class ImageCellGenerator(WithJinja2UserTemplateRendering, ColumnGeneratorWithMod
             self.media_storage.save_base64_image(base64_image, subfolder_name=self.config.name)
             for base64_image in base64_images
         ]
+        data[self.config.name] = results
+
+        return data
+
+    async def agenerate(self, data: dict) -> dict:
+        """Native async generate using model.agenerate_image."""
+        deserialized_record = deserialize_json_values(data)
+
+        missing_columns = list(set(self.config.required_columns) - set(data.keys()))
+        if len(missing_columns) > 0:
+            raise ValueError(
+                f"There was an error preparing the Jinja2 expression template. "
+                f"The following columns {missing_columns} are missing!"
+            )
+
+        self.prepare_jinja2_template_renderer(self.config.prompt, list(deserialized_record.keys()))
+        prompt = self.render_template(deserialized_record)
+
+        if not prompt or not prompt.strip():
+            raise ValueError(f"Rendered prompt for column {self.config.name!r} is empty")
+
+        multi_modal_context = self._build_multi_modal_context(deserialized_record)
+
+        base64_images = await self.model.agenerate_image(prompt=prompt, multi_modal_context=multi_modal_context)
+
+        # media_storage.save_base64_image is sync I/O — wrap in thread
+        results = await asyncio.to_thread(
+            lambda: [
+                self.media_storage.save_base64_image(base64_image, subfolder_name=self.config.name)
+                for base64_image in base64_images
+            ]
+        )
         data[self.config.name] = results
 
         return data
