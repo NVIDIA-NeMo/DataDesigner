@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from typing import Any
 
 from data_designer.config.utils.image_helpers import (
@@ -205,7 +206,7 @@ def extract_tool_calls(raw_tool_calls: Any) -> list[ToolCall]:
 
     normalized_tool_calls: list[ToolCall] = []
     for raw_tool_call in raw_tool_calls:
-        tool_call_id = get_value_from(raw_tool_call, "id") or ""
+        tool_call_id = get_value_from(raw_tool_call, "id") or uuid.uuid4().hex
         function = get_value_from(raw_tool_call, "function")
         name = get_value_from(function, "name") or ""
         arguments_value = get_value_from(function, "arguments")

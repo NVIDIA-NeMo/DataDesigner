@@ -6,7 +6,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from functools import wraps
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NoReturn
 
 from pydantic import BaseModel
 
@@ -346,7 +346,7 @@ def _raise_from_provider_error(
     model_provider_name: str,
     purpose: str,
     authentication_error: FormattedLLMErrorMessage,
-) -> None:
+) -> NoReturn:
     """Map a canonical ProviderError to the appropriate DataDesignerError subclass."""
     _KIND_MAP: dict[ProviderErrorKind, type[DataDesignerError]] = {
         ProviderErrorKind.RATE_LIMIT: ModelRateLimitError,

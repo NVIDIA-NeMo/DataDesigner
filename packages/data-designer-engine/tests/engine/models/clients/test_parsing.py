@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import pytest
 
+from data_designer.engine.models.clients.parsing import extract_tool_calls
 from data_designer.engine.models.clients.types import (
     ChatCompletionRequest,
     EmbeddingRequest,
@@ -159,3 +160,56 @@ def test_extra_body_variations(extra_body: dict | None, expected_body_keys: set[
 
     assert expected_body_keys.issubset(transport.body.keys())
     assert "extra_body" not in transport.body
+
+
+# --- extract_tool_calls ---
+
+
+def _make_raw_tool_call(
+    tool_id: str | None = "call-1",
+    name: str = "lookup",
+    arguments: str = '{"q": "test"}',
+) -> dict:
+    tc: dict = {"type": "function", "function": {"name": name, "arguments": arguments}}
+    if tool_id is not None:
+        tc["id"] = tool_id
+    return tc
+
+
+def test_extract_tool_calls_basic() -> None:
+    raw = [_make_raw_tool_call()]
+    result = extract_tool_calls(raw)
+
+    assert len(result) == 1
+    assert result[0].id == "call-1"
+    assert result[0].name == "lookup"
+    assert result[0].arguments_json == '{"q": "test"}'
+
+
+@pytest.mark.parametrize("tool_id", [None, ""], ids=["missing_id", "empty_string_id"])
+def test_extract_tool_calls_falsy_id_generates_uuid(tool_id: str | None) -> None:
+    raw = [_make_raw_tool_call(tool_id=tool_id)]
+    result = extract_tool_calls(raw)
+
+    assert len(result) == 1
+    assert len(result[0].id) == 32  # uuid4().hex length
+    assert result[0].id.isalnum()
+
+
+def test_extract_tool_calls_multiple_missing_ids_are_unique() -> None:
+    raw = [_make_raw_tool_call(tool_id=None), _make_raw_tool_call(tool_id=None)]
+    result = extract_tool_calls(raw)
+
+    assert result[0].id != result[1].id
+
+
+@pytest.mark.parametrize("raw_input", [None, []], ids=["none", "empty_list"])
+def test_extract_tool_calls_empty_input(raw_input: list | None) -> None:
+    assert extract_tool_calls(raw_input) == []
+
+
+def test_extract_tool_calls_none_arguments() -> None:
+    raw = [{"id": "call-1", "function": {"name": "lookup", "arguments": None}}]
+    result = extract_tool_calls(raw)
+
+    assert result[0].arguments_json == "{}"
