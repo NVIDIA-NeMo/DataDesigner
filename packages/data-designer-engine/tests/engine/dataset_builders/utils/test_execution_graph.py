@@ -271,6 +271,19 @@ def test_task_count_exact_divisor(simple_graph: ExecutionGraph) -> None:
     assert counts["question"] == 9
 
 
+@pytest.mark.parametrize("buffer_size", [0, -1])
+def test_task_count_invalid_buffer_size_raises(simple_graph: ExecutionGraph, buffer_size: int) -> None:
+    with pytest.raises(ValueError, match="buffer_size"):
+        simple_graph.compute_task_count(num_records=10, buffer_size=buffer_size)
+
+
+def test_add_column_duplicate_raises() -> None:
+    graph = ExecutionGraph()
+    graph.add_column("col_a", GenerationStrategy.CELL_BY_CELL)
+    with pytest.raises(ValueError, match="already registered"):
+        graph.add_column("col_a", GenerationStrategy.FULL_COLUMN)
+
+
 # -- Cell dependencies ------------------------------------------------------
 
 

@@ -216,6 +216,20 @@ def test_get_ready_tasks_skips_dropped_rows(ready_ctx: ReadyTasksFixture) -> Non
     assert {t.row_index for t in question_tasks} == {0, 2}
 
 
+def test_drop_row_unblocks_full_column_downstream(ready_ctx: ReadyTasksFixture) -> None:
+    """Dropping the last incomplete CELL_BY_CELL row should make downstream FULL_COLUMN ready."""
+    ready_ctx.tracker.mark_row_range_complete("topic", 0, 3)
+    ready_ctx.tracker.mark_cell_complete("question", 0, 0)
+    ready_ctx.tracker.mark_cell_complete("question", 0, 1)
+    # question[2] never completes -- drop it instead
+    ready_ctx.tracker.drop_row(0, 2)
+
+    ready = ready_ctx.tracker.get_ready_tasks(ready_ctx.dispatched)
+    score_tasks = [t for t in ready if t.column == "score"]
+    assert len(score_tasks) == 1
+    assert score_tasks[0].task_type == "batch"
+
+
 def test_get_ready_tasks_full_column_waits_for_all_cells(ready_ctx: ReadyTasksFixture) -> None:
     ready_ctx.tracker.mark_row_range_complete("topic", 0, 3)
     ready_ctx.tracker.mark_cell_complete("question", 0, 0)
