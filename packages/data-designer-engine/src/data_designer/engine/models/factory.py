@@ -50,14 +50,12 @@ def create_model_registry(
         model_config: ModelConfig,
         secret_resolver: SecretResolver,
         model_provider_registry: ModelProviderRegistry,
-        throttle_manager: ThrottleManager | None,
         retry_config: RetryConfig | None,
     ) -> ModelFacade:
         client = create_model_client(
             model_config,
             secret_resolver,
             model_provider_registry,
-            throttle_manager=throttle_manager,
             retry_config=retry_config,
         )
         return ModelFacade(

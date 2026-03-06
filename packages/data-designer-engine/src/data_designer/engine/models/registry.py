@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from data_designer.engine.models.facade import ModelFacade
 
     ModelFacadeFactory = Callable[
-        [ModelConfig, SecretResolver, ModelProviderRegistry, ThrottleManager | None, RetryConfig | None],
+        [ModelConfig, SecretResolver, ModelProviderRegistry, RetryConfig | None],
         ModelFacade,
     ]
 
@@ -236,10 +236,17 @@ class ModelRegistry:
     def _get_model(self, model_config: ModelConfig) -> ModelFacade:
         if self._model_facade_factory is None:
             raise RuntimeError("ModelRegistry was not initialized with a model_facade_factory")
-        return self._model_facade_factory(
+        facade = self._model_facade_factory(
             model_config,
             self._secret_resolver,
             self._model_provider_registry,
-            self._throttle_manager,
             self._retry_config,
         )
+        if self._throttle_manager is not None:
+            self._throttle_manager.register(
+                provider_name=facade.model_provider_name,
+                model_id=model_config.model,
+                alias=model_config.alias,
+                max_parallel_requests=model_config.inference_parameters.max_parallel_requests,
+            )
+        return facade

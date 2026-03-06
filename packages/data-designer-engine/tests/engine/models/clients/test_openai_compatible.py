@@ -11,7 +11,6 @@ import pytest
 
 from data_designer.engine.models.clients.adapters.openai_compatible import OpenAICompatibleClient
 from data_designer.engine.models.clients.errors import ProviderError, ProviderErrorKind
-from data_designer.engine.models.clients.throttle import ThrottleDomain, ThrottleManager
 from data_designer.engine.models.clients.types import (
     ChatCompletionRequest,
     EmbeddingRequest,
@@ -40,19 +39,6 @@ def client_no_key() -> OpenAICompatibleClient:
         model_id=MODEL,
         endpoint=ENDPOINT,
         api_key=None,
-    )
-
-
-@pytest.fixture
-def throttled_client() -> OpenAICompatibleClient:
-    tm = ThrottleManager()
-    tm.register(provider_name=PROVIDER, model_id=MODEL, alias="a1", max_parallel_requests=4)
-    return OpenAICompatibleClient(
-        provider_name=PROVIDER,
-        model_id=MODEL,
-        endpoint=ENDPOINT,
-        api_key="sk-test-key",
-        throttle_manager=tm,
     )
 
 
@@ -260,47 +246,6 @@ def test_transport_connection_error_raises_connection_error(client: OpenAICompat
         client.completion(request)
 
     assert exc_info.value.kind == ProviderErrorKind.API_CONNECTION
-
-
-# --- Throttle integration ---
-
-
-def test_throttle_released_on_success(throttled_client: OpenAICompatibleClient) -> None:
-    _stub_sync_post(throttled_client, _chat_response())
-
-    request = ChatCompletionRequest(model=MODEL, messages=[{"role": "user", "content": "Hi"}])
-    throttled_client.completion(request)
-
-    state = throttled_client._throttle.get_domain_state(PROVIDER, MODEL, ThrottleDomain.CHAT)
-    assert state is not None
-    assert state.in_flight == 0
-    assert state.success_streak == 1
-
-
-def test_throttle_rate_limited_on_429(throttled_client: OpenAICompatibleClient) -> None:
-    _stub_sync_post(throttled_client, {"error": {"message": "rate limited"}}, status_code=429)
-
-    request = ChatCompletionRequest(model=MODEL, messages=[{"role": "user", "content": "Hi"}])
-    with pytest.raises(ProviderError):
-        throttled_client.completion(request)
-
-    state = throttled_client._throttle.get_domain_state(PROVIDER, MODEL, ThrottleDomain.CHAT)
-    assert state is not None
-    assert state.in_flight == 0
-    assert state.current_limit < 4
-
-
-def test_throttle_failure_on_non_rate_limit_error(throttled_client: OpenAICompatibleClient) -> None:
-    _stub_sync_post(throttled_client, {"error": {"message": "server error"}}, status_code=500)
-
-    request = ChatCompletionRequest(model=MODEL, messages=[{"role": "user", "content": "Hi"}])
-    with pytest.raises(ProviderError):
-        throttled_client.completion(request)
-
-    state = throttled_client._throttle.get_domain_state(PROVIDER, MODEL, ThrottleDomain.CHAT)
-    assert state is not None
-    assert state.in_flight == 0
-    assert state.current_limit == 4
 
 
 # --- Lifecycle ---

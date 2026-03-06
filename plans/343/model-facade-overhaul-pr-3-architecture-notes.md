@@ -12,9 +12,9 @@ This document captures the architecture intent for PR-3 from
 ## Goal
 
 Introduce the first native HTTP adapter (`OpenAICompatibleClient`) with shared
-retry and adaptive throttle infrastructure.  After this PR, the client factory
-routes `provider_type="openai"` to the native adapter while all other provider
-types continue through the `LiteLLMBridgeClient`.
+retry infrastructure and a standalone adaptive throttle resource.  After this
+PR, the client factory routes `provider_type="openai"` to the native adapter
+while all other provider types continue through the `LiteLLMBridgeClient`.
 
 ## What Changes
 
@@ -52,11 +52,36 @@ the same thread-safe state:
 - `release_rate_limited(now, retry_after)`
 - `release_failure(now)`
 
+#### Ownership — standalone resource, not adapter-owned
+
+`ThrottleManager` is **not** owned by the adapter.  It lives as a shared
+resource on `ModelRegistry` and is intended to be called by the orchestration
+layer (the `AsyncTaskScheduler` from plan 346).
+
+Rationale:
+
+- **Separation of concerns** — the adapter is pure HTTP transport (request,
+  retry, parse).  Concurrency policy is an orchestration concern.
+- **Scheduler optimization** — the async scheduler needs to release its
+  execution semaphore slot *while waiting* for a throttle permit, then
+  reacquire it before executing.  This is only possible if the scheduler
+  owns the acquire/release lifecycle directly.
+- **Sync path** — the current sync builder is sequential (one call at a time),
+  so it cannot exceed concurrency limits and does not need throttle gating.
+
+The layered responsibility is:
+
+| Layer | Responsibility |
+|---|---|
+| **Scheduler / Builder** | Concurrency policy: execution slots + throttle acquire/release |
+| **ModelFacade** | Business logic: prompt assembly, usage tracking, correction loops |
+| **Adapter** | Transport: HTTP, retry, response parsing |
+
 ### 3. OpenAI-compatible adapter (`clients/adapters/openai_compatible.py`)
 
 `OpenAICompatibleClient` implements the `ModelClient` protocol using `httpx`
-with `RetryTransport` for resilient HTTP calls and `ThrottleManager` for
-adaptive concurrency.
+with `RetryTransport` for resilient HTTP calls.  The adapter is pure transport
+— it has no knowledge of throttle or concurrency policy.
 
 Routes:
 
@@ -67,9 +92,9 @@ Routes:
 Image routing is request-shape-based: if `request.messages is not None` the
 chat route is used, otherwise the dedicated image route.
 
-Response parsing reuses the shared `parsing.py` helpers via a `_DictProxy`
-wrapper that gives dict-style JSON responses attribute-style access expected
-by `get_value_from()`.
+Response parsing reuses the shared `parsing.py` helpers.  The `get_value_from()`
+utility handles both dict and object access, so raw JSON dicts from `httpx`
+responses are passed directly to the parsing functions.
 
 ### 4. Reasoning field migration (`clients/parsing.py`)
 
@@ -85,19 +110,29 @@ Ref: [GitHub issue #374](https://github.com/NVIDIA-NeMo/DataDesigner/issues/374)
 
 ### 5. Client factory routing (`clients/factory.py`)
 
-`create_model_client` now accepts optional `throttle_manager` and `retry_config`
-parameters and routes based on provider type:
+`create_model_client` accepts an optional `retry_config` parameter and routes
+based on provider type:
 
 - `provider_type == "openai"` (and no bridge override) → `OpenAICompatibleClient`
 - All other provider types → `LiteLLMBridgeClient`
 
+The factory does not pass a `ThrottleManager` to adapters — throttle is an
+orchestration concern (see §2).
+
 The `DATA_DESIGNER_MODEL_BACKEND` environment variable can force bridge mode
 for rollback safety during migration.
 
-### 6. Registry integration (`models/factory.py`)
+### 6. Registry integration (`models/factory.py`, `models/registry.py`)
 
-`create_model_registry` creates a shared `ThrottleManager` and `RetryConfig`
-and passes them through to each `create_model_client` call.
+`create_model_registry` creates a shared `ThrottleManager` (held on
+`ModelRegistry` for the scheduler to access) and a shared `RetryConfig`
+(passed through to each `create_model_client` call).  The throttle manager
+is not forwarded to adapters.
+
+`ModelRegistry._get_model()` calls `throttle_manager.register()` when it
+lazily creates each `ModelFacade`.  This ensures the throttle manager's
+per-`(provider_name, model_id)` global caps are populated before the
+scheduler (or any other caller) attempts to acquire permits.
 
 ## What Does NOT Change
 
@@ -114,16 +149,28 @@ and passes them through to each `create_model_client` call.
 | File | Change |
 |---|---|
 | `clients/retry.py` | New — `RetryConfig` + `create_retry_transport` |
-| `clients/throttle.py` | New — `ThrottleManager` with AIMD |
-| `clients/adapters/openai_compatible.py` | New — native OpenAI-compatible adapter |
+| `clients/throttle.py` | New — `ThrottleManager` with AIMD (standalone resource) |
+| `clients/adapters/openai_compatible.py` | New — native OpenAI-compatible adapter (pure transport, no throttle) |
 | `clients/parsing.py` | Add `extract_reasoning_content` helper |
 | `clients/factory.py` | Route `provider_type=openai` to native adapter |
 | `clients/__init__.py` | Export new public names |
 | `clients/adapters/__init__.py` | Export `OpenAICompatibleClient` |
-| `models/factory.py` | Create shared `ThrottleManager` and `RetryConfig` |
+| `models/factory.py` | Create shared `ThrottleManager` (on registry) and `RetryConfig` |
+| `models/registry.py` | Hold `ThrottleManager` as shared resource; expose via property |
 
 ## Planned Follow-On
 
 PR-4 introduces the Anthropic native adapter.  At that point, the client
 factory gains a third adapter option alongside the LiteLLM bridge and
 OpenAI-compatible adapter.
+
+The `AsyncTaskScheduler` (plan 346) will call `ThrottleManager` directly
+from the orchestration layer, acquiring throttle permits as part of its
+execution-slot lifecycle:
+
+1. Acquire execution slot
+2. Release execution slot, await `throttle_manager.acquire_async(...)`
+3. Reacquire execution slot, execute via `ModelFacade`
+
+This pattern lets the scheduler free execution slots while waiting for
+throttle permits (e.g., during 429 cooldowns), maximizing throughput.

@@ -25,7 +25,6 @@ from data_designer.engine.models.clients.parsing import (
     parse_chat_completion_response,
 )
 from data_designer.engine.models.clients.retry import RetryConfig, create_retry_transport
-from data_designer.engine.models.clients.throttle import ThrottleDomain, ThrottleManager
 from data_designer.engine.models.clients.types import (
     ChatCompletionRequest,
     ChatCompletionResponse,
@@ -46,7 +45,8 @@ class OpenAICompatibleClient(ModelClient):
     """Native HTTP adapter for OpenAI-compatible provider APIs.
 
     Uses ``httpx`` with ``httpx_retries.RetryTransport`` for resilient HTTP
-    calls and a shared ``ThrottleManager`` for adaptive concurrency control.
+    calls.  Concurrency / throttle policy is an orchestration concern and
+    is not managed here — see ``ThrottleManager`` and ``AsyncTaskScheduler``.
     """
 
     _ROUTE_CHAT = "/chat/completions"
@@ -62,7 +62,6 @@ class OpenAICompatibleClient(ModelClient):
         endpoint: str,
         api_key: str | None = None,
         retry_config: RetryConfig | None = None,
-        throttle_manager: ThrottleManager | None = None,
         max_parallel_requests: int = 32,
         timeout_s: float = 60.0,
     ) -> None:
@@ -70,7 +69,6 @@ class OpenAICompatibleClient(ModelClient):
         self._model_id = model_id
         self._endpoint = endpoint.rstrip("/")
         self._api_key = api_key
-        self._throttle = throttle_manager
         self._timeout_s = timeout_s
 
         # 2x headroom for burst traffic across domains; floor of 32/16 for low-concurrency configs.
@@ -111,17 +109,13 @@ class OpenAICompatibleClient(ModelClient):
     def completion(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
         transport = TransportKwargs.from_request(request)
         payload = {"model": request.model, "messages": request.messages, **transport.body}
-        response_json = self._throttled_post_sync(
-            self._ROUTE_CHAT, payload, transport.headers, request.model, ThrottleDomain.CHAT
-        )
+        response_json = self._post_sync(self._ROUTE_CHAT, payload, transport.headers, request.model)
         return parse_chat_completion_response(response_json)
 
     async def acompletion(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
         transport = TransportKwargs.from_request(request)
         payload = {"model": request.model, "messages": request.messages, **transport.body}
-        response_json = await self._athrottled_post(
-            self._ROUTE_CHAT, payload, transport.headers, request.model, ThrottleDomain.CHAT
-        )
+        response_json = await self._apost(self._ROUTE_CHAT, payload, transport.headers, request.model)
         return await aparse_chat_completion_response(response_json)
 
     # -------------------------------------------------------------------
@@ -131,17 +125,13 @@ class OpenAICompatibleClient(ModelClient):
     def embeddings(self, request: EmbeddingRequest) -> EmbeddingResponse:
         transport = TransportKwargs.from_request(request)
         payload = {"model": request.model, "input": request.inputs, **transport.body}
-        response_json = self._throttled_post_sync(
-            self._ROUTE_EMBEDDING, payload, transport.headers, request.model, ThrottleDomain.EMBEDDING
-        )
+        response_json = self._post_sync(self._ROUTE_EMBEDDING, payload, transport.headers, request.model)
         return _parse_embedding_json(response_json)
 
     async def aembeddings(self, request: EmbeddingRequest) -> EmbeddingResponse:
         transport = TransportKwargs.from_request(request)
         payload = {"model": request.model, "input": request.inputs, **transport.body}
-        response_json = await self._athrottled_post(
-            self._ROUTE_EMBEDDING, payload, transport.headers, request.model, ThrottleDomain.EMBEDDING
-        )
+        response_json = await self._apost(self._ROUTE_EMBEDDING, payload, transport.headers, request.model)
         return _parse_embedding_json(response_json)
 
     # -------------------------------------------------------------------
@@ -151,23 +141,23 @@ class OpenAICompatibleClient(ModelClient):
     def generate_image(self, request: ImageGenerationRequest) -> ImageGenerationResponse:
         transport = TransportKwargs.from_request(request, exclude=self._IMAGE_EXCLUDE)
         if request.messages is not None:
-            route, domain = self._ROUTE_CHAT, ThrottleDomain.CHAT
+            route = self._ROUTE_CHAT
             payload = {"model": request.model, "messages": request.messages, **transport.body}
         else:
-            route, domain = self._ROUTE_IMAGE, ThrottleDomain.IMAGE
+            route = self._ROUTE_IMAGE
             payload = {"model": request.model, "prompt": request.prompt, **transport.body}
-        response_json = self._throttled_post_sync(route, payload, transport.headers, request.model, domain)
+        response_json = self._post_sync(route, payload, transport.headers, request.model)
         return _parse_image_json(response_json, is_chat_route=request.messages is not None)
 
     async def agenerate_image(self, request: ImageGenerationRequest) -> ImageGenerationResponse:
         transport = TransportKwargs.from_request(request, exclude=self._IMAGE_EXCLUDE)
         if request.messages is not None:
-            route, domain = self._ROUTE_CHAT, ThrottleDomain.CHAT
+            route = self._ROUTE_CHAT
             payload = {"model": request.model, "messages": request.messages, **transport.body}
         else:
-            route, domain = self._ROUTE_IMAGE, ThrottleDomain.IMAGE
+            route = self._ROUTE_IMAGE
             payload = {"model": request.model, "prompt": request.prompt, **transport.body}
-        response_json = await self._athrottled_post(route, payload, transport.headers, request.model, domain)
+        response_json = await self._apost(route, payload, transport.headers, request.model)
         return await _aparse_image_json(response_json, is_chat_route=request.messages is not None)
 
     # -------------------------------------------------------------------
@@ -183,48 +173,6 @@ class OpenAICompatibleClient(ModelClient):
     # -------------------------------------------------------------------
     # HTTP helpers
     # -------------------------------------------------------------------
-
-    def _throttled_post_sync(
-        self,
-        route: str,
-        payload: dict[str, Any],
-        extra_headers: dict[str, str],
-        model_name: str,
-        domain: ThrottleDomain,
-    ) -> dict[str, Any]:
-        """POST with throttle acquire/release lifecycle."""
-        self._acquire_throttle_sync(domain)
-        try:
-            result = self._post_sync(route, payload, extra_headers, model_name)
-        except ProviderError as exc:
-            self._handle_provider_error(exc, domain)
-            raise
-        except Exception:
-            self._release_throttle_failure(domain)
-            raise
-        self._release_throttle_success(domain)
-        return result
-
-    async def _athrottled_post(
-        self,
-        route: str,
-        payload: dict[str, Any],
-        extra_headers: dict[str, str],
-        model_name: str,
-        domain: ThrottleDomain,
-    ) -> dict[str, Any]:
-        """Async POST with throttle acquire/release lifecycle."""
-        await self._acquire_throttle_async(domain)
-        try:
-            result = await self._apost(route, payload, extra_headers, model_name)
-        except ProviderError as exc:
-            self._handle_provider_error(exc, domain)
-            raise
-        except Exception:
-            self._release_throttle_failure(domain)
-            raise
-        self._release_throttle_success(domain)
-        return result
 
     def _build_headers(self, extra_headers: dict[str, str]) -> dict[str, str]:
         headers: dict[str, str] = {"Content-Type": "application/json"}
@@ -271,39 +219,6 @@ class OpenAICompatibleClient(ModelClient):
                 response=response, provider_name=self.provider_name, model_name=model_name
             )
         return _parse_json_body(response, self.provider_name, model_name)
-
-    # -------------------------------------------------------------------
-    # Throttle helpers
-    # -------------------------------------------------------------------
-
-    def _acquire_throttle_sync(self, domain: ThrottleDomain) -> None:
-        if self._throttle is not None:
-            self._throttle.acquire_sync(provider_name=self.provider_name, model_id=self._model_id, domain=domain)
-
-    async def _acquire_throttle_async(self, domain: ThrottleDomain) -> None:
-        if self._throttle is not None:
-            await self._throttle.acquire_async(provider_name=self.provider_name, model_id=self._model_id, domain=domain)
-
-    def _release_throttle_success(self, domain: ThrottleDomain) -> None:
-        if self._throttle is not None:
-            self._throttle.release_success(provider_name=self.provider_name, model_id=self._model_id, domain=domain)
-
-    def _release_throttle_failure(self, domain: ThrottleDomain) -> None:
-        if self._throttle is not None:
-            self._throttle.release_failure(provider_name=self.provider_name, model_id=self._model_id, domain=domain)
-
-    def _handle_provider_error(self, exc: ProviderError, domain: ThrottleDomain) -> None:
-        if self._throttle is None:
-            return
-        if exc.kind == ProviderErrorKind.RATE_LIMIT:
-            self._throttle.release_rate_limited(
-                provider_name=self.provider_name,
-                model_id=self._model_id,
-                domain=domain,
-                retry_after=exc.retry_after,
-            )
-        else:
-            self._release_throttle_failure(domain)
 
 
 # ---------------------------------------------------------------------------

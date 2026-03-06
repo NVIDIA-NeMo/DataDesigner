@@ -17,7 +17,6 @@ from data_designer.engine.models.clients.adapters.litellm_bridge import LiteLLMB
 from data_designer.engine.models.clients.adapters.openai_compatible import OpenAICompatibleClient
 from data_designer.engine.models.clients.factory import create_model_client
 from data_designer.engine.models.clients.retry import RetryConfig
-from data_designer.engine.models.clients.throttle import ThrottleManager
 from data_designer.engine.secret_resolver import SecretResolver
 
 
@@ -72,7 +71,6 @@ def test_openai_provider_creates_native_client(
         openai_model_config,
         secret_resolver,
         openai_registry,
-        throttle_manager=ThrottleManager(),
         retry_config=RetryConfig(),
     )
     assert isinstance(client, OpenAICompatibleClient)
@@ -120,20 +118,5 @@ def test_native_env_var_still_uses_native_for_openai_provider(
             openai_model_config,
             secret_resolver,
             openai_registry,
-            throttle_manager=ThrottleManager(),
         )
     assert isinstance(client, OpenAICompatibleClient)
-
-
-# --- Throttle registration ---
-
-
-def test_throttle_manager_registers_alias_on_native_client_creation(
-    openai_model_config: ModelConfig,
-    secret_resolver: SecretResolver,
-    openai_registry: ModelProviderRegistry,
-) -> None:
-    tm = ThrottleManager()
-    create_model_client(openai_model_config, secret_resolver, openai_registry, throttle_manager=tm)
-    effective_max = tm.get_effective_max("openai-prod", "gpt-test")
-    assert effective_max == openai_model_config.inference_parameters.max_parallel_requests

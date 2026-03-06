@@ -12,7 +12,6 @@ from data_designer.engine.models.clients.adapters.litellm_bridge import LiteLLMB
 from data_designer.engine.models.clients.adapters.openai_compatible import OpenAICompatibleClient
 from data_designer.engine.models.clients.base import ModelClient
 from data_designer.engine.models.clients.retry import RetryConfig
-from data_designer.engine.models.clients.throttle import ThrottleManager
 from data_designer.engine.models.litellm_overrides import CustomRouter, LiteLLMRouterDefaultKwargs
 from data_designer.engine.secret_resolver import SecretResolver
 
@@ -25,7 +24,6 @@ def create_model_client(
     secret_resolver: SecretResolver,
     model_provider_registry: ModelProviderRegistry,
     *,
-    throttle_manager: ThrottleManager | None = None,
     retry_config: RetryConfig | None = None,
 ) -> ModelClient:
     """Create a ``ModelClient`` for the given model configuration.
@@ -45,20 +43,12 @@ def create_model_client(
     use_native = backend != _BACKEND_BRIDGE and provider.provider_type == "openai"
 
     if use_native:
-        if throttle_manager is not None:
-            throttle_manager.register(
-                provider_name=provider.name,
-                model_id=model_config.model,
-                alias=model_config.alias,
-                max_parallel_requests=max_parallel,
-            )
         return OpenAICompatibleClient(
             provider_name=provider.name,
             model_id=model_config.model,
             endpoint=provider.endpoint,
             api_key=api_key,
             retry_config=retry_config,
-            throttle_manager=throttle_manager,
             max_parallel_requests=max_parallel,
             timeout_s=timeout_s,
         )
