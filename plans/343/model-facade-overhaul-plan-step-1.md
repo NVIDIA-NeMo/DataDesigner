@@ -455,6 +455,10 @@ Implementation expectations:
    - Fallback mode: chat-completion image extraction for autoregressive models
 4. Parse usage from provider response if present.
 5. Normalize tool calls and reasoning fields.
+   - Reasoning extraction must check both `message.reasoning_content` (legacy/LiteLLM-normalized) and `message.reasoning` (vLLM >= 0.16.0 / OpenAI-compatible canonical), with `reasoning_content` taking precedence when both are present.
+   - This dual-field check should live in a shared helper in `parsing.py` so it is reusable across adapters.
+   - Internal canonical field remains `reasoning_content`; no downstream contract change.
+   - See: [GitHub issue #374](https://github.com/NVIDIA-NeMo/DataDesigner/issues/374)
 6. Normalize image outputs from either `b64_json`, data URI, or URL download.
 
 ### Image routing ownership contract
@@ -947,7 +951,7 @@ OpenAI-compatible response parsing:
 
 1. `choices[0].message.content` -> canonical `message.content`
 2. `choices[0].message.tool_calls[*]` -> canonical `ToolCall`
-3. `choices[0].message.reasoning_content` if present -> canonical `reasoning_content`
+3. `choices[0].message.reasoning_content` **or** `choices[0].message.reasoning` -> canonical `reasoning_content` (`reasoning_content` takes precedence; `reasoning` is the vLLM >= 0.16.0 field name)
 4. `usage.prompt_tokens/completion_tokens` -> canonical `Usage`
 
 ### Canonical -> Anthropic messages payload
@@ -1347,6 +1351,10 @@ Per adapter:
 5. retry behavior tests
 6. adaptive throttling behavior tests (drop on 429, gradual recovery)
 7. auth status mapping tests (`401 -> AUTHENTICATION`, `403 -> PERMISSION_DENIED`)
+8. reasoning field migration tests:
+   - response with only `message.reasoning` (no `reasoning_content`) populates canonical `reasoning_content`
+   - response with only `message.reasoning_content` still works (backward compat)
+   - response with both fields uses `reasoning_content` (precedence rule)
 
 Tools:
 
@@ -1515,6 +1523,15 @@ Mitigation:
 
 1. central retry module with deterministic tests
 2. preserve current defaults from `LiteLLMRouterDefaultKwargs`
+
+### Risk: silent reasoning trace loss after LiteLLM removal
+
+Mitigation:
+
+1. vLLM >= 0.16.0 uses `message.reasoning` as canonical field; `reasoning_content` is deprecated/backward-compat. LiteLLM currently normalizes this for us, masking the gap.
+2. Shared reasoning extraction helper in `parsing.py` checks both `reasoning_content` and `reasoning` with explicit precedence.
+3. Adapter unit tests cover all three cases (only `reasoning`, only `reasoning_content`, both present).
+4. Ref: [GitHub issue #374](https://github.com/NVIDIA-NeMo/DataDesigner/issues/374)
 
 ### Risk: throttle oscillation or starvation under bursty load
 
