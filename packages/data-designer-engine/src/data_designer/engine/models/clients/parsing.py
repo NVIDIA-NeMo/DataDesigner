@@ -39,7 +39,7 @@ def parse_chat_completion_response(response: Any) -> ChatCompletionResponse:
     images = extract_images_from_chat_message(message)
     assistant_message = AssistantMessage(
         content=coerce_message_content(get_value_from(message, "content")),
-        reasoning_content=get_value_from(message, "reasoning_content"),
+        reasoning_content=extract_reasoning_content(message),
         tool_calls=tool_calls,
         images=images,
     )
@@ -54,7 +54,7 @@ async def aparse_chat_completion_response(response: Any) -> ChatCompletionRespon
     images = await aextract_images_from_chat_message(message)
     assistant_message = AssistantMessage(
         content=coerce_message_content(get_value_from(message, "content")),
-        reasoning_content=get_value_from(message, "reasoning_content"),
+        reasoning_content=extract_reasoning_content(message),
         tool_calls=tool_calls,
         images=images,
     )
@@ -225,6 +225,26 @@ def serialize_tool_arguments(arguments_value: Any) -> str:
         return json.dumps(arguments_value)
     except Exception:
         return str(arguments_value)
+
+
+# ---------------------------------------------------------------------------
+# Reasoning content extraction
+# ---------------------------------------------------------------------------
+
+
+def extract_reasoning_content(message: Any) -> str | None:
+    """Extract reasoning content from a provider response message.
+
+    vLLM >= 0.16.0 uses ``message.reasoning`` as the canonical field;
+    ``message.reasoning_content`` is the legacy / LiteLLM-normalized fallback.
+    Check the canonical field first so reasoning traces survive LiteLLM removal.
+
+    Ref: https://github.com/NVIDIA-NeMo/DataDesigner/issues/374
+    """
+    value = get_value_from(message, "reasoning")
+    if isinstance(value, str) and value:
+        return value
+    return get_value_from(message, "reasoning_content")
 
 
 # ---------------------------------------------------------------------------

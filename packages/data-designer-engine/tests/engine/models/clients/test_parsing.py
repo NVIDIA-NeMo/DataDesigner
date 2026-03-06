@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from data_designer.engine.models.clients.parsing import extract_tool_calls
+from data_designer.engine.models.clients.parsing import extract_reasoning_content, extract_tool_calls
 from data_designer.engine.models.clients.types import (
     ChatCompletionRequest,
     EmbeddingRequest,
@@ -213,3 +213,37 @@ def test_extract_tool_calls_none_arguments() -> None:
     result = extract_tool_calls(raw)
 
     assert result[0].arguments_json == "{}"
+
+
+# --- extract_reasoning_content (vLLM field migration) ---
+
+
+@pytest.mark.parametrize(
+    "message,expected",
+    [
+        ({"reasoning": "step-by-step thinking"}, "step-by-step thinking"),
+        ({"reasoning_content": "legacy thinking"}, "legacy thinking"),
+        ({"reasoning": "canonical", "reasoning_content": "legacy"}, "canonical"),
+        ({"content": "hello"}, None),
+        (None, None),
+        ({"reasoning": "", "reasoning_content": "fallback"}, "fallback"),
+    ],
+    ids=[
+        "only-reasoning",
+        "only-reasoning_content",
+        "both-reasoning-takes-precedence",
+        "neither-field",
+        "none-message",
+        "empty-reasoning-falls-back",
+    ],
+)
+def test_extract_reasoning_content(message: dict | None, expected: str | None) -> None:
+    assert extract_reasoning_content(message) == expected
+
+
+def test_extract_reasoning_content_works_with_object_style_message() -> None:
+    class Msg:
+        reasoning = "from object"
+        reasoning_content = "legacy object"
+
+    assert extract_reasoning_content(Msg()) == "from object"

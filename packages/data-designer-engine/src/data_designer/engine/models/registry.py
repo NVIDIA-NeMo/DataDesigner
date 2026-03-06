@@ -14,7 +14,14 @@ from data_designer.engine.secret_resolver import SecretResolver
 from data_designer.logging import LOG_INDENT
 
 if TYPE_CHECKING:
+    from data_designer.engine.models.clients.retry import RetryConfig
+    from data_designer.engine.models.clients.throttle import ThrottleManager
     from data_designer.engine.models.facade import ModelFacade
+
+    ModelFacadeFactory = Callable[
+        [ModelConfig, SecretResolver, ModelProviderRegistry, ThrottleManager | None, RetryConfig | None],
+        ModelFacade,
+    ]
 
 logger = logging.getLogger(__name__)
 
@@ -26,11 +33,15 @@ class ModelRegistry:
         secret_resolver: SecretResolver,
         model_provider_registry: ModelProviderRegistry,
         model_configs: list[ModelConfig] | None = None,
-        model_facade_factory: Callable[[ModelConfig, SecretResolver, ModelProviderRegistry], ModelFacade] | None = None,
+        model_facade_factory: ModelFacadeFactory | None = None,
+        throttle_manager: ThrottleManager | None = None,
+        retry_config: RetryConfig | None = None,
     ) -> None:
         self._secret_resolver = secret_resolver
         self._model_provider_registry = model_provider_registry
         self._model_facade_factory = model_facade_factory
+        self._throttle_manager = throttle_manager
+        self._retry_config = retry_config
         self._model_configs: dict[str, ModelConfig] = {}
         self._models: dict[str, ModelFacade] = {}
         self._set_model_configs(model_configs)
@@ -42,6 +53,14 @@ class ModelRegistry:
     @property
     def models(self) -> dict[str, ModelFacade]:
         return self._models
+
+    @property
+    def throttle_manager(self) -> ThrottleManager | None:
+        return self._throttle_manager
+
+    @property
+    def retry_config(self) -> RetryConfig | None:
+        return self._retry_config
 
     def register_model_configs(self, model_configs: list[ModelConfig]) -> None:
         """Register a new Model configuration at runtime.
@@ -216,4 +235,10 @@ class ModelRegistry:
     def _get_model(self, model_config: ModelConfig) -> ModelFacade:
         if self._model_facade_factory is None:
             raise RuntimeError("ModelRegistry was not initialized with a model_facade_factory")
-        return self._model_facade_factory(model_config, self._secret_resolver, self._model_provider_registry)
+        return self._model_facade_factory(
+            model_config,
+            self._secret_resolver,
+            self._model_provider_registry,
+            self._throttle_manager,
+            self._retry_config,
+        )
