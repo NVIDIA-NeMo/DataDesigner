@@ -255,6 +255,24 @@ def test_discriminated_union_invalid_discriminator_value() -> None:
         validate(data, DISCRIMINATED_UNION_SCHEMA, pruning=True, no_extra_properties=True)
 
 
+def test_non_discriminated_one_of_fallback() -> None:
+    schema = {
+        "type": "object",
+        "properties": {
+            "value": {
+                "oneOf": [
+                    {"type": "string"},
+                    {"type": "number"},
+                ],
+            },
+        },
+    }
+    assert validate({"value": "hello"}, schema, pruning=True)["value"] == "hello"
+    assert validate({"value": 42}, schema, pruning=True)["value"] == 42
+    with pytest.raises(JSONSchemaValidationError):
+        validate({"value": []}, schema, pruning=True)
+
+
 def test_normalize_decimal_anyof_fields() -> None:
     """Test that Decimal-like anyOf fields are normalized to floats with proper precision."""
     schema = {
