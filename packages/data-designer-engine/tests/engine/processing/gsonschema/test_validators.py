@@ -198,6 +198,81 @@ def test_invalid_data_type():
         validate(data, schema, pruning=True, no_extra_properties=True)
 
 
+DISCRIMINATED_UNION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "items": {
+            "type": "array",
+            "items": {
+                "oneOf": [{"$ref": "#/$defs/AlphaItem"}, {"$ref": "#/$defs/BetaItem"}],
+                "discriminator": {
+                    "propertyName": "kind",
+                    "mapping": {"alpha": "#/$defs/AlphaItem", "beta": "#/$defs/BetaItem"},
+                },
+            },
+        },
+    },
+    "$defs": {
+        "AlphaItem": {
+            "type": "object",
+            "properties": {
+                "kind": {"type": "string", "const": "alpha"},
+                "name": {"type": "string"},
+                "alpha_detail": {"type": "string"},
+            },
+            "required": ["kind", "name", "alpha_detail"],
+        },
+        "BetaItem": {
+            "type": "object",
+            "properties": {
+                "kind": {"type": "string", "const": "beta"},
+                "name": {"type": "string"},
+                "beta_tags": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["kind", "name", "beta_tags"],
+        },
+    },
+}
+
+
+@pytest.mark.parametrize(
+    "item,expected_keys",
+    [
+        ({"kind": "alpha", "name": "A", "alpha_detail": "d", "beta_tags": ["leak"]}, {"kind", "name", "alpha_detail"}),
+        ({"kind": "beta", "name": "B", "beta_tags": ["t"], "alpha_detail": "leak"}, {"kind", "name", "beta_tags"}),
+    ],
+    ids=["alpha_with_leaked_beta_field", "beta_with_leaked_alpha_field"],
+)
+def test_discriminated_union_prunes_leaked_properties(item: dict, expected_keys: set) -> None:
+    data = {"items": [item]}
+    result = validate(data, DISCRIMINATED_UNION_SCHEMA, pruning=True, no_extra_properties=True)
+    assert set(result["items"][0].keys()) == expected_keys
+
+
+def test_discriminated_union_invalid_discriminator_value() -> None:
+    data = {"items": [{"kind": "gamma", "name": "G"}]}
+    with pytest.raises(JSONSchemaValidationError):
+        validate(data, DISCRIMINATED_UNION_SCHEMA, pruning=True, no_extra_properties=True)
+
+
+def test_non_discriminated_one_of_fallback() -> None:
+    schema = {
+        "type": "object",
+        "properties": {
+            "value": {
+                "oneOf": [
+                    {"type": "string"},
+                    {"type": "number"},
+                ],
+            },
+        },
+    }
+    assert validate({"value": "hello"}, schema, pruning=True)["value"] == "hello"
+    assert validate({"value": 42}, schema, pruning=True)["value"] == 42
+    with pytest.raises(JSONSchemaValidationError):
+        validate({"value": []}, schema, pruning=True)
+
+
 def test_normalize_decimal_anyof_fields() -> None:
     """Test that Decimal-like anyOf fields are normalized to floats with proper precision."""
     schema = {
