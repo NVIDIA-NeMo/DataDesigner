@@ -7,7 +7,7 @@ from collections import defaultdict
 from typing import TYPE_CHECKING
 
 from data_designer.config.column_configs import GenerationStrategy
-from data_designer.engine.dataset_builders.utils.task_model import CellRef, Task
+from data_designer.engine.dataset_builders.utils.task_model import SliceRef, Task
 
 if TYPE_CHECKING:
     from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
@@ -62,20 +62,20 @@ class CompletionTracker:
             self._frontier.discard(Task(column=column, row_group=row_group, row_index=None, task_type="batch"))
             self._enqueue_downstream(column, row_group, row_index=None)
 
-    def is_complete(self, cell: CellRef) -> bool:
-        return cell.row_index in self._completed.get(cell.row_group, {}).get(cell.column, set())
+    def is_complete(self, ref: SliceRef) -> bool:
+        return ref.row_index in self._completed.get(ref.row_group, {}).get(ref.column, set())
 
-    def is_all_complete(self, cells: list[CellRef]) -> bool:
+    def is_all_complete(self, cells: list[SliceRef]) -> bool:
         """Check whether all the given cells are done.
 
         A ``row_index`` of ``None`` means the entire batch for that column must
         have been completed via ``mark_row_range_complete``.
         """
-        for cell in cells:
-            if cell.row_index is None:
-                if cell.column not in self._batch_complete.get(cell.row_group, set()):
+        for ref in cells:
+            if ref.row_index is None:
+                if ref.column not in self._batch_complete.get(ref.row_group, set()):
                     return False
-            elif not self.is_complete(cell):
+            elif not self.is_complete(ref):
                 return False
         return True
 

@@ -16,7 +16,7 @@ from data_designer.config.column_configs import (
 from data_designer.config.sampler_params import SamplerType
 from data_designer.engine.dataset_builders.utils.completion_tracker import CompletionTracker
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
-from data_designer.engine.dataset_builders.utils.task_model import CellRef, Task
+from data_designer.engine.dataset_builders.utils.task_model import SliceRef, Task
 
 MODEL_ALIAS = "stub"
 
@@ -59,20 +59,20 @@ def test_mark_and_check_complete() -> None:
     tracker = CompletionTracker()
     tracker.mark_cell_complete("col_a", row_group=0, row_index=0)
 
-    assert tracker.is_complete(CellRef("col_a", 0, 0))
-    assert not tracker.is_complete(CellRef("col_a", 0, 1))
-    assert not tracker.is_complete(CellRef("col_a", 1, 0))
-    assert not tracker.is_complete(CellRef("col_b", 0, 0))
+    assert tracker.is_complete(SliceRef("col_a", 0, 0))
+    assert not tracker.is_complete(SliceRef("col_a", 0, 1))
+    assert not tracker.is_complete(SliceRef("col_a", 1, 0))
+    assert not tracker.is_complete(SliceRef("col_b", 0, 0))
 
 
 def test_mark_row_range_complete() -> None:
     tracker = CompletionTracker()
     tracker.mark_row_range_complete("col_a", row_group=0, row_group_size=3)
 
-    assert tracker.is_complete(CellRef("col_a", 0, 0))
-    assert tracker.is_complete(CellRef("col_a", 0, 1))
-    assert tracker.is_complete(CellRef("col_a", 0, 2))
-    assert not tracker.is_complete(CellRef("col_a", 0, 3))
+    assert tracker.is_complete(SliceRef("col_a", 0, 0))
+    assert tracker.is_complete(SliceRef("col_a", 0, 1))
+    assert tracker.is_complete(SliceRef("col_a", 0, 2))
+    assert not tracker.is_complete(SliceRef("col_a", 0, 3))
 
 
 def test_mark_row_range_complete_raises_on_size_mismatch(ready_ctx: ReadyTasksFixture) -> None:
@@ -93,15 +93,15 @@ def test_all_complete_cell_level() -> None:
     tracker.mark_cell_complete("col_a", 0, 0)
     tracker.mark_cell_complete("col_a", 0, 1)
 
-    assert tracker.is_all_complete([CellRef("col_a", 0, 0), CellRef("col_a", 0, 1)])
-    assert not tracker.is_all_complete([CellRef("col_a", 0, 0), CellRef("col_a", 0, 2)])
+    assert tracker.is_all_complete([SliceRef("col_a", 0, 0), SliceRef("col_a", 0, 1)])
+    assert not tracker.is_all_complete([SliceRef("col_a", 0, 0), SliceRef("col_a", 0, 2)])
 
 
 def test_all_complete_batch_level() -> None:
     tracker = CompletionTracker()
     tracker.mark_row_range_complete("col_a", 0, 3)
 
-    assert tracker.is_all_complete([CellRef("col_a", 0, None)])
+    assert tracker.is_all_complete([SliceRef("col_a", 0, None)])
 
 
 def test_all_complete_batch_single_cell_not_sufficient() -> None:
@@ -109,12 +109,12 @@ def test_all_complete_batch_single_cell_not_sufficient() -> None:
     tracker = CompletionTracker()
     tracker.mark_cell_complete("col_a", 0, 0)
 
-    assert not tracker.is_all_complete([CellRef("col_a", 0, None)])
+    assert not tracker.is_all_complete([SliceRef("col_a", 0, None)])
 
 
 def test_all_complete_batch_not_present() -> None:
     tracker = CompletionTracker()
-    assert not tracker.is_all_complete([CellRef("col_a", 0, None)])
+    assert not tracker.is_all_complete([SliceRef("col_a", 0, None)])
 
 
 def test_all_complete_empty_list() -> None:

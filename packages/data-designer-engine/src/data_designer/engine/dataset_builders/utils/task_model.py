@@ -8,8 +8,8 @@ from typing import Any, Literal
 
 
 @dataclass(frozen=True, order=True)
-class CellRef:
-    """Reference to a cell (or batch when row_index is None) in the dataset grid."""
+class SliceRef:
+    """Reference to a slice of the execution grid: a single cell or a full row group."""
 
     column: str
     row_group: int
