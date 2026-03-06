@@ -1,7 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -11,6 +14,7 @@ from data_designer.config.models import (
     ModelConfig,
 )
 from data_designer.engine.model_provider import ModelProvider, ModelProviderRegistry
+from data_designer.engine.models.clients.base import ModelClient
 from data_designer.engine.models.factory import create_model_registry
 from data_designer.engine.models.registry import ModelRegistry
 from data_designer.engine.secret_resolver import SecretsFileResolver
@@ -68,12 +72,22 @@ def stub_model_configs() -> list[ModelConfig]:
 
 
 @pytest.fixture
-def stub_model_registry(stub_model_configs, stub_secrets_resolver, stub_model_provider_registry) -> ModelRegistry:
+def stub_model_registry(
+    stub_model_configs: list[ModelConfig],
+    stub_secrets_resolver: SecretsFileResolver,
+    stub_model_provider_registry: ModelProviderRegistry,
+) -> ModelRegistry:
     return create_model_registry(
         model_configs=stub_model_configs,
         secret_resolver=stub_secrets_resolver,
         model_provider_registry=stub_model_provider_registry,
     )
+
+
+@pytest.fixture
+def stub_model_client() -> MagicMock:
+    """Mock ModelClient for testing ModelFacade without a real LiteLLM router."""
+    return MagicMock(spec=ModelClient)
 
 
 @pytest.fixture

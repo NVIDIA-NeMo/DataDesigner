@@ -12,13 +12,13 @@ from data_designer.engine.models.clients.base import ModelClient
 from data_designer.engine.models.clients.errors import (
     ProviderError,
     ProviderErrorKind,
+    extract_message_from_exception_string,
     map_http_status_to_provider_error_kind,
 )
 from data_designer.engine.models.clients.parsing import (
     aextract_images_from_chat_response,
     aextract_images_from_image_response,
     aparse_chat_completion_response,
-    collect_non_none_optional_fields,
     extract_embedding_vector,
     extract_images_from_chat_response,
     extract_images_from_image_response,
@@ -32,6 +32,7 @@ from data_designer.engine.models.clients.types import (
     EmbeddingResponse,
     ImageGenerationRequest,
     ImageGenerationResponse,
+    TransportKwargs,
 )
 
 logger = logging.getLogger(__name__)
@@ -75,57 +76,67 @@ class LiteLLMBridgeClient(ModelClient):
         return True
 
     def completion(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
+        transport = TransportKwargs.from_request(request)
         with _handle_non_provider_errors(self.provider_name):
             response = self._router.completion(
                 model=request.model,
                 messages=request.messages,
-                **collect_non_none_optional_fields(request),
+                extra_headers=transport.headers or None,
+                **transport.body,
             )
         return parse_chat_completion_response(response)
 
     async def acompletion(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
+        transport = TransportKwargs.from_request(request)
         with _handle_non_provider_errors(self.provider_name):
             response = await self._router.acompletion(
                 model=request.model,
                 messages=request.messages,
-                **collect_non_none_optional_fields(request),
+                extra_headers=transport.headers or None,
+                **transport.body,
             )
         return await aparse_chat_completion_response(response)
 
     def embeddings(self, request: EmbeddingRequest) -> EmbeddingResponse:
+        transport = TransportKwargs.from_request(request)
         with _handle_non_provider_errors(self.provider_name):
             response = self._router.embedding(
                 model=request.model,
                 input=request.inputs,
-                **collect_non_none_optional_fields(request),
+                extra_headers=transport.headers or None,
+                **transport.body,
             )
         vectors = [extract_embedding_vector(item) for item in getattr(response, "data", [])]
         return EmbeddingResponse(vectors=vectors, usage=extract_usage(getattr(response, "usage", None)), raw=response)
 
     async def aembeddings(self, request: EmbeddingRequest) -> EmbeddingResponse:
+        transport = TransportKwargs.from_request(request)
         with _handle_non_provider_errors(self.provider_name):
             response = await self._router.aembedding(
                 model=request.model,
                 input=request.inputs,
-                **collect_non_none_optional_fields(request),
+                extra_headers=transport.headers or None,
+                **transport.body,
             )
         vectors = [extract_embedding_vector(item) for item in getattr(response, "data", [])]
         return EmbeddingResponse(vectors=vectors, usage=extract_usage(getattr(response, "usage", None)), raw=response)
 
     def generate_image(self, request: ImageGenerationRequest) -> ImageGenerationResponse:
-        image_kwargs = collect_non_none_optional_fields(request, exclude=self._IMAGE_EXCLUDE)
+        transport = TransportKwargs.from_request(request, exclude=self._IMAGE_EXCLUDE)
         with _handle_non_provider_errors(self.provider_name):
             if request.messages is not None:
                 response = self._router.completion(
                     model=request.model,
                     messages=request.messages,
-                    **image_kwargs,
+                    extra_headers=transport.headers or None,
+                    **transport.body,
                 )
             else:
                 response = self._router.image_generation(
                     prompt=request.prompt,
                     model=request.model,
-                    **image_kwargs,
+                    extra_headers=transport.headers or None,
+                    **transport.body,
                 )
 
         if request.messages is not None:
@@ -137,19 +148,21 @@ class LiteLLMBridgeClient(ModelClient):
         return ImageGenerationResponse(images=images, usage=usage, raw=response)
 
     async def agenerate_image(self, request: ImageGenerationRequest) -> ImageGenerationResponse:
-        image_kwargs = collect_non_none_optional_fields(request, exclude=self._IMAGE_EXCLUDE)
+        transport = TransportKwargs.from_request(request, exclude=self._IMAGE_EXCLUDE)
         with _handle_non_provider_errors(self.provider_name):
             if request.messages is not None:
                 response = await self._router.acompletion(
                     model=request.model,
                     messages=request.messages,
-                    **image_kwargs,
+                    extra_headers=transport.headers or None,
+                    **transport.body,
                 )
             else:
                 response = await self._router.aimage_generation(
                     prompt=request.prompt,
                     model=request.model,
-                    **image_kwargs,
+                    extra_headers=transport.headers or None,
+                    **transport.body,
                 )
 
         if request.messages is not None:
@@ -183,7 +196,7 @@ def _handle_non_provider_errors(provider_name: str) -> Iterator[None]:
 
         raise ProviderError(
             kind=kind,
-            message=str(exc),
+            message=extract_message_from_exception_string(str(exc)),
             status_code=status_code if isinstance(status_code, int) else None,
             provider_name=provider_name,
             cause=exc,
