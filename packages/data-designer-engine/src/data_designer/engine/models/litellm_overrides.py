@@ -180,6 +180,10 @@ def patch_image_url_list_item():
     ImageURLListItem.__required_keys__ = ImageURLListItem.__required_keys__ - {"index"}
     ImageURLListItem.__optional_keys__ = ImageURLListItem.__optional_keys__ | {"index"}
 
+    # Pydantic v2 compiles TypedDict schemas at class definition time,
+    # so we must rebuild the Message model to pick up the annotation change.
+    litellm.Message.model_rebuild(force=True)
+
 
 def apply_litellm_patches():
     litellm.in_memory_llm_clients_cache = ThreadSafeCache()
