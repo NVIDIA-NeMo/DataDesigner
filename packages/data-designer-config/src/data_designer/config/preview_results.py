@@ -22,7 +22,7 @@ class PreviewResults(WithRecordSamplerMixin):
         dataset_metadata: DatasetMetadata | None = None,
         dataset: pd.DataFrame | None = None,
         analysis: DatasetProfilerResults | None = None,
-        processor_artifacts: dict[str, list[str] | str] | None = None,
+        processor_artifacts: dict[str, list[dict]] | None = None,
     ):
         """Creates a new instance with results from a Data Designer preview run.
 
@@ -35,6 +35,6 @@ class PreviewResults(WithRecordSamplerMixin):
         """
         self.dataset: pd.DataFrame | None = dataset
         self.analysis: DatasetProfilerResults | None = analysis
-        self.processor_artifacts: dict[str, list[str] | str] | None = processor_artifacts
+        self.processor_artifacts: dict[str, list[dict]] | None = processor_artifacts
         self.dataset_metadata: DatasetMetadata | None = dataset_metadata
         self._config_builder = config_builder
