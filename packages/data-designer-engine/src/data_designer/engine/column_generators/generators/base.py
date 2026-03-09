@@ -38,9 +38,16 @@ def _run_coroutine_sync(coro: Coroutine[Any, Any, _T]) -> _T:
         asyncio.get_running_loop()
     except RuntimeError:
         return asyncio.run(coro)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-        future = pool.submit(asyncio.run, coro)
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    future = pool.submit(asyncio.run, coro)
+    try:
         return future.result(timeout=_SYNC_BRIDGE_TIMEOUT)
+    except concurrent.futures.TimeoutError:
+        pool.shutdown(wait=False, cancel_futures=True)
+        logger.warning(f"⚠️ Sync bridge timed out after {_SYNC_BRIDGE_TIMEOUT}s; background thread still running")
+        raise
+    else:
+        pool.shutdown(wait=True)
 
 
 class ColumnGenerator(ConfigurableTask[TaskConfigT], ABC):
