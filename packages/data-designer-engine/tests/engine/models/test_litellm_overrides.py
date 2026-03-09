@@ -152,8 +152,16 @@ def test_patch_image_url_list_item_makes_index_optional() -> None:
         ImageURLListItem.__annotations__["index"] = int
         ImageURLListItem.__required_keys__ = original_required | {"index"}
         ImageURLListItem.__optional_keys__ = original_optional - {"index"}
+        litellm.Message.model_rebuild(force=True)
 
         assert "index" in ImageURLListItem.__required_keys__
+
+        with pytest.raises(Exception):
+            litellm.Message(
+                content=None,
+                role="assistant",
+                images=[{"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}}],
+            )
 
         patch_image_url_list_item()
 
@@ -172,3 +180,4 @@ def test_patch_image_url_list_item_makes_index_optional() -> None:
         ImageURLListItem.__annotations__["index"] = original_annotation
         ImageURLListItem.__required_keys__ = original_required
         ImageURLListItem.__optional_keys__ = original_optional
+        litellm.Message.model_rebuild(force=True)
