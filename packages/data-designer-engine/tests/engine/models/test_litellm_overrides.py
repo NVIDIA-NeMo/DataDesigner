@@ -14,6 +14,7 @@ from data_designer.engine.models.litellm_overrides import (
     CustomRouter,
     ThreadSafeCache,
     apply_litellm_patches,
+    patch_image_url_list_item,
 )
 
 
@@ -139,3 +140,16 @@ def test_custom_router_calculate_exponential_backoff_with_jitter(mock_uniform):
     assert result >= 4.0
     assert result <= 4.4
     mock_uniform.assert_called_once_with(-0.2, 0.2)
+
+
+def test_patch_image_url_list_item_makes_index_optional() -> None:
+    patch_image_url_list_item()
+
+    message = litellm.Message(
+        content=None,
+        role="assistant",
+        images=[{"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}}],
+    )
+    assert message.images is not None
+    assert len(message.images) == 1
+    assert message.images[0]["type"] == "image_url"
