@@ -212,12 +212,16 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         except Exception as e:
             raise DataDesignerGenerationError(f"🛑 Error generating dataset: {e}")
 
+        dataset_for_profiler = builder.artifact_storage.load_dataset_with_dropped_columns()
+        if len(dataset_for_profiler) == 0:
+            raise DataDesignerGenerationError(
+                "🛑 Dataset is empty — all records were dropped due to generation failures. "
+                "Check the warnings above for details on which columns failed."
+            )
+
         try:
             profiler = self._create_dataset_profiler(config_builder, resource_provider)
-            analysis = profiler.profile_dataset(
-                num_records,
-                builder.artifact_storage.load_dataset_with_dropped_columns(),
-            )
+            analysis = profiler.profile_dataset(num_records, dataset_for_profiler)
         except Exception as e:
             raise DataDesignerProfilingError(f"🛑 Error profiling dataset: {e}")
 
@@ -266,6 +270,12 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             processed_dataset = builder.process_preview(raw_dataset)
         except Exception as e:
             raise DataDesignerGenerationError(f"🛑 Error generating preview dataset: {e}")
+
+        if len(processed_dataset) == 0:
+            raise DataDesignerGenerationError(
+                "🛑 Dataset is empty — all records were dropped due to generation failures. "
+                "Check the warnings above for details on which columns failed."
+            )
 
         dropped_columns = raw_dataset.columns.difference(processed_dataset.columns)
         if len(dropped_columns) > 0:
