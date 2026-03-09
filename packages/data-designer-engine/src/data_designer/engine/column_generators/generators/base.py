@@ -85,7 +85,13 @@ class ColumnGenerator(ConfigurableTask[TaskConfigT], ABC):
             raise NotImplementedError(f"{type(self).__name__} must implement either generate() or agenerate()")
         return _run_coroutine_sync(self.agenerate(data))
 
-    async def agenerate(self, data: dict) -> dict:
+    @overload
+    async def agenerate(self, data: dict) -> dict: ...
+
+    @overload
+    async def agenerate(self, data: pd.DataFrame) -> pd.DataFrame: ...
+
+    async def agenerate(self, data: DataT) -> DataT:
         """Async generate — delegates to sync ``generate()`` via thread pool.
 
         Subclasses with native async support (e.g. ColumnGeneratorWithModelChatCompletion)
