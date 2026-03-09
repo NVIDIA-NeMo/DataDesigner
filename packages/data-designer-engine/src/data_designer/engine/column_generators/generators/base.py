@@ -40,13 +40,15 @@ def _run_coroutine_sync(coro: Coroutine[Any, Any, _T]) -> _T:
         return asyncio.run(coro)
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
     future = pool.submit(asyncio.run, coro)
+    timed_out = False
     try:
         result = future.result(timeout=_SYNC_BRIDGE_TIMEOUT)
     except concurrent.futures.TimeoutError:
-        pool.shutdown(wait=False, cancel_futures=True)
+        timed_out = True
         logger.warning(f"⚠️ Sync bridge timed out after {_SYNC_BRIDGE_TIMEOUT}s; background thread still running")
         raise
-    pool.shutdown(wait=True)
+    finally:
+        pool.shutdown(wait=not timed_out, cancel_futures=timed_out)
     return result
 
 
