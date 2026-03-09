@@ -226,7 +226,7 @@ build:
 Tags default to `["synthetic", "datadesigner"]` plus whatever you pass in.
 Size category (`n<1K`, `1K<n<10K`, etc.) is auto-computed.
 
-The template lives at `integrations/huggingface/dataset_card_template.md` if you
+The template lives at `packages/data-designer/src/data_designer/integrations/huggingface/dataset_card_template.md` if you
 want to see the Jinja2 source.
 
 ---
