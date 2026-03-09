@@ -1,14 +1,18 @@
 ---
-date: 2026-02-18
+date: 2026-03-11
 authors:
-  - dnathawani
   - ymeyer
+  - dnathawani
   - mvansegbroeck
 ---
 
 # **Engineering an Enterprise-Grade Text-to-SQL Dataset with NeMo Data Designer**
 
-While LLMs have mastered generic coding, Text-to-SQL remains one of the most challenging frontiers in enterprise AI. Using NeMo Data Designer with conditional sampling, three-stage LLM generation, code validators, and multi-dimension judge scoring, we built a pipeline that generated 300,000 reasoning-heavy text-to-SQL samples --- filtered down to 96,500 --- across PostgreSQL, MySQL, and SQLite. This data powers Nemotron's SQL capabilities, targeting top-tier performance on benchmarks like [BIRD](https://bird-bench.github.io/) and [Spider 2.0](https://spider2-sql.github.io/).
+<img src="images/text-to-sql-pipeline.jpg" alt="Text-to-SQL Synthetic Data Pipeline" width="800">
+
+<br>
+
+While LLMs have mastered generic coding, Text-to-SQL remains one of the most challenging frontiers in enterprise AI. In many ways this is due to (i) SQL tasks relying on both code and data and (ii) real-world data and databases being quite messy. Focusing on careful data design that accounts for real-world diversity and complexity, we built a [NeMo Data Designer](https://github.com/NVIDIA-NeMo/DataDesigner) pipeline that includes conditional sampling, three-stage LLM generation, code validators, and multi-dimensional judge scoring to generate 300,000 reasoning-heavy text-to-SQL samples across PostgreSQL, MySQL, and SQLite, and automatically filter down to the highest quality 96.5k records. Each sample pairs a natural-language prompt and a fully synthetic database schema context with a target SQL query. To improve robustness and mimic the messiness of production databases, the pipeline injects distractor tables and columns into the schema context, forcing the model to learn to ignore irrelevant schema elements. The final dataset is validated and filtered through per-dialect syntax validators and five LLM-as-a-critic judges.
 
 <!-- more -->
 
@@ -26,88 +30,104 @@ The problem isn't model capability --- it's **training data**. Most open-source 
 - **Industry-specific schemas.** Healthcare EHR tables look nothing like financial trading systems. The column names, relationships, and business logic are domain-specific.
 - **Complexity gradients.** Junior analysts write simple SELECTs; senior engineers write recursive CTEs with window functions. Training data needs the full spectrum.
 
-For Nemotron's SQL capabilities, we needed synthetic training data that mirrors production complexity. The key insight: **domain diversity and complexity coverage matter more than dataset size**.
+The key insight: **domain diversity and complexity coverage matter more than dataset size**.
 
 ---
 
-## **Pipeline Architecture**
+## **Pipeline Overview**
 
-The pipeline uses Data Designer's conditional sampling (`SubcategorySamplerParams`) to create correlated diversity across 60 industries, 700 topics, and 90 SQL concepts. It then chains three LLM generation stages with a code validator and multi-dimension judge:
+The pipeline generates text-to-SQL training data through a five-stage process. Each record flows through seeding & diversification, three LLM generation steps, and a validation + quality scoring layer. All three LLM generation stages use Qwen3-235B-A22B-Thinking, a reasoning model whose internal chain-of-thought improves schema design and SQL correctness. The pipeline runs independently for each SQL dialect, with dialect-specific prompts, validators, and judge prompts.
+
+<details open markdown>
+<summary><strong>ASCII version of the pipeline diagram</strong></summary>
 
 ```
-                                        TEXT-TO-SQL SDG PIPELINE
-                                        =======================
+                                  TEXT-TO-SQL SDG PIPELINE
+                                  ========================
 
-             ┌─────────────────────────────────────────────────────────────────────────────────────┐
-             │                          STAGE 1: CONDITIONAL SAMPLERS                              │
-             │                                                                                     │
-             │   Domain Controls                   SQL Controls            Prompt Controls         │
-             │   ├─ industry_sector (60)           ├─ sql_complexity       ├─ instruction_style    │
-             │   └─ topic (700 subcategories)      │   Beginner / Inter-   │   imperative /        │
-             │       ↳ conditioned on industry     │   mediate / Advanced  │   declarative /       │
-             │                                     ├─ sql_concept (90)     │   interrogative /     │
-             │                                     │   ↳ conditioned on    │   contextual          │
-             │                                     │     complexity        └─ tone, register       │
-             │                                     └─ sql_dialect                                  │
-             │                                         PostgreSQL / MySQL / SQLite                 │
-             └─────────────────────────────────────────┬───────────────────────────────────────────┘
-                                                       │
-                                                       ▼
-             ┌─────────────────────────────────────────────────────────────────────────────────────┐
-             │                       STAGE 2: THREE-STAGE LLM GENERATION                           │
-             │                                                                                     │
-             │   sql_prompt ──────────► sql_context ──────────► sql                                │
-             │   (natural language        (CREATE TABLE +         (SQL query with                  │
-             │    business request)        INSERT statements       chain-of-thought                │
-             │                             + distractor tables     reasoning trace)                │
-             │                             + dirty data)                                           │
-             └─────────────────────────────────────────┬───────────────────────────────────────────┘
-                                                       │
-                                                       ▼
-             ┌─────────────────────────────────────────────────────────────────────────────────────┐
-             │                          STAGE 3: QUALITY WATERFALL                                 │
-             │                                                                                     │
-             │   Hard validation:                                                                  │
-             │     SQLFluff syntax check (dialect-aware: ANSI / Postgres / MySQL / SQLite)         │
-             │                                                                                     │
-             │   LLM Judge (4 dimensions × 0-4 scale):                                             │
-             │     1. Relevance ─── Does the query answer the business request?                    │
-             │     2. Correctness ─ Valid joins, filters, grouping, NULL handling?                 │
-             │     3. Readability ─ Formatting, aliases, CTEs where helpful?                       │
-             │     4. Efficiency ── Sargable predicates, appropriate joins?                        │
-             │                                                                                     │
-             │   Filter: syntax valid AND all dimensions ≥ 3                                       │
-             └─────────────────────────────────────────┬───────────────────────────────────────────┘
-                                                       │
-                                                       ▼
-             ┌─────────────────────────────────────────────────────────────────────────────────────┐
-             │                              OUTPUT: 96,500 RECORDS                                 │
-             │                                                                                     │
-             │   300k generated → 96.5k after Quality Waterfall (68% rejection)                    │
-             │   Dialects: PostgreSQL, MySQL, SQLite                                               │
-             │   60 industries · 700 topics · 90 SQL concepts · 100% syntax-verified               │
-             └─────────────────────────────────────────────────────────────────────────────────────┘
+     ┌─────────────────────────────────────────────────────────────────────────────────────┐
+     │                            STAGE 1: SEEDING & DIVERSIFICATION                       │
+     │                                                                                     │
+     │   Domain Controls                SQL Controls                 Prompt Controls       │
+     │   ├─ industry_sector (60)        ├─ sql_complexity (3 tiers)  ├─ instruction_style  │
+     │   ├─ topic (~700)                ├─ sql_concept (89 buckets)  │   (5 styles)        │
+     │   ├─ data_quality_challenge      ├─ sql_task_type (12 cats)   ├─ linguistic_register│
+     │   │   (5 categories)             └─ sql_task_concept (94)     │   (5 registers)     │
+     │   └─ knowledge_dependency                                     └─ politeness_level   │
+     │       (3 categories)                                              (4 levels)        │
+     └─────────────────────────────────────────┬───────────────────────────────────────────┘
+                                               │
+                                               ▼
+     ┌─────────────────────────────────────────────────────────────────────────────────────┐
+     │               STAGE 2: PROMPT GENERATION (Qwen3-235B-Thinking)                      │
+     │                                                                                     │
+     │   Generates a natural-language request to a data assistant.                         │
+     │   Grounded in sampled metadata; no SQL jargon; realistic thresholds.                │
+     │   Style adapts to instruction_style × linguistic_register × politeness_level.       │
+     └─────────────────────────────────────────┬───────────────────────────────────────────┘
+                                               │
+                                               ▼
+     ┌─────────────────────────────────────────────────────────────────────────────────────┐
+     │             STAGE 3: SCHEMA + DATA GENERATION (Qwen3-235B-Thinking)                 │
+     │                                                                                     │
+     │   Generates dialect-specific DDL (CREATE TABLE) + sample data (INSERT).             │
+     │   ├─ 3–5 core tables with PKs, FKs, and realistic constraints                       │
+     │   ├─ 1–2 distractor tables (plausible but unnecessary, with FK links)               │
+     │   ├─ 3–5 distractor columns per table (created_at, updated_by, etc.)                │
+     │   └─ Dirty data injected per data_quality_concept (mixed formats, embedded chars)   │
+     └─────────────────────────────────────────┬───────────────────────────────────────────┘
+                                               │
+                                               ▼
+     ┌─────────────────────────────────────────────────────────────────────────────────────┐
+     │                  STAGE 4: SQL GENERATION (Qwen3-235B-Thinking)                      │
+     │                                                                                     │
+     │   Generates dialect-specific SQL (SQLite / MySQL / PostgreSQL).                     │
+     │   ├─ References only tables/columns from the schema context                         │
+     │   ├─ Handles dirty data with cleaning logic (CAST, REPLACE, SUBSTR, regex)          │
+     │   ├─ Ignores distractor tables and columns                                          │
+     │   └─ Anchors relative time to max date in data (no CURRENT_DATE / NOW())            │
+     └─────────────────────────────────────────┬───────────────────────────────────────────┘
+                                               │
+                                               ▼
+     ┌─────────────────────────────────────────────────────────────────────────────────────┐
+     │                    STAGE 5: VALIDATION + QUALITY SCORING                            │
+     │                                                                                     │
+     │   Syntax Validator          5 LLM Judges (0–4 scores)                               │
+     │   ├─ SQL_SQLITE             ├─ Prompt: naturalness, specificity, no SQL jargon      │
+     │   ├─ SQL_MYSQL              ├─ SQL: relevance, readability, scalability, standards  │
+     │   └─ SQL_POSTGRES           ├─ Context: relevance, readability, scalability, stds   │
+     │                             ├─ Data Quality: cleaning correctness, efficiency       │
+     │                             └─ Knowledge: application correctness, clarity          │
+     │                                                                                     │
+     │   96.5k records pass validation and quality filtering                               │
+     └─────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-The critical feature is **two-level conditional sampling**: `topic` depends on `industry_sector`, and `sql_concept` depends on `sql_complexity`. This ensures coherent records --- you don't get "Window Functions" paired with "Beginner" complexity, or "Electronic Health Records" paired with a "Finance" industry.
+</details>
 
 ---
 
-## **Step 1: Semantic Sampling with SubcategorySamplerParams**
+## **Step 1: Seeding & Diversification -- Controlling Diversity at the Source**
 
-Standard categorical samplers draw independently from their value lists. `SubcategorySamplerParams` creates hierarchical dependencies, controlling the distribution of the data through what we call "Semantic Blueprints":
+Rather than relying on LLM creativity alone for diversity, the pipeline samples structured metadata that deterministically controls every axis of variation. A JSON taxonomy file defines the problem space:
+
+| Axis | Categories | Subcategories | Role |
+|------|-----------|---------------|------|
+| Industry sector | 60 | ~700 topics | Domain grounding (Healthcare, FinServ, Gaming, ...) |
+| SQL complexity | 3 tiers | 89 concepts | Difficulty level (Beginner → Advanced) |
+| SQL task type | 12 categories | 94 concepts | What the query does (analytics, transformation, ...) |
+| Data quality | 5 challenges | 12 concepts | Dirty data to inject and clean |
+| Knowledge dependency | 3 categories | 8 concepts | Implicit reasoning required |
+| Instruction style | 5 styles | -- | imperative, declarative, interrogative, contextual, abbreviated |
+| Linguistic register | 5 registers | -- | formal, conversational, technical, academic, direct |
+| Politeness level | 4 levels | -- | none, minimal, polite, very polite |
+
+Standard categorical samplers draw independently from their value lists. Data Designer's `SubcategorySamplerParams` creates hierarchical dependencies --- what we call "Semantic Blueprints" --- that ensure internally consistent records. When `industry_sector` samples "Healthcare", `topic` is drawn only from healthcare-specific subcategories. When `sql_complexity` samples "Beginner", `sql_concept` is restricted to foundational SQL operations. This is the difference between realistic training data and random noise.
 
 ```python
 import data_designer.config as dd
-from data_designer.interface import DataDesigner
 
-config = dd.DataDesignerConfigBuilder(model_configs=[
-    dd.ModelConfig(
-        alias="sql-gen",
-        model="qwen/qwen3-235b-a22b",
-        provider="nvidia",
-    ),
-])
+config = dd.DataDesignerConfigBuilder()
 
 # Industry → Topic (two-level conditional)
 config.add_column(dd.SamplerColumnConfig(
@@ -138,13 +158,7 @@ config.add_column(dd.SamplerColumnConfig(
         },
     ),
 ))
-```
 
-When `industry_sector` samples "Healthcare", `topic` is drawn only from healthcare-specific subcategories. This is the difference between realistic training data and random noise.
-
-The same pattern controls SQL concepts and prompt diversity:
-
-```python
 # Complexity → SQL Concept (two-level conditional)
 config.add_column(dd.SamplerColumnConfig(
     name="sql_complexity",
@@ -158,153 +172,194 @@ config.add_column(dd.SamplerColumnConfig(
     params=dd.SubcategorySamplerParams(
         category="sql_complexity",
         values={
-            "Beginner":     ["Basic SELECT", "WHERE Clauses", "Basic JOINs",
-                             "ORDER BY", "LIMIT/OFFSET", "DISTINCT"],
-            "Intermediate": ["Aggregation Functions", "Multiple JOINs", "Subqueries",
-                             "Views", "CASE Expressions", "Date Functions", "String Functions"],
-            "Advanced":     ["Window Functions", "Recursive CTEs", "Stored Procedures",
-                             "Query Optimization", "JSON Extraction", "Lateral Joins",
-                             "Pivoting", "Dynamic SQL"],
+            "Beginner":     ["Basic SELECT Statements", "WHERE Clauses", "Simple Aggregations", ...],
+            "Intermediate": ["Window Functions", "Recursive CTEs", "Correlated Subqueries", ...],
+            "Advanced":     ["Frame Clauses", "Pivot/Unpivot", "Geospatial SQL", ...],
         },
     ),
 ))
 
-# Dialect control
-config.add_column(dd.SamplerColumnConfig(
-    name="sql_dialect",
-    sampler_type=dd.SamplerType.CATEGORY,
-    params=dd.CategorySamplerParams(values=["PostgreSQL", "MySQL", "SQLite"]),
-))
+# Task type restricted by complexity via conditional_params
+task_type_conditional_params = {
+    "sql_complexity == 'Beginner'": dd.CategorySamplerParams(
+        values=["Foundational Queries & DML", "Data Quality & Validation", ...]
+    ),
+    "sql_complexity == 'Advanced'": dd.CategorySamplerParams(
+        values=["Advanced Analytics & Windowing", "Schema, DDL & Performance", ...]
+    ),
+}
 
-# Prompt diversity: linguistic register, instruction style, politeness
 config.add_column(dd.SamplerColumnConfig(
-    name="instruction_style",
+    name="sql_task_type",
     sampler_type=dd.SamplerType.CATEGORY,
-    params=dd.CategorySamplerParams(values=[
-        "imperative", "declarative", "interrogative", "contextual",
-    ]),
+    params=dd.CategorySamplerParams(values=list(task_types.keys())),
+    conditional_params=task_type_conditional_params,
 ))
 ```
 
-We systematically varied the linguistic register (formal vs. colloquial), instruction style, and politeness level to robustly handle any user persona. A CFO asking "Can you pull the Q3 numbers?" and an engineer saying "Write a query that joins sales on customer_id" should both produce correct SQL.
+Prompt diversity is controlled independently through three additional samplers (instruction style, linguistic register, politeness level). Because these are combinatorial (5 × 5 × 4 = 100 style combinations), even records with identical domain and SQL metadata will produce stylistically distinct prompts. A CFO asking "Can you pull the Q3 numbers?" and an engineer saying "Write a query that joins sales on customer_id" should both produce correct SQL.
 
 ---
 
-## **Step 2: Three-Stage LLM Generation**
+## **Step 2: Generating Natural-Language Prompts**
 
-The pipeline chains three LLM columns, each with a focused task. This decomposition is essential --- when you ask a single prompt to generate all three, the SQL tends to reference tables that don't exist in the schema, or the schema doesn't contain the columns the SQL needs.
+The prompt generation step produces a single natural-language request to a data assistant. The LLM receives all sampled metadata via Jinja2 template variables and must produce a request that:
 
-**Stage 1 --- Natural language prompt:** Generate a business request that *implicitly* requires the sampled SQL concept, without using SQL jargon.
+- Describes a **business problem**, not a SQL specification (no SQL jargon allowed)
+- Matches the sampled instruction style, linguistic register, and politeness level
+- Implicitly requires the sampled SQL concept, task type, data quality handling, and knowledge dependency
+- Uses realistic thresholds appropriate for small sample data (5-10 rows per table)
 
 ```python
 config.add_column(dd.LLMTextColumnConfig(
     name="sql_prompt",
-    model_alias="sql-gen",
+    model_alias="prompt_gen",
+    system_prompt=(
+        "You write natural-language requests to a data assistant. "
+        "You adapt your writing style based on the specified instruction style, "
+        "linguistic register, and politeness level."
+    ),
     prompt=(
-        "Generate a natural language data request from a {{ instruction_style }} "
-        "business user in the {{ industry_sector }} industry, specifically about "
-        "{{ topic }}. The request should implicitly require {{ sql_concept }} to answer, "
-        "targeting {{ sql_dialect }} syntax.\n\n"
-        "Do NOT use SQL terminology. Write it as a business person would ask it.\n\n"
-        "Example: 'For the quarterly review, pull the patient records with their most "
-        "recent lab test dates.'"
+        "Write a single-sentence, natural-language request to a data assistant.\n\n"
+        "## Style Requirements\n"
+        "* Instruction Style: {{ instruction_style }}\n"
+        "* Linguistic Register: {{ linguistic_register }}\n"
+        "* Politeness Level: {{ politeness_level }}\n\n"
+        "## Grounding Requirements\n"
+        "* Industry: {{ industry_sector }} / {{ topic }}\n"
+        "* SQL Complexity: {{ sql_complexity }} ({{ sql_concept }})\n"
+        "* Task: {{ sql_task_type }} ({{ sql_task_concept }})\n"
+        "* Data Quality: {{ data_quality_challenge }} ({{ data_quality_concept }})\n"
+        "* Knowledge: {{ knowledge_dependency }} ({{ knowledge_concept }})\n"
     ),
 ))
 ```
 
-**Stage 2 --- Database context:** Generate `CREATE TABLE` and `INSERT` statements that provide the schema and sample data needed to answer the request. This is where dirty data and distractor tables are introduced:
+Here are example prompts generated from the same underlying SQL concept (window functions) but with different style settings:
+
+| Style | Example Prompt |
+|-------|---------------|
+| imperative / formal / none | List each sales representative alongside their quarterly revenue and the running total across the team, ordered by performance. |
+| interrogative / conversational / polite | Hey, could you show me how each rep's quarterly numbers stack up against the team's running total? |
+| abbreviated / direct / none | Sales rep quarterly revenue, running team total, ranked by performance |
+| contextual / academic / polite | For the upcoming performance review, could you provide each representative's quarterly revenue figures alongside a cumulative team total? |
+
+---
+
+## **Step 3: Schema and Data Generation with Distractor Injection**
+
+This is the most distinctive stage of the pipeline. For each record, the LLM generates a complete database schema (DDL) and sample data (INSERT statements) in the target SQL dialect. The schema must include both the tables needed to answer the prompt *and* deliberate noise:
+
+- **3–5 core tables** directly related to the industry/topic, connected via foreign keys
+- **1–2 distractor tables** that are plausible for the domain but *not* needed to answer the prompt, each with FK relationships to core tables and 5-10 rows of realistic data
+- **3–5 distractor columns per table** (e.g., `created_at`, `updated_by`, `description`, `is_active`) that are realistic but irrelevant to the query
+- **Dirty data** injected according to the sampled `data_quality_concept` -- stored in TEXT/VARCHAR columns so the schema itself doesn't enforce type correctness
+
+In production, you rarely get just the 2 tables you need; you're more likely to get a schema with 50 tables, many of which look identical. Injecting semantically similar "distractor" tables --- `sales_orders` vs. `sales_orders_archive`, `customer_leads` vs. `active_customers` --- forces the model to perform schema linking based on column constraints and relationships, not just table names. This is the skill gap between academic benchmarks and production.
+
+The schema prompt requires four clearly labeled sections (`-- Core Tables`, `-- Distractor Tables`, `-- Sample Data for Core Tables`, `-- Sample Data for Distractor Tables`) and enforces determinism by forbidding real-time functions like `NOW()` or `CURRENT_DATE` in INSERT statements.
 
 ```python
-config.add_column(dd.LLMTextColumnConfig(
+config.add_column(dd.LLMCodeColumnConfig(
     name="sql_context",
-    model_alias="sql-gen",
+    model_alias="context_gen",
+    system_prompt="You are an expert SQL database architect who designs well-structured, normalized schemas.",
     prompt=(
-        "Generate a realistic {{ sql_dialect }} database schema to answer this request:\n"
-        "{{ sql_prompt }}\n\n"
+        "Generate {{ sql_dialect }} DDL and sample data for tables relevant to the instruction.\n"
+        "Instruction: {{ sql_prompt }}\n\n"
         "Requirements:\n"
-        "- Use {{ sql_dialect }}-specific syntax for CREATE TABLE and INSERT statements\n"
-        "- Include 3-5 tables, with at least 1 distractor table that is semantically "
-        "similar but NOT needed for the query\n"
-        "- Include realistic data quality issues: dates stored as text, currency symbols "
-        "in numeric fields, NULL values, inconsistent formats\n"
-        "- Industry: {{ industry_sector }} / {{ topic }}\n"
-        "- Include 5-10 sample INSERT rows per table\n\n"
-        "Return ONLY the SQL DDL and INSERT statements."
+        "* Include 3–5 core tables for {{ industry_sector }}/{{ topic }}\n"
+        "* Include 1–2 distractor tables (plausible but NOT needed for the instruction)\n"
+        "* Include 3–5 distractor columns per table\n"
+        "* Introduce {{ data_quality_concept }} dirty data issues\n"
+        "* Use section headers: -- Core Tables, -- Distractor Tables, etc.\n"
+        "* No NOW()/CURRENT_DATE in INSERT statements\n"
     ),
+    code_lang=dd.CodeLang.SQL_SQLITE,  # or SQL_MYSQL, SQL_POSTGRES
 ))
 ```
 
-**Stage 3 --- SQL query with reasoning:** Write the SQL that answers the request using the provided context, including a chain-of-thought trace:
+---
+
+## **Step 4: Dialect-Specific SQL Generation**
+
+The SQL generation step receives the natural-language prompt and the generated schema context, then produces an executable query in the target dialect. The prompt enforces several constraints that are critical for training quality:
+
+- **Only reference defined tables/columns** -- the LLM is strictly forbidden from inventing schema elements
+- **Handle dirty data** -- the query must clean data issues (CAST, REPLACE, SUBSTR, regex) before computing results
+- **Ignore distractors** -- no unnecessary joins or column selections; distractor elements must be left untouched
+- **Anchor relative time** -- instead of `CURRENT_DATE`, anchor to `(SELECT MAX(date_col) FROM table)` for reproducibility
+- **Dialect-specific syntax** -- SQLite uses `strftime`, MySQL uses `DATE_SUB`, PostgreSQL uses `::` casting and `interval`. Each dialect also has its own explicit limitations (e.g., SQLite forbids `LATERAL` joins and `REGEXP_REPLACE`; MySQL forbids `REGEXP_REPLACE` and `CONVERT_TZ`)
 
 ```python
-config.add_column(dd.LLMTextColumnConfig(
+config.add_column(dd.LLMCodeColumnConfig(
     name="sql",
-    model_alias="sql-gen",
+    model_alias="sql_gen",
+    system_prompt="You are an expert SQL programmer. Return only the final SQL.",
     prompt=(
-        "Write a {{ sql_dialect }} query that answers this request:\n"
-        "{{ sql_prompt }}\n\n"
-        "Using this database:\n{{ sql_context }}\n\n"
-        "First, explain your reasoning step by step:\n"
-        "1. Which tables are relevant (and which are distractors)?\n"
-        "2. What data quality issues need to be handled?\n"
-        "3. What {{ sql_dialect }}-specific syntax is required?\n\n"
-        "Then write the final SQL query. Use CTEs for complex logic."
+        "Write {{ sql_dialect }} SQL for the instruction using only the provided database context.\n"
+        "Instruction: {{ sql_prompt }}\n\n"
+        "Database Context:\n{{ sql_context }}\n\n"
+        "* Handle {{ data_quality_concept }} issues with cleaning logic\n"
+        "* Apply {{ knowledge_concept }}\n"
+        "* Match {{ sql_complexity }} level using {{ sql_concept }}\n"
+        "* Do NOT join distractor tables or select distractor columns\n"
     ),
+    code_lang=dd.CodeLang.SQL_SQLITE,  # or SQL_MYSQL, SQL_POSTGRES
 ))
 ```
 
-The chain-of-thought traces teach the model to *think like a Data Engineer*: decomposing complex problems, handling edge cases, and verifying logic before writing a single line of code. A typical reasoning trace looks like:
+The pipeline runs independently for each dialect (SQLite, MySQL, PostgreSQL), producing ~32k records per dialect that are combined into the final 96.5k-record dataset. Separating prompt, schema, and query generation across three stages is essential --- when you ask a single prompt to generate all three, the SQL tends to reference tables that don't exist in the schema, or the schema doesn't contain the columns the SQL needs.
+
+The chain-of-thought traces from the reasoning model teach it to *think like a Data Engineer*: decomposing complex problems, handling edge cases, and verifying logic before writing a single line of code. A typical reasoning trace looks like:
 
 > "The user wants to filter by date, but the 'timestamp' column is stored as TEXT. I need to first normalize this column using STR_TO_DATE before I can apply the WHERE clause..."
 
 ---
 
-## **Step 3: The Quality Waterfall**
+## **Step 5: The Quality Waterfall**
 
 Generating 300,000 samples is straightforward. Ensuring they are correct is the hard part. We implemented a rigorous "Quality Waterfall" that rejected over 68% of the generated data.
 
-### Hard Validation with SQLFluff
+### Hard Validation
 
-Data Designer's `ValidationColumnConfig` with `CodeValidatorParams` runs generated SQL through SQLFluff, a dialect-aware SQL linter:
+Data Designer's built-in code validator checks each SQL query for syntactic correctness against the target dialect:
 
 ```python
 config.add_column(dd.ValidationColumnConfig(
-    name="sql_validity",
-    validator_type=dd.ValidatorType.CODE,
+    name="sql_validity_result",
     target_columns=["sql"],
-    validator_params=dd.CodeValidatorParams(code_lang=dd.CodeLang.SQL_ANSI),
-    batch_size=10,
+    validator_type=dd.ValidatorType.CODE,
+    validator_params=dd.CodeValidatorParams(code_lang=dd.CodeLang.SQL_SQLITE),
 ))
 ```
 
 The validator returns `is_valid` (boolean) and `error_messages` (string). Records that fail parsing are flagged immediately. Supported dialects: `SQL_SQLITE`, `SQL_POSTGRES`, `SQL_MYSQL`, `SQL_TSQL`, `SQL_BIGQUERY`, `SQL_ANSI`.
 
-### Multi-Dimension Judge Scoring
+### Five LLM Judges
 
-Beyond syntax validity, we evaluate SQL *quality* across four dimensions on a 0-4 scale:
+Beyond syntax validity, we evaluate record *quality* across five judges, each scoring on a 0-4 scale:
 
+| Judge | What It Evaluates | Scoring Criteria |
+|-------|-------------------|-----------------|
+| Prompt Judge | Natural-language prompt quality | Naturalness of wording, specificity and clarity, absence of SQL jargon |
+| SQL Judge | Generated SQL quality | Relevance (penalizes unnecessary joins to distractor tables), readability, scalability, standards compliance |
+| Context Judge | Schema + sample data quality | Relevance (penalizes missing distractors and bare-minimum schemas), readability, scalability, standards compliance |
+| Data Quality Judge | Cleaning logic in SQL | Correctness of cleaning logic, efficiency of cleaning method |
+| Knowledge Judge | Implicit knowledge application | Correctness of knowledge application, clarity of inference |
+
+The SQL judge rubric explicitly penalizes distractor usage:
+
+> *"The SQL should only JOIN or reference tables that are strictly necessary to answer the prompt. The database context may include distractor tables that look relevant but are not needed -- penalize queries that unnecessarily join or reference these tables."*
+
+Each judge provides a score *and* reasoning for each dimension, making it easy to diagnose why a record scored low. Expression columns extract numeric scores into flat columns for downstream filtering:
+
+```python
+config.add_column(dd.ExpressionColumnConfig(
+    name="sql_relevance_score",
+    expr="{{ sql_judge_result.relevance.score if sql_judge_result.relevance.score else ' ' }}",
+))
 ```
-     ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐
-     │    Relevance     │  │  SQL Correctness │  │   Readability    │  │    Efficiency    │
-     │                  │  │                  │  │                  │  │                  │
-     │  Does the query  │  │  Valid joins,    │  │  Formatting,     │  │  Sargable        │
-     │  answer the      │  │  filters,        │  │  aliases,        │  │  predicates,     │
-     │  business        │  │  grouping,       │  │  CTEs where      │  │  appropriate     │
-     │  request?        │  │  NULL handling?  │  │  helpful?        │  │  joins?          │
-     └──────────────────┘  └──────────────────┘  └──────────────────┘  └──────────────────┘
-```
-
-Each dimension has explicit scoring criteria:
-
-| Score | Relevance | Correctness | Readability | Efficiency |
-|-------|-----------|-------------|-------------|------------|
-| 4 | Perfectly meets requirements | Valid SQL, correct semantics | Clean formatting, meaningful aliases | Sargable predicates, optimal plan |
-| 3 | Minor deviations | Generally correct, minor issues | Generally readable | Mostly efficient |
-| 2 | Moderate deviation | Noticeable semantic mistakes | Inconsistent formatting | Moderate inefficiencies |
-| 1 | Significant deviations | Major errors | Poor formatting | Notable performance issues |
-| 0 | Does not adhere | Invalid SQL | Unreadable | Highly inefficient |
-
-The judge provides a score *and* reasoning for each dimension, making it easy to diagnose why a record scored low. We filtered to records scoring ≥ 3 across all four dimensions.
 
 ### Waterfall Summary
 
@@ -313,8 +368,8 @@ The combined pipeline rejected records at each stage:
 | Stage | Records In | Records Out | Drop Rate |
 |-------|-----------|-------------|-----------|
 | Raw generation | 300,000 | 300,000 | --- |
-| SQLFluff syntax validation | 300,000 | ~180,000 | ~40% |
-| LLM Judge (all dimensions ≥ 3) | ~180,000 | 96,500 | ~46% |
+| Syntax validation | 300,000 | ~180,000 | ~40% |
+| LLM judges (all dimensions ≥ 3) | ~180,000 | 96,500 | ~46% |
 | **Final dataset** | | **96,500** | **68% total rejection** |
 
 ---
@@ -330,11 +385,10 @@ We didn't just generate text pairs --- we generated structured data. Unlike stan
 | `sql_complexity` | Difficulty tier | Beginner, Intermediate, Advanced |
 | `sql_concept` | Target SQL skill | Window Functions, Recursive CTEs |
 | `sql_dialect` | Target database | PostgreSQL, MySQL, SQLite |
-| `instruction_style` | Prompt register | imperative, interrogative, contextual |
-| `relevance_score` | Judge: relevance | 0-4 |
-| `correctness_score` | Judge: SQL correctness | 0-4 |
-| `readability_score` | Judge: formatting | 0-4 |
-| `efficiency_score` | Judge: query plan | 0-4 |
+| `instruction_style` | Prompt style | imperative, interrogative, contextual |
+| `data_quality_challenge` | Dirty data type | Type Mismatches, Temporal Drift |
+| `knowledge_dependency` | Reasoning required | Domain Knowledge, Implicit Logic |
+| 15 judge scores | Per-dimension scores | 0-4 across 5 judges |
 
 This allows researchers and engineers to "slice and dice" the training data with surgical precision. If you want to fine-tune a model specifically for Finance analytics using Window Functions in PostgreSQL, you can filter for exactly that subset.
 
@@ -349,10 +403,11 @@ This allows researchers and engineers to "slice and dice" the training data with
 | Rejection rate | 68% |
 | SQL dialects | PostgreSQL, MySQL, SQLite |
 | Industry coverage | 60 distinct industries |
-| Topic coverage | 700 distinct subcategories |
-| SQL concept coverage | 90 concepts across 3 complexity tiers |
-| Syntax validation | 100% SQLFluff-verified |
-| Minimum judge score | ≥ 3/4 across all four dimensions |
+| Topic coverage | ~700 distinct subcategories |
+| SQL concept coverage | 89 concepts across 3 complexity tiers |
+| Syntax validation | 100% verified |
+| LLM judges | 5 judges, 15 scoring dimensions |
+| Minimum judge score | ≥ 3/4 across all dimensions |
 
 The high rejection rate is a feature, not a bug. By generating 3x more data than we needed and filtering aggressively, we ensured every record in the final dataset is both syntactically valid and semantically meaningful.
 
@@ -368,21 +423,348 @@ The high rejection rate is a feature, not a bug. By generating 3x more data than
 
 4. **Distractor tables teach schema linking.** Injecting semantically similar but irrelevant tables forces the model to *read* the schema instead of guessing from table names. This is the skill gap between academic benchmarks and production.
 
-5. **Hard validators are non-negotiable for code.** LLM judges can assess quality, but they can't reliably detect syntax errors. SQLFluff catches parsing failures that the judge misses.
+5. **Per-dialect generation avoids lowest-common-denominator SQL.** Rather than generating ANSI SQL and hoping it works everywhere, the pipeline produces dialect-specific schemas and queries with appropriate syntax (`strftime` vs `DATE_SUB` vs `interval`, `REPLACE()` vs `regexp_replace`). Each dialect gets its own tailored prompts, validators, and judge prompts.
 
-6. **Multi-dimension scoring enables targeted filtering.** A query that scores 4 on Relevance but 1 on Efficiency tells you the model understood the task but wrote a bad plan. You can filter differently depending on what you're training for.
+6. **Hard validators are non-negotiable for code.** LLM judges can assess quality, but they can't reliably detect syntax errors. Syntax validators catch parsing failures that the judge misses.
 
-7. **Chain-of-thought teaches reasoning, not just syntax.** Including reasoning traces in the training data teaches models to decompose problems, handle edge cases, and verify logic --- acting as a Data Engineer rather than a translator.
+7. **Multi-dimension scoring enables targeted filtering.** A query that scores 4 on Relevance but 1 on Efficiency tells you the model understood the task but wrote a bad plan. You can filter differently depending on what you're training for.
+
+8. **Chain-of-thought teaches reasoning, not just syntax.** Including reasoning traces in the training data teaches models to decompose problems, handle edge cases, and verify logic --- acting as a Data Engineer rather than a translator.
 
 ---
 
 ## **Looking Ahead: The Code Sandbox**
 
-The current Quality Waterfall validates syntax (SQLFluff) and assesses quality (LLM judge), but it doesn't verify *semantic correctness* --- whether the query actually returns the right results. We are actively implementing Data Designer's Code Sandbox to close this gap. The sandbox would execute generated SQL against a ground-truth database and compare results, enabling:
+The current Quality Waterfall validates syntax and assesses quality (LLM judges), but it doesn't verify *semantic correctness* --- whether the query actually returns the right results. We are actively implementing Data Designer's Code Sandbox to close this gap. The sandbox would execute generated SQL against a ground-truth database and compare results, enabling:
 
 - **Execution-based filtering:** Reject queries that parse but return wrong results.
 - **End-to-end verification:** Confirm that the full chain (prompt → schema → SQL → result) is semantically coherent.
 - **Harder negative mining:** Queries that execute but return incorrect results are valuable hard negatives for preference training.
+
+---
+
+## **Try It Yourself**
+
+The snippet below builds a simplified text-to-SQL pipeline for SQLite using Data Designer. It covers the core stages -- seeding & diversification, prompt generation, schema generation with distractors, SQL generation, syntax validation, and LLM judge scoring.
+
+```python
+import data_designer.config as dd
+from data_designer.interface import DataDesigner
+
+config = dd.DataDesignerConfigBuilder()
+
+# --- Stage 1: Seeding & diversification ---
+config.add_column(dd.SamplerColumnConfig(
+    name="industry_sector", sampler_type=dd.SamplerType.CATEGORY,
+    params=dd.CategorySamplerParams(values=["Healthcare", "Financial Services", "Retail"]),
+))
+config.add_column(dd.SamplerColumnConfig(
+    name="sql_complexity", sampler_type=dd.SamplerType.CATEGORY,
+    params=dd.CategorySamplerParams(values=["Beginner", "Intermediate", "Advanced"]),
+))
+config.add_column(dd.SamplerColumnConfig(
+    name="instruction_style", sampler_type=dd.SamplerType.CATEGORY,
+    params=dd.CategorySamplerParams(
+        values=["imperative", "declarative", "interrogative", "contextual", "abbreviated"]
+    ),
+))
+
+# --- Stage 2: Natural-language prompt ---
+config.add_column(dd.LLMTextColumnConfig(
+    name="sql_prompt", model_alias="nvidia-text",
+    prompt=(
+        "Write a natural-language request to a data assistant about {{ industry_sector }}.\n"
+        "Style: {{ instruction_style }}. Complexity: {{ sql_complexity }}.\n"
+        "Describe the business problem without SQL jargon."
+    ),
+))
+
+# --- Stage 3: Schema + data with distractors ---
+config.add_column(dd.LLMCodeColumnConfig(
+    name="sql_context", model_alias="nvidia-text",
+    prompt=(
+        "Generate SQLite DDL and sample data for: {{ sql_prompt }}\n"
+        "Include 3-5 core tables, 1-2 distractor tables, distractor columns per table.\n"
+        "Use section headers: -- Core Tables, -- Distractor Tables, etc."
+    ),
+    code_lang=dd.CodeLang.SQL_SQLITE,
+))
+
+# --- Stage 4: SQL generation ---
+config.add_column(dd.LLMCodeColumnConfig(
+    name="sql", model_alias="nvidia-text",
+    prompt=(
+        "Write SQLite SQL for: {{ sql_prompt }}\n"
+        "Database Context:\n{{ sql_context }}\n"
+        "Ignore distractor tables/columns. Handle dirty data."
+    ),
+    code_lang=dd.CodeLang.SQL_SQLITE,
+))
+
+# --- Stage 5: Validation + judge ---
+config.add_column(dd.ValidationColumnConfig(
+    name="sql_validity",
+    target_columns=["sql"],
+    validator_type=dd.ValidatorType.CODE,
+    validator_params=dd.CodeValidatorParams(code_lang=dd.CodeLang.SQL_SQLITE),
+))
+
+config.add_column(dd.LLMJudgeColumnConfig(
+    name="sql_judge", model_alias="nvidia-text",
+    prompt=(
+        "Grade the SQL quality.\n"
+        "Prompt: {{ sql_prompt }}\nContext: {{ sql_context }}\nSQL: {{ sql }}\n"
+        "Penalize unnecessary joins to distractor tables."
+    ),
+    scores=[
+        dd.Score(name="relevance", description="Uses only necessary tables/columns",
+                 options={"4": "Perfect", "3": "Minor extras", "2": "Unnecessary joins", "1": "Largely irrelevant", "0": "Wrong"}),
+        dd.Score(name="readability", description="Code clarity and formatting",
+                 options={"4": "Excellent", "3": "Good", "2": "Adequate", "1": "Poor", "0": "Unreadable"}),
+    ],
+))
+
+# Generate
+data_designer = DataDesigner()
+preview = data_designer.preview(config, num_records=10)
+preview.display_sample_record()
+```
+
+<details markdown>
+<summary><strong>Full source: <code>sdg_qwen_235b.py</code> (production pipeline)</strong></summary>
+
+```python
+"""Text-to-SQL SDG Pipeline
+
+Production pipeline for generating text-to-SQL training data across
+SQLite, MySQL, and PostgreSQL using Qwen3-235B-Thinking via Data Designer.
+
+Generates configs for each dialect with:
+- 60 industry sectors, ~700 topics
+- 89 SQL concept buckets across 3 complexity tiers
+- Distractor table/column injection
+- 5 LLM judges + per-dialect syntax validation
+- 15 score columns for downstream filtering
+
+Requires companion files:
+- text2sql_seed.json: taxonomy of sectors, topics, SQL concepts, etc.
+- prompts.py: dialect-specific prompt templates for each LLM stage
+- rubrics.py: Score definitions for all 5 LLM judges
+"""
+import json
+from pathlib import Path
+
+import data_designer.config as dd
+from data_designer.interface import DataDesigner
+
+# Prompt templates and judge rubrics (see prompts.py and rubrics.py)
+from prompts import (
+    SQL_PROMPT_SYSTEM_PROMPT, SQL_PROMPT_PROMPT,
+    SQL_CONTEXT_SYSTEM_PROMPT, SQL_SYSTEM_PROMPT,
+    TEXT_TO_SQL_LLM_JUDGE_PROMPT_TEMPLATE as SQL_JUDGE_PROMPT,
+    JUDGE_NATURALNESS_PROMPT, DATA_QUALITY_JUDGE_PROMPT, KNOWLEDGE_DEP_JUDGE_PROMPT,
+    SQL_CONTEXT_PROMPT_SQLITE, SQL_CONTEXT_PROMPT_MYSQL, SQL_CONTEXT_PROMPT_POSTGRES,
+    SQL_PROMPT_SQLITE, SQL_PROMPT_MYSQL, SQL_PROMPT_POSTGRES,
+    SQL_CONTEXT_JUDGE_PROMPT_SQLITE, SQL_CONTEXT_JUDGE_PROMPT_MYSQL, SQL_CONTEXT_JUDGE_PROMPT_POSTGRES,
+)
+from rubrics import SQL_SCORES, PROMPT_SCORES, DATA_QUALITY_SCORES, KNOWLEDGE_DEP_SCORES
+
+METADATA_FILE = "text2sql_seed.json"
+MODEL_NAME = "Qwen/Qwen3-235B-A22B-Thinking-2507"
+
+CONTEXT_PROMPTS = {"sqlite": SQL_CONTEXT_PROMPT_SQLITE, "mysql": SQL_CONTEXT_PROMPT_MYSQL, "postgres": SQL_CONTEXT_PROMPT_POSTGRES}
+SQL_PROMPTS = {"sqlite": SQL_PROMPT_SQLITE, "mysql": SQL_PROMPT_MYSQL, "postgres": SQL_PROMPT_POSTGRES}
+CONTEXT_JUDGE_PROMPTS = {"sqlite": SQL_CONTEXT_JUDGE_PROMPT_SQLITE, "mysql": SQL_CONTEXT_JUDGE_PROMPT_MYSQL, "postgres": SQL_CONTEXT_JUDGE_PROMPT_POSTGRES}
+
+# Load taxonomy
+metadata = json.loads(Path(METADATA_FILE).read_text())
+
+# Model configs tuned per stage
+model_configs = [
+    dd.ModelConfig(
+        alias="prompt_gen", model=MODEL_NAME, provider="nvidia",
+        inference_parameters=dd.ChatCompletionInferenceParams(
+            temperature=0.6, top_p=0.95, max_tokens=4096, timeout=1200,
+        ),
+    ),
+    dd.ModelConfig(
+        alias="context_gen", model=MODEL_NAME, provider="nvidia",
+        inference_parameters=dd.ChatCompletionInferenceParams(
+            temperature=0.6, top_p=0.95, max_tokens=16384, timeout=1200,
+        ),
+    ),
+    dd.ModelConfig(
+        alias="sql_gen", model=MODEL_NAME, provider="nvidia",
+        inference_parameters=dd.ChatCompletionInferenceParams(
+            temperature=0.6, top_p=0.95, max_tokens=16384, timeout=1200,
+        ),
+    ),
+    dd.ModelConfig(
+        alias="judge", model=MODEL_NAME, provider="nvidia",
+        inference_parameters=dd.ChatCompletionInferenceParams(
+            temperature=0.6, top_p=0.95, max_tokens=4096, timeout=1200,
+        ),
+    ),
+]
+
+
+def build_text2sql_config(dialect_name, code_lang):
+    config = dd.DataDesignerConfigBuilder(model_configs=model_configs)
+
+    # --- Metadata samplers ---
+    config.add_column(dd.SamplerColumnConfig(
+        name="sql_dialect", sampler_type=dd.SamplerType.CATEGORY,
+        params=dd.CategorySamplerParams(values=[dialect_name]),
+    ))
+    config.add_column(dd.SamplerColumnConfig(
+        name="industry_sector", sampler_type=dd.SamplerType.CATEGORY,
+        params=dd.CategorySamplerParams(values=list(metadata["industry_sectors"].keys())),
+    ))
+    config.add_column(dd.SamplerColumnConfig(
+        name="topic", sampler_type=dd.SamplerType.SUBCATEGORY,
+        params=dd.SubcategorySamplerParams(
+            category="industry_sector", values=metadata["industry_sectors"],
+        ),
+    ))
+    config.add_column(dd.SamplerColumnConfig(
+        name="sql_complexity", sampler_type=dd.SamplerType.CATEGORY,
+        params=dd.CategorySamplerParams(values=list(metadata["sql_complexity"].keys())),
+    ))
+    config.add_column(dd.SamplerColumnConfig(
+        name="sql_concept", sampler_type=dd.SamplerType.SUBCATEGORY,
+        params=dd.SubcategorySamplerParams(
+            category="sql_complexity", values=metadata["sql_complexity"],
+        ),
+    ))
+    config.add_column(dd.SamplerColumnConfig(
+        name="sql_task_type", sampler_type=dd.SamplerType.CATEGORY,
+        params=dd.CategorySamplerParams(values=list(metadata["sql_task_type"].keys())),
+        conditional_params={
+            f"sql_complexity == '{c}'": dd.CategorySamplerParams(values=tasks)
+            for c, tasks in metadata["complexity_to_task_type"].items()
+        },
+    ))
+    config.add_column(dd.SamplerColumnConfig(
+        name="sql_task_concept", sampler_type=dd.SamplerType.SUBCATEGORY,
+        params=dd.SubcategorySamplerParams(
+            category="sql_task_type", values=metadata["sql_task_type"],
+        ),
+    ))
+    config.add_column(dd.SamplerColumnConfig(
+        name="data_quality_challenge", sampler_type=dd.SamplerType.CATEGORY,
+        params=dd.CategorySamplerParams(values=list(metadata["data_quality_challenge"].keys())),
+    ))
+    config.add_column(dd.SamplerColumnConfig(
+        name="data_quality_concept", sampler_type=dd.SamplerType.SUBCATEGORY,
+        params=dd.SubcategorySamplerParams(
+            category="data_quality_challenge", values=metadata["data_quality_challenge"],
+        ),
+    ))
+    config.add_column(dd.SamplerColumnConfig(
+        name="knowledge_dependency", sampler_type=dd.SamplerType.CATEGORY,
+        params=dd.CategorySamplerParams(values=list(metadata["knowledge_dependency"].keys())),
+    ))
+    config.add_column(dd.SamplerColumnConfig(
+        name="knowledge_concept", sampler_type=dd.SamplerType.SUBCATEGORY,
+        params=dd.SubcategorySamplerParams(
+            category="knowledge_dependency", values=metadata["knowledge_dependency"],
+        ),
+    ))
+    config.add_column(dd.SamplerColumnConfig(
+        name="instruction_style", sampler_type=dd.SamplerType.CATEGORY,
+        params=dd.CategorySamplerParams(
+            values=["imperative", "declarative", "interrogative", "contextual", "abbreviated"],
+        ),
+    ))
+    config.add_column(dd.SamplerColumnConfig(
+        name="linguistic_register", sampler_type=dd.SamplerType.CATEGORY,
+        params=dd.CategorySamplerParams(
+            values=["formal", "conversational", "technical", "academic", "direct"],
+        ),
+    ))
+    config.add_column(dd.SamplerColumnConfig(
+        name="politeness_level", sampler_type=dd.SamplerType.CATEGORY,
+        params=dd.CategorySamplerParams(values=["none", "minimal", "polite", "very polite"]),
+    ))
+
+    # --- LLM generation columns ---
+    config.add_column(dd.LLMTextColumnConfig(
+        name="sql_prompt", model_alias="prompt_gen",
+        system_prompt=SQL_PROMPT_SYSTEM_PROMPT,
+        prompt=SQL_PROMPT_PROMPT,
+    ))
+    config.add_column(dd.LLMCodeColumnConfig(
+        name="sql_context", model_alias="context_gen",
+        system_prompt=SQL_CONTEXT_SYSTEM_PROMPT,
+        prompt=CONTEXT_PROMPTS[dialect_name],
+        code_lang=code_lang,
+    ))
+    config.add_column(dd.LLMCodeColumnConfig(
+        name="sql", model_alias="sql_gen",
+        system_prompt=SQL_SYSTEM_PROMPT,
+        prompt=SQL_PROMPTS[dialect_name],
+        code_lang=code_lang,
+    ))
+
+    # --- Validation ---
+    config.add_column(dd.ValidationColumnConfig(
+        name="sql_validity_result", target_columns=["sql"],
+        validator_type=dd.ValidatorType.CODE,
+        validator_params=dd.CodeValidatorParams(code_lang=code_lang),
+    ))
+
+    # --- 5 LLM Judges ---
+    config.add_column(dd.LLMJudgeColumnConfig(
+        name="sql_prompt_judge_result", model_alias="judge",
+        prompt=JUDGE_NATURALNESS_PROMPT, scores=PROMPT_SCORES,
+    ))
+    config.add_column(dd.LLMJudgeColumnConfig(
+        name="sql_judge_result", model_alias="judge",
+        prompt=SQL_JUDGE_PROMPT, scores=SQL_SCORES,
+    ))
+    config.add_column(dd.LLMJudgeColumnConfig(
+        name="sql_context_judge_result", model_alias="judge",
+        prompt=CONTEXT_JUDGE_PROMPTS[dialect_name], scores=SQL_SCORES,
+    ))
+    config.add_column(dd.LLMJudgeColumnConfig(
+        name="sql_data_quality_judge_result", model_alias="judge",
+        prompt=DATA_QUALITY_JUDGE_PROMPT, scores=DATA_QUALITY_SCORES,
+    ))
+    config.add_column(dd.LLMJudgeColumnConfig(
+        name="sql_knowledge_judge_result", model_alias="judge",
+        prompt=KNOWLEDGE_DEP_JUDGE_PROMPT, scores=KNOWLEDGE_DEP_SCORES,
+    ))
+
+    # --- Score extraction (15 flat score columns) ---
+    for judge, rubric_names in [
+        ("sql_judge_result", ["relevance", "readability", "scalability", "standards"]),
+        ("sql_context_judge_result", ["relevance", "readability", "scalability", "standards"]),
+        ("sql_prompt_judge_result", ["naturalness_of_wording", "specificity_and_clarity", "absence_of_sql_jargon"]),
+        ("sql_data_quality_judge_result", ["correctness_of_cleaning_logic", "efficiency_of_cleaning_method"]),
+        ("sql_knowledge_judge_result", ["correctness_of_knowledge_application", "clarity_of_inference"]),
+    ]:
+        prefix = judge.replace("_judge_result", "").replace("sql_", "")
+        for rubric in rubric_names:
+            config.add_column(dd.ExpressionColumnConfig(
+                name=f"{prefix}_{rubric}_score",
+                expr=f"{{{{ {judge}.{rubric}.score if {judge}.{rubric}.score else ' ' }}}}",
+            ))
+
+    return config
+
+
+# Build and run for each dialect
+data_designer = DataDesigner()
+for dialect, code_lang in [
+    ("sqlite", dd.CodeLang.SQL_SQLITE),
+    ("mysql", dd.CodeLang.SQL_MYSQL),
+    ("postgres", dd.CodeLang.SQL_POSTGRES),
+]:
+    config = build_text2sql_config(dialect, code_lang)
+    result = data_designer.create(config, num_records=32000, dataset_name=f"text2sql_{dialect}")
+```
+
+</details>
 
 ---
 
@@ -392,13 +774,17 @@ This dataset builds on the foundation laid during our time at [Gretel.ai](https:
 
 **Dataset:** [Nemotron-Text-to-SQL-Internal](#) | **Scale:** 96.5k filtered records | **Dialects:** MySQL, PostgreSQL, SQLite
 
-Key Resources:
-
-1. [NeMo Data Designer on GitHub](https://github.com/NVIDIA-NeMo/DataDesigner)
-2. [BIRD Benchmark](https://bird-bench.github.io/)
-3. [Spider 2.0 Benchmark](https://spider2-sql.github.io/)
-
 Because this pipeline is encapsulated in Data Designer, the configuration can be shared with any team --- allowing them to fork our baseline, swap in their own schemas or industry verticals, and generate a custom, high-fidelity dataset for their specific domain in hours, not months.
+
+---
+
+**Key Resources:**
+
+- **NeMo Data Designer:** [github.com/NVIDIA-NeMo/DataDesigner](https://github.com/NVIDIA-NeMo/DataDesigner)
+- **BIRD Benchmark:** [bird-bench.github.io](https://bird-bench.github.io/)
+- **Spider 2.0 Benchmark:** [spider2-sql.github.io](https://spider2-sql.github.io/)
+- **Structured Outputs Dev Note** (related pipeline): [Structured Outputs for Nemotron](structured-outputs-from-nemotron.md)
+- **RQA Dev Note** (reasoning data with Data Designer): [Graduate-Level Science Reasoning Data](rqa.md)
 
 ---
 
