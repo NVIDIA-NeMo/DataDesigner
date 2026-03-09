@@ -66,6 +66,7 @@ nav:
       - analysis: code_reference/analysis.md
   - Dev Notes:
       - devnotes/index.md
+      - Push Datasets to Hugging Face Hub: devnotes/posts/push-datasets-to-hugging-face-hub.md
       - Structured Outputs from Nemotron: devnotes/posts/structured-outputs-from-nemotron.md
       - Deep Research Trajectories: devnotes/posts/deep-research-trajectories.md
       - RQA Dataset: devnotes/posts/rqa.md
