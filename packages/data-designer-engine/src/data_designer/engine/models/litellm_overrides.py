@@ -177,6 +177,8 @@ def patch_image_url_list_item():
     a Pydantic validation error when constructing ``Message``.
     """
     ImageURLListItem.__annotations__["index"] = NotRequired[int]
+    ImageURLListItem.__required_keys__ = ImageURLListItem.__required_keys__ - {"index"}
+    ImageURLListItem.__optional_keys__ = ImageURLListItem.__optional_keys__ | {"index"}
 
 
 def apply_litellm_patches():
