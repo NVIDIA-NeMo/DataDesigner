@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ConfigBase(BaseModel):
@@ -66,3 +66,20 @@ class SingleColumnConfig(ConfigBase, ABC):
             List of column names that this column will create as a side effect. Empty list
             indicates no side effect columns. Override in subclasses to specify side effects.
         """
+
+
+class ProcessorConfig(ConfigBase, ABC):
+    """Abstract base class for all processor configuration types.
+
+    Processors are transformations that run at different stages of the generation
+    pipeline. They can modify, reshape, or augment the dataset.
+
+    Attributes:
+        name: Unique name of the processor, used to identify the processor in results
+            and to name output artifacts on disk.
+    """
+
+    name: str = Field(
+        description="The name of the processor, used to identify the processor in the results and to write the artifacts to disk.",
+    )
+    processor_type: str

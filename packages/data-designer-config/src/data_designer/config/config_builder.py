@@ -28,7 +28,8 @@ from data_designer.config.errors import BuilderConfigurationError, BuilderSerial
 from data_designer.config.exportable_config import ExportableConfigBase
 from data_designer.config.mcp import ToolConfig
 from data_designer.config.models import ModelConfig, load_model_configs
-from data_designer.config.processors import ProcessorConfigT, ProcessorType, get_processor_config_from_kwargs
+from data_designer.config.processor_types import ProcessorConfigT
+from data_designer.config.processors import ProcessorType, get_processor_config_from_kwargs
 from data_designer.config.sampler_constraints import (
     ColumnConstraintT,
     ColumnInequalityConstraint,
@@ -704,7 +705,7 @@ class DataDesignerConfigBuilder:
         Returns:
             A formatted string showing the builder's configuration including seed dataset and column information grouped by type.
         """
-        if len(self._column_configs) == 0:
+        if len(self._column_configs) == 0 and self._seed_config is None:
             return f"{self.__class__.__name__}()"
 
         props_to_repr = {
