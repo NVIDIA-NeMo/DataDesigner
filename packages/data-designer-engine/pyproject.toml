@@ -34,7 +34,7 @@ bump = true
 dependencies = [
     "anyascii>=0.3.3,<1",
     "data-designer-config=={{ version }}",
-    "duckdb>=1.1.3,<2",
+    "duckdb>=1.5.0,<2",
     "faker>=20.1.0,<21",
     "httpx>=0.27.2,<1",
     "httpx-retries>=0.4.2,<1",
