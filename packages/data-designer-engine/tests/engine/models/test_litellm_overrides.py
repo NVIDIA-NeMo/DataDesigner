@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import litellm
 import pytest
+from pydantic import ValidationError
 
 from data_designer.engine.models import litellm_overrides
 from data_designer.engine.models.litellm_overrides import (
@@ -156,7 +157,7 @@ def test_patch_image_url_list_item_makes_index_optional() -> None:
 
         assert "index" in ImageURLListItem.__required_keys__
 
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             litellm.Message(
                 content=None,
                 role="assistant",
