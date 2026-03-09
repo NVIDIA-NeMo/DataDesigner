@@ -1,8 +1,8 @@
 ---
 date: 2026-03-11
 authors:
-  - ymeyer
   - dnathawani
+  - ymeyer
   - mvansegbroeck
 ---
 
@@ -180,6 +180,14 @@ config.add_column(dd.SamplerColumnConfig(
 ))
 
 # Task type restricted by complexity via conditional_params
+task_types = {
+    "Foundational Queries & DML": [...],
+    "Data Quality & Validation": [...],
+    "Advanced Analytics & Windowing": [...],
+    "Schema, DDL & Performance": [...],
+    # ... 12 task types total
+}
+
 task_type_conditional_params = {
     "sql_complexity == 'Beginner'": dd.CategorySamplerParams(
         values=["Foundational Queries & DML", "Data Quality & Validation", ...]
@@ -386,6 +394,8 @@ We didn't just generate text pairs --- we generated structured data. Unlike stan
 | `sql_concept` | Target SQL skill | Window Functions, Recursive CTEs |
 | `sql_dialect` | Target database | PostgreSQL, MySQL, SQLite |
 | `instruction_style` | Prompt style | imperative, interrogative, contextual |
+| `linguistic_register` | Language register | formal, conversational, technical |
+| `politeness_level` | Politeness level | none, minimal, polite, very polite |
 | `data_quality_challenge` | Dirty data type | Type Mismatches, Temporal Drift |
 | `knowledge_dependency` | Reasoning required | Domain Knowledge, Implicit Logic |
 | 15 judge scores | Per-dimension scores | 0-4 across 5 judges |
