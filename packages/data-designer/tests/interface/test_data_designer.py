@@ -322,7 +322,7 @@ def test_create_raises_generation_error_when_dataset_is_empty(
         return_value=lazy.pd.DataFrame(),
     ):
         with pytest.raises(DataDesignerGenerationError, match="Dataset is empty"):
-            data_designer.create(stub_sampler_only_config_builder, num_records=3)
+            data_designer.create(stub_sampler_only_config_builder, num_records=1)
 
 
 def test_preview_raises_generation_error_when_dataset_is_empty(
@@ -343,7 +343,7 @@ def test_preview_raises_generation_error_when_dataset_is_empty(
         return_value=lazy.pd.DataFrame(),
     ):
         with pytest.raises(DataDesignerGenerationError, match="Dataset is empty"):
-            data_designer.preview(stub_sampler_only_config_builder, num_records=3)
+            data_designer.preview(stub_sampler_only_config_builder, num_records=1)
 
 
 def test_preview_with_dropped_columns(
