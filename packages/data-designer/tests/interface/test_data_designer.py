@@ -325,6 +325,31 @@ def test_create_raises_generation_error_when_dataset_is_empty(
             data_designer.create(stub_sampler_only_config_builder, num_records=1)
 
 
+def test_create_raises_generation_error_when_load_dataset_fails(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_sampler_only_config_builder: DataDesignerConfigBuilder,
+    stub_managed_assets_path: Path,
+) -> None:
+    """When no parquet was written (e.g. all records dropped), load_dataset_with_dropped_columns
+    raises an exception. create() should surface this as DataDesignerGenerationError, not
+    DataDesignerProfilingError.
+    """
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    with patch(
+        "data_designer.engine.storage.artifact_storage.ArtifactStorage.load_dataset_with_dropped_columns",
+        side_effect=FileNotFoundError("No parquet files found"),
+    ):
+        with pytest.raises(DataDesignerGenerationError, match="Failed to load generated dataset"):
+            data_designer.create(stub_sampler_only_config_builder, num_records=1)
+
+
 def test_preview_raises_generation_error_when_dataset_is_empty(
     stub_artifact_path, stub_model_providers, stub_sampler_only_config_builder, stub_managed_assets_path
 ):
