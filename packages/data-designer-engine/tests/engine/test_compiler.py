@@ -1,8 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-import json
-from pathlib import Path
+from __future__ import annotations
+
 from unittest.mock import patch
 
 import pytest
@@ -11,11 +11,10 @@ from data_designer.config.column_configs import ExpressionColumnConfig, SamplerC
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.sampler_params import CategorySamplerParams, SamplerType, UUIDSamplerParams
-from data_designer.config.seed_source import HuggingFaceSeedSource, TraceSeedFormat, TraceSeedSource
+from data_designer.config.seed_source import HuggingFaceSeedSource
 from data_designer.engine.compiler import compile_data_designer_config
 from data_designer.engine.resources.resource_provider import ResourceProvider
-from data_designer.engine.resources.seed_reader import SeedReader, TraceSeedReader
-from data_designer.engine.secret_resolver import PlaintextResolver
+from data_designer.engine.resources.seed_reader import SeedReader
 from data_designer.engine.validation import Violation, ViolationLevel, ViolationType
 
 
@@ -147,43 +146,3 @@ def test_does_not_add_id_column_when_seed_dataset_exists(resource_provider: Reso
     assert len(config.columns) == 3
     assert config.columns[0].name == "derived_value"
     assert not any(col.name == "_internal_row_id" for col in config.columns)
-
-
-def test_trace_seed_source_resolves_columns_with_seed_dataset_api(
-    stub_resource_provider: ResourceProvider, tmp_path: Path
-):
-    seed_path = tmp_path / "chat"
-    seed_path.mkdir()
-    (seed_path / "chat.jsonl").write_text(
-        json.dumps(
-            {
-                "trace_id": "trace-1",
-                "messages": [
-                    {"role": "user", "content": "Question"},
-                    {"role": "assistant", "content": "Answer"},
-                ],
-            }
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
-    reader = TraceSeedReader()
-    reader.attach(
-        TraceSeedSource(path=str(seed_path), format=TraceSeedFormat.CHAT_COMPLETION_JSONL_DIR),
-        PlaintextResolver(),
-    )
-    stub_resource_provider.seed_reader = reader
-
-    builder = DataDesignerConfigBuilder()
-    builder.add_column(ExpressionColumnConfig(name="assistant_copy", expr="{{ final_assistant_message }}"))
-    builder.with_seed_dataset(TraceSeedSource(path=str(seed_path), format=TraceSeedFormat.CHAT_COMPLETION_JSONL_DIR))
-
-    config = compile_data_designer_config(builder.build(), stub_resource_provider)
-    column_names = [column.name for column in config.columns]
-
-    assert "trace_id" in column_names
-    assert "messages" in column_names
-    assert "final_assistant_message" in column_names
-    assert "assistant_copy" in column_names
-    assert "_internal_row_id" not in column_names

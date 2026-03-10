@@ -207,9 +207,8 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
 
         resource_provider = self._create_resource_provider(dataset_name, config_builder)
 
-        builder = self._create_dataset_builder(config_builder.build(), resource_provider)
-
         try:
+            builder = self._create_dataset_builder(config_builder.build(), resource_provider)
             builder.build(num_records=num_records)
         except Exception as e:
             raise DataDesignerGenerationError(f"🛑 Error generating dataset: {e}")
@@ -275,9 +274,9 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         logger.info(f"{RandomEmoji.previewing()} Preview generation in progress")
 
         resource_provider = self._create_resource_provider("preview-dataset", config_builder)
-        builder = self._create_dataset_builder(config_builder.build(), resource_provider)
 
         try:
+            builder = self._create_dataset_builder(config_builder.build(), resource_provider)
             raw_dataset = builder.build_preview(num_records=num_records)
             processed_dataset = builder.process_preview(raw_dataset)
         except Exception as e:

@@ -3,11 +3,8 @@
 
 from __future__ import annotations
 
-import json
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from pathlib import Path
-from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Generic, TypeVar, get_args, get_origin
 
 from huggingface_hub import HfFileSystem
@@ -27,6 +24,7 @@ from data_designer.errors import DataDesignerError
 
 if TYPE_CHECKING:
     import duckdb
+    import pandas as pd
 
 
 class SeedReaderError(DataDesignerError): ...
@@ -132,46 +130,34 @@ class DataFrameSeedReader(SeedReader[DataFrameSeedSource]):
 
 
 class TraceSeedReader(SeedReader[TraceSeedSource]):
+    _table_name = "trace_df"
+
     def __init__(self) -> None:
-        self._normalized_dataset_uri: str | None = None
-        self._temp_dir: TemporaryDirectory[str] | None = None
+        self._normalized_df: pd.DataFrame | None = None
 
     def attach(self, source: TraceSeedSource, secret_resolver: SecretResolver) -> None:
-        self._cleanup_normalized_dataset()
+        self._normalized_df = None
         super().attach(source, secret_resolver)
 
     def create_duckdb_connection(self) -> duckdb.DuckDBPyConnection:
-        return lazy.duckdb.connect()
+        conn = lazy.duckdb.connect()
+        conn.register(self._table_name, self._get_normalized_dataframe())
+        return conn
 
     def get_dataset_uri(self) -> str:
-        if self._normalized_dataset_uri is None:
-            self._normalized_dataset_uri = self._materialize_normalized_dataset()
-        return self._normalized_dataset_uri
+        return self._table_name
 
-    def _materialize_normalized_dataset(self) -> str:
+    def _get_normalized_dataframe(self) -> pd.DataFrame:
+        if self._normalized_df is not None:
+            return self._normalized_df
         try:
             normalized_records = normalize_trace_source(self.source)
         except TraceSeedParseError as error:
             raise SeedReaderError(f"Failed to normalize trace seed dataset: {error}") from error
         if not normalized_records:
             raise SeedReaderError(f"Trace seed source at {self.source.path} did not produce any normalized records")
-
-        self._temp_dir = TemporaryDirectory(prefix="data-designer-trace-seed-")
-        output_path = Path(self._temp_dir.name) / "normalized_traces.jsonl"
-        with output_path.open("w", encoding="utf-8") as file:
-            for record in normalized_records:
-                file.write(f"{json.dumps(record)}\n")
-        return str(output_path)
-
-    def _cleanup_normalized_dataset(self) -> None:
-        self._normalized_dataset_uri = None
-        if self._temp_dir is not None:
-            self._temp_dir.cleanup()
-            self._temp_dir = None
-
-    def __del__(self) -> None:
-        if hasattr(self, "_temp_dir"):
-            self._cleanup_normalized_dataset()
+        self._normalized_df = lazy.pd.DataFrame(normalized_records)
+        return self._normalized_df
 
 
 class SeedReaderRegistry:

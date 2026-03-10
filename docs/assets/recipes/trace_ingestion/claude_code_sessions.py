@@ -24,6 +24,7 @@ Prerequisites:
 Run:
     uv run claude_code_sessions.py --trace-dir ~/.claude/projects/my-project
     uv run claude_code_sessions.py --trace-dir ~/.claude/projects/my-project --shuffle --num-records 20
+    uv run claude_code_sessions.py --trace-dir ~/.claude/projects/my-project --num-records 32 --preview
     uv run claude_code_sessions.py --trace-dir ~/.claude/projects/my-project --partition-index 0 --num-partitions 8
 """
 
@@ -35,6 +36,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 import data_designer.config as dd
+from data_designer.config.preview_results import PreviewResults
 from data_designer.interface import DataDesigner, DatasetCreationResults
 
 
@@ -118,14 +120,17 @@ def build_config(
     return config_builder
 
 
-def create_dataset(
+def run_recipe(
     config_builder: dd.DataDesignerConfigBuilder,
     *,
     num_records: int,
     artifact_path: Path | str | None = None,
     dataset_name: str = "claude_code_trace_workflows",
-) -> DatasetCreationResults:
+    preview: bool = False,
+) -> DatasetCreationResults | PreviewResults:
     data_designer = DataDesigner(artifact_path=artifact_path)
+    if preview:
+        return data_designer.preview(config_builder, num_records=num_records)
     return data_designer.create(config_builder, num_records=num_records, dataset_name=dataset_name)
 
 
@@ -141,6 +146,11 @@ def parse_args() -> ArgumentParser:
     parser.add_argument("--num-records", type=int, default=5)
     parser.add_argument("--artifact-path", type=str, default=None)
     parser.add_argument("--dataset-name", type=str, default="claude_code_trace_workflows")
+    parser.add_argument(
+        "--preview",
+        action="store_true",
+        help="Run the recipe in preview mode and keep the generated dataset in memory.",
+    )
     parser.add_argument(
         "--shuffle",
         action="store_true",
@@ -184,14 +194,18 @@ def main() -> None:
         sampling_strategy=sampling_strategy,
         selection_strategy=selection_strategy,
     )
-    results = create_dataset(
+    results = run_recipe(
         config_builder,
         num_records=args.num_records,
         artifact_path=args.artifact_path,
         dataset_name=args.dataset_name,
+        preview=args.preview,
     )
 
-    print(f"Dataset saved to: {results.artifact_storage.final_dataset_path}")
+    if args.preview:
+        print(f"Preview generated {len(results.dataset)} rows in memory.")
+    else:
+        print(f"Dataset saved to: {results.artifact_storage.final_dataset_path}")
     results.display_sample_record()
 
 

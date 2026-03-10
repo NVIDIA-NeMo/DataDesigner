@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -11,7 +13,7 @@ from pydantic import ValidationError
 
 import data_designer.interface.data_designer as dd_mod
 import data_designer.lazy_heavy_imports as lazy
-from data_designer.config.column_configs import SamplerColumnConfig
+from data_designer.config.column_configs import ExpressionColumnConfig, SamplerColumnConfig
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.models import ModelProvider
@@ -19,7 +21,6 @@ from data_designer.config.processors import DropColumnsProcessorConfig
 from data_designer.config.run_config import RunConfig
 from data_designer.config.sampler_params import CategorySamplerParams, SamplerType
 from data_designer.config.seed_source import HuggingFaceSeedSource, TraceSeedFormat, TraceSeedSource
-from data_designer.engine.resources.seed_reader import TraceSeedReader
 from data_designer.engine.secret_resolver import CompositeResolver, EnvironmentResolver, PlaintextResolver
 from data_designer.engine.testing.stubs import StubHuggingFaceSeedReader
 from data_designer.interface.data_designer import DataDesigner
@@ -56,6 +57,210 @@ def stub_seed_reader():
     return StubHuggingFaceSeedReader()
 
 
+def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as file:
+        for row in rows:
+            file.write(f"{json.dumps(row)}\n")
+
+
+def _write_claude_trace_directory(root_path: Path) -> None:
+    session_dir = root_path / "project-a"
+    subagents_dir = session_dir / "subagents"
+    subagents_dir.mkdir(parents=True)
+
+    _write_jsonl(
+        session_dir / "session-1.jsonl",
+        [
+            {
+                "type": "system",
+                "sessionId": "session-1",
+                "cwd": "/repo",
+                "gitBranch": "main",
+                "version": "2.1.7",
+                "timestamp": "2026-01-01T00:00:00Z",
+            },
+            {
+                "type": "user",
+                "sessionId": "session-1",
+                "cwd": "/repo",
+                "gitBranch": "main",
+                "timestamp": "2026-01-01T00:00:01Z",
+                "message": {"role": "user", "content": "Inspect the repo"},
+            },
+            {
+                "type": "assistant",
+                "sessionId": "session-1",
+                "cwd": "/repo",
+                "gitBranch": "main",
+                "timestamp": "2026-01-01T00:00:02Z",
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "thinking", "thinking": "Need to inspect"},
+                        {"type": "tool_use", "id": "toolu_1", "name": "ReadFile", "input": {"path": "README.md"}},
+                    ],
+                },
+            },
+            {
+                "type": "user",
+                "sessionId": "session-1",
+                "cwd": "/repo",
+                "gitBranch": "main",
+                "timestamp": "2026-01-01T00:00:03Z",
+                "message": {
+                    "role": "user",
+                    "content": [{"type": "tool_result", "tool_use_id": "toolu_1", "content": "README contents"}],
+                },
+            },
+            {
+                "type": "assistant",
+                "sessionId": "session-1",
+                "cwd": "/repo",
+                "gitBranch": "main",
+                "timestamp": "2026-01-01T00:00:04Z",
+                "message": {"role": "assistant", "content": [{"type": "text", "text": "Repo inspected"}]},
+            },
+        ],
+    )
+    _write_jsonl(
+        subagents_dir / "agent-a.jsonl",
+        [
+            {
+                "type": "user",
+                "sessionId": "session-1",
+                "agentId": "agent-a",
+                "isSidechain": True,
+                "cwd": "/repo",
+                "gitBranch": "main",
+                "timestamp": "2026-01-01T00:01:00Z",
+                "message": {"role": "user", "content": "Check tests"},
+            },
+            {
+                "type": "assistant",
+                "sessionId": "session-1",
+                "agentId": "agent-a",
+                "isSidechain": True,
+                "cwd": "/repo",
+                "gitBranch": "main",
+                "timestamp": "2026-01-01T00:01:01Z",
+                "message": {"role": "assistant", "content": [{"type": "text", "text": "Tests checked"}]},
+            },
+        ],
+    )
+    (session_dir / "sessions-index.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "entries": [
+                    {
+                        "sessionId": "session-1",
+                        "projectPath": "/repo-from-index",
+                        "summary": "Investigate repository",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def _write_codex_trace_directory(root_path: Path) -> None:
+    codex_dir = root_path / "sessions" / "2026" / "03" / "10"
+    codex_dir.mkdir(parents=True)
+    _write_jsonl(
+        codex_dir / "rollout-2026-03-10T00-00-00-session.jsonl",
+        [
+            {
+                "timestamp": "2026-03-10T00:00:00Z",
+                "type": "session_meta",
+                "payload": {
+                    "id": "codex-session",
+                    "timestamp": "2026-03-10T00:00:00Z",
+                    "cwd": "/workspace",
+                    "cli_version": "0.108.0",
+                    "originator": "codex_cli_rs",
+                    "model_provider": "openai",
+                    "source": "api",
+                },
+            },
+            {
+                "timestamp": "2026-03-10T00:00:01Z",
+                "type": "response_item",
+                "payload": {
+                    "type": "message",
+                    "role": "developer",
+                    "content": [{"type": "input_text", "text": "Follow repo rules"}],
+                },
+            },
+            {
+                "timestamp": "2026-03-10T00:00:02Z",
+                "type": "response_item",
+                "payload": {
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": "List files"}],
+                },
+            },
+            {
+                "timestamp": "2026-03-10T00:00:03Z",
+                "type": "response_item",
+                "payload": {
+                    "type": "reasoning",
+                    "summary": [{"type": "summary_text", "text": "Need to run ls"}],
+                },
+            },
+            {
+                "timestamp": "2026-03-10T00:00:04Z",
+                "type": "response_item",
+                "payload": {
+                    "type": "function_call",
+                    "name": "exec_command",
+                    "arguments": '{"cmd":"ls"}',
+                    "call_id": "call_1",
+                },
+            },
+            {
+                "timestamp": "2026-03-10T00:00:05Z",
+                "type": "response_item",
+                "payload": {
+                    "type": "function_call_output",
+                    "call_id": "call_1",
+                    "output": "README.md\nsrc",
+                },
+            },
+            {
+                "timestamp": "2026-03-10T00:00:06Z",
+                "type": "response_item",
+                "payload": {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [{"type": "output_text", "text": "Listed files"}],
+                },
+            },
+        ],
+    )
+
+
+def _write_chat_completion_trace_directory(root_path: Path) -> None:
+    _write_jsonl(
+        root_path / "chat.jsonl",
+        [
+            {
+                "trace_id": "row-1",
+                "session_id": "sess-1",
+                "split": "train",
+                "messages": [
+                    {"role": "developer", "content": "Use tools if needed"},
+                    {"role": "user", "content": "Hi"},
+                    {"role": "assistant", "content": "Hello"},
+                ],
+            },
+            {"prompt": "Question?", "completion": "Answer."},
+        ],
+    )
+
+
 def test_init_with_custom_secret_resolver(stub_artifact_path, stub_model_providers):
     """Test DataDesigner initialization with custom secret resolver."""
     designer = DataDesigner(
@@ -83,21 +288,6 @@ def test_init_with_string_path(stub_artifact_path, stub_model_providers):
     designer = DataDesigner(artifact_path=str(stub_artifact_path), model_providers=stub_model_providers)
     assert designer is not None
     assert isinstance(designer._artifact_path, Path)
-
-
-def test_default_seed_readers_include_trace_seed_reader(
-    stub_artifact_path: Path,
-    stub_model_providers: list[ModelProvider],
-    tmp_path: Path,
-) -> None:
-    designer = DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
-
-    reader = designer._seed_reader_registry.get_reader(
-        TraceSeedSource(path=str(tmp_path), format=TraceSeedFormat.CHAT_COMPLETION_JSONL_DIR),
-        PlaintextResolver(),
-    )
-
-    assert isinstance(reader, TraceSeedReader)
 
 
 def test_init_with_path_object(stub_artifact_path, stub_model_providers):
@@ -212,6 +402,115 @@ def test_create_dataset_e2e_using_only_sampler_columns(
 
     # display report with no errors
     analysis.to_report()
+
+
+@pytest.mark.parametrize(
+    ("trace_format", "writer", "expected_trace_ids", "expected_messages", "expected_tool_counts"),
+    [
+        (
+            TraceSeedFormat.CLAUDE_CODE_DIR,
+            _write_claude_trace_directory,
+            ["session-1", "session-1:agent-a"],
+            ["Repo inspected", "Tests checked"],
+            [1, 0],
+        ),
+        (
+            TraceSeedFormat.CODEX_DIR,
+            _write_codex_trace_directory,
+            ["codex-session"],
+            ["Listed files"],
+            [1],
+        ),
+        (
+            TraceSeedFormat.CHAT_COMPLETION_JSONL_DIR,
+            _write_chat_completion_trace_directory,
+            ["chat:2", "row-1"],
+            ["Answer.", "Hello"],
+            [0, 0],
+        ),
+    ],
+    ids=["claude-code", "codex", "chat-completion-jsonl"],
+)
+def test_create_dataset_e2e_with_trace_seed_source(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_managed_assets_path: Path,
+    tmp_path: Path,
+    trace_format: TraceSeedFormat,
+    writer: Any,
+    expected_trace_ids: list[str],
+    expected_messages: list[str],
+    expected_tool_counts: list[int],
+) -> None:
+    trace_dir = tmp_path / trace_format.value
+    writer(trace_dir)
+
+    builder = DataDesignerConfigBuilder()
+    builder.with_seed_dataset(TraceSeedSource(path=str(trace_dir), format=trace_format))
+    builder.add_column(ExpressionColumnConfig(name="assistant_copy", expr="{{ final_assistant_message }}"))
+    builder.add_column(ExpressionColumnConfig(name="trace_label", expr="{{ source_kind }}::{{ trace_id }}"))
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    results = data_designer.create(
+        builder,
+        num_records=len(expected_trace_ids),
+        dataset_name=f"trace-{trace_format.value}",
+    )
+    df = results.load_dataset().sort_values("trace_id").reset_index(drop=True)
+
+    assert list(df["trace_id"]) == expected_trace_ids
+    assert list(df["assistant_copy"]) == expected_messages
+    assert list(df["tool_call_count"]) == expected_tool_counts
+    assert list(df["trace_label"]) == [
+        f"{source_kind}::{trace_id}"
+        for source_kind, trace_id in df[["source_kind", "trace_id"]].itertuples(index=False)
+    ]
+    assert "messages" in df.columns
+    assert "_internal_row_id" not in df.columns
+
+    if trace_format == TraceSeedFormat.CLAUDE_CODE_DIR:
+        assert list(df["source_kind"]) == ["claude_code", "claude_code"]
+        assert lazy.pd.isna(df.iloc[0]["agent_id"])
+        assert df.iloc[1]["agent_id"] == "agent-a"
+        assert list(df["project_path"]) == ["/repo-from-index", "/repo-from-index"]
+        assert list(df["is_sidechain"]) == [False, True]
+    elif trace_format == TraceSeedFormat.CODEX_DIR:
+        assert list(df["source_kind"]) == ["codex"]
+        assert list(df["cwd"]) == ["/workspace"]
+    else:
+        assert list(df["source_kind"]) == ["chat_completion_jsonl", "chat_completion_jsonl"]
+        assert list(df["root_session_id"]) == ["chat:2", "sess-1"]
+
+
+def test_create_raises_error_for_invalid_trace_seed_rows(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_managed_assets_path: Path,
+    tmp_path: Path,
+) -> None:
+    trace_dir = tmp_path / "invalid-traces"
+    trace_dir.mkdir()
+    _write_jsonl(trace_dir / "invalid.jsonl", [{"unexpected": "shape"}])
+
+    builder = DataDesignerConfigBuilder()
+    builder.with_seed_dataset(TraceSeedSource(path=str(trace_dir), format=TraceSeedFormat.CHAT_COMPLETION_JSONL_DIR))
+    builder.add_column(ExpressionColumnConfig(name="assistant_copy", expr="{{ final_assistant_message }}"))
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    with pytest.raises(DataDesignerGenerationError, match="invalid.jsonl line 1"):
+        data_designer.create(builder, num_records=1, dataset_name="invalid-trace-seed")
 
 
 def test_create_raises_error_when_builder_fails(
