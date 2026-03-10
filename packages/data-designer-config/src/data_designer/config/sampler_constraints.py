@@ -3,9 +3,10 @@
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 from enum import Enum
+from typing import Annotated, Any, Literal
 
+from pydantic import Discriminator, Field, Tag
 from typing_extensions import TypeAlias
 
 from data_designer.config.base import ConfigBase
@@ -23,30 +24,46 @@ class InequalityOperator(str, Enum):
     GE = "ge"
 
 
-class Constraint(ConfigBase, ABC):
-    target_column: str
-
-    @property
-    @abstractmethod
-    def constraint_type(self) -> ConstraintType: ...
+class Constraint(ConfigBase):
+    target_column: str = Field(description="Name of the sampler column this constraint applies to")
+    constraint_type: ConstraintType = Field(description="Constraint type discriminator")
 
 
 class ScalarInequalityConstraint(Constraint):
-    rhs: float
-    operator: InequalityOperator
-
-    @property
-    def constraint_type(self) -> ConstraintType:
-        return ConstraintType.SCALAR_INEQUALITY
+    rhs: float = Field(description="Scalar value to compare against")
+    operator: InequalityOperator = Field(description="Comparison operator")
+    constraint_type: Literal[ConstraintType.SCALAR_INEQUALITY] = Field(
+        default=ConstraintType.SCALAR_INEQUALITY,
+        description="Constraint type discriminator, always 'scalar_inequality' for this constraint",
+    )
 
 
 class ColumnInequalityConstraint(Constraint):
-    rhs: str
-    operator: InequalityOperator
-
-    @property
-    def constraint_type(self) -> ConstraintType:
-        return ConstraintType.COLUMN_INEQUALITY
+    rhs: str = Field(description="Name of the other column to compare against")
+    operator: InequalityOperator = Field(description="Comparison operator")
+    constraint_type: Literal[ConstraintType.COLUMN_INEQUALITY] = Field(
+        default=ConstraintType.COLUMN_INEQUALITY,
+        description="Constraint type discriminator, always 'column_inequality' for this constraint",
+    )
 
 
 ColumnConstraintT: TypeAlias = ScalarInequalityConstraint | ColumnInequalityConstraint
+
+
+def resolve_constraint_input_type(value: Any) -> ConstraintType | str | None:
+    """Resolve the constraint type for both tagged and legacy config shapes."""
+    if isinstance(value, dict):
+        if (constraint_type := value.get("constraint_type")) is not None:
+            return constraint_type
+
+        rhs = value.get("rhs")
+        return ConstraintType.COLUMN_INEQUALITY if isinstance(rhs, str) else ConstraintType.SCALAR_INEQUALITY
+
+    return getattr(value, "constraint_type", None)
+
+
+ColumnConstraintInputT: TypeAlias = Annotated[
+    Annotated[ScalarInequalityConstraint, Tag(ConstraintType.SCALAR_INEQUALITY)]
+    | Annotated[ColumnInequalityConstraint, Tag(ConstraintType.COLUMN_INEQUALITY)],
+    Discriminator(resolve_constraint_input_type),
+]

@@ -267,6 +267,29 @@ def test_validation_column_config():
     assert validation_column_config.batch_size == 5
 
 
+def test_validation_column_config_injects_validator_type_into_params_dict():
+    validation_column_config = ValidationColumnConfig(
+        name="test_validation",
+        target_columns=["test_column"],
+        validator_type="code",
+        validator_params={"code_lang": "python"},
+    )
+
+    assert isinstance(validation_column_config.validator_params, CodeValidatorParams)
+    assert validation_column_config.validator_params.validator_type == "code"
+    assert validation_column_config.validator_params.code_lang == CodeLang.PYTHON
+
+
+def test_validation_column_config_schema_uses_validator_discriminator():
+    schema = ValidationColumnConfig.model_json_schema()
+    validator_params = schema["properties"]["validator_params"]
+
+    assert validator_params["discriminator"]["propertyName"] == "validator_type"
+    assert "code" in validator_params["discriminator"]["mapping"]
+    assert "local_callable" in validator_params["discriminator"]["mapping"]
+    assert "remote" in validator_params["discriminator"]["mapping"]
+
+
 def test_embedding_column_config():
     embedding_column_config = EmbeddingColumnConfig(
         name="test_embedding",
