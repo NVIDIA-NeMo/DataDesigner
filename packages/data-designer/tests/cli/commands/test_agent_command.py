@@ -35,7 +35,6 @@ def test_agent_context_command_outputs_json() -> None:
     controller.get_context.assert_called_once_with()
     payload = json.loads(result.output)
     assert payload == {
-        "schema_version": 1,
         "kind": "agent_context",
         "library_version": "1.2.3",
         "data": {"operations": [], "families": [], "types": {}, "state": {}, "builder": {}},
@@ -56,7 +55,6 @@ def test_agent_schema_command_outputs_json_error() -> None:
     assert result.exit_code == 1
     payload = json.loads(result.output)
     assert payload == {
-        "schema_version": 1,
         "error": {
             "code": "internal_error",
             "message": "boom",
@@ -81,7 +79,6 @@ def test_agent_state_model_aliases_command_outputs_json() -> None:
     controller.get_model_aliases_state.assert_called_once_with()
     payload = json.loads(result.output)
     assert payload == {
-        "schema_version": 1,
         "kind": "agent_state_model_aliases",
         "library_version": "1.2.3",
         "data": {"model_config_present": False, "items": []},

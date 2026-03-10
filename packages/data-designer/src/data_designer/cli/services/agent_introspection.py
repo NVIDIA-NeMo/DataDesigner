@@ -17,8 +17,6 @@ from data_designer.config.sampler_constraints import ColumnConstraintT
 from data_designer.config.sampler_params import SamplerParamsT
 from data_designer.config.validator_params import ValidatorParamsT
 
-SCHEMA_VERSION = 1
-
 
 @dataclass(frozen=True)
 class FamilySpec:

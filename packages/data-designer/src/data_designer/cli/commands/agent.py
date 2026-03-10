@@ -10,7 +10,7 @@ from typing import Any
 import typer
 
 from data_designer.cli.controllers.agent_controller import AgentController
-from data_designer.cli.services.agent_introspection import SCHEMA_VERSION, AgentIntrospectionError
+from data_designer.cli.services.agent_introspection import AgentIntrospectionError
 from data_designer.config.utils.constants import DATA_DESIGNER_HOME
 
 
@@ -71,7 +71,6 @@ def _emit_json_response(*, kind: str, library_version: str, data: Any) -> None:
     typer.echo(
         json.dumps(
             {
-                "schema_version": SCHEMA_VERSION,
                 "kind": kind,
                 "library_version": library_version,
                 "data": data,
@@ -85,7 +84,6 @@ def _write_error_response(*, code: str, message: str, details: dict[str, Any] | 
     typer.echo(
         json.dumps(
             {
-                "schema_version": SCHEMA_VERSION,
                 "error": {
                     "code": code,
                     "message": message,
