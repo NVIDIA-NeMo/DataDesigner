@@ -46,6 +46,8 @@ nav:
       - QA and Chat:
           - Product Info QA: recipes/qa_and_chat/product_info_qa.md
           - Multi-Turn Chat: recipes/qa_and_chat/multi_turn_chat.md
+      - Trace Ingestion:
+          - Claude Code Trace Distillation: recipes/trace_ingestion/claude_code_sessions.md
       - MCP and Tool Use:
           - "Basic MCP Tool Use": recipes/mcp_and_tooluse/basic_mcp.md
           - "PDF Document QA": recipes/mcp_and_tooluse/pdf_qa.md

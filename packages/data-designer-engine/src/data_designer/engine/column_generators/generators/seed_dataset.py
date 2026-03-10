@@ -102,7 +102,13 @@ class SeedDatasetColumnGenerator(FromScratchColumnGenerator[SeedDatasetMultiColu
             read_query = f"SELECT * FROM ({read_query}){shuffle_query}"
         else:
             read_query = f"SELECT * FROM '{self._dataset_uri}'{shuffle_query}"
-        self._batch_reader = self.duckdb_conn.query(read_query).to_arrow_reader(batch_size=num_records)
+        relation = self.duckdb_conn.query(read_query)
+        if hasattr(relation, "fetch_arrow_reader"):
+            self._batch_reader = relation.fetch_arrow_reader(batch_size=num_records)
+        elif hasattr(relation, "to_arrow_reader"):
+            self._batch_reader = relation.to_arrow_reader(batch_size=num_records)
+        else:
+            raise RuntimeError("🛑 DuckDB relation does not support arrow batch readers in this environment.")
 
     def _sample_records(self, num_records: int) -> pd.DataFrame:
         logger.info(f"🌱 Sampling {num_records} records from seed dataset")

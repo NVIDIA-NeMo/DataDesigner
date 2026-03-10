@@ -81,6 +81,23 @@ Each recipe is a self-contained example that can be run independently.
     [:material-book-open-page-variant: View Recipe](qa_and_chat/multi_turn_chat.md){ .md-button }
     [Download Code :octicons-download-24:](../assets/recipes/qa_and_chat/multi_turn_chat.py){ .md-button download="multi_turn_chat.py" }
 
+-   :material-source-branch:{ .lg .middle } **Claude Code Trace Distillation**
+
+    Read Claude Code session traces from disk and turn each imported session into a structured workflow record inside a Data Designer pipeline.
+
+    ---
+
+    **Demonstrates:**
+
+    - `TraceSeedSource` with Claude Code sessions
+    - Using normalized trace columns in generation prompts
+    - Distilling agent traces into reusable structured records
+
+    ---
+
+    [:material-book-open-page-variant: View Recipe](trace_ingestion/claude_code_sessions.md){ .md-button }
+    [Download Code :octicons-download-24:](../assets/recipes/trace_ingestion/claude_code_sessions.py){ .md-button download="claude_code_sessions.py" }
+
 
 -   :material-tools:{ .lg .middle } **Basic MCP Tool Use**
 
