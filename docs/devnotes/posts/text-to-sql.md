@@ -12,7 +12,7 @@ authors:
 
 <br>
 
-While LLMs have mastered generic coding, Text-to-SQL remains one of the most challenging frontiers in enterprise AI. In many ways this is due to (i) SQL tasks relying on both code and data and (ii) real-world data and databases being quite messy. Focusing on careful data design that accounts for real-world diversity and complexity, we built a [NeMo Data Designer](https://github.com/NVIDIA-NeMo/DataDesigner) pipeline that includes conditional sampling, three-stage LLM generation, code validators, and multi-dimensional judge scoring to generate 300,000 reasoning-heavy text-to-SQL samples across PostgreSQL, MySQL, and SQLite, and automatically filter down to the highest quality 96.5k records. Each sample pairs a natural-language prompt and a fully synthetic database schema context with a target SQL query. To improve robustness and mimic the messiness of production databases, the pipeline injects distractor tables and columns into the schema context, forcing the model to learn to ignore irrelevant schema elements. The final dataset is validated and filtered through per-dialect syntax validators and five LLM-as-a-critic judges.
+While LLMs have mastered generic coding, Text-to-SQL remains one of the most challenging frontiers in enterprise AI. In many ways this is due to (i) SQL tasks relying on both code and data and (ii) real-world data and databases being quite messy. Focusing on careful data design that accounts for real-world diversity and complexity, we built a [NeMo Data Designer](https://github.com/NVIDIA-NeMo/DataDesigner) pipeline that includes conditional sampling, three-stage LLM generation, code validators, and multi-dimensional judge scoring to generate reasoning-heavy text-to-SQL samples across PostgreSQL, MySQL, and SQLite, and automatically filter down to the highest quality 96.5k records. Each sample pairs a natural-language prompt and a fully synthetic database schema context with a target SQL query. To improve robustness and mimic the messiness of production databases, the pipeline injects distractor tables and columns into the schema context, forcing the model to learn to ignore irrelevant schema elements. The final dataset is validated and filtered through per-dialect syntax validators and five LLM-as-a-critic judges.
 
 <!-- more -->
 
@@ -36,7 +36,7 @@ The key insight: **domain diversity and complexity coverage matter more than dat
 
 ## **Pipeline Overview**
 
-The pipeline generates text-to-SQL training data through a five-stage process. Each record flows through seeding & diversification, three LLM generation steps, and a validation + quality scoring layer. All three LLM generation stages use Qwen3-235B-A22B-Thinking, a reasoning model whose internal chain-of-thought improves schema design and SQL correctness. The pipeline runs independently for each SQL dialect, with dialect-specific prompts, validators, and judge prompts.
+The pipeline generates text-to-SQL training data through a five-stage process. Each record flows through seeding & diversification, three LLM generation steps, and a validation + quality scoring layer. All three LLM generation stages use a reasoning model whose internal chain-of-thought improves schema design and SQL correctness. The pipeline runs independently for each SQL dialect, with dialect-specific prompts, validators, and judge prompts.
 
 <details open markdown>
 <summary><strong>ASCII version of the pipeline diagram</strong></summary>
@@ -59,7 +59,7 @@ The pipeline generates text-to-SQL training data through a five-stage process. E
                                                │
                                                ▼
      ┌─────────────────────────────────────────────────────────────────────────────────────┐
-     │               STAGE 2: PROMPT GENERATION (Qwen3-235B-Thinking)                      │
+     │               STAGE 2: PROMPT GENERATION (Reasoning LLM)                            │
      │                                                                                     │
      │   Generates a natural-language request to a data assistant.                         │
      │   Grounded in sampled metadata; no SQL jargon; realistic thresholds.                │
@@ -68,7 +68,7 @@ The pipeline generates text-to-SQL training data through a five-stage process. E
                                                │
                                                ▼
      ┌─────────────────────────────────────────────────────────────────────────────────────┐
-     │             STAGE 3: SCHEMA + DATA GENERATION (Qwen3-235B-Thinking)                 │
+     │             STAGE 3: SCHEMA + DATA GENERATION (Reasoning LLM)                       │
      │                                                                                     │
      │   Generates dialect-specific DDL (CREATE TABLE) + sample data (INSERT).             │
      │   ├─ 3–5 core tables with PKs, FKs, and realistic constraints                       │
@@ -79,7 +79,7 @@ The pipeline generates text-to-SQL training data through a five-stage process. E
                                                │
                                                ▼
      ┌─────────────────────────────────────────────────────────────────────────────────────┐
-     │                  STAGE 4: SQL GENERATION (Qwen3-235B-Thinking)                      │
+     │                  STAGE 4: SQL GENERATION (Reasoning LLM)                             │
      │                                                                                     │
      │   Generates dialect-specific SQL (SQLite / MySQL / PostgreSQL).                     │
      │   ├─ References only tables/columns from the schema context                         │
@@ -365,20 +365,9 @@ Each judge provides a score *and* reasoning for each dimension, making it easy t
 ```python
 config.add_column(dd.ExpressionColumnConfig(
     name="sql_relevance_score",
-    expr="{{ sql_judge_result.relevance.score if sql_judge_result.relevance.score else ' ' }}",
+    expr="{{ sql_judge_result.relevance.score if sql_judge_result.relevance.score is not none else '' }}",
 ))
 ```
-
-### Waterfall Summary
-
-The combined pipeline rejected records at each stage:
-
-| Stage | Records In | Records Out | Drop Rate |
-|-------|-----------|-------------|-----------|
-| Raw generation | 300,000 | 300,000 | --- |
-| Syntax validation | 300,000 | ~180,000 | ~40% |
-| LLM judges (all dimensions ≥ 3) | ~180,000 | 96,500 | ~46% |
-| **Final dataset** | | **96,500** | **68% total rejection** |
 
 ---
 
@@ -423,9 +412,27 @@ The high rejection rate is a feature, not a bug. By generating 3x more data than
 
 ---
 
+## **BIRD Benchmark Results**
+
+This dataset was shipped in the SFT stage of **Nemotron Super v3**. On the [BIRD SQL benchmark](https://bird-bench.github.io/) (1,534 dev samples, 5-run average), Nemotron Super achieves **41.80% EX** (execution accuracy) --- outperforming GPT-OSS-120B at 38.25%. Including our synthetic dataset in the SFT blend raised Nemotron Super's EX on BIRD by **15 points**, from 26.77% to 41.80%.
+
+<img src="images/bird-benchmark-results.jpg" alt="BIRD SQL Benchmark Results — Nemotron Super EX improves from 26.77% to 41.80%" width="800">
+
+<br>
+
+| Model | BIRD EX (%) |
+|-------|-------------|
+| Nemotron Super (before synthetic text-to-SQL SFT data) | 26.77 |
+| GPT-OSS-120B | 38.25 |
+| **Nemotron Super (after synthetic text-to-SQL SFT data)** | **41.80** |
+
+**Caveat on BIRD:** BIRD measures *execution accuracy* (EX) --- whether the query returns the correct result set when run against the ground-truth database. This is stricter than exact-match or string similarity, but it can also be inflated by semantically different queries that happen to produce identical result sets on small test data. BIRD's dev set includes dirty data, external knowledge requirements, and multi-table schemas, making it more representative of production SQL than earlier benchmarks like Spider --- but it does not cover all production challenges (e.g., multi-statement transactions, DDL, stored procedures, or the hundreds-of-tables schemas common in enterprise warehouses). Results here are on the 1,534-sample dev split averaged over 5 runs.
+
+---
+
 ## **Key Takeaways**
 
-1. **Conditional sampling prevents incoherent records.** `SubcategorySamplerParams` ensures "Window Functions" only appears with "Advanced" complexity, and "EHR Systems" only appears with "Healthcare". Independent samplers would produce nonsensical combinations that confuse training.
+1. **Conditional sampling prevents incoherent records.** `SubcategorySamplerParams` ensures "Geospatial SQL" only appears with "Advanced" complexity, and "EHR Systems" only appears with "Healthcare". Independent samplers would produce nonsensical combinations that confuse training.
 
 2. **Three-stage generation beats one-shot.** Separating prompt, schema, and query generation ensures the SQL actually references the tables that exist. One-shot generation frequently hallucinates tables.
 
@@ -443,13 +450,12 @@ The high rejection rate is a feature, not a bug. By generating 3x more data than
 
 ---
 
-## **Looking Ahead: The Code Sandbox**
+## **Next Steps**
 
-The current Quality Waterfall validates syntax and assesses quality (LLM judges), but it doesn't verify *semantic correctness* --- whether the query actually returns the right results. We are actively implementing Data Designer's Code Sandbox to close this gap. The sandbox would execute generated SQL against a ground-truth database and compare results, enabling:
-
-- **Execution-based filtering:** Reject queries that parse but return wrong results.
-- **End-to-end verification:** Confirm that the full chain (prompt → schema → SQL → result) is semantically coherent.
-- **Harder negative mining:** Queries that execute but return incorrect results are valuable hard negatives for preference training.
+- **Code Sandbox for semantic correctness.** The current Quality Waterfall validates syntax and assesses quality (LLM judges), but it doesn't verify whether the query actually returns the right results. A natural next step would be adding Code Sandbox support to Data Designer --- executing generated SQL against a ground-truth database and comparing results to enable execution-based filtering, end-to-end verification, and hard negative mining for preference training.
+- **RL on BIRD.** Run reinforcement learning experiments using the [NeMo Gym](https://github.com/NVIDIA-NeMo/Gym) RL environment for BIRD, training models to improve execution accuracy through reward signals from actual query execution.
+- **Schema representation.** Improve how schemas are represented in prompts to close the gap with SOTA approaches that use richer structural encodings (e.g., foreign key graphs, column descriptions, value examples).
+- **More benchmarks.** Incorporate additional SQL benchmarks --- [Spider 2.0](https://spider2-sql.github.io/), [LiveSQLBench](https://livesqlbench.github.io/) --- to evaluate generalization beyond BIRD and drive the next iteration of the pipeline.
 
 ---
 
@@ -461,6 +467,10 @@ The snippet below builds a simplified text-to-SQL pipeline for SQLite using Data
 import data_designer.config as dd
 from data_designer.interface import DataDesigner
 
+MODEL_ALIAS = "nvidia-text"
+
+# Build the pipeline (uses default NVIDIA provider via NVIDIA_API_KEY)
+data_designer = DataDesigner()
 config = dd.DataDesignerConfigBuilder()
 
 # --- Stage 1: Seeding & diversification ---
@@ -481,7 +491,7 @@ config.add_column(dd.SamplerColumnConfig(
 
 # --- Stage 2: Natural-language prompt ---
 config.add_column(dd.LLMTextColumnConfig(
-    name="sql_prompt", model_alias="nvidia-text",
+    name="sql_prompt", model_alias=MODEL_ALIAS,
     prompt=(
         "Write a natural-language request to a data assistant about {{ industry_sector }}.\n"
         "Style: {{ instruction_style }}. Complexity: {{ sql_complexity }}.\n"
@@ -491,7 +501,7 @@ config.add_column(dd.LLMTextColumnConfig(
 
 # --- Stage 3: Schema + data with distractors ---
 config.add_column(dd.LLMCodeColumnConfig(
-    name="sql_context", model_alias="nvidia-text",
+    name="sql_context", model_alias=MODEL_ALIAS,
     prompt=(
         "Generate SQLite DDL and sample data for: {{ sql_prompt }}\n"
         "Include 3-5 core tables, 1-2 distractor tables, distractor columns per table.\n"
@@ -502,7 +512,7 @@ config.add_column(dd.LLMCodeColumnConfig(
 
 # --- Stage 4: SQL generation ---
 config.add_column(dd.LLMCodeColumnConfig(
-    name="sql", model_alias="nvidia-text",
+    name="sql", model_alias=MODEL_ALIAS,
     prompt=(
         "Write SQLite SQL for: {{ sql_prompt }}\n"
         "Database Context:\n{{ sql_context }}\n"
@@ -520,7 +530,7 @@ config.add_column(dd.ValidationColumnConfig(
 ))
 
 config.add_column(dd.LLMJudgeColumnConfig(
-    name="sql_judge", model_alias="nvidia-text",
+    name="sql_judge", model_alias=MODEL_ALIAS,
     prompt=(
         "Grade the SQL quality.\n"
         "Prompt: {{ sql_prompt }}\nContext: {{ sql_context }}\nSQL: {{ sql }}\n"
@@ -535,19 +545,18 @@ config.add_column(dd.LLMJudgeColumnConfig(
 ))
 
 # Generate
-data_designer = DataDesigner()
 preview = data_designer.preview(config, num_records=10)
 preview.display_sample_record()
 ```
 
 <details markdown>
-<summary><strong>Full source: <code>sdg_qwen_235b.py</code> (production pipeline)</strong></summary>
+<summary><strong>Full source: <code>sdg_ndd_text2sql.py</code> (production pipeline)</strong></summary>
 
 ```python
 """Text-to-SQL SDG Pipeline
 
 Production pipeline for generating text-to-SQL training data across
-SQLite, MySQL, and PostgreSQL using Qwen3-235B-Thinking via Data Designer.
+SQLite, MySQL, and PostgreSQL using a reasoning LLM via Data Designer.
 
 Generates configs for each dialect with:
 - 60 industry sectors, ~700 topics
@@ -580,7 +589,7 @@ from prompts import (
 from rubrics import SQL_SCORES, PROMPT_SCORES, DATA_QUALITY_SCORES, KNOWLEDGE_DEP_SCORES
 
 METADATA_FILE = "text2sql_seed.json"
-MODEL_NAME = "Qwen/Qwen3-235B-A22B-Thinking-2507"
+MODEL_NAME = "nvidia/nemotron-reasoning"
 
 CONTEXT_PROMPTS = {"sqlite": SQL_CONTEXT_PROMPT_SQLITE, "mysql": SQL_CONTEXT_PROMPT_MYSQL, "postgres": SQL_CONTEXT_PROMPT_POSTGRES}
 SQL_PROMPTS = {"sqlite": SQL_PROMPT_SQLITE, "mysql": SQL_PROMPT_MYSQL, "postgres": SQL_PROMPT_POSTGRES}
@@ -757,7 +766,7 @@ def build_text2sql_config(dialect_name, code_lang):
         for rubric in rubric_names:
             config.add_column(dd.ExpressionColumnConfig(
                 name=f"{prefix}_{rubric}_score",
-                expr=f"{{{{ {judge}.{rubric}.score if {judge}.{rubric}.score else ' ' }}}}",
+                expr=f"{{{{ {judge}.{rubric}.score if {judge}.{rubric}.score is not none else '' }}}}",
             ))
 
     return config
@@ -780,9 +789,9 @@ for dialect, code_lang in [
 
 ## **A Team Effort**
 
-This dataset builds on the foundation laid during our time at [Gretel.ai](https://gretel.ai) (creators of the [#1 trending synthetic text-to-SQL dataset on Hugging Face](https://huggingface.co/datasets/gretelai/synthetic_text_to_sql)). Today, we're proud to bring that DNA into NVIDIA, building the data infrastructure that powers the next generation of Nemotron models.
+This dataset is the result of a cross-functional effort across the NeMo Data Designer and Nemotron teams at NVIDIA, combining expertise in synthetic data generation, SQL engineering, and large-scale model training.
 
-**Dataset:** [Nemotron-Text-to-SQL-Internal](#) | **Scale:** 96.5k filtered records | **Dialects:** MySQL, PostgreSQL, SQLite
+**Scale:** 96.5k filtered records | **Dialects:** MySQL, PostgreSQL, SQLite | **Dataset:** Internal (Nemotron training)
 
 Because this pipeline is encapsulated in Data Designer, the configuration can be shared with any team --- allowing them to fork our baseline, swap in their own schemas or industry verticals, and generate a custom, high-fidelity dataset for their specific domain in hours, not months.
 
