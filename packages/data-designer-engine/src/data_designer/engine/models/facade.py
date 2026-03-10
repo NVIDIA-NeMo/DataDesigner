@@ -656,7 +656,6 @@ class ModelFacade:
                 "Use 'extra_body' to pass non-standard parameters to the model.",
                 sorted(metadata.keys()),
             )
-            request_fields["metadata"] = metadata
 
         return ChatCompletionRequest(**request_fields)
 
