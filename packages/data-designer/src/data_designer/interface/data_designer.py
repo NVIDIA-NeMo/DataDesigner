@@ -213,11 +213,25 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             raise DataDesignerGenerationError(f"🛑 Error generating dataset: {e}")
 
         try:
-            profiler = self._create_dataset_profiler(config_builder, resource_provider)
-            analysis = profiler.profile_dataset(
-                num_records,
-                builder.artifact_storage.load_dataset_with_dropped_columns(),
+            dataset_for_profiler = builder.artifact_storage.load_dataset_with_dropped_columns()
+        except Exception as e:
+            raise DataDesignerGenerationError(
+                f"🛑 Failed to load generated dataset — all records may have been dropped "
+                f"due to generation failures. Check the warnings above for details. Original error: {e}"
             )
+
+        # Defensive: the batch manager skips writing when the buffer is empty, so in
+        # practice load_dataset_with_dropped_columns() would raise before returning a
+        # zero-row DataFrame. This guard protects against future changes to that contract.
+        if len(dataset_for_profiler) == 0:
+            raise DataDesignerGenerationError(
+                "🛑 Dataset is empty — all records were dropped due to generation failures. "
+                "Check the warnings above for details on which columns failed."
+            )
+
+        try:
+            profiler = self._create_dataset_profiler(config_builder, resource_provider)
+            analysis = profiler.profile_dataset(num_records, dataset_for_profiler)
         except Exception as e:
             raise DataDesignerProfilingError(f"🛑 Error profiling dataset: {e}")
 
@@ -267,6 +281,12 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         except Exception as e:
             raise DataDesignerGenerationError(f"🛑 Error generating preview dataset: {e}")
 
+        if len(processed_dataset) == 0:
+            raise DataDesignerGenerationError(
+                "🛑 Dataset is empty — all records were dropped due to generation or processing failures. "
+                "Check the warnings above for details on which columns failed."
+            )
+
         dropped_columns = raw_dataset.columns.difference(processed_dataset.columns)
         if len(dropped_columns) > 0:
             dataset_for_profiler = lazy.pd.concat([processed_dataset, raw_dataset[dropped_columns]], axis=1)
@@ -283,11 +303,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         for name in builder.artifact_storage.list_processor_names():
             processor_artifacts[name] = builder.artifact_storage.load_processor_dataset(name).to_dict(orient="records")
 
-        if (
-            len(processed_dataset) > 0
-            and isinstance(analysis, DatasetProfilerResults)
-            and len(analysis.column_statistics) > 0
-        ):
+        if isinstance(analysis, DatasetProfilerResults) and len(analysis.column_statistics) > 0:
             logger.info(f"{RandomEmoji.success()} Preview complete!")
 
         # Create dataset metadata from the resource provider
