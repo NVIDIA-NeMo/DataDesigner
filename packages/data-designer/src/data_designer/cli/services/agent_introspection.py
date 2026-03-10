@@ -109,8 +109,6 @@ def get_builder_methods(*, include_docstrings: bool) -> list[dict[str, Any]]:
     for name, attr in inspect.getmembers(DataDesignerConfigBuilder):
         if name.startswith("_") and name != "__init__":
             continue
-        if name.startswith("__") and name != "__init__":
-            continue
         if not callable(attr):
             continue
 

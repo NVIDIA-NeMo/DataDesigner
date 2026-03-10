@@ -189,6 +189,8 @@ class AgentController:
         return str(value)
 
     def _get_operations(self) -> list[dict[str, str]]:
+        # Keep this description list aligned with the public `data-designer agent ...`
+        # commands exposed from data_designer.cli.main and data_designer.cli.commands.agent.
         return [
             {
                 "name": "context",

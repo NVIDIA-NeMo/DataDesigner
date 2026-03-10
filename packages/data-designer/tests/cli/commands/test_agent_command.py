@@ -53,7 +53,8 @@ def test_agent_schema_command_outputs_json_error() -> None:
         result = runner.invoke(app, ["agent", "schema", "columns", "missing"])
 
     assert result.exit_code == 1
-    payload = json.loads(result.output)
+    assert result.stdout == ""
+    payload = json.loads(result.stderr)
     assert payload == {
         "error": {
             "code": "internal_error",
@@ -83,3 +84,18 @@ def test_agent_state_model_aliases_command_outputs_json() -> None:
         "library_version": "1.2.3",
         "data": {"model_config_present": False, "items": []},
     }
+
+
+def test_agent_context_command_supports_compact_json() -> None:
+    runner = CliRunner()
+
+    with patch("data_designer.cli.commands.agent.AgentController") as mock_controller:
+        controller = MagicMock(spec=AgentController)
+        controller.get_library_version.return_value = "1.2.3"
+        controller.get_context.return_value = {"operations": []}
+        mock_controller.return_value = controller
+
+        result = runner.invoke(app, ["agent", "context", "--compact"])
+
+    assert result.exit_code == 0
+    assert result.output == '{"kind":"agent_context","library_version":"1.2.3","data":{"operations":[]}}\n'
