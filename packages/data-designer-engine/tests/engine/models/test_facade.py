@@ -167,13 +167,13 @@ def test_consolidate_kwargs(stub_model_configs: list[Any], stub_model_facade: Mo
         "extra_body": {"foo_provider": "bar_provider", "foo": "bar"},
     }
 
-    # Provider extra_headers
+    # Provider extra_headers merges with caller headers (provider takes precedence)
     stub_model_facade.model_provider.extra_body = None
     stub_model_facade.model_provider.extra_headers = {"hello": "world", "hola": "mundo"}
-    result = stub_model_facade.consolidate_kwargs()
+    result = stub_model_facade.consolidate_kwargs(extra_headers={"hello": "caller", "X-Trace-ID": "abc"})
     assert result == {
         **stub_model_configs[0].inference_parameters.generate_kwargs,
-        "extra_headers": {"hello": "world", "hola": "mundo"},
+        "extra_headers": {"hello": "world", "hola": "mundo", "X-Trace-ID": "abc"},
     }
 
 
@@ -1082,6 +1082,9 @@ def test_generate_image_no_image_data(
     with patch("data_designer.engine.models.facade.is_image_diffusion_model", return_value=False):
         with pytest.raises(ImageGenerationError, match="No image data found"):
             stub_model_facade.generate_image(prompt="test prompt")
+
+    assert stub_model_facade.usage_stats.request_usage.failed_requests == 1
+    assert stub_model_facade.usage_stats.request_usage.successful_requests == 0
 
 
 def test_generate_image_accumulates_usage(

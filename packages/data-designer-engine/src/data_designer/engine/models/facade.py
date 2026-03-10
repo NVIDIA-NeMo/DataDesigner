@@ -47,7 +47,11 @@ def _identity(x: Any) -> Any:
 logger = logging.getLogger(__name__)
 
 
-# Known keyword arguments extracted into ChatCompletionRequest fields.
+# Known keyword arguments extracted into request fields for each modality.
+# Note: `extra_body` and `extra_headers` appear in every set but receive special
+# treatment in `consolidate_kwargs` (merged with provider-level overrides) and in
+# `TransportKwargs` (extra_body is flattened into the request body, extra_headers
+# are forwarded as HTTP headers).  They are NOT regular model parameters.
 _COMPLETION_REQUEST_FIELDS = frozenset(
     {
         "temperature",
@@ -60,6 +64,24 @@ _COMPLETION_REQUEST_FIELDS = frozenset(
         "presence_penalty",
         "timeout",
         "tools",
+        "extra_body",
+        "extra_headers",
+    }
+)
+
+_EMBEDDING_REQUEST_FIELDS = frozenset(
+    {
+        "encoding_format",
+        "dimensions",
+        "timeout",
+        "extra_body",
+        "extra_headers",
+    }
+)
+
+_IMAGE_GENERATION_REQUEST_FIELDS = frozenset(
+    {
+        "timeout",
         "extra_body",
         "extra_headers",
     }
@@ -116,7 +138,7 @@ class ModelFacade:
         if self.model_provider.extra_body:
             kwargs["extra_body"] = {**kwargs.get("extra_body", {}), **self.model_provider.extra_body}
         if self.model_provider.extra_headers:
-            kwargs["extra_headers"] = self.model_provider.extra_headers
+            kwargs["extra_headers"] = {**kwargs.get("extra_headers", {}), **self.model_provider.extra_headers}
         return kwargs
 
     # --- completion / acompletion ---
@@ -537,6 +559,7 @@ class ModelFacade:
 
         kwargs = self.consolidate_kwargs(**kwargs)
         response: ImageGenerationResponse | None = None
+        got_usable_images = False
         try:
             request = self._build_image_generation_request(prompt, multi_modal_context, kwargs)
             response = self._client.generate_image(request)
@@ -546,6 +569,7 @@ class ModelFacade:
             if not images:
                 raise ImageGenerationError("No image data found in image generation response")
 
+            got_usable_images = True
             if not skip_usage_tracking:
                 self._usage_stats.extend(image_usage=ImageUsageStats(total_images=len(images)))
 
@@ -554,7 +578,7 @@ class ModelFacade:
             if not skip_usage_tracking:
                 self._track_usage(
                     response.usage if response is not None else None,
-                    is_request_successful=response is not None,
+                    is_request_successful=got_usable_images,
                 )
 
     @acatch_llm_exceptions
@@ -594,6 +618,7 @@ class ModelFacade:
 
         kwargs = self.consolidate_kwargs(**kwargs)
         response: ImageGenerationResponse | None = None
+        got_usable_images = False
         try:
             request = self._build_image_generation_request(prompt, multi_modal_context, kwargs)
             response = await self._client.agenerate_image(request)
@@ -603,6 +628,7 @@ class ModelFacade:
             if not images:
                 raise ImageGenerationError("No image data found in image generation response")
 
+            got_usable_images = True
             if not skip_usage_tracking:
                 self._usage_stats.extend(image_usage=ImageUsageStats(total_images=len(images)))
 
@@ -611,7 +637,7 @@ class ModelFacade:
             if not skip_usage_tracking:
                 self._track_usage(
                     response.usage if response is not None else None,
-                    is_request_successful=response is not None,
+                    is_request_successful=got_usable_images,
                 )
 
     # --- close / aclose ---
@@ -654,13 +680,20 @@ class ModelFacade:
             logger.debug(
                 "Unknown kwargs %s routed to LiteLLM metadata (not forwarded as model parameters). "
                 "Use 'extra_body' to pass non-standard parameters to the model.",
-                sorted(metadata.keys()),
+                metadata.keys(),
             )
 
         return ChatCompletionRequest(**request_fields)
 
     def _build_embedding_request(self, input_texts: list[str], kwargs: dict[str, Any]) -> EmbeddingRequest:
         """Build an EmbeddingRequest from input texts and consolidated kwargs."""
+        unknown = kwargs.keys() - _EMBEDDING_REQUEST_FIELDS
+        if unknown:
+            logger.debug(
+                "Unknown kwargs %s dropped from embedding request. "
+                "Use 'extra_body' to pass non-standard parameters to the model.",
+                unknown,
+            )
         return EmbeddingRequest(
             model=self.model_name,
             inputs=input_texts,
@@ -678,6 +711,13 @@ class ModelFacade:
         kwargs: dict[str, Any],
     ) -> ImageGenerationRequest:
         """Build an ImageGenerationRequest, choosing chat-completion vs diffusion path."""
+        unknown = kwargs.keys() - _IMAGE_GENERATION_REQUEST_FIELDS
+        if unknown:
+            logger.debug(
+                "Unknown kwargs %s dropped from image generation request. "
+                "Use 'extra_body' to pass non-standard parameters to the model.",
+                unknown,
+            )
         is_diffusion = is_image_diffusion_model(self.model_name)
 
         if is_diffusion:
