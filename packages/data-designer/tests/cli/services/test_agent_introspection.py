@@ -48,4 +48,4 @@ def test_get_builder_api_can_omit_docstrings() -> None:
     assert builder_api["class_name"] == "DataDesignerConfigBuilder"
     assert builder_api["import_path"] == "data_designer.config.DataDesignerConfigBuilder"
     assert builder_api["methods"]
-    assert all(method["docstring"] is None for method in builder_api["methods"])
+    assert all("docstring" not in method for method in builder_api["methods"])

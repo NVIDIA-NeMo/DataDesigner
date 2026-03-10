@@ -140,4 +140,4 @@ def test_get_context_returns_self_describing_payload(tmp_path: Path) -> None:
     assert payload["families"]
     assert "columns" in payload["types"]
     assert payload["builder"]["methods"]
-    assert all(method["docstring"] is None for method in payload["builder"]["methods"])
+    assert all("docstring" not in method for method in payload["builder"]["methods"])

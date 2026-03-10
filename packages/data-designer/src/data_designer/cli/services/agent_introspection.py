@@ -120,14 +120,15 @@ def get_builder_methods(*, include_docstrings: bool) -> list[dict[str, Any]]:
             continue
 
         docstring = inspect.getdoc(attr)
-        methods.append(
-            {
-                "name": name,
-                "signature": _format_signature(name, signature),
-                "summary": _get_first_docstring_line(docstring),
-                "docstring": docstring if include_docstrings else None,
-            }
-        )
+        method_info: dict[str, Any] = {
+            "name": name,
+            "signature": _format_signature(name, signature),
+            "summary": _get_first_docstring_line(docstring),
+        }
+        if include_docstrings:
+            method_info["docstring"] = docstring
+
+        methods.append(method_info)
 
     return methods
 
