@@ -94,8 +94,7 @@ def test_exclude_removes_fields_from_body() -> None:
         model="m",
         prompt="draw a cat",
         messages=[{"role": "user", "content": "hi"}],
-        n=2,
-        extra_body={"quality": "hd"},
+        extra_body={"n": 2, "quality": "hd"},
     )
     transport = TransportKwargs.from_request(request, exclude=frozenset({"messages", "prompt"}))
 
@@ -127,8 +126,7 @@ def test_image_generation_request() -> None:
     request = ImageGenerationRequest(
         model="m",
         prompt="sunset",
-        n=3,
-        extra_body={"size": "1024x1024"},
+        extra_body={"n": 3, "size": "1024x1024"},
     )
     transport = TransportKwargs.from_request(request)
 

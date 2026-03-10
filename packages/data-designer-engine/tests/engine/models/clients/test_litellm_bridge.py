@@ -39,7 +39,6 @@ def test_completion_maps_canonical_fields_from_litellm_response(
         max_tokens=256,
         extra_body={"foo": "bar"},
         extra_headers={"x-trace": "1"},
-        metadata={"trace_id": "abc"},
     )
     result = bridge_client.completion(request)
 
@@ -63,7 +62,6 @@ def test_completion_maps_canonical_fields_from_litellm_response(
         temperature=0.2,
         top_p=0.8,
         max_tokens=256,
-        metadata={"trace_id": "abc"},
         foo="bar",
     )
 
@@ -141,7 +139,7 @@ def test_generate_image_uses_chat_completion_path_when_messages_provided(
         model="stub-model",
         prompt="unused because messages are supplied",
         messages=messages,
-        n=1,
+        extra_body={"n": 1},
     )
     result = bridge_client.generate_image(request)
 
@@ -169,7 +167,7 @@ def test_generate_image_uses_diffusion_path_without_messages(
     )
     mock_router.image_generation.return_value = response
 
-    request = ImageGenerationRequest(model="stub-model", prompt="make an image", n=2)
+    request = ImageGenerationRequest(model="stub-model", prompt="make an image", extra_body={"n": 2})
     result = bridge_client.generate_image(request)
 
     assert [image.b64_data for image in result.images] == ["Zmlyc3Q=", "c2Vjb25k"]
@@ -243,7 +241,7 @@ async def test_agenerate_image_uses_diffusion_path_without_messages(
     )
     mock_router.aimage_generation = AsyncMock(return_value=response)
 
-    request = ImageGenerationRequest(model="stub-model", prompt="async image", n=1)
+    request = ImageGenerationRequest(model="stub-model", prompt="async image", extra_body={"n": 1})
     result = await bridge_client.agenerate_image(request)
 
     assert len(result.images) == 1
