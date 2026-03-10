@@ -4,11 +4,14 @@
 from __future__ import annotations
 
 from abc import ABC
+from enum import Enum
+from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, Field, field_validator
 from typing_extensions import Self
 
+from data_designer.config.errors import InvalidFilePathError
 from data_designer.config.utils.io_helpers import (
     VALID_DATASET_FILE_EXTENSIONS,
     validate_dataset_file_path,
@@ -65,3 +68,23 @@ class HuggingFaceSeedSource(SeedSource):
     )
     token: str | None = None
     endpoint: str = "https://huggingface.co"
+
+
+class TraceSeedFormat(str, Enum):
+    CLAUDE_CODE_DIR = "claude_code_dir"
+    CODEX_DIR = "codex_dir"
+    CHAT_COMPLETION_JSONL_DIR = "chat_completion_jsonl_dir"
+
+
+class TraceSeedSource(SeedSource):
+    seed_type: Literal["trace"] = "trace"
+
+    path: str = Field(..., description="Directory containing trace artifacts to normalize into a seed dataset.")
+    format: TraceSeedFormat = Field(..., description="Trace format stored under the provided directory.")
+
+    @field_validator("path", mode="after")
+    def validate_path(cls, value: str) -> str:
+        path = Path(value)
+        if not path.is_dir():
+            raise InvalidFilePathError(f"🛑 Path {path} is not a directory.")
+        return str(path)

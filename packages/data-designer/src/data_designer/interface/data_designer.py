@@ -46,6 +46,7 @@ from data_designer.engine.resources.seed_reader import (
     LocalFileSeedReader,
     SeedReader,
     SeedReaderRegistry,
+    TraceSeedReader,
 )
 from data_designer.engine.secret_resolver import (
     CompositeResolver,
@@ -88,6 +89,7 @@ DEFAULT_SEED_READERS = [
     HuggingFaceSeedReader(),
     LocalFileSeedReader(),
     DataFrameSeedReader(),
+    TraceSeedReader(),
 ]
 for plugin in PluginRegistry().get_plugins(PluginType.SEED_READER):
     DEFAULT_SEED_READERS.append(plugin.impl_cls())

@@ -54,7 +54,7 @@ Every column in your seed dataset becomes available as a Jinja2 variable in prom
 
 ## Seed Sources
 
-Data Designer supports three ways to provide seed data:
+Data Designer supports four ways to provide seed data:
 
 ### 📁 LocalFileSeedSource
 
@@ -99,6 +99,25 @@ seed_source = dd.DataFrameSeedSource(df=df)
 
 !!! warning "Serialization"
     `DataFrameSeedSource` can't be serialized to YAML/JSON configs. Use `LocalFileSeedSource` if you need to save and share configurations.
+
+### 🧭 TraceSeedSource
+
+Normalize agent traces into a first-class seed dataset. This is useful when you want to build workflows from prior Claude Code sessions, Codex rollouts, or chat-completion JSONL traces.
+
+```python
+seed_source = dd.TraceSeedSource(
+    path="trace-data/codex",
+    format=dd.TraceSeedFormat.CODEX_DIR,
+)
+```
+
+Supported trace formats:
+
+- `dd.TraceSeedFormat.CLAUDE_CODE_DIR`
+- `dd.TraceSeedFormat.CODEX_DIR`
+- `dd.TraceSeedFormat.CHAT_COMPLETION_JSONL_DIR`
+
+Each normalized trace row exposes common metadata columns such as `trace_id`, `source_kind`, and `final_assistant_message`, plus a `messages` column containing the full conversation in the same message-list shape used by Data Designer traces.
 
 ## Sampling Strategies
 

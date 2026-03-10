@@ -90,6 +90,8 @@ if TYPE_CHECKING:
     from data_designer.config.seed_source import (  # noqa: F401
         HuggingFaceSeedSource,
         LocalFileSeedSource,
+        TraceSeedFormat,
+        TraceSeedSource,
     )
     from data_designer.config.seed_source_dataframe import DataFrameSeedSource  # noqa: F401
     from data_designer.config.utils.code_lang import CodeLang  # noqa: F401
@@ -199,6 +201,8 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "DataFrameSeedSource": (f"{_MOD_BASE}.seed_source_dataframe", "DataFrameSeedSource"),
     "HuggingFaceSeedSource": (_MOD_SEED_SOURCE, "HuggingFaceSeedSource"),
     "LocalFileSeedSource": (_MOD_SEED_SOURCE, "LocalFileSeedSource"),
+    "TraceSeedFormat": (_MOD_SEED_SOURCE, "TraceSeedFormat"),
+    "TraceSeedSource": (_MOD_SEED_SOURCE, "TraceSeedSource"),
     # utils
     "CodeLang": (f"{_MOD_UTILS}.code_lang", "CodeLang"),
     "InfoType": (f"{_MOD_UTILS}.info", "InfoType"),

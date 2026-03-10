@@ -18,7 +18,8 @@ from data_designer.config.models import ModelProvider
 from data_designer.config.processors import DropColumnsProcessorConfig
 from data_designer.config.run_config import RunConfig
 from data_designer.config.sampler_params import CategorySamplerParams, SamplerType
-from data_designer.config.seed_source import HuggingFaceSeedSource
+from data_designer.config.seed_source import HuggingFaceSeedSource, TraceSeedFormat, TraceSeedSource
+from data_designer.engine.resources.seed_reader import TraceSeedReader
 from data_designer.engine.secret_resolver import CompositeResolver, EnvironmentResolver, PlaintextResolver
 from data_designer.engine.testing.stubs import StubHuggingFaceSeedReader
 from data_designer.interface.data_designer import DataDesigner
@@ -82,6 +83,21 @@ def test_init_with_string_path(stub_artifact_path, stub_model_providers):
     designer = DataDesigner(artifact_path=str(stub_artifact_path), model_providers=stub_model_providers)
     assert designer is not None
     assert isinstance(designer._artifact_path, Path)
+
+
+def test_default_seed_readers_include_trace_seed_reader(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    tmp_path: Path,
+) -> None:
+    designer = DataDesigner(artifact_path=stub_artifact_path, model_providers=stub_model_providers)
+
+    reader = designer._seed_reader_registry.get_reader(
+        TraceSeedSource(path=str(tmp_path), format=TraceSeedFormat.CHAT_COMPLETION_JSONL_DIR),
+        PlaintextResolver(),
+    )
+
+    assert isinstance(reader, TraceSeedReader)
 
 
 def test_init_with_path_object(stub_artifact_path, stub_model_providers):
