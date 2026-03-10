@@ -656,11 +656,10 @@ class ModelFacade:
 
         if metadata:
             logger.debug(
-                "Unknown kwargs %s routed to LiteLLM metadata (not forwarded as model parameters). "
+                "Unknown kwargs %s dropped (not forwarded as model parameters). "
                 "Use 'extra_body' to pass non-standard parameters to the model.",
                 sorted(metadata.keys()),
             )
-            request_fields["metadata"] = metadata
 
         return ChatCompletionRequest(**request_fields)
 

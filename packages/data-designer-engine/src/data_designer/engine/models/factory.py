@@ -70,6 +70,7 @@ def create_model_registry(
         secret_resolver=secret_resolver,
         model_provider_registry=model_provider_registry,
         model_facade_factory=model_facade_factory,
+        # Throttle acquire/release is wired in a follow-up PR (AsyncTaskScheduler integration).
         throttle_manager=ThrottleManager(),
         retry_config=RetryConfig(),
     )

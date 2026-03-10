@@ -64,30 +64,43 @@ class OpenAICompatibleClient(ModelClient):
         retry_config: RetryConfig | None = None,
         max_parallel_requests: int = 32,
         timeout_s: float = 60.0,
+        sync_client: httpx.Client | None = None,
+        async_client: httpx.AsyncClient | None = None,
     ) -> None:
         self.provider_name = provider_name
         self._model_id = model_id
         self._endpoint = endpoint.rstrip("/")
         self._api_key = api_key
         self._timeout_s = timeout_s
+        self._retry_config = retry_config
 
         # 2x headroom for burst traffic across domains; floor of 32/16 for low-concurrency configs.
         pool_max = max(32, 2 * max_parallel_requests)
         pool_keepalive = max(16, max_parallel_requests)
-        limits = lazy.httpx.Limits(
+        self._limits = lazy.httpx.Limits(
             max_connections=pool_max,
             max_keepalive_connections=pool_keepalive,
         )
-        self._client: httpx.Client = lazy.httpx.Client(
-            transport=create_retry_transport(retry_config),
-            limits=limits,
-            timeout=lazy.httpx.Timeout(timeout_s),
-        )
-        self._aclient: httpx.AsyncClient = lazy.httpx.AsyncClient(
-            transport=create_retry_transport(retry_config),
-            limits=limits,
-            timeout=lazy.httpx.Timeout(timeout_s),
-        )
+        self._client: httpx.Client | None = sync_client
+        self._aclient: httpx.AsyncClient | None = async_client
+
+    def _get_sync_client(self) -> httpx.Client:
+        if self._client is None:
+            self._client = lazy.httpx.Client(
+                transport=create_retry_transport(self._retry_config),
+                limits=self._limits,
+                timeout=lazy.httpx.Timeout(self._timeout_s),
+            )
+        return self._client
+
+    def _get_async_client(self) -> httpx.AsyncClient:
+        if self._aclient is None:
+            self._aclient = lazy.httpx.AsyncClient(
+                transport=create_retry_transport(self._retry_config),
+                limits=self._limits,
+                timeout=lazy.httpx.Timeout(self._timeout_s),
+            )
+        return self._aclient
 
     # -------------------------------------------------------------------
     # Capability checks
@@ -165,10 +178,12 @@ class OpenAICompatibleClient(ModelClient):
     # -------------------------------------------------------------------
 
     def close(self) -> None:
-        self._client.close()
+        if self._client is not None:
+            self._client.close()
 
     async def aclose(self) -> None:
-        await self._aclient.aclose()
+        if self._aclient is not None:
+            await self._aclient.aclose()
 
     # -------------------------------------------------------------------
     # HTTP helpers
@@ -192,7 +207,7 @@ class OpenAICompatibleClient(ModelClient):
         url = f"{self._endpoint}{route}"
         headers = self._build_headers(extra_headers)
         try:
-            response = self._client.post(url, json=payload, headers=headers)
+            response = self._get_sync_client().post(url, json=payload, headers=headers)
         except Exception as exc:
             raise _wrap_transport_error(exc, self.provider_name, model_name) from exc
         if response.status_code >= 400:
@@ -211,7 +226,7 @@ class OpenAICompatibleClient(ModelClient):
         url = f"{self._endpoint}{route}"
         headers = self._build_headers(extra_headers)
         try:
-            response = await self._aclient.post(url, json=payload, headers=headers)
+            response = await self._get_async_client().post(url, json=payload, headers=headers)
         except Exception as exc:
             raise _wrap_transport_error(exc, self.provider_name, model_name) from exc
         if response.status_code >= 400:
@@ -259,7 +274,7 @@ def _parse_json_body(response: httpx.Response, provider_name: str, model_name: s
         raise ProviderError(
             kind=ProviderErrorKind.API_ERROR,
             message=f"Provider {provider_name!r} returned a non-JSON response (status {response.status_code}).",
-            status_code=getattr(response, "status_code", None),
+            status_code=response.status_code,
             provider_name=provider_name,
             model_name=model_name,
             cause=exc,
