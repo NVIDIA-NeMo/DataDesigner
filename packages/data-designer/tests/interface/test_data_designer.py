@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -62,6 +63,16 @@ def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
     with path.open("w", encoding="utf-8") as file:
         for row in rows:
             file.write(f"{json.dumps(row)}\n")
+
+
+def _write_invalid_jsonl(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{invalid-json}\n", encoding="utf-8")
+
+
+def _write_empty_jsonl(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("", encoding="utf-8")
 
 
 def _write_claude_trace_directory(root_path: Path) -> None:
@@ -250,15 +261,36 @@ def _write_chat_completion_trace_directory(root_path: Path) -> None:
                 "trace_id": "row-1",
                 "session_id": "sess-1",
                 "split": "train",
+                "file_line": 99,
                 "messages": [
                     {"role": "developer", "content": "Use tools if needed"},
                     {"role": "user", "content": "Hi"},
                     {"role": "assistant", "content": "Hello"},
                 ],
             },
-            {"prompt": "Question?", "completion": "Answer."},
+            {"prompt": "Question?", "completion": "Answer.", "file_line": 100},
         ],
     )
+
+
+def _write_claude_trace_directory_with_skipped_files(root_path: Path) -> None:
+    _write_claude_trace_directory(root_path)
+    session_dir = root_path / "project-a"
+    _write_empty_jsonl(session_dir / "empty.jsonl")
+    _write_invalid_jsonl(session_dir / "malformed.jsonl")
+
+
+def _write_codex_trace_directory_with_skipped_files(root_path: Path) -> None:
+    _write_codex_trace_directory(root_path)
+    codex_dir = root_path / "sessions" / "2026" / "03" / "10"
+    _write_empty_jsonl(codex_dir / "rollout-empty.jsonl")
+    _write_invalid_jsonl(codex_dir / "rollout-malformed.jsonl")
+
+
+def _write_chat_completion_trace_directory_with_skipped_files(root_path: Path) -> None:
+    _write_chat_completion_trace_directory(root_path)
+    _write_empty_jsonl(root_path / "empty.jsonl")
+    _write_jsonl(root_path / "unsupported.jsonl", [{"unexpected": "shape"}])
 
 
 def test_init_with_custom_secret_resolver(stub_artifact_path, stub_model_providers):
@@ -486,17 +518,74 @@ def test_create_dataset_e2e_with_trace_seed_source(
     else:
         assert list(df["source_kind"]) == ["chat_completion_jsonl", "chat_completion_jsonl"]
         assert list(df["root_session_id"]) == ["chat:2", "sess-1"]
+        row_source_meta = dict(df[df["trace_id"] == "row-1"].iloc[0]["source_meta"])
+        assert row_source_meta["file_line"] == "99"
+        assert row_source_meta["source_file_line"] == "1"
 
 
-def test_create_raises_error_for_invalid_trace_seed_rows(
+@pytest.mark.parametrize(
+    ("trace_format", "writer", "expected_trace_ids"),
+    [
+        (
+            TraceSeedFormat.CLAUDE_CODE_DIR,
+            _write_claude_trace_directory_with_skipped_files,
+            ["session-1", "session-1:agent-a"],
+        ),
+        (
+            TraceSeedFormat.CODEX_DIR,
+            _write_codex_trace_directory_with_skipped_files,
+            ["codex-session"],
+        ),
+        (
+            TraceSeedFormat.CHAT_COMPLETION_JSONL_DIR,
+            _write_chat_completion_trace_directory_with_skipped_files,
+            ["chat:2", "row-1"],
+        ),
+    ],
+    ids=["claude-code", "codex", "chat-completion-jsonl"],
+)
+def test_create_dataset_skips_empty_and_malformed_trace_files(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_managed_assets_path: Path,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    trace_format: TraceSeedFormat,
+    writer: Any,
+    expected_trace_ids: list[str],
+) -> None:
+    trace_dir = tmp_path / f"{trace_format.value}-with-skips"
+    writer(trace_dir)
+    caplog.set_level(logging.WARNING)
+
+    builder = DataDesignerConfigBuilder()
+    builder.with_seed_dataset(TraceSeedSource(path=str(trace_dir), format=trace_format))
+    builder.add_column(ExpressionColumnConfig(name="assistant_copy", expr="{{ final_assistant_message }}"))
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    results = data_designer.create(builder, num_records=len(expected_trace_ids), dataset_name="trace-skip-test")
+    df = results.load_dataset().sort_values("trace_id").reset_index(drop=True)
+
+    assert list(df["trace_id"]) == expected_trace_ids
+    assert "Skipping empty" in caplog.text
+    assert "Skipping malformed" in caplog.text
+
+
+def test_create_raises_error_when_all_trace_files_are_skipped(
     stub_artifact_path: Path,
     stub_model_providers: list[ModelProvider],
     stub_managed_assets_path: Path,
     tmp_path: Path,
 ) -> None:
     trace_dir = tmp_path / "invalid-traces"
-    trace_dir.mkdir()
-    _write_jsonl(trace_dir / "invalid.jsonl", [{"unexpected": "shape"}])
+    _write_empty_jsonl(trace_dir / "empty.jsonl")
+    _write_jsonl(trace_dir / "unsupported.jsonl", [{"unexpected": "shape"}])
 
     builder = DataDesignerConfigBuilder()
     builder.with_seed_dataset(TraceSeedSource(path=str(trace_dir), format=TraceSeedFormat.CHAT_COMPLETION_JSONL_DIR))
@@ -509,7 +598,7 @@ def test_create_raises_error_for_invalid_trace_seed_rows(
         managed_assets_path=stub_managed_assets_path,
     )
 
-    with pytest.raises(DataDesignerGenerationError, match="invalid.jsonl line 1"):
+    with pytest.raises(DataDesignerGenerationError, match="No valid chat-completion JSONL files found"):
         data_designer.create(builder, num_records=1, dataset_name="invalid-trace-seed")
 
 
