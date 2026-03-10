@@ -58,7 +58,6 @@ _COMPLETION_REQUEST_FIELDS = frozenset(
         "response_format",
         "frequency_penalty",
         "presence_penalty",
-        "n",
         "timeout",
         "tools",
         "extra_body",
@@ -527,7 +526,7 @@ class ModelFacade:
             multi_modal_context: Optional list of image contexts for multi-modal generation.
                 Only used with autoregressive models via chat completions API.
             skip_usage_tracking: Whether to skip usage tracking
-            **kwargs: Additional arguments to pass to the model (including n=number of images)
+            **kwargs: Additional arguments to pass to the model
 
         Returns:
             List of base64-encoded image strings (without data URI prefix)
@@ -584,7 +583,7 @@ class ModelFacade:
             multi_modal_context: Optional list of image contexts for multi-modal generation.
                 Only used with autoregressive models via chat completions API.
             skip_usage_tracking: Whether to skip usage tracking
-            **kwargs: Additional arguments to pass to the model (including n=number of images)
+            **kwargs: Additional arguments to pass to the model
 
         Returns:
             List of base64-encoded image strings (without data URI prefix)
@@ -690,7 +689,6 @@ class ModelFacade:
             return ImageGenerationRequest(
                 model=self.model_name,
                 prompt=prompt,
-                n=kwargs.get("n"),
                 timeout=kwargs.get("timeout"),
                 extra_body=kwargs.get("extra_body"),
                 extra_headers=kwargs.get("extra_headers"),
@@ -703,7 +701,6 @@ class ModelFacade:
             model=self.model_name,
             prompt=prompt,
             messages=chat_messages,
-            n=kwargs.get("n"),
             timeout=kwargs.get("timeout"),
             extra_body=kwargs.get("extra_body"),
             extra_headers=kwargs.get("extra_headers"),

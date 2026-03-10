@@ -226,12 +226,18 @@ class ModelRegistry:
     def close(self) -> None:
         """Release resources held by all model facades."""
         for facade in self._models.values():
-            facade.close()
+            try:
+                facade.close()
+            except Exception:
+                logger.exception("Error closing facade for %s", facade.model_alias)
 
     async def aclose(self) -> None:
         """Async release resources held by all model facades."""
         for facade in self._models.values():
-            await facade.aclose()
+            try:
+                await facade.aclose()
+            except Exception:
+                logger.exception("Error closing facade for %s", facade.model_alias)
 
     def _get_model(self, model_config: ModelConfig) -> ModelFacade:
         if self._model_facade_factory is None:

@@ -59,11 +59,9 @@ class ChatCompletionRequest:
     response_format: dict[str, Any] | None = None
     frequency_penalty: float | None = None
     presence_penalty: float | None = None
-    n: int | None = None
     timeout: float | None = None
     extra_body: dict[str, Any] | None = None
     extra_headers: dict[str, str] | None = None
-    metadata: dict[str, Any] | None = None
 
 
 @dataclass
@@ -96,7 +94,6 @@ class ImageGenerationRequest:
     model: str
     prompt: str
     messages: list[dict[str, Any]] | None = None
-    n: int | None = None
     timeout: float | None = None
     extra_body: dict[str, Any] | None = None
     extra_headers: dict[str, str] | None = None

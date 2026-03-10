@@ -1019,7 +1019,7 @@ def test_generate_image_diffusion_tracks_image_usage(
     assert stub_model_facade.usage_stats.image_usage.total_images == 0
 
     with patch("data_designer.engine.models.facade.is_image_diffusion_model", return_value=True):
-        images = stub_model_facade.generate_image(prompt="test prompt", n=3)
+        images = stub_model_facade.generate_image(prompt="test prompt", extra_body={"n": 3})
 
     assert len(images) == 3
     assert images == ["image1_base64", "image2_base64", "image3_base64"]
