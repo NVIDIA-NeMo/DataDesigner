@@ -283,7 +283,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
 
         if len(processed_dataset) == 0:
             raise DataDesignerGenerationError(
-                "🛑 Dataset is empty — all records were dropped due to generation failures. "
+                "🛑 Dataset is empty — all records were dropped due to generation or processing failures. "
                 "Check the warnings above for details on which columns failed."
             )
 
@@ -303,11 +303,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         for name in builder.artifact_storage.list_processor_names():
             processor_artifacts[name] = builder.artifact_storage.load_processor_dataset(name).to_dict(orient="records")
 
-        if (
-            len(processed_dataset) > 0
-            and isinstance(analysis, DatasetProfilerResults)
-            and len(analysis.column_statistics) > 0
-        ):
+        if isinstance(analysis, DatasetProfilerResults) and len(analysis.column_statistics) > 0:
             logger.info(f"{RandomEmoji.success()} Preview complete!")
 
         # Create dataset metadata from the resource provider
