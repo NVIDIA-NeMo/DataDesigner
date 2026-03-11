@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -106,13 +107,30 @@ def _discover_directory_files(root_path: Path, glob_pattern: str) -> list[Path]:
     return matched_files
 
 
+def _get_handled_files(
+    *,
+    matched_files: list[Path],
+    is_handled: Callable[[Path], bool],
+    source_label: str,
+) -> list[Path]:
+    handled_files: list[Path] = []
+    for file_path in matched_files:
+        if is_handled(file_path):
+            handled_files.append(file_path)
+        else:
+            logger.warning("Skipping unhandled %s file %s", source_label, file_path)
+    return handled_files
+
+
 def _normalize_claude_directory(root_path: Path, matched_files: list[Path]) -> list[NormalizedTraceRecord]:
     source_kind = SOURCE_KIND_BY_TRANSFORM_TYPE["claude_code_trace"]
     session_index = _load_claude_session_index(root_path)
-    trace_files = sorted(
-        path
-        for path in matched_files
-        if path.suffix == ".jsonl" and "tool-results" not in path.parts and path.name != "history.jsonl"
+    trace_files = _get_handled_files(
+        matched_files=matched_files,
+        is_handled=lambda path: path.suffix == ".jsonl"
+        and "tool-results" not in path.parts
+        and path.name != "history.jsonl",
+        source_label="Claude Code",
     )
     if not trace_files:
         raise TraceSeedParseError(f"No Claude Code session JSONL files found under {root_path}")
@@ -196,7 +214,11 @@ def _normalize_claude_directory(root_path: Path, matched_files: list[Path]) -> l
 
 def _normalize_codex_directory(root_path: Path, matched_files: list[Path]) -> list[NormalizedTraceRecord]:
     source_kind = SOURCE_KIND_BY_TRANSFORM_TYPE["codex_trace"]
-    trace_files = sorted(path for path in matched_files if path.suffix == ".jsonl" and path.name.startswith("rollout-"))
+    trace_files = _get_handled_files(
+        matched_files=matched_files,
+        is_handled=lambda path: path.suffix == ".jsonl" and path.name.startswith("rollout-"),
+        source_label="Codex",
+    )
     if not trace_files:
         raise TraceSeedParseError(f"No Codex rollout JSONL files found under {root_path}")
 
@@ -327,7 +349,11 @@ def _normalize_codex_directory(root_path: Path, matched_files: list[Path]) -> li
 
 def _normalize_chat_completion_directory(root_path: Path, matched_files: list[Path]) -> list[NormalizedTraceRecord]:
     source_kind = SOURCE_KIND_BY_TRANSFORM_TYPE["chat_completion_jsonl"]
-    trace_files = sorted(path for path in matched_files if path.suffix == ".jsonl")
+    trace_files = _get_handled_files(
+        matched_files=matched_files,
+        is_handled=lambda path: path.suffix == ".jsonl",
+        source_label="chat-completion",
+    )
     if not trace_files:
         raise TraceSeedParseError(f"No chat-completion JSONL files found under {root_path}")
 

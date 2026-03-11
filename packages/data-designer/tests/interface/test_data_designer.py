@@ -300,6 +300,22 @@ def _write_chat_completion_trace_directory_with_skipped_files(root_path: Path) -
     _write_jsonl(root_path / "unsupported.jsonl", [{"unexpected": "shape"}])
 
 
+def _write_claude_trace_directory_with_unhandled_files(root_path: Path) -> None:
+    _write_claude_trace_directory(root_path)
+    _write_jsonl(root_path / "project-a" / "history.jsonl", [{"type": "system"}])
+    _write_jsonl(root_path / "project-a" / "tool-results" / "ignored.jsonl", [{"type": "system"}])
+
+
+def _write_codex_trace_directory_with_unhandled_files(root_path: Path) -> None:
+    _write_codex_trace_directory(root_path)
+    _write_jsonl(root_path / "sessions" / "2026" / "03" / "10" / "history.jsonl", [{"type": "session_meta"}])
+
+
+def _write_chat_completion_trace_directory_with_unhandled_files(root_path: Path) -> None:
+    _write_chat_completion_trace_directory(root_path)
+    (root_path / "notes.txt").write_text("ignore me", encoding="utf-8")
+
+
 def test_init_with_custom_secret_resolver(stub_artifact_path, stub_model_providers):
     """Test DataDesigner initialization with custom secret resolver."""
     designer = DataDesigner(
@@ -594,6 +610,73 @@ def test_create_dataset_skips_empty_and_malformed_trace_files(
     assert list(df["trace_id"]) == expected_trace_ids
     assert "Skipping empty" in caplog.text
     assert "Skipping malformed" in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("dir_name", "transform", "writer", "glob_pattern", "expected_trace_ids", "expected_warning"),
+    [
+        (
+            "claude-code",
+            ClaudeCodeTraceNormalizer(),
+            _write_claude_trace_directory_with_unhandled_files,
+            "**/*.jsonl",
+            ["session-1", "session-1:agent-a"],
+            "Skipping unhandled Claude Code file",
+        ),
+        (
+            "codex",
+            CodexTraceNormalizer(),
+            _write_codex_trace_directory_with_unhandled_files,
+            "**/*.jsonl",
+            ["codex-session"],
+            "Skipping unhandled Codex file",
+        ),
+        (
+            "chat-completion-jsonl",
+            ChatCompletionJsonlNormalizer(),
+            _write_chat_completion_trace_directory_with_unhandled_files,
+            "**/*",
+            ["chat:2", "row-1"],
+            "Skipping unhandled chat-completion file",
+        ),
+    ],
+    ids=["claude-code", "codex", "chat-completion-jsonl"],
+)
+def test_create_dataset_warns_for_unhandled_transform_files(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_managed_assets_path: Path,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    dir_name: str,
+    transform: Any,
+    writer: Any,
+    glob_pattern: str,
+    expected_trace_ids: list[str],
+    expected_warning: str,
+) -> None:
+    trace_dir = tmp_path / f"{dir_name}-with-unhandled"
+    writer(trace_dir)
+    caplog.set_level(logging.WARNING)
+
+    builder = DataDesignerConfigBuilder()
+    builder.with_seed_dataset(
+        DirectorySeedSource(path=str(trace_dir), glob=glob_pattern, transform=transform),
+    )
+    builder.add_column(ExpressionColumnConfig(name="assistant_copy", expr="{{ final_assistant_message }}"))
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    results = data_designer.create(builder, num_records=len(expected_trace_ids), dataset_name="trace-unhandled-test")
+    df = results.load_dataset().sort_values("trace_id").reset_index(drop=True)
+
+    assert list(df["trace_id"]) == expected_trace_ids
+    assert expected_warning in caplog.text
 
 
 def test_create_raises_error_when_all_trace_files_are_skipped(
