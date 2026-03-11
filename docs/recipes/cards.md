@@ -45,6 +45,24 @@ Each recipe is a self-contained example that can be run independently.
     [:material-book-open-page-variant: View Recipe](code_generation/text_to_sql.md){ .md-button }
     [Download Code :octicons-download-24:](../assets/recipes/code_generation/text_to_sql.py){ .md-button download="text_to_sql.py" }
 
+-   :material-database-search:{ .lg .middle } **Enterprise Text to SQL**
+
+    Generate enterprise-grade text-to-SQL training data with dialect-specific SQL, distractor table/column injection, dirty data handling, and multi-dimensional judge scoring.
+
+    ---
+
+    **Demonstrates:**
+
+    - Dialect-specific SQL generation (SQLite, MySQL, PostgreSQL)
+    - Distractor table and dirty data injection
+    - Conditional sampling with SubcategorySamplerParams
+    - Multi-judge scoring with score extraction
+
+    ---
+
+    [:material-book-open-page-variant: View Recipe](code_generation/enterprise_text_to_sql.md){ .md-button }
+    [Download Code :octicons-download-24:](../assets/recipes/code_generation/enterprise_text_to_sql.py){ .md-button download="enterprise_text_to_sql.py" }
+
 
 -   :material-chat:{ .lg .middle } **Product Info QA**
 
@@ -116,5 +134,24 @@ Each recipe is a self-contained example that can be run independently.
 
     [:material-book-open-page-variant: View Recipe](mcp_and_tooluse/pdf_qa.md){ .md-button }
     [Download Code :octicons-download-24:](../assets/recipes/mcp_and_tooluse/pdf_qa.py){ .md-button download="pdf_qa.py" }
+
+-   :material-magnify:{ .lg .middle } **Search Agent (MCP + Tool Use)**
+
+    Generate multi-turn deep research trajectories where an LLM iteratively searches, reads, and synthesizes evidence to answer questions using a BM25 retriever MCP server.
+
+    ---
+
+    **Demonstrates:**
+
+    - MCP tool calling with LocalStdioMCPProvider
+    - BM25 retriever with search/open/find tools
+    - Multi-turn research trajectory generation
+    - LLM judge rejection sampling
+    - Per-column trace capture
+
+    ---
+
+    [:material-book-open-page-variant: View Recipe](mcp_and_tooluse/search_agent.md){ .md-button }
+    [Download Code :octicons-download-24:](../assets/recipes/mcp_and_tooluse/search_agent.py){ .md-button download="search_agent.py" }
 
 </div>
