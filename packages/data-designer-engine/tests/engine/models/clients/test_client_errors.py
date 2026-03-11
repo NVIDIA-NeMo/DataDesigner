@@ -10,6 +10,7 @@ import pytest
 from data_designer.engine.models.clients.errors import (
     ProviderError,
     ProviderErrorKind,
+    extract_message_from_exception_string,
     map_http_error_to_provider_error,
     map_http_status_to_provider_error_kind,
 )
@@ -207,3 +208,46 @@ def test_map_http_error_retry_after_returns_none_for_garbage() -> None:
     )
     error = map_http_error_to_provider_error(response=response, provider_name="stub-provider")
     assert error.retry_after is None
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        (
+            "Error code: 400 - {'error': {'message': 'Context length exceeded', 'type': 'invalid_request_error'}}".replace(
+                "'", '"'
+            ),
+            "Context length exceeded",
+        ),
+        (
+            'Error code: 403 - {"error": "Insufficient permissions"}',
+            "Insufficient permissions",
+        ),
+        (
+            'Error code: 500 - {"message": "Internal failure"}',
+            "Internal failure",
+        ),
+        (
+            'Error code: 422 - {"detail": "Unprocessable entity"}',
+            "Unprocessable entity",
+        ),
+        (
+            "Connection timed out",
+            "Connection timed out",
+        ),
+        (
+            "Error code: 400 - {not valid json",
+            "Error code: 400 - {not valid json",
+        ),
+    ],
+    ids=[
+        "nested-error-message",
+        "top-level-error-string",
+        "top-level-message-string",
+        "top-level-detail-string",
+        "no-json-passthrough",
+        "malformed-json-passthrough",
+    ],
+)
+def test_extract_message_from_exception_string(raw: str, expected: str) -> None:
+    assert extract_message_from_exception_string(raw) == expected

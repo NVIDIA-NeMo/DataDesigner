@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from data_designer.config.models import GenerationType, ModelConfig
 from data_designer.engine.model_provider import ModelProvider, ModelProviderRegistry
@@ -27,7 +27,7 @@ class ModelRegistry:
         model_provider_registry: ModelProviderRegistry,
         model_configs: list[ModelConfig] | None = None,
         model_facade_factory: Callable[[ModelConfig, SecretResolver, ModelProviderRegistry], ModelFacade] | None = None,
-    ):
+    ) -> None:
         self._secret_resolver = secret_resolver
         self._model_provider_registry = model_provider_registry
         self._model_facade_factory = model_facade_factory
@@ -69,7 +69,7 @@ class ModelRegistry:
             raise ValueError(f"No model config with alias {model_alias!r} found!")
         return self._model_configs[model_alias]
 
-    def get_model_usage_stats(self, total_time_elapsed: float) -> dict[str, dict]:
+    def get_model_usage_stats(self, total_time_elapsed: float) -> dict[str, dict[str, Any]]:
         return {
             model.model_name: model.usage_stats.get_usage_stats(total_time_elapsed=total_time_elapsed)
             for model in self._models.values()
@@ -200,10 +200,32 @@ class ModelRegistry:
                 logger.error(f"{LOG_INDENT}❌ Failed!")
                 raise e
 
-    def _set_model_configs(self, model_configs: list[ModelConfig]) -> None:
-        model_configs = model_configs or []
-        self._model_configs = {mc.alias: mc for mc in model_configs}
-        # Models are now lazily initialized in get_model() when first requested
+    def _set_model_configs(self, model_configs: list[ModelConfig] | None) -> None:
+        self._model_configs = {mc.alias: mc for mc in (model_configs or [])}
+
+    def close(self) -> None:
+        """Release resources held by all model facades.
+
+        NOTE: Not yet wired into ResourceProvider / DataDesigner teardown.
+        Callers that create a ModelRegistry directly should call this when done.
+        Full lifecycle integration is tracked for a follow-up PR.
+        """
+        for facade in self._models.values():
+            try:
+                facade.close()
+            except Exception:
+                logger.exception("Error closing facade for %s", facade.model_alias)
+
+    async def aclose(self) -> None:
+        """Async release resources held by all model facades.
+
+        See `close()` for lifecycle notes.
+        """
+        for facade in self._models.values():
+            try:
+                await facade.aclose()
+            except Exception:
+                logger.exception("Error closing facade for %s", facade.model_alias)
 
     def _get_model(self, model_config: ModelConfig) -> ModelFacade:
         if self._model_facade_factory is None:

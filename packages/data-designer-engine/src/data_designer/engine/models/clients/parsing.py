@@ -5,9 +5,9 @@
 
 from __future__ import annotations
 
-import dataclasses
 import json
 import logging
+import uuid
 from typing import Any
 
 from data_designer.config.utils.image_helpers import (
@@ -206,7 +206,7 @@ def extract_tool_calls(raw_tool_calls: Any) -> list[ToolCall]:
 
     normalized_tool_calls: list[ToolCall] = []
     for raw_tool_call in raw_tool_calls:
-        tool_call_id = get_value_from(raw_tool_call, "id") or ""
+        tool_call_id = get_value_from(raw_tool_call, "id") or uuid.uuid4().hex
         function = get_value_from(raw_tool_call, "function")
         name = get_value_from(function, "name") or ""
         arguments_value = get_value_from(function, "arguments")
@@ -333,17 +333,3 @@ def get_first_value_or_none(values: Any) -> Any | None:
     if isinstance(values, list) and values:
         return values[0]
     return None
-
-
-def collect_non_none_optional_fields(request: Any, *, exclude: frozenset[str] = frozenset()) -> dict[str, Any]:
-    """Extract non-None optional fields from a request dataclass, skipping *exclude*.
-
-    The ``f.default is None`` check intentionally targets fields whose default is
-    ``None`` — i.e. truly optional kwargs the caller may or may not set.  Fields with
-    non-``None`` defaults are not "optional" in this forwarding sense and are excluded.
-    """
-    return {
-        f.name: v
-        for f in dataclasses.fields(request)
-        if f.name not in exclude and f.default is None and (v := getattr(request, f.name)) is not None
-    }

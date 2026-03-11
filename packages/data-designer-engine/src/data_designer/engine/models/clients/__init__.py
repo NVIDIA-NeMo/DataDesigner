@@ -10,6 +10,7 @@ from data_designer.engine.models.clients.errors import (
     map_http_error_to_provider_error,
     map_http_status_to_provider_error_kind,
 )
+from data_designer.engine.models.clients.factory import create_model_client
 from data_designer.engine.models.clients.types import (
     AssistantMessage,
     ChatCompletionRequest,
@@ -25,12 +26,12 @@ from data_designer.engine.models.clients.types import (
 )
 
 __all__ = [
-    "HttpResponse",
     "AssistantMessage",
     "ChatCompletionRequest",
     "ChatCompletionResponse",
     "EmbeddingRequest",
     "EmbeddingResponse",
+    "HttpResponse",
     "ImageGenerationRequest",
     "ImageGenerationResponse",
     "ImagePayload",
@@ -39,6 +40,7 @@ __all__ = [
     "ProviderErrorKind",
     "ToolCall",
     "Usage",
+    "create_model_client",
     "map_http_error_to_provider_error",
     "map_http_status_to_provider_error_kind",
 ]

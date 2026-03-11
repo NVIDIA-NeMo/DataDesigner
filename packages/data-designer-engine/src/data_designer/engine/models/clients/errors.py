@@ -5,8 +5,8 @@ from __future__ import annotations
 
 import calendar
 import email.utils
+import json
 import time
-from dataclasses import dataclass
 from enum import Enum
 
 from data_designer.engine.models.clients.types import HttpResponse
@@ -28,20 +28,26 @@ class ProviderErrorKind(str, Enum):
     UNSUPPORTED_CAPABILITY = "unsupported_capability"
 
 
-@dataclass
 class ProviderError(Exception):
-    kind: ProviderErrorKind
-    message: str
-    status_code: int | None = None
-    provider_name: str | None = None
-    model_name: str | None = None
-    retry_after: float | None = None
-    cause: Exception | None = None
-
-    def __post_init__(self) -> None:
-        Exception.__init__(self, self.message)
-        if self.cause is not None:
-            self.__cause__ = self.cause
+    def __init__(
+        self,
+        kind: ProviderErrorKind,
+        message: str,
+        status_code: int | None = None,
+        provider_name: str | None = None,
+        model_name: str | None = None,
+        retry_after: float | None = None,
+        cause: Exception | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.kind = kind
+        self.message = message
+        self.status_code = status_code
+        self.provider_name = provider_name
+        self.model_name = model_name
+        self.retry_after = retry_after
+        if cause is not None:
+            self.__cause__ = cause
 
     def __str__(self) -> str:
         return self.message
@@ -116,6 +122,31 @@ def map_http_error_to_provider_error(
         model_name=model_name,
         retry_after=retry_after,
     )
+
+
+def extract_message_from_exception_string(raw: str) -> str:
+    """Extract a human-readable message from a stringified LiteLLM exception.
+
+    LiteLLM often formats errors as ``"Error code: 400 - {json}"``.  This
+    mirrors the structured-key lookup in ``_extract_structured_message`` but
+    operates on a raw string instead of an ``HttpResponse``.
+    """
+    json_start = raw.find("{")
+    if json_start != -1:
+        try:
+            payload = json.loads(raw[json_start:])
+        except (json.JSONDecodeError, ValueError):
+            return raw
+        if isinstance(payload, dict):
+            for key in ("message", "error", "detail"):
+                value = payload.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+                if isinstance(value, dict):
+                    nested = value.get("message")
+                    if isinstance(nested, str) and nested.strip():
+                        return nested.strip()
+    return raw
 
 
 def _extract_response_text(response: HttpResponse) -> str:
