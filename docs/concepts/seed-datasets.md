@@ -100,24 +100,36 @@ seed_source = dd.DataFrameSeedSource(df=df)
 !!! warning "Serialization"
     `DataFrameSeedSource` can't be serialized to YAML/JSON configs. Use `LocalFileSeedSource` if you need to save and share configurations.
 
-### 🧭 TraceSeedSource
+### 📂 DirectorySeedSource
 
-Normalize agent traces into a first-class seed dataset. This is useful when you want to build workflows from prior Claude Code sessions, Codex rollouts, or chat-completion JSONL traces.
+Read a directory of files as a seed dataset, optionally applying a full-batch transform before normal seeding begins.
+
+Without a transform, each matched file becomes one row with file metadata such as `source_path`, `relative_path`, and `file_name`.
 
 ```python
-seed_source = dd.TraceSeedSource(
-    path="trace-data/codex",
-    format=dd.TraceSeedFormat.CODEX_DIR,
+seed_source = dd.DirectorySeedSource(
+    path="seed-files",
+    glob="**/*.txt",
 )
 ```
 
-Supported trace formats:
+You can also attach built-in trace normalizers to turn directories of agent traces into a first-class normalized seed dataset:
 
-- `dd.TraceSeedFormat.CLAUDE_CODE_DIR`
-- `dd.TraceSeedFormat.CODEX_DIR`
-- `dd.TraceSeedFormat.CHAT_COMPLETION_JSONL_DIR`
+```python
+seed_source = dd.DirectorySeedSource(
+    path="trace-data/codex",
+    glob="**/*.jsonl",
+    transform=dd.CodexTraceNormalizer(),
+)
+```
 
-Each normalized trace row exposes common metadata columns such as `trace_id`, `source_kind`, and `final_assistant_message`, plus a `messages` column containing the full conversation in the same message-list shape used by Data Designer traces.
+Built-in directory transforms in this PR:
+
+- `dd.ClaudeCodeTraceNormalizer()`
+- `dd.CodexTraceNormalizer()`
+- `dd.ChatCompletionJsonlNormalizer()`
+
+These transforms expose normalized trace rows with common metadata such as `trace_id`, `source_kind`, and `final_assistant_message`, plus a `messages` column containing the full conversation in the same message-list shape used by Data Designer traces.
 
 ## Sampling Strategies
 

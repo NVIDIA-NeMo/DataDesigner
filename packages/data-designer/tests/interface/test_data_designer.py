@@ -21,7 +21,13 @@ from data_designer.config.models import ModelProvider
 from data_designer.config.processors import DropColumnsProcessorConfig
 from data_designer.config.run_config import RunConfig
 from data_designer.config.sampler_params import CategorySamplerParams, SamplerType
-from data_designer.config.seed_source import HuggingFaceSeedSource, TraceSeedFormat, TraceSeedSource
+from data_designer.config.seed_source import (
+    ChatCompletionJsonlNormalizer,
+    ClaudeCodeTraceNormalizer,
+    CodexTraceNormalizer,
+    DirectorySeedSource,
+    HuggingFaceSeedSource,
+)
 from data_designer.engine.secret_resolver import CompositeResolver, EnvironmentResolver, PlaintextResolver
 from data_designer.engine.testing.stubs import StubHuggingFaceSeedReader
 from data_designer.interface.data_designer import DataDesigner
@@ -437,24 +443,27 @@ def test_create_dataset_e2e_using_only_sampler_columns(
 
 
 @pytest.mark.parametrize(
-    ("trace_format", "writer", "expected_trace_ids", "expected_messages", "expected_tool_counts"),
+    ("dir_name", "transform", "writer", "expected_trace_ids", "expected_messages", "expected_tool_counts"),
     [
         (
-            TraceSeedFormat.CLAUDE_CODE_DIR,
+            "claude-code",
+            ClaudeCodeTraceNormalizer(),
             _write_claude_trace_directory,
             ["session-1", "session-1:agent-a"],
             ["Repo inspected", "Tests checked"],
             [1, 0],
         ),
         (
-            TraceSeedFormat.CODEX_DIR,
+            "codex",
+            CodexTraceNormalizer(),
             _write_codex_trace_directory,
             ["codex-session"],
             ["Listed files"],
             [1],
         ),
         (
-            TraceSeedFormat.CHAT_COMPLETION_JSONL_DIR,
+            "chat-completion-jsonl",
+            ChatCompletionJsonlNormalizer(),
             _write_chat_completion_trace_directory,
             ["chat:2", "row-1"],
             ["Answer.", "Hello"],
@@ -463,22 +472,25 @@ def test_create_dataset_e2e_using_only_sampler_columns(
     ],
     ids=["claude-code", "codex", "chat-completion-jsonl"],
 )
-def test_create_dataset_e2e_with_trace_seed_source(
+def test_create_dataset_e2e_with_directory_seed_source_trace_transform(
     stub_artifact_path: Path,
     stub_model_providers: list[ModelProvider],
     stub_managed_assets_path: Path,
     tmp_path: Path,
-    trace_format: TraceSeedFormat,
+    dir_name: str,
+    transform: Any,
     writer: Any,
     expected_trace_ids: list[str],
     expected_messages: list[str],
     expected_tool_counts: list[int],
 ) -> None:
-    trace_dir = tmp_path / trace_format.value
+    trace_dir = tmp_path / dir_name
     writer(trace_dir)
 
     builder = DataDesignerConfigBuilder()
-    builder.with_seed_dataset(TraceSeedSource(path=str(trace_dir), format=trace_format))
+    builder.with_seed_dataset(
+        DirectorySeedSource(path=str(trace_dir), glob="**/*.jsonl", transform=transform),
+    )
     builder.add_column(ExpressionColumnConfig(name="assistant_copy", expr="{{ final_assistant_message }}"))
     builder.add_column(ExpressionColumnConfig(name="trace_label", expr="{{ source_kind }}::{{ trace_id }}"))
 
@@ -492,7 +504,7 @@ def test_create_dataset_e2e_with_trace_seed_source(
     results = data_designer.create(
         builder,
         num_records=len(expected_trace_ids),
-        dataset_name=f"trace-{trace_format.value}",
+        dataset_name=f"trace-{dir_name}",
     )
     df = results.load_dataset().sort_values("trace_id").reset_index(drop=True)
 
@@ -506,13 +518,13 @@ def test_create_dataset_e2e_with_trace_seed_source(
     assert "messages" in df.columns
     assert "_internal_row_id" not in df.columns
 
-    if trace_format == TraceSeedFormat.CLAUDE_CODE_DIR:
+    if isinstance(transform, ClaudeCodeTraceNormalizer):
         assert list(df["source_kind"]) == ["claude_code", "claude_code"]
         assert lazy.pd.isna(df.iloc[0]["agent_id"])
         assert df.iloc[1]["agent_id"] == "agent-a"
         assert list(df["project_path"]) == ["/repo-from-index", "/repo-from-index"]
         assert list(df["is_sidechain"]) == [False, True]
-    elif trace_format == TraceSeedFormat.CODEX_DIR:
+    elif isinstance(transform, CodexTraceNormalizer):
         assert list(df["source_kind"]) == ["codex"]
         assert list(df["cwd"]) == ["/workspace"]
     else:
@@ -524,20 +536,23 @@ def test_create_dataset_e2e_with_trace_seed_source(
 
 
 @pytest.mark.parametrize(
-    ("trace_format", "writer", "expected_trace_ids"),
+    ("dir_name", "transform", "writer", "expected_trace_ids"),
     [
         (
-            TraceSeedFormat.CLAUDE_CODE_DIR,
+            "claude-code",
+            ClaudeCodeTraceNormalizer(),
             _write_claude_trace_directory_with_skipped_files,
             ["session-1", "session-1:agent-a"],
         ),
         (
-            TraceSeedFormat.CODEX_DIR,
+            "codex",
+            CodexTraceNormalizer(),
             _write_codex_trace_directory_with_skipped_files,
             ["codex-session"],
         ),
         (
-            TraceSeedFormat.CHAT_COMPLETION_JSONL_DIR,
+            "chat-completion-jsonl",
+            ChatCompletionJsonlNormalizer(),
             _write_chat_completion_trace_directory_with_skipped_files,
             ["chat:2", "row-1"],
         ),
@@ -550,16 +565,19 @@ def test_create_dataset_skips_empty_and_malformed_trace_files(
     stub_managed_assets_path: Path,
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
-    trace_format: TraceSeedFormat,
+    dir_name: str,
+    transform: Any,
     writer: Any,
     expected_trace_ids: list[str],
 ) -> None:
-    trace_dir = tmp_path / f"{trace_format.value}-with-skips"
+    trace_dir = tmp_path / f"{dir_name}-with-skips"
     writer(trace_dir)
     caplog.set_level(logging.WARNING)
 
     builder = DataDesignerConfigBuilder()
-    builder.with_seed_dataset(TraceSeedSource(path=str(trace_dir), format=trace_format))
+    builder.with_seed_dataset(
+        DirectorySeedSource(path=str(trace_dir), glob="**/*.jsonl", transform=transform),
+    )
     builder.add_column(ExpressionColumnConfig(name="assistant_copy", expr="{{ final_assistant_message }}"))
 
     data_designer = DataDesigner(
@@ -588,7 +606,13 @@ def test_create_raises_error_when_all_trace_files_are_skipped(
     _write_jsonl(trace_dir / "unsupported.jsonl", [{"unexpected": "shape"}])
 
     builder = DataDesignerConfigBuilder()
-    builder.with_seed_dataset(TraceSeedSource(path=str(trace_dir), format=TraceSeedFormat.CHAT_COMPLETION_JSONL_DIR))
+    builder.with_seed_dataset(
+        DirectorySeedSource(
+            path=str(trace_dir),
+            glob="**/*.jsonl",
+            transform=ChatCompletionJsonlNormalizer(),
+        )
+    )
     builder.add_column(ExpressionColumnConfig(name="assistant_copy", expr="{{ final_assistant_message }}"))
 
     data_designer = DataDesigner(
@@ -600,6 +624,40 @@ def test_create_raises_error_when_all_trace_files_are_skipped(
 
     with pytest.raises(DataDesignerGenerationError, match="No valid chat-completion JSONL files found"):
         data_designer.create(builder, num_records=1, dataset_name="invalid-trace-seed")
+
+
+def test_create_dataset_e2e_with_directory_seed_source_without_transform(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_managed_assets_path: Path,
+    tmp_path: Path,
+) -> None:
+    seed_dir = tmp_path / "directory-seed"
+    (seed_dir / "subdir").mkdir(parents=True)
+    (seed_dir / "alpha.txt").write_text("alpha", encoding="utf-8")
+    (seed_dir / "subdir" / "beta.txt").write_text("beta", encoding="utf-8")
+
+    builder = DataDesignerConfigBuilder()
+    builder.with_seed_dataset(DirectorySeedSource(path=str(seed_dir), glob="**/*.txt"))
+    builder.add_column(ExpressionColumnConfig(name="path_label", expr="{{ source_kind }}::{{ relative_path }}"))
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    results = data_designer.create(builder, num_records=2, dataset_name="directory-seed-test")
+    df = results.load_dataset().sort_values("relative_path").reset_index(drop=True)
+
+    assert list(df["source_kind"]) == ["directory_file", "directory_file"]
+    assert list(df["relative_path"]) == ["alpha.txt", "subdir/beta.txt"]
+    assert list(df["file_name"]) == ["alpha.txt", "beta.txt"]
+    assert list(df["path_label"]) == [
+        "directory_file::alpha.txt",
+        "directory_file::subdir/beta.txt",
+    ]
 
 
 def test_create_raises_error_when_builder_fails(

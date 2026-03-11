@@ -10,7 +10,12 @@ import pytest
 import data_designer.config as dd
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.errors import InvalidFilePathError
-from data_designer.config.seed_source import LocalFileSeedSource, TraceSeedFormat, TraceSeedSource
+from data_designer.config.seed_source import (
+    ClaudeCodeTraceNormalizer,
+    CodexTraceNormalizer,
+    DirectorySeedSource,
+    LocalFileSeedSource,
+)
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 
 
@@ -76,23 +81,25 @@ def test_dataframe_seed_source_serialization():
     assert serialized == {"seed_type": "df"}
 
 
-def test_trace_seed_source_requires_directory(tmp_path: Path) -> None:
-    file_path = tmp_path / "trace.jsonl"
+def test_directory_seed_source_requires_directory(tmp_path: Path) -> None:
+    file_path = tmp_path / "file.jsonl"
     file_path.write_text("{}", encoding="utf-8")
 
     with pytest.raises(InvalidFilePathError, match="is not a directory"):
-        TraceSeedSource(path=str(file_path), format=TraceSeedFormat.CLAUDE_CODE_DIR)
+        DirectorySeedSource(path=str(file_path), glob="**/*.jsonl")
 
 
-def test_trace_seed_source_allows_directory(tmp_path: Path) -> None:
-    source = TraceSeedSource(path=str(tmp_path), format=TraceSeedFormat.CODEX_DIR)
+def test_directory_seed_source_allows_directory(tmp_path: Path) -> None:
+    source = DirectorySeedSource(path=str(tmp_path), glob="**/*.jsonl", transform=CodexTraceNormalizer())
 
-    assert source.seed_type == "trace"
+    assert source.seed_type == "directory"
     assert source.path == str(tmp_path)
-    assert source.format == TraceSeedFormat.CODEX_DIR
+    assert source.glob == "**/*.jsonl"
+    assert isinstance(source.transform, CodexTraceNormalizer)
 
 
-def test_trace_seed_source_is_exported_from_config_module(tmp_path: Path) -> None:
-    source = dd.TraceSeedSource(path=str(tmp_path), format=dd.TraceSeedFormat.CHAT_COMPLETION_JSONL_DIR)
+def test_directory_seed_source_is_exported_from_config_module(tmp_path: Path) -> None:
+    source = dd.DirectorySeedSource(path=str(tmp_path), transform=dd.ClaudeCodeTraceNormalizer())
 
-    assert source.seed_type == "trace"
+    assert source.seed_type == "directory"
+    assert isinstance(source.transform, ClaudeCodeTraceNormalizer)

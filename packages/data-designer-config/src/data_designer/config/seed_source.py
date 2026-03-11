@@ -4,9 +4,8 @@
 from __future__ import annotations
 
 from abc import ABC
-from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Annotated, Literal
 
 from pydantic import BaseModel, Field, field_validator
 from typing_extensions import Self
@@ -70,17 +69,39 @@ class HuggingFaceSeedSource(SeedSource):
     endpoint: str = "https://huggingface.co"
 
 
-class TraceSeedFormat(str, Enum):
-    CLAUDE_CODE_DIR = "claude_code_dir"
-    CODEX_DIR = "codex_dir"
-    CHAT_COMPLETION_JSONL_DIR = "chat_completion_jsonl_dir"
+class DirectorySeedTransform(BaseModel, ABC):
+    """Base class for full-batch directory seed transforms."""
+
+    transform_type: str
 
 
-class TraceSeedSource(SeedSource):
-    seed_type: Literal["trace"] = "trace"
+class ClaudeCodeTraceNormalizer(DirectorySeedTransform):
+    transform_type: Literal["claude_code_trace"] = "claude_code_trace"
 
-    path: str = Field(..., description="Directory containing trace artifacts to normalize into a seed dataset.")
-    format: TraceSeedFormat = Field(..., description="Trace format stored under the provided directory.")
+
+class CodexTraceNormalizer(DirectorySeedTransform):
+    transform_type: Literal["codex_trace"] = "codex_trace"
+
+
+class ChatCompletionJsonlNormalizer(DirectorySeedTransform):
+    transform_type: Literal["chat_completion_jsonl"] = "chat_completion_jsonl"
+
+
+DirectorySeedTransformT = Annotated[
+    ClaudeCodeTraceNormalizer | CodexTraceNormalizer | ChatCompletionJsonlNormalizer,
+    Field(discriminator="transform_type"),
+]
+
+
+class DirectorySeedSource(SeedSource):
+    seed_type: Literal["directory"] = "directory"
+
+    path: str = Field(..., description="Directory containing seed artifacts to normalize into a seed dataset.")
+    glob: str = Field("**/*", description="Glob pattern used to discover files under the provided directory.")
+    transform: DirectorySeedTransformT | None = Field(
+        default=None,
+        description="Optional full-batch transform applied to the matched files before seeding.",
+    )
 
     @field_validator("path", mode="after")
     def validate_path(cls, value: str) -> str:
@@ -88,3 +109,9 @@ class TraceSeedSource(SeedSource):
         if not path.is_dir():
             raise InvalidFilePathError(f"🛑 Path {path} is not a directory.")
         return str(path)
+
+    @field_validator("glob", mode="after")
+    def validate_glob(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("🛑 DirectorySeedSource.glob must be a non-empty string.")
+        return value

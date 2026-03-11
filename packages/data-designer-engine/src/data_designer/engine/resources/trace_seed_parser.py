@@ -9,7 +9,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from data_designer.config.seed_source import TraceSeedFormat, TraceSeedSource
+from data_designer.config.seed_source import (
+    ChatCompletionJsonlNormalizer,
+    ClaudeCodeTraceNormalizer,
+    CodexTraceNormalizer,
+    DirectorySeedSource,
+)
 from data_designer.engine.models.utils import ChatMessage
 
 
@@ -19,10 +24,10 @@ class TraceSeedParseError(ValueError): ...
 logger = logging.getLogger(__name__)
 
 
-SOURCE_KIND_BY_FORMAT: dict[TraceSeedFormat, str] = {
-    TraceSeedFormat.CLAUDE_CODE_DIR: "claude_code",
-    TraceSeedFormat.CODEX_DIR: "codex",
-    TraceSeedFormat.CHAT_COMPLETION_JSONL_DIR: "chat_completion_jsonl",
+SOURCE_KIND_BY_TRANSFORM_TYPE: dict[str, str] = {
+    "claude_code_trace": "claude_code",
+    "codex_trace": "codex",
+    "chat_completion_jsonl": "chat_completion_jsonl",
 }
 
 
@@ -66,24 +71,48 @@ class NormalizedTraceRecord:
         }
 
 
-def normalize_trace_source(source: TraceSeedSource) -> list[dict[str, Any]]:
+def normalize_directory_source(source: DirectorySeedSource) -> list[dict[str, Any]]:
     root_path = Path(source.path)
-    if source.format == TraceSeedFormat.CLAUDE_CODE_DIR:
-        records = _normalize_claude_directory(root_path)
-    elif source.format == TraceSeedFormat.CODEX_DIR:
-        records = _normalize_codex_directory(root_path)
-    elif source.format == TraceSeedFormat.CHAT_COMPLETION_JSONL_DIR:
-        records = _normalize_chat_completion_directory(root_path)
+    matched_files = _discover_directory_files(root_path=root_path, glob_pattern=source.glob)
+    if source.transform is None:
+        return _normalize_directory_listing(root_path=root_path, matched_files=matched_files)
+    if isinstance(source.transform, ClaudeCodeTraceNormalizer):
+        records = _normalize_claude_directory(root_path, matched_files)
+    elif isinstance(source.transform, CodexTraceNormalizer):
+        records = _normalize_codex_directory(root_path, matched_files)
+    elif isinstance(source.transform, ChatCompletionJsonlNormalizer):
+        records = _normalize_chat_completion_directory(root_path, matched_files)
     else:
-        raise TraceSeedParseError(f"Unsupported trace format: {source.format}")
+        raise TraceSeedParseError(f"Unsupported directory seed transform: {source.transform.transform_type}")
     return [record.to_dict() for record in records]
 
 
-def _normalize_claude_directory(root_path: Path) -> list[NormalizedTraceRecord]:
-    source_kind = SOURCE_KIND_BY_FORMAT[TraceSeedFormat.CLAUDE_CODE_DIR]
+def _normalize_directory_listing(root_path: Path, matched_files: list[Path]) -> list[dict[str, Any]]:
+    return [
+        {
+            "source_kind": "directory_file",
+            "source_path": str(file_path),
+            "relative_path": str(file_path.relative_to(root_path)),
+            "file_name": file_path.name,
+        }
+        for file_path in matched_files
+    ]
+
+
+def _discover_directory_files(root_path: Path, glob_pattern: str) -> list[Path]:
+    matched_files = sorted(path for path in root_path.glob(glob_pattern) if path.is_file())
+    if not matched_files:
+        raise TraceSeedParseError(f"No files matched glob {glob_pattern!r} under {root_path}")
+    return matched_files
+
+
+def _normalize_claude_directory(root_path: Path, matched_files: list[Path]) -> list[NormalizedTraceRecord]:
+    source_kind = SOURCE_KIND_BY_TRANSFORM_TYPE["claude_code_trace"]
     session_index = _load_claude_session_index(root_path)
     trace_files = sorted(
-        path for path in root_path.rglob("*.jsonl") if "tool-results" not in path.parts and path.name != "history.jsonl"
+        path
+        for path in matched_files
+        if path.suffix == ".jsonl" and "tool-results" not in path.parts and path.name != "history.jsonl"
     )
     if not trace_files:
         raise TraceSeedParseError(f"No Claude Code session JSONL files found under {root_path}")
@@ -165,9 +194,9 @@ def _normalize_claude_directory(root_path: Path) -> list[NormalizedTraceRecord]:
     return normalized_records
 
 
-def _normalize_codex_directory(root_path: Path) -> list[NormalizedTraceRecord]:
-    source_kind = SOURCE_KIND_BY_FORMAT[TraceSeedFormat.CODEX_DIR]
-    trace_files = sorted(root_path.rglob("rollout-*.jsonl"))
+def _normalize_codex_directory(root_path: Path, matched_files: list[Path]) -> list[NormalizedTraceRecord]:
+    source_kind = SOURCE_KIND_BY_TRANSFORM_TYPE["codex_trace"]
+    trace_files = sorted(path for path in matched_files if path.suffix == ".jsonl" and path.name.startswith("rollout-"))
     if not trace_files:
         raise TraceSeedParseError(f"No Codex rollout JSONL files found under {root_path}")
 
@@ -296,9 +325,9 @@ def _normalize_codex_directory(root_path: Path) -> list[NormalizedTraceRecord]:
     return normalized_records
 
 
-def _normalize_chat_completion_directory(root_path: Path) -> list[NormalizedTraceRecord]:
-    source_kind = SOURCE_KIND_BY_FORMAT[TraceSeedFormat.CHAT_COMPLETION_JSONL_DIR]
-    trace_files = sorted(root_path.rglob("*.jsonl"))
+def _normalize_chat_completion_directory(root_path: Path, matched_files: list[Path]) -> list[NormalizedTraceRecord]:
+    source_kind = SOURCE_KIND_BY_TRANSFORM_TYPE["chat_completion_jsonl"]
+    trace_files = sorted(path for path in matched_files if path.suffix == ".jsonl")
     if not trace_files:
         raise TraceSeedParseError(f"No chat-completion JSONL files found under {root_path}")
 

@@ -88,10 +88,12 @@ if TYPE_CHECKING:
         SeedConfig,
     )
     from data_designer.config.seed_source import (  # noqa: F401
+        ChatCompletionJsonlNormalizer,
+        ClaudeCodeTraceNormalizer,
+        CodexTraceNormalizer,
+        DirectorySeedSource,
         HuggingFaceSeedSource,
         LocalFileSeedSource,
-        TraceSeedFormat,
-        TraceSeedSource,
     )
     from data_designer.config.seed_source_dataframe import DataFrameSeedSource  # noqa: F401
     from data_designer.config.utils.code_lang import CodeLang  # noqa: F401
@@ -199,10 +201,12 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "SeedConfig": (_MOD_SEED, "SeedConfig"),
     # seed_source
     "DataFrameSeedSource": (f"{_MOD_BASE}.seed_source_dataframe", "DataFrameSeedSource"),
+    "DirectorySeedSource": (_MOD_SEED_SOURCE, "DirectorySeedSource"),
+    "ClaudeCodeTraceNormalizer": (_MOD_SEED_SOURCE, "ClaudeCodeTraceNormalizer"),
+    "CodexTraceNormalizer": (_MOD_SEED_SOURCE, "CodexTraceNormalizer"),
+    "ChatCompletionJsonlNormalizer": (_MOD_SEED_SOURCE, "ChatCompletionJsonlNormalizer"),
     "HuggingFaceSeedSource": (_MOD_SEED_SOURCE, "HuggingFaceSeedSource"),
     "LocalFileSeedSource": (_MOD_SEED_SOURCE, "LocalFileSeedSource"),
-    "TraceSeedFormat": (_MOD_SEED_SOURCE, "TraceSeedFormat"),
-    "TraceSeedSource": (_MOD_SEED_SOURCE, "TraceSeedSource"),
     # utils
     "CodeLang": (f"{_MOD_UTILS}.code_lang", "CodeLang"),
     "InfoType": (f"{_MOD_UTILS}.info", "InfoType"),

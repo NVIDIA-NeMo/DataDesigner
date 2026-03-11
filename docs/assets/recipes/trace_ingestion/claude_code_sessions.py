@@ -13,7 +13,7 @@ Read Claude Code session traces from disk and turn them into a structured datase
 of reusable workflow records.
 
 This recipe demonstrates:
-    - ingesting Claude Code sessions with `TraceSeedSource`
+    - ingesting Claude Code sessions with `DirectorySeedSource`
     - using normalized trace metadata as seed columns in a workflow
     - conditioning structured generation on imported `messages`
 
@@ -68,9 +68,10 @@ def build_config(
 ) -> dd.DataDesignerConfigBuilder:
     config_builder = dd.DataDesignerConfigBuilder()
     config_builder.with_seed_dataset(
-        dd.TraceSeedSource(
+        dd.DirectorySeedSource(
             path=str(trace_dir),
-            format=dd.TraceSeedFormat.CLAUDE_CODE_DIR,
+            glob="**/*.jsonl",
+            transform=dd.ClaudeCodeTraceNormalizer(),
         ),
         sampling_strategy=sampling_strategy,
         selection_strategy=selection_strategy,

@@ -12,13 +12,13 @@ from typing_extensions import Self
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.seed_source import (
+    DirectorySeedSource,
     HuggingFaceSeedSource,
     LocalFileSeedSource,
     SeedSource,
-    TraceSeedSource,
 )
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
-from data_designer.engine.resources.trace_seed_parser import TraceSeedParseError, normalize_trace_source
+from data_designer.engine.resources.trace_seed_parser import TraceSeedParseError, normalize_directory_source
 from data_designer.engine.secret_resolver import SecretResolver
 from data_designer.errors import DataDesignerError
 
@@ -129,13 +129,13 @@ class DataFrameSeedReader(SeedReader[DataFrameSeedSource]):
         return self._table_name
 
 
-class TraceSeedReader(SeedReader[TraceSeedSource]):
-    _table_name = "trace_df"
+class DirectorySeedReader(SeedReader[DirectorySeedSource]):
+    _table_name = "directory_df"
 
     def __init__(self) -> None:
         self._normalized_df: pd.DataFrame | None = None
 
-    def attach(self, source: TraceSeedSource, secret_resolver: SecretResolver) -> None:
+    def attach(self, source: DirectorySeedSource, secret_resolver: SecretResolver) -> None:
         self._normalized_df = None
         super().attach(source, secret_resolver)
 
@@ -151,11 +151,11 @@ class TraceSeedReader(SeedReader[TraceSeedSource]):
         if self._normalized_df is not None:
             return self._normalized_df
         try:
-            normalized_records = normalize_trace_source(self.source)
+            normalized_records = normalize_directory_source(self.source)
         except TraceSeedParseError as error:
-            raise SeedReaderError(f"Failed to normalize trace seed dataset: {error}") from error
+            raise SeedReaderError(f"Failed to normalize directory seed dataset: {error}") from error
         if not normalized_records:
-            raise SeedReaderError(f"Trace seed source at {self.source.path} did not produce any normalized records")
+            raise SeedReaderError(f"Directory seed source at {self.source.path} did not produce any normalized records")
         self._normalized_df = lazy.pd.DataFrame(normalized_records)
         return self._normalized_df
 
