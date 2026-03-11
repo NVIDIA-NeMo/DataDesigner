@@ -27,27 +27,27 @@ Pipeline architecture:
     ├─────────────────────────────────────────────────────────────────────────┤
     │                   STAGE 2: PROMPT GENERATION (LLM)                      │
     │  Natural-language request grounded in metadata; no SQL jargon.          │
-    │  Style adapts to instruction_style × register × politeness.            │
+    │  Style adapts to instruction_style × register × politeness.             │
     ├─────────────────────────────────────────────────────────────────────────┤
     │                   STAGE 3: SCHEMA + DATA GENERATION (LLM)               │
-    │  Dialect-specific DDL + INSERT with 3-5 core tables, 1-2 distractor    │
-    │  tables, 3-5 distractor columns per table, dirty data injection.       │
+    │  Dialect-specific DDL + INSERT with 3-5 core tables, 1-2 distractor     │
+    │  tables, 3-5 distractor columns per table, dirty data injection.        │
     ├─────────────────────────────────────────────────────────────────────────┤
     │                   STAGE 4: SQL GENERATION (LLM)                         │
-    │  Dialect-specific SQL; ignores distractors; handles dirty data.        │
+    │  Dialect-specific SQL; ignores distractors; handles dirty data.         │
     ├─────────────────────────────────────────────────────────────────────────┤
     │                   STAGE 5: VALIDATION + QUALITY SCORING                 │
     │                                                                         │
-    │  Syntax Validator            5 LLM Judges (0-4 scores)                 │
-    │  ├─ SQL_SQLITE               ├─ Prompt: naturalness, specificity,      │
-    │  ├─ SQL_MYSQL                │   absence of SQL jargon                 │
-    │  └─ SQL_POSTGRES             ├─ SQL: relevance, readability,           │
-    │                              │   scalability, standards                │
-    │                              ├─ Context: relevance, readability,       │
-    │                              │   scalability, standards                │
-    │                              ├─ Data Quality: cleaning correctness,    │
-    │                              │   efficiency                            │
-    │                              └─ Knowledge: application correctness,    │
+    │  Syntax Validator            5 LLM Judges (0-4 scores)                  │
+    │  ├─ SQL_SQLITE               ├─ Prompt: naturalness, specificity,       │
+    │  ├─ SQL_MYSQL                │   absence of SQL jargon                  │
+    │  └─ SQL_POSTGRES             ├─ SQL: relevance, readability,            │
+    │                              │   scalability, standards                 │
+    │                              ├─ Context: relevance, readability,        │
+    │                              │   scalability, standards                 │
+    │                              ├─ Data Quality: cleaning correctness,     │
+    │                              │   efficiency                             │
+    │                              └─ Knowledge: application correctness,     │
     │                                  clarity of inference                   │
     │                                                                         │
     │  15 score columns extracted for downstream filtering                    │
