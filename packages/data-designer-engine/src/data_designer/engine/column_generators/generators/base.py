@@ -4,14 +4,19 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import functools
 import logging
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, overload
+from typing import TYPE_CHECKING, Any, Coroutine, TypeVar, overload
 
 from data_designer.config.column_configs import GenerationStrategy
 from data_designer.engine.configurable_task import ConfigurableTask, DataT, TaskConfigT
 from data_designer.logging import LOG_DOUBLE_INDENT, LOG_INDENT
+
+_T = TypeVar("_T")
+
+_SYNC_BRIDGE_TIMEOUT = 300
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -23,33 +28,84 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _run_coroutine_sync(coro: Coroutine[Any, Any, _T]) -> _T:
+    """Run an async coroutine from sync context.
+
+    - No running event loop → ``asyncio.run(coro)``
+    - Running event loop (e.g. notebook/service) → run in a background thread
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    future = pool.submit(asyncio.run, coro)
+    timed_out = False
+    try:
+        result = future.result(timeout=_SYNC_BRIDGE_TIMEOUT)
+    except concurrent.futures.TimeoutError as exc:
+        timed_out = True
+        logger.warning(f"⚠️ Sync bridge timed out after {_SYNC_BRIDGE_TIMEOUT}s; background thread still running")
+        raise TimeoutError(f"_run_coroutine_sync timed out after {_SYNC_BRIDGE_TIMEOUT}s") from exc
+    finally:
+        pool.shutdown(wait=not timed_out, cancel_futures=timed_out)
+    return result
+
+
 class ColumnGenerator(ConfigurableTask[TaskConfigT], ABC):
     @property
     def can_generate_from_scratch(self) -> bool:
         return False
+
+    @property
+    def is_order_dependent(self) -> bool:
+        """Whether this generator's output depends on prior row-group calls.
+
+        Example: SeedDatasetColumnGenerator tracks its position in the seed
+        dataset, so row group N must complete before N+1 starts.
+        """
+        return False
+
+    def _is_overridden(self, method_name: str) -> bool:
+        """Check if a subclass has overridden a base ColumnGenerator method."""
+        return getattr(type(self), method_name) is not getattr(ColumnGenerator, method_name)
 
     @staticmethod
     @abstractmethod
     def get_generation_strategy() -> GenerationStrategy: ...
 
     @overload
-    @abstractmethod
     def generate(self, data: dict) -> dict: ...
 
     @overload
-    @abstractmethod
     def generate(self, data: pd.DataFrame) -> pd.DataFrame: ...
 
-    @abstractmethod
-    def generate(self, data: DataT) -> DataT: ...
+    def generate(self, data: DataT) -> DataT:
+        """Sync generate — overridden by most concrete generators.
 
-    async def agenerate(self, data: dict) -> dict:
-        """Async fallback — delegates to sync generate via thread pool.
+        Default bridges to ``agenerate()`` for async-first subclasses that only
+        implement ``agenerate()``. Raises ``NotImplementedError`` if neither
+        ``generate()`` nor ``agenerate()`` is overridden.
+        """
+        if not self._is_overridden("agenerate"):
+            raise NotImplementedError(f"{type(self).__name__} must implement either generate() or agenerate()")
+        return _run_coroutine_sync(self.agenerate(data))
+
+    @overload
+    async def agenerate(self, data: dict) -> dict: ...
+
+    @overload
+    async def agenerate(self, data: pd.DataFrame) -> pd.DataFrame: ...
+
+    async def agenerate(self, data: DataT) -> DataT:
+        """Async generate — delegates to sync ``generate()`` via thread pool.
 
         Subclasses with native async support (e.g. ColumnGeneratorWithModelChatCompletion)
         should override this with a direct async implementation.
         """
-        return await asyncio.to_thread(self.generate, data)
+        if not self._is_overridden("generate"):
+            raise NotImplementedError(f"{type(self).__name__} must implement either generate() or agenerate()")
+        return await asyncio.to_thread(self.generate, data.copy())
 
     def log_pre_generation(self) -> None:
         """A shared method to log info before the generator's `generate` method is called.
@@ -67,6 +123,10 @@ class FromScratchColumnGenerator(ColumnGenerator[TaskConfigT], ABC):
 
     @abstractmethod
     def generate_from_scratch(self, num_records: int) -> pd.DataFrame: ...
+
+    async def agenerate_from_scratch(self, num_records: int) -> pd.DataFrame:
+        """Async wrapper — wraps sync ``generate_from_scratch()`` in a thread."""
+        return await asyncio.to_thread(self.generate_from_scratch, num_records)
 
 
 class ColumnGeneratorWithModelRegistry(ColumnGenerator[TaskConfigT], ABC):
