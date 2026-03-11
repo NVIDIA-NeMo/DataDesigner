@@ -43,12 +43,14 @@ nav:
       - Code Generation:
           - Text to Python: recipes/code_generation/text_to_python.md
           - Text to SQL: recipes/code_generation/text_to_sql.md
+          - "Nemotron Super Text to SQL": recipes/code_generation/enterprise_text_to_sql.md
       - QA and Chat:
           - Product Info QA: recipes/qa_and_chat/product_info_qa.md
           - Multi-Turn Chat: recipes/qa_and_chat/multi_turn_chat.md
       - MCP and Tool Use:
           - "Basic MCP Tool Use": recipes/mcp_and_tooluse/basic_mcp.md
           - "PDF Document QA": recipes/mcp_and_tooluse/pdf_qa.md
+          - "Nemotron Super Search Agent": recipes/mcp_and_tooluse/search_agent.md
   - Plugins:
       - Overview: plugins/overview.md
       - Example Plugin: plugins/example.md
