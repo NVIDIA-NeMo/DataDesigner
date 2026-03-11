@@ -116,12 +116,6 @@ This mirrors the dict shape produced by `ChatMessage.to_dict()` (in
 class TraceRenderer:
     """Renders LLM conversation traces for display_sample_record."""
 
-    def __init__(
-        self,
-        max_content_length: int = 300,
-        max_args_length: int = 200,
-    ) -> None: ...
-
     def render_rich(self, traces: list[TraceMessage], column_name: str) -> Panel:
         """Return a Rich Panel containing the formatted trace conversation."""
         ...
@@ -134,18 +128,22 @@ class TraceRenderer:
 Both methods accept `traces: list[TraceMessage]` — plural, since the parameter
 is a list of message dicts representing the full conversation.
 
+Content is **never truncated** — all message text, tool call arguments, and tool
+results are displayed in full. This ensures traces are useful for debugging and
+understanding the complete LLM interaction.
+
 **Rich rendering** (`render_rich`):
 
 Returns a `Panel` containing a `Group` of styled `Text` / `Pretty` blocks:
 
 | Role | Style | Content |
 |------|-------|---------|
-| system | dim | Truncated system prompt |
-| user | blue | Truncated user message |
+| system | dim | Full system prompt |
+| user | blue | Full user message |
 | assistant (reasoning) | italic purple | `reasoning_content` field |
 | assistant (tool call) | bold yellow | Function name + formatted JSON args |
-| assistant (final) | green | Truncated final answer |
-| tool result | magenta | Truncated tool response |
+| assistant (final) | green | Full final answer |
+| tool result | magenta | Full tool response |
 
 A summary line at the bottom: `"N tool call(s) across M turn(s)"`.
 
@@ -162,7 +160,14 @@ except (ImportError, NameError):
 ```
 
 Renders colored HTML blocks with role-based backgrounds and arrow connectors
-between messages. Adapted from the prototype in
+between messages. All interpolated content (roles, text blocks, tool call
+arguments, tool results) must be passed through `html.escape()` before
+insertion into the HTML template — trace data contains LLM outputs and
+external tool responses that may include `<`, `>`, `&`, or `"` characters.
+This matches the existing pattern in `_display_image_if_in_notebook`, which
+escapes `col_name` and image URLs.
+
+Adapted from the prototype in
 `.scratch/test-pr-373/04_mcp_tool_calling.ipynb` (cell 19).
 
 ### Integration into `visualization.py`
@@ -174,6 +179,21 @@ Add `include_traces: bool = True` to both:
 1. `WithRecordSamplerMixin.display_sample_record` (line 168)
 2. Standalone `display_sample_record` (line 259)
 
+#### New imports in `visualization.py`
+
+Add `TRACE_COLUMN_POSTFIX` to the existing constants import and add the
+`TraceRenderer` / `TraceMessage` imports:
+
+```python
+from data_designer.config.utils.constants import (
+    DEFAULT_DISPLAY_WIDTH,
+    NVIDIA_API_KEY_ENV_VAR_NAME,
+    OPENAI_API_KEY_ENV_VAR_NAME,
+    TRACE_COLUMN_POSTFIX,
+)
+from data_designer.config.utils.trace_renderer import TraceMessage, TraceRenderer
+```
+
 #### Trace section placement
 
 In the standalone `display_sample_record`, after the "Generated Columns" table
@@ -181,27 +201,34 @@ In the standalone `display_sample_record`, after the "Generated Columns" table
 
 ```python
 # Trace sections
+_LLM_COLUMN_TYPES = [
+    DataDesignerColumnType.LLM_TEXT,
+    DataDesignerColumnType.LLM_CODE,
+    DataDesignerColumnType.LLM_STRUCTURED,
+    DataDesignerColumnType.LLM_JUDGE,
+]
+
 traces_to_display_later: list[tuple[str, list[TraceMessage]]] = []
 if include_traces:
     trace_renderer = TraceRenderer()
-    for col in config_builder.get_all_columns():
-        for side_col in col.side_effect_columns:
-            if side_col.endswith(TRACE_COLUMN_POSTFIX) and side_col in record:
-                traces: list[TraceMessage] = record[side_col]
-                if isinstance(traces, list) and len(traces) > 0:
-                    render_list.append(
-                        pad_console_element(trace_renderer.render_rich(traces, side_col))
-                    )
-                    traces_to_display_later.append((side_col, traces))
+    for col_type in _LLM_COLUMN_TYPES:
+        for col in config_builder.get_columns_of_type(col_type):
+            for side_col in col.side_effect_columns:
+                if side_col.endswith(TRACE_COLUMN_POSTFIX) and side_col in record:
+                    traces: list[TraceMessage] = record[side_col]
+                    if isinstance(traces, list) and len(traces) > 0:
+                        render_list.append(
+                            pad_console_element(trace_renderer.render_rich(traces, side_col))
+                        )
+                        traces_to_display_later.append((side_col, traces))
 ```
 
-Then after the Rich console output (alongside images):
+Then after the Rich console output (alongside images), reuse the existing
+`trace_renderer` instance:
 
 ```python
-if len(traces_to_display_later) > 0:
-    trace_renderer = TraceRenderer()
-    for col_name, traces in traces_to_display_later:
-        trace_renderer.render_notebook_html(traces, col_name)
+for col_name, traces in traces_to_display_later:
+    trace_renderer.render_notebook_html(traces, col_name)
 ```
 
 ### What does NOT change
@@ -252,8 +279,10 @@ Columns" table:
 │  }                                                                                                        │
 │                                                                                                           │
 │  📨 tool result                                                                                           │
-│  {"query":"current population of Tokyo","results":[{"url":"https://www.nippon.com/en/japan-data/…",       │
-│  "title":"Tokyo Third in UN Ranking of Global Megacities at 33.4 Million","content":"According to…"}…]}   │
+│  {"query":"current population of Tokyo","results":[{"url":"https://www.nippon.com/en/japan-data/          │
+│  h02229/","title":"Tokyo Third in UN Ranking of Global Megacities at 33.4 Million","content":             │
+│  "According to the United Nations World Urbanization Prospects 2024, the Tokyo metropolitan area          │
+│  has a population of approximately 36.9 million."}]}                                                      │
 │                                                                                                           │
 │  🤖 assistant                                                                                             │
 │  Current population of Tokyo (metropolitan area): ≈ 36.9 million people (2026 estimate).                  │
@@ -276,19 +305,24 @@ Each message is a colored block; arrows connect them vertically:
 │                                                                     │
 │  ┌─────────────────────────────────────────────────────────────┐   │
 │  │ ⚙️ System                                               #e8e8e8│
-│  │ You are a research assistant. Use the tavily_search tool…   │   │
+│  │ You are a research assistant. Use the tavily_search tool    │   │
+│  │ to find current information. After searching, provide a     │   │
+│  │ brief, factual answer with your sources.                    │   │
 │  └─────────────────────────────────────────────────────────────┘   │
 │                              ↓                                      │
 │  ┌─────────────────────────────────────────────────────────────┐   │
 │  │ 👤 User                                              #dbeafe│   │
-│  │ Answer the following question using web search…             │   │
+│  │ Answer the following question using web search. Search for  │   │
+│  │ current information, then provide a concise factual answer. │   │
 │  │ Question: What is the current population of Tokyo?          │   │
 │  └─────────────────────────────────────────────────────────────┘   │
 │                              ↓                                      │
 │  ┌─────────────────────────────────────────────────────────────┐   │
 │  │ 💭 Reasoning                                         #f3e8ff│   │
 │  │ We need to answer with current population of Tokyo. We      │   │
-│  │ must use tavily_search to find current info…                │   │
+│  │ must use tavily_search to find current info. Then provide   │   │
+│  │ concise factual answer with sources. Let's perform a        │   │
+│  │ search.                                                     │   │
 │  └─────────────────────────────────────────────────────────────┘   │
 │                              ↓                                      │
 │  ┌─────────────────────────────────────────────────────────────┐   │
@@ -301,14 +335,21 @@ Each message is a colored block; arrows connect them vertically:
 │                              ↓                                      │
 │  ┌─────────────────────────────────────────────────────────────┐   │
 │  │ 📨 Tool Result                                       #fce7f3│   │
-│  │ {"query":"current population of Tokyo","results":[…]}       │   │
+│  │ {"query":"current population of Tokyo","results":           │   │
+│  │ [{"url":"https://www.nippon.com/en/japan-data/h02229/",     │   │
+│  │ "title":"Tokyo Third in UN Ranking of Global Megacities     │   │
+│  │ at 33.4 Million","content":"According to the United         │   │
+│  │ Nations World Urbanization Prospects 2024, the Tokyo        │   │
+│  │ metropolitan area has a population of approximately 36.9    │   │
+│  │ million."}]}                                                │   │
 │  └─────────────────────────────────────────────────────────────┘   │
 │                              ↓                                      │
 │  ┌─────────────────────────────────────────────────────────────┐   │
 │  │ 🤖 Assistant (final answer)                          #dcfce7│   │
 │  │ Current population of Tokyo (metropolitan area):            │   │
 │  │ ≈ 36.9 million people (2026 estimate).                      │   │
-│  │ Sources: World Population Review, UN World Urbanization…    │   │
+│  │ Sources: World Population Review, United Nations World      │   │
+│  │ Urbanization Prospects                                      │   │
 │  └─────────────────────────────────────────────────────────────┘   │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
@@ -323,7 +364,7 @@ block. In the actual HTML output these are CSS `background` properties on
 | File | Change |
 |------|--------|
 | `config/utils/trace_renderer.py` | **New** — `TraceMessage` TypedDict, `TraceRenderer` class with `render_rich` and `render_notebook_html` |
-| `config/utils/visualization.py` | Add `include_traces` param, wire in `TraceRenderer` at the right point in `display_sample_record` |
+| `config/utils/visualization.py` | Add `include_traces` param, import `TRACE_COLUMN_POSTFIX` / `TraceRenderer` / `TraceMessage`, wire in trace rendering at the right point in `display_sample_record` |
 
 ## Testing
 
