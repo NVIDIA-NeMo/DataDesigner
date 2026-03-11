@@ -507,7 +507,7 @@ The following ruff linter rules are currently enabled (see [pyproject.toml](pypr
 
 The project uses `pytest` with the following patterns:
 
-- **Fixtures**: Shared test data and configurations in [tests/conftest.py](tests/conftest.py)
+- **Fixtures**: Shared fixtures are provided via `pytest_plugins` from `data_designer.config.testing.fixtures` and `data_designer.engine.testing.fixtures`, plus local `conftest.py` files in each test directory
 - **Stub configs**: YAML-based configuration stubs for testing (see `stub_data_designer_config_str` fixture)
 - **Mocking**: Use `unittest.mock.patch` for external services and dependencies
 - **Async support**: pytest-asyncio for async tests (`asyncio_default_fixture_loop_scope = "session"`)
@@ -516,7 +516,10 @@ The project uses `pytest` with the following patterns:
 
 ### Test Guidelines
 
-- **Parametrize over duplicate**: Use `@pytest.mark.parametrize` instead of writing multiple test functions for variations of the same behavior
+- **Test public APIs only**: Tests should exercise public interfaces, not `_`-prefixed functions or classes. If something is hard to test without reaching into private internals, consider refactoring the code to expose a public entry point
+- **Type annotations required**: Test functions and fixtures must include type annotations — `-> None` for tests, typed parameters, and typed return values for fixtures
+- **Imports at module level**: Follow the same import rules as production code — keep imports at the top of the file, not inside test functions
+- **Parametrize over duplicate**: Use `@pytest.mark.parametrize` (with `ids=` for readable names) instead of writing multiple test functions for variations of the same behavior
 - **Minimal fixtures**: Fixtures should be simple — one fixture, one responsibility, just setup with no behavior logic
 - **Shared fixtures in `conftest.py`**: Place fixtures shared across a test directory in `conftest.py`
 - **Mock at boundaries**: Mock external dependencies (APIs, databases, third-party services), not internal functions
@@ -529,6 +532,7 @@ Example test structure:
 from typing import Any
 
 from data_designer.config.config_builder import DataDesignerConfigBuilder
+
 
 def test_something(stub_model_configs: dict[str, Any]) -> None:
     """Test description."""

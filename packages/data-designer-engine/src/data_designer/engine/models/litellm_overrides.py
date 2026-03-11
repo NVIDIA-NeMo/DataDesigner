@@ -29,8 +29,9 @@ from litellm import RetryPolicy
 from litellm.caching.in_memory_cache import InMemoryCache
 from litellm.litellm_core_utils.logging_callback_manager import LoggingCallbackManager
 from litellm.router import Router
+from litellm.types.llms.openai import ImageURLListItem
 from pydantic import BaseModel, Field
-from typing_extensions import override
+from typing_extensions import NotRequired, override
 
 from data_designer.logging import quiet_noisy_logger
 
@@ -168,11 +169,30 @@ class CustomRouter(Router):
         return sleep_s * jitter
 
 
+def patch_image_url_list_item():
+    """Make ImageURLListItem.index optional.
+
+    Some providers (e.g. OpenRouter) return image objects without the
+    ``index`` field. LiteLLM's TypedDict marks it as required, causing
+    a Pydantic validation error when constructing ``Message``.
+    """
+    ImageURLListItem.__annotations__["index"] = NotRequired[int]
+    ImageURLListItem.__required_keys__ = ImageURLListItem.__required_keys__ - {"index"}
+    ImageURLListItem.__optional_keys__ = ImageURLListItem.__optional_keys__ | {"index"}
+
+    # Pydantic v2 compiles TypedDict schemas at class definition time,
+    # so we must rebuild the Message model to pick up the annotation change.
+    litellm.Message.model_rebuild(force=True)
+
+
 def apply_litellm_patches():
     litellm.in_memory_llm_clients_cache = ThreadSafeCache()
 
     # Workaround for the litellm issue described in https://github.com/BerriAI/litellm/issues/9792
     LoggingCallbackManager.MAX_CALLBACKS = DEFAULT_MAX_CALLBACKS
+
+    # Workaround for missing 'index' field in image responses from some providers
+    patch_image_url_list_item()
 
     quiet_noisy_logger("httpx")
     quiet_noisy_logger("LiteLLM")
