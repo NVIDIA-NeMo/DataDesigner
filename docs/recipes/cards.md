@@ -137,17 +137,17 @@ Each recipe is a self-contained example that can be run independently.
 
 -   :material-magnify:{ .lg .middle } **Search Agent (MCP + Tool Use)**
 
-    Generate multi-turn deep research trajectories where an LLM iteratively searches, reads, and synthesizes evidence to answer questions using a BM25 retriever MCP server.
+    Generate multi-turn search agent trajectories using live Tavily web search, seeded from Wikidata knowledge graph paths for BrowseComp-style multi-hop questions.
 
     ---
 
     **Demonstrates:**
 
-    - MCP tool calling with LocalStdioMCPProvider
-    - BM25 retriever with search/open/find tools
-    - Multi-turn research trajectory generation
-    - LLM judge rejection sampling
-    - Per-column trace capture
+    - MCP tool calling with Tavily web search
+    - Wikidata knowledge graph seeding
+    - Multi-hop question generation with obfuscation
+    - Full trajectory capture with traces
+    - Seed dataset integration
 
     ---
 
