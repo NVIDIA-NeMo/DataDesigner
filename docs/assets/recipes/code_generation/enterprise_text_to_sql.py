@@ -6,11 +6,15 @@
 #     "data-designer",
 # ]
 # ///
-"""Enterprise Text-to-SQL Recipe: Distractors, Dirty Data, and Multi-Judge Scoring
+"""Nemotron Super Text-to-SQL Recipe: Distractors, Dirty Data, and Multi-Judge Scoring
 
 Generate enterprise-grade text-to-SQL training data with dialect-specific SQL
 (SQLite, MySQL, PostgreSQL), distractor table/column injection, dirty data
 handling, conditional sampling, and multi-dimensional LLM judge scoring.
+
+This recipe implements the pipeline used to produce 96.5k validated text-to-SQL
+records for Nemotron Super v3 SFT training, which raised BIRD benchmark
+execution accuracy from 26.77% to 41.80%.
 
 Pipeline architecture:
 

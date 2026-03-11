@@ -45,18 +45,18 @@ Each recipe is a self-contained example that can be run independently.
     [:material-book-open-page-variant: View Recipe](code_generation/text_to_sql.md){ .md-button }
     [Download Code :octicons-download-24:](../assets/recipes/code_generation/text_to_sql.py){ .md-button download="text_to_sql.py" }
 
--   :material-database-search:{ .lg .middle } **Enterprise Text to SQL**
+-   :material-database-search:{ .lg .middle } **Nemotron Super Text to SQL**
 
-    Generate enterprise-grade text-to-SQL training data with dialect-specific SQL, distractor table/column injection, dirty data handling, and multi-dimensional judge scoring.
+    Generate enterprise-grade text-to-SQL training data used for Nemotron Super v3 SFT -- dialect-specific SQL, distractor injection, dirty data, 5 LLM judges with 15 scoring dimensions.
 
     ---
 
     **Demonstrates:**
 
     - Dialect-specific SQL generation (SQLite, MySQL, PostgreSQL)
-    - Distractor table and dirty data injection
+    - Distractor table/column and dirty data injection
     - Conditional sampling with SubcategorySamplerParams
-    - Multi-judge scoring with score extraction
+    - 5 LLM judges with 15 score extraction columns
 
     ---
 
@@ -135,9 +135,9 @@ Each recipe is a self-contained example that can be run independently.
     [:material-book-open-page-variant: View Recipe](mcp_and_tooluse/pdf_qa.md){ .md-button }
     [Download Code :octicons-download-24:](../assets/recipes/mcp_and_tooluse/pdf_qa.py){ .md-button download="pdf_qa.py" }
 
--   :material-magnify:{ .lg .middle } **Search Agent (MCP + Tool Use)**
+-   :material-magnify:{ .lg .middle } **Nemotron Super Search Agent (MCP + Tool Use)**
 
-    Generate multi-turn search agent trajectories using live Tavily web search, seeded from Wikidata knowledge graph paths for BrowseComp-style multi-hop questions.
+    Generate multi-turn search agent trajectories used for Nemotron Super post-training -- Tavily web search via MCP, Wikidata KG seeding, BrowseComp-style question generation.
 
     ---
 
@@ -145,9 +145,9 @@ Each recipe is a self-contained example that can be run independently.
 
     - MCP tool calling with Tavily web search
     - Wikidata knowledge graph seeding
-    - Multi-hop question generation with obfuscation
+    - Two-stage question generation (draft + BrowseComp obfuscation)
     - Full trajectory capture with traces
-    - Seed dataset integration
+    - Structured output formatting
 
     ---
 

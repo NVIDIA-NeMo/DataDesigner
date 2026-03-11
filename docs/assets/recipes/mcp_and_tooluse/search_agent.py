@@ -6,11 +6,15 @@
 #     "data-designer",
 # ]
 # ///
-"""MCP + Tool Use Recipe: Search Agent Trajectories with Tavily Web Search
+"""Nemotron Super Search Agent Recipe: Trajectories with Tavily Web Search
 
 Generate multi-turn search agent trajectories where an LLM iteratively
 searches the web, reads results, reasons about evidence, and synthesizes
 answers -- the kind of data needed to train BrowseComp-style search agents.
+
+This recipe implements the pipeline used to produce ~7,000 high-quality
+tool-use trajectories for Nemotron Super post-training, starting from
+50,000 Wikidata knowledge graph seeds.
 
 Pipeline architecture:
 
