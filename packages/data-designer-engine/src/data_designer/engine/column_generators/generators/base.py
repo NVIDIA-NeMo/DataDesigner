@@ -43,10 +43,10 @@ def _run_coroutine_sync(coro: Coroutine[Any, Any, _T]) -> _T:
     timed_out = False
     try:
         result = future.result(timeout=_SYNC_BRIDGE_TIMEOUT)
-    except concurrent.futures.TimeoutError:
+    except concurrent.futures.TimeoutError as exc:
         timed_out = True
         logger.warning(f"⚠️ Sync bridge timed out after {_SYNC_BRIDGE_TIMEOUT}s; background thread still running")
-        raise
+        raise TimeoutError(f"_run_coroutine_sync timed out after {_SYNC_BRIDGE_TIMEOUT}s") from exc
     finally:
         pool.shutdown(wait=not timed_out, cancel_futures=timed_out)
     return result
@@ -58,13 +58,17 @@ class ColumnGenerator(ConfigurableTask[TaskConfigT], ABC):
         return False
 
     @property
-    def is_stateful(self) -> bool:
-        """Whether this generator maintains state across calls.
+    def is_order_dependent(self) -> bool:
+        """Whether this generator's output depends on prior row-group calls.
 
-        Stateful generators are serialized per-instance by the async scheduler
-        (row group N must complete before N+1 starts for that generator).
+        Example: SeedDatasetColumnGenerator tracks its position in the seed
+        dataset, so row group N must complete before N+1 starts.
         """
         return False
+
+    def _is_overridden(self, method_name: str) -> bool:
+        """Check if a subclass has overridden a base ColumnGenerator method."""
+        return getattr(type(self), method_name) is not getattr(ColumnGenerator, method_name)
 
     @staticmethod
     @abstractmethod
@@ -83,7 +87,7 @@ class ColumnGenerator(ConfigurableTask[TaskConfigT], ABC):
         implement ``agenerate()``. Raises ``NotImplementedError`` if neither
         ``generate()`` nor ``agenerate()`` is overridden.
         """
-        if type(self).agenerate is ColumnGenerator.agenerate:
+        if not self._is_overridden("agenerate"):
             raise NotImplementedError(f"{type(self).__name__} must implement either generate() or agenerate()")
         return _run_coroutine_sync(self.agenerate(data))
 
@@ -99,7 +103,9 @@ class ColumnGenerator(ConfigurableTask[TaskConfigT], ABC):
         Subclasses with native async support (e.g. ColumnGeneratorWithModelChatCompletion)
         should override this with a direct async implementation.
         """
-        return await asyncio.to_thread(self.generate, data)
+        if not self._is_overridden("generate"):
+            raise NotImplementedError(f"{type(self).__name__} must implement either generate() or agenerate()")
+        return await asyncio.to_thread(self.generate, data.copy())
 
     def log_pre_generation(self) -> None:
         """A shared method to log info before the generator's `generate` method is called.
@@ -121,10 +127,6 @@ class FromScratchColumnGenerator(ColumnGenerator[TaskConfigT], ABC):
     async def agenerate_from_scratch(self, num_records: int) -> pd.DataFrame:
         """Async wrapper — wraps sync ``generate_from_scratch()`` in a thread."""
         return await asyncio.to_thread(self.generate_from_scratch, num_records)
-
-    async def agenerate(self, data: pd.DataFrame) -> pd.DataFrame:
-        """Async wrapper — wraps sync ``generate()`` in a thread with defensive copy."""
-        return await asyncio.to_thread(self.generate, data.copy())
 
 
 class ColumnGeneratorWithModelRegistry(ColumnGenerator[TaskConfigT], ABC):
@@ -213,7 +215,3 @@ class ColumnGeneratorFullColumn(ColumnGenerator[TaskConfigT], ABC):
 
     @abstractmethod
     def generate(self, data: pd.DataFrame) -> pd.DataFrame: ...
-
-    async def agenerate(self, data: pd.DataFrame) -> pd.DataFrame:
-        """Async wrapper — wraps sync ``generate()`` in a thread with defensive copy."""
-        return await asyncio.to_thread(self.generate, data.copy())

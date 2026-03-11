@@ -3,15 +3,17 @@
 
 from __future__ import annotations
 
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.column_configs import (
     CustomColumnConfig,
+    EmbeddingColumnConfig,
     ExpressionColumnConfig,
     GenerationStrategy,
+    ImageColumnConfig,
 )
 from data_designer.config.custom_column import custom_column_generator
 from data_designer.engine.column_generators.generators.base import (
@@ -21,6 +23,11 @@ from data_designer.engine.column_generators.generators.base import (
     _run_coroutine_sync,
 )
 from data_designer.engine.column_generators.generators.custom import CustomColumnGenerator
+from data_designer.engine.column_generators.generators.embedding import (
+    EmbeddingCellGenerator,
+    EmbeddingGenerationResult,
+)
+from data_designer.engine.column_generators.generators.image import ImageCellGenerator
 from data_designer.engine.column_generators.generators.llm_completion import (
     ColumnGeneratorWithModelChatCompletion,
 )
@@ -63,10 +70,10 @@ def test_run_coroutine_sync_from_sync_context() -> None:
     assert result == 10
 
 
-# -- is_stateful default ----------------------------------------------------
+# -- is_order_dependent default ----------------------------------------------------
 
 
-def test_is_stateful_default_false() -> None:
+def test_is_order_dependent_default_false() -> None:
     class SyncGen(ColumnGenerator[ExpressionColumnConfig]):
         @staticmethod
         def get_generation_strategy() -> GenerationStrategy:
@@ -76,7 +83,7 @@ def test_is_stateful_default_false() -> None:
             return data
 
     gen = SyncGen(config=_make_expr_config(), resource_provider=_mock_provider())
-    assert gen.is_stateful is False
+    assert gen.is_order_dependent is False
 
 
 # -- Symmetric bridging: sync-only generator called via agenerate -----------
@@ -134,6 +141,20 @@ def test_neither_generate_nor_agenerate_raises() -> None:
     gen = BareGen(config=_make_expr_config(), resource_provider=_mock_provider())
     with pytest.raises(NotImplementedError, match="must implement either"):
         gen.generate({"col1": "x"})
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_neither_generate_nor_agenerate_raises_from_async() -> None:
+    """If neither is overridden, agenerate() raises directly without thread bounce."""
+
+    class BareGen(ColumnGenerator[ExpressionColumnConfig]):
+        @staticmethod
+        def get_generation_strategy() -> GenerationStrategy:
+            return GenerationStrategy.CELL_BY_CELL
+
+    gen = BareGen(config=_make_expr_config(), resource_provider=_mock_provider())
+    with pytest.raises(NotImplementedError, match="must implement either"):
+        await gen.agenerate({"col1": "x"})
 
 
 # -- FromScratchColumnGenerator async wrappers --------------------------------
@@ -207,13 +228,12 @@ async def test_full_column_agenerate_passes_copy() -> None:
     assert "added" in result.columns
 
 
-# -- SeedDatasetColumnGenerator is_stateful -----------------------------------
+# -- SeedDatasetColumnGenerator is_order_dependent -----------------------------------
 
 
-def test_seed_dataset_is_stateful() -> None:
-    assert SeedDatasetColumnGenerator.is_stateful.fget is not None  # property exists
-    # Can't instantiate without full setup, so check the class-level property
-    assert SeedDatasetColumnGenerator.is_stateful.fget(Mock()) is True
+def test_seed_dataset_is_order_dependent() -> None:
+    gen = object.__new__(SeedDatasetColumnGenerator)
+    assert gen.is_order_dependent is True
 
 
 # -- CustomColumnGenerator agenerate branching --------------------------------
@@ -362,3 +382,43 @@ async def test_custom_agenerate_async_wraps_exception() -> None:
     gen = CustomColumnGenerator(config=config, resource_provider=_mock_provider())
     with pytest.raises(CustomColumnGenerationError, match="Custom generator function failed"):
         await gen.agenerate({"input": 1})
+
+
+# -- ImageCellGenerator async ------------------------------------------------
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_image_agenerate(stub_resource_provider: Mock) -> None:
+    """ImageCellGenerator.agenerate calls model.agenerate_image."""
+    mock_storage = Mock()
+    mock_storage.save_base64_image.side_effect = ["images/img1.png", "images/img2.png"]
+    stub_resource_provider.artifact_storage.media_storage = mock_storage
+
+    config = ImageColumnConfig(name="test_image", prompt="A {{ style }} image", model_alias="test_model")
+    gen = ImageCellGenerator(config=config, resource_provider=stub_resource_provider)
+
+    with patch.object(gen, "model") as mock_model:
+        mock_model.agenerate_image = AsyncMock(return_value=["b64_1", "b64_2"])
+        result = await gen.agenerate({"style": "photorealistic"})
+
+    assert result["test_image"] == ["images/img1.png", "images/img2.png"]
+    mock_model.agenerate_image.assert_awaited_once()
+
+
+# -- EmbeddingCellGenerator async --------------------------------------------
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_embedding_agenerate(stub_resource_provider: Mock) -> None:
+    """EmbeddingCellGenerator.agenerate calls model.agenerate_text_embeddings."""
+    config = EmbeddingColumnConfig(name="test_emb", target_column="text", model_alias="test_model")
+    gen = EmbeddingCellGenerator(config=config, resource_provider=stub_resource_provider)
+
+    stub_embeddings = [[0.1, 0.2], [0.3, 0.4]]
+    with patch.object(gen, "model") as mock_model:
+        mock_model.agenerate_text_embeddings = AsyncMock(return_value=stub_embeddings)
+        result = await gen.agenerate({"text": "['hello', 'world']"})
+
+    expected = EmbeddingGenerationResult(embeddings=stub_embeddings).model_dump(mode="json")
+    assert result["test_emb"] == expected
+    mock_model.agenerate_text_embeddings.assert_awaited_once_with(input_texts=["hello", "world"])

@@ -30,7 +30,7 @@ class SeedDatasetColumnGenerator(FromScratchColumnGenerator[SeedDatasetMultiColu
         return GenerationStrategy.FULL_COLUMN
 
     @property
-    def is_stateful(self) -> bool:
+    def is_order_dependent(self) -> bool:
         return True
 
     @property
