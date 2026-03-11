@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from enum import Enum
 from unittest.mock import patch
 
+from data_designer.config.seed_source import DirectoryListingTransform
 from data_designer.engine.testing.stubs import (
     StubPluginConfigModels,
     plugin_blobs_and_seeds,
@@ -141,3 +142,11 @@ def test_inject_into_directory_transform_type_union_with_plugins() -> None:
         result = manager.inject_into_directory_transform_type_union(TestUnion)
 
     assert result == BaseType1 | BaseType2 | plugin_directory_transform.config_cls
+
+
+def test_inject_into_directory_transform_type_union_with_single_base_type() -> None:
+    with mock_plugin_system([plugin_directory_transform]):
+        manager = PluginManager()
+        result = manager.inject_into_directory_transform_type_union(DirectoryListingTransform)
+
+    assert result == DirectoryListingTransform | plugin_directory_transform.config_cls

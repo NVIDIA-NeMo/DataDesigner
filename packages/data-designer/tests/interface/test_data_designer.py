@@ -478,7 +478,7 @@ def test_create_dataset_e2e_with_directory_seed_source_without_transform(
     (seed_dir / "subdir" / "beta.txt").write_text("beta", encoding="utf-8")
 
     builder = DataDesignerConfigBuilder()
-    builder.with_seed_dataset(DirectorySeedSource(path=str(seed_dir), glob="**/*.txt"))
+    builder.with_seed_dataset(DirectorySeedSource(path=str(seed_dir), file_pattern="*.txt"))
     builder.add_column(ExpressionColumnConfig(name="path_label", expr="{{ source_kind }}::{{ relative_path }}"))
 
     data_designer = DataDesigner(
@@ -515,7 +515,7 @@ def test_create_dataset_e2e_with_directory_seed_source_transform(
     builder.with_seed_dataset(
         DirectorySeedSource(
             path=str(seed_dir),
-            glob="**/*.txt",
+            file_pattern="*.txt",
             transform=DirectoryListingTransform(),
         )
     )
@@ -537,3 +537,39 @@ def test_create_dataset_e2e_with_directory_seed_source_transform(
         "directory_file::alpha.txt",
         "directory_file::subdir/beta.txt",
     ]
+
+
+def test_create_dataset_e2e_with_directory_seed_source_non_recursive(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_managed_assets_path: Path,
+    tmp_path: Path,
+) -> None:
+    seed_dir = tmp_path / "directory-seed-non-recursive"
+    (seed_dir / "subdir").mkdir(parents=True)
+    (seed_dir / "alpha.txt").write_text("alpha", encoding="utf-8")
+    (seed_dir / "subdir" / "beta.txt").write_text("beta", encoding="utf-8")
+
+    builder = DataDesignerConfigBuilder()
+    builder.with_seed_dataset(
+        DirectorySeedSource(
+            path=str(seed_dir),
+            file_pattern="*.txt",
+            recursive=False,
+        )
+    )
+    builder.add_column(ExpressionColumnConfig(name="path_label", expr="{{ source_kind }}::{{ relative_path }}"))
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    results = data_designer.create(builder, num_records=1, dataset_name="directory-seed-non-recursive-test")
+    df = results.load_dataset().sort_values("relative_path").reset_index(drop=True)
+
+    assert list(df["source_kind"]) == ["directory_file"]
+    assert list(df["relative_path"]) == ["alpha.txt"]
+    assert list(df["path_label"]) == ["directory_file::alpha.txt"]

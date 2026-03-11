@@ -81,15 +81,21 @@ def test_directory_seed_source_requires_directory(tmp_path: Path) -> None:
     file_path.write_text("alpha", encoding="utf-8")
 
     with pytest.raises(InvalidFilePathError, match="is not a directory"):
-        DirectorySeedSource(path=str(file_path), glob="**/*.txt")
+        DirectorySeedSource(path=str(file_path), file_pattern="*.txt")
 
 
 def test_directory_seed_source_allows_directory(tmp_path: Path) -> None:
-    source = DirectorySeedSource(path=str(tmp_path), glob="**/*.txt", transform=DirectoryListingTransform())
+    source = DirectorySeedSource(
+        path=str(tmp_path),
+        file_pattern="*.txt",
+        recursive=False,
+        transform=DirectoryListingTransform(),
+    )
 
     assert source.seed_type == "directory"
     assert source.path == str(tmp_path)
-    assert source.glob == "**/*.txt"
+    assert source.file_pattern == "*.txt"
+    assert source.recursive is False
     assert isinstance(source.transform, DirectoryListingTransform)
 
 
@@ -98,3 +104,18 @@ def test_directory_seed_source_is_exported_from_config_module(tmp_path: Path) ->
 
     assert source.seed_type == "directory"
     assert isinstance(source.transform, dd.DirectoryListingTransform)
+
+
+@pytest.mark.parametrize(
+    ("file_pattern", "error_message"),
+    [
+        pytest.param("", "non-empty string", id="empty"),
+        pytest.param("subdir/*.txt", "must match file names, not relative paths", id="posix-path"),
+        pytest.param(r"subdir\\*.txt", "must match file names, not relative paths", id="windows-path"),
+    ],
+)
+def test_directory_seed_source_rejects_path_like_file_patterns(
+    tmp_path: Path, file_pattern: str, error_message: str
+) -> None:
+    with pytest.raises(ValueError, match=error_message):
+        DirectorySeedSource(path=str(tmp_path), file_pattern=file_pattern)

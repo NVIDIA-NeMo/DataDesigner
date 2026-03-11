@@ -102,7 +102,7 @@ seed_source = dd.DataFrameSeedSource(df=df)
 
 ### 📂 DirectorySeedSource
 
-Load seed rows from a directory of matched files.
+Load seed rows from files matched under a directory.
 
 Without a transform, Data Designer yields one row per matched file with basic file metadata:
 
@@ -114,16 +114,19 @@ Without a transform, Data Designer yields one row per matched file with basic fi
 ```python
 seed_source = dd.DirectorySeedSource(
     path="data/documents",
-    glob="**/*.txt",
+    file_pattern="*.txt",
 )
 ```
+
+Directory matching is recursive by default, so this matches `.txt` files anywhere under `data/documents`. Set `recursive=False` to only match files directly inside `path`.
 
 You can also attach a full-batch transform that normalizes the matched files into a different row shape before seeding begins:
 
 ```python
 seed_source = dd.DirectorySeedSource(
     path="data/documents",
-    glob="**/*.txt",
+    file_pattern="train_*.txt",
+    recursive=False,
     transform=dd.DirectoryListingTransform(),
 )
 ```

@@ -7,7 +7,7 @@ import logging
 import os
 import threading
 from importlib.metadata import entry_points
-from typing import TypeAlias
+from typing import TypeAlias, get_args
 
 from typing_extensions import Self
 
@@ -40,9 +40,14 @@ class PluginRegistry:
             cls._plugins = {}
 
     def add_plugin_types_to_union(self, type_union: type[TypeAlias], plugin_type: PluginType) -> type[TypeAlias]:
+        existing_types = set(get_args(type_union))
+        if not existing_types:
+            existing_types = {type_union}
+
         for plugin in self.get_plugins(plugin_type):
-            if plugin.config_cls not in type_union.__args__:
+            if plugin.config_cls not in existing_types:
                 type_union |= plugin.config_cls
+                existing_types.add(plugin.config_cls)
         return type_union
 
     def get_plugin(self, plugin_name: str) -> Plugin:

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
+from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any, Generic, TypeVar, get_args, get_origin
 
@@ -59,15 +60,7 @@ class DirectoryTransform(ABC, Generic[TransformConfigT]):
 
 class DirectoryListingDirectoryTransform(DirectoryTransform[DirectoryListingTransform]):
     def normalize(self, *, root_path: Path, matched_files: list[Path]) -> list[dict[str, Any]]:
-        return [
-            {
-                "source_kind": "directory_file",
-                "source_path": str(file_path),
-                "relative_path": str(file_path.relative_to(root_path)),
-                "file_name": file_path.name,
-            }
-            for file_path in matched_files
-        ]
+        return create_directory_listing_records(root_path=root_path, matched_files=matched_files)
 
 
 class DirectoryTransformRegistry:
@@ -97,8 +90,34 @@ def create_default_directory_transform_registry() -> DirectoryTransformRegistry:
     return DirectoryTransformRegistry(transforms)
 
 
-def discover_directory_files(root_path: Path, glob_pattern: str) -> list[Path]:
-    matched_files = sorted(path for path in root_path.glob(glob_pattern) if path.is_file())
+def create_directory_listing_records(root_path: Path, matched_files: list[Path]) -> list[dict[str, Any]]:
+    return [
+        {
+            "source_kind": "directory_file",
+            "source_path": str(file_path),
+            "relative_path": str(file_path.relative_to(root_path)),
+            "file_name": file_path.name,
+        }
+        for file_path in matched_files
+    ]
+
+
+def discover_directory_files(root_path: Path, file_pattern: str, recursive: bool) -> list[Path]:
+    candidate_paths = root_path.rglob("*") if recursive else root_path.glob("*")
+    root_resolved = root_path.resolve()
+    matched_files: list[Path] = []
+
+    for path in candidate_paths:
+        if not path.is_file() or not fnmatchcase(path.name, file_pattern):
+            continue
+
+        if not path.resolve().is_relative_to(root_resolved):
+            raise DirectoryTransformError(f"Matched file {path} resolves outside the directory seed root {root_path}")
+
+        matched_files.append(path)
+
+    matched_files.sort(key=lambda path: str(path.relative_to(root_path)))
     if not matched_files:
-        raise DirectoryTransformError(f"No files matched glob {glob_pattern!r} under {root_path}")
+        search_scope = "under" if recursive else "directly under"
+        raise DirectoryTransformError(f"No files matched file_pattern {file_pattern!r} {search_scope} {root_path}")
     return matched_files

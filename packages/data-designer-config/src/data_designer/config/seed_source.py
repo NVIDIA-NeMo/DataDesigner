@@ -92,7 +92,11 @@ class DirectorySeedSource(SeedSource):
     seed_type: Literal["directory"] = "directory"
 
     path: str = Field(..., description="Directory containing seed artifacts.")
-    glob: str = Field("**/*", description="Glob pattern used to discover files under the provided directory.")
+    file_pattern: str = Field("*", description="Filename pattern used to match files under the provided directory.")
+    recursive: bool = Field(
+        True,
+        description="Whether to search nested subdirectories under the provided directory for matching files.",
+    )
     transform: DirectorySeedTransformT | None = Field(
         default=None,
         description="Optional full-batch transform applied to the matched files before seeding.",
@@ -105,8 +109,10 @@ class DirectorySeedSource(SeedSource):
             raise InvalidFilePathError(f"🛑 Path {path} is not a directory.")
         return str(path)
 
-    @field_validator("glob", mode="after")
-    def validate_glob(cls, value: str) -> str:
+    @field_validator("file_pattern", mode="after")
+    def validate_file_pattern(cls, value: str) -> str:
         if not value.strip():
-            raise ValueError("🛑 DirectorySeedSource.glob must be a non-empty string.")
+            raise ValueError("🛑 DirectorySeedSource.file_pattern must be a non-empty string.")
+        if "/" in value or "\\" in value:
+            raise ValueError("🛑 DirectorySeedSource.file_pattern must match file names, not relative paths.")
         return value
