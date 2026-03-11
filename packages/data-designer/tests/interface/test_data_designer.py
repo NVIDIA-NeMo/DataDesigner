@@ -24,6 +24,7 @@ from data_designer.config.sampler_params import CategorySamplerParams, SamplerTy
 from data_designer.config.seed_source import (
     ChatCompletionJsonlNormalizer,
     ClaudeCodeTraceNormalizer,
+    ClaudeCodeTraceSeedSource,
     CodexTraceNormalizer,
     DirectorySeedSource,
     HuggingFaceSeedSource,
@@ -658,6 +659,34 @@ def test_create_dataset_e2e_with_directory_seed_source_without_transform(
         "directory_file::alpha.txt",
         "directory_file::subdir/beta.txt",
     ]
+
+
+def test_create_dataset_e2e_with_claude_code_trace_seed_source_wrapper(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_managed_assets_path: Path,
+    tmp_path: Path,
+) -> None:
+    trace_dir = tmp_path / "claude-wrapper"
+    _write_claude_trace_directory(trace_dir)
+
+    builder = DataDesignerConfigBuilder()
+    builder.with_seed_dataset(ClaudeCodeTraceSeedSource(path=str(trace_dir)))
+    builder.add_column(ExpressionColumnConfig(name="assistant_copy", expr="{{ final_assistant_message }}"))
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    results = data_designer.create(builder, num_records=2, dataset_name="claude-wrapper-seed-test")
+    df = results.load_dataset().sort_values("trace_id").reset_index(drop=True)
+
+    assert list(df["trace_id"]) == ["session-1", "session-1:agent-a"]
+    assert list(df["assistant_copy"]) == ["Repo inspected", "Tests checked"]
+    assert list(df["source_kind"]) == ["claude_code", "claude_code"]
 
 
 def test_create_raises_error_when_builder_fails(

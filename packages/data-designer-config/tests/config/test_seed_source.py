@@ -11,8 +11,12 @@ import data_designer.config as dd
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.errors import InvalidFilePathError
 from data_designer.config.seed_source import (
+    ChatCompletionJsonlNormalizer,
+    ChatCompletionJsonlSeedSource,
     ClaudeCodeTraceNormalizer,
+    ClaudeCodeTraceSeedSource,
     CodexTraceNormalizer,
+    CodexTraceSeedSource,
     DirectorySeedSource,
     LocalFileSeedSource,
 )
@@ -103,3 +107,53 @@ def test_directory_seed_source_is_exported_from_config_module(tmp_path: Path) ->
 
     assert source.seed_type == "directory"
     assert isinstance(source.transform, ClaudeCodeTraceNormalizer)
+
+
+def test_claude_code_trace_seed_source_uses_default_home_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    claude_dir = tmp_path / ".claude" / "projects"
+    claude_dir.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    source = ClaudeCodeTraceSeedSource()
+
+    assert source.path == str(claude_dir)
+    assert source.glob == "**/*.jsonl"
+    assert isinstance(source.transform, ClaudeCodeTraceNormalizer)
+
+
+def test_codex_trace_seed_source_uses_default_home_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    codex_dir = tmp_path / ".codex" / "sessions"
+    codex_dir.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    source = CodexTraceSeedSource()
+
+    assert source.path == str(codex_dir)
+    assert source.glob == "**/*.jsonl"
+    assert isinstance(source.transform, CodexTraceNormalizer)
+
+
+def test_chat_completion_jsonl_seed_source_sets_transform_defaults(tmp_path: Path) -> None:
+    source = ChatCompletionJsonlSeedSource(path=str(tmp_path))
+
+    assert source.path == str(tmp_path)
+    assert source.glob == "**/*.jsonl"
+    assert isinstance(source.transform, ChatCompletionJsonlNormalizer)
+
+
+def test_trace_seed_source_wrappers_are_exported_from_config_module(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    claude_dir = tmp_path / ".claude" / "projects"
+    codex_dir = tmp_path / ".codex" / "sessions"
+    claude_dir.mkdir(parents=True)
+    codex_dir.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    claude_source = dd.ClaudeCodeTraceSeedSource()
+    codex_source = dd.CodexTraceSeedSource()
+    chat_source = dd.ChatCompletionJsonlSeedSource(path=str(tmp_path))
+
+    assert isinstance(claude_source.transform, dd.ClaudeCodeTraceNormalizer)
+    assert isinstance(codex_source.transform, dd.CodexTraceNormalizer)
+    assert isinstance(chat_source.transform, dd.ChatCompletionJsonlNormalizer)

@@ -131,6 +131,14 @@ Built-in directory transforms in this PR:
 
 These transforms expose normalized trace rows with common metadata such as `trace_id`, `source_kind`, and `final_assistant_message`, plus a `messages` column containing the full conversation in the same message-list shape used by Data Designer traces.
 
+For the common trace cases, Data Designer also ships convenience wrappers:
+
+- `dd.ClaudeCodeTraceSeedSource(path=...)`
+- `dd.CodexTraceSeedSource(path=...)`
+- `dd.ChatCompletionJsonlSeedSource(path=...)`
+
+`ClaudeCodeTraceSeedSource()` defaults to `~/.claude/projects`, and `CodexTraceSeedSource()` defaults to `~/.codex/sessions`.
+
 ## Sampling Strategies
 
 Control how rows are read from the seed dataset.

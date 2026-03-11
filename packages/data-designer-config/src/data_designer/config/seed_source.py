@@ -115,3 +115,43 @@ class DirectorySeedSource(SeedSource):
         if not value.strip():
             raise ValueError("🛑 DirectorySeedSource.glob must be a non-empty string.")
         return value
+
+
+def _get_claude_code_default_path() -> str:
+    return str(Path("~/.claude/projects").expanduser())
+
+
+def _get_codex_default_path() -> str:
+    return str(Path("~/.codex/sessions").expanduser())
+
+
+class ClaudeCodeTraceSeedSource(DirectorySeedSource):
+    path: str = Field(
+        default_factory=_get_claude_code_default_path,
+        description="Directory containing Claude Code session traces. Defaults to ~/.claude/projects.",
+    )
+    glob: str = Field("**/*.jsonl", description="Glob pattern used to discover Claude Code trace files.")
+    transform: DirectorySeedTransformT | None = Field(
+        default_factory=ClaudeCodeTraceNormalizer,
+        description="Full-batch Claude Code trace normalizer.",
+    )
+
+
+class CodexTraceSeedSource(DirectorySeedSource):
+    path: str = Field(
+        default_factory=_get_codex_default_path,
+        description="Directory containing Codex rollout traces. Defaults to ~/.codex/sessions.",
+    )
+    glob: str = Field("**/*.jsonl", description="Glob pattern used to discover Codex trace files.")
+    transform: DirectorySeedTransformT | None = Field(
+        default_factory=CodexTraceNormalizer,
+        description="Full-batch Codex trace normalizer.",
+    )
+
+
+class ChatCompletionJsonlSeedSource(DirectorySeedSource):
+    glob: str = Field("**/*.jsonl", description="Glob pattern used to discover chat-completion JSONL files.")
+    transform: DirectorySeedTransformT | None = Field(
+        default_factory=ChatCompletionJsonlNormalizer,
+        description="Full-batch chat-completion JSONL normalizer.",
+    )

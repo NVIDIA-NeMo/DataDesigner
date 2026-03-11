@@ -89,8 +89,11 @@ if TYPE_CHECKING:
     )
     from data_designer.config.seed_source import (  # noqa: F401
         ChatCompletionJsonlNormalizer,
+        ChatCompletionJsonlSeedSource,
         ClaudeCodeTraceNormalizer,
+        ClaudeCodeTraceSeedSource,
         CodexTraceNormalizer,
+        CodexTraceSeedSource,
         DirectorySeedSource,
         HuggingFaceSeedSource,
         LocalFileSeedSource,
@@ -203,8 +206,11 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "DataFrameSeedSource": (f"{_MOD_BASE}.seed_source_dataframe", "DataFrameSeedSource"),
     "DirectorySeedSource": (_MOD_SEED_SOURCE, "DirectorySeedSource"),
     "ClaudeCodeTraceNormalizer": (_MOD_SEED_SOURCE, "ClaudeCodeTraceNormalizer"),
+    "ClaudeCodeTraceSeedSource": (_MOD_SEED_SOURCE, "ClaudeCodeTraceSeedSource"),
     "CodexTraceNormalizer": (_MOD_SEED_SOURCE, "CodexTraceNormalizer"),
+    "CodexTraceSeedSource": (_MOD_SEED_SOURCE, "CodexTraceSeedSource"),
     "ChatCompletionJsonlNormalizer": (_MOD_SEED_SOURCE, "ChatCompletionJsonlNormalizer"),
+    "ChatCompletionJsonlSeedSource": (_MOD_SEED_SOURCE, "ChatCompletionJsonlSeedSource"),
     "HuggingFaceSeedSource": (_MOD_SEED_SOURCE, "HuggingFaceSeedSource"),
     "LocalFileSeedSource": (_MOD_SEED_SOURCE, "LocalFileSeedSource"),
     # utils

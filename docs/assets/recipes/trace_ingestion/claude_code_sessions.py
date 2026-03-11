@@ -13,19 +13,20 @@ Read Claude Code session traces from disk and turn them into a structured datase
 of reusable workflow records.
 
 This recipe demonstrates:
-    - ingesting Claude Code sessions with `DirectorySeedSource`
+    - ingesting Claude Code sessions with `ClaudeCodeTraceSeedSource`
     - using normalized trace metadata as seed columns in a workflow
     - conditioning structured generation on imported `messages`
 
 Prerequisites:
     - OPENAI_API_KEY environment variable for OpenAI provider model aliases (default model alias is "openai-text").
-    - A directory containing Claude Code session JSONL files, such as a project folder under `~/.claude/projects/`.
+    - Claude Code session JSONL files under the default `~/.claude/projects/` path, or a custom directory passed with `--trace-dir`.
 
 Run:
+    uv run claude_code_sessions.py
+    uv run claude_code_sessions.py --shuffle --num-records 20
+    uv run claude_code_sessions.py --num-records 32 --preview
+    uv run claude_code_sessions.py --partition-index 0 --num-partitions 8
     uv run claude_code_sessions.py --trace-dir ~/.claude/projects/my-project
-    uv run claude_code_sessions.py --trace-dir ~/.claude/projects/my-project --shuffle --num-records 20
-    uv run claude_code_sessions.py --trace-dir ~/.claude/projects/my-project --num-records 32 --preview
-    uv run claude_code_sessions.py --trace-dir ~/.claude/projects/my-project --partition-index 0 --num-partitions 8
 """
 
 from __future__ import annotations
@@ -60,21 +61,18 @@ class ClaudeCodeWorkflowRecord(BaseModel):
 
 
 def build_config(
-    trace_dir: Path,
+    trace_dir: Path | None,
     model_alias: str,
     *,
     sampling_strategy: dd.SamplingStrategy,
     selection_strategy: dd.PartitionBlock | None,
 ) -> dd.DataDesignerConfigBuilder:
     config_builder = dd.DataDesignerConfigBuilder()
+    seed_source = (
+        dd.ClaudeCodeTraceSeedSource() if trace_dir is None else dd.ClaudeCodeTraceSeedSource(path=str(trace_dir))
+    )
     config_builder.with_seed_dataset(
-        dd.DirectorySeedSource(
-            path=str(trace_dir),
-            glob="**/*.jsonl",
-            transform=dd.ClaudeCodeTraceNormalizer(),
-        ),
-        sampling_strategy=sampling_strategy,
-        selection_strategy=selection_strategy,
+        seed_source, sampling_strategy=sampling_strategy, selection_strategy=selection_strategy
     )
 
     config_builder.add_column(
@@ -140,8 +138,8 @@ def parse_args() -> ArgumentParser:
     parser.add_argument(
         "--trace-dir",
         type=Path,
-        required=True,
-        help="Path to a Claude Code project session directory containing JSONL session traces.",
+        default=None,
+        help="Optional path to a Claude Code project session directory. Defaults to ~/.claude/projects.",
     )
     parser.add_argument("--model-alias", type=str, default="openai-text")
     parser.add_argument("--num-records", type=int, default=5)
@@ -185,7 +183,7 @@ def resolve_selection_strategy(
 
 def main() -> None:
     args = parse_args().parse_args()
-    trace_dir = args.trace_dir.expanduser().resolve()
+    trace_dir = args.trace_dir.expanduser().resolve() if args.trace_dir is not None else None
     sampling_strategy = dd.SamplingStrategy.SHUFFLE if args.shuffle else dd.SamplingStrategy.ORDERED
     selection_strategy = resolve_selection_strategy(args.partition_index, args.num_partitions)
 

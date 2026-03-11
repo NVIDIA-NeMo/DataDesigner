@@ -89,7 +89,7 @@ Each recipe is a self-contained example that can be run independently.
 
     **Demonstrates:**
 
-    - `DirectorySeedSource` with `ClaudeCodeTraceNormalizer`
+    - `ClaudeCodeTraceSeedSource`
     - Using normalized trace columns in generation prompts
     - Distilling agent traces into reusable structured records
 
