@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import logging
 from typing import TYPE_CHECKING, Any
@@ -65,12 +66,57 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
 
         return self._generate(data, is_dataframe)
 
+    async def agenerate(self, data: dict | pd.DataFrame) -> dict | pd.DataFrame | list[dict]:
+        """Async generate — branches on strategy and detects coroutine functions."""
+        is_full_column = self.config.generation_strategy == GenerationStrategy.FULL_COLUMN
+        if is_full_column:
+            return await asyncio.to_thread(self.generate, data.copy())
+        # The @custom_column_generator decorator wraps the user function in a sync
+        # wrapper, so we must unwrap to detect async functions.
+        fn_unwrapped = inspect.unwrap(self.config.generator_function)
+        if asyncio.iscoroutinefunction(fn_unwrapped):
+            missing = set(self.config.required_columns) - set(data.keys())
+            if missing:
+                raise CustomColumnGenerationError(
+                    f"Missing required columns for custom generator '{self.config.name}': {sorted(missing)}"
+                )
+            keys_before = set(data.keys())
+
+            try:
+                result = await self._ainvoke_generator_function(data)
+            except CustomColumnGenerationError:
+                raise
+            except Exception as e:
+                logger.warning(
+                    f"⚠️ Custom generator function {self.config.generator_function.__name__!r} "
+                    f"failed for column '{self.config.name}'. This record will be skipped.\n{e}"
+                )
+                raise CustomColumnGenerationError(
+                    f"Custom generator function failed for column '{self.config.name}': {e}"
+                ) from e
+
+            return self._postprocess_result(result, is_dataframe=False, keys_before=keys_before)
+        return await asyncio.to_thread(self.generate, data)
+
+    async def _ainvoke_generator_function(self, data: dict) -> dict | pd.DataFrame:
+        """Invoke an async user generator function with appropriate arguments.
+
+        The @custom_column_generator decorator's sync wrapper returns a coroutine
+        when the original function is async, so we await the wrapper's return value.
+        """
+        params = self._get_validated_params()
+        fn = self.config.generator_function
+        if len(params) == 1:
+            return await fn(data)
+        elif len(params) == 2:
+            return await fn(data, self.config.generator_params)
+        else:
+            models = self._build_models_dict()
+            return await fn(data, self.config.generator_params, models)
+
     def _generate(self, data: dict | pd.DataFrame, is_dataframe: bool) -> dict | pd.DataFrame | list[dict]:
         """Unified generation logic for both strategies."""
-        # Get columns/keys using unified accessor
         get_keys = (lambda d: set(d.columns)) if is_dataframe else (lambda d: set(d.keys()))
-        expected_type = lazy.pd.DataFrame if is_dataframe else dict
-        type_name = "DataFrame" if is_dataframe else "dict"
 
         # Check required columns
         missing = set(self.config.required_columns) - get_keys(data)
@@ -96,6 +142,15 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
                 f"Custom generator function failed for column '{self.config.name}': {e}"
             ) from e
 
+        return self._postprocess_result(result, is_dataframe, keys_before)
+
+    def _postprocess_result(
+        self,
+        result: dict | pd.DataFrame | list[dict],
+        is_dataframe: bool,
+        keys_before: set[str],
+    ) -> dict | pd.DataFrame | list[dict]:
+        """Validate type and output columns of a generation result."""
         # Cell-by-cell with allow_resize: accept dict or list[dict]
         if not is_dataframe and self.config.allow_resize:
             if isinstance(result, dict):
@@ -113,6 +168,8 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
             )
 
         # Validate return type for non-resize paths
+        expected_type = lazy.pd.DataFrame if is_dataframe else dict
+        type_name = "DataFrame" if is_dataframe else "dict"
         if not isinstance(result, expected_type):
             raise CustomColumnGenerationError(
                 f"Custom generator for column '{self.config.name}' must return a {type_name}, "
