@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from data_designer.config.base import ConfigBase
 from data_designer.engine.configurable_task import ConfigurableTask
+from data_designer.engine.resources.directory_transform import DirectoryTransform
 from data_designer.engine.resources.seed_reader import SeedReader
 from data_designer.plugins.plugin import Plugin, PluginType
 
@@ -18,3 +19,7 @@ def assert_valid_plugin(plugin: Plugin) -> None:
         )
     elif plugin.plugin_type == PluginType.SEED_READER:
         assert issubclass(plugin.impl_cls, SeedReader), "Seed reader plugin impl class must be a subclass of SeedReader"
+    elif plugin.plugin_type == PluginType.DIRECTORY_TRANSFORM:
+        assert issubclass(plugin.impl_cls, DirectoryTransform), (
+            "Directory transform plugin impl class must be a subclass of DirectoryTransform"
+        )

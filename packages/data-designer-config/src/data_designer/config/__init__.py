@@ -95,6 +95,7 @@ if TYPE_CHECKING:
         CodexTraceNormalizer,
         CodexTraceSeedSource,
         DirectorySeedSource,
+        DirectorySeedTransform,
         HuggingFaceSeedSource,
         LocalFileSeedSource,
     )
@@ -204,6 +205,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "SeedConfig": (_MOD_SEED, "SeedConfig"),
     # seed_source
     "DataFrameSeedSource": (f"{_MOD_BASE}.seed_source_dataframe", "DataFrameSeedSource"),
+    "DirectorySeedTransform": (_MOD_SEED_SOURCE, "DirectorySeedTransform"),
     "DirectorySeedSource": (_MOD_SEED_SOURCE, "DirectorySeedSource"),
     "ClaudeCodeTraceNormalizer": (_MOD_SEED_SOURCE, "ClaudeCodeTraceNormalizer"),
     "ClaudeCodeTraceSeedSource": (_MOD_SEED_SOURCE, "ClaudeCodeTraceSeedSource"),

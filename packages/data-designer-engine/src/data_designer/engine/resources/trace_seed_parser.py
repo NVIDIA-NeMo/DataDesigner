@@ -10,12 +10,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from data_designer.config.seed_source import (
-    ChatCompletionJsonlNormalizer,
-    ClaudeCodeTraceNormalizer,
-    CodexTraceNormalizer,
-    DirectorySeedSource,
-)
 from data_designer.engine.models.utils import ChatMessage
 
 
@@ -72,23 +66,7 @@ class NormalizedTraceRecord:
         }
 
 
-def normalize_directory_source(source: DirectorySeedSource) -> list[dict[str, Any]]:
-    root_path = Path(source.path)
-    matched_files = _discover_directory_files(root_path=root_path, glob_pattern=source.glob)
-    if source.transform is None:
-        return _normalize_directory_listing(root_path=root_path, matched_files=matched_files)
-    if isinstance(source.transform, ClaudeCodeTraceNormalizer):
-        records = _normalize_claude_directory(root_path, matched_files)
-    elif isinstance(source.transform, CodexTraceNormalizer):
-        records = _normalize_codex_directory(root_path, matched_files)
-    elif isinstance(source.transform, ChatCompletionJsonlNormalizer):
-        records = _normalize_chat_completion_directory(root_path, matched_files)
-    else:
-        raise TraceSeedParseError(f"Unsupported directory seed transform: {source.transform.transform_type}")
-    return [record.to_dict() for record in records]
-
-
-def _normalize_directory_listing(root_path: Path, matched_files: list[Path]) -> list[dict[str, Any]]:
+def normalize_directory_listing(root_path: Path, matched_files: list[Path]) -> list[dict[str, Any]]:
     return [
         {
             "source_kind": "directory_file",
@@ -100,7 +78,7 @@ def _normalize_directory_listing(root_path: Path, matched_files: list[Path]) -> 
     ]
 
 
-def _discover_directory_files(root_path: Path, glob_pattern: str) -> list[Path]:
+def discover_directory_files(root_path: Path, glob_pattern: str) -> list[Path]:
     matched_files = sorted(path for path in root_path.glob(glob_pattern) if path.is_file())
     if not matched_files:
         raise TraceSeedParseError(f"No files matched glob {glob_pattern!r} under {root_path}")
@@ -122,7 +100,7 @@ def _get_handled_files(
     return handled_files
 
 
-def _normalize_claude_directory(root_path: Path, matched_files: list[Path]) -> list[NormalizedTraceRecord]:
+def normalize_claude_directory(root_path: Path, matched_files: list[Path]) -> list[NormalizedTraceRecord]:
     source_kind = SOURCE_KIND_BY_TRANSFORM_TYPE["claude_code_trace"]
     session_index = _load_claude_session_index(root_path)
     trace_files = _get_handled_files(
@@ -212,7 +190,7 @@ def _normalize_claude_directory(root_path: Path, matched_files: list[Path]) -> l
     return normalized_records
 
 
-def _normalize_codex_directory(root_path: Path, matched_files: list[Path]) -> list[NormalizedTraceRecord]:
+def normalize_codex_directory(root_path: Path, matched_files: list[Path]) -> list[NormalizedTraceRecord]:
     source_kind = SOURCE_KIND_BY_TRANSFORM_TYPE["codex_trace"]
     trace_files = _get_handled_files(
         matched_files=matched_files,
@@ -347,7 +325,7 @@ def _normalize_codex_directory(root_path: Path, matched_files: list[Path]) -> li
     return normalized_records
 
 
-def _normalize_chat_completion_directory(root_path: Path, matched_files: list[Path]) -> list[NormalizedTraceRecord]:
+def normalize_chat_completion_directory(root_path: Path, matched_files: list[Path]) -> list[NormalizedTraceRecord]:
     source_kind = SOURCE_KIND_BY_TRANSFORM_TYPE["chat_completion_jsonl"]
     trace_files = _get_handled_files(
         matched_files=matched_files,

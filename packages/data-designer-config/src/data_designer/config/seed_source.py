@@ -7,21 +7,23 @@ from abc import ABC
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import Field, field_validator
 from typing_extensions import Self
 
+from data_designer.config.base import ConfigBase
 from data_designer.config.errors import InvalidFilePathError
 from data_designer.config.utils.io_helpers import (
     VALID_DATASET_FILE_EXTENSIONS,
     validate_dataset_file_path,
     validate_path_contains_files_of_type,
 )
+from data_designer.plugin_manager import PluginManager
 
 if TYPE_CHECKING:
     import pandas as pd
 
 
-class SeedSource(BaseModel, ABC):
+class SeedSource(ConfigBase, ABC):
     """Base class for seed dataset configurations.
 
     All subclasses must define a `seed_type` field with a Literal value.
@@ -69,7 +71,7 @@ class HuggingFaceSeedSource(SeedSource):
     endpoint: str = "https://huggingface.co"
 
 
-class DirectorySeedTransform(BaseModel, ABC):
+class DirectorySeedTransform(ConfigBase, ABC):
     """Base class for full-batch directory seed transforms."""
 
     transform_type: str
@@ -87,10 +89,12 @@ class ChatCompletionJsonlNormalizer(DirectorySeedTransform):
     transform_type: Literal["chat_completion_jsonl"] = "chat_completion_jsonl"
 
 
-DirectorySeedTransformT = Annotated[
-    ClaudeCodeTraceNormalizer | CodexTraceNormalizer | ChatCompletionJsonlNormalizer,
-    Field(discriminator="transform_type"),
-]
+plugin_manager = PluginManager()
+
+_DirectorySeedTransformT = ClaudeCodeTraceNormalizer | CodexTraceNormalizer | ChatCompletionJsonlNormalizer
+_DirectorySeedTransformT = plugin_manager.inject_into_directory_transform_type_union(_DirectorySeedTransformT)
+
+DirectorySeedTransformT = Annotated[_DirectorySeedTransformT, Field(discriminator="transform_type")]
 
 
 class DirectorySeedSource(SeedSource):
