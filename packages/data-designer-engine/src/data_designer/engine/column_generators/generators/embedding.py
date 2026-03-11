@@ -27,9 +27,19 @@ class EmbeddingCellGenerator(ColumnGeneratorWithModel[EmbeddingColumnConfig]):
     def get_generation_strategy() -> GenerationStrategy:
         return GenerationStrategy.CELL_BY_CELL
 
-    def generate(self, data: dict) -> dict:
+    def _prepare_embedding_inputs(self, data: dict) -> list[str]:
         deserialized_record = deserialize_json_values(data)
-        input_texts = parse_list_string(deserialized_record[self.config.target_column])
+        return parse_list_string(deserialized_record[self.config.target_column])
+
+    def generate(self, data: dict) -> dict:
+        input_texts = self._prepare_embedding_inputs(data)
         embeddings = self.model.generate_text_embeddings(input_texts=input_texts)
+        data[self.config.name] = EmbeddingGenerationResult(embeddings=embeddings).model_dump(mode="json")
+        return data
+
+    async def agenerate(self, data: dict) -> dict:
+        """Native async generate using model.agenerate_text_embeddings."""
+        input_texts = self._prepare_embedding_inputs(data)
+        embeddings = await self.model.agenerate_text_embeddings(input_texts=input_texts)
         data[self.config.name] = EmbeddingGenerationResult(embeddings=embeddings).model_dump(mode="json")
         return data
