@@ -18,7 +18,7 @@ This recipe demonstrates:
     - conditioning structured generation on imported `messages`
 
 Prerequisites:
-    - OPENAI_API_KEY environment variable for OpenAI provider model aliases (default model alias is "openai-text").
+    - NVIDIA_API_KEY environment variable for NVIDIA provider model aliases (default model alias is "nvidia-text").
     - Claude Code session JSONL files under the default `~/.claude/projects/` path, or a custom directory passed with `--trace-dir`.
 
 Run:
@@ -141,7 +141,7 @@ def parse_args() -> ArgumentParser:
         default=None,
         help="Optional path to a Claude Code project session directory. Defaults to ~/.claude/projects.",
     )
-    parser.add_argument("--model-alias", type=str, default="openai-text")
+    parser.add_argument("--model-alias", type=str, default="nvidia-text")
     parser.add_argument("--num-records", type=int, default=5)
     parser.add_argument("--artifact-path", type=str, default=None)
     parser.add_argument("--dataset-name", type=str, default="claude_code_trace_workflows")
