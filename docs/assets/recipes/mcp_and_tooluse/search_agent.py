@@ -12,15 +12,40 @@ Generate multi-turn search agent trajectories where an LLM iteratively
 searches the web, reads results, reasons about evidence, and synthesizes
 answers -- the kind of data needed to train BrowseComp-style search agents.
 
-The pipeline:
-  1. Seeds from Wikidata knowledge graph paths (parquet or built-in demo)
-  2. Generates multi-hop search riddles from the paths (draft + obfuscation)
-  3. Runs a tool-using search agent with live Tavily web search
-  4. Captures full tool-call traces for SFT training data
+Pipeline architecture:
 
-Based on the "Search Agent SFT Data: Teaching LLMs to Browse the Web" dev
-note, which produced ~7,000 high-quality tool-use trajectories for Nemotron
-post-training starting from 50,000 Wikidata seeds.
+    ┌─────────────────────────────────────────────────────────────────────────┐
+    │                   STAGE 1: SEED DATA (Wikidata KG Walks)                │
+    │                                                                         │
+    │  Random walks on the Wikidata knowledge graph produce multi-hop paths.  │
+    │  Each seed has: seed_entity, final_answer_entity, readable_path,        │
+    │  num_hops_in_graph, ground_truth.                                       │
+    │  Built-in demo seeds included; bring your own for production.           │
+    ├─────────────────────────────────────────────────────────────────────────┤
+    │                   STAGE 2: SEARCH RIDDLE GENERATION (LLM)               │
+    │                                                                         │
+    │  user_query_draft ────────► user_query_obfuscated                       │
+    │  (chain clues from path,     (BrowseComp-style rewrite:                 │
+    │   hide intermediate nodes,    concise, natural, no breadcrumbs,         │
+    │   don't name the answer)      1-2 sentences max)                        │
+    ├─────────────────────────────────────────────────────────────────────────┤
+    │                   STAGE 3: SEARCH TRAJECTORY ROLLOUTS (LLM + MCP)       │
+    │                                                                         │
+    │  Thought-Action-Observation loop with live Tavily web search.           │
+    │  ├─ tavily_search tool via hosted MCP endpoint                          │
+    │  ├─ Maximum 25 tool call turns; 300s timeout                            │
+    │  ├─ Full trace captured via with_trace=ALL_MESSAGES                     │
+    │  └─ Structured JSON output: final_answer, supporting_urls,              │
+    │     short_justification                                                 │
+    ├─────────────────────────────────────────────────────────────────────────┤
+    │                   STAGE 4: STRUCTURED FORMATTING (LLM)                  │
+    │                                                                         │
+    │  Normalize raw agent output into clean JSON via LLMStructuredColumn.    │
+    │  Handles markdown fences, trailing text, single-quoted dicts.           │
+    │                                                                         │
+    │  The agent_solution_raw__trace column IS the SFT training data:         │
+    │  complete ChatML conversation with every tool call and response.        │
+    └─────────────────────────────────────────────────────────────────────────┘
 
 Prerequisites:
     - TAVILY_API_KEY environment variable (get a free key at https://tavily.com)
@@ -45,11 +70,28 @@ import os
 import tempfile
 from pathlib import Path
 
+from pydantic import BaseModel, Field
+
 import data_designer.config as dd
 from data_designer.interface import DataDesigner
 
 # =============================================================================
-# Data Designer Configuration
+# Structured Output Schema
+# =============================================================================
+
+
+class AgentSolution(BaseModel):
+    """Structured output for the search agent's final answer."""
+
+    final_answer: str = Field(..., min_length=1, description="The final answer entity.")
+    supporting_urls: list[str] = Field(
+        default_factory=list, description="Authoritative URLs used to verify the answer."
+    )
+    short_justification: str = Field(..., min_length=1, description="Brief explanation of reasoning (1-2 sentences).")
+
+
+# =============================================================================
+# Prompt Templates
 # =============================================================================
 
 QUERY_DRAFT_PROMPT = """\
@@ -61,14 +103,21 @@ Create a complex, multi-step search riddle based on this knowledge path:
 Start Entity: {{ seed_entity }}
 Final Answer Entity: {{ final_answer_entity }}
 
-RULES:
+CRITICAL RULES:
 1. DO NOT name the intermediate nodes. Hide them behind descriptions.
 2. DO NOT name the Final Answer.
 3. Chain the clues logically -- describe each step relative to the previous one.
-4. If a step is weak or nonsensical, IGNORE IT.
-5. Output INVALID_PATH if the path is unsalvageable.
+4. Audit the logic: if a step is weak or nonsensical, IGNORE IT.
+5. Salvage and simplify: use only the strongest, most logical hops.
+6. No hallucinations: do not invent relationships not in the path.
+7. Aim for 4-8 meaningful hops.
 
-Return ONLY the question string (or INVALID_PATH).\
+VALIDATION - Output "INVALID_PATH" if:
+- Final answer is generic/abstract (e.g. "technology", "people", "field")
+- Path has weak/illogical relationships
+- No coherent question can be formed
+
+Return ONLY the question string (or "INVALID_PATH").\
 """
 
 OBFUSCATE_PROMPT = """\
@@ -81,19 +130,22 @@ Start Entity: {{ seed_entity }}
 Final Answer (do not leak): {{ final_answer_entity }}
 
 HARD REQUIREMENTS:
-1. NEVER mention the final answer or any intermediate entity by name.
-2. NO breadcrumb chains (avoid "X leads to Y leads to Z").
-3. Use descriptive clues that require reasoning.
-4. 1-2 sentences max, sounding like a natural web search query.
-5. If original == "INVALID_PATH", output exactly "INVALID_PATH".
+1. NEVER reveal the step-by-step plan. No breadcrumb chains.
+   Avoid: "X is member of Y; Y is based in Z; Z is the capital of..."
+   Avoid meta language: "then search...", "next find...", "follow the chain..."
+2. NEVER mention the final answer or any intermediate entity by name.
+3. Keep it concise and natural: 1-2 sentences max (3 for very complex paths).
+4. Use descriptive clues that require reasoning.
+5. Include at least one disambiguating filter (date, count, or specific attribute).
+6. If original == "INVALID_PATH", output exactly "INVALID_PATH".
 
-Return ONLY the rewritten question string (or INVALID_PATH).\
+Return ONLY the rewritten question string (or "INVALID_PATH").\
 """
 
 AGENT_SYSTEM_PROMPT = """\
 You are an expert search agent that uses web search to answer questions accurately.
 
-You MUST output ONLY valid JSON matching this schema:
+You MUST output ONLY valid JSON matching this exact schema:
 
 {
   "final_answer": "string - the specific answer entity",
@@ -102,15 +154,50 @@ You MUST output ONLY valid JSON matching this schema:
 }
 
 AVAILABLE TOOLS:
-You have access to "tavily_search" with parameter: query (string, required).
+You have access to ONE tool called "tavily_search" with parameter: query (string, required).
 
 TOOL USAGE RULES:
-1. Always use "tavily_search" -- only send {"query": "..."}.
-2. Maximum 15 tool calls. Budget your searches wisely.
-3. Start with broad queries, then refine to specific entities.
-4. Cross-verify facts across multiple sources.
-5. After searches, output ONLY the JSON object.\
+1. Exact Tool Name: Always use "tavily_search" (no suffixes or prefixes).
+2. Exact Args: Only send {"query": "..."} for the tool call.
+3. Maximum 25 tool calls. Budget your searches wisely.
+4. Search Strategy:
+   - Start with broad queries to understand the domain
+   - Refine to specific entities/relationships
+   - Cross-verify facts across multiple sources
+   - Use different query formulations for the same information
+5. No Reasoning Tags: Do NOT use <think> tags or XML formatting.
+6. No Intermediate Text: Do NOT output explanatory text between tool calls.
+7. Final Output: After completing your searches, output ONLY the JSON object.
+
+EXECUTION FLOW:
+1. Read the user's question
+2. Make tool calls using "tavily_search" to gather information
+3. Verify information across multiple sources
+4. Once confident, output the JSON result (no additional text)\
 """
+
+FORMATTER_PROMPT = """\
+You are a JSON normalizer.
+
+You will be given a messy model output that should contain a JSON object with:
+- final_answer (string)
+- supporting_urls (list of strings)
+- short_justification (string)
+
+Rules:
+- Return ONLY a JSON object. No markdown. No extra text.
+- If the input contains code fences, tool chatter, or extra prose, ignore it.
+- If the input contains invalid JSON, repair it.
+- supporting_urls must be a list of valid http(s) URLs (dedupe, keep best 1-5).
+
+Input:
+{{ agent_solution_raw }}\
+"""
+
+
+# =============================================================================
+# Data Designer Configuration
+# =============================================================================
 
 
 def build_config(model_alias: str) -> tuple[dd.DataDesignerConfigBuilder, dd.MCPProvider]:
@@ -130,13 +217,13 @@ def build_config(model_alias: str) -> tuple[dd.DataDesignerConfigBuilder, dd.MCP
         tool_alias="tavily-search",
         providers=["tavily"],
         allow_tools=["tavily_search"],
-        max_tool_call_turns=15,
+        max_tool_call_turns=25,
         timeout_sec=300.0,
     )
 
     config_builder = dd.DataDesignerConfigBuilder(tool_configs=[tool_config])
 
-    # Stage 1: Draft question from knowledge path
+    # Stage 2: Draft question from knowledge path
     config_builder.add_column(
         dd.LLMTextColumnConfig(
             name="user_query_draft",
@@ -166,6 +253,16 @@ def build_config(model_alias: str) -> tuple[dd.DataDesignerConfigBuilder, dd.MCP
         )
     )
 
+    # Stage 4: Structured JSON formatting
+    config_builder.add_column(
+        dd.LLMStructuredColumnConfig(
+            name="agent_solution",
+            model_alias=model_alias,
+            prompt=FORMATTER_PROMPT,
+            output_format=AgentSolution,
+        )
+    )
+
     return config_builder, mcp_provider
 
 
@@ -179,13 +276,13 @@ DEMO_SEEDS = [
         "final_answer_entity": "Thomas Hart Benton",
         "readable_path": (
             "START ENTITY: NVIDIA (Q182477)\n"
-            "  ⬇ [chief executive officer (P169)]\n"
+            "  \u2b07 [chief executive officer (P169)]\n"
             "  NODE: Jensen Huang (Q332838)\n"
-            "  ⬇ [educated at (P69)]\n"
+            "  \u2b07 [educated at (P69)]\n"
             "  NODE: Oregon State University (Q861888)\n"
-            "  ⬇ [located in the administrative territorial entity (P131)]\n"
+            "  \u2b07 [located in the administrative territorial entity (P131)]\n"
             "  NODE: Benton County (Q115372)\n"
-            "  ⬇ [named after (P138)]\n"
+            "  \u2b07 [named after (P138)]\n"
             "  NODE: Thomas Hart Benton (Q178712)"
         ),
         "num_hops_in_graph": 4,
@@ -196,13 +293,38 @@ DEMO_SEEDS = [
         "final_answer_entity": "Centrum Wiskunde & Informatica",
         "readable_path": (
             "START ENTITY: Python (Q28865)\n"
-            "  ⬇ [developer (P178)]\n"
+            "  \u2b07 [developer (P178)]\n"
             "  NODE: Guido van Rossum (Q19845)\n"
-            "  ⬇ [employer (P108)]\n"
+            "  \u2b07 [employer (P108)]\n"
             "  NODE: Centrum Wiskunde & Informatica (Q1060645)"
         ),
         "num_hops_in_graph": 2,
         "ground_truth": "Centrum Wiskunde & Informatica",
+    },
+    {
+        "seed_entity": "toothache",
+        "final_answer_entity": "ibuprofen",
+        "readable_path": (
+            "START ENTITY: toothache (Q143925)\n"
+            "  \u2b07 [risk factor (P564)]\n"
+            "  NODE: smoking (Q662860)\n"
+            "  \u2b07 [has effect (P1542)]\n"
+            "  NODE: Crohn's disease (Q1472)\n"
+            "  \u2b07 [drug or therapy used for treatment (P2176)]\n"
+            "  NODE: TNF inhibitor (Q1536078)\n"
+            "  \u2b07 [is possible treatment of (P2175)]\n"
+            "  NODE: Beh\u00e7et's disease (Q911427)\n"
+            "  \u2b07 [symptoms and signs (P780)]\n"
+            "  NODE: inflammation (Q101991)\n"
+            "  \u2b07 [drug or therapy used for treatment (P2176)]\n"
+            "  NODE: flurbiprofen (Q419890)\n"
+            "  \u2b07 [significant drug interaction (P769)]\n"
+            "  NODE: parecoxib (Q347941)\n"
+            "  \u2b07 [significant drug interaction (P769)]\n"
+            "  NODE: ibuprofen (Q186969)"
+        ),
+        "num_hops_in_graph": 8,
+        "ground_truth": "ibuprofen",
     },
 ]
 
@@ -244,7 +366,6 @@ def main() -> None:
     if os.environ.get("NVIDIA_API_KEY") is None and args.model_alias.startswith("nvidia"):
         raise RuntimeError("NVIDIA_API_KEY must be set when using NVIDIA model aliases.")
 
-    # Use provided seed path or generate demo data
     if args.seed_path:
         seed_path = args.seed_path
     else:
