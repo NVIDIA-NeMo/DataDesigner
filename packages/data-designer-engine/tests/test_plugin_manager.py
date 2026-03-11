@@ -9,6 +9,7 @@ from unittest.mock import patch
 from data_designer.engine.testing.stubs import (
     StubPluginConfigModels,
     plugin_blobs_and_seeds,
+    plugin_directory_transform,
     plugin_models,
     plugin_models_and_blobs,
 )
@@ -122,3 +123,21 @@ def test_inject_into_column_config_type_union_with_plugins() -> None:
         result = manager.inject_into_column_config_type_union(TestUnion)
 
     assert result == BaseType1 | BaseType2 | StubPluginConfigModels
+
+
+def test_inject_into_directory_transform_type_union_with_plugins() -> None:
+    """Test injecting plugins into directory transform config type union."""
+
+    class BaseType1:
+        pass
+
+    class BaseType2:
+        pass
+
+    TestUnion = BaseType1 | BaseType2
+
+    with mock_plugin_system([plugin_directory_transform]):
+        manager = PluginManager()
+        result = manager.inject_into_directory_transform_type_union(TestUnion)
+
+    assert result == BaseType1 | BaseType2 | plugin_directory_transform.config_cls

@@ -4,12 +4,15 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any, Literal
 
 from data_designer.config.base import ConfigBase, SingleColumnConfig
+from data_designer.config.seed_source import DirectorySeedTransform
 from data_designer.engine.column_generators.generators.base import ColumnGeneratorCellByCell
 from data_designer.engine.models.clients.types import AssistantMessage, ChatCompletionResponse, ToolCall
 from data_designer.engine.models.utils import ChatMessage
+from data_designer.engine.resources.directory_transform import DirectoryTransform
 from data_designer.engine.resources.seed_reader import SeedReader
 from data_designer.plugins.plugin import Plugin, PluginType
 
@@ -132,6 +135,29 @@ plugin_blobs_and_seeds = Plugin(
     config_qualified_name=f"{MODULE_NAME}.StubPluginConfigBlobsAndSeeds",
     impl_qualified_name=f"{MODULE_NAME}.StubPluginTaskBlobsAndSeeds",
     plugin_type=PluginType.COLUMN_GENERATOR,
+)
+
+
+class StubDirectoryTransformConfig(DirectorySeedTransform):
+    transform_type: Literal["stub-directory-transform"] = "stub-directory-transform"
+
+
+class StubDirectoryTransform(DirectoryTransform[StubDirectoryTransformConfig]):
+    def normalize(self, *, root_path: Path, matched_files: list[Path]) -> list[dict[str, Any]]:
+        return [
+            {
+                "source_kind": "stub_directory_transform",
+                "root_path": str(root_path),
+                "matched_file_count": len(matched_files),
+                "matched_file_names": [path.name for path in matched_files],
+            }
+        ]
+
+
+plugin_directory_transform = Plugin(
+    config_qualified_name=f"{MODULE_NAME}.StubDirectoryTransformConfig",
+    impl_qualified_name=f"{MODULE_NAME}.StubDirectoryTransform",
+    plugin_type=PluginType.DIRECTORY_TRANSFORM,
 )
 
 

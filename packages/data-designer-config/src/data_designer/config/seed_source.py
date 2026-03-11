@@ -4,22 +4,26 @@
 from __future__ import annotations
 
 from abc import ABC
-from typing import TYPE_CHECKING, Literal
+from pathlib import Path
+from typing import TYPE_CHECKING, Annotated, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import Field, field_validator
 from typing_extensions import Self
 
+from data_designer.config.base import ConfigBase
+from data_designer.config.errors import InvalidFilePathError
 from data_designer.config.utils.io_helpers import (
     VALID_DATASET_FILE_EXTENSIONS,
     validate_dataset_file_path,
     validate_path_contains_files_of_type,
 )
+from data_designer.plugin_manager import PluginManager
 
 if TYPE_CHECKING:
     import pandas as pd
 
 
-class SeedSource(BaseModel, ABC):
+class SeedSource(ConfigBase, ABC):
     """Base class for seed dataset configurations.
 
     All subclasses must define a `seed_type` field with a Literal value.
@@ -65,3 +69,44 @@ class HuggingFaceSeedSource(SeedSource):
     )
     token: str | None = None
     endpoint: str = "https://huggingface.co"
+
+
+class DirectorySeedTransform(ConfigBase, ABC):
+    """Base class for full-batch directory seed transforms."""
+
+    transform_type: str
+
+
+class DirectoryListingTransform(DirectorySeedTransform):
+    transform_type: Literal["directory_listing"] = "directory_listing"
+
+
+plugin_manager = PluginManager()
+
+_DirectorySeedTransformT = DirectoryListingTransform
+_DirectorySeedTransformT = plugin_manager.inject_into_directory_transform_type_union(_DirectorySeedTransformT)
+DirectorySeedTransformT = Annotated[_DirectorySeedTransformT, Field(discriminator="transform_type")]
+
+
+class DirectorySeedSource(SeedSource):
+    seed_type: Literal["directory"] = "directory"
+
+    path: str = Field(..., description="Directory containing seed artifacts.")
+    glob: str = Field("**/*", description="Glob pattern used to discover files under the provided directory.")
+    transform: DirectorySeedTransformT | None = Field(
+        default=None,
+        description="Optional full-batch transform applied to the matched files before seeding.",
+    )
+
+    @field_validator("path", mode="after")
+    def validate_path(cls, value: str) -> str:
+        path = Path(value).expanduser()
+        if not path.is_dir():
+            raise InvalidFilePathError(f"🛑 Path {path} is not a directory.")
+        return str(path)
+
+    @field_validator("glob", mode="after")
+    def validate_glob(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("🛑 DirectorySeedSource.glob must be a non-empty string.")
+        return value

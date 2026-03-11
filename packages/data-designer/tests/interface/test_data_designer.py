@@ -11,14 +11,14 @@ from pydantic import ValidationError
 
 import data_designer.interface.data_designer as dd_mod
 import data_designer.lazy_heavy_imports as lazy
-from data_designer.config.column_configs import SamplerColumnConfig
+from data_designer.config.column_configs import ExpressionColumnConfig, SamplerColumnConfig
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.models import ModelProvider
 from data_designer.config.processors import DropColumnsProcessorConfig
 from data_designer.config.run_config import RunConfig
 from data_designer.config.sampler_params import CategorySamplerParams, SamplerType
-from data_designer.config.seed_source import HuggingFaceSeedSource
+from data_designer.config.seed_source import DirectoryListingTransform, DirectorySeedSource, HuggingFaceSeedSource
 from data_designer.engine.secret_resolver import CompositeResolver, EnvironmentResolver, PlaintextResolver
 from data_designer.engine.testing.stubs import StubHuggingFaceSeedReader
 from data_designer.interface.data_designer import DataDesigner
@@ -464,3 +464,76 @@ def test_initialize_interface_runtime_runs_once(monkeypatch: pytest.MonkeyPatch)
         dd_mod._initialize_interface_runtime()
         mock_logging.assert_called_once()
         mock_resolve.assert_called_once()
+
+
+def test_create_dataset_e2e_with_directory_seed_source_without_transform(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_managed_assets_path: Path,
+    tmp_path: Path,
+) -> None:
+    seed_dir = tmp_path / "directory-seed"
+    (seed_dir / "subdir").mkdir(parents=True)
+    (seed_dir / "alpha.txt").write_text("alpha", encoding="utf-8")
+    (seed_dir / "subdir" / "beta.txt").write_text("beta", encoding="utf-8")
+
+    builder = DataDesignerConfigBuilder()
+    builder.with_seed_dataset(DirectorySeedSource(path=str(seed_dir), glob="**/*.txt"))
+    builder.add_column(ExpressionColumnConfig(name="path_label", expr="{{ source_kind }}::{{ relative_path }}"))
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    results = data_designer.create(builder, num_records=2, dataset_name="directory-seed-test")
+    df = results.load_dataset().sort_values("relative_path").reset_index(drop=True)
+
+    assert list(df["source_kind"]) == ["directory_file", "directory_file"]
+    assert list(df["relative_path"]) == ["alpha.txt", "subdir/beta.txt"]
+    assert list(df["file_name"]) == ["alpha.txt", "beta.txt"]
+    assert list(df["path_label"]) == [
+        "directory_file::alpha.txt",
+        "directory_file::subdir/beta.txt",
+    ]
+
+
+def test_create_dataset_e2e_with_directory_seed_source_transform(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_managed_assets_path: Path,
+    tmp_path: Path,
+) -> None:
+    seed_dir = tmp_path / "directory-seed-transform"
+    (seed_dir / "subdir").mkdir(parents=True)
+    (seed_dir / "alpha.txt").write_text("alpha", encoding="utf-8")
+    (seed_dir / "subdir" / "beta.txt").write_text("beta", encoding="utf-8")
+
+    builder = DataDesignerConfigBuilder()
+    builder.with_seed_dataset(
+        DirectorySeedSource(
+            path=str(seed_dir),
+            glob="**/*.txt",
+            transform=DirectoryListingTransform(),
+        )
+    )
+    builder.add_column(ExpressionColumnConfig(name="path_label", expr="{{ source_kind }}::{{ relative_path }}"))
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    results = data_designer.create(builder, num_records=2, dataset_name="directory-seed-transform-test")
+    df = results.load_dataset().sort_values("relative_path").reset_index(drop=True)
+
+    assert list(df["source_kind"]) == ["directory_file", "directory_file"]
+    assert list(df["relative_path"]) == ["alpha.txt", "subdir/beta.txt"]
+    assert list(df["path_label"]) == [
+        "directory_file::alpha.txt",
+        "directory_file::subdir/beta.txt",
+    ]

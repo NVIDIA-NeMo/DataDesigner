@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
+from pathlib import Path
 from typing import TYPE_CHECKING, Generic, TypeVar, get_args, get_origin
 
 from huggingface_hub import HfFileSystem
@@ -12,16 +13,24 @@ from typing_extensions import Self
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.seed_source import (
+    DirectorySeedSource,
     HuggingFaceSeedSource,
     LocalFileSeedSource,
     SeedSource,
 )
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
+from data_designer.engine.resources.directory_transform import (
+    DirectoryTransformError,
+    DirectoryTransformRegistry,
+    create_default_directory_transform_registry,
+    discover_directory_files,
+)
 from data_designer.engine.secret_resolver import SecretResolver
 from data_designer.errors import DataDesignerError
 
 if TYPE_CHECKING:
     import duckdb
+    import pandas as pd
 
 
 class SeedReaderError(DataDesignerError): ...
@@ -124,6 +133,59 @@ class DataFrameSeedReader(SeedReader[DataFrameSeedSource]):
 
     def get_dataset_uri(self) -> str:
         return self._table_name
+
+
+class DirectorySeedReader(SeedReader[DirectorySeedSource]):
+    _table_name = "directory_df"
+
+    def __init__(self, transform_registry: DirectoryTransformRegistry | None = None) -> None:
+        self._normalized_df: pd.DataFrame | None = None
+        self._custom_transform_registry = transform_registry
+        self._transform_registry: DirectoryTransformRegistry | None = None
+
+    def attach(self, source: DirectorySeedSource, secret_resolver: SecretResolver) -> None:
+        self._normalized_df = None
+        self._transform_registry = self._custom_transform_registry or create_default_directory_transform_registry()
+        super().attach(source, secret_resolver)
+
+    def create_duckdb_connection(self) -> duckdb.DuckDBPyConnection:
+        conn = lazy.duckdb.connect()
+        conn.register(self._table_name, self._get_normalized_dataframe())
+        return conn
+
+    def get_dataset_uri(self) -> str:
+        return self._table_name
+
+    def _get_normalized_dataframe(self) -> pd.DataFrame:
+        if self._normalized_df is not None:
+            return self._normalized_df
+
+        try:
+            root_path = Path(self.source.path)
+            matched_files = discover_directory_files(root_path=root_path, glob_pattern=self.source.glob)
+            if self.source.transform is None:
+                normalized_records = [
+                    {
+                        "source_kind": "directory_file",
+                        "source_path": str(file_path),
+                        "relative_path": str(file_path.relative_to(root_path)),
+                        "file_name": file_path.name,
+                    }
+                    for file_path in matched_files
+                ]
+            else:
+                if self._transform_registry is None:
+                    raise SeedReaderError("Directory transform registry is not initialized")
+                transform = self._transform_registry.create_transform(self.source.transform)
+                normalized_records = transform.normalize(root_path=root_path, matched_files=matched_files)
+        except DirectoryTransformError as error:
+            raise SeedReaderError(f"Failed to normalize directory seed dataset: {error}") from error
+
+        if not normalized_records:
+            raise SeedReaderError(f"Directory seed source at {self.source.path} did not produce any normalized records")
+
+        self._normalized_df = lazy.pd.DataFrame(normalized_records)
+        return self._normalized_df
 
 
 class SeedReaderRegistry:

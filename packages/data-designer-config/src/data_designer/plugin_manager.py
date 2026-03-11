@@ -77,6 +77,17 @@ class PluginManager:
         seed_source_type = self._plugin_registry.add_plugin_types_to_union(seed_source_type, PluginType.SEED_READER)
         return seed_source_type
 
+    def inject_into_directory_transform_type_union(self, directory_transform_type: type[TypeAlias]) -> type[TypeAlias]:
+        """Inject plugins into the directory transform type.
+
+        Args:
+            directory_transform_type: The directory transform type to inject plugins into.
+
+        Returns:
+            The directory transform type with plugins injected.
+        """
+        return self._plugin_registry.add_plugin_types_to_union(directory_transform_type, PluginType.DIRECTORY_TRANSFORM)
+
     def inject_into_processor_config_type_union(self, processor_config_type: type[TypeAlias]) -> type[TypeAlias]:
         """Inject plugins into the processor config type.
 

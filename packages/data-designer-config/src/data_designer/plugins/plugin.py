@@ -20,6 +20,7 @@ from data_designer.plugins.errors import PluginLoadError
 class PluginType(str, Enum):
     COLUMN_GENERATOR = "column-generator"
     SEED_READER = "seed-reader"
+    DIRECTORY_TRANSFORM = "directory-transform"
     PROCESSOR = "processor"
 
     @property
@@ -28,6 +29,8 @@ class PluginType(str, Enum):
             return "column_type"
         elif self == PluginType.SEED_READER:
             return "seed_type"
+        elif self == PluginType.DIRECTORY_TRANSFORM:
+            return "transform_type"
         elif self == PluginType.PROCESSOR:
             return "processor_type"
         else:

@@ -54,7 +54,7 @@ Every column in your seed dataset becomes available as a Jinja2 variable in prom
 
 ## Seed Sources
 
-Data Designer supports three ways to provide seed data:
+Data Designer supports four ways to provide seed data:
 
 ### 📁 LocalFileSeedSource
 
@@ -99,6 +99,36 @@ seed_source = dd.DataFrameSeedSource(df=df)
 
 !!! warning "Serialization"
     `DataFrameSeedSource` can't be serialized to YAML/JSON configs. Use `LocalFileSeedSource` if you need to save and share configurations.
+
+### 📂 DirectorySeedSource
+
+Load seed rows from a directory of matched files.
+
+Without a transform, Data Designer yields one row per matched file with basic file metadata:
+
+- `source_kind`
+- `source_path`
+- `relative_path`
+- `file_name`
+
+```python
+seed_source = dd.DirectorySeedSource(
+    path="data/documents",
+    glob="**/*.txt",
+)
+```
+
+You can also attach a full-batch transform that normalizes the matched files into a different row shape before seeding begins:
+
+```python
+seed_source = dd.DirectorySeedSource(
+    path="data/documents",
+    glob="**/*.txt",
+    transform=dd.DirectoryListingTransform(),
+)
+```
+
+Transforms run inside the seed-reader layer before normal row sampling. This makes directory seeding a good fit for workflows where one directory needs to be preprocessed into a tabular seed dataset.
 
 ## Sampling Strategies
 
