@@ -81,6 +81,7 @@ class RowGroupBufferManager:
     ) -> None:
         """Write the row group to parquet and free memory."""
         df = self.get_dataframe(row_group)
+        final_path = None
         if len(df) > 0:
             from data_designer.engine.storage.artifact_storage import BatchStage
 
@@ -92,11 +93,11 @@ class RowGroupBufferManager:
             final_path = self._artifact_storage.move_partial_result_to_final_file_path(row_group)
             self._actual_num_records += len(df)
             self._total_num_batches += 1
-
-            if on_complete:
-                on_complete(final_path)
         else:
             logger.warning(f"Row group {row_group} has no records to write after drops.")
+
+        if on_complete:
+            on_complete(final_path)
 
         # Free memory
         del self._buffers[row_group]

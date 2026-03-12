@@ -69,8 +69,8 @@ class AsyncTaskScheduler:
             if gen.is_order_dependent and id(gen) not in self._stateful_locks:
                 self._stateful_locks[id(gen)] = asyncio.Lock()
 
-        # Deferred retryable failures: list of (task, attempt_count)
-        self._deferred: list[tuple[Task, int]] = []
+        # Deferred retryable failures (retried in salvage rounds)
+        self._deferred: list[Task] = []
 
         # Active row groups (admitted but not yet checkpointed)
         self._active_rgs: list[tuple[int, int]] = []
@@ -147,7 +147,7 @@ class AsyncTaskScheduler:
             logger.info(f"Salvage round {round_num + 1}/{self._salvage_max_rounds}: {len(self._deferred)} tasks")
             to_retry = self._deferred
             self._deferred = []
-            for task, _attempt in to_retry:
+            for task in to_retry:
                 if task.task_type == "from_scratch":
                     # from_scratch tasks are not in the frontier; re-dispatch directly
                     gid = id(self._generators[task.column])
@@ -177,9 +177,7 @@ class AsyncTaskScheduler:
             # Drain: dispatch frontier tasks and any newly-ready downstream tasks
             # until nothing remains in-flight or in the frontier.
             await self._drain_frontier()
-
-        # Checkpoint any row groups that completed during salvage
-        self._checkpoint_completed_row_groups(all_columns)
+            self._checkpoint_completed_row_groups(all_columns)
 
         if self._active_rgs:
             incomplete = [rg_id for rg_id, _ in self._active_rgs]
@@ -309,7 +307,7 @@ class AsyncTaskScheduler:
 
             retryable = self._is_retryable(exc)
             if retryable:
-                self._deferred.append((task, 1))
+                self._deferred.append(task)
             else:
                 # Non-retryable: drop the affected row(s)
                 if task.row_index is not None:
