@@ -31,6 +31,9 @@ members = [
 # IMPORTANT: This root is NOT a package. It only defines workspace configuration.
 package = false
 required-version = ">=0.7.10"
+# Pin chardet<6 to avoid RequestsDependencyWarning from requests<2.33
+# (requests checks chardet<6 at import time). See: https://github.com/psf/requests/issues/7219
+constraint-dependencies = ["chardet>=3.0.2,<6"]
 
 [dependency-groups]
 dev = [
