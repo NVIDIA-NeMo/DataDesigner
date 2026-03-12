@@ -588,6 +588,6 @@ Key Resources:
 3. [Wikidata Knowledge Graph](https://www.wikidata.org/)
 4. [Tavily Search API](https://tavily.com/)
 5. [MiniMax-M2](https://huggingface.co/MiniMaxAI/MiniMax-M2)
-6. [GTC 2026 Workshop: Building Search Agents with NeMo Data Designer](https://www.nvidia.com/zh-tw/gtc/session-catalog/sessions/gtc26-dlit81572/)
+6. [GTC 2026 Workshop: Building Search Agents with NeMo Data Designer](https://www.nvidia.com//gtc/session-catalog/sessions/gtc26-dlit81572/)
 
 ---
