@@ -40,9 +40,10 @@ def create_model_client(
     timeout_s = float(raw_timeout if raw_timeout is not None else 60)
 
     backend = os.environ.get(_BACKEND_ENV_VAR, "").strip().lower()
-    use_native = backend != _BACKEND_BRIDGE and provider.provider_type == "openai"
+    if backend == _BACKEND_BRIDGE:
+        return _create_bridge_client(model_config, provider, api_key, max_parallel)
 
-    if use_native:
+    if provider.provider_type == "openai":
         return OpenAICompatibleClient(
             provider_name=provider.name,
             model_id=model_config.model,

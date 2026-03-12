@@ -26,9 +26,11 @@ class ThrottleDomain(str, Enum):
 # ---------------------------------------------------------------------------
 
 DEFAULT_REDUCE_FACTOR: float = 0.5
+DEFAULT_ADDITIVE_INCREASE: int = 1
 DEFAULT_SUCCESS_WINDOW: int = 50
 DEFAULT_BLOCK_SECONDS: float = 2.0
 DEFAULT_MIN_LIMIT: int = 1
+DEFAULT_ACQUIRE_TIMEOUT: float = 300.0
 
 
 # ---------------------------------------------------------------------------
@@ -68,12 +70,29 @@ class GlobalCapState:
 
 
 class ThrottleManager:
-    """Adaptive concurrency manager using AIMD.
+    """Adaptive concurrency manager using AIMD (Additive Increase /
+    Multiplicative Decrease).
 
     Keyed at two levels:
+
     - **Global cap**: ``(provider_name, model_id)`` — shared hard ceiling.
     - **Domain**: ``(provider_name, model_id, throttle_domain)`` — per-route
       AIMD state that floats between 1 and the global effective max.
+
+    **AIMD behaviour**:
+
+    - *Decrease* — on a 429 / rate-limit signal the domain's concurrency limit
+      is multiplied by ``reduce_factor`` (default 0.5, i.e. halved) and a
+      cooldown block is applied for ``retry_after`` seconds (or
+      ``default_block_seconds``).
+    - *Increase* — after every ``success_window`` consecutive successful
+      releases the limit grows by ``additive_increase`` (default 1), up to the
+      global effective max.
+    - *Recovery cost* — after a single rate-limit halves the limit from *L* to
+      *L/2*, full recovery requires ``(L/2) * success_window / additive_increase``
+      successful requests.  With defaults (window=50, step=1) and L=32 that is
+      800 requests.  Raise ``additive_increase`` for faster recovery at the
+      cost of higher 429 risk.
 
     Thread-safe: all state mutations are guarded by a single lock so that
     sync and async callers co-throttle correctly.
@@ -83,10 +102,12 @@ class ThrottleManager:
         self,
         *,
         reduce_factor: float = DEFAULT_REDUCE_FACTOR,
+        additive_increase: int = DEFAULT_ADDITIVE_INCREASE,
         success_window: int = DEFAULT_SUCCESS_WINDOW,
         default_block_seconds: float = DEFAULT_BLOCK_SECONDS,
     ) -> None:
         self._reduce_factor = reduce_factor
+        self._additive_increase = additive_increase
         self._success_window = success_window
         self._default_block_seconds = default_block_seconds
         self._lock = threading.Lock()
@@ -185,7 +206,8 @@ class ThrottleManager:
             if state.success_streak >= self._success_window:
                 effective_max = self._effective_max_for(provider_name, model_id)
                 if state.current_limit < effective_max:
-                    state.current_limit += 1
+                    prev = state.current_limit
+                    state.current_limit = min(state.current_limit + self._additive_increase, effective_max)
                     if state.current_limit >= effective_max:
                         logger.info(
                             "🟢 Throttle %s/%s [%s] recovered to full capacity (%d)",
@@ -200,7 +222,7 @@ class ThrottleManager:
                             provider_name,
                             model_id,
                             domain.value,
-                            state.current_limit - 1,
+                            prev,
                             state.current_limit,
                             effective_max,
                         )
@@ -257,11 +279,17 @@ class ThrottleManager:
         provider_name: str,
         model_id: str,
         domain: ThrottleDomain,
+        timeout: float = DEFAULT_ACQUIRE_TIMEOUT,
     ) -> None:
+        deadline = time.monotonic() + timeout
         while True:
             wait = self.try_acquire(provider_name=provider_name, model_id=model_id, domain=domain)
             if wait == 0.0:
                 return
+            if time.monotonic() + wait > deadline:
+                raise TimeoutError(
+                    f"Throttle acquire timed out after {timeout:.0f}s for {provider_name}/{model_id} [{domain.value}]"
+                )
             time.sleep(wait)
 
     async def acquire_async(
@@ -270,11 +298,17 @@ class ThrottleManager:
         provider_name: str,
         model_id: str,
         domain: ThrottleDomain,
+        timeout: float = DEFAULT_ACQUIRE_TIMEOUT,
     ) -> None:
+        deadline = time.monotonic() + timeout
         while True:
             wait = self.try_acquire(provider_name=provider_name, model_id=model_id, domain=domain)
             if wait == 0.0:
                 return
+            if time.monotonic() + wait > deadline:
+                raise TimeoutError(
+                    f"Throttle acquire timed out after {timeout:.0f}s for {provider_name}/{model_id} [{domain.value}]"
+                )
             await asyncio.sleep(wait)
 
     # -------------------------------------------------------------------

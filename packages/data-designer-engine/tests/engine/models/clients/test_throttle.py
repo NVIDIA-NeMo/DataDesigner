@@ -80,6 +80,21 @@ def test_additive_increase_after_success_window() -> None:
     assert state.current_limit == limit_after_drop + 1
 
 
+def test_additive_increase_uses_configured_step() -> None:
+    tm = ThrottleManager(success_window=1, additive_increase=3)
+    tm.register(provider_name=PROVIDER, model_id=MODEL, alias="a1", max_parallel_requests=20)
+    tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=0.0)
+    tm.release_rate_limited(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=0.0)
+    state = tm.get_domain_state(PROVIDER, MODEL, DOMAIN)
+    assert state is not None
+    limit_after_drop = state.current_limit
+
+    tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=1.0)
+    tm.release_success(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=1.0)
+
+    assert state.current_limit == limit_after_drop + 3
+
+
 def test_current_limit_never_exceeds_effective_max() -> None:
     tm = ThrottleManager(success_window=1)
     tm.register(provider_name=PROVIDER, model_id=MODEL, alias="a1", max_parallel_requests=2)
@@ -89,6 +104,20 @@ def test_current_limit_never_exceeds_effective_max() -> None:
     state = tm.get_domain_state(PROVIDER, MODEL, DOMAIN)
     assert state is not None
     assert state.current_limit <= 2
+
+
+def test_additive_increase_clamped_to_effective_max() -> None:
+    tm = ThrottleManager(success_window=1, additive_increase=100)
+    tm.register(provider_name=PROVIDER, model_id=MODEL, alias="a1", max_parallel_requests=5)
+    tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=0.0)
+    tm.release_rate_limited(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=0.0)
+
+    tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=1.0)
+    tm.release_success(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=1.0)
+
+    state = tm.get_domain_state(PROVIDER, MODEL, DOMAIN)
+    assert state is not None
+    assert state.current_limit == 5
 
 
 # --- release_rate_limited ---
@@ -187,6 +216,29 @@ def test_chat_and_embedding_throttle_independently() -> None:
 
     wait_emb = tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=ThrottleDomain.EMBEDDING, now=0.0)
     assert wait_emb == 0.0
+
+
+# --- Acquire timeout ---
+
+
+def test_acquire_sync_raises_timeout_when_at_capacity() -> None:
+    tm = ThrottleManager()
+    tm.register(provider_name=PROVIDER, model_id=MODEL, alias="a1", max_parallel_requests=1)
+    # Saturate the single slot so try_acquire returns a positive wait.
+    tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN)
+
+    with pytest.raises(TimeoutError, match="timed out"):
+        tm.acquire_sync(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, timeout=0.0)
+
+
+@pytest.mark.asyncio
+async def test_acquire_async_raises_timeout_when_at_capacity() -> None:
+    tm = ThrottleManager()
+    tm.register(provider_name=PROVIDER, model_id=MODEL, alias="a1", max_parallel_requests=1)
+    tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN)
+
+    with pytest.raises(TimeoutError, match="timed out"):
+        await tm.acquire_async(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, timeout=0.0)
 
 
 # --- Thread safety ---
