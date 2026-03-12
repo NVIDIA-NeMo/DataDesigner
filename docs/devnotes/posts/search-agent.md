@@ -439,7 +439,8 @@ tool_config = ToolConfig(
 ```python
 config.add_column(dd.LLMTextColumnConfig(
     name="agent_solution_raw",
-    prompt=AGENT_SYSTEM_PROMPT + "\n\n" + AGENT_USER_PROMPT,
+    system_prompt="You are an expert search agent...",
+    prompt="Problem: {{ user_query_obfuscated }}",
     model_alias="search-agent",
     tool_alias="tavily",
     with_trace=dd.TraceType.ALL_MESSAGES,
