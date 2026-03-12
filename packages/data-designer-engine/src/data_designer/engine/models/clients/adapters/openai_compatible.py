@@ -129,13 +129,15 @@ class OpenAICompatibleClient(ModelClient):
     def completion(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
         transport = TransportKwargs.from_request(request)
         payload = {"model": request.model, "messages": request.messages, **transport.body}
-        response_json = self._post_sync(self._ROUTE_CHAT, payload, transport.headers, request.model)
+        response_json = self._post_sync(self._ROUTE_CHAT, payload, transport.headers, request.model, transport.timeout)
         return parse_chat_completion_response(response_json)
 
     async def acompletion(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
         transport = TransportKwargs.from_request(request)
         payload = {"model": request.model, "messages": request.messages, **transport.body}
-        response_json = await self._apost(self._ROUTE_CHAT, payload, transport.headers, request.model)
+        response_json = await self._apost(
+            self._ROUTE_CHAT, payload, transport.headers, request.model, transport.timeout
+        )
         return await aparse_chat_completion_response(response_json)
 
     # -------------------------------------------------------------------
@@ -145,13 +147,17 @@ class OpenAICompatibleClient(ModelClient):
     def embeddings(self, request: EmbeddingRequest) -> EmbeddingResponse:
         transport = TransportKwargs.from_request(request)
         payload = {"model": request.model, "input": request.inputs, **transport.body}
-        response_json = self._post_sync(self._ROUTE_EMBEDDING, payload, transport.headers, request.model)
+        response_json = self._post_sync(
+            self._ROUTE_EMBEDDING, payload, transport.headers, request.model, transport.timeout
+        )
         return _parse_embedding_json(response_json)
 
     async def aembeddings(self, request: EmbeddingRequest) -> EmbeddingResponse:
         transport = TransportKwargs.from_request(request)
         payload = {"model": request.model, "input": request.inputs, **transport.body}
-        response_json = await self._apost(self._ROUTE_EMBEDDING, payload, transport.headers, request.model)
+        response_json = await self._apost(
+            self._ROUTE_EMBEDDING, payload, transport.headers, request.model, transport.timeout
+        )
         return _parse_embedding_json(response_json)
 
     # -------------------------------------------------------------------
@@ -166,7 +172,7 @@ class OpenAICompatibleClient(ModelClient):
         else:
             route = self._ROUTE_IMAGE
             payload = {"model": request.model, "prompt": request.prompt, **transport.body}
-        response_json = self._post_sync(route, payload, transport.headers, request.model)
+        response_json = self._post_sync(route, payload, transport.headers, request.model, transport.timeout)
         return _parse_image_json(response_json, is_chat_route=request.messages is not None)
 
     async def agenerate_image(self, request: ImageGenerationRequest) -> ImageGenerationResponse:
@@ -177,7 +183,7 @@ class OpenAICompatibleClient(ModelClient):
         else:
             route = self._ROUTE_IMAGE
             payload = {"model": request.model, "prompt": request.prompt, **transport.body}
-        response_json = await self._apost(route, payload, transport.headers, request.model)
+        response_json = await self._apost(route, payload, transport.headers, request.model, transport.timeout)
         return await _aparse_image_json(response_json, is_chat_route=request.messages is not None)
 
     # -------------------------------------------------------------------
@@ -204,17 +210,23 @@ class OpenAICompatibleClient(ModelClient):
             headers.update(extra_headers)
         return headers
 
+    def _resolve_timeout(self, per_request: float | None) -> httpx.Timeout:
+        return lazy.httpx.Timeout(per_request if per_request is not None else self._timeout_s)
+
     def _post_sync(
         self,
         route: str,
         payload: dict[str, Any],
         extra_headers: dict[str, str],
         model_name: str,
+        timeout: float | None = None,
     ) -> dict[str, Any]:
         url = f"{self._endpoint}{route}"
         headers = self._build_headers(extra_headers)
         try:
-            response = self._get_sync_client().post(url, json=payload, headers=headers)
+            response = self._get_sync_client().post(
+                url, json=payload, headers=headers, timeout=self._resolve_timeout(timeout)
+            )
         except Exception as exc:
             raise _wrap_transport_error(exc, self.provider_name, model_name) from exc
         if response.status_code >= 400:
@@ -229,11 +241,14 @@ class OpenAICompatibleClient(ModelClient):
         payload: dict[str, Any],
         extra_headers: dict[str, str],
         model_name: str,
+        timeout: float | None = None,
     ) -> dict[str, Any]:
         url = f"{self._endpoint}{route}"
         headers = self._build_headers(extra_headers)
         try:
-            response = await self._get_async_client().post(url, json=payload, headers=headers)
+            response = await self._get_async_client().post(
+                url, json=payload, headers=headers, timeout=self._resolve_timeout(timeout)
+            )
         except Exception as exc:
             raise _wrap_transport_error(exc, self.provider_name, model_name) from exc
         if response.status_code >= 400:

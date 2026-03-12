@@ -137,7 +137,45 @@ def test_completion_posts_to_chat_completions_route() -> None:
     assert payload["model"] == MODEL
     assert payload["temperature"] == 0.7
     assert payload["seed"] == 42
+    assert "timeout" not in payload
     assert call_args.kwargs["headers"]["X-Trace"] == "1"
+
+
+def test_timeout_excluded_from_body_and_used_as_http_timeout() -> None:
+    sync_mock = _make_sync_client(_chat_response())
+    client = _make_client(sync_client=sync_mock)
+
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[{"role": "user", "content": "Hi"}],
+        timeout=120.0,
+    )
+    client.completion(request)
+
+    call_args = sync_mock.post.call_args
+    payload = call_args.kwargs["json"]
+    assert "timeout" not in payload
+    http_timeout = call_args.kwargs["timeout"]
+    assert http_timeout.connect == 120.0
+    assert http_timeout.read == 120.0
+
+
+def test_default_timeout_used_when_request_timeout_is_none() -> None:
+    sync_mock = _make_sync_client(_chat_response())
+    client = OpenAICompatibleClient(
+        provider_name=PROVIDER,
+        model_id=MODEL,
+        endpoint=ENDPOINT,
+        timeout_s=45.0,
+        sync_client=sync_mock,
+    )
+
+    request = ChatCompletionRequest(model=MODEL, messages=[{"role": "user", "content": "Hi"}])
+    client.completion(request)
+
+    call_args = sync_mock.post.call_args
+    http_timeout = call_args.kwargs["timeout"]
+    assert http_timeout.connect == 45.0
 
 
 @pytest.mark.asyncio
