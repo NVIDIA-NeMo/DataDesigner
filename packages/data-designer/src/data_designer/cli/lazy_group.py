@@ -4,17 +4,11 @@
 from __future__ import annotations
 
 import importlib
-from functools import wraps
 from typing import Any
-from weakref import WeakSet
 
 import click
 import typer
 from typer.core import TyperGroup
-
-from data_designer.cli.runtime import ensure_cli_default_model_settings
-
-_BOOTSTRAP_WRAPPED_COMMANDS: WeakSet[click.Command] = WeakSet()
 
 
 class _LazyCommand(click.Command):
@@ -52,12 +46,10 @@ class _LazyCommand(click.Command):
         # Typer returns a Group when there are multiple commands, but a single
         # Command when there is only one.  Handle both cases.
         if hasattr(click_cmd, "commands"):
-            resolved = click_cmd.commands[self.name]
+            self._resolved = click_cmd.commands[self.name]
         else:
-            resolved = click_cmd
-        _wrap_command_with_cli_bootstrap(resolved)
-        self._resolved = resolved
-        return resolved
+            self._resolved = click_cmd
+        return self._resolved
 
     def make_context(
         self,
@@ -112,22 +104,3 @@ def create_lazy_typer_group(
             return None
 
     return LazyTyperGroup
-
-
-def _wrap_command_with_cli_bootstrap(command: click.Command) -> None:
-    """Wrap a resolved command callback with one-time CLI bootstrap."""
-    if command in _BOOTSTRAP_WRAPPED_COMMANDS:
-        return
-
-    callback = command.callback
-    if callback is None:
-        _BOOTSTRAP_WRAPPED_COMMANDS.add(command)
-        return
-
-    @wraps(callback)
-    def wrapped_callback(*args: Any, **kwargs: Any) -> Any:
-        ensure_cli_default_model_settings()
-        return callback(*args, **kwargs)
-
-    command.callback = wrapped_callback
-    _BOOTSTRAP_WRAPPED_COMMANDS.add(command)
