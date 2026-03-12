@@ -55,11 +55,16 @@ class DirectoryTransform(ABC, Generic[TransformConfigT]):
         return self._config
 
     @abstractmethod
-    def normalize(self, *, root_path: Path, matched_files: list[Path]) -> list[dict[str, Any]]: ...
+    def normalize(self, *, root_path: Path) -> list[dict[str, Any]]: ...
 
 
 class DirectoryListingDirectoryTransform(DirectoryTransform[DirectoryListingTransform]):
-    def normalize(self, *, root_path: Path, matched_files: list[Path]) -> list[dict[str, Any]]:
+    def normalize(self, *, root_path: Path) -> list[dict[str, Any]]:
+        matched_files = discover_directory_files(
+            root_path=root_path,
+            file_pattern=self.config.file_pattern,
+            recursive=self.config.recursive,
+        )
         return create_directory_listing_records(root_path=root_path, matched_files=matched_files)
 
 

@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
+from data_designer.config.seed_source import DirectoryListingTransform
 from data_designer.engine.resources.directory_transform import (
     DirectoryTransformError,
     create_default_directory_transform_registry,
@@ -30,7 +31,7 @@ def test_create_default_directory_transform_registry_loads_plugins(tmp_path: Pat
         registry = create_default_directory_transform_registry()
 
     transform = registry.create_transform(StubDirectoryTransformConfig())
-    normalized_records = transform.normalize(root_path=tmp_path, matched_files=[matched_file])
+    normalized_records = transform.normalize(root_path=tmp_path)
 
     assert normalized_records == [
         {
@@ -73,3 +74,25 @@ def test_discover_directory_files_rejects_matches_that_resolve_outside_root(tmp_
 
     with pytest.raises(DirectoryTransformError, match="resolves outside the directory seed root"):
         discover_directory_files(root_path=tmp_path, file_pattern="*.txt", recursive=True)
+
+
+def test_directory_listing_transform_owns_directory_matching_options(tmp_path: Path) -> None:
+    (tmp_path / "alpha.txt").write_text("alpha", encoding="utf-8")
+    (tmp_path / "nested").mkdir()
+    (tmp_path / "nested" / "beta.txt").write_text("beta", encoding="utf-8")
+    (tmp_path / "nested" / "gamma.md").write_text("gamma", encoding="utf-8")
+
+    transform = create_default_directory_transform_registry().create_transform(
+        DirectoryListingTransform(file_pattern="*.txt", recursive=False)
+    )
+
+    normalized_records = transform.normalize(root_path=tmp_path)
+
+    assert normalized_records == [
+        {
+            "source_kind": "directory_file",
+            "source_path": str(tmp_path / "alpha.txt"),
+            "relative_path": "alpha.txt",
+            "file_name": "alpha.txt",
+        }
+    ]

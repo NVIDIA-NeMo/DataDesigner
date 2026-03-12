@@ -114,22 +114,24 @@ Without a transform, Data Designer yields one row per matched file with basic fi
 ```python
 seed_source = dd.DirectorySeedSource(
     path="data/documents",
-    file_pattern="*.txt",
 )
 ```
 
-Directory matching is recursive by default, so this matches `.txt` files anywhere under `data/documents`. Set `recursive=False` to only match files directly inside `path`.
+Without an explicit transform, Data Designer uses the built-in directory listing transform with its default settings and produces one row per file under `path`.
 
 You can also attach a full-batch transform that normalizes the matched files into a different row shape before seeding begins:
 
 ```python
 seed_source = dd.DirectorySeedSource(
     path="data/documents",
-    file_pattern="train_*.txt",
-    recursive=False,
-    transform=dd.DirectoryListingTransform(),
+    transform=dd.DirectoryListingTransform(
+        file_pattern="train_*.txt",
+        recursive=False,
+    ),
 )
 ```
+
+This keeps traversal policy with the transform itself, so different directory normalizers can define different ways to walk and interpret the directory tree.
 
 Transforms run inside the seed-reader layer before normal row sampling. This makes directory seeding a good fit for workflows where one directory needs to be preprocessed into a tabular seed dataset.
 

@@ -81,22 +81,20 @@ def test_directory_seed_source_requires_directory(tmp_path: Path) -> None:
     file_path.write_text("alpha", encoding="utf-8")
 
     with pytest.raises(InvalidFilePathError, match="is not a directory"):
-        DirectorySeedSource(path=str(file_path), file_pattern="*.txt")
+        DirectorySeedSource(path=str(file_path))
 
 
 def test_directory_seed_source_allows_directory(tmp_path: Path) -> None:
     source = DirectorySeedSource(
         path=str(tmp_path),
-        file_pattern="*.txt",
-        recursive=False,
-        transform=DirectoryListingTransform(),
+        transform=DirectoryListingTransform(file_pattern="*.txt", recursive=False),
     )
 
     assert source.seed_type == "directory"
     assert source.path == str(tmp_path)
-    assert source.file_pattern == "*.txt"
-    assert source.recursive is False
     assert isinstance(source.transform, DirectoryListingTransform)
+    assert source.transform.file_pattern == "*.txt"
+    assert source.transform.recursive is False
 
 
 def test_directory_seed_source_is_exported_from_config_module(tmp_path: Path) -> None:
@@ -120,11 +118,17 @@ def test_directory_seed_source_parses_builtin_transform_from_dict(tmp_path: Path
     source = DirectorySeedSource.model_validate(
         {
             "path": str(tmp_path),
-            "transform": {"transform_type": "directory_listing"},
+            "transform": {
+                "transform_type": "directory_listing",
+                "file_pattern": "*.txt",
+                "recursive": False,
+            },
         }
     )
 
     assert isinstance(source.transform, DirectoryListingTransform)
+    assert source.transform.file_pattern == "*.txt"
+    assert source.transform.recursive is False
 
 
 @pytest.mark.parametrize(
@@ -135,8 +139,6 @@ def test_directory_seed_source_parses_builtin_transform_from_dict(tmp_path: Path
         pytest.param(r"subdir\\*.txt", "must match file names, not relative paths", id="windows-path"),
     ],
 )
-def test_directory_seed_source_rejects_path_like_file_patterns(
-    tmp_path: Path, file_pattern: str, error_message: str
-) -> None:
+def test_directory_listing_transform_rejects_path_like_file_patterns(file_pattern: str, error_message: str) -> None:
     with pytest.raises(ValueError, match=error_message):
-        DirectorySeedSource(path=str(tmp_path), file_pattern=file_pattern)
+        DirectoryListingTransform(file_pattern=file_pattern)

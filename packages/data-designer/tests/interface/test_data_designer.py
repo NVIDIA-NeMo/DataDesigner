@@ -475,10 +475,10 @@ def test_create_dataset_e2e_with_directory_seed_source_without_transform(
     seed_dir = tmp_path / "directory-seed"
     (seed_dir / "subdir").mkdir(parents=True)
     (seed_dir / "alpha.txt").write_text("alpha", encoding="utf-8")
-    (seed_dir / "subdir" / "beta.txt").write_text("beta", encoding="utf-8")
+    (seed_dir / "subdir" / "beta.md").write_text("beta", encoding="utf-8")
 
     builder = DataDesignerConfigBuilder()
-    builder.with_seed_dataset(DirectorySeedSource(path=str(seed_dir), file_pattern="*.txt"))
+    builder.with_seed_dataset(DirectorySeedSource(path=str(seed_dir)))
     builder.add_column(ExpressionColumnConfig(name="path_label", expr="{{ source_kind }}::{{ relative_path }}"))
 
     data_designer = DataDesigner(
@@ -492,11 +492,11 @@ def test_create_dataset_e2e_with_directory_seed_source_without_transform(
     df = results.load_dataset().sort_values("relative_path").reset_index(drop=True)
 
     assert list(df["source_kind"]) == ["directory_file", "directory_file"]
-    assert list(df["relative_path"]) == ["alpha.txt", "subdir/beta.txt"]
-    assert list(df["file_name"]) == ["alpha.txt", "beta.txt"]
+    assert list(df["relative_path"]) == ["alpha.txt", "subdir/beta.md"]
+    assert list(df["file_name"]) == ["alpha.txt", "beta.md"]
     assert list(df["path_label"]) == [
         "directory_file::alpha.txt",
-        "directory_file::subdir/beta.txt",
+        "directory_file::subdir/beta.md",
     ]
 
 
@@ -515,8 +515,7 @@ def test_create_dataset_e2e_with_directory_seed_source_transform(
     builder.with_seed_dataset(
         DirectorySeedSource(
             path=str(seed_dir),
-            file_pattern="*.txt",
-            transform=DirectoryListingTransform(),
+            transform=DirectoryListingTransform(file_pattern="*.txt"),
         )
     )
     builder.add_column(ExpressionColumnConfig(name="path_label", expr="{{ source_kind }}::{{ relative_path }}"))
@@ -554,8 +553,7 @@ def test_create_dataset_e2e_with_directory_seed_source_non_recursive(
     builder.with_seed_dataset(
         DirectorySeedSource(
             path=str(seed_dir),
-            file_pattern="*.txt",
-            recursive=False,
+            transform=DirectoryListingTransform(file_pattern="*.txt", recursive=False),
         )
     )
     builder.add_column(ExpressionColumnConfig(name="path_label", expr="{{ source_kind }}::{{ relative_path }}"))

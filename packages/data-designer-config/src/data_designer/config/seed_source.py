@@ -79,6 +79,19 @@ class DirectorySeedTransform(ConfigBase, ABC):
 
 class DirectoryListingTransform(DirectorySeedTransform):
     transform_type: Literal["directory_listing"] = "directory_listing"
+    file_pattern: str = Field("*", description="Filename pattern used to match files under the provided directory.")
+    recursive: bool = Field(
+        True,
+        description="Whether to search nested subdirectories under the provided directory for matching files.",
+    )
+
+    @field_validator("file_pattern", mode="after")
+    def validate_file_pattern(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("🛑 DirectoryListingTransform.file_pattern must be a non-empty string.")
+        if "/" in value or "\\" in value:
+            raise ValueError("🛑 DirectoryListingTransform.file_pattern must match file names, not relative paths.")
+        return value
 
 
 plugin_manager = PluginManager()
@@ -98,14 +111,12 @@ class DirectorySeedSource(SeedSource):
     seed_type: Literal["directory"] = "directory"
 
     path: str = Field(..., description="Directory containing seed artifacts.")
-    file_pattern: str = Field("*", description="Filename pattern used to match files under the provided directory.")
-    recursive: bool = Field(
-        True,
-        description="Whether to search nested subdirectories under the provided directory for matching files.",
-    )
     transform: DirectorySeedTransformT | None = Field(
         default=None,
-        description="Optional full-batch transform applied to the matched files before seeding.",
+        description=(
+            "Optional full-batch transform applied to the directory contents before seeding. "
+            "If omitted, the built-in DirectoryListingTransform is used with its default settings."
+        ),
     )
 
     @field_validator("path", mode="after")
@@ -114,11 +125,3 @@ class DirectorySeedSource(SeedSource):
         if not path.is_dir():
             raise InvalidFilePathError(f"🛑 Path {path} is not a directory.")
         return str(path)
-
-    @field_validator("file_pattern", mode="after")
-    def validate_file_pattern(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("🛑 DirectorySeedSource.file_pattern must be a non-empty string.")
-        if "/" in value or "\\" in value:
-            raise ValueError("🛑 DirectorySeedSource.file_pattern must match file names, not relative paths.")
-        return value

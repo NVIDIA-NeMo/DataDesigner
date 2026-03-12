@@ -13,6 +13,7 @@ from typing_extensions import Self
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.seed_source import (
+    DirectoryListingTransform,
     DirectorySeedSource,
     HuggingFaceSeedSource,
     LocalFileSeedSource,
@@ -23,8 +24,6 @@ from data_designer.engine.resources.directory_transform import (
     DirectoryTransformError,
     DirectoryTransformRegistry,
     create_default_directory_transform_registry,
-    create_directory_listing_records,
-    discover_directory_files,
 )
 from data_designer.engine.secret_resolver import SecretResolver
 from data_designer.errors import DataDesignerError
@@ -163,18 +162,12 @@ class DirectorySeedReader(SeedReader[DirectorySeedSource]):
 
         try:
             root_path = Path(self.source.path)
-            matched_files = discover_directory_files(
-                root_path=root_path,
-                file_pattern=self.source.file_pattern,
-                recursive=self.source.recursive,
-            )
-            if self.source.transform is None:
-                normalized_records = create_directory_listing_records(root_path=root_path, matched_files=matched_files)
-            else:
-                if self._transform_registry is None:
-                    raise SeedReaderError("Directory transform registry is not initialized")
-                transform = self._transform_registry.create_transform(self.source.transform)
-                normalized_records = transform.normalize(root_path=root_path, matched_files=matched_files)
+            if self._transform_registry is None:
+                raise SeedReaderError("Directory transform registry is not initialized")
+
+            transform_config = self.source.transform or DirectoryListingTransform()
+            transform = self._transform_registry.create_transform(transform_config)
+            normalized_records = transform.normalize(root_path=root_path)
         except DirectoryTransformError as error:
             raise SeedReaderError(f"Failed to normalize directory seed dataset: {error}") from error
 

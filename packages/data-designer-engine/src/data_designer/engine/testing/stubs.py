@@ -12,7 +12,7 @@ from data_designer.config.seed_source import DirectorySeedTransform
 from data_designer.engine.column_generators.generators.base import ColumnGeneratorCellByCell
 from data_designer.engine.models.clients.types import AssistantMessage, ChatCompletionResponse, ToolCall
 from data_designer.engine.models.utils import ChatMessage
-from data_designer.engine.resources.directory_transform import DirectoryTransform
+from data_designer.engine.resources.directory_transform import DirectoryTransform, discover_directory_files
 from data_designer.engine.resources.seed_reader import SeedReader
 from data_designer.plugins.plugin import Plugin, PluginType
 
@@ -143,7 +143,8 @@ class StubDirectoryTransformConfig(DirectorySeedTransform):
 
 
 class StubDirectoryTransform(DirectoryTransform[StubDirectoryTransformConfig]):
-    def normalize(self, *, root_path: Path, matched_files: list[Path]) -> list[dict[str, Any]]:
+    def normalize(self, *, root_path: Path) -> list[dict[str, Any]]:
+        matched_files = discover_directory_files(root_path=root_path, file_pattern="*", recursive=True)
         return [
             {
                 "source_kind": "stub_directory_transform",
