@@ -79,7 +79,7 @@ The pipeline generates text-to-SQL training data through a five-stage process. E
                                                │
                                                ▼
      ┌─────────────────────────────────────────────────────────────────────────────────────┐
-     │                  STAGE 4: SQL GENERATION (Reasoning LLM)                             │
+     │                  STAGE 4: SQL GENERATION (Reasoning LLM)                            │
      │                                                                                     │
      │   Generates dialect-specific SQL (SQLite / MySQL / PostgreSQL).                     │
      │   ├─ References only tables/columns from the schema context                         │
