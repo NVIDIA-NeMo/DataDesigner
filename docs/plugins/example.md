@@ -292,7 +292,7 @@ class MarkdownDirectoryTransformConfig(DirectorySeedTransform):
     file_pattern: str = "*.md"
 ```
 
-The implementation inherits from `DirectoryTransform`. It receives a rooted filesystem via `context.fs`, so the plugin can traverse and read files however it wants while working with relative paths:
+The implementation inherits from `DirectoryTransform`. It receives a filesystem rooted at the configured directory path via `context.fs`, so the plugin can traverse and read files however it wants while working with relative paths from that starting point:
 
 ```python
 from pathlib import Path

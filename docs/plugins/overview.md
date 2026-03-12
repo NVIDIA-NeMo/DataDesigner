@@ -44,7 +44,7 @@ Each plugin has three components, and we recommend organizing them into separate
 - **`impl.py`** -- Implementation class containing the core logic
     - Column generator plugins: inherit from `ColumnGeneratorFullColumn` or `ColumnGeneratorCellByCell`
     - Seed reader plugins: inherit from `SeedReader`
-    - Directory transform plugins: inherit from `DirectoryTransform` and implement `normalize(context=...)`, where `context.fs` is a rooted `fsspec` filesystem for the configured directory
+    - Directory transform plugins: inherit from `DirectoryTransform` and implement `normalize(context=...)`, where `context.fs` is an `fsspec` filesystem rooted at the configured directory path so the plugin can traverse it with relative paths
     - Processor plugins: inherit from `Processor` and override callback methods (`process_before_batch`, `process_after_batch`, `process_after_generation`)
 - **`plugin.py`** -- A `Plugin` instance that connects the config and implementation classes
 

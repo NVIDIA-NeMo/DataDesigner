@@ -31,6 +31,8 @@ class DirectoryTransformContext:
 
     The filesystem is rooted at ``root_path`` so transform implementations can work
     with relative paths while deciding their own traversal and file access strategy.
+    This is a path-rooted convenience for directory traversal, not a containment
+    boundary for resolved file targets.
     """
 
     fs: AbstractFileSystem
@@ -137,6 +139,12 @@ def create_default_directory_transform_registry() -> DirectoryTransformRegistry:
 
 
 def create_directory_transform_context(root_path: Path) -> DirectoryTransformContext:
+    """Create a directory transform context rooted at the configured directory path.
+
+    The returned filesystem exposes paths relative to ``root_path``. It is intended
+    to give transforms a stable starting point for traversal and file access, not to
+    reject symlinks whose resolved targets live outside that directory tree.
+    """
     resolved_root_path = root_path.resolve()
     rooted_fs = DirFileSystem(path=str(resolved_root_path), fs=LocalFileSystem())
     return DirectoryTransformContext(fs=rooted_fs, root_path=resolved_root_path)
