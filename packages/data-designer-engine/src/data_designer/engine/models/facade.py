@@ -465,7 +465,6 @@ class ModelFacade:
         )
         kwargs = self.consolidate_kwargs(**kwargs)
         response: EmbeddingResponse | None = None
-        request_successful = False
         try:
             request = self._build_embedding_request(input_texts, kwargs)
             response = self._client.embeddings(request)
@@ -477,15 +476,14 @@ class ModelFacade:
                     "usage": self._usage_stats.model_dump(),
                 },
             )
-            if len(response.vectors) != len(input_texts):
-                raise ValueError(f"Expected {len(input_texts)} embeddings, but received {len(response.vectors)}")
-            request_successful = True
-            return response.vectors
+            if len(response.vectors) == len(input_texts):
+                return response.vectors
+            raise ValueError(f"Expected {len(input_texts)} embeddings, but received {len(response.vectors)}")
         finally:
             if not skip_usage_tracking:
                 self._track_usage(
                     response.usage if response is not None else None,
-                    is_request_successful=request_successful,
+                    is_request_successful=response is not None,
                 )
 
     @acatch_llm_exceptions
@@ -501,7 +499,6 @@ class ModelFacade:
         )
         kwargs = self.consolidate_kwargs(**kwargs)
         response: EmbeddingResponse | None = None
-        request_successful = False
         try:
             request = self._build_embedding_request(input_texts, kwargs)
             response = await self._client.aembeddings(request)
@@ -513,15 +510,14 @@ class ModelFacade:
                     "usage": self._usage_stats.model_dump(),
                 },
             )
-            if len(response.vectors) != len(input_texts):
-                raise ValueError(f"Expected {len(input_texts)} embeddings, but received {len(response.vectors)}")
-            request_successful = True
-            return response.vectors
+            if len(response.vectors) == len(input_texts):
+                return response.vectors
+            raise ValueError(f"Expected {len(input_texts)} embeddings, but received {len(response.vectors)}")
         finally:
             if not skip_usage_tracking:
                 self._track_usage(
                     response.usage if response is not None else None,
-                    is_request_successful=request_successful,
+                    is_request_successful=response is not None,
                 )
 
     # --- generate_image / agenerate_image ---
