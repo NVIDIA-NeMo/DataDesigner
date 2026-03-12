@@ -221,7 +221,7 @@ class ThrottleManager:
             state.in_flight = max(0, state.in_flight - 1)
             prev_limit = state.current_limit
             state.current_limit = max(DEFAULT_MIN_LIMIT, math.floor(state.current_limit * self._reduce_factor))
-            block_duration = retry_after if retry_after and retry_after > 0 else self._default_block_seconds
+            block_duration = retry_after if retry_after is not None and retry_after > 0 else self._default_block_seconds
             state.blocked_until = now + block_duration
             state.success_streak = 0
             logger.warning(

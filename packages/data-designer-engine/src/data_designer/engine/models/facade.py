@@ -741,7 +741,7 @@ class ModelFacade:
             extra_headers=kwargs.get("extra_headers"),
         )
 
-    def _track_usage(self, usage: Usage | None, *, is_request_successful: bool, image_count: int = 0) -> None:
+    def _track_usage(self, usage: Usage | None, *, is_request_successful: bool) -> None:
         """Unified usage tracking from canonical Usage type."""
         if not is_request_successful:
             self._usage_stats.extend(request_usage=RequestUsageStats(successful_requests=0, failed_requests=1))
@@ -757,5 +757,4 @@ class ModelFacade:
         self._usage_stats.extend(
             token_usage=token_usage,
             request_usage=RequestUsageStats(successful_requests=1, failed_requests=0),
-            image_usage=ImageUsageStats(total_images=image_count) if image_count > 0 else None,
         )

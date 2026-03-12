@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from typing import TYPE_CHECKING, Any
 
 import data_designer.lazy_heavy_imports as lazy
@@ -81,29 +82,35 @@ class OpenAICompatibleClient(ModelClient):
             max_connections=pool_max,
             max_keepalive_connections=pool_keepalive,
         )
+        self._transport = create_retry_transport(self._retry_config)
         self._client: httpx.Client | None = sync_client
         self._aclient: httpx.AsyncClient | None = async_client
+        self._init_lock = threading.Lock()
 
     def _get_sync_client(self) -> httpx.Client:
         if self._client is None:
-            self._client = lazy.httpx.Client(
-                transport=create_retry_transport(self._retry_config),
-                limits=self._limits,
-                timeout=lazy.httpx.Timeout(self._timeout_s),
-            )
+            with self._init_lock:
+                if self._client is None:
+                    self._client = lazy.httpx.Client(
+                        transport=self._transport,
+                        limits=self._limits,
+                        timeout=lazy.httpx.Timeout(self._timeout_s),
+                    )
         return self._client
 
     def _get_async_client(self) -> httpx.AsyncClient:
         if self._aclient is None:
-            self._aclient = lazy.httpx.AsyncClient(
-                transport=create_retry_transport(self._retry_config),
-                limits=self._limits,
-                timeout=lazy.httpx.Timeout(self._timeout_s),
-            )
+            with self._init_lock:
+                if self._aclient is None:
+                    self._aclient = lazy.httpx.AsyncClient(
+                        transport=self._transport,
+                        limits=self._limits,
+                        timeout=lazy.httpx.Timeout(self._timeout_s),
+                    )
         return self._aclient
 
     # -------------------------------------------------------------------
-    # Capability checks
+    # Capability checks — adapter-level (see ModelClient docstring)
     # -------------------------------------------------------------------
 
     def supports_chat_completion(self) -> bool:

@@ -235,21 +235,40 @@ async def test_agenerate_image_maps_images() -> None:
 
 
 def test_auth_header_present_when_api_key_set() -> None:
-    client = _make_client()
-    headers = client._build_headers({})
+    sync_mock = _make_sync_client(_chat_response())
+    client = _make_client(sync_client=sync_mock)
+
+    request = ChatCompletionRequest(model=MODEL, messages=[{"role": "user", "content": "Hi"}])
+    client.completion(request)
+
+    headers = sync_mock.post.call_args.kwargs["headers"]
     assert headers["Authorization"] == "Bearer sk-test-key"
     assert headers["Content-Type"] == "application/json"
 
 
 def test_no_auth_header_when_api_key_none() -> None:
-    client = _make_client(api_key=None)
-    headers = client._build_headers({})
+    sync_mock = _make_sync_client(_chat_response())
+    client = _make_client(sync_client=sync_mock, api_key=None)
+
+    request = ChatCompletionRequest(model=MODEL, messages=[{"role": "user", "content": "Hi"}])
+    client.completion(request)
+
+    headers = sync_mock.post.call_args.kwargs["headers"]
     assert "Authorization" not in headers
 
 
 def test_extra_headers_merged_into_auth_headers() -> None:
-    client = _make_client()
-    headers = client._build_headers({"X-Custom": "val"})
+    sync_mock = _make_sync_client(_chat_response())
+    client = _make_client(sync_client=sync_mock)
+
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[{"role": "user", "content": "Hi"}],
+        extra_headers={"X-Custom": "val"},
+    )
+    client.completion(request)
+
+    headers = sync_mock.post.call_args.kwargs["headers"]
     assert headers["X-Custom"] == "val"
     assert headers["Authorization"] == "Bearer sk-test-key"
 
