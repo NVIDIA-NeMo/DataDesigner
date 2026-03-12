@@ -36,6 +36,7 @@ from data_designer.config.utils.info import InfoType, InterfaceInfo
 from data_designer.engine.analysis.dataset_profiler import DataDesignerDatasetProfiler, DatasetProfilerConfig
 from data_designer.engine.compiler import compile_data_designer_config
 from data_designer.engine.dataset_builders.column_wise_builder import ColumnWiseDatasetBuilder
+from data_designer.engine.mcp.io import list_tool_names
 from data_designer.engine.model_provider import resolve_model_provider_registry
 from data_designer.engine.resources.managed_storage import init_managed_blob_storage
 from data_designer.engine.resources.resource_provider import ResourceProvider, create_resource_provider
@@ -149,6 +150,25 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         """
         return self._get_interface_info(self._model_providers)
 
+    def list_mcp_tool_names(self, mcp_provider_name: str, *, timeout_sec: float = 10.0) -> list[str]:
+        """Connect to a configured MCP provider and return the names of its available tools.
+
+        Args:
+            mcp_provider_name: The ``name`` field of an MCP provider passed to the constructor.
+            timeout_sec: Timeout in seconds for the MCP handshake. Defaults to 10.
+
+        Returns:
+            A list of tool name strings exposed by the MCP server.
+
+        Raises:
+            ValueError: If no provider with the given name was configured.
+        """
+        for provider in self._mcp_providers:
+            if provider.name == mcp_provider_name:
+                return list_tool_names(provider, timeout_sec=timeout_sec)
+        configured = [p.name for p in self._mcp_providers]
+        raise ValueError(f"No MCP provider named {mcp_provider_name!r}. Configured providers: {configured}")
+
     def create(
         self,
         config_builder: DataDesignerConfigBuilder,
@@ -193,11 +213,25 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             raise DataDesignerGenerationError(f"🛑 Error generating dataset: {e}")
 
         try:
-            profiler = self._create_dataset_profiler(config_builder, resource_provider)
-            analysis = profiler.profile_dataset(
-                num_records,
-                builder.artifact_storage.load_dataset_with_dropped_columns(),
+            dataset_for_profiler = builder.artifact_storage.load_dataset_with_dropped_columns()
+        except Exception as e:
+            raise DataDesignerGenerationError(
+                f"🛑 Failed to load generated dataset — all records may have been dropped "
+                f"due to generation failures. Check the warnings above for details. Original error: {e}"
             )
+
+        # Defensive: the batch manager skips writing when the buffer is empty, so in
+        # practice load_dataset_with_dropped_columns() would raise before returning a
+        # zero-row DataFrame. This guard protects against future changes to that contract.
+        if len(dataset_for_profiler) == 0:
+            raise DataDesignerGenerationError(
+                "🛑 Dataset is empty — all records were dropped due to generation failures. "
+                "Check the warnings above for details on which columns failed."
+            )
+
+        try:
+            profiler = self._create_dataset_profiler(config_builder, resource_provider)
+            analysis = profiler.profile_dataset(num_records, dataset_for_profiler)
         except Exception as e:
             raise DataDesignerProfilingError(f"🛑 Error profiling dataset: {e}")
 
@@ -247,6 +281,12 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         except Exception as e:
             raise DataDesignerGenerationError(f"🛑 Error generating preview dataset: {e}")
 
+        if len(processed_dataset) == 0:
+            raise DataDesignerGenerationError(
+                "🛑 Dataset is empty — all records were dropped due to generation or processing failures. "
+                "Check the warnings above for details on which columns failed."
+            )
+
         dropped_columns = raw_dataset.columns.difference(processed_dataset.columns)
         if len(dropped_columns) > 0:
             dataset_for_profiler = lazy.pd.concat([processed_dataset, raw_dataset[dropped_columns]], axis=1)
@@ -259,22 +299,11 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         except Exception as e:
             raise DataDesignerProfilingError(f"🛑 Error profiling preview dataset: {e}")
 
-        if builder.artifact_storage.processors_outputs_path.exists():
-            processor_artifacts = {
-                processor_config.name: lazy.pd.read_parquet(
-                    builder.artifact_storage.processors_outputs_path / f"{processor_config.name}.parquet",
-                    dtype_backend="pyarrow",
-                ).to_dict(orient="records")
-                for processor_config in config_builder.get_processor_configs()
-            }
-        else:
-            processor_artifacts = {}
+        processor_artifacts: dict[str, list[dict]] = {}
+        for name in builder.artifact_storage.list_processor_names():
+            processor_artifacts[name] = builder.artifact_storage.load_processor_dataset(name).to_dict(orient="records")
 
-        if (
-            len(processed_dataset) > 0
-            and isinstance(analysis, DatasetProfilerResults)
-            and len(analysis.column_statistics) > 0
-        ):
+        if isinstance(analysis, DatasetProfilerResults) and len(analysis.column_statistics) > 0:
             logger.info(f"{RandomEmoji.success()} Preview complete!")
 
         # Create dataset metadata from the resource provider

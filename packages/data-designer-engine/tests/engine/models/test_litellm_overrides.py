@@ -7,13 +7,16 @@ from unittest.mock import patch
 
 import litellm
 import pytest
+from pydantic import ValidationError
 
 from data_designer.engine.models import litellm_overrides
 from data_designer.engine.models.litellm_overrides import (
     DEFAULT_MAX_CALLBACKS,
     CustomRouter,
+    ImageURLListItem,
     ThreadSafeCache,
     apply_litellm_patches,
+    patch_image_url_list_item,
 )
 
 
@@ -139,3 +142,43 @@ def test_custom_router_calculate_exponential_backoff_with_jitter(mock_uniform):
     assert result >= 4.0
     assert result <= 4.4
     mock_uniform.assert_called_once_with(-0.2, 0.2)
+
+
+def test_patch_image_url_list_item_makes_index_optional() -> None:
+    original_annotation = ImageURLListItem.__annotations__["index"]
+    original_required = ImageURLListItem.__required_keys__
+    original_optional = ImageURLListItem.__optional_keys__
+    try:
+        # Restore to unpatched state in case prior tests already applied the patch
+        ImageURLListItem.__annotations__["index"] = int
+        ImageURLListItem.__required_keys__ = original_required | {"index"}
+        ImageURLListItem.__optional_keys__ = original_optional - {"index"}
+        litellm.Message.model_rebuild(force=True)
+
+        assert "index" in ImageURLListItem.__required_keys__
+
+        with pytest.raises(ValidationError):
+            litellm.Message(
+                content=None,
+                role="assistant",
+                images=[{"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}}],
+            )
+
+        patch_image_url_list_item()
+
+        assert "index" not in ImageURLListItem.__required_keys__
+        assert "index" in ImageURLListItem.__optional_keys__
+
+        message = litellm.Message(
+            content=None,
+            role="assistant",
+            images=[{"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}}],
+        )
+        assert message.images is not None
+        assert len(message.images) == 1
+        assert message.images[0]["type"] == "image_url"
+    finally:
+        ImageURLListItem.__annotations__["index"] = original_annotation
+        ImageURLListItem.__required_keys__ = original_required
+        ImageURLListItem.__optional_keys__ = original_optional
+        litellm.Message.model_rebuild(force=True)

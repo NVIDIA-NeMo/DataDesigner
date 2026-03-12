@@ -30,6 +30,10 @@ class SeedDatasetColumnGenerator(FromScratchColumnGenerator[SeedDatasetMultiColu
         return GenerationStrategy.FULL_COLUMN
 
     @property
+    def is_order_dependent(self) -> bool:
+        return True
+
+    @property
     def num_records_sampled(self) -> int:
         return self._num_records_sampled
 
@@ -102,7 +106,7 @@ class SeedDatasetColumnGenerator(FromScratchColumnGenerator[SeedDatasetMultiColu
             read_query = f"SELECT * FROM ({read_query}){shuffle_query}"
         else:
             read_query = f"SELECT * FROM '{self._dataset_uri}'{shuffle_query}"
-        self._batch_reader = self.duckdb_conn.query(read_query).record_batch(batch_size=num_records)
+        self._batch_reader = self.duckdb_conn.query(read_query).to_arrow_reader(batch_size=num_records)
 
     def _sample_records(self, num_records: int) -> pd.DataFrame:
         logger.info(f"🌱 Sampling {num_records} records from seed dataset")

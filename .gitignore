@@ -99,8 +99,14 @@ NOTEPAD.md
 # Build-time copy of README for data-designer package (copied from top-level during build)
 packages/data-designer/README.md
 
+# Notebook build cache
+.notebook-cache/
+
 # Cerebro knowledge base
 .cerebro/
 .cursor/rules/cerebro.mdc
 .cursor/mcp.json
 .claude/rules/cerebro.md
+
+# Claude worktrees
+.claude/worktrees/

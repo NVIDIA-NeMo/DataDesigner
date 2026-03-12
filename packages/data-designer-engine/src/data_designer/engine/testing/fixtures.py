@@ -16,8 +16,9 @@ import pytest
 from data_designer.config.mcp import LocalStdioMCPProvider, MCPProvider, ToolConfig
 from data_designer.engine.mcp.facade import MCPFacade
 from data_designer.engine.model_provider import MCPProviderRegistry
+from data_designer.engine.models.clients.types import AssistantMessage, ChatCompletionResponse, ToolCall
 from data_designer.engine.secret_resolver import SecretResolver
-from data_designer.engine.testing.stubs import StubHuggingFaceSeedReader, StubMessage, StubResponse
+from data_designer.engine.testing.stubs import StubHuggingFaceSeedReader
 
 # =============================================================================
 # Seed reader fixtures
@@ -81,6 +82,17 @@ def stub_sse_provider() -> MCPProvider:
     )
 
 
+@pytest.fixture
+def stub_streamable_http_provider() -> MCPProvider:
+    """Create a stub Streamable HTTP MCP provider for testing."""
+    return MCPProvider(
+        name="test-streamable-http",
+        endpoint="https://api.example.com/mcp",
+        api_key="test-key",
+        provider_type="streamable_http",
+    )
+
+
 # =============================================================================
 # Tool config fixtures
 # =============================================================================
@@ -140,61 +152,66 @@ def stub_mcp_facade_factory() -> Any:
 
 
 # =============================================================================
-# Completion response fixtures
+# Completion response fixtures (canonical ChatCompletionResponse)
 # =============================================================================
 
 
 @pytest.fixture
-def mock_completion_response_no_tools() -> StubResponse:
+def mock_completion_response_no_tools() -> ChatCompletionResponse:
     """Mock LLM response with no tool calls."""
-    return StubResponse(StubMessage(content="Hello, I can help with that."))
-
-
-@pytest.fixture
-def mock_completion_response_single_tool() -> StubResponse:
-    """Mock LLM response with single tool call."""
-    tool_call = {
-        "id": "call-1",
-        "type": "function",
-        "function": {"name": "lookup", "arguments": '{"query": "test"}'},
-    }
-    return StubResponse(StubMessage(content="Let me look that up.", tool_calls=[tool_call]))
-
-
-@pytest.fixture
-def mock_completion_response_parallel_tools() -> StubResponse:
-    """Mock LLM response with multiple parallel tool calls."""
-    tool_calls = [
-        {"id": "call-1", "type": "function", "function": {"name": "lookup", "arguments": '{"query": "first"}'}},
-        {"id": "call-2", "type": "function", "function": {"name": "search", "arguments": '{"term": "second"}'}},
-        {"id": "call-3", "type": "function", "function": {"name": "fetch", "arguments": '{"url": "example.com"}'}},
-    ]
-    return StubResponse(StubMessage(content="Executing multiple tools.", tool_calls=tool_calls))
-
-
-@pytest.fixture
-def mock_completion_response_with_reasoning() -> StubResponse:
-    """Mock LLM response with reasoning_content."""
-    return StubResponse(
-        StubMessage(
-            content="  Final answer with extra spaces.  ",
-            reasoning_content="  Thinking about the problem...  ",
-        )
+    return ChatCompletionResponse(
+        message=AssistantMessage(content="Hello, I can help with that."),
     )
 
 
 @pytest.fixture
-def mock_completion_response_tool_with_reasoning() -> StubResponse:
+def mock_completion_response_single_tool() -> ChatCompletionResponse:
+    """Mock LLM response with single tool call."""
+    return ChatCompletionResponse(
+        message=AssistantMessage(
+            content="Let me look that up.",
+            tool_calls=[
+                ToolCall(id="call-1", name="lookup", arguments_json='{"query": "test"}'),
+            ],
+        ),
+    )
+
+
+@pytest.fixture
+def mock_completion_response_parallel_tools() -> ChatCompletionResponse:
+    """Mock LLM response with multiple parallel tool calls."""
+    return ChatCompletionResponse(
+        message=AssistantMessage(
+            content="Executing multiple tools.",
+            tool_calls=[
+                ToolCall(id="call-1", name="lookup", arguments_json='{"query": "first"}'),
+                ToolCall(id="call-2", name="search", arguments_json='{"term": "second"}'),
+                ToolCall(id="call-3", name="fetch", arguments_json='{"url": "example.com"}'),
+            ],
+        ),
+    )
+
+
+@pytest.fixture
+def mock_completion_response_with_reasoning() -> ChatCompletionResponse:
+    """Mock LLM response with reasoning_content."""
+    return ChatCompletionResponse(
+        message=AssistantMessage(
+            content="  Final answer with extra spaces.  ",
+            reasoning_content="  Thinking about the problem...  ",
+        ),
+    )
+
+
+@pytest.fixture
+def mock_completion_response_tool_with_reasoning() -> ChatCompletionResponse:
     """Mock LLM response with tool calls and reasoning_content."""
-    tool_call = {
-        "id": "call-1",
-        "type": "function",
-        "function": {"name": "lookup", "arguments": '{"query": "test"}'},
-    }
-    return StubResponse(
-        StubMessage(
+    return ChatCompletionResponse(
+        message=AssistantMessage(
             content="  Looking it up...  ",
-            tool_calls=[tool_call],
+            tool_calls=[
+                ToolCall(id="call-1", name="lookup", arguments_json='{"query": "test"}'),
+            ],
             reasoning_content="  I should use the lookup tool.  ",
-        )
+        ),
     )

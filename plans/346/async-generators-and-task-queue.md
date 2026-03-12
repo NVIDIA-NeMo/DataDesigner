@@ -1,7 +1,7 @@
 # Plan: Async Generators & Task Queue Builder
 
 Created: 2026-02-20
-Status: Planning
+Status: In Progress
 
 Issue: [#346](https://github.com/NVIDIA-NeMo/DataDesigner/issues/346)
 
@@ -225,20 +225,28 @@ The graph is column-granularity only — no cell-level nodes — so it stays sma
 O(C²) edges worst-case) regardless of row count and avoids the barrier/checkpoint problems of a cell-level
 graph.
 
-- [ ] `ExecutionGraph` class:
+- [x] `ExecutionGraph` class:
   - Backing stores: `dict[str, set[str]]` column → upstream columns;
     `dict[str, GenerationStrategy]` column → generation strategy
-  - `upstream(column: str) -> set[str]` — direct dependencies of a column
-  - `downstream(column: str) -> set[str]` — columns that depend on this one (for error attribution)
-  - `strategy(column: str) -> GenerationStrategy` — cell-by-cell or full-column
-  - `topological_order() -> list[str]` — valid DAG execution order (used by scheduler and for validation)
-  - `critical_path() -> list[str]` — longest dependency chain (useful for ETA estimates)
-  - `task_count(num_records: int, buffer_size: int) -> dict[str, int]` — exact task count per
+  - `get_upstream_columns(column: str) -> set[str]` — direct dependencies of a column
+  - `get_downstream_columns(column: str) -> set[str]` — columns that depend on this one (for error attribution)
+  - `get_strategy(column: str) -> GenerationStrategy` — cell-by-cell or full-column
+  - `get_topological_order() -> list[str]` — valid DAG execution order (cached; used by scheduler and for validation)
+  - `get_longest_dependency_chain() -> list[str]` — longest dependency chain by column count (useful for ETA estimates)
+  - `get_root_columns() -> list[str]` — columns with no upstream deps, in topological order
+  - `split_upstream_by_strategy(column: str) -> tuple[list[str], list[str]]` — splits
+    upstream into (batch/full-column, cell-by-cell) groups; cached per column
+  - `compute_task_count(num_records: int, buffer_size: int) -> dict[str, int]` — exact task count per
     column before the run starts; cell-by-cell columns produce `num_records` tasks,
     full-column columns (including from-scratch generators, which report `FULL_COLUMN`)
     produce `ceil(num_records / buffer_size)` tasks
+  - `compute_cell_dependencies(column, row_group, row_index | None, row_group_size) -> list[SliceRef]`
+    — derives cell-level deps on demand from column-level DAG + strategy
   - `to_mermaid() -> str` — Mermaid diagram string; nodes are annotated with strategy type
-- [ ] `build_execution_graph(column_configs, strategies: dict[str, GenerationStrategy]) -> ExecutionGraph` utility:
+  - `columns` property — all column names in insertion order
+  - `add_column(name, strategy)` / `add_edge(upstream, downstream)` — low-level construction
+  - `set_side_effect(side_effect_col, producer)` / `resolve_side_effect(column) -> str` — side-effect mapping
+- [x] `ExecutionGraph.create(column_configs, strategies)` classmethod factory:
   - Input: the ordered list of `ColumnConfigT` / `MultiColumnConfig`, plus a pre-computed
     strategy map (available from generators at builder init time via `get_generation_strategy()`)
   - For each config, read `config.required_columns` → set of upstream column names
@@ -246,88 +254,122 @@ graph.
     and map them back to their producer column, so downstream references resolve correctly
   - For `MultiColumnConfig`, all sub-columns share the same dependencies
   - Validate: every required column must resolve to a known producer (including
-    registered side-effect outputs), and the graph must be acyclic
-- [ ] Unit tests for graph construction, validation, critical path, task count, and Mermaid output
+    registered side-effect outputs), and the graph must be acyclic (raises `DAGCircularDependencyError`)
+- [x] Unit tests for graph construction, validation, longest chain, task count, cell deps, and Mermaid output
 
 **Files**: new module `engine/dataset_builders/utils/execution_graph.py`, tests
 
 ### Step 2: Completion Tracker
 
-A lightweight structure tracking which (column, row_group, row_index) tuples are
-done. Row indices are **local** to their row group (0-based within each group),
-matching the buffer manager's per-row-group addressing.
+A frontier-based tracker tracking which (column, row_group, row_index) tuples are
+done and maintaining a ready-to-dispatch frontier. Row indices are **local** to their
+row group (0-based within each group), matching the buffer manager's per-row-group addressing.
 
-- [ ] `CompletionTracker` class:
+- [x] `CompletionTracker` class:
   - Internal: `dict[int, dict[str, set[int]]]` mapping row_group → column → set of completed local row indices
-  - `mark_complete(column: str, row_group: int, row_index: int)` / `mark_batch_complete(column: str, row_group: int, row_group_size: int)`
-  - `is_ready(column: str, row_group: int, row_index: int, graph: ExecutionGraph) -> bool` — checks all upstream columns for that (row_group, row_index)
-  - `is_batch_ready(column: str, row_group: int, row_group_size: int, graph: ExecutionGraph) -> bool` — checks all rows in group
-  - `drop_row(row_group: int, row_index: int)` — marks row as dropped across all columns;
-    `get_ready_tasks` skips dropped rows, in-flight tasks for dropped rows are ignored on completion
-  - `is_row_group_complete(row_group: int, row_group_size: int, all_columns: list[str]) -> bool` — all non-dropped rows have all columns done; `row_group_size` is the original size, dropped rows (via `drop_row`) are excluded internally
-  - `get_ready_tasks(graph: ExecutionGraph, row_groups, dispatched: set[Task]) -> list[Task]` — yields all currently dispatchable tasks, excluding dropped rows and already-dispatched/in-flight tasks; reads `graph.strategy(column)` to determine task granularity per column
-- [ ] No locks needed: all access is from the single asyncio event loop thread
-- [ ] Unit tests
+  - `with_graph(graph: ExecutionGraph, row_groups: list[tuple[int, int]]) -> CompletionTracker` —
+    classmethod factory that creates a frontier-enabled tracker; seeds the frontier with root tasks
+  - `mark_cell_complete(column, row_group, row_index)` — marks a cell done, discards it
+    from the frontier, and calls `_enqueue_downstream` to add newly-ready tasks
+  - `mark_row_range_complete(column, row_group, row_group_size)` — marks an entire batch done,
+    validates row-group size consistency, and enqueues downstream
+  - `is_complete(ref: SliceRef) -> bool` — check if a single cell is complete
+  - `is_all_complete(cells: list[SliceRef]) -> bool` — check if all given cells/batches are complete
+  - `drop_row(row_group, row_index)` — marks row as dropped; removes cell tasks for that row
+    from the frontier; calls `_reevaluate_batch_tasks` since dropping a row may unblock
+    full-column downstream tasks
+  - `is_dropped(row_group, row_index) -> bool`
+  - `is_row_group_complete(row_group, row_group_size, all_columns) -> bool` — all non-dropped rows have all columns done
+  - `get_ready_tasks(dispatched: set[Task]) -> list[Task]` — returns all currently dispatchable
+    tasks from the frontier, excluding already-dispatched/in-flight tasks; O(frontier) not O(C × R)
+  - Internal frontier management:
+    - `_seed_frontier()` — populates frontier with root column tasks (from `graph.get_root_columns()`)
+    - `_enqueue_downstream(column, row_group, row_index | None)` — on completion, checks each
+      downstream column's readiness using `split_upstream_by_strategy`; adds ready tasks to frontier
+    - `_reevaluate_batch_tasks(row_group)` — after row drop, checks if any full-column tasks
+      became ready (all non-dropped rows now complete)
+  - Strategy validation: `mark_cell_complete` requires `CELL_BY_CELL`, `mark_row_range_complete`
+    requires `FULL_COLUMN`; mismatches raise `ValueError`
+- [x] No locks needed: all access is from the single asyncio event loop thread
+- [x] Unit tests
 
 **Files**: new module `engine/dataset_builders/utils/completion_tracker.py`, tests
 
 ### Step 3: Task Model
 
-Simple dataclass representing a unit of work.
+Simple dataclasses representing units of work and cell-level references.
 
-- [ ] `Task` dataclass:
+- [x] `SliceRef` dataclass (frozen, ordered):
+  - `column: str`, `row_group: int`, `row_index: int | None = None`
+  - Reference to a cell or full row group in the execution grid
+  - Used by `ExecutionGraph.compute_cell_dependencies()` and `CompletionTracker.is_complete()`
+- [x] `Task` dataclass (frozen):
   - `column: str`
   - `row_group: int`
   - `row_index: int | None` (None for batch tasks)
   - `task_type: Literal["from_scratch", "cell", "batch", "pre_batch_processor", "post_batch_processor"]`
-- [ ] `TaskResult` with status, output, error info
-- [ ] `TaskTrace` dataclass (only instantiated when tracing is enabled):
+- [x] `TaskResult` dataclass:
+  - `task: Task`, `status: Literal["success", "error"]`, `output: Any`, `error: Exception | None`
+  - `retryable: bool = False` — whether the failure can be retried by the salvage loop
+- [x] `TaskTrace` dataclass (only instantiated when tracing is enabled):
   - `column: str`, `row_group: int`, `row_index: int | None`, `task_type: str`
   - `dispatched_at: float` — `perf_counter()` when `create_task()` fires
   - `slot_acquired_at: float` — after execution semaphore acquired
   - `completed_at: float` — in `finally` block after generator returns
   - `status: str`, `error: str | None`
-- [ ] Hashable so we can track dispatched/pending sets
+  - `from_task(task: Task) -> TaskTrace` classmethod factory
+- [x] Hashable so we can track dispatched/pending sets
+- [x] `DAGCircularDependencyError` in `errors.py` — raised by `ExecutionGraph.get_topological_order()`
 
-**Files**: new module `engine/dataset_builders/utils/task_model.py` — must be its own module
-since `CompletionTracker`, `AsyncTaskScheduler`, and the buffer manager all reference `Task`/`TaskResult`;
-inlining would create import cycles.
+**Files**: new module `engine/dataset_builders/utils/task_model.py` (+ `errors.py`) — must be its own
+module since `CompletionTracker`, `AsyncTaskScheduler`, and the buffer manager all reference
+`Task`/`TaskResult`/`SliceRef`; inlining would create import cycles.
 
 ### Step 4: Async Task Scheduler
 
 The core orchestrator that replaces `_run_batch` for the async path.
 
 - [ ] `AsyncTaskScheduler` class:
-  - Constructor takes: generators (by column name), `graph: ExecutionGraph`, completion tracker, row group definitions, concurrency limit (`async_scheduler_max_submitted_tasks`), row group semaphore (`async_max_concurrent_row_groups`), salvage config, error/result callbacks, `trace: bool = False`
-  - When `trace=True`, populates `scheduler.traces: list[TaskTrace]` (one record per task); otherwise no `TaskTrace` objects are created. See Profiling.
+  - Constructor takes: generators (by column name), `graph: ExecutionGraph`, row group
+    definitions (`list[tuple[int, int]]`), concurrency limit (`async_scheduler_max_submitted_tasks`),
+    row group semaphore (`async_max_concurrent_row_groups`), salvage config, error/result
+    callbacks, `trace: bool = False`
+  - Initializes `CompletionTracker.with_graph(graph, row_groups)` — the tracker seeds
+    its frontier with root tasks automatically
+  - When `trace=True`, populates `scheduler.traces: list[TaskTrace]` (one record per task,
+    created via `TaskTrace.from_task()`); otherwise no `TaskTrace` objects are created. See Profiling.
   - `async run()` — main loop:
     1. Acquire the row group semaphore (`async_max_concurrent_row_groups`) before
        admitting a new row group's seed tasks. Dispatch `from_scratch` tasks,
        respecting `is_stateful`: stateful generators serialize per-instance (row group
        N's seed completes before N+1's seed starts for that generator); stateless
        generators dispatch all admitted row groups concurrently
-    2. Loop: query `completion_tracker.get_ready_tasks()` → dispatch each via
-       `asyncio.create_task()` behind submission budget → on completion, update
-       tracker → repeat until all tasks done or early shutdown
+    2. Loop: pull from `tracker.get_ready_tasks(dispatched)` → dispatch each via
+       `asyncio.create_task()` behind submission budget → on completion, call
+       `tracker.mark_cell_complete()` or `tracker.mark_row_range_complete()` (the tracker's
+       internal `_enqueue_downstream` auto-populates the frontier with newly-ready tasks)
+       → repeat until all tasks done or early shutdown
     3. When ready queue drains, run salvage rounds over deferred retryable failures
-       (up to `async_salvage_max_rounds` rounds)
-    4. After each row group completes: run post-batch processors, checkpoint
+       (up to `async_salvage_max_rounds` rounds); check `TaskResult.retryable` to classify
+    4. After each row group completes (check via `tracker.is_row_group_complete()`):
+       run post-batch processors, checkpoint
   - Task dispatch follows the pattern from §4: acquire execution slot → prepare →
     release → await throttle (LLM only) → reacquire → execute + writeback → release
   - Admission control: never allow more than `async_scheduler_max_submitted_tasks`
-    tasks in submitted/running/waiting states; hold remaining ready tasks in the
-    scheduler queue until slots free up
-  - Error handling: classify failures as retryable vs non-retryable; retryable
-    go to deferred queue with backoff; same early-shutdown logic as
-    `AsyncConcurrentExecutor` (error rate threshold within sliding window)
+    tasks in submitted/running/waiting states; remove tasks from `dispatched` set on
+    completion; hold remaining ready tasks in the scheduler queue until slots free up
+  - Error handling: classify failures as retryable vs non-retryable (set `TaskResult.retryable`);
+    retryable go to deferred queue with backoff; non-retryable trigger `tracker.drop_row()`
+    which auto-removes cell tasks from frontier and re-evaluates batch readiness;
+    same early-shutdown logic as `AsyncConcurrentExecutor` (error rate threshold within sliding window)
   - Progress tracking: create one `ProgressTracker` per column for accounting
     (success/failure counts, rate, ETA), but suppress per-completion interval logs
     in async mode. A separate background coroutine (`asyncio.create_task`) emits a
     single consolidated summary line every 10 seconds across all active columns;
     it is cancelled once all tasks complete. See UX Considerations.
 - [ ] Use `asyncio.Event` to wake the scheduler when a task completes (avoids polling).
-  `Event` is sufficient — the scheduler resets it and re-checks ready tasks on each wake;
-  `Condition` would be needed only if waiting on a specific predicate, which the tracker
+  `Event` is sufficient — the scheduler resets it and re-checks `get_ready_tasks` on each wake;
+  `Condition` would be needed only if waiting on a specific predicate, which the frontier
   already handles.
 - [ ] Unit tests with mock generators
 
@@ -352,38 +394,40 @@ This means sync-first generators (most built-ins, existing plugins) work unchang
 and async-first generators (new plugins doing native async I/O) only need to implement
 `agenerate()` without writing a redundant sync version.
 
-- [ ] Add symmetric bridging on the base `ColumnGenerator`:
+- [x] Add symmetric bridging on the base `ColumnGenerator`:
   - `agenerate()` default: `asyncio.to_thread(self.generate, data)` (already exists)
   - `generate()` default: call a safe sync runner helper that:
     - uses `asyncio.run()` if no loop is running in the current thread
     - otherwise submits to the background loop with `run_coroutine_threadsafe(...).result(timeout=...)`
   - Detect which one the subclass overrides to avoid infinite recursion
-- [ ] Add `is_stateful` property to base `ColumnGenerator` (default `False`).
+  - **Note**: v1 uses ThreadPoolExecutor fallback instead of builder's background loop (available in PR 4)
+- [x] Add `is_stateful` property to base `ColumnGenerator` (default `False`).
   Stateful generators are serialized per-instance by the scheduler.
-- [ ] `ColumnGeneratorWithModelChatCompletion.agenerate` — already implemented (PR #280), no changes needed
-- [ ] `FromScratchColumnGenerator`: add both async wrappers — `async agenerate_from_scratch(num_records) -> DataFrame`
+- [x] `ColumnGeneratorWithModelChatCompletion.agenerate` — already implemented (PR #280), no changes needed
+- [x] `FromScratchColumnGenerator`: add both async wrappers — `async agenerate_from_scratch(num_records) -> DataFrame`
   (wraps `generate_from_scratch` in `asyncio.to_thread`) and `async agenerate(data: DataFrame) -> DataFrame`
   (wraps `generate` in `asyncio.to_thread` with defensive `df.copy()`). Both are needed because the
   scheduler dispatches subclasses via either path depending on whether the buffer is empty.
-- [ ] `ColumnGeneratorFullColumn`: add `async agenerate(data: DataFrame) -> DataFrame` — wraps sync in
+- [x] `ColumnGeneratorFullColumn`: add `async agenerate(data: DataFrame) -> DataFrame` — wraps sync in
   `asyncio.to_thread` with defensive `df.copy()` (see Risks). This intentionally overrides the base
   `ColumnGenerator.agenerate(dict)` with a DataFrame-typed signature; the scheduler dispatches the
   correct variant based on generation strategy.
-- [ ] `ExpressionColumnGenerator`: inherits full-column async wrapper
-- [ ] `SamplerColumnGenerator`: inherits both wrappers from `FromScratchColumnGenerator`; no custom implementation needed. `is_stateful = False`
-- [ ] `SeedDatasetColumnGenerator`: inherits both wrappers from `FromScratchColumnGenerator`; no custom implementation needed. `is_stateful = True` (maintains DuckDB batch reader cursor and leftover-row buffer)
-- [ ] `ValidationColumnGenerator`: inherits full-column async wrapper. Note: for `REMOTE` validators
+- [x] `ExpressionColumnGenerator`: inherits full-column async wrapper
+- [x] `SamplerColumnGenerator`: inherits both wrappers from `FromScratchColumnGenerator`; no custom implementation needed. `is_stateful = False`
+- [x] `SeedDatasetColumnGenerator`: inherits both wrappers from `FromScratchColumnGenerator`; no custom implementation needed. `is_stateful = True` (maintains DuckDB batch reader cursor and leftover-row buffer)
+- [x] `ValidationColumnGenerator`: inherits full-column async wrapper. Note: for `REMOTE` validators
   with `max_parallel_requests > 1`, `generate()` internally uses `ConcurrentThreadExecutor`, so the
   async wrapper spawns a thread that itself spawns more threads — bypassing the scheduler's concurrency
   controls for those HTTP calls. Acceptable for v1 (see Follow-ups).
-- [ ] `CustomColumnGenerator`: inherits directly from `ColumnGenerator` (not from
+- [x] `CustomColumnGenerator`: inherits directly from `ColumnGenerator` (not from
   `ColumnGeneratorFullColumn`), so it does not automatically inherit the full-column async wrapper. Needs its own
   `agenerate` that branches on strategy:
   - `CELL_BY_CELL`: if the user function is a coroutine (`asyncio.iscoroutinefunction`), call it directly;
     otherwise wrap in `asyncio.to_thread`
   - `FULL_COLUMN`: wrap `generate(DataFrame)` in `asyncio.to_thread` with defensive `df.copy()`
   `is_stateful` defaults to `False`; custom implementations can override it.
-- [ ] `ImageCellGenerator`, `EmbeddingCellGenerator`: add native `agenerate` using `model.agenerate_image` / `model.agenerate_text_embeddings`
+  - **Note**: uses `inspect.unwrap()` to detect async through the `@custom_column_generator` decorator wrapper
+- [x] `ImageCellGenerator`, `EmbeddingCellGenerator`: add native `agenerate` using `model.agenerate_image` / `model.agenerate_text_embeddings`
 
 **Files**: `generators/base.py`, `generators/expression.py`, `generators/samplers.py`, `generators/seed_dataset.py`, `generators/image.py`, `generators/embedding.py`, tests
 
@@ -410,9 +454,12 @@ Adapt `DatasetBatchManager` for concurrent row group processing.
 Wire the new scheduler into `ColumnWiseDatasetBuilder`.
 
 - [ ] New method `_build_async(generators, num_records, buffer_size, ...)`:
-  1. Build `ExecutionGraph` from `self._column_configs` and generator strategies
-  2. Partition rows into row groups
-  3. Create `CompletionTracker`, `AsyncTaskScheduler`
+  1. Build `ExecutionGraph.create(self._column_configs, strategies)` from configs and
+     generator strategies; catch `DAGCircularDependencyError` and `ValueError` and
+     re-raise as `DatasetGenerationError` with context
+  2. Partition rows into row groups as `list[tuple[int, int]]` (rg_id, rg_size)
+  3. Create `AsyncTaskScheduler` (which internally creates
+     `CompletionTracker.with_graph(graph, row_groups)`)
   4. Run scheduler on the background event loop (reuse `_ensure_async_engine_loop()`
      from `dataset_builders/utils/async_concurrency.py` — already exists)
   5. Scheduler handles checkpointing via callbacks
@@ -431,33 +478,35 @@ Wire the new scheduler into `ColumnWiseDatasetBuilder`.
 
 Tests are added incrementally with each PR, not deferred to the end.
 
-**PR 1 (foundation) — unit tests**:
-- [ ] Execution graph construction, validation, topological order, critical path
-- [ ] Execution graph: side-effect output columns resolve correctly (e.g., column
+**PR 1 (foundation) — unit tests** (merged):
+- [x] Execution graph construction, validation, `get_topological_order`, `get_longest_dependency_chain`
+- [x] Execution graph: side-effect output columns resolve correctly (e.g., column
   depending on `summary__trace` maps to a dependency on the `summary` generator)
-- [ ] Execution graph: `cell_dependencies` returns correct deps for cell-by-cell,
+- [x] Execution graph: `compute_cell_dependencies` returns correct deps for cell-by-cell,
   full-column, and from-scratch columns
-- [ ] Execution graph: `task_count` and `to_mermaid` output
-- [ ] Completion tracker: `mark_complete`, `is_complete`, `all_complete`
-- [ ] Completion tracker: `drop_row`, `is_dropped`, `is_row_group_complete`
-- [ ] Task model: hashability, equality, TaskResult, TaskTrace
+- [x] Execution graph: `compute_task_count`, `split_upstream_by_strategy`, and `to_mermaid` output
+- [x] Completion tracker: `mark_cell_complete`, `mark_row_range_complete`, `is_complete`, `is_all_complete`
+- [x] Completion tracker: frontier-based `get_ready_tasks` with `with_graph` initialization
+- [x] Completion tracker: `drop_row`, `is_dropped`, `is_row_group_complete`, `_reevaluate_batch_tasks`
+- [x] Task model: hashability, equality, TaskResult (including `retryable`), TaskTrace, SliceRef
 
 **PR 2 (generators) — unit tests**:
-- [ ] Symmetric bridging: sync-only generator can be called via `agenerate`
-- [ ] Symmetric bridging: async-only generator can be called via `generate`
-- [ ] `is_stateful` defaults to `False`; `SeedDatasetColumnGenerator` returns `True`
-- [ ] `FromScratchColumnGenerator.agenerate_from_scratch` wraps sync correctly
-- [ ] `ColumnGeneratorFullColumn.agenerate` passes `df.copy()` to thread
-- [ ] `CustomColumnGenerator.agenerate` detects coroutine functions and calls directly
-- [ ] All existing generator tests pass unchanged (`make test`)
+- [x] Symmetric bridging: sync-only generator can be called via `agenerate`
+- [x] Symmetric bridging: async-only generator can be called via `generate`
+- [x] `is_stateful` defaults to `False`; `SeedDatasetColumnGenerator` returns `True`
+- [x] `FromScratchColumnGenerator.agenerate_from_scratch` wraps sync correctly
+- [x] `ColumnGeneratorFullColumn.agenerate` passes `df.copy()` to thread
+- [x] `CustomColumnGenerator.agenerate` detects coroutine functions and calls directly
+- [x] All existing generator tests pass unchanged (`make test`)
 
 **PR 3 (scheduler + buffer) — unit tests with mock generators**:
-- [ ] Scheduler dispatches from-scratch tasks first, then downstream as deps complete
+- [ ] Scheduler dispatches root tasks first (from `tracker.get_ready_tasks`),
+  then downstream as deps complete (via tracker's `_enqueue_downstream`)
 - [ ] Stateful generator serializes across row groups; stateless runs concurrently
-- [ ] Retry salvage: transient failure is retried and succeeds;
-  non-retryable failure drops immediately; retry budget exhaustion drops correctly
-- [ ] Eager row-drop: failure on column B drops the row across all columns,
-  independent column C does not process the dropped row
+- [ ] Retry salvage: transient failure (`TaskResult.retryable=True`) is retried and succeeds;
+  non-retryable failure triggers `tracker.drop_row()` immediately; retry budget exhaustion drops correctly
+- [ ] Eager row-drop: failure on column B calls `tracker.drop_row()` which removes
+  cell tasks for that row from frontier; independent column C does not process the dropped row
 - [ ] Row-drop with in-flight full-column task: completed task may still compute
   dropped rows, but writeback is suppressed and row remains dropped
 - [ ] Bounded submission: submitted task count never exceeds
@@ -489,9 +538,10 @@ The implementation steps map to 4 PRs that can be reviewed and merged independen
 Each PR is self-contained: it adds new modules with full test coverage but does not
 change existing behavior until the final integration PR.
 
-### PR 1: Foundation (Steps 1 + 2 + 3)
+### PR 1: Foundation (Steps 1 + 2 + 3) — MERGED as [#356](https://github.com/NVIDIA-NeMo/DataDesigner/pull/356)
 
-**Scope**: `ExecutionGraph`, `CompletionTracker`, `Task`/`TaskResult`/`TaskTrace` dataclasses.
+**Scope**: `ExecutionGraph`, `CompletionTracker`, `SliceRef`/`Task`/`TaskResult`/`TaskTrace`
+dataclasses, `DAGCircularDependencyError`.
 
 All three are pure data structures with no side effects on the existing codebase.
 They live in new modules under `engine/dataset_builders/utils/` and are only imported
@@ -500,16 +550,18 @@ by code introduced in later PRs.
 - `execution_graph.py` + tests
 - `completion_tracker.py` + tests
 - `task_model.py` + tests
+- `errors.py` (`DAGCircularDependencyError`)
 
 **Why grouped**: the three are tightly coupled (the tracker takes the graph to resolve
 readiness, the task model is the unit of work for both), small individually, and
 have no external dependencies. Splitting them into 3 separate PRs would create
 review overhead without meaningful isolation benefit.
 
-**What works after merge**: you can build an `ExecutionGraph` from any existing config,
-inspect it (`topological_order`, `critical_path`, `task_count`, `to_mermaid`), query
-cell-level dependencies, and track completion state — all in isolation, with full test
-coverage. No runtime behavior changes.
+**What works after merge**: you can build an `ExecutionGraph.create()` from any existing config,
+inspect it (`get_topological_order`, `get_longest_dependency_chain`, `compute_task_count`,
+`to_mermaid`), query cell-level dependencies via `compute_cell_dependencies()`, and track
+completion state with the frontier-enabled `CompletionTracker.with_graph()` — all in
+isolation, with full test coverage. No runtime behavior changes.
 
 **Can merge independently**: yes — no existing code imports these modules.
 
@@ -540,12 +592,20 @@ Existing sync callers are unaffected.
 
 **Scope**: `AsyncTaskScheduler`, row group buffer manager.
 
-- `async_scheduler.py` + tests (uses graph, tracker, and task model from PR 1)
+- `async_scheduler.py` + tests (uses `ExecutionGraph.create()`,
+  `CompletionTracker.with_graph()`, `Task`, `TaskResult`, `TaskTrace`, `SliceRef` from PR 1)
 - Buffer manager extension in `dataset_batch_manager.py` + tests
 - Retry/salvage logic, progress consolidation, error handling
 
-**Depends on**: PR 1 (imports `ExecutionGraph`, `CompletionTracker`, `Task`), PR 2
+**Depends on**: PR 1 (imports `ExecutionGraph`, `CompletionTracker`, `Task`, `SliceRef`), PR 2
 (calls `agenerate` / `agenerate_from_scratch`, reads `is_stateful`).
+
+**Key integration with PR 1's frontier model**: The scheduler initializes
+`CompletionTracker.with_graph(graph, row_groups)` which auto-seeds the frontier with
+root tasks. The main loop pulls from `tracker.get_ready_tasks(dispatched)`, and on task
+completion calls `mark_cell_complete()` / `mark_row_range_complete()` which internally
+enqueues newly-ready downstream tasks. On row drop, calls `tracker.drop_row()` which
+removes frontier tasks and re-evaluates batch readiness.
 
 **What works after merge**: the scheduler can be instantiated with mock generators and
 driven through its full lifecycle in tests — row group admission, dependency-driven
@@ -829,11 +889,13 @@ mid-run loses at most one batch.
 **`ExecutionTraits` replaced by `GenerationStrategy` on the graph.** PR #269 attaches an
 `ExecutionTraits` flag enum (`CELL`, `BARRIER`, `ROW_STREAMABLE`) to each node. Since our
 graph is column-level, we store `GenerationStrategy` (cell-by-cell, full-column) directly
-on each column node instead. From-scratch columns are identified by having no upstream
-dependencies in the graph; the scheduler checks `can_generate_from_scratch` on the generator
-instance to determine which method to call. This serves the same purpose as `ExecutionTraits`
-— the scheduler and `CompletionTracker` use it to determine task granularity — without
-needing typed node IDs or flag combinations.
+on each column node instead (accessible via `get_strategy()`). From-scratch columns are
+identified by having no upstream dependencies in the graph (via `get_root_columns()`); the
+scheduler checks `can_generate_from_scratch` on the generator instance to determine which
+method to call. The `split_upstream_by_strategy()` method provides cached separation of
+upstream deps by strategy type, used by the tracker's frontier logic. This serves the same
+purpose as `ExecutionTraits` — the scheduler and `CompletionTracker` use it to determine
+task granularity — without needing typed node IDs or flag combinations.
 
 **`ROW_STREAMABLE` trait omitted.** PR #269 introduces `is_row_streamable` so full-column
 generators that process rows independently (e.g., `ExpressionColumnGenerator`) can be
