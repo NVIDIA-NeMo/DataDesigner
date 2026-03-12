@@ -6,12 +6,15 @@ from __future__ import annotations
 import importlib
 from functools import wraps
 from typing import Any
+from weakref import WeakSet
 
 import click
 import typer
 from typer.core import TyperGroup
 
 from data_designer.cli.runtime import ensure_cli_default_model_settings
+
+_BOOTSTRAP_WRAPPED_COMMANDS: WeakSet[click.Command] = WeakSet()
 
 
 class _LazyCommand(click.Command):
@@ -113,12 +116,12 @@ def create_lazy_typer_group(
 
 def _wrap_command_with_cli_bootstrap(command: click.Command) -> None:
     """Wrap a resolved command callback with one-time CLI bootstrap."""
-    if getattr(command, "_dd_bootstrap_wrapped", False):
+    if command in _BOOTSTRAP_WRAPPED_COMMANDS:
         return
 
     callback = command.callback
     if callback is None:
-        command._dd_bootstrap_wrapped = True
+        _BOOTSTRAP_WRAPPED_COMMANDS.add(command)
         return
 
     @wraps(callback)
@@ -127,4 +130,4 @@ def _wrap_command_with_cli_bootstrap(command: click.Command) -> None:
         return callback(*args, **kwargs)
 
     command.callback = wrapped_callback
-    command._dd_bootstrap_wrapped = True
+    _BOOTSTRAP_WRAPPED_COMMANDS.add(command)

@@ -36,4 +36,5 @@ def test_ensure_cli_default_model_settings_warns_and_continues(monkeypatch: pyte
     warning = mock_print_warning.call_args[0][0]
     assert "Could not initialize default model providers and model configs automatically." in warning
     assert "The command will continue." in warning
-    assert "resolve_seed_default_model_settings" in warning
+    assert "data-designer config providers" in warning
+    assert "data-designer config models" in warning
