@@ -52,6 +52,10 @@ class RowGroupBufferManager:
     def update_batch(self, row_group: int, column: str, values: list[Any]) -> None:
         """Write a full column for all rows in a row group."""
         buf = self._buffers[row_group]
+        if len(values) != len(buf):
+            raise ValueError(
+                f"update_batch received {len(values)} values but row group {row_group} has {len(buf)} rows."
+            )
         for ri, val in enumerate(values):
             buf[ri][column] = val
 
@@ -97,6 +101,7 @@ class RowGroupBufferManager:
         # Free memory
         del self._buffers[row_group]
         self._dropped.pop(row_group, None)
+        self._row_group_sizes.pop(row_group, None)
 
     def write_metadata(self, target_num_records: int, buffer_size: int) -> None:
         """Write final metadata after all row groups are checkpointed."""

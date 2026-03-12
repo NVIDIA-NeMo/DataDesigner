@@ -160,8 +160,29 @@ class AsyncTaskScheduler:
             to_retry = self._deferred
             self._deferred = []
             for task, _attempt in to_retry:
-                self._dispatched.discard(task)
-            # Re-enter main loop for one pass
+                if task.task_type == "from_scratch":
+                    # from_scratch tasks are not in the frontier; re-dispatch directly
+                    gid = id(self._generators[task.column])
+                    self._dispatched.discard(task)
+                    # Also clear the batch alias so completion tracking works
+                    self._dispatched.discard(
+                        Task(column=task.column, row_group=task.row_group, row_index=None, task_type="batch")
+                    )
+                    for sibling in self._instance_to_columns.get(gid, []):
+                        if sibling != task.column:
+                            self._dispatched.discard(
+                                Task(column=sibling, row_group=task.row_group, row_index=None, task_type="from_scratch")
+                            )
+                            self._dispatched.discard(
+                                Task(column=sibling, row_group=task.row_group, row_index=None, task_type="batch")
+                            )
+                    await self._submission_semaphore.acquire()
+                    self._dispatched.add(task)
+                    self._in_flight.add(task)
+                    asyncio.create_task(self._execute_seed_task(task, gid))
+                else:
+                    self._dispatched.discard(task)
+            # Re-enter main loop for one pass (frontier-based tasks)
             ready = self._tracker.get_ready_tasks(self._dispatched, self._admitted_rg_ids)
             for task in ready:
                 await self._submission_semaphore.acquire()
@@ -172,6 +193,14 @@ class AsyncTaskScheduler:
             while self._in_flight:
                 self._wake_event.clear()
                 await self._wake_event.wait()
+
+        # Warn if any row groups were not checkpointed
+        if self._active_rgs:
+            incomplete = [rg_id for rg_id, _ in self._active_rgs]
+            logger.error(
+                f"Scheduler exited with {len(self._active_rgs)} unfinished row group(s): {incomplete}. "
+                "These row groups were not checkpointed."
+            )
 
     async def _dispatch_seeds(self, rg_id: int, rg_size: int) -> None:
         """Dispatch from_scratch tasks for a row group."""
@@ -192,7 +221,8 @@ class AsyncTaskScheduler:
             if task in self._dispatched or batch_alias in self._dispatched:
                 continue
 
-            # Serialize stateful generators
+            # Acquire stateful lock *before* submission semaphore to preserve
+            # row-group ordering. Held until generation completes (_execute_seed_task).
             if gid in self._stateful_locks:
                 await self._stateful_locks[gid].acquire()
 
@@ -266,11 +296,18 @@ class AsyncTaskScheduler:
             if retryable:
                 self._deferred.append((task, 1))
             else:
-                # Non-retryable: drop the row
+                # Non-retryable: drop the affected row(s)
                 if task.row_index is not None:
                     self._tracker.drop_row(task.row_group, task.row_index)
                     if self._buffer_manager:
                         self._buffer_manager.drop_row(task.row_group, task.row_index)
+                else:
+                    # Batch/from_scratch failure: drop all rows in the row group
+                    rg_size = self._get_rg_size(task.row_group)
+                    for ri in range(rg_size):
+                        self._tracker.drop_row(task.row_group, ri)
+                        if self._buffer_manager:
+                            self._buffer_manager.drop_row(task.row_group, ri)
                 logger.warning(
                     f"Non-retryable failure on {task.column}[rg={task.row_group}, row={task.row_index}]: {exc}"
                 )
@@ -347,6 +384,12 @@ class AsyncTaskScheduler:
                     dropped.add(ri)
 
             # Map result rows (which exclude dropped) back to buffer indices
+            active_rows = rg_size - len(dropped)
+            if len(result_df) != active_rows:
+                logger.warning(
+                    f"Batch generator for '{task.column}' returned {len(result_df)} rows "
+                    f"but {active_rows} were expected (rg={task.row_group})."
+                )
             result_idx = 0
             for ri in range(rg_size):
                 if ri in dropped:
