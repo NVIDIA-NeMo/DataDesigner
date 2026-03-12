@@ -546,6 +546,19 @@ def test_process_completion_with_dict_arguments(
     assert captured_args[0] == {"query": "test"}
 
 
+def test_process_completion_with_invalid_json_arguments(
+    stub_mcp_facade: MCPFacade,
+) -> None:
+    """Malformed canonical tool-call JSON is surfaced as MCPToolError."""
+    response = _make_response(
+        content="",
+        tool_calls=[ToolCall(id="call-1", name="lookup", arguments_json="not valid json")],
+    )
+
+    with pytest.raises(MCPToolError, match="Invalid tool arguments for 'lookup': not valid json"):
+        stub_mcp_facade.process_completion_response(response)
+
+
 # =============================================================================
 # Properties tests
 # =============================================================================

@@ -224,7 +224,12 @@ class ModelRegistry:
         self._model_configs = {mc.alias: mc for mc in (model_configs or [])}
 
     def close(self) -> None:
-        """Release resources held by all model facades."""
+        """Release resources held by all model facades.
+
+        NOTE: Not yet wired into ResourceProvider / DataDesigner teardown.
+        Callers that create a ModelRegistry directly should call this when done.
+        Full lifecycle integration is tracked for a follow-up PR.
+        """
         for facade in self._models.values():
             try:
                 facade.close()
@@ -232,7 +237,10 @@ class ModelRegistry:
                 logger.exception("Error closing facade for %s", facade.model_alias)
 
     async def aclose(self) -> None:
-        """Async release resources held by all model facades."""
+        """Async release resources held by all model facades.
+
+        See `close()` for lifecycle notes.
+        """
         for facade in self._models.values():
             try:
                 await facade.aclose()
