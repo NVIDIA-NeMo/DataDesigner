@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -93,14 +94,29 @@ class MockStatefulSeed(FromScratchColumnGenerator[ExpressionColumnConfig]):
 
 
 class MockFailingGenerator(ColumnGenerator[ExpressionColumnConfig]):
-    """Generator that always fails with a non-retryable error."""
+    """Generator that fails with a configurable error.
+
+    By default fails permanently. Set ``transient_failures`` to make the first
+    N calls fail with a retryable 503 error before succeeding.
+    """
+
+    def __init__(self, *args: Any, transient_failures: int = 0, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._transient_failures = transient_failures
+        self._calls = 0
 
     @staticmethod
     def get_generation_strategy() -> GenerationStrategy:
         return GenerationStrategy.CELL_BY_CELL
 
     def generate(self, data: dict) -> dict:
-        raise ValueError("permanent failure")
+        self._calls += 1
+        if self._transient_failures > 0 and self._calls <= self._transient_failures:
+            raise RuntimeError("503 Service Unavailable")
+        if self._transient_failures == 0:
+            raise ValueError("permanent failure")
+        data["fail_col"] = f"recovered_{data.get('seed', '?')}"
+        return data
 
 
 # -- Helper to build graph + scheduler ----------------------------------------
@@ -393,3 +409,72 @@ async def test_scheduler_three_column_pipeline() -> None:
     await scheduler.run()
 
     assert tracker.is_row_group_complete(0, 3, ["seed", "cell_out", "full_out"])
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_retryable_failure_recovers_in_salvage() -> None:
+    """Transient (retryable) failures are retried in salvage rounds and succeed."""
+    provider = _mock_provider()
+    # Fail the first 2 calls with 503, then succeed
+    fail_gen = MockFailingGenerator(config=_expr_config("fail_col"), resource_provider=provider, transient_failures=2)
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="fail_col", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "fail_col": GenerationStrategy.CELL_BY_CELL,
+    }
+    generators: dict[str, ColumnGenerator] = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "fail_col": fail_gen,
+    }
+    scheduler, tracker = _build_simple_pipeline(
+        num_records=2, generators=generators, configs=configs, strategies=strategies
+    )
+    await scheduler.run()
+
+    # Rows should NOT be dropped - salvage recovered them
+    assert not tracker.is_dropped(0, 0)
+    assert not tracker.is_dropped(0, 1)
+    assert tracker.is_row_group_complete(0, 2, ["seed", "fail_col"])
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_eager_row_drop_skips_downstream_of_failed_column() -> None:
+    """When fail_col drops a row, a downstream column never processes it."""
+    provider = _mock_provider()
+
+    # Pipeline: seed → fail_col (cell, permanent failure) → downstream (cell)
+    # downstream depends on fail_col, so its tasks only enter the frontier
+    # after fail_col completes for each row. Since fail_col always fails,
+    # the row is dropped before downstream is ever enqueued.
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="fail_col", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+        LLMTextColumnConfig(name="downstream", prompt="{{ fail_col }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "fail_col": GenerationStrategy.CELL_BY_CELL,
+        "downstream": GenerationStrategy.CELL_BY_CELL,
+    }
+    generators: dict[str, ColumnGenerator] = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "fail_col": MockFailingGenerator(config=_expr_config("fail_col"), resource_provider=provider),
+        "downstream": MockCellGenerator(config=_expr_config("downstream"), resource_provider=provider),
+    }
+
+    scheduler, tracker = _build_simple_pipeline(
+        num_records=2, generators=generators, configs=configs, strategies=strategies, trace=True
+    )
+    await scheduler.run()
+
+    # All rows dropped by fail_col
+    assert tracker.is_dropped(0, 0)
+    assert tracker.is_dropped(0, 1)
+    # downstream was never dispatched for the dropped rows
+    downstream_traces = [t for t in scheduler.traces if t.column == "downstream"]
+    assert len(downstream_traces) == 0
+    # Row group is still "complete" (no non-dropped rows remain)
+    assert tracker.is_row_group_complete(0, 2, ["seed", "fail_col", "downstream"])
