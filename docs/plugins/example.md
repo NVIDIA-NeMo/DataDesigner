@@ -4,7 +4,7 @@
 
 # Example Plugin: Column Generator
 
-Data Designer supports two plugin types: **column generators** and **seed readers**. This page walks through a complete column generator example.
+Data Designer supports four plugin types: **column generators**, **seed readers**, **directory transforms**, and **processors**. This page walks through a complete column generator example, then shows the shape of a directory transform plugin for `DirectorySeedSource`.
 
 A Data Designer plugin is implemented as a Python package with three main components:
 
@@ -271,6 +271,80 @@ This validates that:
 - The config class is a subclass of `ConfigBase`
 - For column generator plugins: the implementation class is a subclass of `ConfigurableTask`
 - For seed reader plugins: the implementation class is a subclass of `SeedReader`
+- For directory transform plugins: the implementation class is a subclass of `DirectoryTransform`
+
+---
+
+## Directory Transform Plugin Skeleton
+
+Directory transform plugins let you normalize a directory into seed rows before normal seed sampling begins. They are used through `DirectorySeedSource(transform=...)`.
+
+The config class inherits from `DirectorySeedTransform` and uses a `transform_type` discriminator:
+
+```python
+from typing import Literal
+
+from data_designer.config.seed_source import DirectorySeedTransform
+
+
+class MarkdownDirectoryTransformConfig(DirectorySeedTransform):
+    transform_type: Literal["markdown-directory"] = "markdown-directory"
+    file_pattern: str = "*.md"
+```
+
+The implementation inherits from `DirectoryTransform` and returns a list of normalized records:
+
+```python
+from pathlib import Path
+from typing import Any
+
+from data_designer.engine.resources.directory_transform import (
+    DirectoryTransform,
+    create_directory_listing_records,
+    discover_directory_files,
+)
+
+from my_plugin.config import MarkdownDirectoryTransformConfig
+
+
+class MarkdownDirectoryTransform(DirectoryTransform[MarkdownDirectoryTransformConfig]):
+    def normalize(self, *, root_path: Path) -> list[dict[str, Any]]:
+        matched_files = discover_directory_files(
+            root_path=root_path,
+            file_pattern=self.config.file_pattern,
+            recursive=True,
+        )
+        records = create_directory_listing_records(root_path=root_path, matched_files=matched_files)
+        for record in records:
+            record["document_type"] = "markdown"
+        return records
+```
+
+Register the plugin with `PluginType.DIRECTORY_TRANSFORM`:
+
+```python
+from data_designer.plugins import Plugin, PluginType
+
+directory_transform_plugin = Plugin(
+    config_qualified_name="my_plugin.config.MarkdownDirectoryTransformConfig",
+    impl_qualified_name="my_plugin.impl.MarkdownDirectoryTransform",
+    plugin_type=PluginType.DIRECTORY_TRANSFORM,
+)
+```
+
+Once installed, the transform is available directly in `DirectorySeedSource`:
+
+```python
+import data_designer.config as dd
+from my_plugin.config import MarkdownDirectoryTransformConfig
+
+seed_source = dd.DirectorySeedSource(
+    path="data/documents",
+    transform=MarkdownDirectoryTransformConfig(file_pattern="*.md"),
+)
+```
+
+Use this pattern when the built-in `DirectoryListingTransform` is not enough and you need custom normalization logic for a directory-backed seed dataset.
 
 ---
 
@@ -282,6 +356,7 @@ A single Python package can register multiple plugins. Simply define multiple `P
 [project.entry-points."data_designer.plugins"]
 my-column-generator = "my_package.plugins.column_generator.plugin:column_generator_plugin"
 my-seed-reader = "my_package.plugins.seed_reader.plugin:seed_reader_plugin"
+my-directory-transform = "my_package.plugins.directory_transform.plugin:directory_transform_plugin"
 ```
 
 For an example of this pattern, see the end-to-end test plugins in the [tests_e2e/](https://github.com/NVIDIA-NeMo/DataDesigner/tree/main/tests_e2e) directory.

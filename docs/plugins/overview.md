@@ -7,10 +7,11 @@
 
 Plugins are Python packages that extend Data Designer's capabilities without modifying the core library. Similar to [VS Code extensions](https://marketplace.visualstudio.com/vscode) and [Pytest plugins](https://docs.pytest.org/en/stable/reference/plugin_list.html), the plugin system empowers you to build specialized extensions for your specific use cases and share them with the community.
 
-**Current capabilities**: Data Designer supports three plugin types:
+**Current capabilities**: Data Designer supports four plugin types:
 
 - **Column Generator Plugins**: Custom column types you pass to the config builder's [add_column](../code_reference/config_builder.md#data_designer.config.config_builder.DataDesignerConfigBuilder.add_column) method.
 - **Seed Reader Plugins**: Custom seed dataset readers that let you load data from new sources (e.g., databases, cloud storage, custom formats).
+- **Directory Transform Plugins**: Custom directory normalizers you pass to [DirectorySeedSource](../concepts/seed-datasets.md#directoryseedsource) via its `transform=` field to turn directory contents into tabular seed rows before sampling begins.
 - **Processor Plugins**: Custom processors that transform data before batches, after batches, or after generation completes. Pass them to the config builder's [add_processor](../code_reference/config_builder.md#data_designer.config.config_builder.DataDesignerConfigBuilder.add_processor) method.
 
 ## How do you use plugins?
@@ -25,7 +26,7 @@ uv pip install -e /path/to/your/plugin
 pip install data-designer-{plugin-name}
 ```
 
-Once installed, plugins are automatically discovered and ready to use — no additional registration or configuration needed. See the [example plugin](example.md) for a complete walkthrough.
+Once installed, plugins are automatically discovered and ready to use — no additional registration or configuration needed. Directory transform plugins become available anywhere `DirectorySeedSource(transform=...)` accepts a transform config. See the [example plugin](example.md) for a complete walkthrough.
 
 ## How do you create plugins?
 
@@ -38,10 +39,12 @@ Each plugin has three components, and we recommend organizing them into separate
 - **`config.py`** -- Configuration class defining user-facing parameters
     - Column generator plugins: inherit from `SingleColumnConfig` with a `column_type` discriminator
     - Seed reader plugins: inherit from `SeedSource` with a `seed_type` discriminator
+    - Directory transform plugins: inherit from `DirectorySeedTransform` with a `transform_type` discriminator
     - Processor plugins: inherit from `ProcessorConfig` with a `processor_type` discriminator
 - **`impl.py`** -- Implementation class containing the core logic
     - Column generator plugins: inherit from `ColumnGeneratorFullColumn` or `ColumnGeneratorCellByCell`
     - Seed reader plugins: inherit from `SeedReader`
+    - Directory transform plugins: inherit from `DirectoryTransform` and implement `normalize(root_path=...)`
     - Processor plugins: inherit from `Processor` and override callback methods (`process_before_batch`, `process_after_batch`, `process_after_generation`)
 - **`plugin.py`** -- A `Plugin` instance that connects the config and implementation classes
 
@@ -62,6 +65,37 @@ Each plugin has three components, and we recommend organizing them into separate
 - Publish to PyPI or another package index to make it installable by anyone via `pip install`
 - This step is only needed if you want others outside your environment to use the plugin
 
+**Example entry point for a directory transform plugin:**
+
+```toml
+[project.entry-points."data_designer.plugins"]
+my-directory-transform = "my_plugin.plugin:my_directory_transform_plugin"
+```
+
+Where `my_directory_transform_plugin` is a `Plugin` instance with `plugin_type=PluginType.DIRECTORY_TRANSFORM`:
+
+```python
+from data_designer.plugins.plugin import Plugin, PluginType
+
+my_directory_transform_plugin = Plugin(
+    config_qualified_name="my_plugin.config.MyDirectoryTransformConfig",
+    impl_qualified_name="my_plugin.impl.MyDirectoryTransform",
+    plugin_type=PluginType.DIRECTORY_TRANSFORM,
+)
+```
+
+Once installed, use it through `DirectorySeedSource`:
+
+```python
+import data_designer.config as dd
+from my_plugin.config import MyDirectoryTransformConfig
+
+seed_source = dd.DirectorySeedSource(
+    path="data/documents",
+    transform=MyDirectoryTransformConfig(),
+)
+```
+
 **Example entry point for a processor plugin:**
 
 ```toml
@@ -81,4 +115,4 @@ my_processor_plugin = Plugin(
 )
 ```
 
-**Ready to get started?** See the [Example Plugin](example.md) for a complete walkthrough of creating a column generator plugin.
+**Ready to get started?** See the [Example Plugin](example.md) for a complete column generator walkthrough plus a directory transform plugin sketch.

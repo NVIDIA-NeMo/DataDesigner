@@ -137,6 +137,8 @@ This keeps traversal policy with the transform itself, so different directory no
 
 Transforms run inside the seed-reader layer before normal row sampling. This makes directory seeding a good fit for workflows where one directory needs to be preprocessed into a tabular seed dataset.
 
+If you need custom normalization logic, you can also register a directory transform via the [plugin system](../plugins/overview.md). See the [example plugin guide](../plugins/example.md#directory-transform-plugin-skeleton) for the expected config and implementation shape.
+
 ## Sampling Strategies
 
 Control how rows are read from the seed dataset.
