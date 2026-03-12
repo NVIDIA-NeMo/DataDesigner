@@ -354,6 +354,34 @@ async def test_aclose_noop_when_no_client_created() -> None:
     await client.aclose()  # should not raise
 
 
+# --- Lazy client initialization ---
+
+
+def test_lazy_sync_client_creates_real_httpx_client() -> None:
+    """Exercise the lazy-init path that production code uses (no injected mock)."""
+    client = _make_client()
+    assert client._client is None
+
+    sync_client = client._get_sync_client()
+
+    assert sync_client is not None
+    assert client._client is sync_client
+    # Second call returns the same instance (double-check locking).
+    assert client._get_sync_client() is sync_client
+    client.close()
+
+
+def test_lazy_async_client_creates_real_httpx_async_client() -> None:
+    client = _make_client()
+    assert client._aclient is None
+
+    async_client = client._get_async_client()
+
+    assert async_client is not None
+    assert client._aclient is async_client
+    assert client._get_async_client() is async_client
+
+
 # --- Capabilities ---
 
 
