@@ -68,11 +68,11 @@ nav:
       - analysis: code_reference/analysis.md
   - Dev Notes:
       - devnotes/index.md
+      - Search Agent: devnotes/posts/search-agent.md
       - Structured Outputs from Nemotron: devnotes/posts/structured-outputs-from-nemotron.md
       - Deep Research Trajectories: devnotes/posts/deep-research-trajectories.md
-      - Search Agent: devnotes/posts/search-agent.md
-      - RQA Dataset: devnotes/posts/rqa.md
       - Design Principles: devnotes/posts/design-principles.md
+      - RQA Dataset: devnotes/posts/rqa.md
 
 theme:
   name: material
