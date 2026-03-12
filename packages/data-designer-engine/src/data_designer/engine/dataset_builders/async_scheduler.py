@@ -121,19 +121,7 @@ class AsyncTaskScheduler:
                 self._in_flight.add(task)
                 asyncio.create_task(self._execute_task(task))
 
-            # Check for completed row groups
-            completed_rgs: list[tuple[int, int]] = []
-            for rg_id, rg_size in self._active_rgs:
-                if self._tracker.is_row_group_complete(rg_id, rg_size, all_columns):
-                    completed_rgs.append((rg_id, rg_size))
-
-            for rg_id, rg_size in completed_rgs:
-                self._active_rgs.remove((rg_id, rg_size))
-                if self._buffer_manager is not None:
-                    self._buffer_manager.checkpoint_row_group(rg_id)
-                if self._on_row_group_complete:
-                    self._on_row_group_complete(rg_id)
-                self._rg_semaphore.release()
+            self._checkpoint_completed_row_groups(all_columns)
 
             # Are we done?
             all_done = self._all_rgs_admitted and not self._active_rgs and not self._in_flight
@@ -176,31 +164,58 @@ class AsyncTaskScheduler:
                             self._dispatched.discard(
                                 Task(column=sibling, row_group=task.row_group, row_index=None, task_type="batch")
                             )
+                    # Acquire stateful lock (mirrors _dispatch_seeds) so
+                    # _execute_seed_task can safely release it in finally.
+                    if gid in self._stateful_locks:
+                        await self._stateful_locks[gid].acquire()
                     await self._submission_semaphore.acquire()
                     self._dispatched.add(task)
                     self._in_flight.add(task)
                     asyncio.create_task(self._execute_seed_task(task, gid))
                 else:
                     self._dispatched.discard(task)
-            # Re-enter main loop for one pass (frontier-based tasks)
-            ready = self._tracker.get_ready_tasks(self._dispatched, self._admitted_rg_ids)
-            for task in ready:
-                await self._submission_semaphore.acquire()
-                self._dispatched.add(task)
-                self._in_flight.add(task)
-                asyncio.create_task(self._execute_task(task))
-            # Wait for all in-flight to finish
-            while self._in_flight:
-                self._wake_event.clear()
-                await self._wake_event.wait()
+            # Drain: dispatch frontier tasks and any newly-ready downstream tasks
+            # until nothing remains in-flight or in the frontier.
+            await self._drain_frontier()
 
-        # Warn if any row groups were not checkpointed
+        # Checkpoint any row groups that completed during salvage
+        self._checkpoint_completed_row_groups(all_columns)
+
         if self._active_rgs:
             incomplete = [rg_id for rg_id, _ in self._active_rgs]
             logger.error(
                 f"Scheduler exited with {len(self._active_rgs)} unfinished row group(s): {incomplete}. "
                 "These row groups were not checkpointed."
             )
+
+    async def _drain_frontier(self) -> None:
+        """Dispatch all frontier tasks and their downstream until quiescent."""
+        while True:
+            ready = self._tracker.get_ready_tasks(self._dispatched, self._admitted_rg_ids)
+            for task in ready:
+                await self._submission_semaphore.acquire()
+                self._dispatched.add(task)
+                self._in_flight.add(task)
+                asyncio.create_task(self._execute_task(task))
+            if not self._in_flight:
+                break
+            self._wake_event.clear()
+            await self._wake_event.wait()
+
+    def _checkpoint_completed_row_groups(self, all_columns: list[str]) -> None:
+        """Checkpoint any row groups that reached completion."""
+        completed = [
+            (rg_id, rg_size)
+            for rg_id, rg_size in self._active_rgs
+            if self._tracker.is_row_group_complete(rg_id, rg_size, all_columns)
+        ]
+        for rg_id, rg_size in completed:
+            self._active_rgs.remove((rg_id, rg_size))
+            if self._buffer_manager is not None:
+                self._buffer_manager.checkpoint_row_group(rg_id)
+            if self._on_row_group_complete:
+                self._on_row_group_complete(rg_id)
+            self._rg_semaphore.release()
 
     async def _dispatch_seeds(self, rg_id: int, rg_size: int) -> None:
         """Dispatch from_scratch tasks for a row group."""
