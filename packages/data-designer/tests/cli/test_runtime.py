@@ -19,6 +19,7 @@ def test_ensure_cli_default_model_settings_runs_once(monkeypatch: pytest.MonkeyP
         runtime_mod.ensure_cli_default_model_settings()
 
     mock_resolve.assert_called_once_with()
+    assert runtime_mod._default_model_settings_checked is True
 
 
 def test_ensure_cli_default_model_settings_warns_and_continues(monkeypatch: pytest.MonkeyPatch) -> None:

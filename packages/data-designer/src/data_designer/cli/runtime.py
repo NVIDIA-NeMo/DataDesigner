@@ -3,11 +3,14 @@
 
 from __future__ import annotations
 
+import shlex
+import sys
+
 from data_designer.cli.ui import print_warning
 from data_designer.config.default_model_settings import resolve_seed_default_model_settings
 
 _BOOTSTRAP_COMMAND = (
-    'python -c "from data_designer.config.default_model_settings import '
+    f'{shlex.quote(sys.executable)} -c "from data_designer.config.default_model_settings import '
     'resolve_seed_default_model_settings; resolve_seed_default_model_settings()"'
 )
 
