@@ -246,7 +246,7 @@ For each riddle, we generate multi-step tool-using conversation rollouts where t
 2. **Action (Tool Call):** Execute `web_search(query="...")`, retrieving real data from the web
 3. **Observation & Synthesis:** Read the results, extract the relevant fact, loop back to step 1
 
-We used [NeMo Skills](https://github.com/NVIDIA/NeMo-Skills) for trajectory generation, which has the Tavily API built in. The rollout model was [MiniMax-M2](https://huggingface.co/MiniMaxAI/MiniMax-M2), chosen for its strong performance on BrowseComp and tool-calling benchmarks.
+The rollout model was [MiniMax-M2](https://huggingface.co/MiniMaxAI/MiniMax-M2), chosen for its strong performance on BrowseComp and tool-calling benchmarks.
 
 ### Rollout Statistics
 
@@ -354,7 +354,7 @@ Raw rollouts need cleanup before they become trainable SFT records:
 |-------|-------|--------|-------|
 | Seed Creation (Wikidata walks) | 50,000 | 37,000 | 74% |
 | Riddle / Question Generation (DD) | 37,000 | 24,000 | 65% |
-| Search Trajectory Rollouts (NeMo Skills + Tavily) | 24,000 | 7,000 | 29% |
+| Search Trajectory Rollouts (Tavily) | 24,000 | 7,000 | 29% |
 | **End-to-End** | **50,000** | **~7,000** | **~14%** |
 
 The 14% yield might seem low, but each surviving record is a *verified, multi-turn search trajectory* showing a model successfully navigating web search. The alternative --- human annotation at 15-30 minutes per trajectory --- would take months for the same volume.
@@ -407,7 +407,7 @@ The 27.5% accuracy on this sample is for *raw, unfiltered* trajectories. After t
 
 ## **Implementing with Data Designer's MCP Integration**
 
-While production runs used NeMo Skills for scale, the same pipeline is reproducible with Data Designer's MCP integration. Three components make this work:
+The same pipeline is reproducible with Data Designer's MCP integration. Three components make this work:
 
 **`LocalStdioMCPProvider`** launches a Tavily MCP server as a subprocess:
 
