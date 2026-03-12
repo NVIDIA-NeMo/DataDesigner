@@ -20,7 +20,7 @@ While LLMs have mastered generic coding, Text-to-SQL remains one of the most cha
 
 ## **The "Real-World" Gap: Why Academic Data Wasn't Enough**
 
-The gap between academic benchmarks and the messy reality of enterprise data warehouses is massive. On academic benchmarks like Spider (where schemas are clean, tables are few, and queries are straightforward), frontier models score above 85%. On [BIRD](https://bird-bench.github.io/) (which introduces dirty data, larger schemas, and external knowledge requirements), the same models drop to 60-70%. On [Spider 2.0 Lite](https://spider2-sql.github.io/) (which uses real enterprise databases with hundreds of tables, multiple dialects, and complex business logic), even the best models score below 50%.
+The gap between academic benchmarks and the messy reality of enterprise data warehouses is massive. On academic benchmarks like Spider (where schemas are clean, tables are few, and queries are straightforward), frontier models score above 85%. On [BIRD](https://bird-bench.github.io/) (which introduces dirty data, larger schemas, and external knowledge requirements), performance drops significantly --- and on [Spider 2.0 Lite](https://spider2-sql.github.io/) (which uses real enterprise databases with hundreds of tables, multiple dialects, and complex business logic), even the best models score below 50%.
 
 The problem isn't model capability --- it's **training data**. Most open-source text-to-SQL datasets assume a "happy path": intuitive column names, perfect data types, and straightforward questions. Production SQL is different:
 
@@ -307,7 +307,7 @@ The SQL generation step receives the natural-language prompt and the generated s
 - **Handle dirty data** -- the query must clean data issues (CAST, REPLACE, SUBSTR, regex) before computing results
 - **Ignore distractors** -- no unnecessary joins or column selections; distractor elements must be left untouched
 - **Anchor relative time** -- instead of `CURRENT_DATE`, anchor to `(SELECT MAX(date_col) FROM table)` for reproducibility
-- **Dialect-specific syntax** -- SQLite uses `strftime`, MySQL uses `DATE_SUB`, PostgreSQL uses `::` casting and `interval`. Each dialect also has its own explicit limitations (e.g., SQLite forbids `LATERAL` joins and `REGEXP_REPLACE`; MySQL forbids `REGEXP_REPLACE` and `CONVERT_TZ`)
+- **Dialect-specific syntax** -- SQLite uses `strftime`, MySQL uses `DATE_SUB`, PostgreSQL uses `::` casting and `interval`. Each dialect also has prompt-level constraints to ensure portability (e.g., SQLite prompts exclude `LATERAL` joins and `REGEXP_REPLACE`; MySQL prompts exclude `REGEXP_REPLACE` for pre-8.0 compatibility and `CONVERT_TZ` to avoid unpopulated timezone table issues)
 
 ```python
 config.add_column(dd.LLMCodeColumnConfig(
