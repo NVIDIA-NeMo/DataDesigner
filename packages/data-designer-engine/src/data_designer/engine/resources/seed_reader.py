@@ -24,6 +24,7 @@ from data_designer.engine.resources.directory_transform import (
     DirectoryTransformError,
     DirectoryTransformRegistry,
     create_default_directory_transform_registry,
+    create_directory_transform_context,
 )
 from data_designer.engine.secret_resolver import SecretResolver
 from data_designer.errors import DataDesignerError
@@ -167,7 +168,8 @@ class DirectorySeedReader(SeedReader[DirectorySeedSource]):
 
             transform_config = self.source.transform or DirectoryListingTransform()
             transform = self._transform_registry.create_transform(transform_config)
-            normalized_records = transform.normalize(root_path=root_path)
+            context = create_directory_transform_context(root_path)
+            normalized_records = transform.normalize(context=context)
         except DirectoryTransformError as error:
             raise SeedReaderError(f"Failed to normalize directory seed dataset: {error}") from error
 

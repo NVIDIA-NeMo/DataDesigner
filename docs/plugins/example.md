@@ -292,7 +292,7 @@ class MarkdownDirectoryTransformConfig(DirectorySeedTransform):
     file_pattern: str = "*.md"
 ```
 
-The implementation inherits from `DirectoryTransform` and returns a list of normalized records:
+The implementation inherits from `DirectoryTransform`. It receives a rooted filesystem via `context.fs`, so the plugin can traverse and read files however it wants while working with relative paths:
 
 ```python
 from pathlib import Path
@@ -300,23 +300,32 @@ from typing import Any
 
 from data_designer.engine.resources.directory_transform import (
     DirectoryTransform,
-    create_directory_listing_records,
-    discover_directory_files,
+    DirectoryTransformContext,
 )
 
 from my_plugin.config import MarkdownDirectoryTransformConfig
 
 
 class MarkdownDirectoryTransform(DirectoryTransform[MarkdownDirectoryTransformConfig]):
-    def normalize(self, *, root_path: Path) -> list[dict[str, Any]]:
-        matched_files = discover_directory_files(
-            root_path=root_path,
-            file_pattern=self.config.file_pattern,
-            recursive=True,
-        )
-        records = create_directory_listing_records(root_path=root_path, matched_files=matched_files)
-        for record in records:
-            record["document_type"] = "markdown"
+    def normalize(self, *, context: DirectoryTransformContext) -> list[dict[str, Any]]:
+        records: list[dict[str, Any]] = []
+        for relative_path in sorted(context.fs.find("", withdirs=False)):
+            if not relative_path.endswith(".md"):
+                continue
+
+            with context.fs.open(relative_path, "r", encoding="utf-8") as handle:
+                content = handle.read()
+
+            records.append(
+                {
+                    "source_kind": "markdown_file",
+                    "source_path": str(context.root_path / relative_path),
+                    "relative_path": relative_path,
+                    "file_name": Path(relative_path).name,
+                    "document_type": "markdown",
+                    "num_chars": len(content),
+                }
+            )
         return records
 ```
 

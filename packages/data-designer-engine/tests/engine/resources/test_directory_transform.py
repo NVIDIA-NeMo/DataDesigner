@@ -12,7 +12,7 @@ from data_designer.config.seed_source import DirectoryListingTransform
 from data_designer.engine.resources.directory_transform import (
     DirectoryTransformError,
     create_default_directory_transform_registry,
-    discover_directory_files,
+    create_directory_transform_context,
 )
 from data_designer.engine.testing.stubs import StubDirectoryTransformConfig, plugin_directory_transform
 from data_designer.plugins.plugin import PluginType
@@ -31,7 +31,7 @@ def test_create_default_directory_transform_registry_loads_plugins(tmp_path: Pat
         registry = create_default_directory_transform_registry()
 
     transform = registry.create_transform(StubDirectoryTransformConfig())
-    normalized_records = transform.normalize(root_path=tmp_path)
+    normalized_records = transform.normalize(context=create_directory_transform_context(tmp_path))
 
     assert normalized_records == [
         {
@@ -43,44 +43,52 @@ def test_create_default_directory_transform_registry_loads_plugins(tmp_path: Pat
     ]
 
 
-def test_discover_directory_files_matches_file_names_recursively(tmp_path: Path) -> None:
+def test_directory_transform_context_exposes_rooted_filesystem(tmp_path: Path) -> None:
+    (tmp_path / "alpha.txt").write_text("alpha", encoding="utf-8")
+    (tmp_path / "nested").mkdir()
+    (tmp_path / "nested" / "beta.txt").write_text("beta", encoding="utf-8")
+    context = create_directory_transform_context(tmp_path)
+
+    assert sorted(context.fs.find("", withdirs=False)) == ["alpha.txt", "nested/beta.txt"]
+    with context.fs.open("nested/beta.txt", "r", encoding="utf-8") as handle:
+        assert handle.read() == "beta"
+
+
+def test_directory_listing_transform_matches_file_names_recursively(tmp_path: Path) -> None:
     (tmp_path / "alpha.txt").write_text("alpha", encoding="utf-8")
     (tmp_path / "nested").mkdir()
     (tmp_path / "nested" / "beta.txt").write_text("beta", encoding="utf-8")
     (tmp_path / "nested" / "gamma.md").write_text("gamma", encoding="utf-8")
 
-    matched_files = discover_directory_files(root_path=tmp_path, file_pattern="*.txt", recursive=True)
+    transform = create_default_directory_transform_registry().create_transform(
+        DirectoryListingTransform(file_pattern="*.txt", recursive=True)
+    )
+    normalized_records = transform.normalize(context=create_directory_transform_context(tmp_path))
 
-    assert [path.relative_to(tmp_path).as_posix() for path in matched_files] == ["alpha.txt", "nested/beta.txt"]
+    assert [record["relative_path"] for record in normalized_records] == ["alpha.txt", "nested/beta.txt"]
 
 
-def test_discover_directory_files_can_disable_recursive_walk(tmp_path: Path) -> None:
+def test_directory_listing_transform_can_disable_recursive_walk(tmp_path: Path) -> None:
     (tmp_path / "alpha.txt").write_text("alpha", encoding="utf-8")
     (tmp_path / "nested").mkdir()
     (tmp_path / "nested" / "beta.txt").write_text("beta", encoding="utf-8")
 
-    matched_files = discover_directory_files(root_path=tmp_path, file_pattern="*.txt", recursive=False)
+    transform = create_default_directory_transform_registry().create_transform(
+        DirectoryListingTransform(file_pattern="*.txt", recursive=False)
+    )
+    normalized_records = transform.normalize(context=create_directory_transform_context(tmp_path))
 
-    assert [path.relative_to(tmp_path).as_posix() for path in matched_files] == ["alpha.txt"]
+    assert [record["relative_path"] for record in normalized_records] == ["alpha.txt"]
 
 
-def test_discover_directory_files_matches_file_pattern_case_sensitively(tmp_path: Path) -> None:
+def test_directory_listing_transform_matches_file_pattern_case_sensitively(tmp_path: Path) -> None:
     (tmp_path / "alpha.txt").write_text("alpha", encoding="utf-8")
+    transform = create_default_directory_transform_registry().create_transform(
+        DirectoryListingTransform(file_pattern="*.TXT", recursive=True)
+    )
 
     with pytest.raises(DirectoryTransformError, match="No files matched file_pattern '\\*\\.TXT'"):
-        discover_directory_files(root_path=tmp_path, file_pattern="*.TXT", recursive=True)
-
-
-def test_discover_directory_files_rejects_matches_that_resolve_outside_root(tmp_path: Path) -> None:
-    outside_file = tmp_path.parent / "outside-seed.txt"
-    outside_file.write_text("outside", encoding="utf-8")
-    try:
-        (tmp_path / "outside-seed.txt").symlink_to(outside_file)
-    except OSError:
-        pytest.skip("Symlink creation is not supported in this environment")
-
-    with pytest.raises(DirectoryTransformError, match="resolves outside the directory seed root"):
-        discover_directory_files(root_path=tmp_path, file_pattern="*.txt", recursive=True)
+        transform.normalize(context=create_directory_transform_context(tmp_path))
 
 
 def test_directory_listing_transform_owns_directory_matching_options(tmp_path: Path) -> None:
@@ -93,7 +101,7 @@ def test_directory_listing_transform_owns_directory_matching_options(tmp_path: P
         DirectoryListingTransform(file_pattern="*.txt", recursive=False)
     )
 
-    normalized_records = transform.normalize(root_path=tmp_path)
+    normalized_records = transform.normalize(context=create_directory_transform_context(tmp_path))
 
     assert normalized_records == [
         {

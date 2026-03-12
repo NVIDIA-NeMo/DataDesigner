@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from pathlib import Path
 from typing import Any, Literal
 
 from data_designer.config.base import ConfigBase, SingleColumnConfig
@@ -12,7 +11,7 @@ from data_designer.config.seed_source import DirectorySeedTransform
 from data_designer.engine.column_generators.generators.base import ColumnGeneratorCellByCell
 from data_designer.engine.models.clients.types import AssistantMessage, ChatCompletionResponse, ToolCall
 from data_designer.engine.models.utils import ChatMessage
-from data_designer.engine.resources.directory_transform import DirectoryTransform, discover_directory_files
+from data_designer.engine.resources.directory_transform import DirectoryTransform, DirectoryTransformContext
 from data_designer.engine.resources.seed_reader import SeedReader
 from data_designer.plugins.plugin import Plugin, PluginType
 
@@ -143,14 +142,14 @@ class StubDirectoryTransformConfig(DirectorySeedTransform):
 
 
 class StubDirectoryTransform(DirectoryTransform[StubDirectoryTransformConfig]):
-    def normalize(self, *, root_path: Path) -> list[dict[str, Any]]:
-        matched_files = discover_directory_files(root_path=root_path, file_pattern="*", recursive=True)
+    def normalize(self, *, context: DirectoryTransformContext) -> list[dict[str, Any]]:
+        matched_files = sorted(context.fs.find("", withdirs=False))
         return [
             {
                 "source_kind": "stub_directory_transform",
-                "root_path": str(root_path),
+                "root_path": str(context.root_path),
                 "matched_file_count": len(matched_files),
-                "matched_file_names": [path.name for path in matched_files],
+                "matched_file_names": matched_files,
             }
         ]
 
