@@ -286,11 +286,12 @@ class ThrottleManager:
             wait = self.try_acquire(provider_name=provider_name, model_id=model_id, domain=domain)
             if wait == 0.0:
                 return
-            if time.monotonic() + wait > deadline:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or wait > remaining:
                 raise TimeoutError(
                     f"Throttle acquire timed out after {timeout:.0f}s for {provider_name}/{model_id} [{domain.value}]"
                 )
-            time.sleep(wait)
+            time.sleep(min(wait, remaining))
 
     async def acquire_async(
         self,
@@ -305,11 +306,12 @@ class ThrottleManager:
             wait = self.try_acquire(provider_name=provider_name, model_id=model_id, domain=domain)
             if wait == 0.0:
                 return
-            if time.monotonic() + wait > deadline:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or wait > remaining:
                 raise TimeoutError(
                     f"Throttle acquire timed out after {timeout:.0f}s for {provider_name}/{model_id} [{domain.value}]"
                 )
-            await asyncio.sleep(wait)
+            await asyncio.sleep(min(wait, remaining))
 
     # -------------------------------------------------------------------
     # Introspection (useful for tests and telemetry)

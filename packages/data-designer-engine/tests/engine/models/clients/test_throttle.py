@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import threading
+import time
 
 import pytest
 
@@ -292,6 +293,20 @@ def test_acquire_sync_raises_timeout_when_at_capacity() -> None:
 
     with pytest.raises(TimeoutError, match="timed out"):
         tm.acquire_sync(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, timeout=0.0)
+
+
+def test_acquire_sync_does_not_overshoot_timeout() -> None:
+    """When wait > remaining budget, raise immediately instead of sleeping the full wait."""
+    tm = ThrottleManager(default_block_seconds=5.0)
+    tm.register(provider_name=PROVIDER, model_id=MODEL, alias="a1", max_parallel_requests=1)
+    tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN)
+
+    # Timeout of 0.5s is less than the 5s block wait — should raise fast, not sleep 5s.
+    start = time.monotonic()
+    with pytest.raises(TimeoutError, match="timed out"):
+        tm.acquire_sync(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, timeout=0.5)
+    elapsed = time.monotonic() - start
+    assert elapsed < 2.0, f"acquire_sync overshot timeout: elapsed {elapsed:.1f}s (expected <2s)"
 
 
 @pytest.mark.asyncio
