@@ -292,13 +292,11 @@ def test_load_config_builder_empty_yaml(tmp_path: Path) -> None:
 
 
 @patch("data_designer.cli.utils.config_loader.DataDesignerConfigBuilder.from_config")
-@patch("data_designer.cli.utils.config_loader.ensure_cli_default_model_settings")
-def test_load_config_builder_uses_shared_cli_bootstrap(
-    mock_ensure_bootstrap: MagicMock,
+def test_load_config_builder_delegates_to_from_config_without_bootstrap(
     mock_from_config: MagicMock,
     tmp_path: Path,
 ) -> None:
-    """Config loader delegates default setup to the shared CLI bootstrap helper."""
+    """Config loader focuses on loading config files without CLI bootstrap side effects."""
     yaml_file = tmp_path / "config.yaml"
     yaml_file.write_text("data_designer:\n  columns: []\n")
     mock_builder = MagicMock()
@@ -306,6 +304,5 @@ def test_load_config_builder_uses_shared_cli_bootstrap(
 
     result = load_config_builder(str(yaml_file))
 
-    mock_ensure_bootstrap.assert_called_once_with()
     mock_from_config.assert_called_once_with(yaml_file)
     assert result is mock_builder

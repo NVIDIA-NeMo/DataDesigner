@@ -8,7 +8,6 @@ import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
-from data_designer.cli.runtime import ensure_cli_default_model_settings
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.utils.io_helpers import VALID_CONFIG_FILE_EXTENSIONS, is_http_url
 
@@ -40,8 +39,6 @@ def load_config_builder(config_source: str) -> DataDesignerConfigBuilder:
     Raises:
         ConfigLoadError: If the file cannot be loaded or is invalid.
     """
-    ensure_cli_default_model_settings()
-
     if is_http_url(config_source):
         return _load_from_config_url(config_source)
 
