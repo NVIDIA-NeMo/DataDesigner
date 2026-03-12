@@ -107,3 +107,6 @@ packages/data-designer/README.md
 .cursor/rules/cerebro.mdc
 .cursor/mcp.json
 .claude/rules/cerebro.md
+
+# Claude worktrees
+.claude/worktrees/
