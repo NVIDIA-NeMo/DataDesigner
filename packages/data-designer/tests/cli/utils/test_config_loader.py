@@ -1,12 +1,13 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-import data_designer.cli.utils.config_loader as config_loader_mod
 from data_designer.cli.utils.config_loader import (
     ConfigLoadError,
     load_config_builder,
@@ -290,11 +291,21 @@ def test_load_config_builder_empty_yaml(tmp_path: Path) -> None:
         load_config_builder(str(yaml_file))
 
 
-def test_ensure_default_model_settings_runs_once(monkeypatch: pytest.MonkeyPatch) -> None:
-    """_ensure_default_model_settings only calls resolve_seed_default_model_settings once."""
-    monkeypatch.setattr(config_loader_mod, "_default_settings_initialized", False)
+@patch("data_designer.cli.utils.config_loader.DataDesignerConfigBuilder.from_config")
+@patch("data_designer.cli.utils.config_loader.ensure_cli_default_model_settings")
+def test_load_config_builder_uses_shared_cli_bootstrap(
+    mock_ensure_bootstrap: MagicMock,
+    mock_from_config: MagicMock,
+    tmp_path: Path,
+) -> None:
+    """Config loader delegates default setup to the shared CLI bootstrap helper."""
+    yaml_file = tmp_path / "config.yaml"
+    yaml_file.write_text("data_designer:\n  columns: []\n")
+    mock_builder = MagicMock()
+    mock_from_config.return_value = mock_builder
 
-    with patch("data_designer.cli.utils.config_loader.resolve_seed_default_model_settings") as mock_resolve:
-        config_loader_mod._ensure_default_model_settings()
-        config_loader_mod._ensure_default_model_settings()
-        mock_resolve.assert_called_once()
+    result = load_config_builder(str(yaml_file))
+
+    mock_ensure_bootstrap.assert_called_once_with()
+    mock_from_config.assert_called_once_with(yaml_file)
+    assert result is mock_builder
