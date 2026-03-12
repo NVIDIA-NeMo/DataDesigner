@@ -20,6 +20,9 @@ class RetryConfig:
     backoff_factor: float = 2.0
     backoff_jitter: float = 0.2
     max_backoff_wait: float = 60.0
+    # TODO: Remove 429 from retryable_status_codes once ThrottleManager is
+    # wired via AsyncTaskScheduler (plan 346), so every rate-limit signal
+    # reaches AIMD backoff instead of being silently retried at the transport layer.
     retryable_status_codes: frozenset[int] = field(default_factory=lambda: frozenset({429, 502, 503, 504}))
 
 

@@ -131,6 +131,13 @@ class ThrottleManager:
         If multiple aliases share the same ``(provider_name, model_id)`` the
         effective max is ``min()`` of all registered limits.  Existing domain
         states are clamped to the new effective max.
+
+        **Ordering invariant:** ``register()`` must be called for a
+        ``(provider_name, model_id)`` pair *before* any ``try_acquire()`` for
+        the same key.  If ``try_acquire()`` runs first it creates a domain at
+        ``DEFAULT_MIN_LIMIT`` and ``_clamp_domains`` only *decreases* limits,
+        so a later ``register()`` will not raise the domain to the intended
+        capacity.
         """
         with self._lock:
             global_key = (provider_name, model_id)

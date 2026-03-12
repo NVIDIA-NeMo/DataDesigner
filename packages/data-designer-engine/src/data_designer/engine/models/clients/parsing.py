@@ -244,7 +244,8 @@ def extract_reasoning_content(message: Any) -> str | None:
     value = get_value_from(message, "reasoning")
     if isinstance(value, str) and value:
         return value
-    return get_value_from(message, "reasoning_content")
+    fallback = get_value_from(message, "reasoning_content")
+    return fallback if isinstance(fallback, str) and fallback else None
 
 
 # ---------------------------------------------------------------------------

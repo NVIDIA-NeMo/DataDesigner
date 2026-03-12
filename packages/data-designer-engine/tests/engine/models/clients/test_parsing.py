@@ -225,6 +225,9 @@ def test_extract_tool_calls_none_arguments() -> None:
         ({"content": "hello"}, None),
         (None, None),
         ({"reasoning": "", "reasoning_content": "fallback"}, "fallback"),
+        ({"reasoning_content": {"nested": "dict"}}, None),
+        ({"reasoning_content": ["list", "value"]}, None),
+        ({"reasoning_content": ""}, None),
     ],
     ids=[
         "only-reasoning",
@@ -233,6 +236,9 @@ def test_extract_tool_calls_none_arguments() -> None:
         "neither-field",
         "none-message",
         "empty-reasoning-falls-back",
+        "non-string-dict-fallback-returns-none",
+        "non-string-list-fallback-returns-none",
+        "empty-string-fallback-returns-none",
     ],
 )
 def test_extract_reasoning_content(message: dict | None, expected: str | None) -> None:

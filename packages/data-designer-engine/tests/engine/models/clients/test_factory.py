@@ -108,6 +108,17 @@ def test_bridge_env_override_forces_bridge_for_openai_provider(
     assert isinstance(client, LiteLLMBridgeClient)
 
 
+def test_openai_provider_type_case_insensitive(
+    openai_model_config: ModelConfig,
+    secret_resolver: SecretResolver,
+) -> None:
+    for variant in ("OpenAI", "OPENAI", "Openai"):
+        provider = ModelProvider(name="openai-prod", endpoint="https://api.openai.com/v1", provider_type=variant)
+        registry = ModelProviderRegistry(providers=[provider])
+        client = create_model_client(openai_model_config, secret_resolver, registry)
+        assert isinstance(client, OpenAICompatibleClient), f"Failed for provider_type={variant!r}"
+
+
 def test_native_env_var_still_uses_native_for_openai_provider(
     openai_model_config: ModelConfig,
     secret_resolver: SecretResolver,

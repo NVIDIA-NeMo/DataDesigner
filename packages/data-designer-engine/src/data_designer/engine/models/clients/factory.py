@@ -43,7 +43,7 @@ def create_model_client(
     if backend == _BACKEND_BRIDGE:
         return _create_bridge_client(model_config, provider, api_key, max_parallel)
 
-    if provider.provider_type == "openai":
+    if provider.provider_type.lower() == "openai":
         return OpenAICompatibleClient(
             provider_name=provider.name,
             model_id=model_config.model,
