@@ -39,7 +39,11 @@ class DirectoryTransformContext:
 
 class DirectoryTransform(ABC, Generic[TransformConfigT]):
     def __init__(self, config: TransformConfigT) -> None:
-        self._config = self.get_config_type().model_validate(config)
+        config_type = self.get_config_type()
+        if isinstance(config, config_type):
+            self._config = config
+            return
+        self._config = config_type.model_validate(config)
 
     @classmethod
     def get_config_type(cls) -> type[TransformConfigT]:

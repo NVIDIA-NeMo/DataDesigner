@@ -4,18 +4,34 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, Literal
 from unittest.mock import patch
 
 import pytest
 
-from data_designer.config.seed_source import DirectoryListingTransform
+from data_designer.config.seed_source import DirectoryListingTransform, DirectorySeedTransform
 from data_designer.engine.resources.directory_transform import (
+    DirectoryTransform,
+    DirectoryTransformContext,
     DirectoryTransformError,
     create_default_directory_transform_registry,
     create_directory_transform_context,
 )
 from data_designer.engine.testing.stubs import StubDirectoryTransformConfig, plugin_directory_transform
 from data_designer.plugins.plugin import PluginType
+
+
+class ParentDirectoryTransformConfig(DirectorySeedTransform):
+    transform_type: Literal["parent-directory-transform"] = "parent-directory-transform"
+
+
+class ChildDirectoryTransformConfig(ParentDirectoryTransformConfig):
+    custom_value: str
+
+
+class ParentDirectoryTransform(DirectoryTransform[ParentDirectoryTransformConfig]):
+    def normalize(self, *, context: DirectoryTransformContext) -> list[dict[str, Any]]:
+        return [{"root_path": str(context.root_path)}]
 
 
 def test_create_default_directory_transform_registry_loads_plugins(tmp_path: Path) -> None:
@@ -41,6 +57,16 @@ def test_create_default_directory_transform_registry_loads_plugins(tmp_path: Pat
             "matched_file_names": ["seed.jsonl"],
         }
     ]
+
+
+def test_directory_transform_preserves_validated_subclass_config_instance() -> None:
+    config = ChildDirectoryTransformConfig(custom_value="keep-me")
+
+    transform = ParentDirectoryTransform(config)
+
+    assert transform.config is config
+    assert isinstance(transform.config, ChildDirectoryTransformConfig)
+    assert transform.config.custom_value == "keep-me"
 
 
 def test_directory_transform_context_exposes_rooted_filesystem(tmp_path: Path) -> None:

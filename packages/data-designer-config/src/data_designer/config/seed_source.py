@@ -5,10 +5,10 @@ from __future__ import annotations
 
 from abc import ABC
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, Literal, get_args
+from typing import TYPE_CHECKING, Annotated, Literal, get_args
 
 from pydantic import Field, field_validator
-from typing_extensions import Self
+from typing_extensions import Self, TypeAlias
 
 from data_designer.config.base import ConfigBase
 from data_designer.config.errors import InvalidFilePathError
@@ -103,7 +103,9 @@ class DirectoryListingTransform(DirectorySeedTransform):
 plugin_manager = PluginManager()
 
 
-def build_directory_seed_transform_type() -> Any:
+def build_directory_seed_transform_type() -> type[TypeAlias]:
+    # Plugin injection can yield either the built-in config type or a union
+    # expanded with plugin config models.
     directory_seed_transform_type = plugin_manager.inject_into_directory_transform_type_union(DirectoryListingTransform)
     if get_args(directory_seed_transform_type):
         return Annotated[directory_seed_transform_type, Field(discriminator="transform_type")]
