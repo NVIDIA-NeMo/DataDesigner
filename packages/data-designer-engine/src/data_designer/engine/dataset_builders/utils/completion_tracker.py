@@ -118,6 +118,24 @@ class CompletionTracker:
             t for t in self._frontier if t not in dispatched and (admitted_rgs is None or t.row_group in admitted_rgs)
         ]
 
+    def seed_frontier(self) -> None:
+        """Populate the frontier with root tasks (columns with no upstream deps).
+
+        Not called automatically - the scheduler manages root dispatch directly
+        to handle stateful locks and multi-column dedup. Call this explicitly
+        for static introspection (e.g., capacity planning, task enumeration).
+        """
+        if self._graph is None:
+            raise RuntimeError("This method requires a graph to be set.")
+        for col in self._graph.get_root_columns():
+            strategy = self._graph.get_strategy(col)
+            for rg_id, rg_size in self._row_group_sizes.items():
+                if strategy == GenerationStrategy.CELL_BY_CELL:
+                    for ri in range(rg_size):
+                        self._frontier.add(Task(column=col, row_group=rg_id, row_index=ri, task_type="cell"))
+                else:
+                    self._frontier.add(Task(column=col, row_group=rg_id, row_index=None, task_type="batch"))
+
     def _enqueue_downstream(self, column: str, row_group: int, row_index: int | None) -> None:
         """Add newly-ready downstream tasks to the frontier."""
         if self._graph is None:
