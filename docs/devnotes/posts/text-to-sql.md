@@ -124,6 +124,9 @@ Rather than relying on LLM creativity alone for diversity, the pipeline samples 
 
 Standard categorical samplers draw independently from their value lists. Data Designer's `SubcategorySamplerParams` creates hierarchical dependencies --- what we call "Semantic Blueprints" --- that ensure internally consistent records. When `industry_sector` samples "Healthcare", `topic` is drawn only from healthcare-specific subcategories. When `sql_complexity` samples "Beginner", `sql_concept` is restricted to foundational SQL operations. This is the difference between realistic training data and random noise.
 
+!!! note "Code snippets in this post are illustrative"
+    The code blocks below show the key configuration patterns for each pipeline stage. Model aliases (`prompt_gen`, `context_gen`, etc.) and companion files (`prompts.py`, `rubrics.py`) are referenced but not fully defined inline. For a complete, runnable pipeline, see the [Enterprise Text-to-SQL Recipe](../../recipes/code_generation/enterprise_text_to_sql/).
+
 ```python
 import data_designer.config as dd
 
@@ -360,7 +363,7 @@ The SQL judge rubric explicitly penalizes distractor usage:
 
 > *"The SQL should only JOIN or reference tables that are strictly necessary to answer the prompt. The database context may include distractor tables that look relevant but are not needed -- penalize queries that unnecessarily join or reference these tables."*
 
-Each judge provides a score *and* reasoning for each dimension, making it easy to diagnose why a record scored low. Expression columns extract numeric scores into flat columns for downstream filtering:
+Each judge provides a score *and* reasoning for each dimension, making it easy to diagnose why a record scored low. After configuring the five `LLMJudgeColumnConfig` columns (see the [full recipe](../../recipes/code_generation/enterprise_text_to_sql/) for complete judge definitions), expression columns extract numeric scores into flat columns for downstream filtering:
 
 ```python
 config.add_column(dd.ExpressionColumnConfig(
@@ -432,7 +435,7 @@ This dataset was shipped in the SFT stage of **Nemotron Super v3**. On the [BIRD
 
 ## **Key Takeaways**
 
-1. **Conditional sampling prevents incoherent records.** `SubcategorySamplerParams` ensures "Geospatial SQL" only appears with "Advanced" complexity, and "EHR Systems" only appears with "Healthcare". Independent samplers would produce nonsensical combinations that confuse training.
+1. **Conditional sampling prevents incoherent records.** `SubcategorySamplerParams` ensures "Geospatial SQL" only appears with "Advanced" complexity, and "Electronic Health Records" only appears with "Healthcare". Independent samplers would produce nonsensical combinations that confuse training.
 
 2. **Three-stage generation beats one-shot.** Separating prompt, schema, and query generation ensures the SQL actually references the tables that exist. One-shot generation frequently hallucinates tables.
 
@@ -550,7 +553,9 @@ preview.display_sample_record()
 ```
 
 <details markdown>
-<summary><strong>Full source: <code>sdg_ndd_text2sql.py</code> (production pipeline)</strong></summary>
+<summary><strong>Full source: <code>sdg_ndd_text2sql.py</code> (production pipeline — references companion files <code>prompts.py</code>, <code>rubrics.py</code>, <code>text2sql_seed.json</code>)</strong></summary>
+
+For a self-contained, runnable version with all prompts and rubrics inline, see the [Enterprise Text-to-SQL Recipe](../../recipes/code_generation/enterprise_text_to_sql/).
 
 ```python
 """Text-to-SQL SDG Pipeline
