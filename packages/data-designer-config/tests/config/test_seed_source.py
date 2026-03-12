@@ -106,6 +106,27 @@ def test_directory_seed_source_is_exported_from_config_module(tmp_path: Path) ->
     assert isinstance(source.transform, dd.DirectoryListingTransform)
 
 
+def test_directory_seed_source_resolves_relative_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    seed_dir = tmp_path / "seed-dir"
+    seed_dir.mkdir()
+    monkeypatch.chdir(tmp_path)
+
+    source = DirectorySeedSource(path="seed-dir")
+
+    assert source.path == str(seed_dir.resolve())
+
+
+def test_directory_seed_source_parses_builtin_transform_from_dict(tmp_path: Path) -> None:
+    source = DirectorySeedSource.model_validate(
+        {
+            "path": str(tmp_path),
+            "transform": {"transform_type": "directory_listing"},
+        }
+    )
+
+    assert isinstance(source.transform, DirectoryListingTransform)
+
+
 @pytest.mark.parametrize(
     ("file_pattern", "error_message"),
     [

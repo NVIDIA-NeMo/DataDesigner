@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from abc import ABC
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal, get_args
 
 from pydantic import Field, field_validator
 from typing_extensions import Self
@@ -83,9 +83,15 @@ class DirectoryListingTransform(DirectorySeedTransform):
 
 plugin_manager = PluginManager()
 
-_DirectorySeedTransformT = DirectoryListingTransform
-_DirectorySeedTransformT = plugin_manager.inject_into_directory_transform_type_union(_DirectorySeedTransformT)
-DirectorySeedTransformT = Annotated[_DirectorySeedTransformT, Field(discriminator="transform_type")]
+
+def build_directory_seed_transform_type() -> Any:
+    directory_seed_transform_type = plugin_manager.inject_into_directory_transform_type_union(DirectoryListingTransform)
+    if get_args(directory_seed_transform_type):
+        return Annotated[directory_seed_transform_type, Field(discriminator="transform_type")]
+    return directory_seed_transform_type
+
+
+DirectorySeedTransformT = build_directory_seed_transform_type()
 
 
 class DirectorySeedSource(SeedSource):
@@ -104,7 +110,7 @@ class DirectorySeedSource(SeedSource):
 
     @field_validator("path", mode="after")
     def validate_path(cls, value: str) -> str:
-        path = Path(value).expanduser()
+        path = Path(value).expanduser().resolve()
         if not path.is_dir():
             raise InvalidFilePathError(f"🛑 Path {path} is not a directory.")
         return str(path)

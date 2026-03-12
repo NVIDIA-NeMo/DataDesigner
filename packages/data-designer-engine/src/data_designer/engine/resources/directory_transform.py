@@ -95,7 +95,7 @@ def create_directory_listing_records(root_path: Path, matched_files: list[Path])
         {
             "source_kind": "directory_file",
             "source_path": str(file_path),
-            "relative_path": str(file_path.relative_to(root_path)),
+            "relative_path": file_path.relative_to(root_path).as_posix(),
             "file_name": file_path.name,
         }
         for file_path in matched_files
@@ -116,7 +116,7 @@ def discover_directory_files(root_path: Path, file_pattern: str, recursive: bool
 
         matched_files.append(path)
 
-    matched_files.sort(key=lambda path: str(path.relative_to(root_path)))
+    matched_files.sort(key=lambda path: path.relative_to(root_path).as_posix())
     if not matched_files:
         search_scope = "under" if recursive else "directly under"
         raise DirectoryTransformError(f"No files matched file_pattern {file_pattern!r} {search_scope} {root_path}")
