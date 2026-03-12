@@ -38,3 +38,4 @@ def test_ensure_cli_default_model_settings_warns_and_continues(monkeypatch: pyte
     assert "The command will continue." in warning
     assert "data-designer config providers" in warning
     assert "data-designer config models" in warning
+    assert runtime_mod._default_model_settings_checked is True
