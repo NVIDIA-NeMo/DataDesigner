@@ -1,5 +1,5 @@
 ---
-date: 2026-03-11
+date: 2026-03-12
 authors:
   - dnathawani
 ---
@@ -93,6 +93,10 @@ Creating this data by hand takes 15-30 minutes per example. At the thousands of 
 The core idea: start at a random entity in the [Wikidata](https://www.wikidata.org/) knowledge graph and perform a random walk through its relations, producing a chain of hops that becomes a multi-hop search problem. Each chain provides a `seed_entity` (start), a `final_answer_entity` (destination), and a `readable_path` describing the edges traversed.
 
 We used **Wikidata SPARQL queries** to fetch neighbors at each hop. The number of hops is directly proportional to the number of tool calls the model would need to solve questions derived from that path --- more hops means harder riddles.
+
+<img src="images/wikidata-graph-walk.png" alt="Wikidata subgraph showing a random walk from NVIDIA through Jensen Huang, Oregon State University, Benton County to Thomas Hart Benton" width="800">
+
+<br>
 
 **Example paths:**
 
@@ -445,6 +449,24 @@ config.add_column(dd.LLMTextColumnConfig(
 The resulting `agent_solution_raw__trace` column contains the complete ChatML conversation --- every user message, every tool call with arguments, every tool response with search results, and the final assistant response. This trace *is* the SFT training data.
 
 **Safety controls matter here.** `allow_tools` prevents the model from calling unexpected tools. `max_tool_call_turns=15` prevents infinite search loops. `timeout_sec=300` prevents hung connections. Without these, a fraction of records would consume unbounded resources.
+
+---
+
+## **BrowseComp Benchmark Results**
+
+This dataset was shipped as part of **Nemotron Super v3** post-training (SFT + RL). On the [BrowseComp benchmark](https://openai.com/index/browsecomp/) (1,266 web browsing problems), Nemotron Super went from **0% to 31.28% accuracy** --- approaching GPT-OSS-120B at 33.89%.
+
+<img src="images/browsecomp-benchmark-results.jpg" alt="BrowseComp Benchmark Results — Nemotron Super accuracy improves from 0% to 31.28%" width="800">
+
+<br>
+
+| Model | BrowseComp Accuracy (%) |
+|-------|------------------------|
+| Nemotron Super (before synthetic search agent data) | 0.00 |
+| **Nemotron Super (after synthetic search agent data, SFT + RL)** | **31.28** |
+| GPT-OSS-120B | 33.89 |
+
+Before this work, Nemotron Super had **zero** web browsing capability --- it had never been trained on tool-use trajectories with search. Including our synthetic search agent dataset in the SFT blend, combined with other RL datasets in later training stages, enabled the model to go from no capability to near-competitive with GPT-OSS-120B on one of the hardest agentic benchmarks. This dev note focuses on the SFT data generation pipeline.
 
 ---
 
