@@ -223,7 +223,7 @@ def test_seed_dataset_column_generator_reset_batch_reader(
 
     mock_query_result = Mock()
     mock_batch_reader = Mock()
-    mock_query_result.fetch_arrow_reader.return_value = mock_batch_reader
+    mock_query_result.to_arrow_reader.return_value = mock_batch_reader
     stub_duckdb_conn.query.return_value = mock_query_result
 
     gen._reset_batch_reader(100)
@@ -236,7 +236,7 @@ def test_seed_dataset_column_generator_reset_batch_reader(
         assert "ORDER BY RANDOM()" not in call_args
 
     assert "SELECT * FROM 'test_uri'" in call_args
-    mock_query_result.fetch_arrow_reader.assert_called_once_with(batch_size=100)
+    mock_query_result.to_arrow_reader.assert_called_once_with(batch_size=100)
     assert gen._batch_reader == mock_batch_reader
 
 
