@@ -218,6 +218,69 @@ def test_chat_and_embedding_throttle_independently() -> None:
     assert wait_emb == 0.0
 
 
+# --- 429 lifecycle scenario ---
+
+
+def test_rate_limit_lifecycle_acquire_backoff_recover() -> None:
+    """End-to-end AIMD lifecycle: steady-state → 429 → backoff → cooldown → recovery.
+
+    Uses the ``now`` parameter to simulate time without real sleeps.
+    Config: success_window=3, additive_increase=1, max_parallel=4.
+    """
+    tm = ThrottleManager(success_window=3, additive_increase=1)
+    tm.register(provider_name=PROVIDER, model_id=MODEL, alias="a1", max_parallel_requests=4)
+    t = 0.0
+
+    # Phase 1 — Steady state (t=0): all 4 slots acquired and released successfully.
+    # Limit stays at 4 because no rate-limit event has occurred.
+    for _ in range(4):
+        assert tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=t) == 0.0
+    for _ in range(4):
+        tm.release_success(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=t)
+
+    state = tm.get_domain_state(PROVIDER, MODEL, DOMAIN)
+    assert state is not None
+    assert state.current_limit == 4
+
+    # Phase 2 — 429 hits (t=10): one request gets rate-limited with retry-after=5s.
+    # Multiplicative decrease halves the limit: 4 → 2.
+    # Domain is blocked until t=10+5=15.
+    t = 10.0
+    assert tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=t) == 0.0
+    tm.release_rate_limited(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, retry_after=5.0, now=t)
+    assert state.current_limit == 2
+    assert state.blocked_until == 15.0
+
+    # Phase 3 — During cooldown (t=12): acquire returns positive wait since 12 < 15.
+    wait = tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=12.0)
+    assert wait > 0.0
+
+    # Phase 4 — Cooldown expires, reduced capacity (t=16): acquire succeeds again.
+    # One success → streak=1 (need 3 for a window), so limit stays at 2.
+    t = 16.0
+    assert tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=t) == 0.0
+    tm.release_success(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=t)
+    assert state.current_limit == 2
+
+    # Phase 5 — First recovery window (t=17-18): two more successes complete the
+    # window (streak hits 3). Additive increase: limit 2 → 3.
+    for i in range(2):
+        t += 1.0
+        assert tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=t) == 0.0
+        tm.release_success(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=t)
+
+    assert state.current_limit == 3
+
+    # Phase 6 — Second recovery window (t=19-21): three more successes complete
+    # another window. Additive increase: limit 3 → 4 (fully recovered).
+    for i in range(3):
+        t += 1.0
+        assert tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=t) == 0.0
+        tm.release_success(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=t)
+
+    assert state.current_limit == 4
+
+
 # --- Acquire timeout ---
 
 
