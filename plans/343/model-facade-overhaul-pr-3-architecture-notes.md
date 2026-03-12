@@ -44,6 +44,17 @@ concurrency control keyed at two levels:
   state (`chat`, `embedding`, `image`, `healthcheck`) that floats between 1
   and the global effective max.
 
+AIMD behaviour:
+
+- *Decrease* — on a 429 the domain limit is multiplied by `reduce_factor`
+  (default 0.5) and a cooldown block is applied.
+- *Increase* — after every `success_window` (default 50) consecutive
+  successful releases the limit grows by `additive_increase` (default 1),
+  up to the global effective max.  Both `additive_increase` and
+  `success_window` are constructor parameters for tuning recovery speed.
+- *Recovery cost* — after a single halve from *L* to *L/2*, full recovery
+  requires `(L/2) × success_window / additive_increase` successful requests.
+
 Core state methods are non-blocking so both sync and async wrappers reuse
 the same thread-safe state:
 
@@ -51,6 +62,10 @@ the same thread-safe state:
 - `release_success(now)`
 - `release_rate_limited(now, retry_after)`
 - `release_failure(now)`
+
+`acquire_sync` and `acquire_async` wrap `try_acquire` in a poll loop with a
+configurable `timeout` (default 300s) to prevent indefinite blocking when a
+domain is persistently at capacity or in cooldown.
 
 #### Ownership — standalone resource, not adapter-owned
 
@@ -111,16 +126,15 @@ Ref: [GitHub issue #374](https://github.com/NVIDIA-NeMo/DataDesigner/issues/374)
 ### 5. Client factory routing (`clients/factory.py`)
 
 `create_model_client` accepts an optional `retry_config` parameter and routes
-based on provider type:
+based on provider type via sequential early returns:
 
-- `provider_type == "openai"` (and no bridge override) → `OpenAICompatibleClient`
-- All other provider types → `LiteLLMBridgeClient`
+1. If `DATA_DESIGNER_MODEL_BACKEND=litellm_bridge` → always `LiteLLMBridgeClient`
+   (rollback safety during migration).
+2. If `provider_type == "openai"` → `OpenAICompatibleClient`.
+3. Otherwise → `LiteLLMBridgeClient` (Anthropic native adapter is PR-4).
 
 The factory does not pass a `ThrottleManager` to adapters — throttle is an
 orchestration concern (see §2).
-
-The `DATA_DESIGNER_MODEL_BACKEND` environment variable can force bridge mode
-for rollback safety during migration.
 
 ### 6. Registry integration (`models/factory.py`, `models/registry.py`)
 
@@ -151,12 +165,15 @@ scheduler (or any other caller) attempts to acquire permits.
 | `clients/retry.py` | New — `RetryConfig` + `create_retry_transport` |
 | `clients/throttle.py` | New — `ThrottleManager` with AIMD (standalone resource) |
 | `clients/adapters/openai_compatible.py` | New — native OpenAI-compatible adapter (pure transport, no throttle) |
-| `clients/parsing.py` | Add `extract_reasoning_content` helper |
-| `clients/factory.py` | Route `provider_type=openai` to native adapter |
+| `clients/errors.py` | Extract `infer_error_kind_from_exception` as shared function |
+| `clients/base.py` | Add docstring to `ModelClient` protocol |
+| `clients/parsing.py` | Add `extract_reasoning_content` helper; use `get_value_from` consistently |
+| `clients/factory.py` | Route `provider_type=openai` to native adapter (sequential early returns) |
 | `clients/__init__.py` | Export new public names |
 | `clients/adapters/__init__.py` | Export `OpenAICompatibleClient` |
 | `models/factory.py` | Create shared `ThrottleManager` (on registry) and `RetryConfig` |
 | `models/registry.py` | Hold `ThrottleManager` as shared resource; expose via property |
+| `models/facade.py` | Minor log message tweak (drop LiteLLM-specific wording) |
 
 ## Planned Follow-On
 
