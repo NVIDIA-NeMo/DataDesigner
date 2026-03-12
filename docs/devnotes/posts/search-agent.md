@@ -263,7 +263,7 @@ $ jq -r '.finish_reason[-1] // "MISSING"' shard_*/output-rs0.jsonl-async \
 
 ### What a Trajectory Looks Like
 
-Each trajectory captures the full search process. Here's a condensed example:
+Each trajectory captures the full search process. Here's a condensed example (simplified for readability --- production records include OpenAI-spec fields like `tool_call_id`, `id`, and `type` on tool call messages):
 
 ```json
 {
@@ -306,7 +306,7 @@ Each trajectory captures the full search process. Here's a condensed example:
     "num_hops_in_graph": 8,
     "seed_entity": "lawrencium",
     "final_answer_entity": "first equatorial coordinate system",
-    "num_tool_calls": 6,
+    "num_tool_calls": 2,
     "finish_reason": ["tool_calls", "tool_calls", "stop"]
   },
   "tools": [
