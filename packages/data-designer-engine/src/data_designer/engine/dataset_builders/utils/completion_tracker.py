@@ -40,7 +40,6 @@ class CompletionTracker:
         tracker = cls()
         tracker._graph = graph
         tracker._row_group_sizes = {rg_id: size for rg_id, size in row_groups}
-        tracker._seed_frontier()
         return tracker
 
     def mark_cell_complete(self, column: str, row_group: int, row_index: int) -> None:
@@ -118,9 +117,6 @@ class CompletionTracker:
         return [
             t for t in self._frontier if t not in dispatched and (admitted_rgs is None or t.row_group in admitted_rgs)
         ]
-
-    def _seed_frontier(self) -> None:
-        """No-op: root tasks are dispatched by the scheduler's ``_dispatch_seeds``."""
 
     def _enqueue_downstream(self, column: str, row_group: int, row_index: int | None) -> None:
         """Add newly-ready downstream tasks to the frontier."""
