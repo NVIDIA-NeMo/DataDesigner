@@ -6,7 +6,7 @@ authors:
 
 # **Search Agent SFT Data: Teaching LLMs to Browse the Web**
 
-Training search agents requires trajectory data --- the full multi-turn interaction showing how a model searches, reads, reasons, and answers. We built a four-stage pipeline that generates synthetic search trajectories from Wikidata knowledge graph paths, converts them into BrowseComp-style riddles using NeMo Data Designer, generates multi-step search rollouts with live web search via Tavily, and post-processes the results into SFT-ready training data. Starting from 50,000 seeds, the pipeline yielded ~7,000 high-quality tool-use trajectories for training Nemotron models.
+Training search agents requires trajectory data --- the full multi-turn interaction showing how a model searches, reads, reasons, and answers. We built a four-stage pipeline that generates synthetic search trajectories from Wikidata knowledge graph paths, converts them into BrowseComp-style riddles using NeMo Data Designer, generates multi-step search rollouts with live web search via Tavily, and post-processes the results into SFT-ready training data.
 
 <!-- more -->
 
@@ -98,7 +98,7 @@ We used **Wikidata SPARQL queries** to fetch neighbors at each hop. The number o
 
 <br>
 
-**Example paths:**
+**Example walks along the Wikidata knowledge graph:**
 
 ```
 START ENTITY: NVIDIA (Q182477)
