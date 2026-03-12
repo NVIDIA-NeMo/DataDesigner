@@ -51,7 +51,7 @@ def test_discover_directory_files_matches_file_names_recursively(tmp_path: Path)
 
     matched_files = discover_directory_files(root_path=tmp_path, file_pattern="*.txt", recursive=True)
 
-    assert [str(path.relative_to(tmp_path)) for path in matched_files] == ["alpha.txt", "nested/beta.txt"]
+    assert [path.relative_to(tmp_path).as_posix() for path in matched_files] == ["alpha.txt", "nested/beta.txt"]
 
 
 def test_discover_directory_files_can_disable_recursive_walk(tmp_path: Path) -> None:
@@ -61,7 +61,14 @@ def test_discover_directory_files_can_disable_recursive_walk(tmp_path: Path) -> 
 
     matched_files = discover_directory_files(root_path=tmp_path, file_pattern="*.txt", recursive=False)
 
-    assert [str(path.relative_to(tmp_path)) for path in matched_files] == ["alpha.txt"]
+    assert [path.relative_to(tmp_path).as_posix() for path in matched_files] == ["alpha.txt"]
+
+
+def test_discover_directory_files_matches_file_pattern_case_sensitively(tmp_path: Path) -> None:
+    (tmp_path / "alpha.txt").write_text("alpha", encoding="utf-8")
+
+    with pytest.raises(DirectoryTransformError, match="No files matched file_pattern '\\*\\.TXT'"):
+        discover_directory_files(root_path=tmp_path, file_pattern="*.TXT", recursive=True)
 
 
 def test_discover_directory_files_rejects_matches_that_resolve_outside_root(tmp_path: Path) -> None:

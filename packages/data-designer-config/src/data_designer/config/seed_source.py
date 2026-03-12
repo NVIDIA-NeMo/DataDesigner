@@ -79,7 +79,13 @@ class DirectorySeedTransform(ConfigBase, ABC):
 
 class DirectoryListingTransform(DirectorySeedTransform):
     transform_type: Literal["directory_listing"] = "directory_listing"
-    file_pattern: str = Field("*", description="Filename pattern used to match files under the provided directory.")
+    file_pattern: str = Field(
+        "*",
+        description=(
+            "Case-sensitive filename pattern used to match file names under the provided directory. "
+            "Patterns match basenames only, not relative paths."
+        ),
+    )
     recursive: bool = Field(
         True,
         description="Whether to search nested subdirectories under the provided directory for matching files.",

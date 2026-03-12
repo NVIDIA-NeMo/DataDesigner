@@ -133,6 +133,8 @@ seed_source = dd.DirectorySeedSource(
 
 This keeps traversal policy with the transform itself, so different directory normalizers can define different ways to walk and interpret the directory tree.
 
+`DirectoryListingTransform.file_pattern` is case-sensitive on every platform and matches file names only, not relative paths.
+
 Transforms run inside the seed-reader layer before normal row sampling. This makes directory seeding a good fit for workflows where one directory needs to be preprocessed into a tabular seed dataset.
 
 ## Sampling Strategies
