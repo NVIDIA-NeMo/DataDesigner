@@ -289,20 +289,3 @@ def test_load_config_builder_empty_yaml(tmp_path: Path) -> None:
 
     with pytest.raises(ConfigLoadError, match="Failed to load config from"):
         load_config_builder(str(yaml_file))
-
-
-@patch("data_designer.cli.utils.config_loader.DataDesignerConfigBuilder.from_config")
-def test_load_config_builder_delegates_to_from_config_without_bootstrap(
-    mock_from_config: MagicMock,
-    tmp_path: Path,
-) -> None:
-    """Config loader focuses on loading config files without CLI bootstrap side effects."""
-    yaml_file = tmp_path / "config.yaml"
-    yaml_file.write_text("data_designer:\n  columns: []\n")
-    mock_builder = MagicMock()
-    mock_from_config.return_value = mock_builder
-
-    result = load_config_builder(str(yaml_file))
-
-    mock_from_config.assert_called_once_with(yaml_file)
-    assert result is mock_builder

@@ -8,7 +8,11 @@ from data_designer.config.default_model_settings import resolve_seed_default_mod
 
 
 def ensure_cli_default_model_settings() -> None:
-    """Best-effort bootstrap for CLI default model settings."""
+    """Best-effort bootstrap for CLI default model settings.
+
+    Repeated calls are safe because ``resolve_seed_default_model_settings()``
+    only writes missing files/directories.
+    """
     try:
         resolve_seed_default_model_settings()
     except Exception as e:
