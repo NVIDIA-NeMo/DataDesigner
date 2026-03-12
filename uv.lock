@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.10"
 resolution-markers = [
     "python_full_version >= '3.14'",
@@ -846,6 +846,7 @@ name = "data-designer-engine"
 source = { editable = "packages/data-designer-engine" }
 dependencies = [
     { name = "anyascii" },
+    { name = "chardet" },
     { name = "data-designer-config" },
     { name = "duckdb" },
     { name = "faker" },
@@ -871,6 +872,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "anyascii", specifier = ">=0.3.3,<1" },
+    { name = "chardet", specifier = ">=3.0.2,<6" },
     { name = "data-designer-config", editable = "packages/data-designer-config" },
     { name = "duckdb", specifier = ">=1.5.0,<2" },
     { name = "faker", specifier = ">=20.1.0,<21" },
