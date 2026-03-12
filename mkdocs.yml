@@ -67,11 +67,13 @@ nav:
       - processors: code_reference/processors.md
       - analysis: code_reference/analysis.md
   - Dev Notes:
+      # NOTE: Order is most recent -> oldest (so sidebar shows recent first!)
       - devnotes/index.md
+      - Search Agent: devnotes/posts/search-agent.md
       - Structured Outputs from Nemotron: devnotes/posts/structured-outputs-from-nemotron.md
       - Deep Research Trajectories: devnotes/posts/deep-research-trajectories.md
-      - RQA Dataset: devnotes/posts/rqa.md
       - Design Principles: devnotes/posts/design-principles.md
+      - RQA Dataset: devnotes/posts/rqa.md
 
 theme:
   name: material

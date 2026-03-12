@@ -60,9 +60,6 @@ class _LazyCommand(click.Command):
     ) -> click.Context:
         return self._resolve().make_context(info_name, args, parent, **extra)
 
-    def invoke(self, ctx: click.Context) -> Any:
-        return self._resolve().invoke(ctx)
-
 
 def create_lazy_typer_group(
     lazy_subcommands: dict[str, dict[str, str]],
