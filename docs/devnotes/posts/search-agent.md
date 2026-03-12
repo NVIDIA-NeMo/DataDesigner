@@ -96,8 +96,6 @@ We used **Wikidata SPARQL queries** to fetch neighbors at each hop. The number o
 
 ![Wikidata subgraph showing a random walk from NVIDIA through Jensen Huang, Oregon State University, Benton County to Thomas Hart Benton](images/wikidata-graph-walk.png){ style="max-width:100%; height:auto" }
 
-**Example walks along the Wikidata knowledge graph:**
-
 ```
 START ENTITY: NVIDIA (Q182477)
   ⬇ [chief executive officer (P169)]
