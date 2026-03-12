@@ -466,6 +466,9 @@ This dataset was shipped in the SFT stage of **Nemotron Super v3**. On the [BIRD
 
 The snippet below builds a simplified text-to-SQL pipeline for SQLite using Data Designer. It covers the core stages -- seeding & diversification, prompt generation, schema generation with distractors, SQL generation, syntax validation, and LLM judge scoring.
 
+<details markdown>
+<summary><strong>Minimal example: text-to-SQL pipeline for SQLite</strong></summary>
+
 ```python
 import data_designer.config as dd
 from data_designer.interface import DataDesigner
@@ -552,6 +555,8 @@ preview = data_designer.preview(config, num_records=10)
 preview.display_sample_record()
 ```
 
+</details>
+
 <details markdown>
 <summary><strong>Full recipe: <code>enterprise_text_to_sql.py</code> (self-contained, runnable)</strong></summary>
 
@@ -565,11 +570,9 @@ preview.display_sample_record()
 
 ---
 
-## **A Team Effort**
+## **Summary**
 
 This dataset is the result of a cross-functional effort across the NeMo Data Designer and Nemotron teams at NVIDIA, combining expertise in synthetic data generation, SQL engineering, and large-scale model training.
-
-**Scale:** 96.5k filtered records | **Dialects:** MySQL, PostgreSQL, SQLite | **Dataset:** Internal (Nemotron training)
 
 Because this pipeline is encapsulated in Data Designer, the configuration can be shared with any team --- allowing them to fork our baseline, swap in their own schemas or industry verticals, and generate a custom, high-fidelity dataset for their specific domain in hours, not months.
 
