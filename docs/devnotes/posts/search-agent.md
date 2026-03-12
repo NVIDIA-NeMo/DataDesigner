@@ -455,9 +455,7 @@ This dataset was shipped as part of **Nemotron Super v3** post-training (SFT + R
 
 ![BrowseComp Benchmark Results — Nemotron Super accuracy improves from 0% to 31.28%](images/browsecomp-benchmark-results.jpg){ style="max-width:100%; height:auto" }
 
-| Model | BrowseComp Accuracy (%) |
-|-------|------------------------|
-| Nemotron Super (before synthetic search agent data) | 0.00 |
+![BrowseComp Benchmark Results — Nemotron Super accuracy improves from 0% to 31.28%](images/browsecomp-benchmark-results.jpg){ style="max-width:100%; height:auto" }
 | **Nemotron Super (after synthetic search agent data, SFT + RL)** | **31.28** |
 | GPT-OSS-120B | 33.89 |
 
