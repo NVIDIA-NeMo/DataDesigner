@@ -94,9 +94,7 @@ The core idea: start at a random entity in the [Wikidata](https://www.wikidata.o
 
 We used **Wikidata SPARQL queries** to fetch neighbors at each hop. The number of hops is directly proportional to the number of tool calls the model would need to solve questions derived from that path --- more hops means harder riddles.
 
-<img src="images/wikidata-graph-walk.png" alt="Wikidata subgraph showing a random walk from NVIDIA through Jensen Huang, Oregon State University, Benton County to Thomas Hart Benton" width="800">
-
-<br>
+![Wikidata subgraph showing a random walk from NVIDIA through Jensen Huang, Oregon State University, Benton County to Thomas Hart Benton](images/wikidata-graph-walk.png){ style="max-width:100%; height:auto" }
 
 **Example walks along the Wikidata knowledge graph:**
 
@@ -457,9 +455,7 @@ The resulting `agent_solution_raw__trace` column contains the complete ChatML co
 
 This dataset was shipped as part of **Nemotron Super v3** post-training (SFT + RL). On the [BrowseComp benchmark](https://openai.com/index/browsecomp/) (1,266 web browsing problems), Nemotron Super went from **0% to 31.28% accuracy** --- approaching GPT-OSS-120B at 33.89%.
 
-<img src="images/browsecomp-benchmark-results.jpg" alt="BrowseComp Benchmark Results — Nemotron Super accuracy improves from 0% to 31.28%" width="800">
-
-<br>
+![BrowseComp Benchmark Results — Nemotron Super accuracy improves from 0% to 31.28%](images/browsecomp-benchmark-results.jpg){ style="max-width:100%; height:auto" }
 
 | Model | BrowseComp Accuracy (%) |
 |-------|------------------------|
