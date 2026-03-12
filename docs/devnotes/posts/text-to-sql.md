@@ -182,6 +182,13 @@ config.add_column(dd.SamplerColumnConfig(
     ),
 ))
 
+# Dialect control (one value per run; the pipeline runs once per dialect)
+config.add_column(dd.SamplerColumnConfig(
+    name="sql_dialect",
+    sampler_type=dd.SamplerType.CATEGORY,
+    params=dd.CategorySamplerParams(values=["SQLite"]),  # or "MySQL", "PostgreSQL"
+))
+
 # Task type restricted by complexity via conditional_params
 task_types = {
     "Foundational Queries & DML": [...],
