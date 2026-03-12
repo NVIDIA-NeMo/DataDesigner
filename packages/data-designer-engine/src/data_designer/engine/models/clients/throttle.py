@@ -198,7 +198,6 @@ class ThrottleManager:
         domain: ThrottleDomain,
         now: float | None = None,
     ) -> None:
-        now = now if now is not None else time.monotonic()
         with self._lock:
             state = self._get_or_create_domain(provider_name, model_id, domain)
             state.in_flight = max(0, state.in_flight - 1)
