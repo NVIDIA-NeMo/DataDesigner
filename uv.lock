@@ -15,7 +15,6 @@ members = [
     "data-designer-engine",
     "data-designer-workspace",
 ]
-constraints = [{ name = "chardet", specifier = ">=3.0.2,<6" }]
 
 [[package]]
 name = "aiohappyeyeballs"
