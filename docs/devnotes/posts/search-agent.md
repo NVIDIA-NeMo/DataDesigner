@@ -591,5 +591,3 @@ Key Resources:
 6. [GTC 2026 Workshop: Building Search Agents with NeMo Data Designer](https://www.nvidia.com/zh-tw/gtc/session-catalog/sessions/gtc26-dlit81572/)
 
 ---
-
-*Want to learn more about NeMo Data Designer? Check out our [documentation](https://github.com/NVIDIA-NeMo/DataDesigner) and start building your own synthetic data pipelines today.*
