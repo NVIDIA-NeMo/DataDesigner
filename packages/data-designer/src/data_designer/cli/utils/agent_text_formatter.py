@@ -116,7 +116,7 @@ def _format_table(
         header = f"# {title}" if title else "# table"
         return f"{header}\n(no items)"
 
-    col_widths = {col: max(len(labels[col]), max(len(str(row.get(col) or "")) for row in items)) for col in columns}
+    col_widths = {col: max(len(labels[col]), max(len(_cell(row.get(col))) for row in items)) for col in columns}
 
     lines: list[str] = []
     if title:
@@ -125,6 +125,13 @@ def _format_table(
     lines.append("  ".join(f"{labels[col]:<{col_widths[col]}}" for col in columns))
     lines.append("  ".join("-" * col_widths[col] for col in columns))
     for row in items:
-        lines.append("  ".join(f"{str(row.get(col) or ''):<{col_widths[col]}}" for col in columns))
+        lines.append("  ".join(f"{_cell(row.get(col)):<{col_widths[col]}}" for col in columns))
 
     return "\n".join(lines)
+
+
+def _cell(value: Any) -> str:
+    """Convert a cell value to a string, rendering None as empty."""
+    if value is None:
+        return ""
+    return str(value)
