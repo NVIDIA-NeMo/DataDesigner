@@ -34,6 +34,7 @@ from data_designer.config.utils.constants import (
     DEFAULT_DISPLAY_WIDTH,
     NVIDIA_API_KEY_ENV_VAR_NAME,
     OPENAI_API_KEY_ENV_VAR_NAME,
+    TRACE_COLUMN_POSTFIX,
 )
 from data_designer.config.utils.errors import DatasetSampleDisplayError
 from data_designer.config.utils.image_helpers import (
@@ -43,6 +44,7 @@ from data_designer.config.utils.image_helpers import (
     is_image_url,
     load_image_path_to_base64,
 )
+from data_designer.config.utils.trace_renderer import TraceMessage, TraceRenderer
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -173,6 +175,7 @@ class WithRecordSamplerMixin:
         background_color: str | None = None,
         processors_to_display: list[str] | None = None,
         hide_seed_columns: bool = False,
+        include_traces: bool = True,
         save_path: str | Path | None = None,
         theme: Literal["dark", "light"] = "dark",
         display_width: int = DEFAULT_DISPLAY_WIDTH,
@@ -188,6 +191,8 @@ class WithRecordSamplerMixin:
                 documentation from `rich` for information about available background colors.
             processors_to_display: List of processors to display the artifacts for. If None, all processors will be displayed.
             hide_seed_columns: If True, seed columns will not be displayed separately.
+            include_traces: If True (default), render LLM conversation traces when trace
+                columns are present. Set to False to suppress trace display.
             save_path: Optional path to save the rendered output as an HTML or SVG file.
             theme: Color theme for saved HTML files (dark or light).
             display_width: Width of the rendered output in characters.
@@ -228,6 +233,7 @@ class WithRecordSamplerMixin:
             syntax_highlighting_theme=syntax_highlighting_theme,
             record_index=i,
             seed_column_names=seed_column_names,
+            include_traces=include_traces,
             save_path=save_path,
             theme=theme,
             display_width=display_width,
@@ -264,6 +270,7 @@ def display_sample_record(
     syntax_highlighting_theme: str = "dracula",
     record_index: int | None = None,
     seed_column_names: list[str] | None = None,
+    include_traces: bool = True,
     save_path: str | Path | None = None,
     theme: Literal["dark", "light"] = "dark",
     display_width: int = DEFAULT_DISPLAY_WIDTH,
@@ -315,6 +322,26 @@ def display_sample_record(
                         if output_col in record:
                             table.add_row(output_col, convert_to_row_element(record[output_col]))
         render_list.append(pad_console_element(table))
+
+    # Trace sections for LLM columns
+    _LLM_COLUMN_TYPES = [
+        DataDesignerColumnType.LLM_TEXT,
+        DataDesignerColumnType.LLM_CODE,
+        DataDesignerColumnType.LLM_STRUCTURED,
+        DataDesignerColumnType.LLM_JUDGE,
+    ]
+
+    traces_to_display_later: list[tuple[str, list[TraceMessage]]] = []
+    if include_traces:
+        trace_renderer = TraceRenderer()
+        for col_type in _LLM_COLUMN_TYPES:
+            for col in config_builder.get_columns_of_type(col_type):
+                for side_col in col.side_effect_columns:
+                    if side_col.endswith(TRACE_COLUMN_POSTFIX) and side_col in record:
+                        traces: list[TraceMessage] = record[side_col]
+                        if isinstance(traces, list) and len(traces) > 0:
+                            render_list.append(pad_console_element(trace_renderer.render_rich(traces, side_col)))
+                            traces_to_display_later.append((side_col, traces))
 
     # Collect image generation columns (will be displayed at the end)
     image_columns = config_builder.get_columns_of_type(DataDesignerColumnType.IMAGE)
@@ -447,6 +474,11 @@ def display_sample_record(
         capped_width = min(terminal_width, display_width)
         display_console = Console(width=capped_width)
         display_console.print(Group(*render_list), markup=False)
+
+    # Display traces as HTML in notebook (only in notebook)
+    if len(traces_to_display_later) > 0:
+        for col_name, trace_data in traces_to_display_later:
+            trace_renderer.render_notebook_html(trace_data, col_name)
 
     # Display images at the bottom with captions (only in notebook)
     if len(images_to_display_later) > 0:
