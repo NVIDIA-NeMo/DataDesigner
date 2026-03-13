@@ -56,7 +56,7 @@ def test_format_types_text_single_family() -> None:
     }
     result = format_types_text(data)
 
-    assert "# columns types" in result
+    assert "# columns" in result
     assert "alpha" in result
     assert "AlphaConfig" in result
 

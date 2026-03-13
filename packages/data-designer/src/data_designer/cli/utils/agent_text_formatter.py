@@ -18,7 +18,7 @@ def format_context_text(data: dict[str, Any]) -> str:
         'A "family" is a group of related config types that share a discriminator field.',
         "Use dd.<ClassName> to reference any type below.",
         "",
-        "## Types",
+        "## Families",
         "",
         format_types_text({"families": data["families"], "items": data["types"]}),
         "",
@@ -47,13 +47,13 @@ def format_types_text(data: dict[str, Any]) -> str:
         lines: list[str] = [f"{f['family']}: {f['count']} types" for f in data["families"]]
         lines.append("")
         for family_name, items in data["items"].items():
-            lines.append(_format_table(items, ["type_name", "class_name"], title=f"{family_name} types"))
+            lines.append(_format_table(items, ["type_name", "class_name"], title=family_name))
             lines.append("")
         return "\n".join(lines).rstrip()
     return _format_table(
         data["items"],
         ["type_name", "class_name"],
-        title=f"{data.get('family')} types" if data.get("family") else None,
+        title=data.get("family"),
     )
 
 
