@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from data_designer.cli.utils.agent_introspection import get_family_schema
 from data_designer.cli.utils.agent_text_formatter import (
     format_builder_text,
     format_context_text,
@@ -215,8 +216,6 @@ def test_format_persona_datasets_text() -> None:
     ids=["columns-llm-text", "columns-sampler", "samplers-category", "validators-code", "constraints-scalar"],
 )
 def test_format_schema_text_on_real_config_models(family: str, type_name: str) -> None:
-    from data_designer.cli.utils.agent_introspection import get_family_schema
-
     schema_data = get_family_schema(family, type_name)
     result = format_schema_text(schema_data)
 

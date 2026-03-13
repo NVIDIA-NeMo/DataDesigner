@@ -107,7 +107,7 @@ def _build_agent_lazy_group(prefix: str) -> dict[str, dict[str, str]]:
     return {
         cmd.name.removeprefix(f"{prefix}."): {"module": _AGENT_CMD, "attr": cmd.attr, "help": cmd.help}
         for cmd in AGENT_COMMANDS
-        if prefix == "" and "." not in cmd.name or cmd.name.startswith(f"{prefix}.")
+        if (prefix == "" and "." not in cmd.name) or cmd.name.startswith(f"{prefix}.")
     }
 
 

@@ -146,7 +146,7 @@ def test_scalar_defaults(field_name: str, expected: str) -> None:
 def test_description_appears_below_field() -> None:
     text = DescribedFieldsModel.schema_text()
     lines = text.splitlines()
-    name_idx = next(i for i, l in enumerate(lines) if "name: str" in l)
+    name_idx = next(i for i, line in enumerate(lines) if "name: str" in line)
     assert "The name of the thing" in lines[name_idx + 1]
 
 
