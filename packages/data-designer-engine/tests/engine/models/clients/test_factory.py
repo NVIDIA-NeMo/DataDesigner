@@ -13,6 +13,7 @@ from data_designer.config.models import (
     ModelProvider,
 )
 from data_designer.engine.model_provider import ModelProviderRegistry
+from data_designer.engine.models.clients.adapters.anthropic import AnthropicClient
 from data_designer.engine.models.clients.adapters.litellm_bridge import LiteLLMBridgeClient
 from data_designer.engine.models.clients.adapters.openai_compatible import OpenAICompatibleClient
 from data_designer.engine.models.clients.factory import create_model_client
@@ -76,17 +77,48 @@ def test_openai_provider_creates_native_client(
     assert isinstance(client, OpenAICompatibleClient)
 
 
-@patch("data_designer.engine.models.clients.factory.CustomRouter")
-@patch("data_designer.engine.models.clients.factory.LiteLLMRouterDefaultKwargs")
-def test_non_openai_provider_creates_bridge_client(
-    mock_kwargs: MagicMock,
-    mock_router: MagicMock,
+def test_anthropic_provider_creates_native_client(
     anthropic_model_config: ModelConfig,
     secret_resolver: SecretResolver,
     anthropic_registry: ModelProviderRegistry,
 ) -> None:
+    client = create_model_client(
+        anthropic_model_config,
+        secret_resolver,
+        anthropic_registry,
+        retry_config=RetryConfig(),
+    )
+    assert isinstance(client, AnthropicClient)
+
+
+def test_anthropic_provider_type_case_insensitive(
+    anthropic_model_config: ModelConfig,
+    secret_resolver: SecretResolver,
+) -> None:
+    for variant in ("Anthropic", "ANTHROPIC", "anthropic"):
+        provider = ModelProvider(name="anthropic-prod", endpoint="https://api.anthropic.com", provider_type=variant)
+        registry = ModelProviderRegistry(providers=[provider])
+        client = create_model_client(anthropic_model_config, secret_resolver, registry, retry_config=RetryConfig())
+        assert isinstance(client, AnthropicClient), f"Failed for provider_type={variant!r}"
+
+
+@patch("data_designer.engine.models.clients.factory.CustomRouter")
+@patch("data_designer.engine.models.clients.factory.LiteLLMRouterDefaultKwargs")
+def test_unknown_provider_creates_bridge_client(
+    mock_kwargs: MagicMock,
+    mock_router: MagicMock,
+    secret_resolver: SecretResolver,
+) -> None:
     mock_kwargs.return_value.model_dump.return_value = {}
-    client = create_model_client(anthropic_model_config, secret_resolver, anthropic_registry)
+    provider = ModelProvider(name="custom-provider", endpoint="https://custom.example.com", provider_type="custom")
+    registry = ModelProviderRegistry(providers=[provider])
+    config = ModelConfig(
+        alias="test-custom",
+        model="custom-model",
+        inference_parameters=ChatCompletionInferenceParams(),
+        provider="custom-provider",
+    )
+    client = create_model_client(config, secret_resolver, registry)
     assert isinstance(client, LiteLLMBridgeClient)
 
 

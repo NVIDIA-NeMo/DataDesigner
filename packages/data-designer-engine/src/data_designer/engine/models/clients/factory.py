@@ -8,6 +8,7 @@ import os
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.models import ModelConfig
 from data_designer.engine.model_provider import ModelProvider, ModelProviderRegistry
+from data_designer.engine.models.clients.adapters.anthropic import AnthropicClient
 from data_designer.engine.models.clients.adapters.litellm_bridge import LiteLLMBridgeClient
 from data_designer.engine.models.clients.adapters.openai_compatible import OpenAICompatibleClient
 from data_designer.engine.models.clients.base import ModelClient
@@ -31,7 +32,8 @@ def create_model_client(
     Routing logic:
     1. If ``DATA_DESIGNER_MODEL_BACKEND=litellm_bridge`` → always use bridge.
     2. If ``provider_type == "openai"`` → ``OpenAICompatibleClient``.
-    3. Otherwise → ``LiteLLMBridgeClient`` (Anthropic native adapter is PR-4).
+    3. If ``provider_type == "anthropic"`` → ``AnthropicClient``.
+    4. Otherwise → ``LiteLLMBridgeClient`` (fallback for unknown providers).
     """
     provider = model_provider_registry.get_provider(model_config.provider)
     api_key = _resolve_api_key(provider.api_key, secret_resolver)
@@ -43,8 +45,21 @@ def create_model_client(
     if backend == _BACKEND_BRIDGE:
         return _create_bridge_client(model_config, provider, api_key, max_parallel)
 
-    if provider.provider_type.lower() == "openai":
+    provider_type = provider.provider_type.lower()
+
+    if provider_type == "openai":
         return OpenAICompatibleClient(
+            provider_name=provider.name,
+            model_id=model_config.model,
+            endpoint=provider.endpoint,
+            api_key=api_key,
+            retry_config=retry_config,
+            max_parallel_requests=max_parallel,
+            timeout_s=timeout_s,
+        )
+
+    if provider_type == "anthropic":
+        return AnthropicClient(
             provider_name=provider.name,
             model_id=model_config.model,
             endpoint=provider.endpoint,
