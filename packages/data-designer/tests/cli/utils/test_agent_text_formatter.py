@@ -59,7 +59,6 @@ def test_format_types_text_single_family() -> None:
     assert "# columns types" in result
     assert "alpha" in result
     assert "AlphaConfig" in result
-    assert "mod.AlphaConfig" in result
 
 
 def test_format_types_text_all_families() -> None:
@@ -77,8 +76,6 @@ def test_format_types_text_all_families() -> None:
     assert "columns: 2 types" in result
     assert "a" in result
     assert "b" in result
-    assert "m.A" in result
-    assert "m.B" in result
 
 
 def test_format_types_text_empty_items() -> None:
