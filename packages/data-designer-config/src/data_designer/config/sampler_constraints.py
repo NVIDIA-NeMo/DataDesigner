@@ -25,6 +25,8 @@ class InequalityOperator(str, Enum):
 
 
 class Constraint(ConfigBase):
+    """Base class for sampler constraints. Use a concrete subclass, not this class directly."""
+
     target_column: str = Field(description="Name of the sampler column this constraint applies to")
     constraint_type: ConstraintType = Field(description="Constraint type discriminator")
 
@@ -56,6 +58,8 @@ def resolve_constraint_input_type(value: Any) -> ConstraintType | str | None:
         if (constraint_type := value.get("constraint_type")) is not None:
             return constraint_type
 
+        # rhs is required on both concrete types, so when it's missing we default to
+        # SCALAR_INEQUALITY — Pydantic will surface a clear "rhs field required" error.
         rhs = value.get("rhs")
         return ConstraintType.COLUMN_INEQUALITY if isinstance(rhs, str) else ConstraintType.SCALAR_INEQUALITY
 
