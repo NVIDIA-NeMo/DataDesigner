@@ -155,6 +155,23 @@ def test_handle_llm_exceptions_preserves_generation_failure_kind() -> None:
     assert exc_info.value.detail == "Response doesn't match requested <response_schema>: 'name' is a required property"
 
 
+def test_handle_llm_exceptions_strips_duplicate_period_from_validation_detail() -> None:
+    with pytest.raises(ModelGenerationValidationFailureError, match=r"Validation detail: Field required\.") as exc_info:
+        handle_llm_exceptions(
+            GenerationValidationFailureError(
+                "Generation validation failure",
+                detail="Field required.",
+                failure_kind="schema_validation",
+            ),
+            stub_model_name,
+            stub_model_provider_name,
+            stub_purpose,
+        )
+
+    assert "Field required.." not in str(exc_info.value)
+    assert exc_info.value.detail == "Field required."
+
+
 def test_catch_llm_exceptions():
     @catch_llm_exceptions
     def stub_function(model_facade: Any, *args, **kwargs):

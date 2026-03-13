@@ -144,6 +144,32 @@ def test_generate_includes_parser_validation_detail_in_user_facing_error(
     assert exc_info.value.failure_kind == "schema_validation"
 
 
+@patch.object(ModelFacade, "acompletion", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_agenerate_includes_parser_validation_detail_in_user_facing_error(
+    mock_acompletion: AsyncMock,
+    stub_model_facade: ModelFacade,
+) -> None:
+    mock_acompletion.return_value = _make_response("bad response")
+
+    def _failing_parser(response: str) -> str:
+        raise ParserException("Response doesn't match requested <response_schema>\n'name' is a required property")
+
+    with pytest.raises(
+        ModelGenerationValidationFailureError,
+        match="Validation detail: Response doesn't match requested <response_schema> 'name' is a required property.",
+    ) as exc_info:
+        await stub_model_facade.agenerate(
+            prompt="foo",
+            parser=_failing_parser,
+            max_correction_steps=0,
+            max_conversation_restarts=0,
+        )
+
+    assert exc_info.value.detail == "Response doesn't match requested <response_schema> 'name' is a required property"
+    assert exc_info.value.failure_kind == "schema_validation"
+
+
 @pytest.mark.parametrize(
     "raw_content,expected",
     [

@@ -210,6 +210,27 @@ def test_worker_error_callback_logs_timeout_detail(
     assert 17 in stub_column_wise_builder._records_to_drop
 
 
+def test_worker_error_callback_requires_context_index(
+    stub_column_wise_builder: ColumnWiseDatasetBuilder,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    exc = ModelTimeoutError(
+        FormattedLLMErrorMessage(
+            cause="The request to model 'test-model' timed out while running generation for column 'test_column'.",
+            solution="Increase the timeout setting for the model and retry.",
+        )
+    )
+
+    with (
+        caplog.at_level(logging.WARNING),
+        pytest.raises(RuntimeError, match="Worker error callback called without a valid context index."),
+    ):
+        stub_column_wise_builder._worker_error_callback(exc, context=None)
+
+    assert "record at index unknown" in caplog.text
+    assert len(stub_column_wise_builder._records_to_drop) == 0
+
+
 def test_column_wise_dataset_builder_batch_manager_initialization(stub_column_wise_builder, stub_resource_provider):
     assert stub_column_wise_builder.batch_manager is not None
     assert stub_column_wise_builder.batch_manager.artifact_storage == stub_resource_provider.artifact_storage

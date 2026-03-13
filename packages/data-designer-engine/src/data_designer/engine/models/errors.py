@@ -257,7 +257,8 @@ def handle_llm_exceptions(
 
         # Parsing and validation errors
         case GenerationValidationFailureError():
-            validation_detail = f" Validation detail: {exception.detail}." if exception.detail is not None else ""
+            detail_text = exception.detail.rstrip(".") if exception.detail is not None else None
+            validation_detail = f" Validation detail: {detail_text}." if detail_text is not None else ""
             raise ModelGenerationValidationFailureError(
                 FormattedLLMErrorMessage(
                     cause=(

@@ -545,8 +545,9 @@ class ColumnWiseDatasetBuilder:
     def _worker_error_callback(self, exc: Exception, *, context: dict | None = None) -> None:
         """If a worker fails, we can handle the exception here."""
         logger.warning(self._format_worker_failure_warning(exc, context=context))
-        if context is not None and "index" in context:
-            self._records_to_drop.add(context["index"])
+        if context is None or "index" not in context:
+            raise RuntimeError("Worker error callback called without a valid context index.")
+        self._records_to_drop.add(context["index"])
 
     def _worker_result_callback(self, result: dict | list[dict], *, context: dict | None = None) -> None:
         if self._cell_resize_mode:
