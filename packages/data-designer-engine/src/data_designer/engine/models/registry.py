@@ -220,9 +220,6 @@ class ModelRegistry:
                 logger.error(f"{LOG_INDENT}❌ Failed!")
                 raise e
 
-    def _set_model_configs(self, model_configs: list[ModelConfig] | None) -> None:
-        self._model_configs = {mc.alias: mc for mc in (model_configs or [])}
-
     def close(self) -> None:
         """Release resources held by all model facades.
 
@@ -246,6 +243,9 @@ class ModelRegistry:
                 await facade.aclose()
             except Exception:
                 logger.exception("Error closing facade for %s", facade.model_alias)
+
+    def _set_model_configs(self, model_configs: list[ModelConfig] | None) -> None:
+        self._model_configs = {mc.alias: mc for mc in (model_configs or [])}
 
     def _get_model(self, model_config: ModelConfig) -> ModelFacade:
         if self._model_facade_factory is None:
