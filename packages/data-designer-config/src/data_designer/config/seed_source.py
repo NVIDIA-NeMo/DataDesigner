@@ -36,7 +36,13 @@ class SeedSource(ConfigBase, ABC):
 class LocalFileSeedSource(SeedSource):
     seed_type: Literal["local"] = "local"
 
-    path: str
+    path: str = Field(
+        ...,
+        description=(
+            "Path to a local seed dataset file or wildcard pattern. Relative paths are resolved from the "
+            "current working directory when the config is loaded, not from the config file location."
+        ),
+    )
 
     @field_validator("path", mode="after")
     def validate_path(cls, v: str) -> str:
@@ -118,7 +124,13 @@ DirectorySeedTransformT = build_directory_seed_transform_type()
 class DirectorySeedSource(SeedSource):
     seed_type: Literal["directory"] = "directory"
 
-    path: str = Field(..., description="Directory containing seed artifacts.")
+    path: str = Field(
+        ...,
+        description=(
+            "Directory containing seed artifacts. Relative paths are resolved from the current working "
+            "directory when the config is loaded, not from the config file location."
+        ),
+    )
     transform: DirectorySeedTransformT | None = Field(
         default=None,
         description=(
@@ -132,4 +144,4 @@ class DirectorySeedSource(SeedSource):
         path = Path(value).expanduser().resolve()
         if not path.is_dir():
             raise InvalidFilePathError(f"🛑 Path {path} is not a directory.")
-        return str(path)
+        return value
