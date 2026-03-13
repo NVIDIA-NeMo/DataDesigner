@@ -99,31 +99,28 @@ download_app = typer.Typer(
     no_args_is_help=True,
 )
 
-# Create agent command group
+_AGENT_CMD = f"{_CMD}.agent"
+
 agent_app = typer.Typer(
     name="agent",
-    help="Agent-only JSON interface for dynamic Data Designer introspection",
+    help="Agent-only interface for dynamic Data Designer introspection",
     cls=create_lazy_typer_group(
         {
             "context": {
-                "module": f"{_CMD}.agent",
+                "module": _AGENT_CMD,
                 "attr": "context_command",
-                "help": "Return a self-describing bootstrap payload for agents",
+                "help": "Bootstrap payload with types, state, and builder.",
             },
             "types": {
-                "module": f"{_CMD}.agent",
+                "module": _AGENT_CMD,
                 "attr": "types_command",
-                "help": "Return the available types for one family or all families",
+                "help": "Type names and import paths for one or all families.",
             },
-            "schema": {
-                "module": f"{_CMD}.agent",
-                "attr": "schema_command",
-                "help": "Return JSON schema for a specific type or an entire family",
-            },
+            "schema": {"module": _AGENT_CMD, "attr": "schema_command", "help": "Schema for a type or entire family."},
             "builder": {
-                "module": f"{_CMD}.agent",
+                "module": _AGENT_CMD,
                 "attr": "builder_command",
-                "help": "Return the DataDesignerConfigBuilder API surface",
+                "help": "ConfigBuilder method surface with signatures.",
             },
         }
     ),
@@ -136,14 +133,14 @@ agent_state_app = typer.Typer(
     cls=create_lazy_typer_group(
         {
             "model-aliases": {
-                "module": f"{_CMD}.agent",
+                "module": _AGENT_CMD,
                 "attr": "state_model_aliases_command",
-                "help": "Return configured model aliases and provider usability",
+                "help": "Model aliases and usability status.",
             },
             "persona-datasets": {
-                "module": f"{_CMD}.agent",
+                "module": _AGENT_CMD,
                 "attr": "state_persona_datasets_command",
-                "help": "Return built-in persona locales and local install state",
+                "help": "Persona locales and install status.",
             },
         }
     ),

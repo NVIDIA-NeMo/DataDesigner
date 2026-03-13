@@ -9,108 +9,128 @@ from typing import Any
 
 import typer
 
-from data_designer.cli.controllers.agent_controller import AgentController
-from data_designer.cli.services.agent_introspection import AgentIntrospectionError
+from data_designer.cli.utils.agent_introspection import (
+    AgentIntrospectionError,
+    get_builder_api,
+    get_context,
+    get_library_version,
+    get_model_aliases_state,
+    get_persona_datasets_state,
+    get_schema,
+    get_types,
+)
+from data_designer.cli.utils.agent_text_formatter import (
+    format_builder_text,
+    format_context_text,
+    format_model_aliases_text,
+    format_persona_datasets_text,
+    format_schema_text,
+    format_types_text,
+)
 from data_designer.config.utils.constants import DATA_DESIGNER_HOME
 
 COMPACT_OPTION = typer.Option(False, "--compact", help="Emit compact JSON without indentation.")
+JSON_OPTION = typer.Option(False, "--json", help="Emit structured JSON instead of text.")
 
 
-def context_command(compact: bool = COMPACT_OPTION) -> None:
-    """Return the self-describing agent bootstrap payload as JSON."""
-    _run_command("agent_context", lambda controller: controller.get_context(), compact=compact)
+def context_command(use_json: bool = JSON_OPTION, compact: bool = COMPACT_OPTION) -> None:
+    """Return a bootstrap payload with types, local state, and builder summary."""
+    _run(
+        lambda: get_context(DATA_DESIGNER_HOME),
+        format_context_text,
+        kind="agent_context",
+        use_json=use_json,
+        compact=compact,
+    )
 
 
 def types_command(
     family: str | None = typer.Argument(None, help="Optional schema family name."),
+    use_json: bool = JSON_OPTION,
     compact: bool = COMPACT_OPTION,
 ) -> None:
-    """Return available types for one family or all families as JSON."""
-    _run_command("agent_types", lambda controller: controller.get_types(family), compact=compact)
+    """Return available type names and import paths for one family or all families."""
+    _run(lambda: get_types(family), format_types_text, kind="agent_types", use_json=use_json, compact=compact)
 
 
 def schema_command(
     family: str = typer.Argument(..., help="Schema family name."),
     type_name: str | None = typer.Argument(None, help="Type name within the selected family."),
     all_types: bool = typer.Option(False, "--all", help="Return every schema in the selected family."),
+    use_json: bool = JSON_OPTION,
     compact: bool = COMPACT_OPTION,
 ) -> None:
-    """Return JSON schema for one family member or all family members."""
-    _run_command(
-        "agent_schema",
-        lambda controller: controller.get_schema(family, type_name, all_types=all_types),
+    """Return schema for a specific type or every type in a family."""
+    _run(
+        lambda: get_schema(family, type_name, all_types=all_types),
+        format_schema_text,
+        kind="agent_schema",
+        use_json=use_json,
         compact=compact,
     )
 
 
-def builder_command(compact: bool = COMPACT_OPTION) -> None:
-    """Return the DataDesignerConfigBuilder API surface as JSON."""
-    _run_command("agent_builder", lambda controller: controller.get_builder(), compact=compact)
+def builder_command(use_json: bool = JSON_OPTION, compact: bool = COMPACT_OPTION) -> None:
+    """Return the DataDesignerConfigBuilder method surface with signatures and docstrings."""
+    _run(get_builder_api, format_builder_text, kind="agent_builder", use_json=use_json, compact=compact)
 
 
-def state_model_aliases_command(compact: bool = COMPACT_OPTION) -> None:
-    """Return configured model alias state as JSON."""
-    _run_command("agent_state_model_aliases", lambda controller: controller.get_model_aliases_state(), compact=compact)
-
-
-def state_persona_datasets_command(compact: bool = COMPACT_OPTION) -> None:
-    """Return persona dataset install state as JSON."""
-    _run_command(
-        "agent_state_persona_datasets",
-        lambda controller: controller.get_persona_datasets_state(),
+def state_model_aliases_command(use_json: bool = JSON_OPTION, compact: bool = COMPACT_OPTION) -> None:
+    """Return configured model aliases and whether each one is currently usable."""
+    _run(
+        lambda: get_model_aliases_state(DATA_DESIGNER_HOME),
+        format_model_aliases_text,
+        kind="agent_state_model_aliases",
+        use_json=use_json,
         compact=compact,
     )
 
 
-def _run_command(kind: str, get_data: Callable[[AgentController], Any], *, compact: bool) -> None:
-    controller = AgentController(DATA_DESIGNER_HOME)
+def state_persona_datasets_command(use_json: bool = JSON_OPTION, compact: bool = COMPACT_OPTION) -> None:
+    """Return built-in persona locales and whether each dataset is installed locally."""
+    _run(
+        lambda: get_persona_datasets_state(DATA_DESIGNER_HOME),
+        format_persona_datasets_text,
+        kind="agent_state_persona_datasets",
+        use_json=use_json,
+        compact=compact,
+    )
 
+
+def _run(
+    get_data: Callable[[], Any],
+    format_text: Callable[[Any], str],
+    *,
+    kind: str,
+    use_json: bool,
+    compact: bool,
+) -> None:
     try:
-        _emit_json_response(
-            kind=kind,
-            library_version=controller.get_library_version(),
-            data=get_data(controller),
-            compact=compact,
-        )
+        data = get_data()
+        if use_json:
+            _emit({"kind": kind, "library_version": get_library_version(), "data": data}, compact=compact)
+        else:
+            typer.echo(format_text(data))
     except AgentIntrospectionError as exc:
-        _write_error_response(code=exc.code, message=exc.message, details=exc.details, compact=compact)
+        _emit({"error": {"code": exc.code, "message": exc.message, "details": exc.details}}, compact=compact, err=True)
         raise typer.Exit(code=1)
     except Exception as exc:
-        _write_error_response(
-            code="internal_error",
-            message=str(exc),
-            details={"exception_type": type(exc).__name__},
+        _emit(
+            {
+                "error": {
+                    "code": "internal_error",
+                    "message": str(exc),
+                    "details": {"exception_type": type(exc).__name__},
+                }
+            },
             compact=compact,
+            err=True,
         )
         raise typer.Exit(code=1)
 
 
-def _emit_json_response(*, kind: str, library_version: str, data: Any, compact: bool) -> None:
+def _emit(payload: Any, *, compact: bool, err: bool = False) -> None:
     typer.echo(
-        json.dumps(
-            {
-                "kind": kind,
-                "library_version": library_version,
-                "data": data,
-            },
-            indent=None if compact else 2,
-            separators=(",", ":") if compact else None,
-        )
-    )
-
-
-def _write_error_response(*, code: str, message: str, details: dict[str, Any] | None = None, compact: bool) -> None:
-    typer.echo(
-        json.dumps(
-            {
-                "error": {
-                    "code": code,
-                    "message": message,
-                    "details": details or {},
-                },
-            },
-            indent=None if compact else 2,
-            separators=(",", ":") if compact else None,
-        ),
-        err=True,
+        json.dumps(payload, indent=None if compact else 2, separators=(",", ":") if compact else None),
+        err=err,
     )

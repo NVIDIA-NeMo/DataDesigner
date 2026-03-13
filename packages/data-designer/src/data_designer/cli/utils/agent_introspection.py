@@ -5,13 +5,20 @@ from __future__ import annotations
 
 import importlib.metadata
 import inspect
+import re
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 from typing import Any, Literal, get_args, get_origin
 
 import data_designer.config as dd
+from data_designer.cli.repositories.model_repository import ModelRepository
+from data_designer.cli.repositories.persona_repository import PersonaRepository
+from data_designer.cli.repositories.provider_repository import ProviderRepository
+from data_designer.cli.services.download_service import DownloadService
 from data_designer.config.column_types import ColumnConfigT
 from data_designer.config.config_builder import DataDesignerConfigBuilder
+from data_designer.config.default_model_settings import get_providers_with_missing_api_keys
 from data_designer.config.processor_types import ProcessorConfigT
 from data_designer.config.sampler_constraints import ColumnConstraintT
 from data_designer.config.sampler_params import SamplerParamsT
@@ -53,82 +60,30 @@ def get_library_version() -> str:
         return "unknown"
 
 
-def get_resolved_family_name(family: str) -> str:
-    return _get_family_spec(family).name
-
-
-def get_family_counts() -> list[dict[str, str | int]]:
-    return [{"family": family, "count": len(get_family_catalog(family))} for family in get_family_names()]
-
-
-def get_family_catalog(family: str) -> list[dict[str, str]]:
-    return [
-        {
-            "type_name": type_name,
-            "class_name": cls.__name__,
-            "import_path": get_import_path(cls),
-        }
-        for type_name, cls in _discover_family_types(family).items()
-    ]
-
-
-def get_family_schema(family: str, type_name: str) -> dict[str, Any]:
-    cls = _discover_family_types(family).get(type_name)
-    if cls is None:
+def get_family_spec(family: str) -> FamilySpec:
+    spec = _FAMILY_SPECS.get(_normalize_family_name(family))
+    if spec is None:
         raise AgentIntrospectionError(
-            code="unknown_type",
-            message=f"Unknown type {type_name!r} for family {family!r}.",
-            details={"family": family, "available_types": list(_discover_family_types(family))},
+            code="unknown_family",
+            message=f"Unknown family {family!r}.",
+            details={"available_families": get_family_names()},
         )
-
-    return {
-        "family": get_resolved_family_name(family),
-        "type_name": type_name,
-        "class_name": cls.__name__,
-        "import_path": get_import_path(cls),
-        "schema": cls.model_json_schema(),
-    }
+    return spec
 
 
-def get_family_schemas(family: str) -> dict[str, Any]:
-    items = [get_family_schema(family, type_name) for type_name in _discover_family_types(family)]
-    return {"family": get_resolved_family_name(family), "items": items}
-
-
-def get_builder_api(*, include_docstrings: bool) -> dict[str, Any]:
-    return {
-        "class_name": DataDesignerConfigBuilder.__name__,
-        "import_path": get_import_path(DataDesignerConfigBuilder),
-        "methods": get_builder_methods(include_docstrings=include_docstrings),
-    }
-
-
-def get_builder_methods(*, include_docstrings: bool) -> list[dict[str, Any]]:
-    methods: list[dict[str, Any]] = []
-
-    for name, attr in inspect.getmembers(DataDesignerConfigBuilder):
-        if name.startswith("_") and name != "__init__":
-            continue
-        if not callable(attr):
-            continue
-
-        try:
-            signature = inspect.signature(attr)
-        except (TypeError, ValueError):
-            continue
-
-        docstring = inspect.getdoc(attr)
-        method_info: dict[str, Any] = {
-            "name": name,
-            "signature": _format_signature(name, signature),
-            "summary": _get_first_docstring_line(docstring),
-        }
-        if include_docstrings:
-            method_info["docstring"] = docstring
-
-        methods.append(method_info)
-
-    return methods
+def discover_family_types(family: str) -> dict[str, type]:
+    spec = get_family_spec(family)
+    discovered: dict[str, type] = {}
+    for model in get_args(spec.type_union):
+        type_name = _extract_literal_value(model.model_fields[spec.discriminator_field].annotation)
+        if type_name in discovered and discovered[type_name] is not model:
+            raise AgentIntrospectionError(
+                code="duplicate_discriminator_value",
+                message=f"Duplicate discriminator {type_name!r} in family {family!r}.",
+                details={"family": family, "type_name": type_name},
+            )
+        discovered[type_name] = model
+    return dict(sorted(discovered.items()))
 
 
 def get_import_path(cls: type) -> str:
@@ -138,54 +93,197 @@ def get_import_path(cls: type) -> str:
     return f"{cls.__module__}.{cls.__qualname__}"
 
 
-def _discover_family_types(family: str) -> dict[str, type]:
-    spec = _get_family_spec(family)
-    discovered: dict[str, type] = {}
-    for model in get_args(spec.type_union):
-        if not hasattr(model, "model_fields"):
-            raise AgentIntrospectionError(
-                code="invalid_family_model",
-                message=f"Model {model!r} in family {family!r} does not expose Pydantic model_fields.",
-                details={"family": family, "model": repr(model)},
-            )
-        if spec.discriminator_field not in model.model_fields:
-            raise AgentIntrospectionError(
-                code="missing_discriminator_field",
-                message=f"Model {model.__name__!r} in family {family!r} is missing discriminator field "
-                f"{spec.discriminator_field!r}.",
-                details={
-                    "family": family,
-                    "model": model.__name__,
-                    "discriminator_field": spec.discriminator_field,
-                },
-            )
-
-        type_name = _extract_literal_value(model.model_fields[spec.discriminator_field].annotation)
-        if type_name in discovered and discovered[type_name] is not model:
-            raise AgentIntrospectionError(
-                code="duplicate_discriminator_value",
-                message=f"Multiple models in family {family!r} resolve to discriminator value {type_name!r}.",
-                details={
-                    "family": family,
-                    "type_name": type_name,
-                    "models": [discovered[type_name].__name__, model.__name__],
-                },
-            )
-
-        discovered[type_name] = model
-
-    return dict(sorted(discovered.items()))
+def get_family_catalog(family: str) -> list[dict[str, str]]:
+    return [
+        {"type_name": type_name, "class_name": cls.__name__, "import_path": get_import_path(cls)}
+        for type_name, cls in discover_family_types(family).items()
+    ]
 
 
-def _get_family_spec(family: str) -> FamilySpec:
-    spec = _FAMILY_SPECS.get(_normalize_family_name(family))
-    if spec is None:
+def get_family_schema(family: str, type_name: str) -> dict[str, Any]:
+    types_map = discover_family_types(family)
+    cls = types_map.get(type_name)
+    if cls is None:
         raise AgentIntrospectionError(
-            code="unknown_family",
-            message=f"Unknown family {family!r}.",
-            details={"available_families": get_family_names()},
+            code="unknown_type",
+            message=f"Unknown type {type_name!r} for family {family!r}.",
+            details={"family": family, "available_types": list(types_map)},
         )
-    return spec
+    return _build_schema_dict(get_family_spec(family).name, type_name, cls)
+
+
+def get_family_schemas(family: str) -> dict[str, Any]:
+    spec = get_family_spec(family)
+    types_map = discover_family_types(family)
+    items = [_build_schema_dict(spec.name, tn, cls) for tn, cls in types_map.items()]
+    return {"family": spec.name, "items": items}
+
+
+def get_builder_api() -> dict[str, Any]:
+    return {
+        "class_name": DataDesignerConfigBuilder.__name__,
+        "import_path": get_import_path(DataDesignerConfigBuilder),
+        "methods": _get_builder_methods(),
+    }
+
+
+def get_operations() -> list[dict[str, str]]:
+    ops = (
+        (
+            "context",
+            "data-designer agent context",
+            "Bootstrap payload with types, state, and builder.",
+            "agent_context",
+        ),
+        (
+            "types",
+            "data-designer agent types [family]",
+            "Type names and import paths for one or all families.",
+            "agent_types",
+        ),
+        (
+            "schema",
+            "data-designer agent schema <family> <type> | --all",
+            "Schema for a type or entire family.",
+            "agent_schema",
+        ),
+        ("builder", "data-designer agent builder", "ConfigBuilder method surface with signatures.", "agent_builder"),
+        (
+            "state.model-aliases",
+            "data-designer agent state model-aliases",
+            "Configured model aliases and usability.",
+            "agent_state_model_aliases",
+        ),
+        (
+            "state.persona-datasets",
+            "data-designer agent state persona-datasets",
+            "Persona locales and install status.",
+            "agent_state_persona_datasets",
+        ),
+    )
+    return [{"name": n, "command_pattern": p, "description": d, "returns": r} for n, p, d, r in ops]
+
+
+def get_context(config_dir: Path) -> dict[str, Any]:
+    catalogs = {f: get_family_catalog(f) for f in get_family_names()}
+    return {
+        "operations": get_operations(),
+        "families": [{"family": f, "count": len(items)} for f, items in catalogs.items()],
+        "types": catalogs,
+        "state": {
+            "model_aliases": get_model_aliases_state(config_dir),
+            "persona_datasets": get_persona_datasets_state(config_dir),
+        },
+        "builder": get_builder_api(),
+    }
+
+
+def get_types(family: str | None) -> dict[str, Any]:
+    if family is None:
+        catalogs = {f: get_family_catalog(f) for f in get_family_names()}
+        return {
+            "families": [{"family": f, "count": len(items)} for f, items in catalogs.items()],
+            "items": catalogs,
+        }
+    return {"family": get_family_spec(family).name, "items": get_family_catalog(family)}
+
+
+def get_schema(family: str, type_name: str | None, *, all_types: bool) -> dict[str, Any]:
+    if all_types and type_name is not None:
+        raise AgentIntrospectionError(
+            code="invalid_schema_request",
+            message="Provide either a type name or --all, but not both.",
+            details={"family": family, "type_name": type_name, "all": all_types},
+        )
+    if all_types:
+        return get_family_schemas(family)
+    if type_name is None:
+        raise AgentIntrospectionError(
+            code="missing_type_name",
+            message="A type name is required unless --all is provided.",
+            details={"family": family},
+        )
+    return get_family_schema(family, type_name)
+
+
+def get_model_aliases_state(config_dir: Path) -> dict[str, Any]:
+    model_registry = _load_registry(ModelRepository(config_dir))
+    provider_registry = _load_registry(ProviderRepository(config_dir))
+
+    items: list[dict[str, Any]] = []
+    if model_registry is None:
+        return {
+            "model_config_present": False,
+            "provider_config_present": provider_registry is not None,
+            "default_provider": None if provider_registry is None else provider_registry.default,
+            "items": items,
+        }
+
+    providers_by_name: dict[str, Any] = {}
+    missing_key_names: set[str] = set()
+    default_provider: str | None = None
+    if provider_registry is not None:
+        providers_by_name = {p.name: p for p in provider_registry.providers}
+        default_provider = provider_registry.default or provider_registry.providers[0].name
+        missing_key_names = {p.name for p in get_providers_with_missing_api_keys(provider_registry.providers)}
+
+    for mc in sorted(model_registry.model_configs, key=lambda m: m.alias):
+        effective = mc.provider or default_provider
+        usable = True
+        reason: str | None = None
+        if effective is None:
+            usable, reason = False, "No model provider is configured."
+        elif effective not in providers_by_name:
+            usable, reason = False, f"Provider {effective!r} is not configured."
+        elif effective in missing_key_names:
+            usable, reason = False, f"Provider {effective!r} is missing an API key."
+
+        items.append(
+            {
+                "model_alias": mc.alias,
+                "model": mc.model,
+                "generation_type": getattr(mc.generation_type, "value", str(mc.generation_type)),
+                "configured_provider": mc.provider,
+                "effective_provider": effective,
+                "usable": usable,
+                "reason": reason,
+            }
+        )
+
+    return {
+        "model_config_present": True,
+        "provider_config_present": provider_registry is not None,
+        "default_provider": default_provider,
+        "items": items,
+    }
+
+
+def get_persona_datasets_state(config_dir: Path) -> dict[str, Any]:
+    persona_repo = PersonaRepository()
+    download_svc = DownloadService(config_dir, persona_repo)
+    return {
+        "managed_assets_directory": str(download_svc.get_managed_assets_directory()),
+        "items": [
+            {
+                "locale": loc.code,
+                "dataset_name": loc.dataset_name,
+                "size": loc.size,
+                "installed": download_svc.is_locale_downloaded(loc.code),
+            }
+            for loc in sorted(persona_repo.list_all(), key=lambda loc: loc.code)
+        ],
+    }
+
+
+def _build_schema_dict(family_name: str, type_name: str, cls: type) -> dict[str, Any]:
+    return {
+        "family": family_name,
+        "type_name": type_name,
+        "class_name": cls.__name__,
+        "import_path": get_import_path(cls),
+        "schema": cls.model_json_schema(),
+        "schema_text": cls.schema_text(),
+    }
 
 
 def _normalize_family_name(family: str) -> str:
@@ -199,83 +297,59 @@ def _normalize_family_name(family: str) -> str:
 
 
 def _extract_literal_value(annotation: Any) -> str:
-    if get_origin(annotation) is not Literal:
+    if get_origin(annotation) is not Literal or not get_args(annotation):
         raise AgentIntrospectionError(
             code="invalid_discriminator_annotation",
-            message=f"Expected Literal discriminator annotation, received {annotation!r}.",
+            message=f"Expected non-empty Literal annotation, got {annotation!r}.",
         )
-
-    args = get_args(annotation)
-    if not args:
-        raise AgentIntrospectionError(
-            code="missing_discriminator_value",
-            message=f"Literal discriminator annotation {annotation!r} does not contain any values.",
-        )
-
-    value = args[0]
-    if isinstance(value, Enum):
-        return str(value.value)
-    return str(value)
+    value = get_args(annotation)[0]
+    return str(value.value) if isinstance(value, Enum) else str(value)
 
 
-def _format_signature(method_name: str, signature: inspect.Signature) -> str:
-    rendered_params: list[str] = []
-    seen_keyword_only = False
-    has_var_positional = any(param.kind == inspect.Parameter.VAR_POSITIONAL for param in signature.parameters.values())
-
-    for param in signature.parameters.values():
-        if param.name in {"self", "cls"}:
+def _get_builder_methods() -> list[dict[str, Any]]:
+    methods: list[dict[str, Any]] = []
+    for name, attr in inspect.getmembers(DataDesignerConfigBuilder):
+        if name.startswith("_") and name != "__init__":
+            continue
+        if not callable(attr):
+            continue
+        try:
+            sig = inspect.signature(attr)
+        except (TypeError, ValueError):
             continue
 
-        if param.kind == inspect.Parameter.KEYWORD_ONLY and not seen_keyword_only and not has_var_positional:
-            seen_keyword_only = True
-            rendered_params.append("*")
+        docstring = inspect.getdoc(attr)
+        methods.append(
+            {
+                "name": name,
+                "signature": _format_signature(name, sig),
+                "summary": _get_first_line(docstring),
+                "docstring": docstring,
+            }
+        )
 
-        annotation = _format_annotation(param.annotation)
-        default = ""
-        if param.default is not inspect.Parameter.empty:
-            default = f" = {param.default!r}"
-
-        if param.kind == inspect.Parameter.VAR_POSITIONAL:
-            part = f"*{param.name}"
-            if annotation:
-                part += f": {annotation}"
-        elif param.kind == inspect.Parameter.VAR_KEYWORD:
-            part = f"**{param.name}"
-            if annotation:
-                part += f": {annotation}"
-        else:
-            part = param.name
-            if annotation:
-                part += f": {annotation}"
-            part += default
-
-        rendered_params.append(part)
-
-    rendered = f"{method_name}({', '.join(rendered_params)})"
-    return_annotation = _format_annotation(signature.return_annotation)
-    if return_annotation:
-        rendered += f" -> {return_annotation}"
-    return rendered
+    return methods
 
 
-def _format_annotation(annotation: Any) -> str | None:
-    if annotation is inspect.Signature.empty:
+def _format_signature(method_name: str, sig: inspect.Signature) -> str:
+    params = [p for p in sig.parameters.values() if p.name not in {"self", "cls"}]
+    sig_str = str(sig.replace(parameters=params))
+    sig_str = re.sub(r"\b[a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)+", lambda m: m.group().rsplit(".", 1)[-1], sig_str)
+    return f"{method_name}{sig_str}"
+
+
+def _get_first_line(text: str | None) -> str | None:
+    return next((line.strip() for line in text.strip().splitlines() if line.strip()), None) if text else None
+
+
+def _load_registry(repo: Any) -> Any:
+    if not repo.exists():
         return None
-    if isinstance(annotation, str):
-        value = annotation
-    elif hasattr(annotation, "__name__"):
-        value = annotation.__name__
-    else:
-        value = str(annotation)
-    return value.replace("typing.", "").replace("typing_extensions.", "")
-
-
-def _get_first_docstring_line(docstring: str | None) -> str | None:
-    if not docstring:
-        return None
-    for line in docstring.strip().splitlines():
-        stripped = line.strip()
-        if stripped:
-            return stripped
-    return None
+    registry = repo.load()
+    if registry is None:
+        raise AgentIntrospectionError(
+            code="invalid_registry",
+            message=f"Failed to load registry from {str(repo.config_file)!r}.",
+            details={"config_file": str(repo.config_file)},
+        )
+    return registry
