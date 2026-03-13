@@ -31,7 +31,7 @@ def test_data_designer_config_to_json(stub_data_designer_config):
             assert json.loads(f.read()) == stub_data_designer_config.to_dict()
 
 
-def test_data_designer_config_parses_constraint_type_from_legacy_shape():
+def test_data_designer_config_parses_constraint_type_from_legacy_shape() -> None:
     config = DataDesignerConfig.model_validate(
         {
             "columns": [
@@ -44,6 +44,7 @@ def test_data_designer_config_parses_constraint_type_from_legacy_shape():
             ],
             "constraints": [
                 {"target_column": "age", "operator": "lt", "rhs": 65},
+                {"target_column": "age", "operator": "le", "rhs": "65"},
                 {"target_column": "age", "operator": "gt", "rhs": "minimum_age"},
             ],
         }
@@ -54,6 +55,12 @@ def test_data_designer_config_parses_constraint_type_from_legacy_shape():
         {
             "target_column": "age",
             "operator": "lt",
+            "rhs": 65.0,
+            "constraint_type": "scalar_inequality",
+        },
+        {
+            "target_column": "age",
+            "operator": "le",
             "rhs": 65.0,
             "constraint_type": "scalar_inequality",
         },

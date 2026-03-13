@@ -63,9 +63,19 @@ def resolve_constraint_input_type(value: Any) -> ConstraintType | str | None:
         # SCALAR_INEQUALITY — Pydantic will surface a clear "rhs field required" error.
         if (rhs := value.get("rhs")) is None:
             return ConstraintType.SCALAR_INEQUALITY
-        return ConstraintType.COLUMN_INEQUALITY if isinstance(rhs, str) else ConstraintType.SCALAR_INEQUALITY
+        if isinstance(rhs, str):
+            return ConstraintType.SCALAR_INEQUALITY if _can_coerce_to_float(rhs) else ConstraintType.COLUMN_INEQUALITY
+        return ConstraintType.SCALAR_INEQUALITY
 
     return getattr(value, "constraint_type", None)
+
+
+def _can_coerce_to_float(value: str) -> bool:
+    try:
+        float(value)
+    except ValueError:
+        return False
+    return True
 
 
 ColumnConstraintInputT: TypeAlias = Annotated[
