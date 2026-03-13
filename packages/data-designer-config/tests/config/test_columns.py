@@ -267,7 +267,7 @@ def test_validation_column_config():
     assert validation_column_config.batch_size == 5
 
 
-def test_validation_column_config_injects_validator_type_into_params_dict():
+def test_validation_column_config_injects_validator_type_into_params_dict() -> None:
     validation_column_config = ValidationColumnConfig(
         name="test_validation",
         target_columns=["test_column"],
@@ -280,7 +280,7 @@ def test_validation_column_config_injects_validator_type_into_params_dict():
     assert validation_column_config.validator_params.code_lang == CodeLang.PYTHON
 
 
-def test_validation_column_config_schema_uses_validator_discriminator():
+def test_validation_column_config_schema_uses_validator_discriminator() -> None:
     schema = ValidationColumnConfig.model_json_schema()
     validator_params = schema["properties"]["validator_params"]
 

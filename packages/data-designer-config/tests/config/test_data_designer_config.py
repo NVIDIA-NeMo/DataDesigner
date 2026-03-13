@@ -4,6 +4,7 @@
 import json
 import tempfile
 
+import pytest
 import yaml
 
 from data_designer.config.data_designer_config import DataDesignerConfig
@@ -71,3 +72,62 @@ def test_data_designer_config_parses_constraint_type_from_legacy_shape() -> None
             "constraint_type": "column_inequality",
         },
     ]
+
+
+def test_data_designer_config_parses_constraint_type_from_tagged_shape() -> None:
+    config = DataDesignerConfig.model_validate(
+        {
+            "columns": [
+                {
+                    "name": "age",
+                    "column_type": "sampler",
+                    "sampler_type": "uniform",
+                    "params": {"low": 18, "high": 99},
+                }
+            ],
+            "constraints": [
+                {"target_column": "age", "operator": "lt", "rhs": 65.0, "constraint_type": "scalar_inequality"},
+                {
+                    "target_column": "age",
+                    "operator": "gt",
+                    "rhs": "minimum_age",
+                    "constraint_type": "column_inequality",
+                },
+            ],
+        }
+    )
+
+    serialized_constraints = [constraint.model_dump(mode="json") for constraint in config.constraints]
+    assert serialized_constraints == [
+        {
+            "target_column": "age",
+            "operator": "lt",
+            "rhs": 65.0,
+            "constraint_type": "scalar_inequality",
+        },
+        {
+            "target_column": "age",
+            "operator": "gt",
+            "rhs": "minimum_age",
+            "constraint_type": "column_inequality",
+        },
+    ]
+
+
+def test_data_designer_config_constraint_missing_rhs_raises_validation_error() -> None:
+    with pytest.raises(Exception):
+        DataDesignerConfig.model_validate(
+            {
+                "columns": [
+                    {
+                        "name": "age",
+                        "column_type": "sampler",
+                        "sampler_type": "uniform",
+                        "params": {"low": 18, "high": 99},
+                    }
+                ],
+                "constraints": [
+                    {"target_column": "age", "operator": "lt"},
+                ],
+            }
+        )

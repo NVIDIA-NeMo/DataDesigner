@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import math
 from abc import ABC
 from enum import Enum
 from typing import Annotated, Any, Literal
@@ -50,6 +51,7 @@ class ColumnInequalityConstraint(Constraint):
     )
 
 
+# Plain union for engine-layer type hints on already-validated constraint instances.
 ColumnConstraintT: TypeAlias = ScalarInequalityConstraint | ColumnInequalityConstraint
 
 
@@ -72,12 +74,13 @@ def resolve_constraint_input_type(value: Any) -> ConstraintType | str | None:
 
 def _can_coerce_to_float(value: str) -> bool:
     try:
-        float(value)
+        result = float(value)
     except ValueError:
         return False
-    return True
+    return math.isfinite(result)
 
 
+# Discriminated union for deserialization — supports both tagged and legacy config shapes.
 ColumnConstraintInputT: TypeAlias = Annotated[
     Annotated[ScalarInequalityConstraint, Tag(ConstraintType.SCALAR_INEQUALITY)]
     | Annotated[ColumnInequalityConstraint, Tag(ConstraintType.COLUMN_INEQUALITY)],
