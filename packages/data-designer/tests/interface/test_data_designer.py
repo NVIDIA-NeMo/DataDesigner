@@ -455,6 +455,9 @@ def test_validate_raises_error_when_seed_collides(
 def test_initialize_interface_runtime_runs_once(monkeypatch: pytest.MonkeyPatch) -> None:
     """_initialize_interface_runtime only runs initialization once."""
     monkeypatch.setattr(dd_mod, "_interface_runtime_initialized", False)
+    
+    from data_designer import logging as _logging_mod
+    monkeypatch.setattr(_logging_mod, "_configured", False)
 
     with (
         patch("data_designer.interface.data_designer.configure_logging") as mock_logging,
@@ -463,4 +466,20 @@ def test_initialize_interface_runtime_runs_once(monkeypatch: pytest.MonkeyPatch)
         dd_mod._initialize_interface_runtime()
         dd_mod._initialize_interface_runtime()
         mock_logging.assert_called_once()
+        mock_resolve.assert_called_once()
+
+
+def test_initialize_interface_runtime_skips_logging_if_already_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    """_initialize_interface_runtime skips logging config if user already configured it."""
+    monkeypatch.setattr(dd_mod, "_interface_runtime_initialized", False)
+    
+    from data_designer import logging as _logging_mod
+    monkeypatch.setattr(_logging_mod, "_configured", True)
+
+    with (
+        patch("data_designer.interface.data_designer.configure_logging") as mock_logging,
+        patch("data_designer.interface.data_designer.resolve_seed_default_model_settings") as mock_resolve,
+    ):
+        dd_mod._initialize_interface_runtime()
+        mock_logging.assert_not_called()
         mock_resolve.assert_called_once()

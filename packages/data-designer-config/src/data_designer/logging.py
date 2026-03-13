@@ -114,7 +114,11 @@ class RandomEmoji:
         return random.choice(["⚙️", "🔧", "🔨", "⚒️", "🛠️", "💼", "👷", "🏗️", "🪛", "👨‍💻"])
 
 
+_configured = False
+
 def configure_logging(config: LoggingConfig | None = None) -> None:
+    global _configured
+    _configured = True
     config = config or LoggingConfig.default()
 
     root_logger = logging.getLogger()
