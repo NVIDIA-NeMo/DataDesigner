@@ -5,11 +5,13 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.config_builder import DataDesignerConfigBuilder
+from data_designer.config.utils.misc import is_notebook_environment
 from data_designer.config.utils.trace_renderer import TraceMessage, TraceRenderer
 from data_designer.config.utils.trace_type import TraceType
 from data_designer.config.utils.visualization import display_sample_record
@@ -179,15 +181,21 @@ def test_render_rich_malformed_tool_call_args(renderer: TraceRenderer) -> None:
     assert "not valid json" in rendered
 
 
-# --- render_notebook_html tests (outside notebook, should return False) ---
+# --- render_notebook_html tests ---
 
 
-def test_render_notebook_html_returns_false_outside_notebook(
+def test_render_notebook_html_returns_false_when_ipython_unavailable(
     renderer: TraceRenderer, simple_trace: list[TraceMessage]
 ) -> None:
-    """Outside a Jupyter notebook, render_notebook_html returns False."""
-    result = renderer.render_notebook_html(simple_trace, "answer__trace")
+    """render_notebook_html returns False when IPython is not installed."""
+    with patch.dict("sys.modules", {"IPython": None, "IPython.display": None}):
+        result = renderer.render_notebook_html(simple_trace, "answer__trace")
     assert result is False
+
+
+def test_is_notebook_environment_returns_false_outside_notebook() -> None:
+    """is_notebook_environment returns False when not in a Jupyter notebook."""
+    assert is_notebook_environment() is False
 
 
 # --- Integration with display_sample_record ---

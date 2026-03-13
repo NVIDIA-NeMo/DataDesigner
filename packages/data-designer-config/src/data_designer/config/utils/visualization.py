@@ -44,6 +44,7 @@ from data_designer.config.utils.image_helpers import (
     is_image_url,
     load_image_path_to_base64,
 )
+from data_designer.config.utils.misc import is_notebook_environment
 from data_designer.config.utils.trace_renderer import TraceMessage, TraceRenderer
 
 if TYPE_CHECKING:
@@ -74,13 +75,15 @@ def _display_image_if_in_notebook(image_data: str, col_name: str) -> bool:
     Returns:
         True if image was displayed, False otherwise.
     """
+    if not is_notebook_environment():
+        return False
+
     try:
-        # Check if we're in a Jupyter environment
         from IPython.display import HTML, display
+    except ImportError:
+        return False
 
-        get_ipython()  # This will raise NameError if not in IPython/Jupyter
-
-        # Escape column name to prevent HTML injection
+    try:
         escaped_col_name = html.escape(col_name)
 
         # URLs: render directly as <img src='url'>
@@ -119,9 +122,6 @@ def _display_image_if_in_notebook(image_data: str, col_name: str) -> bool:
         """
         display(HTML(html_content))
         return True
-    except (ImportError, NameError):
-        # Not in a notebook environment
-        return False
     except Exception as e:
         console.print(f"[yellow]⚠️ Could not display image for column '{col_name}': {e}[/yellow]")
         return False
@@ -290,6 +290,24 @@ def display_sample_record(
         )
 
     render_list = []
+    in_notebook = is_notebook_environment()
+
+    if record_index is not None:
+        if in_notebook:
+            try:
+                from IPython.display import HTML, display
+
+                display(
+                    HTML(
+                        f"<div style='text-align:center;font-family:Menlo,Monaco,Consolas,monospace;"
+                        f"font-size:12px;color:#666;margin:8px 0;'>[index: {record_index}]</div>"
+                    )
+                )
+            except ImportError:
+                pass
+        else:
+            render_list.append(Text(f"[index: {record_index}]", justify="center"))
+
     table_kws = dict(show_lines=True, expand=True)
 
     # Display seed columns if seed_column_names is provided and not empty
@@ -340,20 +358,14 @@ def display_sample_record(
                     if side_col.endswith(TRACE_COLUMN_POSTFIX) and side_col in record:
                         traces: list[TraceMessage] = record[side_col]
                         if isinstance(traces, list) and len(traces) > 0:
-                            render_list.append(pad_console_element(trace_renderer.render_rich(traces, side_col)))
+                            if not in_notebook:
+                                render_list.append(pad_console_element(trace_renderer.render_rich(traces, side_col)))
                             traces_to_display_later.append((side_col, traces))
 
     # Collect image generation columns (will be displayed at the end)
     image_columns = config_builder.get_columns_of_type(DataDesignerColumnType.IMAGE)
     images_to_display_later = []
     if len(image_columns) > 0:
-        # Check if we're in a notebook to decide display style
-        try:
-            get_ipython()
-            in_notebook = True
-        except NameError:
-            in_notebook = False
-
         # Create table for image columns
         table = Table(title="Images", **table_kws)
         table.add_column("Name")
@@ -435,7 +447,7 @@ def display_sample_record(
                         } | validation_output
 
                 table.add_row(col.name, convert_to_row_element(value_to_display))
-        render_list.append(pad_console_element(table, (1, 0, 1, 0)))
+        render_list.append(pad_console_element(table))
 
     llm_judge_columns = config_builder.get_columns_of_type(DataDesignerColumnType.LLM_JUDGE)
     if len(llm_judge_columns) > 0:
@@ -450,7 +462,7 @@ def display_sample_record(
                 table.add_column(measure)
                 row.append(f"score: {results['score']}\nreasoning: {results['reasoning']}")
             table.add_row(*row)
-            render_list.append(pad_console_element(table, (1, 0, 1, 0)))
+            render_list.append(pad_console_element(table))
 
     if processor_data_to_display and len(processor_data_to_display) > 0:
         for processor_name, processor_data in processor_data_to_display.items():
@@ -459,11 +471,7 @@ def display_sample_record(
             table.add_column("Value")
             for col, value in processor_data.items():
                 table.add_row(col, convert_to_row_element(value))
-        render_list.append(pad_console_element(table, (1, 0, 1, 0)))
-
-    if record_index is not None:
-        index_label = Text(f"[index: {record_index}]", justify="center")
-        render_list.append(index_label)
+        render_list.append(pad_console_element(table))
 
     if save_path is not None:
         recording_console = Console(record=True, width=display_width, file=io.StringIO())
@@ -475,8 +483,8 @@ def display_sample_record(
         display_console = Console(width=capped_width)
         display_console.print(Group(*render_list), markup=False)
 
-    # Display traces as HTML in notebook (only in notebook)
-    if len(traces_to_display_later) > 0:
+    # Display traces as HTML in notebook
+    if in_notebook and len(traces_to_display_later) > 0:
         for col_name, trace_data in traces_to_display_later:
             trace_renderer.render_notebook_html(trace_data, col_name)
 
@@ -614,7 +622,7 @@ def convert_to_row_element(elem: Any) -> str | Pretty:
     return elem
 
 
-def pad_console_element(elem: Any, padding: tuple[int, int, int, int] = (1, 0, 1, 0)) -> Padding:
+def pad_console_element(elem: Any, padding: tuple[int, int, int, int] = (0, 0, 1, 0)) -> Padding:
     return Padding(elem, padding)
 
 

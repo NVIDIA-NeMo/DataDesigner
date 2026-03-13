@@ -6,10 +6,13 @@ from __future__ import annotations
 import html
 import json
 import logging
+import textwrap
 from typing import Literal, Required, TypedDict
 
 from rich.console import Group
+from rich.padding import Padding
 from rich.panel import Panel
+from rich.rule import Rule
 from rich.text import Text
 
 logger = logging.getLogger(__name__)
@@ -45,11 +48,16 @@ class TraceMessage(TypedDict, total=False):
 # --- Role display metadata ---
 
 _ROLE_STYLES: dict[str, tuple[str, str]] = {
-    "system": ("⚙️ system", "dim"),
-    "user": ("👤 user", "blue"),
-    "assistant": ("🤖 assistant", "green"),
-    "tool": ("📨 tool result", "magenta"),
+    "system": ("[system]", "grey70"),
+    "user": ("[user]", "cornflower_blue"),
+    "assistant": ("[assistant]", "bright_green"),
+    "tool": ("[tool result]", "light_pink3"),
 }
+
+_REASONING_LABEL_STYLE = "italic bold medium_orchid1"
+_REASONING_BODY_STYLE = "italic medium_orchid1"
+_TOOL_CALL_LABEL_STYLE = "bold bright_yellow"
+_TOOL_CALL_BODY_STYLE = "bright_yellow"
 
 _ROLE_HTML_COLORS: dict[str, str] = {
     "system": "#e8e8e8",
@@ -71,10 +79,10 @@ def _extract_text_content(message: TraceMessage) -> str:
     parts: list[str] = []
     for block in content:
         if isinstance(block, dict) and block.get("type") == "text":
-            parts.append(block.get("text", ""))
+            parts.append(textwrap.dedent(block.get("text", "")).strip())
         elif isinstance(block, str):
-            parts.append(block)
-    return "\n".join(parts)
+            parts.append(textwrap.dedent(block).strip())
+    return "\n".join(part for part in parts if part)
 
 
 def _format_tool_call_args(raw_args: str) -> str:
@@ -90,19 +98,21 @@ class TraceRenderer:
 
     def render_rich(self, traces: list[TraceMessage], column_name: str) -> Panel:
         """Return a Rich Panel containing the formatted trace conversation."""
-        elements: list[Text] = []
+        sections: list = []
         tool_call_count = 0
         turn_ids: set[str] = set()
+        separator = Padding(Rule(style="dim"), (1, 0))
 
         for msg in traces:
             role = msg.get("role", "unknown")
 
             # Reasoning content (assistant only, shown before tool calls / final answer)
-            reasoning = msg.get("reasoning_content")
+            reasoning = textwrap.dedent(msg.get("reasoning_content") or "").strip()
             if reasoning:
-                label = Text("💭 reasoning", style="italic bold purple")
-                body = Text(f"  {reasoning}\n", style="italic purple")
-                elements.extend([Text(""), label, body])
+                if sections:
+                    sections.append(separator)
+                sections.append(Text("[reasoning]", style=_REASONING_LABEL_STYLE))
+                sections.append(Text(f"{reasoning}\n", style=_REASONING_BODY_STYLE, overflow="fold"))
 
             # Tool calls (assistant only)
             tool_calls = msg.get("tool_calls")
@@ -113,31 +123,35 @@ class TraceRenderer:
                     turn_ids.add(tc_id)
                     func = tc.get("function", {})
                     func_name = func.get("name", "unknown")
-                    formatted_args = _format_tool_call_args(func.get("arguments", ""))
-
-                    label = Text(f"🔧 tool call #{tool_call_count} → {func_name}", style="bold yellow")
-                    body = Text(f"  {formatted_args}\n", style="yellow")
-                    elements.extend([Text(""), label, body])
+                    formatted_args = _format_tool_call_args(func.get("arguments", "")).strip()
+                    if sections:
+                        sections.append(separator)
+                    sections.append(
+                        Text(f"[tool call #{tool_call_count} -> {func_name}]", style=_TOOL_CALL_LABEL_STYLE)
+                    )
+                    sections.append(Text(f"{formatted_args}\n", style=_TOOL_CALL_BODY_STYLE, overflow="fold"))
                 continue
 
             # Tool result
             if role == "tool":
                 label_text, style = _ROLE_STYLES["tool"]
-                label = Text(label_text, style=f"bold {style}")
                 text_content = _extract_text_content(msg)
-                body = Text(f"  {text_content}\n", style=style)
-                elements.extend([Text(""), label, body])
+                if sections:
+                    sections.append(separator)
+                sections.append(Text(label_text, style=f"bold {style}"))
+                sections.append(Text(f"{text_content}\n", style=style, overflow="fold"))
                 continue
 
             # Regular message (system / user / assistant final answer)
-            label_text, style = _ROLE_STYLES.get(role, (f"❓ {role}", "white"))
+            label_text, style = _ROLE_STYLES.get(role, (f"? {role}", "white"))
             text_content = _extract_text_content(msg)
             if not text_content and not reasoning and not tool_calls:
                 continue
 
-            label = Text(label_text, style=f"bold {style}")
-            body = Text(f"  {text_content}\n", style=style)
-            elements.extend([Text(""), label, body])
+            if sections:
+                sections.append(separator)
+            sections.append(Text(label_text, style=f"bold {style}"))
+            sections.append(Text(f"{text_content}\n", style=style, overflow="fold"))
 
         turn_count = max(len(turn_ids), 1) if tool_call_count > 0 else 0
         call_word = "call" if tool_call_count == 1 else "calls"
@@ -145,11 +159,10 @@ class TraceRenderer:
         summary = f"{tool_call_count} tool {call_word} in {turn_count} {turn_word}" if tool_call_count > 0 else ""
 
         if summary:
-            rule_text = Text(f"─── {summary} ───", style="dim", justify="center")
-            elements.extend([Text(""), rule_text])
+            sections.append(Rule(title=summary, style="dim"))
 
         return Panel(
-            Group(*elements),
+            Group(*sections),
             title=f"Trace: {column_name}",
             expand=True,
         )
@@ -158,9 +171,7 @@ class TraceRenderer:
         """Display HTML trace in Jupyter. Returns True if displayed, False otherwise."""
         try:
             from IPython.display import HTML, display
-
-            get_ipython()  # noqa: F821
-        except (ImportError, NameError):
+        except ImportError:
             return False
 
         blocks: list[str] = []
@@ -169,15 +180,9 @@ class TraceRenderer:
         for msg in traces:
             role = msg.get("role", "unknown")
 
-            reasoning = msg.get("reasoning_content")
+            reasoning = textwrap.dedent(msg.get("reasoning_content") or "").strip()
             if reasoning:
-                blocks.append(
-                    _build_html_block(
-                        "💭 Reasoning",
-                        html.escape(reasoning),
-                        _ROLE_HTML_COLORS["reasoning"],
-                    )
-                )
+                blocks.append(_build_html_block("💭 Reasoning", reasoning, _ROLE_HTML_COLORS["reasoning"]))
 
             tool_calls = msg.get("tool_calls")
             if tool_calls:
@@ -219,7 +224,7 @@ class TraceRenderer:
             }
             label = role_labels.get(role, f"❓ {html.escape(role)}")
             color = _ROLE_HTML_COLORS.get(role, "#f0f0f0")
-            blocks.append(_build_html_block(label, html.escape(text_content), color))
+            blocks.append(_build_html_block(label, text_content, color))
 
         escaped_col_name = html.escape(column_name)
         call_summary = f" ({tool_call_count} tool call{'s' if tool_call_count != 1 else ''})" if tool_call_count else ""
@@ -227,9 +232,9 @@ class TraceRenderer:
         body_html = arrow.join(blocks)
 
         container = f"""
-        <div style='border:1px solid #ccc;border-radius:8px;padding:16px;margin:16px 0;
-                     max-width:800px;font-family:system-ui,sans-serif;font-size:14px;'>
-            <div style='font-weight:bold;margin-bottom:12px;font-size:15px;'>
+        <div style='border:1px solid #ccc;border-radius:8px;padding:16px;margin:4px 0;
+                     max-width:800px;font-family:Menlo,Monaco,Consolas,monospace;font-size:12px;'>
+            <div style='font-weight:bold;margin-bottom:12px;font-size:13px;text-align:center;'>
                 Trace: {escaped_col_name}{html.escape(call_summary)}
             </div>
             {body_html}

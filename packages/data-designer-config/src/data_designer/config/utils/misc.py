@@ -39,6 +39,15 @@ def assert_valid_jinja2_template(template: str) -> None:
         meta.find_undeclared_variables(ImmutableSandboxedEnvironment().parse(template))
 
 
+def is_notebook_environment() -> bool:
+    """Returns True if running inside a Jupyter/IPython notebook."""
+    try:
+        get_ipython()  # type: ignore[name-defined]  # noqa: F821
+        return True
+    except NameError:
+        return False
+
+
 def can_run_data_designer_locally() -> bool:
     """Returns True if Data Designer can be run locally, False otherwise."""
     try:
