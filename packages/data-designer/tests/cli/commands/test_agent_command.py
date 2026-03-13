@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import json
 from unittest.mock import patch
 
 import pytest
@@ -43,42 +42,6 @@ def test_commands_default_text_mode(args: list[str], data_fn: str, format_fn: st
     mock_get.assert_called_once()
 
 
-@pytest.mark.parametrize(
-    "args,data_fn,kind",
-    [
-        (["agent", "context", "--json"], "get_context", "agent_context"),
-        (["agent", "schema", "columns", "llm-text", "--json"], "get_schema", "agent_schema"),
-        (["agent", "state", "model-aliases", "--json"], "get_model_aliases_state", "agent_state_model_aliases"),
-    ],
-    ids=["context", "schema", "model-aliases"],
-)
-def test_commands_json_mode_outputs_envelope(args: list[str], data_fn: str, kind: str) -> None:
-    runner = CliRunner()
-    with (
-        patch(f"{_PATCH}.{data_fn}", return_value={"items": []}) as mock_get,
-        patch(f"{_PATCH}.get_library_version", return_value="1.2.3"),
-    ):
-        result = runner.invoke(app, args)
-
-    assert result.exit_code == 0
-    payload = json.loads(result.output)
-    assert payload["kind"] == kind
-    assert payload["library_version"] == "1.2.3"
-    mock_get.assert_called_once()
-
-
-def test_context_command_compact_json() -> None:
-    runner = CliRunner()
-    with (
-        patch(f"{_PATCH}.get_context", return_value={"ops": []}),
-        patch(f"{_PATCH}.get_library_version", return_value="1.2.3"),
-    ):
-        result = runner.invoke(app, ["agent", "context", "--json", "--compact"])
-
-    assert result.exit_code == 0
-    assert result.output == '{"kind":"agent_context","library_version":"1.2.3","data":{"ops":[]}}\n'
-
-
 def test_schema_command_default_outputs_text() -> None:
     runner = CliRunner()
     with (
@@ -91,14 +54,12 @@ def test_schema_command_default_outputs_text() -> None:
     assert "llm-text" in result.output
 
 
-def test_error_outputs_json_to_stderr() -> None:
+def test_error_outputs_message_to_stderr() -> None:
     runner = CliRunner()
     with patch(f"{_PATCH}.get_schema", side_effect=ValueError("boom")):
         result = runner.invoke(app, ["agent", "schema", "columns", "missing"])
 
     assert result.exit_code == 1
     assert result.stdout == ""
-    payload = json.loads(result.stderr)
-    assert payload == {
-        "error": {"code": "internal_error", "message": "boom", "details": {"exception_type": "ValueError"}},
-    }
+    assert "internal_error" in result.stderr
+    assert "boom" in result.stderr
