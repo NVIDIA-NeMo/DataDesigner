@@ -13,6 +13,11 @@ def format_context_text(data: dict[str, Any]) -> str:
     sections = [
         f"Data Designer v{get_library_version()}",
         "",
+        "import data_designer.config as dd",
+        "",
+        'A "family" is a group of related config types that share a discriminator field.',
+        "Use dd.<ClassName> to reference any type below.",
+        "",
         "## Types",
         "",
         format_types_text({"families": data["families"], "items": data["types"]}),
