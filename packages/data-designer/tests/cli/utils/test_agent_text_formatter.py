@@ -9,11 +9,39 @@ import pytest
 
 from data_designer.cli.utils.agent_text_formatter import (
     format_builder_text,
+    format_context_text,
     format_model_aliases_text,
     format_persona_datasets_text,
     format_schema_text,
     format_types_text,
 )
+
+# --- format_context_text ---
+
+
+def test_format_context_text_includes_builder_section() -> None:
+    data: dict[str, Any] = {
+        "families": [{"family": "columns", "count": 1}],
+        "types": {
+            "columns": [{"type_name": "a", "class_name": "A", "import_path": "m.A"}],
+        },
+        "state": {
+            "model_aliases": {"default_provider": None, "items": []},
+            "persona_datasets": {"items": []},
+        },
+        "builder": {
+            "class_name": "DataDesignerConfigBuilder",
+            "import_path": "data_designer.config.DataDesignerConfigBuilder",
+            "methods": [{"name": "add_column", "signature": "add_column(col)", "summary": "Add a column."}],
+        },
+        "operations": [{"command_pattern": "agent context", "description": "Bootstrap payload."}],
+    }
+    result = format_context_text(data)
+
+    assert "## Builder" in result
+    assert "DataDesignerConfigBuilder:" in result
+    assert "add_column(col)" in result
+
 
 # --- format_types_text ---
 
@@ -31,6 +59,7 @@ def test_format_types_text_single_family() -> None:
     assert "# columns types" in result
     assert "alpha" in result
     assert "AlphaConfig" in result
+    assert "mod.AlphaConfig" in result
 
 
 def test_format_types_text_all_families() -> None:
@@ -48,6 +77,8 @@ def test_format_types_text_all_families() -> None:
     assert "columns: 2 types" in result
     assert "a" in result
     assert "b" in result
+    assert "m.A" in result
+    assert "m.B" in result
 
 
 def test_format_types_text_empty_items() -> None:
