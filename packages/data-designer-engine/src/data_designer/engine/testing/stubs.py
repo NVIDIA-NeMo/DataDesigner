@@ -7,6 +7,7 @@ from collections.abc import Callable
 from typing import Any, Literal
 
 from data_designer.config.base import ConfigBase, SingleColumnConfig
+from data_designer.config.seed_source import HuggingFaceSeedSource
 from data_designer.engine.column_generators.generators.base import ColumnGeneratorCellByCell
 from data_designer.engine.models.clients.types import AssistantMessage, ChatCompletionResponse, ToolCall
 from data_designer.engine.models.utils import ChatMessage
@@ -16,7 +17,7 @@ from data_designer.plugins.plugin import Plugin, PluginType
 MODULE_NAME = __name__
 
 
-class StubHuggingFaceSeedReader(SeedReader):
+class StubHuggingFaceSeedReader(SeedReader[HuggingFaceSeedSource]):
     """Stub seed reader for testing."""
 
     def get_column_names(self) -> list[str]:
@@ -27,9 +28,6 @@ class StubHuggingFaceSeedReader(SeedReader):
 
     def create_duckdb_connection(self) -> None:
         pass
-
-    def get_seed_type(self) -> str:
-        return "hf"
 
 
 class ValidTestConfig(SingleColumnConfig):

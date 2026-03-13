@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Generic, TypeVar, get_args, get_origin
+from typing import TYPE_CHECKING, Generic, TypeVar
 
 from huggingface_hub import HfFileSystem
 from typing_extensions import Self
@@ -17,8 +17,12 @@ from data_designer.config.seed_source import (
     SeedSource,
 )
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
+from data_designer.engine.registry.errors import NotFoundInRegistryError
+from data_designer.engine.registry.handler import Handler, HandlerRegistry
 from data_designer.engine.secret_resolver import SecretResolver
 from data_designer.errors import DataDesignerError
+from data_designer.plugins.plugin import PluginType
+from data_designer.plugins.registry import PluginRegistry
 
 if TYPE_CHECKING:
     import duckdb
@@ -30,7 +34,7 @@ class SeedReaderError(DataDesignerError): ...
 SourceT = TypeVar("ConfigT", bound=SeedSource)
 
 
-class SeedReader(ABC, Generic[SourceT]):
+class SeedReader(Handler[SourceT], ABC, Generic[SourceT]):
     """Base class for reading a seed dataset.
 
     Seeds are read using duckdb. Reader implementations define duckdb connection setup details
@@ -67,22 +71,7 @@ class SeedReader(ABC, Generic[SourceT]):
 
     def get_seed_type(self) -> str:
         """Return the seed_type of the source class this reader is generic over."""
-        # Get the generic type arguments from the reader class
-        # Check __orig_bases__ for the generic base class
-        for base in getattr(type(self), "__orig_bases__", []):
-            origin = get_origin(base)
-            if origin is SeedReader:
-                args = get_args(base)
-                if args:
-                    source_cls = args[0]
-                    # Extract seed_type from the source class
-                    if hasattr(source_cls, "model_fields") and "seed_type" in source_cls.model_fields:
-                        field = source_cls.model_fields["seed_type"]
-                        default_value = field.default
-                        if isinstance(default_value, str):
-                            return default_value
-
-        raise SeedReaderError("Reader does not have a valid generic source type with seed_type")
+        return type(self).get_registered_name("seed_type")
 
 
 class LocalFileSeedReader(SeedReader[LocalFileSeedSource]):
@@ -126,29 +115,49 @@ class DataFrameSeedReader(SeedReader[DataFrameSeedSource]):
         return self._table_name
 
 
-class SeedReaderRegistry:
-    def __init__(self, readers: Sequence[SeedReader]):
-        self._readers: dict[str, SeedReader] = {}
+class SeedReaderRegistry(HandlerRegistry[SeedSource, SeedReader[SeedSource]]):
+    def __init__(self, readers: Sequence[type[SeedReader[SeedSource]] | SeedReader[SeedSource]]):
+        super().__init__(
+            discriminator_field="seed_type",
+            handler_factory=lambda reader_type, _: reader_type(),
+            error_type=SeedReaderError,
+            handler_label="reader",
+        )
+        self._reader_instances: dict[str, SeedReader[SeedSource]] = {}
         for reader in readers:
             self.add_reader(reader)
 
-    def add_reader(self, reader: SeedReader) -> Self:
-        seed_type = reader.get_seed_type()
+    def add_reader(self, reader: type[SeedReader[SeedSource]] | SeedReader[SeedSource]) -> Self:
+        if isinstance(reader, SeedReader):
+            seed_type = type(reader).get_registered_name("seed_type")
+            if seed_type in self._reader_instances:
+                raise SeedReaderError(f"A reader for seed_type {seed_type!r} already exists")
+            self.register(type(reader))
+            self._reader_instances[seed_type] = reader
+            return self
 
-        if seed_type in self._readers:
-            raise SeedReaderError(f"A reader for seed_type {seed_type!r} already exists")
-
-        self._readers[seed_type] = reader
+        self.register(reader)
         return self
 
     def get_reader(self, seed_dataset_source: SeedSource, secret_resolver: SecretResolver) -> SeedReader:
-        reader = self._get_reader_for_source(seed_dataset_source)
+        seed_type = self.get_name_for_config(seed_dataset_source)
+        reader = self._reader_instances.get(seed_type)
+        if reader is None:
+            try:
+                reader = self.create_for_config(seed_dataset_source)
+            except NotFoundInRegistryError as error:
+                raise SeedReaderError(f"No reader found for seed_type {seed_type!r}") from error
         reader.attach(seed_dataset_source, secret_resolver)
         return reader
 
-    def _get_reader_for_source(self, seed_dataset_source: SeedSource) -> SeedReader:
-        seed_type = seed_dataset_source.seed_type
-        try:
-            return self._readers[seed_type]
-        except KeyError:
-            raise SeedReaderError(f"No reader found for seed_type {seed_type!r}")
+
+def create_default_seed_reader_registry(with_plugins: bool = True) -> SeedReaderRegistry:
+    readers: list[type[SeedReader[SeedSource]]] = [
+        HuggingFaceSeedReader,
+        LocalFileSeedReader,
+        DataFrameSeedReader,
+    ]
+    if with_plugins:
+        for plugin in PluginRegistry().get_plugins(PluginType.SEED_READER):
+            readers.append(plugin.impl_cls)
+    return SeedReaderRegistry(readers=readers)

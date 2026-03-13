@@ -41,11 +41,9 @@ from data_designer.engine.model_provider import resolve_model_provider_registry
 from data_designer.engine.resources.managed_storage import init_managed_blob_storage
 from data_designer.engine.resources.resource_provider import ResourceProvider, create_resource_provider
 from data_designer.engine.resources.seed_reader import (
-    DataFrameSeedReader,
-    HuggingFaceSeedReader,
-    LocalFileSeedReader,
     SeedReader,
     SeedReaderRegistry,
+    create_default_seed_reader_registry,
 )
 from data_designer.engine.secret_resolver import (
     CompositeResolver,
@@ -60,8 +58,6 @@ from data_designer.interface.errors import (
 )
 from data_designer.interface.results import DatasetCreationResults
 from data_designer.logging import RandomEmoji, configure_logging
-from data_designer.plugins.plugin import PluginType
-from data_designer.plugins.registry import PluginRegistry
 
 if TYPE_CHECKING:
     from data_designer.engine.models.facade import ModelFacade
@@ -84,14 +80,6 @@ def _initialize_interface_runtime() -> None:
 
 DEFAULT_SECRET_RESOLVER = CompositeResolver([EnvironmentResolver(), PlaintextResolver()])
 
-DEFAULT_SEED_READERS = [
-    HuggingFaceSeedReader(),
-    LocalFileSeedReader(),
-    DataFrameSeedReader(),
-]
-for plugin in PluginRegistry().get_plugins(PluginType.SEED_READER):
-    DEFAULT_SEED_READERS.append(plugin.impl_cls())
-
 
 class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
     """Main interface for creating datasets with Data Designer.
@@ -108,7 +96,9 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             uses default providers.
         secret_resolver: Resolver for handling secrets and credentials. Defaults to
             EnvironmentResolver which reads secrets from environment variables.
-        seed_readers: Optional list of seed readers. If None, uses default readers.
+        seed_readers: Optional list of seed reader classes or instances. If None, uses
+            the default seed reader registry. Passing classes is preferred so a fresh
+            reader instance is created for each resolution.
         managed_assets_path: Path to the managed assets directory. This is used to point
             to the location of managed datasets and other assets used during dataset generation.
             If not provided, will check for an environment variable called DATA_DESIGNER_MANAGED_ASSETS_PATH.
@@ -125,7 +115,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         *,
         model_providers: list[ModelProvider] | None = None,
         secret_resolver: SecretResolver | None = None,
-        seed_readers: list[SeedReader] | None = None,
+        seed_readers: list[type[SeedReader] | SeedReader] | None = None,
         managed_assets_path: Path | str | None = None,
         mcp_providers: list[MCPProviderT] | None = None,
     ):
@@ -139,7 +129,11 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         self._model_provider_registry = resolve_model_provider_registry(
             self._model_providers, get_default_provider_name()
         )
-        self._seed_reader_registry = SeedReaderRegistry(readers=seed_readers or DEFAULT_SEED_READERS)
+        self._seed_reader_registry = (
+            SeedReaderRegistry(readers=seed_readers)
+            if seed_readers is not None
+            else create_default_seed_reader_registry()
+        )
 
     @property
     def info(self) -> InterfaceInfo:
