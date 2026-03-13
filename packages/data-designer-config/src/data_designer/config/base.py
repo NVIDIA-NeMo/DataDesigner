@@ -6,7 +6,10 @@
 
 from __future__ import annotations
 
+import re
 from abc import ABC, abstractmethod
+from enum import Enum
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -19,6 +22,27 @@ class ConfigBase(BaseModel):
         extra="forbid",
         json_schema_mode_override="validation",
     )
+
+    @classmethod
+    def schema_text(cls) -> str:
+        """Return a human-readable summary of the model's fields."""
+        lines: list[str] = [f"{cls.__name__}:"]
+        docstring = _get_docstring_summary(cls.__doc__)
+        if docstring:
+            lines.append(f"  {docstring}")
+        lines.append("")
+        for name, field_info in cls.model_fields.items():
+            annotation = _format_annotation(field_info.annotation)
+            if field_info.is_required():
+                lines.append(f"  {name}: {annotation}  [required]")
+            else:
+                default = field_info.default
+                if isinstance(default, Enum):
+                    default = default.value
+                lines.append(f"  {name}: {annotation} = {default!r}")
+            if field_info.description:
+                lines.append(f"      {field_info.description}")
+        return "\n".join(lines)
 
 
 class SingleColumnConfig(ConfigBase, ABC):
@@ -83,3 +107,25 @@ class ProcessorConfig(ConfigBase, ABC):
         description="The name of the processor, used to identify the processor in the results and to write the artifacts to disk.",
     )
     processor_type: str
+
+
+def _format_annotation(annotation: Any) -> str:
+    """Convert a type annotation to a readable string, stripping module paths."""
+    raw = str(annotation) if not hasattr(annotation, "__name__") else annotation.__name__
+    return re.sub(r"\b[a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)+", lambda m: m.group().rsplit(".", 1)[-1], raw)
+
+
+def _get_docstring_summary(docstring: str | None) -> str | None:
+    """Extract the first paragraph of a docstring, up to the Attributes section."""
+    if not docstring:
+        return None
+    lines: list[str] = []
+    for line in docstring.strip().splitlines():
+        stripped = line.strip()
+        if stripped.lower().startswith("attributes:"):
+            break
+        if not stripped and lines:
+            break
+        if stripped:
+            lines.append(stripped)
+    return " ".join(lines) if lines else None
