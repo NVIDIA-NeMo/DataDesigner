@@ -114,9 +114,16 @@ stub_purpose = "running generation for column 'test'"
             f"Cause: One or more of the parameters you provided were found to be unsupported by model '{stub_model_name}' while {stub_purpose}.",
         ),
         (
-            GenerationValidationFailureError("Generation validation failure"),
+            GenerationValidationFailureError(
+                "Generation validation failure",
+                detail="Response doesn't match requested <response_schema>: 'name' is a required property",
+            ),
             ModelGenerationValidationFailureError,
-            f"Cause: The provided output schema was unable to be parsed from model '{stub_model_name}' responses while {stub_purpose}.",
+            (
+                f"Cause: The model output from '{stub_model_name}' could not be parsed into the requested format "
+                f"while {stub_purpose}. Validation detail: Response doesn't match requested <response_schema>: "
+                "'name' is a required property."
+            ),
         ),
         (
             Exception("Some unexpected error"),

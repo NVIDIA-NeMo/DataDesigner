@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 from unittest.mock import Mock, patch
 
@@ -20,6 +21,11 @@ from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 from data_designer.engine.column_generators.generators.base import GenerationStrategy
 from data_designer.engine.dataset_builders.column_wise_builder import ColumnWiseDatasetBuilder
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError, DatasetProcessingError
+from data_designer.engine.models.errors import (
+    FormattedLLMErrorMessage,
+    ModelGenerationValidationFailureError,
+    ModelTimeoutError,
+)
 from data_designer.engine.models.telemetry import InferenceEvent, NemoSourceEnum, TaskStatusEnum
 from data_designer.engine.models.usage import ModelUsageStats, TokenUsageStats
 from data_designer.engine.processing.processors.base import Processor
@@ -152,6 +158,54 @@ def test_column_wise_dataset_builder_artifact_storage_property(stub_column_wise_
 
 def test_column_wise_dataset_builder_records_to_drop_initialization(stub_column_wise_builder):
     assert stub_column_wise_builder._records_to_drop == set()
+
+
+def test_worker_error_callback_logs_schema_validation_detail(
+    stub_column_wise_builder: ColumnWiseDatasetBuilder,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    exc = ModelGenerationValidationFailureError(
+        FormattedLLMErrorMessage(
+            cause=(
+                "The model output from 'test-model' could not be parsed into the requested format while "
+                "running generation for column 'test_column'. Validation detail: Response doesn't match "
+                "requested <response_schema> 'name' is a required property."
+            ),
+            solution="Simplify the schema and retry.",
+        )
+    )
+
+    with caplog.at_level(logging.WARNING):
+        stub_column_wise_builder._worker_error_callback(exc, context={"index": 248, "column_name": "test_column"})
+
+    assert "record at index 248" in caplog.text
+    assert "column 'test_column'" in caplog.text
+    assert "(schema validation)" in caplog.text
+    assert "Response doesn't match requested <response_schema> 'name' is a required property." in caplog.text
+    assert 248 in stub_column_wise_builder._records_to_drop
+
+
+def test_worker_error_callback_logs_timeout_detail(
+    stub_column_wise_builder: ColumnWiseDatasetBuilder,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    exc = ModelTimeoutError(
+        FormattedLLMErrorMessage(
+            cause="The request to model 'test-model' timed out while running generation for column 'test_column'.",
+            solution="Increase the timeout setting for the model and retry.",
+        )
+    )
+
+    with caplog.at_level(logging.WARNING):
+        stub_column_wise_builder._worker_error_callback(exc, context={"index": 17, "column_name": "test_column"})
+
+    assert "record at index 17" in caplog.text
+    assert "column 'test_column'" in caplog.text
+    assert "(timeout)" in caplog.text
+    assert (
+        "The request to model 'test-model' timed out while running generation for column 'test_column'." in caplog.text
+    )
+    assert 17 in stub_column_wise_builder._records_to_drop
 
 
 def test_column_wise_dataset_builder_batch_manager_initialization(stub_column_wise_builder, stub_resource_provider):
@@ -418,6 +472,41 @@ def test_fan_out_with_threads_uses_early_shutdown_settings_from_resource_provide
     assert call_kwargs["shutdown_error_rate"] == expected_rate
     assert call_kwargs["shutdown_error_window"] == shutdown_error_window
     assert call_kwargs["disable_early_shutdown"] == disable_early_shutdown
+
+
+@patch("data_designer.engine.dataset_builders.column_wise_builder.ConcurrentThreadExecutor")
+def test_fan_out_with_threads_passes_column_name_in_context(
+    mock_executor_class: Mock,
+    stub_resource_provider: Mock,
+    stub_test_config_builder: DataDesignerConfigBuilder,
+) -> None:
+    builder = ColumnWiseDatasetBuilder(
+        data_designer_config=stub_test_config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+
+    mock_executor = Mock()
+    mock_executor_class.return_value.__enter__ = Mock(return_value=mock_executor)
+    mock_executor_class.return_value.__exit__ = Mock(return_value=False)
+
+    mock_generator = Mock()
+    mock_generator.get_generation_strategy.return_value = GenerationStrategy.CELL_BY_CELL
+    mock_generator.config.name = "test_column"
+    mock_generator.config.column_type = "llm_text"
+    mock_generator.config.tool_alias = None
+
+    builder.batch_manager = Mock()
+    builder.batch_manager.num_records_batch = 2
+    builder.batch_manager.num_records_in_buffer = 2
+    builder.batch_manager.iter_current_batch.return_value = [(0, {"seed": "a"}), (1, {"seed": "b"})]
+
+    builder._fan_out_with_threads(mock_generator, max_workers=2)
+
+    submitted_contexts = [call.kwargs["context"] for call in mock_executor.submit.call_args_list]
+    assert submitted_contexts == [
+        {"index": 0, "column_name": "test_column"},
+        {"index": 1, "column_name": "test_column"},
+    ]
 
 
 def test_full_column_custom_generator_error_is_descriptive(stub_resource_provider, stub_model_configs):

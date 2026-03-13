@@ -119,6 +119,28 @@ def test_generate_with_system_prompt(
     assert captured_messages[0] == expected_messages
 
 
+@patch.object(ModelFacade, "completion", autospec=True)
+def test_generate_includes_parser_validation_detail_in_user_facing_error(
+    mock_completion: Any,
+    stub_model_facade: ModelFacade,
+) -> None:
+    mock_completion.return_value = _make_response("bad response")
+
+    def _failing_parser(response: str) -> str:
+        raise ParserException("Response doesn't match requested <response_schema>\n'name' is a required property")
+
+    with pytest.raises(
+        ModelGenerationValidationFailureError,
+        match="Validation detail: Response doesn't match requested <response_schema> 'name' is a required property.",
+    ):
+        stub_model_facade.generate(
+            prompt="foo",
+            parser=_failing_parser,
+            max_correction_steps=0,
+            max_conversation_restarts=0,
+        )
+
+
 @pytest.mark.parametrize(
     "raw_content,expected",
     [

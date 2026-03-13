@@ -47,6 +47,27 @@ def _identity(x: Any) -> Any:
 logger = logging.getLogger(__name__)
 
 
+def _normalize_generation_failure_detail(detail: str) -> str:
+    return " ".join(detail.split()).strip()
+
+
+def _classify_generation_failure_kind(exc: ParserException) -> str:
+    detail = _normalize_generation_failure_detail(str(get_exception_primary_cause(exc))).lower()
+    if "response_schema" in detail or "model_validate" in detail:
+        return "schema_validation"
+    if "validation error" in detail or "doesn't match requested" in detail:
+        return "schema_validation"
+    return "parse_error"
+
+
+def _build_generation_validation_error(summary: str, exc: ParserException) -> GenerationValidationFailureError:
+    return GenerationValidationFailureError(
+        summary,
+        detail=_normalize_generation_failure_detail(str(get_exception_primary_cause(exc))),
+        failure_kind=_classify_generation_failure_kind(exc),
+    )
+
+
 # Known keyword arguments extracted into request fields for each modality.
 # Note: `extra_body` and `extra_headers` appear in every set but receive special
 # treatment in `consolidate_kwargs` (merged with provider-level overrides) and in
@@ -326,8 +347,9 @@ class ModelFacade:
                 break
             except ParserException as exc:
                 if max_correction_steps == 0 and max_conversation_restarts == 0:
-                    raise GenerationValidationFailureError(
-                        "Unsuccessful generation attempt. No retries were attempted."
+                    raise _build_generation_validation_error(
+                        "Unsuccessful generation attempt. No retries were attempted.",
+                        exc,
                     ) from exc
 
                 if curr_num_correction_steps <= max_correction_steps:
@@ -341,9 +363,12 @@ class ModelFacade:
                     tool_call_turns = checkpoint_tool_call_turns
 
                 else:
-                    raise GenerationValidationFailureError(
-                        f"Unsuccessful generation despite {max_correction_steps} correction steps "
-                        f"and {max_conversation_restarts} conversation restarts."
+                    raise _build_generation_validation_error(
+                        (
+                            f"Unsuccessful generation despite {max_correction_steps} correction steps "
+                            f"and {max_conversation_restarts} conversation restarts."
+                        ),
+                        exc,
                     ) from exc
 
         if not skip_usage_tracking and mcp_facade is not None:
@@ -424,8 +449,9 @@ class ModelFacade:
                 break
             except ParserException as exc:
                 if max_correction_steps == 0 and max_conversation_restarts == 0:
-                    raise GenerationValidationFailureError(
-                        "Unsuccessful generation attempt. No retries were attempted."
+                    raise _build_generation_validation_error(
+                        "Unsuccessful generation attempt. No retries were attempted.",
+                        exc,
                     ) from exc
 
                 if curr_num_correction_steps <= max_correction_steps:
@@ -438,9 +464,12 @@ class ModelFacade:
                     tool_call_turns = checkpoint_tool_call_turns
 
                 else:
-                    raise GenerationValidationFailureError(
-                        f"Unsuccessful generation despite {max_correction_steps} correction steps "
-                        f"and {max_conversation_restarts} conversation restarts."
+                    raise _build_generation_validation_error(
+                        (
+                            f"Unsuccessful generation despite {max_correction_steps} correction steps "
+                            f"and {max_conversation_restarts} conversation restarts."
+                        ),
+                        exc,
                     ) from exc
 
         if not skip_usage_tracking and mcp_facade is not None:
