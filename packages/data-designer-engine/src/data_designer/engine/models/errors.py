@@ -20,6 +20,13 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _normalize_error_detail(detail: str | None) -> str | None:
+    if detail is None:
+        return None
+    normalized = " ".join(detail.split()).strip()
+    return normalized or None
+
+
 def get_exception_primary_cause(exception: BaseException) -> BaseException:
     """Returns the primary cause of an exception by walking backwards.
 
@@ -38,7 +45,27 @@ def get_exception_primary_cause(exception: BaseException) -> BaseException:
     return get_exception_primary_cause(exception.__cause__)
 
 
-class GenerationValidationFailureError(Exception): ...
+class GenerationValidationFailureError(Exception):
+    summary: str
+    detail: str | None
+    failure_kind: str
+
+    def __init__(
+        self,
+        summary: str,
+        *,
+        detail: str | None = None,
+        failure_kind: str = "validation_error",
+    ) -> None:
+        self.summary = summary.strip()
+        self.detail = _normalize_error_detail(detail)
+        self.failure_kind = failure_kind
+
+        message = self.summary
+        if self.detail is not None:
+            message = f"{message} Validation detail: {self.detail}"
+
+        super().__init__(message)
 
 
 class ModelRateLimitError(DataDesignerError): ...
@@ -80,7 +107,23 @@ class ModelAPIConnectionError(DataDesignerError): ...
 class ModelStructuredOutputError(DataDesignerError): ...
 
 
-class ModelGenerationValidationFailureError(DataDesignerError): ...
+class ModelGenerationValidationFailureError(DataDesignerError):
+    detail: str | None
+    failure_kind: str | None
+
+    def __init__(
+        self,
+        message: object | None = None,
+        *,
+        detail: str | None = None,
+        failure_kind: str | None = None,
+    ) -> None:
+        if message is None:
+            super().__init__()
+        else:
+            super().__init__(message)
+        self.detail = _normalize_error_detail(detail)
+        self.failure_kind = failure_kind
 
 
 class ImageGenerationError(DataDesignerError): ...
@@ -214,11 +257,18 @@ def handle_llm_exceptions(
 
         # Parsing and validation errors
         case GenerationValidationFailureError():
+            detail_text = exception.detail.rstrip(".") if exception.detail is not None else None
+            validation_detail = f" Validation detail: {detail_text}." if detail_text is not None else ""
             raise ModelGenerationValidationFailureError(
                 FormattedLLMErrorMessage(
-                    cause=f"The provided output schema was unable to be parsed from model {model_name!r} responses while {purpose}.",
+                    cause=(
+                        f"The model output from {model_name!r} could not be parsed into the requested format "
+                        f"while {purpose}.{validation_detail}"
+                    ),
                     solution="This is most likely temporary as we make additional attempts. If you continue to see more of this, simplify or modify the output schema for structured output and try again. If you are attempting token-intensive tasks like generations with high-reasoning effort, ensure that max_tokens in the model config is high enough to reach completion.",
-                )
+                ),
+                detail=exception.detail,
+                failure_kind=exception.failure_kind,
             ) from None
 
         case DataDesignerError():
