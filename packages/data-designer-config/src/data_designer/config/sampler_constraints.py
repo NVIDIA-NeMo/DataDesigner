@@ -61,7 +61,8 @@ def resolve_constraint_input_type(value: Any) -> ConstraintType | str | None:
 
         # rhs is required on both concrete types, so when it's missing we default to
         # SCALAR_INEQUALITY — Pydantic will surface a clear "rhs field required" error.
-        rhs = value.get("rhs")
+        if (rhs := value.get("rhs")) is None:
+            return ConstraintType.SCALAR_INEQUALITY
         return ConstraintType.COLUMN_INEQUALITY if isinstance(rhs, str) else ConstraintType.SCALAR_INEQUALITY
 
     return getattr(value, "constraint_type", None)
