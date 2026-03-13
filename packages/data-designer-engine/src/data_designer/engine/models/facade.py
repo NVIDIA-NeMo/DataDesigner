@@ -47,12 +47,8 @@ def _identity(x: Any) -> Any:
 logger = logging.getLogger(__name__)
 
 
-def _normalize_generation_failure_detail(detail: str) -> str:
-    return " ".join(detail.split()).strip()
-
-
 def _classify_generation_failure_kind(exc: ParserException) -> str:
-    detail = _normalize_generation_failure_detail(str(get_exception_primary_cause(exc))).lower()
+    detail = " ".join(str(get_exception_primary_cause(exc)).split()).lower()
     if "response_schema" in detail or "model_validate" in detail:
         return "schema_validation"
     if "validation error" in detail or "doesn't match requested" in detail:
@@ -63,7 +59,7 @@ def _classify_generation_failure_kind(exc: ParserException) -> str:
 def _build_generation_validation_error(summary: str, exc: ParserException) -> GenerationValidationFailureError:
     return GenerationValidationFailureError(
         summary,
-        detail=_normalize_generation_failure_detail(str(get_exception_primary_cause(exc))),
+        detail=str(get_exception_primary_cause(exc)),
         failure_kind=_classify_generation_failure_kind(exc),
     )
 

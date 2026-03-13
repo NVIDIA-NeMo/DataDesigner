@@ -132,13 +132,16 @@ def test_generate_includes_parser_validation_detail_in_user_facing_error(
     with pytest.raises(
         ModelGenerationValidationFailureError,
         match="Validation detail: Response doesn't match requested <response_schema> 'name' is a required property.",
-    ):
+    ) as exc_info:
         stub_model_facade.generate(
             prompt="foo",
             parser=_failing_parser,
             max_correction_steps=0,
             max_conversation_restarts=0,
         )
+
+    assert exc_info.value.detail == "Response doesn't match requested <response_schema> 'name' is a required property"
+    assert exc_info.value.failure_kind == "schema_validation"
 
 
 @pytest.mark.parametrize(

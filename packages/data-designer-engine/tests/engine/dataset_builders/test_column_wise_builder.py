@@ -172,7 +172,9 @@ def test_worker_error_callback_logs_schema_validation_detail(
                 "requested <response_schema> 'name' is a required property."
             ),
             solution="Simplify the schema and retry.",
-        )
+        ),
+        detail="Response doesn't match requested <response_schema> 'name' is a required property.",
+        failure_kind="schema_validation",
     )
 
     with caplog.at_level(logging.WARNING):
@@ -503,6 +505,51 @@ def test_fan_out_with_threads_passes_column_name_in_context(
     builder._fan_out_with_threads(mock_generator, max_workers=2)
 
     submitted_contexts = [call.kwargs["context"] for call in mock_executor.submit.call_args_list]
+    assert submitted_contexts == [
+        {"index": 0, "column_name": "test_column"},
+        {"index": 1, "column_name": "test_column"},
+    ]
+
+
+@patch("data_designer.engine.dataset_builders.column_wise_builder.AsyncConcurrentExecutor", create=True)
+def test_fan_out_with_async_passes_column_name_in_context(
+    mock_executor_class: Mock,
+    stub_resource_provider: Mock,
+    stub_test_config_builder: DataDesignerConfigBuilder,
+) -> None:
+    builder = ColumnWiseDatasetBuilder(
+        data_designer_config=stub_test_config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+
+    mock_executor = Mock()
+
+    def _run(work_items: list[tuple[object, dict[str, int | str]]]) -> None:
+        for coro, _context in work_items:
+            coro.close()
+
+    mock_executor.run.side_effect = _run
+    mock_executor_class.return_value = mock_executor
+
+    mock_generator = Mock()
+    mock_generator.get_generation_strategy.return_value = GenerationStrategy.CELL_BY_CELL
+    mock_generator.config.name = "test_column"
+    mock_generator.config.column_type = "llm_text"
+    mock_generator.config.tool_alias = None
+
+    async def _agenerate(record: dict[str, str]) -> dict[str, str]:
+        return record
+
+    mock_generator.agenerate.side_effect = _agenerate
+
+    builder.batch_manager = Mock()
+    builder.batch_manager.num_records_batch = 2
+    builder.batch_manager.iter_current_batch.return_value = [(0, {"seed": "a"}), (1, {"seed": "b"})]
+
+    builder._fan_out_with_async(mock_generator, max_workers=2)
+
+    work_items = mock_executor.run.call_args.args[0]
+    submitted_contexts = [context for _coro, context in work_items]
     assert submitted_contexts == [
         {"index": 0, "column_name": "test_column"},
         {"index": 1, "column_name": "test_column"},

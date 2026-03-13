@@ -494,6 +494,11 @@ class ColumnWiseDatasetBuilder:
 
     @staticmethod
     def _extract_failure_detail(exc: Exception) -> str:
+        detail = getattr(exc, "detail", None)
+        if isinstance(detail, str):
+            normalized_detail = " ".join(detail.split()).strip()
+            if normalized_detail:
+                return normalized_detail
         exc_str = str(exc).strip()
         for line in exc_str.splitlines():
             if "Cause:" in line:
@@ -502,6 +507,10 @@ class ColumnWiseDatasetBuilder:
 
     @classmethod
     def _classify_worker_failure(cls, exc: Exception) -> str:
+        failure_kind = getattr(exc, "failure_kind", None)
+        if isinstance(failure_kind, str) and failure_kind.strip():
+            return failure_kind.replace("_", " ")
+
         detail = cls._extract_failure_detail(exc).lower()
         exc_name = type(exc).__name__.lower()
 

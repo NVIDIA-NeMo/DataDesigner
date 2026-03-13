@@ -107,7 +107,23 @@ class ModelAPIConnectionError(DataDesignerError): ...
 class ModelStructuredOutputError(DataDesignerError): ...
 
 
-class ModelGenerationValidationFailureError(DataDesignerError): ...
+class ModelGenerationValidationFailureError(DataDesignerError):
+    detail: str | None
+    failure_kind: str | None
+
+    def __init__(
+        self,
+        message: object | None = None,
+        *,
+        detail: str | None = None,
+        failure_kind: str | None = None,
+    ) -> None:
+        if message is None:
+            super().__init__()
+        else:
+            super().__init__(message)
+        self.detail = _normalize_error_detail(detail)
+        self.failure_kind = failure_kind
 
 
 class ImageGenerationError(DataDesignerError): ...
@@ -249,7 +265,9 @@ def handle_llm_exceptions(
                         f"while {purpose}.{validation_detail}"
                     ),
                     solution="This is most likely temporary as we make additional attempts. If you continue to see more of this, simplify or modify the output schema for structured output and try again. If you are attempting token-intensive tasks like generations with high-reasoning effort, ensure that max_tokens in the model config is high enough to reach completion.",
-                )
+                ),
+                detail=exception.detail,
+                failure_kind=exception.failure_kind,
             ) from None
 
         case DataDesignerError():

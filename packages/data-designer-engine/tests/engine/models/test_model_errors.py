@@ -138,6 +138,23 @@ def test_handle_llm_exceptions(exception, expected_exception, expected_error_msg
         handle_llm_exceptions(exception, stub_model_name, stub_model_provider_name, stub_purpose)
 
 
+def test_handle_llm_exceptions_preserves_generation_failure_kind() -> None:
+    with pytest.raises(ModelGenerationValidationFailureError) as exc_info:
+        handle_llm_exceptions(
+            GenerationValidationFailureError(
+                "Generation validation failure",
+                detail="Response doesn't match requested <response_schema>: 'name' is a required property",
+                failure_kind="schema_validation",
+            ),
+            stub_model_name,
+            stub_model_provider_name,
+            stub_purpose,
+        )
+
+    assert exc_info.value.failure_kind == "schema_validation"
+    assert exc_info.value.detail == "Response doesn't match requested <response_schema>: 'name' is a required property"
+
+
 def test_catch_llm_exceptions():
     @catch_llm_exceptions
     def stub_function(model_facade: Any, *args, **kwargs):
