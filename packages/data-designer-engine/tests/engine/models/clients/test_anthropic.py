@@ -247,6 +247,25 @@ def test_completion_forwards_tools() -> None:
     assert payload["tools"] == tools
 
 
+def test_completion_excludes_openai_specific_params() -> None:
+    sync_mock = _make_sync_client(_text_response())
+    client = _make_client(sync_client=sync_mock)
+
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[{"role": "user", "content": "Hi"}],
+        response_format={"type": "json_object"},
+        frequency_penalty=0.5,
+        presence_penalty=0.5,
+        seed=42,
+    )
+    client.completion(request)
+
+    payload = sync_mock.post.call_args.kwargs["json"]
+    for field in ("response_format", "frequency_penalty", "presence_penalty", "seed"):
+        assert field not in payload, f"{field!r} should be excluded from Anthropic payload"
+
+
 def test_completion_empty_content_returns_none() -> None:
     response = {"content": [], "usage": {"input_tokens": 5, "output_tokens": 0}}
     client = _make_client(sync_client=_make_sync_client(response))

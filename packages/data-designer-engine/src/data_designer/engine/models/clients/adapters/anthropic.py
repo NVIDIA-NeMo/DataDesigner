@@ -41,7 +41,16 @@ _DEFAULT_MAX_TOKENS = 4096
 _ANTHROPIC_VERSION = "2023-06-01"
 
 # Fields handled explicitly and excluded from TransportKwargs forwarding.
-_ANTHROPIC_EXCLUDE = frozenset({"stop", "max_tokens"})
+_ANTHROPIC_EXCLUDE = frozenset(
+    {
+        "stop",
+        "max_tokens",
+        "response_format",
+        "frequency_penalty",
+        "presence_penalty",
+        "seed",
+    }
+)
 
 
 class AnthropicClient(ModelClient):
@@ -304,7 +313,7 @@ def _translate_message_content(msg: dict[str, Any]) -> dict[str, Any]:
     return {**msg, "content": translated}
 
 
-_DATA_URI_RE = re.compile(r"^data:(?P<media_type>[^;]+);base64,(?P<data>.+)$", re.DOTALL)
+_DATA_URI_RE = re.compile(r"^data:(?P<media_type>[^;]+);base64,(?P<data>.+)$")
 
 
 def _translate_image_url_block(block: dict[str, Any]) -> dict[str, Any] | None:
