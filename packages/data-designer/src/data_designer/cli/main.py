@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import typer
 
+from data_designer.cli.agent_command_defs import AGENT_COMMANDS
 from data_designer.cli.lazy_group import create_lazy_typer_group
 from data_designer.cli.runtime import ensure_cli_default_model_settings
 
@@ -101,49 +102,26 @@ download_app = typer.Typer(
 
 _AGENT_CMD = f"{_CMD}.agent"
 
+
+def _build_agent_lazy_group(prefix: str) -> dict[str, dict[str, str]]:
+    return {
+        cmd.name.removeprefix(f"{prefix}."): {"module": _AGENT_CMD, "attr": cmd.attr, "help": cmd.help}
+        for cmd in AGENT_COMMANDS
+        if prefix == "" and "." not in cmd.name or cmd.name.startswith(f"{prefix}.")
+    }
+
+
 agent_app = typer.Typer(
     name="agent",
     help="Agent-only interface for dynamic Data Designer introspection",
-    cls=create_lazy_typer_group(
-        {
-            "context": {
-                "module": _AGENT_CMD,
-                "attr": "context_command",
-                "help": "Bootstrap payload with types, state, and builder.",
-            },
-            "types": {
-                "module": _AGENT_CMD,
-                "attr": "types_command",
-                "help": "Type names and import paths for one or all families.",
-            },
-            "schema": {"module": _AGENT_CMD, "attr": "schema_command", "help": "Schema for a type or entire family."},
-            "builder": {
-                "module": _AGENT_CMD,
-                "attr": "builder_command",
-                "help": "ConfigBuilder method surface with signatures.",
-            },
-        }
-    ),
+    cls=create_lazy_typer_group(_build_agent_lazy_group("")),
     no_args_is_help=True,
 )
 
 agent_state_app = typer.Typer(
     name="state",
     help="Return current local state relevant to agents",
-    cls=create_lazy_typer_group(
-        {
-            "model-aliases": {
-                "module": _AGENT_CMD,
-                "attr": "state_model_aliases_command",
-                "help": "Model aliases and usability status.",
-            },
-            "persona-datasets": {
-                "module": _AGENT_CMD,
-                "attr": "state_persona_datasets_command",
-                "help": "Persona locales and install status.",
-            },
-        }
-    ),
+    cls=create_lazy_typer_group(_build_agent_lazy_group("state")),
     no_args_is_help=True,
 )
 

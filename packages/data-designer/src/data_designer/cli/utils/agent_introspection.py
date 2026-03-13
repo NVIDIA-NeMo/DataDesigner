@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Literal, get_args, get_origin
 
 import data_designer.config as dd
+from data_designer.cli.agent_command_defs import AGENT_COMMANDS
 from data_designer.cli.repositories.model_repository import ModelRepository
 from data_designer.cli.repositories.persona_repository import PersonaRepository
 from data_designer.cli.repositories.provider_repository import ProviderRepository
@@ -127,38 +128,11 @@ def get_builder_api() -> dict[str, Any]:
     }
 
 
-AGENT_COMMANDS: tuple[tuple[str, str, str, str], ...] = (
-    ("context", "data-designer agent context", "Bootstrap payload with types, state, and builder.", "agent_context"),
-    (
-        "types",
-        "data-designer agent types [family]",
-        "Type names and import paths for one or all families.",
-        "agent_types",
-    ),
-    (
-        "schema",
-        "data-designer agent schema <family> <type> | --all",
-        "Schema for a type or entire family.",
-        "agent_schema",
-    ),
-    ("builder", "data-designer agent builder", "ConfigBuilder method surface with signatures.", "agent_builder"),
-    (
-        "state.model-aliases",
-        "data-designer agent state model-aliases",
-        "Model aliases and usability status.",
-        "agent_state_model_aliases",
-    ),
-    (
-        "state.persona-datasets",
-        "data-designer agent state persona-datasets",
-        "Persona locales and install status.",
-        "agent_state_persona_datasets",
-    ),
-)
-
-
 def get_operations() -> list[dict[str, str]]:
-    return [{"name": n, "command_pattern": p, "description": d, "returns": r} for n, p, d, r in AGENT_COMMANDS]
+    return [
+        {"name": c.name, "command_pattern": c.command_pattern, "description": c.help, "returns": c.returns}
+        for c in AGENT_COMMANDS
+    ]
 
 
 def get_context(config_dir: Path) -> dict[str, Any]:
