@@ -154,6 +154,7 @@ class TransportKwargs:
 
         extra_body = getattr(request, "extra_body", None) or {}
         extra_headers = getattr(request, "extra_headers", None) or {}
+        timeout = getattr(request, "timeout", None)
 
         if flatten_extra_body:
             body = {**optional_fields, **extra_body}
@@ -162,7 +163,7 @@ class TransportKwargs:
             if extra_body:
                 body["extra_body"] = extra_body
 
-        return cls(body=body, headers=dict(extra_headers))
+        return cls(body=body, headers=dict(extra_headers), timeout=timeout)
 
     @staticmethod
     def _collect_optional_fields(request: Any, *, exclude: frozenset[str] = frozenset()) -> dict[str, Any]:
