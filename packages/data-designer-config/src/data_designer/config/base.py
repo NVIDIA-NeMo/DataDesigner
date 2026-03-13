@@ -25,7 +25,7 @@ class ConfigBase(BaseModel):
 
     @classmethod
     def schema_text(cls) -> str:
-        """Return a human-readable summary of the model's fields."""
+        """Return an agent-friendly text summary of the model's fields and defaults."""
         lines: list[str] = [f"{cls.__name__}:"]
         docstring = _get_docstring_summary(cls.__doc__)
         if docstring:
