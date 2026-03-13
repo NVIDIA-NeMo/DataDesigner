@@ -308,6 +308,9 @@ def _format_signature(method_name: str, sig: inspect.Signature) -> str:
     params = [p for p in sig.parameters.values() if p.name not in {"self", "cls"}]
     sig_str = str(sig.replace(parameters=params))
     sig_str = re.sub(r"\b[a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)+", lambda m: m.group().rsplit(".", 1)[-1], sig_str)
+    # Strip quotes left by `from __future__ import annotations` around type annotations.
+    sig_str = re.sub(r"(?<=: )'([^']+)'", r"\1", sig_str)
+    sig_str = re.sub(r"(?<=-> )'([^']+)'", r"\1", sig_str)
     return f"{method_name}{sig_str}"
 
 

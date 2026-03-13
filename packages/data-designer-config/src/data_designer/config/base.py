@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Any
+from typing import Any, Literal, get_args, get_origin
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -115,18 +115,45 @@ class ProcessorConfig(ConfigBase, ABC):
 
 def _format_annotation(annotation: Any) -> str:
     """Convert a type annotation to a readable string, stripping module paths."""
+    if get_origin(annotation) is Literal:
+        args = get_args(annotation)
+        if args:
+            values = ", ".join(repr(a.value) if isinstance(a, Enum) else repr(a) for a in args)
+            return f"Literal[{values}]"
     raw = str(annotation) if not hasattr(annotation, "__name__") else annotation.__name__
     return re.sub(r"\b[a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)+", lambda m: m.group().rsplit(".", 1)[-1], raw)
 
 
+_GOOGLE_SECTION_HEADERS = frozenset(
+    {
+        "args:",
+        "arguments:",
+        "attributes:",
+        "example:",
+        "examples:",
+        "keyword args:",
+        "keyword arguments:",
+        "note:",
+        "notes:",
+        "raises:",
+        "references:",
+        "returns:",
+        "see also:",
+        "todo:",
+        "warns:",
+        "yields:",
+    }
+)
+
+
 def _get_docstring_summary(docstring: str | None) -> str | None:
-    """Extract the first paragraph of a docstring, up to the Attributes section."""
+    """Extract the first paragraph of a docstring, before any Google-style section header."""
     if not docstring:
         return None
     lines: list[str] = []
     for line in docstring.strip().splitlines():
         stripped = line.strip()
-        if stripped.lower().startswith("attributes:"):
+        if stripped.lower() in _GOOGLE_SECTION_HEADERS:
             break
         if not stripped and lines:
             break

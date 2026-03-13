@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from enum import Enum
+from typing import Literal
 
 import pytest
 from pydantic import Field
@@ -57,6 +58,11 @@ class DocstringModel(ConfigBase):
 
 class NoDocstringModel(ConfigBase):
     value: int
+
+
+class LiteralModel(ConfigBase):
+    tag: Literal["fixed"] = "fixed"
+    name: str
 
 
 class MixedModel(ConfigBase):
@@ -170,6 +176,14 @@ def test_no_docstring_still_works() -> None:
 def test_header_is_class_name() -> None:
     text = RequiredOnlyModel.schema_text()
     assert text.startswith("RequiredOnlyModel:")
+
+
+# --- Single-value Literal fields ---
+
+
+def test_literal_field_includes_value_and_default() -> None:
+    text = LiteralModel.schema_text()
+    assert "tag: Literal['fixed'] = 'fixed'" in text
 
 
 # --- Mixed model exercises all variants together ---
