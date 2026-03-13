@@ -881,7 +881,7 @@ requires-dist = [
     { name = "json-repair", specifier = ">=0.48.0,<1" },
     { name = "jsonpath-rust-bindings", specifier = ">=1.0,<2" },
     { name = "jsonschema", specifier = ">=4.0.0,<5" },
-    { name = "litellm", specifier = ">=1.73.6,<1.80.12" },
+    { name = "litellm", specifier = ">=1.77.0,<1.80.12" },
     { name = "lxml", specifier = ">=6.0.2,<7" },
     { name = "marko", specifier = ">=2.1.2,<3" },
     { name = "mcp", specifier = ">=1.26.0,<2" },
