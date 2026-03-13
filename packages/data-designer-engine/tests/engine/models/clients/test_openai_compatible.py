@@ -362,6 +362,22 @@ def test_transport_connection_error_raises_connection_error() -> None:
     assert exc_info.value.kind == ProviderErrorKind.API_CONNECTION
 
 
+def test_non_json_response_raises_provider_error() -> None:
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.json.side_effect = ValueError("not json")
+    sync_mock = MagicMock()
+    sync_mock.post = MagicMock(return_value=resp)
+    client = _make_client(sync_client=sync_mock)
+
+    request = ChatCompletionRequest(model=MODEL, messages=[{"role": "user", "content": "Hi"}])
+    with pytest.raises(ProviderError) as exc_info:
+        client.completion(request)
+
+    assert exc_info.value.kind == ProviderErrorKind.API_ERROR
+    assert "non-JSON" in exc_info.value.message
+
+
 # --- Lifecycle ---
 
 
@@ -373,12 +389,16 @@ def test_close_delegates_to_httpx_client() -> None:
 
 
 @pytest.mark.asyncio
-async def test_aclose_delegates_to_httpx_async_client() -> None:
+async def test_aclose_closes_both_clients() -> None:
+    sync_mock = MagicMock()
     async_mock = MagicMock()
     async_mock.aclose = AsyncMock()
-    client = _make_client(async_client=async_mock)
+    client = _make_client(sync_client=sync_mock, async_client=async_mock)
+
     await client.aclose()
+
     async_mock.aclose.assert_awaited_once()
+    sync_mock.close.assert_called_once()
 
 
 def test_close_noop_when_no_client_created() -> None:
