@@ -18,21 +18,21 @@ from data_designer.engine.model_provider import (
 )
 from data_designer.engine.models.factory import create_model_registry
 from data_designer.engine.models.registry import ModelRegistry
-from data_designer.engine.resources.managed_storage import ManagedBlobStorage
+from data_designer.engine.resources.nemotron_personas_reader import NemotronPersonasDatasetReader
 from data_designer.engine.resources.seed_reader import SeedReader, SeedReaderRegistry
 from data_designer.engine.secret_resolver import SecretResolver
 from data_designer.engine.storage.artifact_storage import ArtifactStorage
 
 
 class ResourceType(StrEnum):
-    BLOB_STORAGE = "blob_storage"
+    NEMOTRON_PERSONAS_READER = "nemotron_personas_reader"
     MODEL_REGISTRY = "model_registry"
     SEED_READER = "seed_reader"
 
 
 class ResourceProvider(ConfigBase):
     artifact_storage: ArtifactStorage
-    blob_storage: ManagedBlobStorage | None = None
+    nemotron_personas_reader: NemotronPersonasDatasetReader | None = None
     model_registry: ModelRegistry | None = None
     mcp_registry: MCPRegistry | None = None
     run_config: RunConfig = RunConfig()
@@ -82,7 +82,7 @@ def create_resource_provider(
     secret_resolver: SecretResolver,
     model_provider_registry: ModelProviderRegistry,
     seed_reader_registry: SeedReaderRegistry,
-    blob_storage: ManagedBlobStorage | None = None,
+    nemotron_personas_reader: NemotronPersonasDatasetReader | None = None,
     seed_dataset_source: SeedSource | None = None,
     run_config: RunConfig | None = None,
     mcp_providers: list[MCPProviderT] | None = None,
@@ -102,7 +102,7 @@ def create_resource_provider(
         secret_resolver: Resolver for secrets.
         model_provider_registry: Registry of model providers.
         seed_reader_registry: Registry of seed readers.
-        blob_storage: Optional blob storage for large files.
+        nemotron_personas_reader: Optional reader for Nemotron personas datasets.
         seed_dataset_source: Optional source for seed datasets.
         run_config: Optional runtime configuration.
         mcp_providers: Optional list of MCP provider configurations.
@@ -139,7 +139,7 @@ def create_resource_provider(
             model_provider_registry=model_provider_registry,
             mcp_registry=mcp_registry,
         ),
-        blob_storage=blob_storage,
+        nemotron_personas_reader=nemotron_personas_reader,
         mcp_registry=mcp_registry,
         seed_reader=seed_reader,
         run_config=run_config or RunConfig(),

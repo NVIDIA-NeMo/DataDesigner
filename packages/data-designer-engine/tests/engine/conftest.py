@@ -11,7 +11,7 @@ import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.run_config import RunConfig
 from data_designer.engine.models.facade import ModelFacade
 from data_designer.engine.models.registry import ModelRegistry
-from data_designer.engine.resources.managed_storage import ManagedBlobStorage
+from data_designer.engine.resources.nemotron_personas_reader import NemotronPersonasDatasetReader
 from data_designer.engine.resources.resource_provider import ResourceProvider
 from data_designer.engine.storage.artifact_storage import ArtifactStorage
 
@@ -37,7 +37,7 @@ def stub_resource_provider(tmp_path, stub_model_facade):
     mock_model_registry.model_configs = {}  # Add empty model_configs dict
     mock_provider.model_registry = mock_model_registry
     mock_provider.artifact_storage = ArtifactStorage(artifact_path=tmp_path)
-    mock_provider.blob_storage = Mock(spec=ManagedBlobStorage)
+    mock_provider.nemotron_personas_reader = Mock(spec=NemotronPersonasDatasetReader)
     mock_provider.seed_reader = Mock()
     mock_provider.seed_reader.get_column_names.return_value = []
     mock_provider.run_config = RunConfig()

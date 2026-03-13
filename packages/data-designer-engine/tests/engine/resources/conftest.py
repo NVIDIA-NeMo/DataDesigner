@@ -10,41 +10,34 @@ from unittest.mock import Mock
 import pytest
 
 import data_designer.lazy_heavy_imports as lazy
-from data_designer.engine.resources.managed_storage import LocalBlobStorageProvider
+from data_designer.engine.resources.nemotron_personas_reader import LocalNemotronPersonasDatasetReader
 
 
 @pytest.fixture
-def stub_temp_dir():
+def stub_temp_dir() -> Path:
     with tempfile.TemporaryDirectory() as tmpdir:
         yield Path(tmpdir)
 
 
 @pytest.fixture
-def stub_local_blob_storage(stub_temp_dir):
-    return LocalBlobStorageProvider(stub_temp_dir)
+def stub_nemotron_personas_reader(stub_temp_dir: Path) -> LocalNemotronPersonasDatasetReader:
+    return LocalNemotronPersonasDatasetReader(stub_temp_dir)
 
 
 @pytest.fixture
-def stub_managed_dataset_repository():
-    mock_repo = Mock()
-    mock_repo.query.return_value = Mock()  # Return a mock DataFrame
-    return mock_repo
-
-
-@pytest.fixture
-def stub_sample_dataframe():
+def stub_sample_dataframe() -> lazy.pd.DataFrame:
     return lazy.pd.DataFrame({"id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"], "age": [25, 30, 35]})
 
 
 @pytest.fixture
-def stub_artifact_storage():
+def stub_artifact_storage() -> Mock:
     mock_storage = Mock()
     mock_storage.write_parquet_file = Mock()
     return mock_storage
 
 
 @pytest.fixture
-def stub_model_registry():
+def stub_model_registry() -> Mock:
     mock_registry = Mock()
     mock_registry.get_model = Mock()
     mock_registry.get_model_config = Mock()
@@ -52,7 +45,7 @@ def stub_model_registry():
 
 
 @pytest.fixture
-def stub_secret_resolver():
+def stub_secret_resolver() -> Mock:
     mock_resolver = Mock()
     mock_resolver.resolve = Mock(return_value="resolved_secret")
     return mock_resolver

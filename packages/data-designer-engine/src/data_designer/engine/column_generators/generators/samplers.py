@@ -43,7 +43,7 @@ class SamplerColumnGenerator(FromScratchColumnGenerator[SamplerMultiColumnConfig
 
     @property
     def _person_generator_loader(self) -> Callable[[bool], ManagedDatasetGenerator]:
-        return partial(load_person_data_sampler, blob_storage=self.resource_provider.blob_storage)
+        return partial(load_person_data_sampler, reader=self.resource_provider.nemotron_personas_reader)
 
     def _create_sampling_dataset_generator(self) -> SamplingDatasetGenerator:
         return SamplingDatasetGenerator(

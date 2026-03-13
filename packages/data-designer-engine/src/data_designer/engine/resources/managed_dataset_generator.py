@@ -5,16 +5,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from data_designer.engine.resources.managed_dataset_repository import ManagedDatasetRepository
+from data_designer.engine.resources.nemotron_personas_reader import NemotronPersonasDatasetReader
 
 if TYPE_CHECKING:
     import pandas as pd
 
 
 class ManagedDatasetGenerator:
-    def __init__(self, managed_datasets: ManagedDatasetRepository, dataset_name: str):
-        self.managed_datasets = managed_datasets
-        self.dataset_name = dataset_name
+    def __init__(self, reader: NemotronPersonasDatasetReader, locale: str) -> None:
+        self._conn = reader.create_duckdb_connection()
+        self._uri = reader.get_dataset_uri(locale)
 
     def generate_samples(
         self,
@@ -22,7 +22,7 @@ class ManagedDatasetGenerator:
         evidence: dict[str, Any | list[Any]] = {},
     ) -> pd.DataFrame:
         parameters = []
-        query = f"select * from {self.dataset_name}"
+        query = f"select * from '{self._uri}'"
         if evidence:
             where_conditions = []
             for column, values in evidence.items():
@@ -35,4 +35,8 @@ class ManagedDatasetGenerator:
             if where_conditions:
                 query += " where " + " and ".join(where_conditions)
         query += f" order by random() limit {size}"
-        return self.managed_datasets.query(query, parameters)
+        cursor = self._conn.cursor()
+        try:
+            return cursor.execute(query, parameters).df()
+        finally:
+            cursor.close()
