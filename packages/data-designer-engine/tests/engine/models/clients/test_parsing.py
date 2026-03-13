@@ -64,6 +64,13 @@ def test_extra_body_preserved_when_flatten_disabled() -> None:
     assert "seed" not in transport.body
 
 
+def test_extra_body_empty_dict_not_injected_when_flatten_disabled() -> None:
+    request = ChatCompletionRequest(model="m", messages=[], extra_body={})
+    transport = TransportKwargs.from_request(request, flatten_extra_body=False)
+
+    assert "extra_body" not in transport.body
+
+
 # --- TransportKwargs.from_request: extra_headers separation ---
 
 

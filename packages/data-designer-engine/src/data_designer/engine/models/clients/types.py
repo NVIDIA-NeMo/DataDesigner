@@ -118,8 +118,9 @@ class TransportKwargs:
     Adapters call ``TransportKwargs.from_request(request)`` instead of
     manually handling ``extra_body`` / ``extra_headers`` on every request type.
 
-    - ``body``: API-level keyword arguments with ``extra_body`` keys merged
-      into the top level (mirroring how LiteLLM flattens them).
+    - ``body``: API-level keyword arguments. By default ``extra_body`` keys are
+      merged into the top level; pass ``flatten_extra_body=False`` to preserve
+      ``extra_body`` as a nested dict (needed by LiteLLM).
     - ``headers``: Extra HTTP headers to attach to the outgoing request.
     """
 
