@@ -412,7 +412,7 @@ class ValidationColumnConfig(SingleColumnConfig):
 
     target_columns: list[str]
     validator_type: ValidatorType
-    validator_params: ValidatorParamsT
+    validator_params: Annotated[ValidatorParamsT, Discriminator("validator_type")]
     batch_size: int = Field(default=10, ge=1, description="Number of records to process in each batch")
     column_type: Literal["validation"] = "validation"
 
@@ -428,6 +428,17 @@ class ValidationColumnConfig(SingleColumnConfig):
     @property
     def side_effect_columns(self) -> list[str]:
         return []
+
+    @model_validator(mode="before")
+    @classmethod
+    def inject_validator_type_into_params(cls, data: dict) -> dict:
+        """Inject validator_type into validator_params for discriminated union resolution."""
+        if isinstance(data, dict):
+            validator_type = data.get("validator_type")
+            validator_params = data.get("validator_params")
+            if validator_type and isinstance(validator_params, dict) and "validator_type" not in validator_params:
+                data["validator_params"] = {"validator_type": validator_type, **validator_params}
+        return data
 
 
 class SeedDatasetColumnConfig(SingleColumnConfig):
