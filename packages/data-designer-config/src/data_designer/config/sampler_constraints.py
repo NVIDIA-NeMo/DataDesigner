@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from abc import ABC
 from enum import Enum
 from typing import Annotated, Any, Literal
 
@@ -24,7 +25,7 @@ class InequalityOperator(str, Enum):
     GE = "ge"
 
 
-class Constraint(ConfigBase):
+class Constraint(ConfigBase, ABC):
     """Base class for sampler constraints. Use a concrete subclass, not this class directly."""
 
     target_column: str = Field(description="Name of the sampler column this constraint applies to")
