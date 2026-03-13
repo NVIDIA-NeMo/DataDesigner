@@ -76,7 +76,7 @@ class LiteLLMBridgeClient(ModelClient):
         return True
 
     def completion(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
-        transport = TransportKwargs.from_request(request)
+        transport = TransportKwargs.from_request(request, flatten_extra_body=False)
         with _handle_non_provider_errors(self.provider_name):
             response = self._router.completion(
                 model=request.model,
@@ -87,7 +87,7 @@ class LiteLLMBridgeClient(ModelClient):
         return parse_chat_completion_response(response)
 
     async def acompletion(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
-        transport = TransportKwargs.from_request(request)
+        transport = TransportKwargs.from_request(request, flatten_extra_body=False)
         with _handle_non_provider_errors(self.provider_name):
             response = await self._router.acompletion(
                 model=request.model,
@@ -98,7 +98,7 @@ class LiteLLMBridgeClient(ModelClient):
         return await aparse_chat_completion_response(response)
 
     def embeddings(self, request: EmbeddingRequest) -> EmbeddingResponse:
-        transport = TransportKwargs.from_request(request)
+        transport = TransportKwargs.from_request(request, flatten_extra_body=False)
         with _handle_non_provider_errors(self.provider_name):
             response = self._router.embedding(
                 model=request.model,
@@ -110,7 +110,7 @@ class LiteLLMBridgeClient(ModelClient):
         return EmbeddingResponse(vectors=vectors, usage=extract_usage(getattr(response, "usage", None)), raw=response)
 
     async def aembeddings(self, request: EmbeddingRequest) -> EmbeddingResponse:
-        transport = TransportKwargs.from_request(request)
+        transport = TransportKwargs.from_request(request, flatten_extra_body=False)
         with _handle_non_provider_errors(self.provider_name):
             response = await self._router.aembedding(
                 model=request.model,
@@ -122,7 +122,7 @@ class LiteLLMBridgeClient(ModelClient):
         return EmbeddingResponse(vectors=vectors, usage=extract_usage(getattr(response, "usage", None)), raw=response)
 
     def generate_image(self, request: ImageGenerationRequest) -> ImageGenerationResponse:
-        transport = TransportKwargs.from_request(request, exclude=self._IMAGE_EXCLUDE)
+        transport = TransportKwargs.from_request(request, exclude=self._IMAGE_EXCLUDE, flatten_extra_body=False)
         with _handle_non_provider_errors(self.provider_name):
             if request.messages is not None:
                 response = self._router.completion(
@@ -148,7 +148,7 @@ class LiteLLMBridgeClient(ModelClient):
         return ImageGenerationResponse(images=images, usage=usage, raw=response)
 
     async def agenerate_image(self, request: ImageGenerationRequest) -> ImageGenerationResponse:
-        transport = TransportKwargs.from_request(request, exclude=self._IMAGE_EXCLUDE)
+        transport = TransportKwargs.from_request(request, exclude=self._IMAGE_EXCLUDE, flatten_extra_body=False)
         with _handle_non_provider_errors(self.provider_name):
             if request.messages is not None:
                 response = await self._router.acompletion(

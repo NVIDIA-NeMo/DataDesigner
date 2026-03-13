@@ -6,7 +6,10 @@
 
 from __future__ import annotations
 
+import re
 from abc import ABC, abstractmethod
+from enum import Enum
+from typing import Any, Literal, get_args, get_origin
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -19,6 +22,31 @@ class ConfigBase(BaseModel):
         extra="forbid",
         json_schema_mode_override="validation",
     )
+
+    @classmethod
+    def schema_text(cls) -> str:
+        """Return an agent-friendly text summary of the model's fields and defaults."""
+        lines: list[str] = [f"{cls.__name__}:"]
+        docstring = _get_docstring_summary(cls.__doc__)
+        if docstring:
+            lines.append(f"  {docstring}")
+        lines.append("")
+        for name, field_info in cls.model_fields.items():
+            annotation = _format_annotation(field_info.annotation)
+            if field_info.is_required():
+                lines.append(f"  {name}: {annotation}  [required]")
+            else:
+                if field_info.default_factory is not None:
+                    factory_name = getattr(field_info.default_factory, "__name__", repr(field_info.default_factory))
+                    lines.append(f"  {name}: {annotation} = {factory_name}()")
+                else:
+                    default = field_info.default
+                    if isinstance(default, Enum):
+                        default = default.value
+                    lines.append(f"  {name}: {annotation} = {default!r}")
+            if field_info.description:
+                lines.append(f"      {field_info.description}")
+        return "\n".join(lines)
 
 
 class SingleColumnConfig(ConfigBase, ABC):
@@ -83,3 +111,52 @@ class ProcessorConfig(ConfigBase, ABC):
         description="The name of the processor, used to identify the processor in the results and to write the artifacts to disk.",
     )
     processor_type: str
+
+
+def _format_annotation(annotation: Any) -> str:
+    """Convert a type annotation to a readable string, stripping module paths."""
+    if get_origin(annotation) is Literal:
+        args = get_args(annotation)
+        if args:
+            values = ", ".join(repr(a.value) if isinstance(a, Enum) else repr(a) for a in args)
+            return f"Literal[{values}]"
+    raw = str(annotation) if not hasattr(annotation, "__name__") else annotation.__name__
+    return re.sub(r"\b[a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)+", lambda m: m.group().rsplit(".", 1)[-1], raw)
+
+
+_GOOGLE_SECTION_HEADERS = frozenset(
+    {
+        "args:",
+        "arguments:",
+        "attributes:",
+        "example:",
+        "examples:",
+        "keyword args:",
+        "keyword arguments:",
+        "note:",
+        "notes:",
+        "raises:",
+        "references:",
+        "returns:",
+        "see also:",
+        "todo:",
+        "warns:",
+        "yields:",
+    }
+)
+
+
+def _get_docstring_summary(docstring: str | None) -> str | None:
+    """Extract the first paragraph of a docstring, before any Google-style section header."""
+    if not docstring:
+        return None
+    lines: list[str] = []
+    for line in docstring.strip().splitlines():
+        stripped = line.strip()
+        if stripped.lower() in _GOOGLE_SECTION_HEADERS:
+            break
+        if not stripped and lines:
+            break
+        if stripped:
+            lines.append(stripped)
+    return " ".join(lines) if lines else None

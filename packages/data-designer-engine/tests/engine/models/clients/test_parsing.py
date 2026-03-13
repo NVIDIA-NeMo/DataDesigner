@@ -13,7 +13,7 @@ from data_designer.engine.models.clients.types import (
     TransportKwargs,
 )
 
-# --- TransportKwargs.from_request: extra_body flattening ---
+# --- TransportKwargs.from_request: extra_body flattening (default) ---
 
 
 def test_extra_body_keys_are_flattened_into_body() -> None:
@@ -42,6 +42,31 @@ def test_extra_body_none_produces_no_extra_keys() -> None:
 def test_extra_body_empty_dict_produces_no_extra_keys() -> None:
     request = ChatCompletionRequest(model="m", messages=[], extra_body={})
     transport = TransportKwargs.from_request(request)
+
+    assert "extra_body" not in transport.body
+
+
+# --- TransportKwargs.from_request: extra_body preserved (opt-in) ---
+
+
+def test_extra_body_preserved_when_flatten_disabled() -> None:
+    request = ChatCompletionRequest(
+        model="m",
+        messages=[],
+        temperature=0.7,
+        extra_body={"reasoning_effort": "high", "seed": 42},
+    )
+    transport = TransportKwargs.from_request(request, flatten_extra_body=False)
+
+    assert transport.body["temperature"] == 0.7
+    assert transport.body["extra_body"] == {"reasoning_effort": "high", "seed": 42}
+    assert "reasoning_effort" not in transport.body
+    assert "seed" not in transport.body
+
+
+def test_extra_body_empty_dict_not_injected_when_flatten_disabled() -> None:
+    request = ChatCompletionRequest(model="m", messages=[], extra_body={})
+    transport = TransportKwargs.from_request(request, flatten_extra_body=False)
 
     assert "extra_body" not in transport.body
 
