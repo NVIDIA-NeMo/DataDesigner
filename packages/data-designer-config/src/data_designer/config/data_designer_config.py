@@ -13,7 +13,7 @@ from data_designer.config.exportable_config import ExportableConfigBase
 from data_designer.config.mcp import ToolConfig
 from data_designer.config.models import ModelConfig
 from data_designer.config.processor_types import ProcessorConfigT
-from data_designer.config.sampler_constraints import ColumnConstraintT
+from data_designer.config.sampler_constraints import ColumnConstraintInputT
 from data_designer.config.seed import SeedConfig
 
 
@@ -39,6 +39,6 @@ class DataDesignerConfig(ExportableConfigBase):
     model_configs: list[ModelConfig] | None = None
     tool_configs: list[ToolConfig] | None = None
     seed_config: SeedConfig | None = None
-    constraints: list[ColumnConstraintT] | None = None
+    constraints: list[ColumnConstraintInputT] | None = None
     profilers: list[ColumnProfilerConfigT] | None = None
     processors: list[Annotated[ProcessorConfigT, Field(discriminator="processor_type")]] | None = None
