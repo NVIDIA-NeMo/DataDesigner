@@ -73,7 +73,6 @@ nav:
       - Structured Outputs from Nemotron: devnotes/posts/structured-outputs-from-nemotron.md
       - Deep Research Trajectories: devnotes/posts/deep-research-trajectories.md
       - Design Principles: devnotes/posts/design-principles.md
-      - Handler Registries: devnotes/posts/handler-registries.md
       - RQA Dataset: devnotes/posts/rqa.md
 
 theme:
