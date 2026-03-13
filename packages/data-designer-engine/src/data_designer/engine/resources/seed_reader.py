@@ -129,8 +129,11 @@ class SeedReaderRegistry(HandlerRegistry[SeedSource, SeedReader[SeedSource]]):
 
     def add_reader(self, reader: type[SeedReader[SeedSource]] | SeedReader[SeedSource]) -> Self:
         if isinstance(reader, SeedReader):
-            seed_type = type(reader).get_registered_name("seed_type")
-            if seed_type in self._reader_instances:
+            try:
+                seed_type = type(reader).get_registered_name("seed_type")
+            except (TypeError, ValueError) as error:
+                raise SeedReaderError(str(error)) from error
+            if self.has_registered_name(seed_type):
                 raise SeedReaderError(f"A reader for seed_type {seed_type!r} already exists")
             self.register(type(reader))
             self._reader_instances[seed_type] = reader

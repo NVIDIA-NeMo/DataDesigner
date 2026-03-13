@@ -66,6 +66,13 @@ def test_get_reader_reuses_registered_reader_instances() -> None:
     assert reader is df_reader
 
 
+def test_add_reader_instance_collides_with_registered_class() -> None:
+    registry = SeedReaderRegistry([DataFrameSeedReader])
+
+    with pytest.raises(SeedReaderError, match="seed_type 'df'"):
+        registry.add_reader(DataFrameSeedReader())
+
+
 def test_get_reader_missing() -> None:
     registry = SeedReaderRegistry([LocalFileSeedReader])
 

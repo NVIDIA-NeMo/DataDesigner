@@ -41,6 +41,10 @@ class RemoteExampleHandler(Handler[RemoteExampleConfig]):
         self.config = config
 
 
+class UnparameterizedHandler(Handler):
+    pass
+
+
 def test_register_and_create_handler_from_config() -> None:
     registry = HandlerRegistry[ExampleConfig, ExampleHandler](
         discriminator_field="handler_type",
@@ -77,6 +81,17 @@ def test_register_requires_class() -> None:
 
     with pytest.raises(RegistryItemNotTypeError, match="is not a class"):
         registry.register("not-a-class")  # type: ignore[arg-type]
+
+
+def test_register_wraps_invalid_handler_metadata_errors() -> None:
+    registry = HandlerRegistry[ExampleConfig, ExampleHandler](
+        discriminator_field="handler_type",
+        handler_factory=lambda handler_type, config: handler_type(config),
+        error_type=RuntimeError,
+    )
+
+    with pytest.raises(RuntimeError, match="Could not determine config type"):
+        registry.register(UnparameterizedHandler)
 
 
 def test_get_handler_type_missing_raises() -> None:

@@ -82,7 +82,10 @@ class HandlerRegistry(Generic[ConfigT, HandlerT]):
         if not issubclass(handler_type, Handler):
             raise self._error_type(f"{handler_type!r} is not a subclass of Handler")
 
-        registered_name = handler_type.get_registered_name(self._discriminator_field)
+        try:
+            registered_name = handler_type.get_registered_name(self._discriminator_field)
+        except (TypeError, ValueError) as error:
+            raise self._error_type(str(error)) from error
         if registered_name in self._handlers:
             if not raise_on_collision:
                 return self
@@ -93,6 +96,9 @@ class HandlerRegistry(Generic[ConfigT, HandlerT]):
         self._handlers[registered_name] = handler_type
         self._reverse_handlers[handler_type] = registered_name
         return self
+
+    def has_registered_name(self, registered_name: str) -> bool:
+        return registered_name in self._handlers
 
     def create_for_config(self, config: ConfigT) -> HandlerT:
         return self._handler_factory(self.get_handler_type_for_config(config), config)
