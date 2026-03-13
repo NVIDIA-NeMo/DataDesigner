@@ -50,8 +50,9 @@ logger = logging.getLogger(__name__)
 # Known keyword arguments extracted into request fields for each modality.
 # Note: `extra_body` and `extra_headers` appear in every set but receive special
 # treatment in `consolidate_kwargs` (merged with provider-level overrides) and in
-# `TransportKwargs` (extra_body is flattened into the request body, extra_headers
-# are forwarded as HTTP headers).  They are NOT regular model parameters.
+# `TransportKwargs` (extra_body is either flattened into the request body or
+# preserved as a nested dict depending on the adapter; extra_headers are
+# forwarded as HTTP headers).  They are NOT regular model parameters.
 _COMPLETION_REQUEST_FIELDS = frozenset(
     {
         "temperature",
