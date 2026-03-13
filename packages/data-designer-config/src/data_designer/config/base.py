@@ -36,10 +36,14 @@ class ConfigBase(BaseModel):
             if field_info.is_required():
                 lines.append(f"  {name}: {annotation}  [required]")
             else:
-                default = field_info.default
-                if isinstance(default, Enum):
-                    default = default.value
-                lines.append(f"  {name}: {annotation} = {default!r}")
+                if field_info.default_factory is not None:
+                    factory_name = getattr(field_info.default_factory, "__name__", repr(field_info.default_factory))
+                    lines.append(f"  {name}: {annotation} = {factory_name}()")
+                else:
+                    default = field_info.default
+                    if isinstance(default, Enum):
+                        default = default.value
+                    lines.append(f"  {name}: {annotation} = {default!r}")
             if field_info.description:
                 lines.append(f"      {field_info.description}")
         return "\n".join(lines)

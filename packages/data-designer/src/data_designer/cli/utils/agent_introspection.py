@@ -195,7 +195,9 @@ def get_model_aliases_state(config_dir: Path) -> dict[str, Any]:
     default_provider: str | None = None
     if provider_registry is not None:
         providers_by_name = {p.name: p for p in provider_registry.providers}
-        default_provider = provider_registry.default or provider_registry.providers[0].name
+        default_provider = provider_registry.default or (
+            provider_registry.providers[0].name if provider_registry.providers else None
+        )
         missing_key_names = {p.name for p in get_providers_with_missing_api_keys(provider_registry.providers)}
 
     for mc in sorted(model_registry.model_configs, key=lambda m: m.alias):
