@@ -6,6 +6,7 @@ from __future__ import annotations
 import typer
 
 from data_designer.cli.lazy_group import create_lazy_typer_group
+from data_designer.cli.runtime import ensure_cli_default_model_settings
 
 _CMD = "data_designer.cli.commands"
 
@@ -105,6 +106,7 @@ app.add_typer(download_app, name="download", rich_help_panel="Setup")
 
 def main() -> None:
     """Main entry point for the CLI."""
+    ensure_cli_default_model_settings()
     app()
 
 
