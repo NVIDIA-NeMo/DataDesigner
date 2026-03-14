@@ -77,7 +77,9 @@ def _initialize_interface_runtime() -> None:
     global _interface_runtime_initialized
     if _interface_runtime_initialized:
         return
-    configure_logging()
+    from data_designer import logging as _logging_mod
+    if not _logging_mod._configured:
+        configure_logging()
     resolve_seed_default_model_settings()
     _interface_runtime_initialized = True
 

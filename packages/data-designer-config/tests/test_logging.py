@@ -17,6 +17,14 @@ from data_designer.logging import (
     quiet_noisy_logger,
 )
 
+import data_designer.logging as _logging_mod
+
+@pytest.fixture(autouse=True)
+def reset_configured_flag():
+    original = _logging_mod._configured
+    yield
+    _logging_mod._configured = original
+
 
 @pytest.fixture
 def stub_default_logging_config():
