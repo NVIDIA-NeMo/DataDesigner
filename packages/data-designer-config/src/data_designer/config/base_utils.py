@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import inspect
 import re
 import sys
 import types
@@ -21,11 +22,7 @@ if TYPE_CHECKING:
 
 
 def generate_schema_text(cls: type[BaseModel], *, base_cls: type[BaseModel]) -> str:
-    """Return an agent-friendly text summary of a model's fields, types, and defaults.
-
-    Renders field names, annotations, defaults, descriptions, inline enum values,
-    nested model expansion (1 level), and an instantiation example.
-    """
+    """Return an agent-friendly text summary of a model's fields, types, and defaults."""
     return _render_model(cls, base_cls=base_cls, depth=0)
 
 
@@ -36,137 +33,135 @@ def _render_model(cls: type[BaseModel], *, base_cls: type[BaseModel], depth: int
     """Render all visible fields of a model class as indented text."""
     indent = "      " * depth
     lines: list[str] = [f"{indent}{cls.__name__}:"]
-    docstring = _get_docstring_summary(cls.__doc__)
-    if docstring:
-        lines.append(f"{indent}  {docstring}")
+
+    if cls.__doc__:
+        summary = _extract_first_paragraph(cls.__doc__)
+        if summary:
+            lines.append(f"{indent}  {summary}")
     lines.append("")
 
-    resolved_hints = _resolve_annotations(cls)
+    resolved = _collect_declared_annotations(cls)
+    required: list[str] = []
 
-    required_field_names: list[str] = []
-    for name, field_info in cls.model_fields.items():
-        if _is_discriminator_field(field_info) or field_info.repr is False:
+    for name, info in cls.model_fields.items():
+        if _is_discriminator(info) or info.repr is False:
             continue
-        if field_info.is_required():
-            required_field_names.append(name)
-        annotation = resolved_hints.get(name, field_info.annotation)
-        lines.extend(
-            _render_field(name, field_info, annotation=annotation, indent=indent, base_cls=base_cls, depth=depth)
-        )
 
-    if depth == 0 and required_field_names:
-        params = ", ".join(f"{n}=..." for n in required_field_names)
+        # info.annotation is used for display (Pydantic strips Annotated metadata).
+        # The resolved annotation preserves full generic args on Python 3.10 for expansion.
+        ann_display = info.annotation
+        ann_expand = resolved.get(name, info.annotation)
+
+        if info.is_required():
+            required.append(name)
+            lines.append(f"{indent}  {name}: {_format_type(ann_display)}  [required]")
+        else:
+            lines.append(f"{indent}  {name}: {_format_type(ann_display)} = {_format_default(info)}")
+
+        if info.description:
+            lines.append(f"{indent}      {info.description}")
+
+        for leaf in _find_expandable_leaves(ann_expand, base_cls):
+            if issubclass(leaf, Enum):
+                lines.append(f"{indent}      values: {', '.join(str(m.value) for m in leaf)}")
+            elif issubclass(leaf, base_cls) and depth < 1:
+                lines.append(_render_model(leaf, base_cls=base_cls, depth=depth + 1))
+
+    if depth == 0 and required:
+        params = ", ".join(f"{n}=..." for n in required)
         lines.append(f"\n{indent}  Example: dd.{cls.__name__}({params})")
 
     return "\n".join(lines)
 
 
-def _render_field(
-    name: str, field_info: FieldInfo, *, annotation: Any, indent: str, base_cls: type[BaseModel], depth: int
-) -> list[str]:
-    """Render a single field: declaration line, description, and expandable type details."""
-    lines: list[str] = []
-    formatted = _format_annotation(annotation)
-
-    if field_info.is_required():
-        lines.append(f"{indent}  {name}: {formatted}  [required]")
-    else:
-        lines.append(f"{indent}  {name}: {formatted} = {_format_default(field_info)}")
-
-    if field_info.description:
-        lines.append(f"{indent}      {field_info.description}")
-
-    for exp_type in _find_expandable_types(annotation, base_cls):
-        if issubclass(exp_type, Enum):
-            values = ", ".join(str(m.value) for m in exp_type)
-            lines.append(f"{indent}      values: {values}")
-        elif issubclass(exp_type, base_cls) and depth < 1:
-            lines.append(_render_model(exp_type, base_cls=base_cls, depth=depth + 1))
-
-    return lines
+# --- Helpers ---
 
 
-def _format_default(field_info: FieldInfo) -> str:
-    """Format a field's default value for display."""
-    if field_info.default_factory is not None:
-        factory_name = getattr(field_info.default_factory, "__name__", repr(field_info.default_factory))
-        return f"{factory_name}()"
-    default = field_info.default
-    if isinstance(default, Enum):
-        default = default.value
-    return repr(default)
+def _collect_declared_annotations(cls: type) -> dict[str, Any]:
+    """Collect resolved annotations from each class in the MRO independently.
 
-
-# --- Private helpers ---
-
-
-def _resolve_annotations(cls: type) -> dict[str, Any]:
-    """Resolve string annotations for each class in the MRO.
-
-    Unlike typing.get_type_hints(), this walks the MRO class-by-class so a
-    NameError in one base class (e.g. BaseModel's ClassVar[ConfigDict]) does
-    not prevent resolution of annotations defined on other classes.
+    On Python 3.10, Pydantic's field_info.annotation can lose generic parameters
+    (e.g. list[Score] becomes bare list). Unlike typing.get_type_hints(), this
+    walks the MRO class-by-class so a NameError in one base class (e.g.
+    BaseModel's ClassVar[ConfigDict]) does not prevent resolution of annotations
+    from other classes.
     """
     resolved: dict[str, Any] = {}
     for klass in reversed(cls.__mro__):
+        if "__annotations__" not in vars(klass):
+            continue
         module = sys.modules.get(klass.__module__)
         globalns = getattr(module, "__dict__", {}) if module else {}
-        for name, raw in vars(klass).get("__annotations__", {}).items():
-            if isinstance(raw, str):
-                try:
-                    resolved[name] = eval(raw, globalns)  # noqa: S307
-                except Exception:
-                    pass
-            else:
-                resolved[name] = raw
+        localns = {klass.__name__: klass, **vars(klass)}
+        try:
+            resolved.update(inspect.get_annotations(klass, globals=globalns, locals=localns, eval_str=True))
+        except NameError:
+            continue
     return resolved
 
 
-def _format_annotation(annotation: Any) -> str:
-    """Convert a type annotation to a readable string, stripping module paths."""
-    if get_origin(annotation) is Literal:
+def _is_discriminator(info: FieldInfo) -> bool:
+    """Return True for single-value Literal fields whose default matches the Literal arg."""
+    ann = _unwrap_annotated(info.annotation)
+    if get_origin(ann) is not Literal:
+        return False
+    args = get_args(ann)
+    if len(args) != 1:
+        return False
+    arg = args[0].value if isinstance(args[0], Enum) else args[0]
+    default = info.default.value if isinstance(info.default, Enum) else info.default
+    return arg == default
+
+
+def _format_type(annotation: Any) -> str:
+    """Convert a type annotation to a readable string.
+
+    Recursively walks the annotation tree so Annotated metadata and module
+    paths are stripped at every nesting level.
+    """
+    if hasattr(annotation, "__metadata__"):
+        return _format_type(get_args(annotation)[0])
+    if annotation is type(None):
+        return "None"
+    origin = get_origin(annotation)
+    if origin is Literal:
         args = get_args(annotation)
         if args:
             values = ", ".join(repr(a.value) if isinstance(a, Enum) else repr(a) for a in args)
             return f"Literal[{values}]"
-    raw = annotation.__name__ if hasattr(annotation, "__name__") else str(annotation)
-    return _MODULE_PATH_RE.sub(lambda m: m.group().rsplit(".", 1)[-1], raw)
-
-
-def _unwrap_annotation(annotation: Any) -> Any:
-    """Strip Annotated[T, ...] wrappers, returning the inner type."""
-    if hasattr(annotation, "__metadata__"):
-        return get_args(annotation)[0]
-    return annotation
-
-
-def _is_discriminator_field(field_info: FieldInfo) -> bool:
-    """Return True for single-value Literal fields whose default matches the Literal arg."""
-    annotation = _unwrap_annotation(field_info.annotation)
-    if get_origin(annotation) is not Literal:
-        return False
+    if origin is None and hasattr(annotation, "__name__"):
+        return annotation.__name__
     args = get_args(annotation)
-    if len(args) != 1:
-        return False
-    arg = args[0].value if isinstance(args[0], Enum) else args[0]
-    default = field_info.default
-    if isinstance(default, Enum):
-        default = default.value
-    return arg == default
+    if origin is not None and args:
+        if origin is Union or origin is types.UnionType:
+            return " | ".join(_format_type(a) for a in args)
+        origin_name = origin.__name__ if hasattr(origin, "__name__") else str(origin)
+        return f"{origin_name}[{', '.join(_format_type(a) for a in args)}]"
+    return _MODULE_PATH_RE.sub(lambda m: m.group().rsplit(".", 1)[-1], str(annotation))
 
 
-def _find_expandable_types(annotation: Any, base_cls: type[BaseModel]) -> list[type]:
+def _format_default(info: FieldInfo) -> str:
+    """Format a field's default value for display."""
+    if info.default_factory is not None:
+        return f"{getattr(info.default_factory, '__name__', repr(info.default_factory))}()"
+    default = info.default.value if isinstance(info.default, Enum) else info.default
+    return repr(default)
+
+
+def _unwrap_annotated(annotation: Any) -> Any:
+    """Strip Annotated[T, ...] wrappers, returning the inner type."""
+    return get_args(annotation)[0] if hasattr(annotation, "__metadata__") else annotation
+
+
+def _find_expandable_leaves(annotation: Any, base_cls: type[BaseModel]) -> list[type]:
     """Walk the annotation tree and return Enum / base_cls leaf types.
 
-    Recurses into generics (list[X] -> X) and Optional[X],
-    but stops at multi-member unions (e.g. discriminated unions).
+    Recurses into list[X] and Optional[X], but stops at multi-member unions.
     """
-    annotation = _unwrap_annotation(annotation)
+    annotation = _unwrap_annotated(annotation)
 
     if isinstance(annotation, type):
-        if issubclass(annotation, (Enum, base_cls)):
-            return [annotation]
-        return []
+        return [annotation] if issubclass(annotation, (Enum, base_cls)) else []
 
     origin = get_origin(annotation)
     args = get_args(annotation)
@@ -175,27 +170,20 @@ def _find_expandable_types(annotation: Any, base_cls: type[BaseModel]) -> list[t
 
     if origin is Union or origin is types.UnionType:
         non_none = [a for a in args if a is not type(None)]
-        if len(non_none) == 1:
-            return _find_expandable_types(non_none[0], base_cls)
-        return []
+        return _find_expandable_leaves(non_none[0], base_cls) if len(non_none) == 1 else []
 
-    if origin in (list, set, frozenset, tuple):
-        return [t for arg in args for t in _find_expandable_types(arg, base_cls)]
-
-    if origin is dict and len(args) >= 2:
-        return _find_expandable_types(args[1], base_cls)
+    if origin is list:
+        return _find_expandable_leaves(args[0], base_cls)
 
     return []
 
 
-def _get_docstring_summary(docstring: str | None) -> str | None:
-    """Extract the first paragraph of a docstring, before any Google-style section header."""
-    if not docstring:
-        return None
+def _extract_first_paragraph(docstring: str) -> str | None:
+    """Extract the first paragraph of a docstring, before any blank line or section header."""
     lines: list[str] = []
     for line in docstring.strip().splitlines():
         stripped = line.strip()
-        if stripped.lower() in _GOOGLE_SECTION_HEADERS:
+        if stripped.lower() in _SECTION_HEADERS:
             break
         if not stripped and lines:
             break
@@ -204,11 +192,11 @@ def _get_docstring_summary(docstring: str | None) -> str | None:
     return " ".join(lines) if lines else None
 
 
-# --- Private constants ---
+# --- Constants ---
 
 _MODULE_PATH_RE = re.compile(r"\b[a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)+")
 
-_GOOGLE_SECTION_HEADERS = frozenset(
+_SECTION_HEADERS = frozenset(
     {
         "args:",
         "arguments:",

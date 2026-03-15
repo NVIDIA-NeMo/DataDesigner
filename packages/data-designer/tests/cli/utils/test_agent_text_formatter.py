@@ -239,7 +239,7 @@ def test_real_judge_schema_expands_score_and_shows_enum_values() -> None:
 
     assert "Score:" in text
     assert "name: str  [required]" in text
-    assert "options: dict  [required]" in text
+    assert "options: dict[int | str, str]  [required]" in text
     assert "values: none, last_message, all_messages" in text
     assert "Example: dd.LLMJudgeColumnConfig(" in text
     assert "column_type:" not in text

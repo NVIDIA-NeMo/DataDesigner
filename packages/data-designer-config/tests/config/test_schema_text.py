@@ -326,12 +326,31 @@ def test_nested_configbase_expanded() -> None:
 
 def test_nested_list_configbase_expanded() -> None:
     text = ParentWithNestedList.schema_text()
+    assert "items: list[NestedChild]  [required]" in text
     assert "NestedChild:" in text
 
 
 def test_nested_optional_configbase_expanded() -> None:
     text = ParentWithOptionalNested.schema_text()
     assert "NestedChild:" in text
+
+
+def test_inherited_generic_field_expanded() -> None:
+    """Inherited list[ConfigBase] fields must resolve generics and expand, even on Python 3.10."""
+
+    class Inner(ConfigBase):
+        val: str
+
+    class Parent(ConfigBase):
+        items: list[Inner]
+
+    class Child(Parent):
+        extra: int = 0
+
+    text = Child.schema_text()
+    assert "items: list[Inner]  [required]" in text
+    assert "Inner:" in text
+    assert "val: str  [required]" in text
 
 
 def test_multi_member_union_not_expanded() -> None:
