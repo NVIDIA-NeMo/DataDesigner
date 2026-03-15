@@ -37,17 +37,16 @@ def test_get_family_schema_returns_json_schema_payload() -> None:
     assert schema_payload["schema"]["title"] == "CodeValidatorParams"
 
 
-def test_get_family_schema_includes_schema_text() -> None:
+def test_get_family_schema_includes_schema_view() -> None:
     schema_payload = get_family_schema("columns", "llm-text")
 
-    text = schema_payload["schema_text"]
-    assert text.startswith("LLMTextColumnConfig:")
-    assert "column_type:" not in text
-    assert "allow_resize" not in text
-    assert "name:" in text
-    assert "Configuration for text generation" in text
-    assert "Jinja2 template" in text
-    assert "Example: dd.LLMTextColumnConfig(" in text
+    view = schema_payload["schema_view"]
+    assert view.class_name == "LLMTextColumnConfig"
+    assert schema_payload["import_path"] == "data_designer.config.LLMTextColumnConfig"
+    assert "column_type" not in [field.name for field in view.fields]
+    assert "allow_resize" in [field.name for field in view.fields]
+    assert "name" in [field.name for field in view.fields]
+    assert view.summary is not None
 
 
 def test_get_family_schema_raises_for_unknown_type() -> None:

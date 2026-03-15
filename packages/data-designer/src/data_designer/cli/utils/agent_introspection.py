@@ -17,6 +17,7 @@ from data_designer.cli.repositories.model_repository import ModelRepository
 from data_designer.cli.repositories.persona_repository import PersonaRepository
 from data_designer.cli.repositories.provider_repository import ProviderRepository
 from data_designer.cli.services.download_service import DownloadService
+from data_designer.cli.utils.pydantic_schema import describe_pydantic_model
 from data_designer.config.column_types import ColumnConfigT
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.default_model_settings import get_providers_with_missing_api_keys
@@ -102,6 +103,7 @@ def get_family_catalog(family: str) -> list[dict[str, str]]:
 
 
 def get_family_schema(family: str, type_name: str) -> dict[str, Any]:
+    spec = get_family_spec(family)
     types_map = discover_family_types(family)
     cls = types_map.get(type_name)
     if cls is None:
@@ -110,13 +112,13 @@ def get_family_schema(family: str, type_name: str) -> dict[str, Any]:
             message=f"Unknown type {type_name!r} for family {family!r}.",
             details={"family": family, "available_types": list(types_map)},
         )
-    return _build_schema_dict(get_family_spec(family).name, type_name, cls)
+    return _build_schema_dict(spec, type_name, cls)
 
 
 def get_family_schemas(family: str) -> dict[str, Any]:
     spec = get_family_spec(family)
     types_map = discover_family_types(family)
-    items = [_build_schema_dict(spec.name, tn, cls) for tn, cls in types_map.items()]
+    items = [_build_schema_dict(spec, tn, cls) for tn, cls in types_map.items()]
     return {"family": spec.name, "items": items}
 
 
@@ -252,14 +254,14 @@ def get_persona_datasets_state(config_dir: Path) -> dict[str, Any]:
     }
 
 
-def _build_schema_dict(family_name: str, type_name: str, cls: type) -> dict[str, Any]:
+def _build_schema_dict(spec: FamilySpec, type_name: str, cls: type) -> dict[str, Any]:
     return {
-        "family": family_name,
+        "family": spec.name,
         "type_name": type_name,
         "class_name": cls.__name__,
         "import_path": get_import_path(cls),
         "schema": cls.model_json_schema(),
-        "schema_text": cls.schema_text(),
+        "schema_view": describe_pydantic_model(cls, hidden_fields={spec.discriminator_field}),
     }
 
 

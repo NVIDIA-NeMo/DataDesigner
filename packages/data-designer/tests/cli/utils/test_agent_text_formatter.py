@@ -16,6 +16,10 @@ from data_designer.cli.utils.agent_text_formatter import (
     format_schema_text,
     format_types_text,
 )
+from data_designer.cli.utils.pydantic_schema import (
+    PydanticFieldView,
+    PydanticModelView,
+)
 
 # --- format_context_text ---
 
@@ -90,38 +94,79 @@ def test_format_types_text_empty_items() -> None:
 
 
 def test_format_schema_text_single_type() -> None:
+    schema_view = PydanticModelView(
+        class_name="LLMTextColumnConfig",
+        summary=None,
+        fields=(PydanticFieldView(name="name", type_text="str", required=True, default_text=None, description=None),),
+        required_field_names=("name",),
+    )
     data: dict[str, Any] = {
         "type_name": "llm-text",
         "class_name": "LLMTextColumnConfig",
-        "schema_text": "LLMTextColumnConfig:\n  name: str  [required]",
+        "import_path": "data_designer.config.LLMTextColumnConfig",
+        "schema_view": schema_view,
     }
     result = format_schema_text(data)
 
     assert "LLMTextColumnConfig:" in result
+    assert "import_path: data_designer.config.LLMTextColumnConfig" in result
     assert "name: str  [required]" in result
 
 
 def test_format_schema_text_all_types() -> None:
+    schema_view_a = PydanticModelView(
+        class_name="A",
+        summary=None,
+        fields=(PydanticFieldView(name="x", type_text="int", required=True, default_text=None, description=None),),
+        required_field_names=("x",),
+    )
+    schema_view_b = PydanticModelView(
+        class_name="B",
+        summary=None,
+        fields=(PydanticFieldView(name="y", type_text="str", required=False, default_text="'hi'", description=None),),
+        required_field_names=(),
+    )
     data: dict[str, Any] = {
         "family": "columns",
         "items": [
-            {"type_name": "a", "class_name": "A", "schema_text": "A:\n  x: int  [required]"},
-            {"type_name": "b", "class_name": "B", "schema_text": "B:\n  y: str = 'hi'"},
+            {"type_name": "a", "class_name": "A", "import_path": "mod.A", "schema_view": schema_view_a},
+            {"type_name": "b", "class_name": "B", "import_path": "mod.B", "schema_view": schema_view_b},
         ],
     }
     result = format_schema_text(data)
 
     assert "# columns schemas (2 types)" in result
-    assert "A:\n  x: int  [required]" in result
-    assert "B:\n  y: str = 'hi'" in result
+    assert "A:" in result
+    assert "import_path: mod.A" in result
+    assert "x: int  [required]" in result
+    assert "B:" in result
+    assert "import_path: mod.B" in result
+    assert "y: str = 'hi'" in result
 
 
-def test_format_schema_text_passes_through_schema_text() -> None:
-    schema_text = "TestModel:\n  name: str  [required]\n  count: int = 0"
-    data: dict[str, Any] = {"type_name": "test", "class_name": "TestModel", "schema_text": schema_text}
+def test_format_schema_text_renders_schema_view() -> None:
+    schema_view = PydanticModelView(
+        class_name="TestModel",
+        summary="Summary.",
+        fields=(
+            PydanticFieldView(name="name", type_text="str", required=True, default_text=None, description=None),
+            PydanticFieldView(name="count", type_text="int", required=False, default_text="0", description=None),
+        ),
+        required_field_names=("name",),
+    )
+    data: dict[str, Any] = {
+        "type_name": "test",
+        "class_name": "TestModel",
+        "import_path": "pkg.TestModel",
+        "schema_view": schema_view,
+    }
     result = format_schema_text(data)
 
-    assert result == schema_text
+    assert "TestModel:" in result
+    assert "Summary." in result
+    assert "import_path: pkg.TestModel" in result
+    assert "name: str  [required]" in result
+    assert "count: int = 0" in result
 
 
 # --- format_builder_text ---
@@ -220,26 +265,26 @@ def test_format_schema_text_on_real_config_models(family: str, type_name: str) -
     result = format_schema_text(schema_data)
 
     assert schema_data["class_name"] in result
-    assert result == schema_data["schema_text"]
+    assert schema_data["import_path"] in result
 
 
-def test_real_column_schema_excludes_discriminator_and_includes_example() -> None:
+def test_real_column_schema_excludes_discriminator_and_includes_allow_resize() -> None:
     schema_data = get_family_schema("columns", "llm-code")
-    text = schema_data["schema_text"]
+    text = format_schema_text(schema_data)
 
     assert "column_type:" not in text
-    assert "allow_resize" not in text
-    assert "Example: dd.LLMCodeColumnConfig(" in text
+    assert "allow_resize: bool = False" in text
+    assert "Example:" not in text
     assert "values:" in text
 
 
 def test_real_judge_schema_expands_score_and_shows_enum_values() -> None:
     schema_data = get_family_schema("columns", "llm-judge")
-    text = schema_data["schema_text"]
+    text = format_schema_text(schema_data)
 
     assert "Score:" in text
     assert "name: str  [required]" in text
     assert "options: dict[int | str, str]  [required]" in text
     assert "values: none, last_message, all_messages" in text
-    assert "Example: dd.LLMJudgeColumnConfig(" in text
+    assert "import_path: data_designer.config.LLMJudgeColumnConfig" in text
     assert "column_type:" not in text

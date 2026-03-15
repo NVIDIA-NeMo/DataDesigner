@@ -6,6 +6,7 @@ from __future__ import annotations
 from typing import Any
 
 from data_designer.cli.utils.agent_introspection import get_library_version
+from data_designer.cli.utils.pydantic_schema import PydanticModelView
 
 
 def format_context_text(data: dict[str, Any]) -> str:
@@ -61,9 +62,9 @@ def format_schema_text(data: dict[str, Any]) -> str:
     """Format schema data as human-readable field summaries."""
     if "items" in data:
         header = f"# {data['family']} schemas ({len(data['items'])} types)"
-        schemas = "\n\n".join(item["schema_text"] for item in data["items"])
+        schemas = "\n\n".join(_format_model_schema(item["schema_view"], item["import_path"]) for item in data["items"])
         return f"{header}\n\n{schemas}"
-    return data["schema_text"]
+    return _format_model_schema(data["schema_view"], data["import_path"])
 
 
 def format_builder_text(data: dict[str, Any]) -> str:
@@ -135,3 +136,30 @@ def _cell(value: Any) -> str:
     if value is None:
         return ""
     return str(value)
+
+
+def _format_model_schema(pydantic_model: PydanticModelView, import_path: str, *, depth: int = 0) -> str:
+    indent = "      " * depth
+    lines: list[str] = [f"{indent}{pydantic_model.class_name}:"]
+    if pydantic_model.summary:
+        lines.append(f"{indent}  {pydantic_model.summary}")
+    if depth == 0:
+        lines.append(f"{indent}  import_path: {import_path}")
+    lines.append("")
+
+    for field in pydantic_model.fields:
+        if field.required:
+            lines.append(f"{indent}  {field.name}: {field.type_text}  [required]")
+        else:
+            lines.append(f"{indent}  {field.name}: {field.type_text} = {field.default_text}")
+
+        if field.description:
+            lines.append(f"{indent}      {field.description}")
+
+        if field.enum_values:
+            lines.append(f"{indent}      values: {', '.join(field.enum_values)}")
+
+        for nested_model in field.nested_models:
+            lines.append(_format_model_schema(nested_model, import_path, depth=depth + 1))
+
+    return "\n".join(lines)

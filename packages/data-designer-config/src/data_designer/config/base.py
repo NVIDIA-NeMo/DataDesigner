@@ -1,16 +1,13 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# IMPORTANT: This module must NOT import from any data_designer submodules (i.e., data_designer.*),
-# EXCEPT for data_designer.config.base_utils which shares the same dependency constraint.
+# IMPORTANT: This module must NOT import from any data_designer submodules (i.e., data_designer.*).
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
 from pydantic import BaseModel, ConfigDict, Field
-
-from data_designer.config.base_utils import generate_schema_text
 
 
 class ConfigBase(BaseModel):
@@ -21,11 +18,6 @@ class ConfigBase(BaseModel):
         extra="forbid",
         json_schema_mode_override="validation",
     )
-
-    @classmethod
-    def schema_text(cls) -> str:
-        """Return an agent-friendly text summary of the model's fields and defaults."""
-        return generate_schema_text(cls, base_cls=ConfigBase)
 
 
 class SingleColumnConfig(ConfigBase, ABC):
@@ -44,7 +36,10 @@ class SingleColumnConfig(ConfigBase, ABC):
 
     name: str
     drop: bool = Field(default=False, description="If True, generate this column but remove it from the final dataset")
-    allow_resize: bool = Field(default=False, json_schema_extra={"agent_hidden": True})
+    allow_resize: bool = Field(
+        default=False,
+        description="If True, this generator may return fewer or more rows than it received.",
+    )
     column_type: str
 
     @staticmethod
