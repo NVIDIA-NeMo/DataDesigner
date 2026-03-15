@@ -76,6 +76,87 @@ class MixedModel(ConfigBase):
     factory_dict: dict[str, int] = Field(default_factory=dict, description="A mapping")
 
 
+class NestedChild(ConfigBase):
+    """A child model for nesting tests."""
+
+    x: str
+    y: int = 0
+
+
+class ParentWithNested(ConfigBase):
+    """Parent model with a nested ConfigBase field."""
+
+    label: str
+    child: NestedChild
+
+
+class ParentWithNestedList(ConfigBase):
+    """Parent with a list of nested ConfigBase."""
+
+    items: list[NestedChild]
+
+
+class ParentWithOptionalNested(ConfigBase):
+    """Parent with an optional nested ConfigBase."""
+
+    child: NestedChild | None = None
+
+
+class EnumFieldModel(ConfigBase):
+    color: Color = Field(description="Pick a color")
+
+
+class ReprFalseModel(ConfigBase):
+    visible: str
+    hidden: bool = Field(default=False, repr=False)
+
+
+class DiscriminatorModel(ConfigBase):
+    column_type: Literal["test"] = "test"
+    name: str
+
+
+class MultiRequiredModel(ConfigBase):
+    """A model with multiple required fields."""
+
+    name: str
+    count: int
+    label: str
+
+
+class NoRequiredModel(ConfigBase):
+    """A model with no required fields."""
+
+    x: int = 0
+    y: str = "hi"
+
+
+class MultiLiteralModel(ConfigBase):
+    mode: Literal["a", "b"] = "a"
+    name: str
+
+
+class RequiredEnumModel(ConfigBase):
+    color: Color
+
+
+class DocstringWithSectionModel(ConfigBase):
+    """Summary paragraph.
+
+    Attributes:
+        value: some description
+    """
+
+    value: int
+
+
+class AllHiddenModel(ConfigBase):
+    """All fields are hidden."""
+
+    discriminator: Literal["test"] = "test"
+    internal: bool = Field(default=False, repr=False)
+
+
 # --- Required fields ---
 
 
@@ -170,6 +251,12 @@ def test_no_docstring_still_works() -> None:
     assert "value: int  [required]" in text
 
 
+def test_docstring_truncated_at_section_header() -> None:
+    text = DocstringWithSectionModel.schema_text()
+    assert "Summary paragraph." in text
+    assert "Attributes:" not in text
+
+
 # --- Header format ---
 
 
@@ -178,12 +265,147 @@ def test_header_is_class_name() -> None:
     assert text.startswith("RequiredOnlyModel:")
 
 
-# --- Single-value Literal fields ---
+# --- Discriminator suppression ---
 
 
-def test_literal_field_includes_value_and_default() -> None:
+def test_discriminator_field_is_suppressed() -> None:
+    text = DiscriminatorModel.schema_text()
+    assert "column_type" not in text
+    assert "name: str  [required]" in text
+
+
+def test_literal_field_with_matching_default_is_discriminator() -> None:
     text = LiteralModel.schema_text()
-    assert "tag: Literal['fixed'] = 'fixed'" in text
+    assert "tag:" not in text
+    assert "name: str  [required]" in text
+
+
+def test_multi_value_literal_is_not_discriminator() -> None:
+    text = MultiLiteralModel.schema_text()
+    assert "mode:" in text
+
+
+# --- repr=False suppression ---
+
+
+def test_repr_false_field_is_suppressed() -> None:
+    text = ReprFalseModel.schema_text()
+    assert "visible: str  [required]" in text
+    assert "hidden" not in text
+
+
+# --- Enum values display ---
+
+
+def test_enum_values_shown_after_description() -> None:
+    text = EnumFieldModel.schema_text()
+    assert "Pick a color" in text
+    assert "values: red, green" in text
+
+
+def test_enum_default_field_shows_values() -> None:
+    text = EnumDefaultModel.schema_text()
+    assert "values: red, green" in text
+
+
+def test_required_enum_field_shows_values() -> None:
+    text = RequiredEnumModel.schema_text()
+    assert "color: Color  [required]" in text
+    assert "values: red, green" in text
+
+
+# --- Nested ConfigBase expansion ---
+
+
+def test_nested_configbase_expanded() -> None:
+    text = ParentWithNested.schema_text()
+    assert "NestedChild:" in text
+    assert "A child model for nesting tests." in text
+    assert "x: str  [required]" in text
+
+
+def test_nested_list_configbase_expanded() -> None:
+    text = ParentWithNestedList.schema_text()
+    assert "NestedChild:" in text
+
+
+def test_nested_optional_configbase_expanded() -> None:
+    text = ParentWithOptionalNested.schema_text()
+    assert "NestedChild:" in text
+
+
+def test_multi_member_union_not_expanded() -> None:
+    class TypeA(ConfigBase):
+        a: str
+
+    class TypeB(ConfigBase):
+        b: str
+
+    class ModelWithUnion(ConfigBase):
+        child: TypeA | TypeB
+
+    text = ModelWithUnion.schema_text()
+    assert "TypeA:" not in text
+    assert "TypeB:" not in text
+
+
+def test_nested_expansion_limited_to_one_level() -> None:
+    """Nested models at depth >= 1 should not expand their own nested fields."""
+
+    class GrandChild(ConfigBase):
+        """Deep model."""
+
+        val: str
+
+    class MiddleChild(ConfigBase):
+        """Middle model."""
+
+        gc: GrandChild
+
+    class TopLevel(ConfigBase):
+        """Top model."""
+
+        mc: MiddleChild
+
+    text = TopLevel.schema_text()
+    assert "MiddleChild:" in text
+    assert "GrandChild:" not in text
+
+
+def test_nested_model_has_no_example_line() -> None:
+    text = ParentWithNested.schema_text()
+    assert "Example: dd.NestedChild(" not in text
+
+
+# --- Instantiation example ---
+
+
+def test_instantiation_example_at_depth_zero() -> None:
+    text = MultiRequiredModel.schema_text()
+    assert "Example: dd.MultiRequiredModel(name=..., count=..., label=...)" in text
+
+
+def test_no_example_when_no_required_fields() -> None:
+    text = NoRequiredModel.schema_text()
+    assert "Example:" not in text
+
+
+def test_example_excludes_discriminator_fields() -> None:
+    text = DiscriminatorModel.schema_text()
+    assert "Example: dd.DiscriminatorModel(name=...)" in text
+    assert "column_type" not in text
+
+
+# --- All fields hidden ---
+
+
+def test_all_fields_hidden_produces_valid_output() -> None:
+    text = AllHiddenModel.schema_text()
+    assert "AllHiddenModel:" in text
+    assert "All fields are hidden." in text
+    assert "discriminator" not in text
+    assert "internal" not in text
+    assert "Example:" not in text
 
 
 # --- Mixed model exercises all variants together ---
@@ -202,3 +424,5 @@ def test_mixed_model_all_variants() -> None:
     assert "= dict()" in text
     assert "A mapping" in text
     assert "PydanticUndefined" not in text
+    assert "values: red, green" in text
+    assert "Example: dd.MixedModel(required_field=...)" in text

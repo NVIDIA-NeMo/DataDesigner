@@ -1,17 +1,16 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# IMPORTANT: This module must NOT import from any data_designer submodules (i.e., data_designer.*).
-# These base abstractions are foundational and should only depend on pydantic and Python builtins.
+# IMPORTANT: This module must NOT import from any data_designer submodules (i.e., data_designer.*),
+# EXCEPT for data_designer.config.base_utils which shares the same dependency constraint.
 
 from __future__ import annotations
 
-import re
 from abc import ABC, abstractmethod
-from enum import Enum
-from typing import Any, Literal, get_args, get_origin
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from data_designer.config.base_utils import generate_schema_text
 
 
 class ConfigBase(BaseModel):
@@ -26,27 +25,7 @@ class ConfigBase(BaseModel):
     @classmethod
     def schema_text(cls) -> str:
         """Return an agent-friendly text summary of the model's fields and defaults."""
-        lines: list[str] = [f"{cls.__name__}:"]
-        docstring = _get_docstring_summary(cls.__doc__)
-        if docstring:
-            lines.append(f"  {docstring}")
-        lines.append("")
-        for name, field_info in cls.model_fields.items():
-            annotation = _format_annotation(field_info.annotation)
-            if field_info.is_required():
-                lines.append(f"  {name}: {annotation}  [required]")
-            else:
-                if field_info.default_factory is not None:
-                    factory_name = getattr(field_info.default_factory, "__name__", repr(field_info.default_factory))
-                    lines.append(f"  {name}: {annotation} = {factory_name}()")
-                else:
-                    default = field_info.default
-                    if isinstance(default, Enum):
-                        default = default.value
-                    lines.append(f"  {name}: {annotation} = {default!r}")
-            if field_info.description:
-                lines.append(f"      {field_info.description}")
-        return "\n".join(lines)
+        return generate_schema_text(cls, base_cls=ConfigBase)
 
 
 class SingleColumnConfig(ConfigBase, ABC):
@@ -64,8 +43,8 @@ class SingleColumnConfig(ConfigBase, ABC):
     """
 
     name: str
-    drop: bool = False
-    allow_resize: bool = False
+    drop: bool = Field(default=False, description="If True, generate this column but remove it from the final dataset")
+    allow_resize: bool = Field(default=False, repr=False)
     column_type: str
 
     @staticmethod
@@ -108,55 +87,9 @@ class ProcessorConfig(ConfigBase, ABC):
     """
 
     name: str = Field(
-        description="The name of the processor, used to identify the processor in the results and to write the artifacts to disk.",
+        description=(
+            "The name of the processor, used to identify the processor in the results "
+            "and to write the artifacts to disk. Must be a valid Python identifier."
+        ),
     )
     processor_type: str
-
-
-def _format_annotation(annotation: Any) -> str:
-    """Convert a type annotation to a readable string, stripping module paths."""
-    if get_origin(annotation) is Literal:
-        args = get_args(annotation)
-        if args:
-            values = ", ".join(repr(a.value) if isinstance(a, Enum) else repr(a) for a in args)
-            return f"Literal[{values}]"
-    raw = str(annotation) if not hasattr(annotation, "__name__") else annotation.__name__
-    return re.sub(r"\b[a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)+", lambda m: m.group().rsplit(".", 1)[-1], raw)
-
-
-_GOOGLE_SECTION_HEADERS = frozenset(
-    {
-        "args:",
-        "arguments:",
-        "attributes:",
-        "example:",
-        "examples:",
-        "keyword args:",
-        "keyword arguments:",
-        "note:",
-        "notes:",
-        "raises:",
-        "references:",
-        "returns:",
-        "see also:",
-        "todo:",
-        "warns:",
-        "yields:",
-    }
-)
-
-
-def _get_docstring_summary(docstring: str | None) -> str | None:
-    """Extract the first paragraph of a docstring, before any Google-style section header."""
-    if not docstring:
-        return None
-    lines: list[str] = []
-    for line in docstring.strip().splitlines():
-        stripped = line.strip()
-        if stripped.lower() in _GOOGLE_SECTION_HEADERS:
-            break
-        if not stripped and lines:
-            break
-        if stripped:
-            lines.append(stripped)
-    return " ".join(lines) if lines else None

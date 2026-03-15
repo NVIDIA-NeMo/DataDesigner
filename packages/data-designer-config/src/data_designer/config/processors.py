@@ -42,14 +42,12 @@ def get_processor_config_from_kwargs(processor_type: ProcessorType, **kwargs: An
 
 
 class DropColumnsProcessorConfig(ProcessorConfig):
-    """Configuration for dropping columns from the output dataset.
+    """Drop columns from the output dataset (prefer ``drop=True`` on the column config directly).
 
     This processor removes specified columns from the generated dataset. The dropped
     columns are saved separately in a `dropped-columns` directory for reference.
     When this processor is added via the config builder, the corresponding column
     configs are automatically marked with `drop = True`.
-
-    Alternatively, you can set `drop = True` when configuring a column.
 
     Attributes:
         column_names: List of column names to remove from the output dataset.
