@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 import types
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Literal, Union, get_args, get_origin
+from typing import TYPE_CHECKING, Any, Literal, Union, get_args, get_origin, get_type_hints
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
@@ -40,13 +40,21 @@ def _render_model(cls: type[BaseModel], *, base_cls: type[BaseModel], depth: int
         lines.append(f"{indent}  {docstring}")
     lines.append("")
 
+    try:
+        resolved_hints = get_type_hints(cls)
+    except Exception:
+        resolved_hints = {}
+
     required_field_names: list[str] = []
     for name, field_info in cls.model_fields.items():
         if _is_discriminator_field(field_info) or field_info.repr is False:
             continue
         if field_info.is_required():
             required_field_names.append(name)
-        lines.extend(_render_field(name, field_info, indent=indent, base_cls=base_cls, depth=depth))
+        annotation = resolved_hints.get(name, field_info.annotation)
+        lines.extend(
+            _render_field(name, field_info, annotation=annotation, indent=indent, base_cls=base_cls, depth=depth)
+        )
 
     if depth == 0 and required_field_names:
         params = ", ".join(f"{n}=..." for n in required_field_names)
@@ -55,20 +63,22 @@ def _render_model(cls: type[BaseModel], *, base_cls: type[BaseModel], depth: int
     return "\n".join(lines)
 
 
-def _render_field(name: str, field_info: FieldInfo, *, indent: str, base_cls: type[BaseModel], depth: int) -> list[str]:
+def _render_field(
+    name: str, field_info: FieldInfo, *, annotation: Any, indent: str, base_cls: type[BaseModel], depth: int
+) -> list[str]:
     """Render a single field: declaration line, description, and expandable type details."""
     lines: list[str] = []
-    annotation = _format_annotation(field_info.annotation)
+    formatted = _format_annotation(annotation)
 
     if field_info.is_required():
-        lines.append(f"{indent}  {name}: {annotation}  [required]")
+        lines.append(f"{indent}  {name}: {formatted}  [required]")
     else:
-        lines.append(f"{indent}  {name}: {annotation} = {_format_default(field_info)}")
+        lines.append(f"{indent}  {name}: {formatted} = {_format_default(field_info)}")
 
     if field_info.description:
         lines.append(f"{indent}      {field_info.description}")
 
-    for exp_type in _find_expandable_types(field_info.annotation, base_cls):
+    for exp_type in _find_expandable_types(annotation, base_cls):
         if issubclass(exp_type, Enum):
             values = ", ".join(str(m.value) for m in exp_type)
             lines.append(f"{indent}      values: {values}")
