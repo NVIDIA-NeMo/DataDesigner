@@ -44,7 +44,7 @@ class SingleColumnConfig(ConfigBase, ABC):
 
     name: str
     drop: bool = Field(default=False, description="If True, generate this column but remove it from the final dataset")
-    allow_resize: bool = Field(default=False, repr=False)
+    allow_resize: bool = Field(default=False, json_schema_extra={"agent_hidden": True})
     column_type: str
 
     @staticmethod

@@ -106,9 +106,9 @@ class EnumFieldModel(ConfigBase):
     color: Color = Field(description="Pick a color")
 
 
-class ReprFalseModel(ConfigBase):
+class AgentHiddenModel(ConfigBase):
     visible: str
-    hidden: bool = Field(default=False, repr=False)
+    hidden: bool = Field(default=False, json_schema_extra={"agent_hidden": True})
 
 
 class DiscriminatorModel(ConfigBase):
@@ -159,7 +159,7 @@ class AllHiddenModel(ConfigBase):
     """All fields are hidden."""
 
     discriminator: Literal["test"] = "test"
-    internal: bool = Field(default=False, repr=False)
+    internal: bool = Field(default=False, json_schema_extra={"agent_hidden": True})
 
 
 # --- Required fields ---
@@ -296,11 +296,11 @@ def test_required_single_literal_is_not_suppressed() -> None:
     assert "name: str  [required]" in text
 
 
-# --- repr=False suppression ---
+# --- agent_hidden suppression ---
 
 
-def test_repr_false_field_is_suppressed() -> None:
-    text = ReprFalseModel.schema_text()
+def test_agent_hidden_field_is_suppressed() -> None:
+    text = AgentHiddenModel.schema_text()
     assert "visible: str  [required]" in text
     assert "hidden" not in text
 

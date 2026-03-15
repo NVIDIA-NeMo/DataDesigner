@@ -42,19 +42,15 @@ def _render_model(cls: type[BaseModel], *, base_cls: type[BaseModel], depth: int
             lines.append(f"{indent}  {summary}")
     lines.append("")
 
+    resolved = _resolve_annotations(cls)
     required: list[str] = []
     expanded: set[type] = set()
 
     for name, info in cls.model_fields.items():
-        if _is_discriminator(info) or info.repr is False:
+        if _is_discriminator(info) or _is_agent_hidden(info):
             continue
 
-        # Pydantic's info.annotation is the primary source for both display and expansion.
-        # On Python 3.10, generic args can be lost (e.g. list[Score] -> bare list);
-        # _recover_annotation falls back to the MRO only for those fields.
-        ann = info.annotation
-        if _has_degraded_generics(ann):
-            ann = _recover_annotation(cls, name, ann)
+        ann = resolved.get(name, info.annotation)
 
         if info.is_required():
             required.append(name)
@@ -79,33 +75,35 @@ def _render_model(cls: type[BaseModel], *, base_cls: type[BaseModel], depth: int
     return "\n".join(lines)
 
 
-# --- Helpers ---
+# --- Annotation resolution ---
 
 
-def _has_degraded_generics(annotation: Any) -> bool:
-    """Return True when Pydantic has lost generic args (e.g. list[X] -> bare list on Python 3.10)."""
-    return isinstance(annotation, type) and annotation in _CONTAINER_TYPES
+def _resolve_annotations(cls: type) -> dict[str, Any]:
+    """Resolve all field annotations across the MRO, evaluating string annotations.
 
+    Walks from base to child so child annotations override parent ones. Each MRO
+    class is resolved independently so a NameError in one base (e.g. BaseModel's
+    ClassVar) doesn't prevent resolution of annotations from other classes.
 
-def _recover_annotation(cls: type, name: str, fallback: Any) -> Any:
-    """Recover a single field's annotation from the MRO (Python 3.10 fallback).
-
-    Walks the MRO from child to parent and returns the first resolved annotation
-    for the given field name. Falls back to the original annotation if recovery fails.
+    This handles Python 3.10 where Pydantic can lose generic parameters
+    (e.g. list[Score] becomes bare list in field_info.annotation).
     """
-    for klass in cls.__mro__:
-        if name not in vars(klass).get("__annotations__", {}):
+    resolved: dict[str, Any] = {}
+    for klass in reversed(cls.__mro__):
+        if not vars(klass).get("__annotations__"):
             continue
         module = sys.modules.get(klass.__module__)
         globalns = getattr(module, "__dict__", {}) if module else {}
         localns = {klass.__name__: klass, **vars(klass)}
         try:
             hints = inspect.get_annotations(klass, globals=globalns, locals=localns, eval_str=True)
-            if name in hints:
-                return hints[name]
+            resolved.update(hints)
         except NameError:
             continue
-    return fallback
+    return resolved
+
+
+# --- Field visibility ---
 
 
 def _is_discriminator(info: FieldInfo) -> bool:
@@ -121,6 +119,15 @@ def _is_discriminator(info: FieldInfo) -> bool:
     arg = args[0].value if isinstance(args[0], Enum) else args[0]
     default = info.default.value if isinstance(info.default, Enum) else info.default
     return arg == default
+
+
+def _is_agent_hidden(info: FieldInfo) -> bool:
+    """Return True for fields explicitly marked as hidden from agent schema output."""
+    extra = info.json_schema_extra
+    return isinstance(extra, dict) and extra.get("agent_hidden", False)
+
+
+# --- Type formatting ---
 
 
 def _format_type(annotation: Any) -> str:
@@ -156,6 +163,9 @@ def _format_default(info: FieldInfo) -> str:
     return repr(default)
 
 
+# --- Annotation helpers ---
+
+
 def _unwrap_annotated(annotation: Any) -> Any:
     """Strip Annotated[T, ...] wrappers, returning the inner type."""
     return get_args(annotation)[0] if hasattr(annotation, "__metadata__") else annotation
@@ -170,8 +180,6 @@ def _find_expandable_leaves(annotation: Any, base_cls: type[BaseModel]) -> list[
     """Walk the annotation tree and return Enum / base_cls leaf types.
 
     Recurses into list[X] and Optional[X], but stops at multi-member unions.
-    Only handles patterns that appear in config fields today; dict/set/tuple
-    with expandable inner types would need additions here.
     """
     annotation = _unwrap_annotated(annotation)
     origin = get_origin(annotation)
@@ -209,8 +217,6 @@ def _extract_first_paragraph(docstring: str) -> str | None:
 # --- Constants ---
 
 _MODULE_PATH_RE = re.compile(r"\b[a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)+")
-
-_CONTAINER_TYPES = frozenset({list, dict, set, tuple, frozenset})
 
 _SECTION_HEADERS = frozenset(
     {
