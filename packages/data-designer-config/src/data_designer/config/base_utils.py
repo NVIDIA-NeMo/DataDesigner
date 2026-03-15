@@ -40,23 +40,24 @@ def _render_model(cls: type[BaseModel], *, base_cls: type[BaseModel], depth: int
             lines.append(f"{indent}  {summary}")
     lines.append("")
 
-    resolved = _collect_declared_annotations(cls)
     required: list[str] = []
 
     for name, info in cls.model_fields.items():
         if _is_discriminator(info) or info.repr is False:
             continue
 
-        # info.annotation is used for display (Pydantic strips Annotated metadata).
-        # The resolved annotation preserves full generic args on Python 3.10 for expansion.
-        ann_display = info.annotation
-        ann_expand = resolved.get(name, info.annotation)
+        # Pydantic's info.annotation is the primary source: it has full generic args
+        # on Python 3.11+ and strips Annotated metadata for clean display.
+        # On Python 3.10, generic args can be lost (e.g. list[Score] → bare list);
+        # _recover_annotation falls back to the MRO only for those fields.
+        ann = info.annotation
+        ann_expand = _recover_annotation(cls, name, ann) if _has_degraded_generics(ann) else ann
 
         if info.is_required():
             required.append(name)
-            lines.append(f"{indent}  {name}: {_format_type(ann_display)}  [required]")
+            lines.append(f"{indent}  {name}: {_format_type(ann)}  [required]")
         else:
-            lines.append(f"{indent}  {name}: {_format_type(ann_display)} = {_format_default(info)}")
+            lines.append(f"{indent}  {name}: {_format_type(ann)} = {_format_default(info)}")
 
         if info.description:
             lines.append(f"{indent}      {info.description}")
@@ -77,27 +78,30 @@ def _render_model(cls: type[BaseModel], *, base_cls: type[BaseModel], depth: int
 # --- Helpers ---
 
 
-def _collect_declared_annotations(cls: type) -> dict[str, Any]:
-    """Collect resolved annotations from each class in the MRO independently.
+def _has_degraded_generics(annotation: Any) -> bool:
+    """Return True when Pydantic has lost generic args (e.g. list[X] → bare list on Python 3.10)."""
+    return isinstance(annotation, type) and annotation in _CONTAINER_TYPES
 
-    On Python 3.10, Pydantic's field_info.annotation can lose generic parameters
-    (e.g. list[Score] becomes bare list). Unlike typing.get_type_hints(), this
-    walks the MRO class-by-class so a NameError in one base class (e.g.
-    BaseModel's ClassVar[ConfigDict]) does not prevent resolution of annotations
-    from other classes.
+
+def _recover_annotation(cls: type, name: str, fallback: Any) -> Any:
+    """Recover a single field's annotation from the MRO (Python 3.10 fallback).
+
+    Walks the MRO from child to parent and returns the first resolved annotation
+    for the given field name. Falls back to the original annotation if recovery fails.
     """
-    resolved: dict[str, Any] = {}
-    for klass in reversed(cls.__mro__):
-        if "__annotations__" not in vars(klass):
+    for klass in cls.__mro__:
+        if name not in vars(klass).get("__annotations__", {}):
             continue
         module = sys.modules.get(klass.__module__)
         globalns = getattr(module, "__dict__", {}) if module else {}
         localns = {klass.__name__: klass, **vars(klass)}
         try:
-            resolved.update(inspect.get_annotations(klass, globals=globalns, locals=localns, eval_str=True))
+            hints = inspect.get_annotations(klass, globals=globalns, locals=localns, eval_str=True)
+            if name in hints:
+                return hints[name]
         except NameError:
             continue
-    return resolved
+    return fallback
 
 
 def _is_discriminator(info: FieldInfo) -> bool:
@@ -157,13 +161,14 @@ def _find_expandable_leaves(annotation: Any, base_cls: type[BaseModel]) -> list[
     """Walk the annotation tree and return Enum / base_cls leaf types.
 
     Recurses into list[X] and Optional[X], but stops at multi-member unions.
+    Only handles patterns that appear in config fields today; dict/set/tuple
+    with expandable inner types would need additions here.
     """
     annotation = _unwrap_annotated(annotation)
-
-    if isinstance(annotation, type):
-        return [annotation] if issubclass(annotation, (Enum, base_cls)) else []
-
     origin = get_origin(annotation)
+
+    if origin is None and isinstance(annotation, type):
+        return [annotation] if issubclass(annotation, (Enum, base_cls)) else []
     args = get_args(annotation)
     if not args:
         return []
@@ -195,6 +200,8 @@ def _extract_first_paragraph(docstring: str) -> str | None:
 # --- Constants ---
 
 _MODULE_PATH_RE = re.compile(r"\b[a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)+")
+
+_CONTAINER_TYPES = frozenset({list, dict, set, tuple, frozenset})
 
 _SECTION_HEADERS = frozenset(
     {
