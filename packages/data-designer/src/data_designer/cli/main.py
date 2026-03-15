@@ -7,8 +7,9 @@ import warnings
 
 import typer
 
-warnings.filterwarnings("ignore", category=DeprecationWarning, module="pyarrow")
-warnings.filterwarnings("ignore", category=FutureWarning, module="pyarrow")
+warnings.filterwarnings("ignore", category=DeprecationWarning, module=r"pyarrow(?:\..*)?")
+warnings.filterwarnings("ignore", category=FutureWarning, module=r"pyarrow(?:\..*)?")
+
 
 from data_designer.cli.agent_command_defs import AGENT_COMMANDS
 from data_designer.cli.lazy_group import create_lazy_typer_group
