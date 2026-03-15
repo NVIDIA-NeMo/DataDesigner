@@ -7,9 +7,10 @@
 from __future__ import annotations
 
 import re
+import sys
 import types
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Literal, Union, get_args, get_origin, get_type_hints
+from typing import TYPE_CHECKING, Any, Literal, Union, get_args, get_origin
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
@@ -40,10 +41,7 @@ def _render_model(cls: type[BaseModel], *, base_cls: type[BaseModel], depth: int
         lines.append(f"{indent}  {docstring}")
     lines.append("")
 
-    try:
-        resolved_hints = get_type_hints(cls)
-    except Exception:
-        resolved_hints = {}
+    resolved_hints = _resolve_annotations(cls)
 
     required_field_names: list[str] = []
     for name, field_info in cls.model_fields.items():
@@ -100,6 +98,28 @@ def _format_default(field_info: FieldInfo) -> str:
 
 
 # --- Private helpers ---
+
+
+def _resolve_annotations(cls: type) -> dict[str, Any]:
+    """Resolve string annotations for each class in the MRO.
+
+    Unlike typing.get_type_hints(), this walks the MRO class-by-class so a
+    NameError in one base class (e.g. BaseModel's ClassVar[ConfigDict]) does
+    not prevent resolution of annotations defined on other classes.
+    """
+    resolved: dict[str, Any] = {}
+    for klass in reversed(cls.__mro__):
+        module = sys.modules.get(klass.__module__)
+        globalns = getattr(module, "__dict__", {}) if module else {}
+        for name, raw in vars(klass).get("__annotations__", {}).items():
+            if isinstance(raw, str):
+                try:
+                    resolved[name] = eval(raw, globalns)  # noqa: S307
+                except Exception:
+                    pass
+            else:
+                resolved[name] = raw
+    return resolved
 
 
 def _format_annotation(annotation: Any) -> str:
