@@ -136,6 +136,11 @@ class MultiLiteralModel(ConfigBase):
     name: str
 
 
+class RequiredLiteralModel(ConfigBase):
+    tag: Literal["only"]
+    name: str
+
+
 class RequiredEnumModel(ConfigBase):
     color: Color
 
@@ -285,6 +290,12 @@ def test_multi_value_literal_is_not_discriminator() -> None:
     assert "mode:" in text
 
 
+def test_required_single_literal_is_not_suppressed() -> None:
+    text = RequiredLiteralModel.schema_text()
+    assert "tag:" in text
+    assert "name: str  [required]" in text
+
+
 # --- repr=False suppression ---
 
 
@@ -394,6 +405,22 @@ def test_nested_expansion_limited_to_one_level() -> None:
 def test_nested_model_has_no_example_line() -> None:
     text = ParentWithNested.schema_text()
     assert "Example: dd.NestedChild(" not in text
+
+
+def test_duplicate_nested_type_expanded_once() -> None:
+    """Same ConfigBase type in multiple fields should only be expanded once."""
+
+    class Shared(ConfigBase):
+        """Shared model."""
+
+        val: str
+
+    class Host(ConfigBase):
+        first: Shared
+        second: Shared
+
+    text = Host.schema_text()
+    assert text.count("Shared:") == 1
 
 
 # --- Instantiation example ---

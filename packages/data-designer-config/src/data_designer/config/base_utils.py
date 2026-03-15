@@ -28,10 +28,12 @@ def generate_schema_text(cls: type[BaseModel], *, base_cls: type[BaseModel]) -> 
 
 # --- Rendering ---
 
+_LEVEL_INDENT = "      "  # 6 spaces per nesting level
+
 
 def _render_model(cls: type[BaseModel], *, base_cls: type[BaseModel], depth: int) -> str:
     """Render all visible fields of a model class as indented text."""
-    indent = "      " * depth
+    indent = _LEVEL_INDENT * depth
     lines: list[str] = [f"{indent}{cls.__name__}:"]
 
     if cls.__doc__:
@@ -41,13 +43,14 @@ def _render_model(cls: type[BaseModel], *, base_cls: type[BaseModel], depth: int
     lines.append("")
 
     required: list[str] = []
+    expanded: set[type] = set()
 
     for name, info in cls.model_fields.items():
         if _is_discriminator(info) or info.repr is False:
             continue
 
         # Pydantic's info.annotation is the primary source for both display and expansion.
-        # On Python 3.10, generic args can be lost (e.g. list[Score] → bare list);
+        # On Python 3.10, generic args can be lost (e.g. list[Score] -> bare list);
         # _recover_annotation falls back to the MRO only for those fields.
         ann = info.annotation
         if _has_degraded_generics(ann):
@@ -65,7 +68,8 @@ def _render_model(cls: type[BaseModel], *, base_cls: type[BaseModel], depth: int
         for leaf in _find_expandable_leaves(ann, base_cls):
             if issubclass(leaf, Enum):
                 lines.append(f"{indent}      values: {', '.join(str(m.value) for m in leaf)}")
-            elif issubclass(leaf, base_cls) and depth < 1:
+            elif depth < 1 and leaf not in expanded:
+                expanded.add(leaf)
                 lines.append(_render_model(leaf, base_cls=base_cls, depth=depth + 1))
 
     if depth == 0 and required:
@@ -79,7 +83,7 @@ def _render_model(cls: type[BaseModel], *, base_cls: type[BaseModel], depth: int
 
 
 def _has_degraded_generics(annotation: Any) -> bool:
-    """Return True when Pydantic has lost generic args (e.g. list[X] → bare list on Python 3.10)."""
+    """Return True when Pydantic has lost generic args (e.g. list[X] -> bare list on Python 3.10)."""
     return isinstance(annotation, type) and annotation in _CONTAINER_TYPES
 
 
@@ -106,6 +110,8 @@ def _recover_annotation(cls: type, name: str, fallback: Any) -> Any:
 
 def _is_discriminator(info: FieldInfo) -> bool:
     """Return True for single-value Literal fields whose default matches the Literal arg."""
+    if info.is_required():
+        return False
     ann = _unwrap_annotated(info.annotation)
     if get_origin(ann) is not Literal:
         return False
@@ -125,23 +131,21 @@ def _format_type(annotation: Any) -> str:
     """
     if hasattr(annotation, "__metadata__"):
         return _format_type(get_args(annotation)[0])
-    if annotation is type(None):
+    if annotation is types.NoneType:
         return "None"
     origin = get_origin(annotation)
-    if origin is Literal:
-        args = get_args(annotation)
-        if args:
-            values = ", ".join(repr(a.value) if isinstance(a, Enum) else repr(a) for a in args)
-            return f"Literal[{values}]"
-    if origin is None and hasattr(annotation, "__name__"):
-        return annotation.__name__
     args = get_args(annotation)
-    if origin is not None and args:
-        if origin is Union or origin is types.UnionType:
-            return " | ".join(_format_type(a) for a in args)
-        origin_name = origin.__name__ if hasattr(origin, "__name__") else str(origin)
-        return f"{origin_name}[{', '.join(_format_type(a) for a in args)}]"
-    return _MODULE_PATH_RE.sub(lambda m: m.group().rsplit(".", 1)[-1], str(annotation))
+    if origin is Literal:
+        values = ", ".join(repr(a.value) if isinstance(a, Enum) else repr(a) for a in args)
+        return f"Literal[{values}]"
+    if origin is None:
+        return annotation.__name__ if hasattr(annotation, "__name__") else _strip_module_paths(str(annotation))
+    if not args:
+        return _strip_module_paths(str(annotation))
+    if origin is Union or origin is types.UnionType:
+        return " | ".join(_format_type(a) for a in args)
+    origin_name = origin.__name__ if hasattr(origin, "__name__") else str(origin)
+    return f"{origin_name}[{', '.join(_format_type(a) for a in args)}]"
 
 
 def _format_default(info: FieldInfo) -> str:
@@ -155,6 +159,11 @@ def _format_default(info: FieldInfo) -> str:
 def _unwrap_annotated(annotation: Any) -> Any:
     """Strip Annotated[T, ...] wrappers, returning the inner type."""
     return get_args(annotation)[0] if hasattr(annotation, "__metadata__") else annotation
+
+
+def _strip_module_paths(text: str) -> str:
+    """Remove module-path prefixes from a type string (e.g. 'foo.bar.Baz' -> 'Baz')."""
+    return _MODULE_PATH_RE.sub(lambda m: m.group().rsplit(".", 1)[-1], text)
 
 
 def _find_expandable_leaves(annotation: Any, base_cls: type[BaseModel]) -> list[type]:
@@ -174,7 +183,7 @@ def _find_expandable_leaves(annotation: Any, base_cls: type[BaseModel]) -> list[
         return []
 
     if origin is Union or origin is types.UnionType:
-        non_none = [a for a in args if a is not type(None)]
+        non_none = [a for a in args if a is not types.NoneType]
         return _find_expandable_leaves(non_none[0], base_cls) if len(non_none) == 1 else []
 
     if origin is list:
