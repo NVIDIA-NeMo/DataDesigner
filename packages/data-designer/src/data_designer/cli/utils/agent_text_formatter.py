@@ -162,4 +162,8 @@ def _format_model_schema(pydantic_model: PydanticModelView, import_path: str, *,
         for nested_model in field.nested_models:
             lines.append(_format_model_schema(nested_model, import_path, depth=depth + 1))
 
+    if depth == 0 and pydantic_model.required_field_names:
+        params = ", ".join(f"{n}=..." for n in pydantic_model.required_field_names)
+        lines.append(f"\n{indent}  Example: dd.{pydantic_model.class_name}({params})")
+
     return "\n".join(lines)

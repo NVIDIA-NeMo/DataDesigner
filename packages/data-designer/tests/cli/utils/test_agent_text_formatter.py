@@ -167,6 +167,25 @@ def test_format_schema_text_renders_schema_view() -> None:
     assert "import_path: pkg.TestModel" in result
     assert "name: str  [required]" in result
     assert "count: int = 0" in result
+    assert "Example: dd.TestModel(name=...)" in result
+
+
+def test_format_schema_text_no_example_when_no_required_fields() -> None:
+    schema_view = PydanticModelView(
+        class_name="OptionalModel",
+        summary=None,
+        fields=(PydanticFieldView(name="x", type_text="int", required=False, default_text="0", description=None),),
+        required_field_names=(),
+    )
+    data: dict[str, Any] = {
+        "type_name": "opt",
+        "class_name": "OptionalModel",
+        "import_path": "pkg.OptionalModel",
+        "schema_view": schema_view,
+    }
+    result = format_schema_text(data)
+
+    assert "Example:" not in result
 
 
 # --- format_builder_text ---
@@ -274,7 +293,7 @@ def test_real_column_schema_excludes_discriminator_and_includes_allow_resize() -
 
     assert "column_type:" not in text
     assert "allow_resize: bool = False" in text
-    assert "Example:" not in text
+    assert "Example: dd.LLMCodeColumnConfig(" in text
     assert "values:" in text
 
 
