@@ -163,7 +163,11 @@ def get_schema(family: str, type_name: str | None, *, all_types: bool) -> dict[s
     if all_types and type_name is not None:
         raise AgentIntrospectionError(
             code="invalid_schema_request",
-            message="Provide either a type name or --all, but not both.",
+            message=(
+                f"Cannot use --all with a type name. "
+                f"Use 'agent schema {family} {type_name}' for a single type, "
+                f"or 'agent schema {family} --all' for all types."
+            ),
             details={"family": family, "type_name": type_name, "all": all_types},
         )
     if all_types:

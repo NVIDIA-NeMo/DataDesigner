@@ -3,7 +3,12 @@
 
 from __future__ import annotations
 
+import warnings
+
 import typer
+
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="pyarrow")
+warnings.filterwarnings("ignore", category=FutureWarning, module="pyarrow")
 
 from data_designer.cli.agent_command_defs import AGENT_COMMANDS
 from data_designer.cli.lazy_group import create_lazy_typer_group

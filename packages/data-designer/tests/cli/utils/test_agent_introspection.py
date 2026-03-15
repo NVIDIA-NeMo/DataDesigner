@@ -42,10 +42,12 @@ def test_get_family_schema_includes_schema_text() -> None:
 
     text = schema_payload["schema_text"]
     assert text.startswith("LLMTextColumnConfig:")
-    assert "column_type:" in text
+    assert "column_type:" not in text
+    assert "allow_resize" not in text
     assert "name:" in text
     assert "Configuration for text generation" in text
     assert "Jinja2 template" in text
+    assert "Example: dd.LLMTextColumnConfig(" in text
 
 
 def test_get_family_schema_raises_for_unknown_type() -> None:

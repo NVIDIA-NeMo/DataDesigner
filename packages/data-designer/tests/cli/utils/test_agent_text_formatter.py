@@ -221,3 +221,25 @@ def test_format_schema_text_on_real_config_models(family: str, type_name: str) -
 
     assert schema_data["class_name"] in result
     assert result == schema_data["schema_text"]
+
+
+def test_real_column_schema_excludes_discriminator_and_includes_example() -> None:
+    schema_data = get_family_schema("columns", "llm-code")
+    text = schema_data["schema_text"]
+
+    assert "column_type:" not in text
+    assert "allow_resize" not in text
+    assert "Example: dd.LLMCodeColumnConfig(" in text
+    assert "values:" in text
+
+
+def test_real_judge_schema_expands_score_and_shows_enum_values() -> None:
+    schema_data = get_family_schema("columns", "llm-judge")
+    text = schema_data["schema_text"]
+
+    assert "Score:" in text
+    assert "name: str  [required]" in text
+    assert "options: dict  [required]" in text
+    assert "values: none, last_message, all_messages" in text
+    assert "Example: dd.LLMJudgeColumnConfig(" in text
+    assert "column_type:" not in text
