@@ -46,12 +46,12 @@ def _render_model(cls: type[BaseModel], *, base_cls: type[BaseModel], depth: int
         if _is_discriminator(info) or info.repr is False:
             continue
 
-        # Pydantic's info.annotation is the primary source: it has full generic args
-        # on Python 3.11+ and strips Annotated metadata for clean display.
+        # Pydantic's info.annotation is the primary source for both display and expansion.
         # On Python 3.10, generic args can be lost (e.g. list[Score] → bare list);
         # _recover_annotation falls back to the MRO only for those fields.
         ann = info.annotation
-        ann_expand = _recover_annotation(cls, name, ann) if _has_degraded_generics(ann) else ann
+        if _has_degraded_generics(ann):
+            ann = _recover_annotation(cls, name, ann)
 
         if info.is_required():
             required.append(name)
@@ -62,7 +62,7 @@ def _render_model(cls: type[BaseModel], *, base_cls: type[BaseModel], depth: int
         if info.description:
             lines.append(f"{indent}      {info.description}")
 
-        for leaf in _find_expandable_leaves(ann_expand, base_cls):
+        for leaf in _find_expandable_leaves(ann, base_cls):
             if issubclass(leaf, Enum):
                 lines.append(f"{indent}      values: {', '.join(str(m.value) for m in leaf)}")
             elif issubclass(leaf, base_cls) and depth < 1:

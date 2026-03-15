@@ -7,10 +7,6 @@ import warnings
 
 import typer
 
-warnings.filterwarnings("ignore", category=DeprecationWarning, module=r"pyarrow(?:\..*)?")
-warnings.filterwarnings("ignore", category=FutureWarning, module=r"pyarrow(?:\..*)?")
-
-
 from data_designer.cli.agent_command_defs import AGENT_COMMANDS
 from data_designer.cli.lazy_group import create_lazy_typer_group
 from data_designer.cli.runtime import ensure_cli_default_model_settings
@@ -141,6 +137,8 @@ app.add_typer(agent_app, name="agent", rich_help_panel="Agent")
 
 def main() -> None:
     """Main entry point for the CLI."""
+    warnings.filterwarnings("ignore", category=DeprecationWarning, module=r"pyarrow(?:\..*)?")
+    warnings.filterwarnings("ignore", category=FutureWarning, module=r"pyarrow(?:\..*)?")
     ensure_cli_default_model_settings()
     app()
 
