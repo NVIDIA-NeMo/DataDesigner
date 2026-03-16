@@ -19,7 +19,7 @@ class ManagedDatasetGenerator:
     def generate_samples(
         self,
         size: int = 1,
-        evidence: dict[str, Any | list[Any]] = {},
+        evidence: dict[str, Any | list[Any]] | None = None,
     ) -> pd.DataFrame:
         parameters = []
         query = f"select * from '{self._uri}'"
