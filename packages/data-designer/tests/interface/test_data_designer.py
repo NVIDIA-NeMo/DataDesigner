@@ -21,7 +21,11 @@ from data_designer.config.run_config import RunConfig
 from data_designer.config.sampler_params import CategorySamplerParams, SamplerType
 from data_designer.config.seed import IndexRange, PartitionBlock, SamplingStrategy
 from data_designer.config.seed_source import DirectorySeedSource, FileContentsSeedSource, HuggingFaceSeedSource
-from data_designer.engine.resources.seed_reader import FileSystemSeedReader, SeedReaderFileSystemContext
+from data_designer.engine.resources.seed_reader import (
+    FileSystemSeedReader,
+    SeedReaderError,
+    SeedReaderFileSystemContext,
+)
 from data_designer.engine.secret_resolver import CompositeResolver, EnvironmentResolver, PlaintextResolver
 from data_designer.engine.testing.stubs import StubHuggingFaceSeedReader
 from data_designer.interface.data_designer import DataDesigner
@@ -258,8 +262,11 @@ def test_create_raises_error_when_builder_fails(
         mock_builder.build.side_effect = RuntimeError("Builder failed")
         mock_builder_method.return_value = mock_builder
 
-        with pytest.raises(DataDesignerGenerationError, match="🛑 Error generating dataset: Builder failed"):
+        with pytest.raises(
+            DataDesignerGenerationError, match="🛑 Error generating dataset: Builder failed"
+        ) as exc_info:
             data_designer.create(stub_sampler_only_config_builder, num_records=3)
+        assert isinstance(exc_info.value.__cause__, RuntimeError)
 
 
 def test_create_raises_error_when_profiler_fails(
@@ -290,8 +297,9 @@ def test_create_raises_error_when_profiler_fails(
         mock_profiler.profile_dataset.side_effect = ValueError("Profiler failed")
         mock_profiler_method.return_value = mock_profiler
 
-        with pytest.raises(DataDesignerProfilingError, match="🛑 Error profiling dataset: Profiler failed"):
+        with pytest.raises(DataDesignerProfilingError, match="🛑 Error profiling dataset: Profiler failed") as exc_info:
             data_designer.create(stub_sampler_only_config_builder, num_records=3)
+        assert isinstance(exc_info.value.__cause__, ValueError)
 
 
 def test_preview_raises_error_when_builder_fails(
@@ -312,8 +320,9 @@ def test_preview_raises_error_when_builder_fails(
 
         with pytest.raises(
             DataDesignerGenerationError, match="🛑 Error generating preview dataset: Builder preview failed"
-        ):
+        ) as exc_info:
             data_designer.preview(stub_sampler_only_config_builder, num_records=3)
+        assert isinstance(exc_info.value.__cause__, RuntimeError)
 
 
 def test_preview_raises_error_when_profiler_fails(
@@ -344,8 +353,9 @@ def test_preview_raises_error_when_profiler_fails(
 
         with pytest.raises(
             DataDesignerProfilingError, match="🛑 Error profiling preview dataset: Profiler failed in preview"
-        ):
+        ) as exc_info:
             data_designer.preview(stub_sampler_only_config_builder, num_records=3)
+        assert isinstance(exc_info.value.__cause__, ValueError)
 
 
 def test_create_raises_generation_error_when_dataset_is_empty(
@@ -390,8 +400,9 @@ def test_create_raises_generation_error_when_load_dataset_fails(
         "data_designer.engine.storage.artifact_storage.ArtifactStorage.load_dataset_with_dropped_columns",
         side_effect=FileNotFoundError("No parquet files found"),
     ):
-        with pytest.raises(DataDesignerGenerationError, match="Failed to load generated dataset"):
+        with pytest.raises(DataDesignerGenerationError, match="Failed to load generated dataset") as exc_info:
             data_designer.create(stub_sampler_only_config_builder, num_records=1)
+        assert isinstance(exc_info.value.__cause__, FileNotFoundError)
 
 
 def test_preview_raises_generation_error_when_dataset_is_empty(
@@ -814,8 +825,9 @@ def test_create_dataset_e2e_with_directory_seed_source_no_matches_raises_generat
         managed_assets_path=stub_managed_assets_path,
     )
 
-    with pytest.raises(DataDesignerGenerationError, match="No files matched file_pattern '\\*\\.md'"):
+    with pytest.raises(DataDesignerGenerationError, match="No files matched file_pattern '\\*\\.md'") as exc_info:
         data_designer.create(builder, num_records=1, dataset_name="directory-no-matches-test")
+    assert isinstance(exc_info.value.__cause__, SeedReaderError)
 
 
 def test_preview_dataset_e2e_with_directory_seed_source_no_matches_raises_generation_error(
@@ -839,8 +851,9 @@ def test_preview_dataset_e2e_with_directory_seed_source_no_matches_raises_genera
         managed_assets_path=stub_managed_assets_path,
     )
 
-    with pytest.raises(DataDesignerGenerationError, match="No files matched file_pattern '\\*\\.md'"):
+    with pytest.raises(DataDesignerGenerationError, match="No files matched file_pattern '\\*\\.md'") as exc_info:
         data_designer.preview(builder, num_records=1)
+    assert isinstance(exc_info.value.__cause__, SeedReaderError)
 
 
 def test_create_dataset_e2e_with_file_contents_seed_source_decode_failure_raises_generation_error(

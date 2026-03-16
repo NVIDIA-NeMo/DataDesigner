@@ -68,14 +68,23 @@ def create_seed_reader_output_dataframe(
     if not records:
         return lazy.pd.DataFrame(records, columns=output_columns)
 
-    record_columns = {key for record in records for key in record}
-    extra_columns = sorted(record_columns - set(output_columns))
-    if extra_columns:
-        raise SeedReaderError(
-            "Hydrated rows produced columns "
-            f"{extra_columns!r} that are not declared in output_columns {output_columns!r}. "
-            "Add those columns to output_columns on the seed reader."
-        )
+    expected_columns = set(output_columns)
+    for row_index, record in enumerate(records):
+        record_columns = set(record)
+        extra_columns = sorted(record_columns - expected_columns)
+        missing_columns = [column for column in output_columns if column not in record]
+        if not extra_columns and not missing_columns:
+            continue
+
+        message_parts: list[str] = [
+            f"Hydrated row at index {row_index} does not match output_columns {output_columns!r}."
+        ]
+        if missing_columns:
+            message_parts.append(f"Missing columns: {missing_columns!r}.")
+        if extra_columns:
+            message_parts.append(f"Undeclared columns: {extra_columns!r}.")
+        message_parts.append("Ensure hydrate_row() returns exactly the declared output schema.")
+        raise SeedReaderError(" ".join(message_parts))
 
     return lazy.pd.DataFrame(records, columns=output_columns)
 
@@ -333,8 +342,10 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
 
     Plugin authors implement `build_manifest(...)` to describe the cheap logical
     rows available under the configured filesystem root. Readers that need
-    expensive enrichment can optionally override `hydrate_row(...)`. The
-    framework keeps ownership of manifest sampling, partitioning, randomization,
+    expensive enrichment can optionally override `hydrate_row(...)`. When
+    `hydrate_row(...)` changes the manifest schema, `output_columns` must declare
+    the exact hydrated output schema. The framework owns attachment-scoped
+    filesystem context reuse, manifest sampling, partitioning, randomization,
     batching, and DuckDB registration details.
     """
 
@@ -342,6 +353,7 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
 
     def _reset_attachment_state(self) -> None:
         super()._reset_attachment_state()
+        self._filesystem_context = None
         self._output_df = None
         self._row_manifest_df = None
 
@@ -385,7 +397,7 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
         shuffle: bool,
     ) -> SeedReaderBatchReader:
         self._ensure_attached()
-        context = self.create_filesystem_context(self.source.path)
+        context = self._get_filesystem_context()
         conn = self.create_dataframe_duckdb_connection(
             table_name=self._get_manifest_dataset_uri(),
             dataframe=self._get_row_manifest_dataframe(),
@@ -412,7 +424,7 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
         if manifest_df is not None:
             return manifest_df
 
-        context = self.create_filesystem_context(self.source.path)
+        context = self._get_filesystem_context()
         manifest = self.build_manifest(context=context)
         manifest_df = self._normalize_rows_to_dataframe(manifest)
         if manifest_df.empty:
@@ -427,7 +439,7 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
         if output_df is not None:
             return output_df
 
-        context = self.create_filesystem_context(self.source.path)
+        context = self._get_filesystem_context()
         hydrated_records = self._hydrate_rows(
             manifest_rows=self._get_row_manifest_dataframe().to_dict(orient="records"),
             context=context,
@@ -440,6 +452,14 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
             output_columns=self.get_output_column_names(),
         )
         return self._output_df
+
+    def _get_filesystem_context(self) -> SeedReaderFileSystemContext:
+        self._ensure_attached()
+        context = getattr(self, "_filesystem_context", None)
+        if context is None:
+            context = self.create_filesystem_context(self.source.path)
+            self._filesystem_context = context
+        return context
 
     def _get_manifest_dataset_uri(self) -> str:
         return self._build_internal_table_name("manifest")
