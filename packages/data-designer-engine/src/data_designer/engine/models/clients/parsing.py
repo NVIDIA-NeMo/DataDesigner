@@ -319,8 +319,7 @@ def coerce_message_content(content: Any) -> str | None:
                 text_value = block.get("text")
                 if isinstance(text_value, str):
                     text_parts.append(text_value)
-        if text_parts:
-            return "\n".join(text_parts)
+        return "\n".join(text_parts) if text_parts else None
     return str(content)
 
 

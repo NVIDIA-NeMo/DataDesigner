@@ -82,7 +82,7 @@ class LiteLLMBridgeClient(ModelClient):
                 model=request.model,
                 messages=request.messages,
                 extra_headers=transport.headers or None,
-                **transport.body,
+                **_with_timeout(transport),
             )
         return parse_chat_completion_response(response)
 
@@ -93,7 +93,7 @@ class LiteLLMBridgeClient(ModelClient):
                 model=request.model,
                 messages=request.messages,
                 extra_headers=transport.headers or None,
-                **transport.body,
+                **_with_timeout(transport),
             )
         return await aparse_chat_completion_response(response)
 
@@ -104,7 +104,7 @@ class LiteLLMBridgeClient(ModelClient):
                 model=request.model,
                 input=request.inputs,
                 extra_headers=transport.headers or None,
-                **transport.body,
+                **_with_timeout(transport),
             )
         vectors = [extract_embedding_vector(item) for item in getattr(response, "data", [])]
         return EmbeddingResponse(vectors=vectors, usage=extract_usage(getattr(response, "usage", None)), raw=response)
@@ -116,7 +116,7 @@ class LiteLLMBridgeClient(ModelClient):
                 model=request.model,
                 input=request.inputs,
                 extra_headers=transport.headers or None,
-                **transport.body,
+                **_with_timeout(transport),
             )
         vectors = [extract_embedding_vector(item) for item in getattr(response, "data", [])]
         return EmbeddingResponse(vectors=vectors, usage=extract_usage(getattr(response, "usage", None)), raw=response)
@@ -129,14 +129,14 @@ class LiteLLMBridgeClient(ModelClient):
                     model=request.model,
                     messages=request.messages,
                     extra_headers=transport.headers or None,
-                    **transport.body,
+                    **_with_timeout(transport),
                 )
             else:
                 response = self._router.image_generation(
                     prompt=request.prompt,
                     model=request.model,
                     extra_headers=transport.headers or None,
-                    **transport.body,
+                    **_with_timeout(transport),
                 )
 
         if request.messages is not None:
@@ -155,14 +155,14 @@ class LiteLLMBridgeClient(ModelClient):
                     model=request.model,
                     messages=request.messages,
                     extra_headers=transport.headers or None,
-                    **transport.body,
+                    **_with_timeout(transport),
                 )
             else:
                 response = await self._router.aimage_generation(
                     prompt=request.prompt,
                     model=request.model,
                     extra_headers=transport.headers or None,
-                    **transport.body,
+                    **_with_timeout(transport),
                 )
 
         if request.messages is not None:
@@ -178,6 +178,13 @@ class LiteLLMBridgeClient(ModelClient):
 
     async def aclose(self) -> None:
         return None
+
+
+def _with_timeout(transport: TransportKwargs) -> dict[str, Any]:
+    """Merge ``transport.body`` with the per-request timeout so LiteLLM receives it as a kwarg."""
+    if transport.timeout is not None:
+        return {**transport.body, "timeout": transport.timeout}
+    return transport.body
 
 
 @contextlib.contextmanager

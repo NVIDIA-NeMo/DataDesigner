@@ -191,17 +191,19 @@ class OpenAICompatibleClient(ModelClient):
     # -------------------------------------------------------------------
 
     def close(self) -> None:
-        if self._client is not None:
-            self._client.close()
-            self._client = None
+        with self._init_lock:
+            if self._client is not None:
+                self._client.close()
+                self._client = None
 
     async def aclose(self) -> None:
-        if self._aclient is not None:
-            await self._aclient.aclose()
-            self._aclient = None
-        if self._client is not None:
-            self._client.close()
-            self._client = None
+        with self._init_lock:
+            if self._aclient is not None:
+                await self._aclient.aclose()
+                self._aclient = None
+            if self._client is not None:
+                self._client.close()
+                self._client = None
 
     # -------------------------------------------------------------------
     # HTTP helpers

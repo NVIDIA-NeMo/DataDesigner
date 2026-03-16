@@ -429,7 +429,8 @@ def test_lazy_sync_client_creates_real_httpx_client() -> None:
     client.close()
 
 
-def test_lazy_async_client_creates_real_httpx_async_client() -> None:
+@pytest.mark.asyncio
+async def test_lazy_async_client_creates_real_httpx_async_client() -> None:
     client = _make_client()
     assert client._aclient is None
 
@@ -438,6 +439,7 @@ def test_lazy_async_client_creates_real_httpx_async_client() -> None:
     assert async_client is not None
     assert client._aclient is async_client
     assert client._get_async_client() is async_client
+    await client.aclose()
 
 
 # --- Capabilities ---
