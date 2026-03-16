@@ -41,7 +41,7 @@ class SingleColumnConfig(ConfigBase, ABC):
 
     @staticmethod
     def get_column_emoji() -> str:
-        return "\U0001f3a8"
+        return "🎨"
 
     @property
     @abstractmethod
