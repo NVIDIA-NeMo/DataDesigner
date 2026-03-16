@@ -92,22 +92,19 @@ def discover_family_types(family: str) -> dict[str, type]:
     return dict(sorted(discovered.items()))
 
 
-def get_import_path(cls: type) -> str:
-    exported = getattr(dd, cls.__name__, None)
-    if exported is cls:
-        return f"data_designer.config.{cls.__name__}"
-    return f"{cls.__module__}.{cls.__qualname__}"
-
-
 def get_family_catalog(family: str) -> list[dict[str, str]]:
     return [
         {
             "type_name": type_name,
-            "class_name": cls.__name__,
             "description": _get_first_paragraph(cls.__doc__) or "",
         }
         for type_name, cls in discover_family_types(family).items()
     ]
+
+
+def get_family_source_file(family: str) -> str:
+    members = get_args(get_family_spec(family).type_union)
+    return _get_source_file(members[0]) if members else ""
 
 
 def get_operations() -> list[dict[str, str]]:
@@ -115,12 +112,6 @@ def get_operations() -> list[dict[str, str]]:
         {"name": c.name, "command_pattern": c.command_pattern, "description": c.help, "returns": c.returns}
         for c in AGENT_COMMANDS
     ]
-
-
-def get_family_source_file(family: str) -> str:
-    types_map = discover_family_types(family)
-    first_cls = next(iter(types_map.values()), None)
-    return _get_source_file(first_cls) if first_cls else ""
 
 
 def get_context(config_dir: Path) -> dict[str, Any]:
