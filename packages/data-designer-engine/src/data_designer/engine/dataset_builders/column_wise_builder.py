@@ -386,7 +386,11 @@ class ColumnWiseDatasetBuilder:
         progress_tracker, executor_kwargs = self._setup_fan_out(generator, max_workers)
         executor = AsyncConcurrentExecutor(max_workers=max_workers, **executor_kwargs)
         work_items = [
-            (generator.agenerate(record), {"index": i}) for i, record in self.batch_manager.iter_current_batch()
+            (
+                generator.agenerate(record),
+                {"index": i, "column_name": generator.config.name},
+            )
+            for i, record in self.batch_manager.iter_current_batch()
         ]
         executor.run(work_items)
         self._finalize_fan_out(progress_tracker)
@@ -397,7 +401,11 @@ class ColumnWiseDatasetBuilder:
         progress_tracker, executor_kwargs = self._setup_fan_out(generator, max_workers)
         with ConcurrentThreadExecutor(max_workers=max_workers, **executor_kwargs) as executor:
             for i, record in self.batch_manager.iter_current_batch():
-                executor.submit(lambda record: generator.generate(record), record, context={"index": i})
+                executor.submit(
+                    lambda record: generator.generate(record),
+                    record,
+                    context={"index": i, "column_name": generator.config.name},
+                )
         self._finalize_fan_out(progress_tracker)
 
     def _make_result_callback(self, progress_tracker: ProgressTracker) -> Callable[[dict], None]:
@@ -484,12 +492,61 @@ class ColumnWiseDatasetBuilder:
                 for path in [paths] if isinstance(paths, str) else paths:
                     media_storage.delete_image(path)
 
+    @staticmethod
+    def _extract_failure_detail(exc: Exception) -> str:
+        detail = getattr(exc, "detail", None)
+        if isinstance(detail, str):
+            normalized_detail = " ".join(detail.split()).strip()
+            if normalized_detail:
+                return normalized_detail
+        exc_str = str(exc).strip()
+        for line in exc_str.splitlines():
+            if "Cause:" in line:
+                return " ".join(line.split("Cause:", maxsplit=1)[1].split()).strip()
+        return " ".join(exc_str.split()).strip() or type(exc).__name__
+
+    @classmethod
+    def _classify_worker_failure(cls, exc: Exception) -> str:
+        failure_kind = getattr(exc, "failure_kind", None)
+        if isinstance(failure_kind, str) and failure_kind.strip():
+            return failure_kind.replace("_", " ")
+
+        detail = cls._extract_failure_detail(exc).lower()
+        exc_name = type(exc).__name__.lower()
+
+        if "timeout" in exc_name or "timed out" in detail:
+            return "timeout"
+        if "rate" in exc_name and "limit" in exc_name:
+            return "rate limit"
+        if "authentication" in exc_name:
+            return "authentication"
+        if "permission" in exc_name:
+            return "permission denied"
+        if "contextwindow" in exc_name or "context width" in detail:
+            return "context window"
+        if "response_schema" in detail or "schema" in detail:
+            return "schema validation"
+        if "validation" in exc_name or "validation" in detail:
+            return "validation"
+        return "generation error"
+
+    @classmethod
+    def _format_worker_failure_warning(cls, exc: Exception, *, context: dict | None = None) -> str:
+        record_index = context["index"] if context is not None and "index" in context else "unknown"
+        column_name = context.get("column_name") if context is not None else None
+        context_label = f" in column {column_name!r}" if column_name else ""
+        failure_kind = cls._classify_worker_failure(exc)
+        failure_detail = cls._extract_failure_detail(exc)
+        return (
+            f"⚠️ Generation for record at index {record_index} failed{context_label} ({failure_kind}). "
+            f"Will omit this record from the dataset. Detail: {failure_detail}"
+        )
+
     def _worker_error_callback(self, exc: Exception, *, context: dict | None = None) -> None:
         """If a worker fails, we can handle the exception here."""
-        logger.warning(
-            f"⚠️ Generation for record at index {context['index']} failed. "
-            f"Will omit this record from the dataset.\n{exc}"
-        )
+        logger.warning(self._format_worker_failure_warning(exc, context=context))
+        if context is None or "index" not in context:
+            raise RuntimeError("Worker error callback called without a valid context index.")
         self._records_to_drop.add(context["index"])
 
     def _worker_result_callback(self, result: dict | list[dict], *, context: dict | None = None) -> None:

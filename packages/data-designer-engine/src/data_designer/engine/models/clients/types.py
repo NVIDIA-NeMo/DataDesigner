@@ -118,8 +118,9 @@ class TransportKwargs:
     Adapters call ``TransportKwargs.from_request(request)`` instead of
     manually handling ``extra_body`` / ``extra_headers`` on every request type.
 
-    - ``body``: API-level keyword arguments with ``extra_body`` keys merged
-      into the top level (mirroring how LiteLLM flattens them).
+    - ``body``: API-level keyword arguments. By default ``extra_body`` keys are
+      merged into the top level; pass ``flatten_extra_body=False`` to preserve
+      ``extra_body`` as a nested dict (needed by LiteLLM).
     - ``headers``: Extra HTTP headers to attach to the outgoing request.
     """
 
@@ -129,11 +130,21 @@ class TransportKwargs:
     headers: dict[str, str]
 
     @classmethod
-    def from_request(cls, request: Any, *, exclude: frozenset[str] = frozenset()) -> TransportKwargs:
+    def from_request(
+        cls,
+        request: Any,
+        *,
+        exclude: frozenset[str] = frozenset(),
+        # TODO: remove flatten_extra_body after LiteLLMBridgeClient is retired
+        flatten_extra_body: bool = True,
+    ) -> TransportKwargs:
         """Build transport-ready kwargs from a canonical request dataclass.
 
         1. Collects all non-None optional fields (respecting *exclude*).
-        2. Pops ``extra_body`` and merges its keys into the top-level body dict.
+        2. Handles ``extra_body`` based on *flatten_extra_body*:
+           - ``True`` (default): merges its keys into the top-level body dict.
+           - ``False``: preserves it as ``extra_body`` in the body dict so
+             that callers like LiteLLM can forward it without param validation.
         3. Pops ``extra_headers`` into a separate headers dict.
         """
         optional_fields = cls._collect_optional_fields(request, exclude=exclude | cls._META_FIELDS)
@@ -141,7 +152,14 @@ class TransportKwargs:
         extra_body = getattr(request, "extra_body", None) or {}
         extra_headers = getattr(request, "extra_headers", None) or {}
 
-        return cls(body={**optional_fields, **extra_body}, headers=dict(extra_headers))
+        if flatten_extra_body:
+            body = {**optional_fields, **extra_body}
+        else:
+            body = {**optional_fields}
+            if extra_body:
+                body["extra_body"] = extra_body
+
+        return cls(body=body, headers=dict(extra_headers))
 
     @staticmethod
     def _collect_optional_fields(request: Any, *, exclude: frozenset[str] = frozenset()) -> dict[str, Any]:

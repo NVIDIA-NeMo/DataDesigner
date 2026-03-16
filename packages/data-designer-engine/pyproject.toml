@@ -33,6 +33,7 @@ bump = true
 [tool.hatch.metadata.hooks.uv-dynamic-versioning]
 dependencies = [
     "anyascii>=0.3.3,<1",
+    "chardet>=3.0.2,<6",  # Pulled in by sqlfluff; pin <6 to avoid RequestsDependencyWarning from requests<2.33
     "data-designer-config=={{ version }}",
     "duckdb>=1.5.0,<2",
     "faker>=20.1.0,<21",
@@ -42,7 +43,7 @@ dependencies = [
     "json-repair>=0.48.0,<1",
     "jsonpath-rust-bindings>=1.0,<2",
     "jsonschema>=4.0.0,<5",
-    "litellm>=1.73.6,<1.80.12",
+    "litellm>=1.77.0,<1.80.12",
     "lxml>=6.0.2,<7",
     "marko>=2.1.2,<3",
     "mcp>=1.26.0,<2",

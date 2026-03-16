@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import typer
 
+from data_designer.cli.agent_command_defs import AGENT_COMMANDS
 from data_designer.cli.lazy_group import create_lazy_typer_group
 from data_designer.cli.runtime import ensure_cli_default_model_settings
 
@@ -99,9 +100,37 @@ download_app = typer.Typer(
     no_args_is_help=True,
 )
 
+_AGENT_CMD = f"{_CMD}.agent"
+
+
+def _build_agent_lazy_group(prefix: str) -> dict[str, dict[str, str]]:
+    return {
+        cmd.name.removeprefix(f"{prefix}."): {"module": _AGENT_CMD, "attr": cmd.attr, "help": cmd.help}
+        for cmd in AGENT_COMMANDS
+        if (prefix == "" and "." not in cmd.name) or cmd.name.startswith(f"{prefix}.")
+    }
+
+
+agent_app = typer.Typer(
+    name="agent",
+    help="Agent-only interface for dynamic Data Designer introspection",
+    cls=create_lazy_typer_group(_build_agent_lazy_group("")),
+    no_args_is_help=True,
+)
+
+agent_state_app = typer.Typer(
+    name="state",
+    help="Return current local state relevant to agents",
+    cls=create_lazy_typer_group(_build_agent_lazy_group("state")),
+    no_args_is_help=True,
+)
+
+agent_app.add_typer(agent_state_app, name="state")
+
 # Add setup command groups
 app.add_typer(config_app, name="config", rich_help_panel="Setup")
 app.add_typer(download_app, name="download", rich_help_panel="Setup")
+app.add_typer(agent_app, name="agent", rich_help_panel="Agent")
 
 
 def main() -> None:

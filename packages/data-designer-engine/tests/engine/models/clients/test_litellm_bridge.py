@@ -57,12 +57,12 @@ def test_completion_maps_canonical_fields_from_litellm_response(
     mock_router.completion.assert_called_once_with(
         model="stub-model",
         messages=[{"role": "user", "content": "hello"}],
-        extra_headers={"x-trace": "1"},
         tools=[{"type": "function", "function": {"name": "lookup"}}],
         temperature=0.2,
         top_p=0.8,
         max_tokens=256,
-        foo="bar",
+        extra_body={"foo": "bar"},
+        extra_headers={"x-trace": "1"},
     )
 
 
@@ -82,6 +82,30 @@ async def test_acompletion_maps_canonical_fields_from_litellm_response(
     mock_router.acompletion.assert_awaited_once_with(
         model="stub-model",
         messages=[{"role": "user", "content": "hello"}],
+        extra_headers=None,
+    )
+
+
+def test_completion_passes_extra_body_as_distinct_kwarg(
+    mock_router: MagicMock,
+    bridge_client: LiteLLMBridgeClient,
+) -> None:
+    response = _build_chat_response(content="ok", reasoning_content=None, tool_calls=[], usage=None)
+    mock_router.completion.return_value = response
+
+    request = ChatCompletionRequest(
+        model="stub-model",
+        messages=[{"role": "user", "content": "hello"}],
+        temperature=0.5,
+        extra_body={"reasoning_effort": "high"},
+    )
+    bridge_client.completion(request)
+
+    mock_router.completion.assert_called_once_with(
+        model="stub-model",
+        messages=[{"role": "user", "content": "hello"}],
+        temperature=0.5,
+        extra_body={"reasoning_effort": "high"},
         extra_headers=None,
     )
 
@@ -107,9 +131,9 @@ def test_embeddings_maps_vectors_and_usage(
     mock_router.embedding.assert_called_once_with(
         model="stub-model",
         input=["a", "b"],
-        extra_headers=None,
         encoding_format="float",
         dimensions=32,
+        extra_headers=None,
     )
 
 
@@ -148,8 +172,8 @@ def test_generate_image_uses_chat_completion_path_when_messages_provided(
     mock_router.completion.assert_called_once_with(
         model="stub-model",
         messages=messages,
+        extra_body={"n": 1},
         extra_headers=None,
-        n=1,
     )
     mock_router.image_generation.assert_not_called()
 
@@ -178,7 +202,7 @@ def test_generate_image_uses_diffusion_path_without_messages(
     assert result.usage.total_tokens == 21
     assert result.usage.generated_images == 2
     mock_router.image_generation.assert_called_once_with(
-        prompt="make an image", model="stub-model", extra_headers=None, n=2
+        prompt="make an image", model="stub-model", extra_body={"n": 2}, extra_headers=None
     )
 
 
@@ -249,7 +273,7 @@ async def test_agenerate_image_uses_diffusion_path_without_messages(
     assert result.usage is not None
     assert result.usage.generated_images == 1
     mock_router.aimage_generation.assert_awaited_once_with(
-        prompt="async image", model="stub-model", extra_headers=None, n=1
+        prompt="async image", model="stub-model", extra_body={"n": 1}, extra_headers=None
     )
 
 
