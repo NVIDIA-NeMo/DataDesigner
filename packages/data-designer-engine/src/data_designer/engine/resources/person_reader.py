@@ -12,6 +12,7 @@ import data_designer.lazy_heavy_imports as lazy
 
 if TYPE_CHECKING:
     import duckdb
+    import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,14 @@ class PersonReader(ABC):
 
     @abstractmethod
     def get_dataset_uri(self, locale: str) -> str: ...
+
+    def execute(self, query: str, parameters: list[list]) -> pd.DataFrame:
+        conn = self.create_duckdb_connection()
+        cursor = conn.cursor()
+        try:
+            return cursor.execute(query, parameters).df()
+        finally:
+            cursor.close()
 
 
 class LocalPersonReader(PersonReader):

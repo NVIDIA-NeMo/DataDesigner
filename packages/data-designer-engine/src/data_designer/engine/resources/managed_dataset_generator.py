@@ -13,8 +13,8 @@ if TYPE_CHECKING:
 
 class ManagedDatasetGenerator:
     def __init__(self, reader: PersonReader, locale: str) -> None:
-        self._conn = reader.create_duckdb_connection()
-        self._uri = reader.get_dataset_uri(locale)
+        self._person_reader = reader
+        self._locale = locale
 
     def generate_samples(
         self,
@@ -22,7 +22,8 @@ class ManagedDatasetGenerator:
         evidence: dict[str, Any | list[Any]] | None = None,
     ) -> pd.DataFrame:
         parameters = []
-        query = f"select * from '{self._uri}'"
+        uri = self._person_reader.get_dataset_uri(self._locale)
+        query = f"select * from '{uri}'"
         if evidence:
             where_conditions = []
             for column, values in evidence.items():
@@ -35,8 +36,5 @@ class ManagedDatasetGenerator:
             if where_conditions:
                 query += " where " + " and ".join(where_conditions)
         query += f" order by random() limit {size}"
-        cursor = self._conn.cursor()
-        try:
-            return cursor.execute(query, parameters).df()
-        finally:
-            cursor.close()
+
+        return self._person_reader.execute(query, parameters)
