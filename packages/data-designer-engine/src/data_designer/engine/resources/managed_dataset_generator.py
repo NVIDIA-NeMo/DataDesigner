@@ -5,14 +5,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from data_designer.engine.resources.nemotron_personas_reader import NemotronPersonasDatasetReader
+from data_designer.engine.resources.person_reader import PersonReader
 
 if TYPE_CHECKING:
     import pandas as pd
 
 
 class ManagedDatasetGenerator:
-    def __init__(self, reader: NemotronPersonasDatasetReader, locale: str) -> None:
+    def __init__(self, reader: PersonReader, locale: str) -> None:
         self._conn = reader.create_duckdb_connection()
         self._uri = reader.get_dataset_uri(locale)
 

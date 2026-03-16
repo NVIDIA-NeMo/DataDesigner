@@ -9,14 +9,14 @@ import pytest
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.engine.resources.managed_dataset_generator import ManagedDatasetGenerator
-from data_designer.engine.resources.nemotron_personas_reader import NemotronPersonasDatasetReader
+from data_designer.engine.resources.person_reader import PersonReader
 from data_designer.engine.sampling_gen.entities.person import load_person_data_sampler
 from data_designer.engine.sampling_gen.errors import DatasetNotAvailableForLocaleError
 
 
 @pytest.fixture
 def stub_reader() -> Mock:
-    mock_reader = Mock(spec=NemotronPersonasDatasetReader)
+    mock_reader = Mock(spec=PersonReader)
     mock_conn = Mock()
     mock_cursor = Mock()
     mock_cursor.execute.return_value.df.return_value = lazy.pd.DataFrame({"name": ["John", "Jane"], "age": [25, 30]})
@@ -117,7 +117,7 @@ def test_generate_samples_different_locale(stub_reader: Mock, stub_cursor: Mock)
     ],
 )
 def test_load_person_data_sampler_scenarios(locale: str) -> None:
-    mock_reader = Mock(spec=NemotronPersonasDatasetReader)
+    mock_reader = Mock(spec=PersonReader)
     mock_conn = Mock()
     mock_reader.create_duckdb_connection.return_value = mock_conn
     mock_reader.get_dataset_uri.return_value = f"/data/datasets/{locale}.parquet"
@@ -130,6 +130,6 @@ def test_load_person_data_sampler_scenarios(locale: str) -> None:
 
 
 def test_load_person_data_sampler_invalid_locale() -> None:
-    mock_reader = Mock(spec=NemotronPersonasDatasetReader)
+    mock_reader = Mock(spec=PersonReader)
     with pytest.raises(DatasetNotAvailableForLocaleError, match="Locale invalid_locale is not supported"):
         load_person_data_sampler(mock_reader, locale="invalid_locale")

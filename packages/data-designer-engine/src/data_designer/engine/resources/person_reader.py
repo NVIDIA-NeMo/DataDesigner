@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 DATASETS_ROOT = "datasets"
 
 
-class NemotronPersonasDatasetReader(ABC):
+class PersonReader(ABC):
     """Provides duckdb access to managed datasets (e.g., person name data).
 
     Implementations control connection creation (custom fsspec clients, caching, etc.)
@@ -36,8 +36,8 @@ class NemotronPersonasDatasetReader(ABC):
     def get_dataset_uri(self, locale: str) -> str: ...
 
 
-class LocalNemotronPersonasDatasetReader(NemotronPersonasDatasetReader):
-    """Reads Nemotron personas datasets from a local filesystem path."""
+class LocalPersonReader(PersonReader):
+    """Reads person datasets from a local filesystem path."""
 
     def __init__(self, root_path: Path) -> None:
         self._root_path = root_path
@@ -49,10 +49,10 @@ class LocalNemotronPersonasDatasetReader(NemotronPersonasDatasetReader):
         return f"{self._root_path}/{DATASETS_ROOT}/{locale}.parquet"
 
 
-def init_nemotron_personas_reader(assets_storage: str) -> NemotronPersonasDatasetReader:
+def init_person_reader(assets_storage: str) -> PersonReader:
     path = Path(assets_storage)
     if not path.exists():
         raise RuntimeError(f"Local storage path {assets_storage!r} does not exist.")
 
     logger.debug(f"Using local storage for managed datasets: {assets_storage!r}")
-    return LocalNemotronPersonasDatasetReader(path)
+    return LocalPersonReader(path)

@@ -9,7 +9,7 @@ from typing import Any, Literal, TypeAlias
 
 from data_designer.config.utils.constants import LOCALES_WITH_MANAGED_DATASETS
 from data_designer.engine.resources.managed_dataset_generator import ManagedDatasetGenerator
-from data_designer.engine.resources.nemotron_personas_reader import NemotronPersonasDatasetReader
+from data_designer.engine.resources.person_reader import PersonReader
 from data_designer.engine.sampling_gen.entities.dataset_based_person_fields import (
     PERSONA_FIELDS,
     PII_FIELDS,
@@ -126,7 +126,7 @@ def generate_and_insert_derived_fields(person_record: dict[str, Any]) -> dict[st
     }
 
 
-def load_person_data_sampler(reader: NemotronPersonasDatasetReader, locale: str) -> ManagedDatasetGenerator:
+def load_person_data_sampler(reader: PersonReader, locale: str) -> ManagedDatasetGenerator:
     if locale not in LOCALES_WITH_MANAGED_DATASETS:
         raise DatasetNotAvailableForLocaleError(f"Locale {locale} is not supported by the managed dataset generator.")
 

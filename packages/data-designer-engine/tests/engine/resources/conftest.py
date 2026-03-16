@@ -10,7 +10,7 @@ from unittest.mock import Mock
 import pytest
 
 import data_designer.lazy_heavy_imports as lazy
-from data_designer.engine.resources.nemotron_personas_reader import LocalNemotronPersonasDatasetReader
+from data_designer.engine.resources.person_reader import LocalPersonReader
 
 
 @pytest.fixture
@@ -20,8 +20,8 @@ def stub_temp_dir() -> Path:
 
 
 @pytest.fixture
-def stub_nemotron_personas_reader(stub_temp_dir: Path) -> LocalNemotronPersonasDatasetReader:
-    return LocalNemotronPersonasDatasetReader(stub_temp_dir)
+def stub_person_reader(stub_temp_dir: Path) -> LocalPersonReader:
+    return LocalPersonReader(stub_temp_dir)
 
 
 @pytest.fixture
