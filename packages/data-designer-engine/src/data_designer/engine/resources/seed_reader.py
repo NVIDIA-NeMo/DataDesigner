@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from fnmatch import fnmatchcase
 from pathlib import Path, PurePosixPath
@@ -77,13 +77,13 @@ def create_seed_reader_output_dataframe(
             continue
 
         message_parts: list[str] = [
-            f"Hydrated row at index {row_index} does not match output_columns {output_columns!r}."
+            f"Hydrated record at index {row_index} does not match output_columns {output_columns!r}."
         ]
         if missing_columns:
             message_parts.append(f"Missing columns: {missing_columns!r}.")
         if extra_columns:
             message_parts.append(f"Undeclared columns: {extra_columns!r}.")
-        message_parts.append("Ensure hydrate_row() returns exactly the declared output schema.")
+        message_parts.append("Ensure each record emitted by hydrate_row() matches the declared output schema.")
         raise SeedReaderError(" ".join(message_parts))
 
     return lazy.pd.DataFrame(records, columns=output_columns)
@@ -342,11 +342,12 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
 
     Plugin authors implement `build_manifest(...)` to describe the cheap logical
     rows available under the configured filesystem root. Readers that need
-    expensive enrichment can optionally override `hydrate_row(...)`. When
-    `hydrate_row(...)` changes the manifest schema, `output_columns` must declare
-    the exact hydrated output schema. The framework owns attachment-scoped
-    filesystem context reuse, manifest sampling, partitioning, randomization,
-    batching, and DuckDB registration details.
+    expensive enrichment can optionally override `hydrate_row(...)` to emit one
+    record dict or an iterable of record dicts per manifest row. When emitted
+    records change the manifest schema, `output_columns` must declare the exact
+    hydrated output schema for each emitted record. The framework owns
+    attachment-scoped filesystem context reuse, manifest sampling, partitioning,
+    randomization, batching, and DuckDB registration details.
     """
 
     output_columns: ClassVar[list[str] | None] = None
@@ -379,7 +380,7 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
         *,
         manifest_row: dict[str, Any],
         context: SeedReaderFileSystemContext,
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | Iterable[dict[str, Any]]:
         return manifest_row
 
     def get_column_names(self) -> list[str]:
@@ -479,7 +480,15 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
         manifest_rows: list[dict[str, Any]],
         context: SeedReaderFileSystemContext,
     ) -> list[dict[str, Any]]:
-        return [self.hydrate_row(manifest_row=manifest_row, context=context) for manifest_row in manifest_rows]
+        hydrated_records: list[dict[str, Any]] = []
+        for manifest_row_index, manifest_row in enumerate(manifest_rows):
+            hydrated_records.extend(
+                _normalize_hydrated_row_output(
+                    hydrated_row_output=self.hydrate_row(manifest_row=manifest_row, context=context),
+                    manifest_row_index=manifest_row_index,
+                )
+            )
+        return hydrated_records
 
 
 class DirectorySeedReader(FileSystemSeedReader[DirectorySeedSource]):
@@ -584,3 +593,30 @@ def _build_metadata_record(
 
 def _normalize_relative_path(path: str) -> str:
     return path.lstrip("/")
+
+
+def _normalize_hydrated_row_output(
+    *,
+    hydrated_row_output: dict[str, Any] | Iterable[dict[str, Any]],
+    manifest_row_index: int,
+) -> list[dict[str, Any]]:
+    if isinstance(hydrated_row_output, dict):
+        return [hydrated_row_output]
+
+    if not isinstance(hydrated_row_output, Iterable):
+        raise SeedReaderError(
+            "hydrate_row() must return a record dict or an iterable of record dicts. "
+            f"Manifest row index {manifest_row_index} returned {type(hydrated_row_output).__name__}."
+        )
+
+    hydrated_records = list(hydrated_row_output)
+    for hydrated_record in hydrated_records:
+        if isinstance(hydrated_record, dict):
+            continue
+        raise SeedReaderError(
+            "hydrate_row() must return a record dict or an iterable of record dicts. "
+            f"Manifest row index {manifest_row_index} returned an iterable containing "
+            f"{type(hydrated_record).__name__}."
+        )
+
+    return hydrated_records

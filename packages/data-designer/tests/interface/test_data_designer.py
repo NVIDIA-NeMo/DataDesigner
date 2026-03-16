@@ -63,6 +63,36 @@ class CustomDirectorySeedReader(FileSystemSeedReader[DirectorySeedSource]):
         }
 
 
+class FanoutCustomDirectorySeedReader(FileSystemSeedReader[DirectorySeedSource]):
+    output_columns = ["relative_path", "line_index", "line"]
+
+    def build_manifest(self, *, context: SeedReaderFileSystemContext) -> lazy.pd.DataFrame | list[dict[str, str]]:
+        matched_paths = self.get_matching_relative_paths(
+            context=context,
+            file_pattern=self.source.file_pattern,
+            recursive=self.source.recursive,
+        )
+        return [{"relative_path": relative_path} for relative_path in matched_paths]
+
+    def hydrate_row(
+        self,
+        *,
+        manifest_row: dict[str, Any],
+        context: SeedReaderFileSystemContext,
+    ) -> list[dict[str, Any]]:
+        relative_path = str(manifest_row["relative_path"])
+        with context.fs.open(relative_path, "r", encoding="utf-8") as handle:
+            lines = handle.read().splitlines()
+        return [
+            {
+                "relative_path": relative_path,
+                "line_index": line_index,
+                "line": line,
+            }
+            for line_index, line in enumerate(lines)
+        ]
+
+
 def _add_irrelevant_sampler_column(builder: DataDesignerConfigBuilder) -> None:
     builder.add_column(
         SamplerColumnConfig(
@@ -802,6 +832,40 @@ def test_preview_dataset_e2e_with_custom_filesystem_seed_reader_via_seed_readers
         "custom::alpha.txt",
         "custom::beta.txt",
     ]
+
+
+def test_create_dataset_e2e_with_custom_filesystem_seed_reader_fanout_partition_block_selection(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_managed_assets_path: Path,
+    tmp_path: Path,
+) -> None:
+    seed_dir = tmp_path / "custom-fanout-directory-reader"
+    seed_dir.mkdir(parents=True)
+    (seed_dir / "alpha.txt").write_text("alpha-0\nalpha-1", encoding="utf-8")
+    (seed_dir / "beta.txt").write_text("beta-0\nbeta-1", encoding="utf-8")
+
+    builder = DataDesignerConfigBuilder()
+    builder.with_seed_dataset(
+        DirectorySeedSource(path=str(seed_dir), file_pattern="*.txt"),
+        selection_strategy=PartitionBlock(index=1, num_partitions=2),
+    )
+    _add_irrelevant_sampler_column(builder)
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+        seed_readers=[FanoutCustomDirectorySeedReader()],
+    )
+
+    results = data_designer.create(builder, num_records=3, dataset_name="custom-fanout-directory-reader-test")
+    df = results.load_dataset().reset_index(drop=True)
+
+    assert list(df["relative_path"]) == ["beta.txt", "beta.txt", "beta.txt"]
+    assert list(df["line_index"]) == [0, 1, 0]
+    assert list(df["line"]) == ["beta-0", "beta-1", "beta-0"]
 
 
 def test_create_dataset_e2e_with_directory_seed_source_no_matches_raises_generation_error(

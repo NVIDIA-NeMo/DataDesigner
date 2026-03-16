@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -133,6 +134,92 @@ class MissingHydrationColumnSeedReader(FileSystemSeedReader[DirectorySeedSource]
         }
 
 
+class FanoutDirectorySeedReader(FileSystemSeedReader[DirectorySeedSource]):
+    output_columns = ["relative_path", "file_name", "line_index", "line"]
+
+    def __init__(self) -> None:
+        self.hydrated_relative_paths: list[str] = []
+
+    def build_manifest(self, *, context: SeedReaderFileSystemContext) -> lazy.pd.DataFrame | list[dict[str, str]]:
+        matched_paths = self.get_matching_relative_paths(
+            context=context,
+            file_pattern=self.source.file_pattern,
+            recursive=self.source.recursive,
+        )
+        return [
+            {
+                "relative_path": relative_path,
+                "file_name": Path(relative_path).name,
+            }
+            for relative_path in matched_paths
+        ]
+
+    def hydrate_row(
+        self,
+        *,
+        manifest_row: dict[str, str],
+        context: SeedReaderFileSystemContext,
+    ) -> list[dict[str, Any]]:
+        relative_path = manifest_row["relative_path"]
+        self.hydrated_relative_paths.append(relative_path)
+        with context.fs.open(relative_path, "r", encoding="utf-8") as handle:
+            lines = handle.read().splitlines()
+        return [
+            {
+                "relative_path": relative_path,
+                "file_name": manifest_row["file_name"],
+                "line_index": line_index,
+                "line": line,
+            }
+            for line_index, line in enumerate(lines)
+        ]
+
+
+class InvalidHydrationReturnSeedReader(FileSystemSeedReader[DirectorySeedSource]):
+    def __init__(self, hydrated_return: Any) -> None:
+        self._hydrated_return = hydrated_return
+
+    def build_manifest(self, *, context: SeedReaderFileSystemContext) -> lazy.pd.DataFrame | list[dict[str, str]]:
+        matched_paths = self.get_matching_relative_paths(
+            context=context,
+            file_pattern=self.source.file_pattern,
+            recursive=self.source.recursive,
+        )
+        return [{"relative_path": relative_path} for relative_path in matched_paths]
+
+    def hydrate_row(
+        self,
+        *,
+        manifest_row: dict[str, str],
+        context: SeedReaderFileSystemContext,
+    ) -> Any:
+        del manifest_row, context
+        return self._hydrated_return
+
+
+class SchemaMismatchFanoutSeedReader(FileSystemSeedReader[DirectorySeedSource]):
+    def __init__(self, *, output_columns: list[str], hydrated_rows: list[dict[str, str]]) -> None:
+        self.output_columns = output_columns
+        self._hydrated_rows = hydrated_rows
+
+    def build_manifest(self, *, context: SeedReaderFileSystemContext) -> lazy.pd.DataFrame | list[dict[str, str]]:
+        matched_paths = self.get_matching_relative_paths(
+            context=context,
+            file_pattern=self.source.file_pattern,
+            recursive=self.source.recursive,
+        )
+        return [{"relative_path": relative_path} for relative_path in matched_paths]
+
+    def hydrate_row(
+        self,
+        *,
+        manifest_row: dict[str, str],
+        context: SeedReaderFileSystemContext,
+    ) -> list[dict[str, str]]:
+        del manifest_row, context
+        return self._hydrated_rows
+
+
 class ContextCountingDirectorySeedReader(FileSystemSeedReader[DirectorySeedSource]):
     def __init__(self) -> None:
         self.filesystem_context_calls = 0
@@ -215,6 +302,24 @@ def test_plugin_style_filesystem_seed_reader_needs_only_manifest_builder(tmp_pat
     assert reader.get_dataset_uri() == "seed_reader_directory_rows"
     assert list(df["relative_path"]) == ["alpha.txt", "nested/beta.txt"]
     assert list(df["file_name"]) == ["alpha.txt", "beta.txt"]
+
+
+def test_plugin_style_filesystem_seed_reader_can_fan_out_rows(tmp_path: Path) -> None:
+    (tmp_path / "alpha.txt").write_text("alpha-0\nalpha-1", encoding="utf-8")
+    (tmp_path / "beta.txt").write_text("beta-0", encoding="utf-8")
+
+    reader = FanoutDirectorySeedReader()
+    reader.attach(
+        DirectorySeedSource(path=str(tmp_path), file_pattern="*.txt"),
+        PlaintextResolver(),
+    )
+
+    df = reader.create_duckdb_connection().execute(f"SELECT * FROM '{reader.get_dataset_uri()}'").df()
+
+    assert reader.get_seed_dataset_size() == 2
+    assert list(df["relative_path"]) == ["alpha.txt", "alpha.txt", "beta.txt"]
+    assert list(df["line_index"]) == [0, 1, 0]
+    assert list(df["line"]) == ["alpha-0", "alpha-1", "beta-0"]
 
 
 def test_directory_seed_reader_matches_files_recursively(tmp_path: Path) -> None:
@@ -339,6 +444,28 @@ def test_file_contents_seed_reader_hydrates_only_selected_manifest_rows(tmp_path
     assert reader.hydrated_relative_paths == ["beta.txt"]
 
 
+def test_filesystem_seed_reader_fanout_keeps_manifest_based_index_selection(tmp_path: Path) -> None:
+    (tmp_path / "alpha.txt").write_text("alpha-0\nalpha-1", encoding="utf-8")
+    (tmp_path / "beta.txt").write_text("beta-0\nbeta-1", encoding="utf-8")
+
+    reader = FanoutDirectorySeedReader()
+    reader.attach(
+        DirectorySeedSource(path=str(tmp_path), file_pattern="*.txt"),
+        PlaintextResolver(),
+    )
+
+    batch_reader = reader.create_batch_reader(
+        batch_size=1,
+        index_range=IndexRange(start=1, end=1),
+        shuffle=False,
+    )
+    batch_df = batch_reader.read_next_batch().to_pandas()
+
+    assert list(batch_df["relative_path"]) == ["beta.txt", "beta.txt"]
+    assert list(batch_df["line"]) == ["beta-0", "beta-1"]
+    assert reader.hydrated_relative_paths == ["beta.txt"]
+
+
 def test_local_file_seed_reader_uses_load_time_runtime_path_when_cwd_changes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -438,6 +565,65 @@ def test_filesystem_seed_reader_raises_for_undeclared_hydrated_columns(
             batch_reader.read_next_batch().to_pandas()
         else:
             reader.create_duckdb_connection().execute(f"SELECT * FROM '{reader.get_dataset_uri()}'").df()
+
+
+@pytest.mark.parametrize(
+    ("hydrated_return", "error_pattern"),
+    [
+        (123, "Manifest row index 0 returned int"),
+        (["not-a-record"], "Manifest row index 0 returned an iterable containing str"),
+    ],
+    ids=["scalar", "iterable-of-invalid-records"],
+)
+def test_filesystem_seed_reader_rejects_invalid_hydrate_row_returns(
+    tmp_path: Path,
+    hydrated_return: Any,
+    error_pattern: str,
+) -> None:
+    (tmp_path / "alpha.txt").write_text("alpha", encoding="utf-8")
+
+    reader = InvalidHydrationReturnSeedReader(hydrated_return)
+    reader.attach(DirectorySeedSource(path=str(tmp_path), file_pattern="*.txt"), PlaintextResolver())
+
+    with pytest.raises(SeedReaderError, match=error_pattern):
+        reader.create_duckdb_connection().execute(f"SELECT * FROM '{reader.get_dataset_uri()}'").df()
+
+
+@pytest.mark.parametrize(
+    ("output_columns", "hydrated_rows", "error_pattern"),
+    [
+        (
+            ["relative_path", "content"],
+            [
+                {"relative_path": "alpha.txt", "content": "alpha"},
+                {"relative_path": "alpha.txt"},
+            ],
+            "Hydrated record at index 1 .* Missing columns: \\['content'\\]",
+        ),
+        (
+            ["relative_path"],
+            [
+                {"relative_path": "alpha.txt"},
+                {"relative_path": "alpha.txt", "content": "alpha"},
+            ],
+            "Hydrated record at index 1 .* Undeclared columns: \\['content'\\]",
+        ),
+    ],
+    ids=["missing-column", "undeclared-column"],
+)
+def test_filesystem_seed_reader_validates_each_fanout_record_against_output_columns(
+    tmp_path: Path,
+    output_columns: list[str],
+    hydrated_rows: list[dict[str, str]],
+    error_pattern: str,
+) -> None:
+    (tmp_path / "alpha.txt").write_text("alpha", encoding="utf-8")
+
+    reader = SchemaMismatchFanoutSeedReader(output_columns=output_columns, hydrated_rows=hydrated_rows)
+    reader.attach(DirectorySeedSource(path=str(tmp_path), file_pattern="*.txt"), PlaintextResolver())
+
+    with pytest.raises(SeedReaderError, match=error_pattern):
+        reader.create_duckdb_connection().execute(f"SELECT * FROM '{reader.get_dataset_uri()}'").df()
 
 
 @pytest.mark.parametrize("use_batch_reader", [False, True], ids=["full-output", "batch-reader"])
