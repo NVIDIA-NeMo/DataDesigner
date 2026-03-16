@@ -279,9 +279,9 @@ class DataFrameSeedReader(SeedReader[DataFrameSeedSource]):
 class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
     """Base class for filesystem-derived seed readers.
 
-    Plugin authors typically implement `build_manifest(...)` to describe the cheap
-    logical rows available under the configured filesystem root. Readers that need
-    expensive enrichment can optionally override `hydrate_row(...)`, while the
+    Plugin authors implement `build_manifest(...)` to describe the cheap logical
+    rows available under the configured filesystem root. Readers that need
+    expensive enrichment can optionally override `hydrate_row(...)`. The
     framework keeps ownership of manifest sampling, partitioning, randomization,
     batching, and DuckDB registration details.
     """
@@ -322,14 +322,6 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
     ) -> dict[str, Any]:
         return manifest_row
 
-    def hydrate_rows(
-        self,
-        *,
-        manifest_rows: list[dict[str, Any]],
-        context: SeedReaderFileSystemContext,
-    ) -> list[dict[str, Any]]:
-        return [self.hydrate_row(manifest_row=manifest_row, context=context) for manifest_row in manifest_rows]
-
     def get_column_names(self) -> list[str]:
         return self.get_output_column_names()
 
@@ -357,7 +349,7 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
         manifest_batch_reader = DuckDBSeedReaderBatchReader(conn=conn, query_result=query_result, batch_size=batch_size)
         return HydratingSeedReaderBatchReader(
             manifest_batch_reader=manifest_batch_reader,
-            hydrate_records=lambda manifest_records: self.hydrate_rows(
+            hydrate_records=lambda manifest_records: self._hydrate_rows(
                 manifest_rows=manifest_records,
                 context=context,
             ),
@@ -382,7 +374,7 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
             return self._output_df
 
         context = self.create_filesystem_context(self.source.path)
-        hydrated_records = self.hydrate_rows(
+        hydrated_records = self._hydrate_rows(
             manifest_rows=self._get_row_manifest_dataframe().to_dict(orient="records"),
             context=context,
         )
@@ -403,6 +395,14 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
         if isinstance(rows, lazy.pd.DataFrame):
             return rows.copy()
         return lazy.pd.DataFrame(rows)
+
+    def _hydrate_rows(
+        self,
+        *,
+        manifest_rows: list[dict[str, Any]],
+        context: SeedReaderFileSystemContext,
+    ) -> list[dict[str, Any]]:
+        return [self.hydrate_row(manifest_row=manifest_row, context=context) for manifest_row in manifest_rows]
 
 
 class DirectorySeedReader(FileSystemSeedReader[DirectorySeedSource]):
