@@ -8,7 +8,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from fnmatch import fnmatchcase
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, get_args, get_origin
+from typing import TYPE_CHECKING, Any, ClassVar, Generic, Protocol, TypeVar, get_args, get_origin
 
 from fsspec.implementations.dirfs import DirFileSystem
 from fsspec.implementations.local import LocalFileSystem
