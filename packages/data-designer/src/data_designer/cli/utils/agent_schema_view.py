@@ -114,9 +114,9 @@ def _format_type(annotation: Any) -> str:
         values = ", ".join(repr(arg.value) if isinstance(arg, Enum) else repr(arg) for arg in args)
         return f"Literal[{values}]"
     if origin is None:
-        return annotation.__name__ if hasattr(annotation, "__name__") else _strip_module_paths(str(annotation))
+        return annotation.__name__ if hasattr(annotation, "__name__") else strip_module_paths(str(annotation))
     if not args:
-        return _strip_module_paths(str(annotation))
+        return strip_module_paths(str(annotation))
     if origin is Union or origin is types.UnionType:
         return " | ".join(_format_type(arg) for arg in args)
     origin_name = origin.__name__ if hasattr(origin, "__name__") else str(origin)
@@ -171,7 +171,8 @@ def _extract_first_paragraph(docstring: str) -> str | None:
     return " ".join(lines) if lines else None
 
 
-def _strip_module_paths(text: str) -> str:
+def strip_module_paths(text: str) -> str:
+    """Remove module-path prefixes from a type string (e.g. 'foo.bar.Baz' -> 'Baz')."""
     return _MODULE_PATH_RE.sub(lambda match: match.group().rsplit(".", 1)[-1], text)
 
 

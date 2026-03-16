@@ -16,7 +16,7 @@ from data_designer.cli.repositories.model_repository import ModelRepository
 from data_designer.cli.repositories.persona_repository import PersonaRepository
 from data_designer.cli.repositories.provider_repository import ProviderRepository
 from data_designer.cli.services.download_service import DownloadService
-from data_designer.cli.utils.agent_schema_view import describe_pydantic_model
+from data_designer.cli.utils.agent_schema_view import describe_pydantic_model, strip_module_paths
 from data_designer.config.column_types import ColumnConfigT
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.default_model_settings import get_providers_with_missing_api_keys
@@ -69,18 +69,7 @@ def get_family_spec(family: str) -> FamilySpec:
 
 
 def discover_family_types(family: str) -> dict[str, type]:
-    spec = get_family_spec(family)
-    discovered: dict[str, type] = {}
-    for model in get_args(spec.type_union):
-        type_name = _extract_literal_value(model.model_fields[spec.discriminator_field].annotation)
-        if type_name in discovered and discovered[type_name] is not model:
-            raise AgentContextError(
-                code="duplicate_discriminator_value",
-                message=f"Duplicate discriminator {type_name!r} in family {family!r}.",
-                details={"family": family, "type_name": type_name},
-            )
-        discovered[type_name] = model
-    return dict(sorted(discovered.items()))
+    return _discover_types(get_family_spec(family))
 
 
 def get_import_path(cls: type) -> str:
@@ -99,7 +88,7 @@ def get_family_catalog(family: str) -> list[dict[str, str]]:
 
 def get_family_schema(family: str, type_name: str) -> dict[str, Any]:
     spec = get_family_spec(family)
-    types_map = discover_family_types(family)
+    types_map = _discover_types(spec)
     cls = types_map.get(type_name)
     if cls is None:
         raise AgentContextError(
@@ -112,7 +101,7 @@ def get_family_schema(family: str, type_name: str) -> dict[str, Any]:
 
 def get_family_schemas(family: str) -> dict[str, Any]:
     spec = get_family_spec(family)
-    types_map = discover_family_types(family)
+    types_map = _discover_types(spec)
     items = [_build_schema_dict(spec, type_name, cls) for type_name, cls in types_map.items()]
     return {"family": spec.name, "items": items}
 
@@ -259,6 +248,20 @@ def get_persona_datasets_state(config_dir: Path) -> dict[str, Any]:
 # --- Private helpers ---
 
 
+def _discover_types(spec: FamilySpec) -> dict[str, type]:
+    discovered: dict[str, type] = {}
+    for model in get_args(spec.type_union):
+        type_name = _extract_literal_value(model.model_fields[spec.discriminator_field].annotation)
+        if type_name in discovered and discovered[type_name] is not model:
+            raise AgentContextError(
+                code="duplicate_discriminator_value",
+                message=f"Duplicate discriminator {type_name!r} in family {spec.name!r}.",
+                details={"family": spec.name, "type_name": type_name},
+            )
+        discovered[type_name] = model
+    return dict(sorted(discovered.items()))
+
+
 _FAMILY_HIDDEN_FIELDS: dict[str, frozenset[str]] = {
     "columns": frozenset({"allow_resize"}),
 }
@@ -334,11 +337,7 @@ def _get_builder_methods() -> list[dict[str, Any]]:
 def _format_signature(method_name: str, signature: inspect.Signature) -> str:
     params = [param for param in signature.parameters.values() if param.name not in {"self", "cls"}]
     signature_text = str(signature.replace(parameters=params))
-    signature_text = re.sub(
-        r"\b[a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)+",
-        lambda match: match.group().rsplit(".", 1)[-1],
-        signature_text,
-    )
+    signature_text = strip_module_paths(signature_text)
     signature_text = re.sub(r"(?<=: )'([^']+)'", r"\1", signature_text)
     signature_text = re.sub(r"(?<=-> )'([^']+)'", r"\1", signature_text)
     return f"{method_name}{signature_text}"
