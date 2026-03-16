@@ -39,7 +39,7 @@ class CompletionTracker:
         """Create a frontier-enabled tracker backed by an execution graph."""
         tracker = cls()
         tracker._graph = graph
-        tracker._row_group_sizes = {rg_id: size for rg_id, size in row_groups}
+        tracker._row_group_sizes = dict(row_groups)
         return tracker
 
     def mark_cell_complete(self, column: str, row_group: int, row_index: int) -> None:

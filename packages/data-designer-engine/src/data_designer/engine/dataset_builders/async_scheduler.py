@@ -92,7 +92,7 @@ class AsyncTaskScheduler:
         self._all_rgs_admitted = False
 
         # Pre-compute row-group sizes for O(1) lookup
-        self._rg_size_map: dict[int, int] = {rg_id: size for rg_id, size in row_groups}
+        self._rg_size_map: dict[int, int] = dict(row_groups)
 
     async def _admit_row_groups(self) -> None:
         """Admit row groups as semaphore slots become available."""
@@ -290,8 +290,18 @@ class AsyncTaskScheduler:
         generator = self._generators[task.column]
         output_cols = self._instance_to_columns.get(id(generator), [task.column])
         retryable = False
+        # When True, skip removing from _dispatched so the task isn't re-dispatched
+        # from the frontier (it was never completed, so it stays in the frontier).
+        skipped = False
 
         try:
+            # Skip tasks whose row group was already checkpointed (can happen
+            # when a vacuously-ready downstream is dispatched via create_task
+            # in the same loop iteration that checkpoints the row group).
+            if not any(rg_id == task.row_group for rg_id, _ in self._active_rgs):
+                skipped = True
+                return
+
             if self._trace and trace:
                 trace.slot_acquired_at = time.perf_counter()
 
@@ -348,7 +358,7 @@ class AsyncTaskScheduler:
                 self.traces.append(trace)
 
             self._in_flight.discard(task)
-            if not retryable:
+            if not retryable and not skipped:
                 self._dispatched.discard(task)
             self._submission_semaphore.release()
             self._wake_event.set()
@@ -362,7 +372,7 @@ class AsyncTaskScheduler:
         if isinstance(generator, FromScratchColumnGenerator):
             result_df = await generator.agenerate_from_scratch(rg_size)
         else:
-            result_df = await generator.agenerate({})
+            result_df = await generator.agenerate(lazy.pd.DataFrame())
 
         # Write results to buffer
         if self._buffer_manager is not None:

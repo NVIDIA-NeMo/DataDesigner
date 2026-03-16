@@ -59,7 +59,7 @@ class RowGroupBufferManager:
         for ri, val in enumerate(values):
             buf[ri][column] = val
 
-    def get_row(self, row_group: int, row_index: int) -> dict:
+    def get_row(self, row_group: int, row_index: int) -> dict[str, Any]:
         return self._buffers[row_group][row_index]
 
     def get_dataframe(self, row_group: int) -> pd.DataFrame:

@@ -53,7 +53,7 @@ class MockSeedGenerator(FromScratchColumnGenerator[ExpressionColumnConfig]):
         return data
 
     def generate_from_scratch(self, num_records: int) -> lazy.pd.DataFrame:
-        return lazy.pd.DataFrame({"seed": list(range(num_records))})
+        return lazy.pd.DataFrame({self.config.name: list(range(num_records))})
 
 
 class MockCellGenerator(ColumnGenerator[ExpressionColumnConfig]):
@@ -64,7 +64,7 @@ class MockCellGenerator(ColumnGenerator[ExpressionColumnConfig]):
         return GenerationStrategy.CELL_BY_CELL
 
     def generate(self, data: dict) -> dict:
-        data["cell_out"] = f"processed_{data.get('seed', '?')}"
+        data[self.config.name] = f"processed_{data.get('seed', '?')}"
         return data
 
 
@@ -72,7 +72,7 @@ class MockFullColumnGenerator(ColumnGeneratorFullColumn[ExpressionColumnConfig])
     """Mock full-column generator."""
 
     def generate(self, data: lazy.pd.DataFrame) -> lazy.pd.DataFrame:
-        data["full_out"] = "batch_val"
+        data[self.config.name] = "batch_val"
         return data
 
 
@@ -91,7 +91,24 @@ class MockStatefulSeed(FromScratchColumnGenerator[ExpressionColumnConfig]):
         return data
 
     def generate_from_scratch(self, num_records: int) -> lazy.pd.DataFrame:
-        return lazy.pd.DataFrame({"stateful_seed": list(range(num_records))})
+        return lazy.pd.DataFrame({self.config.name: list(range(num_records))})
+
+
+class MockFailingSeedGenerator(FromScratchColumnGenerator[ExpressionColumnConfig]):
+    """Seed generator that always fails with a non-retryable error."""
+
+    @staticmethod
+    def get_generation_strategy() -> GenerationStrategy:
+        return GenerationStrategy.FULL_COLUMN
+
+    def generate(self, data: lazy.pd.DataFrame) -> lazy.pd.DataFrame:
+        return data
+
+    def generate_from_scratch(self, num_records: int) -> lazy.pd.DataFrame:
+        raise ValueError("permanent seed failure")
+
+    async def agenerate_from_scratch(self, num_records: int) -> lazy.pd.DataFrame:
+        raise ValueError("permanent seed failure")
 
 
 class MockFailingGenerator(ColumnGenerator[ExpressionColumnConfig]):
@@ -116,7 +133,7 @@ class MockFailingGenerator(ColumnGenerator[ExpressionColumnConfig]):
             raise ModelInternalServerError("503 Service Unavailable")
         if self._transient_failures == 0:
             raise ValueError("permanent failure")
-        data["fail_col"] = f"recovered_{data.get('seed', '?')}"
+        data[self.config.name] = f"recovered_{data.get('seed', '?')}"
         return data
 
 
@@ -128,7 +145,7 @@ def _build_simple_pipeline(
     buffer_size: int = 3,
     trace: bool = False,
     generators: dict[str, ColumnGenerator] | None = None,
-    configs: list | None = None,
+    configs: list[SamplerColumnConfig | LLMTextColumnConfig | ExpressionColumnConfig] | None = None,
     strategies: dict[str, GenerationStrategy] | None = None,
 ) -> tuple[AsyncTaskScheduler, CompletionTracker]:
     """Build a simple seed → cell pipeline for testing."""
@@ -479,3 +496,64 @@ async def test_scheduler_eager_row_drop_skips_downstream_of_failed_column() -> N
     assert len(downstream_traces) == 0
     # Row group is still "complete" (no non-dropped rows remain)
     assert tracker.is_row_group_complete(0, 2, ["seed", "fail_col", "downstream"])
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_non_retryable_seed_failure_no_keyerror_on_downstream() -> None:
+    """Non-retryable seed failure does not cause KeyError on vacuously-ready downstream.
+
+    Pipeline: seed (full_column) → cell_out (cell_by_cell) → full_out (full_column).
+    When seed fails non-retryably, all rows are dropped. cell_out's cell tasks
+    become vacuously complete (all rows dropped), which makes full_out ready.
+    full_out must not crash with a KeyError when its row group buffer has been
+    checkpointed.
+    """
+    provider = _mock_provider()
+    storage = MagicMock()
+    storage.dataset_name = "test"
+    storage.get_file_paths.return_value = {}
+
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="cell_out", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+        ExpressionColumnConfig(name="full_out", expr="{{ cell_out }}"),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "cell_out": GenerationStrategy.CELL_BY_CELL,
+        "full_out": GenerationStrategy.FULL_COLUMN,
+    }
+    generators: dict[str, ColumnGenerator] = {
+        "seed": MockFailingSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "cell_out": MockCellGenerator(config=_expr_config("cell_out"), resource_provider=provider),
+        "full_out": MockFullColumnGenerator(config=_expr_config("full_out"), resource_provider=provider),
+    }
+
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 3)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+    buffer_mgr = RowGroupBufferManager(storage)
+
+    checkpointed: list[int] = []
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_mgr,
+        on_row_group_complete=lambda rg: checkpointed.append(rg),
+        trace=True,
+    )
+    await scheduler.run()
+
+    # All rows dropped due to seed failure
+    for ri in range(3):
+        assert tracker.is_dropped(0, ri)
+
+    # Row group still completes (vacuously) and is checkpointed
+    assert 0 in checkpointed
+
+    # full_out was either never dispatched or silently skipped (no KeyError)
+    full_out_errors = [t for t in scheduler.traces if t.column == "full_out" and t.status == "error"]
+    assert len(full_out_errors) == 0
