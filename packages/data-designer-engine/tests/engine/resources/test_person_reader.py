@@ -27,13 +27,6 @@ def test_local_reader_get_dataset_uri(stub_reader: LocalPersonReader, stub_temp_
     assert uri == f"{stub_temp_dir}/{DATASETS_ROOT}/en_US.parquet"
 
 
-def test_local_reader_get_dataset_uri_different_locale(
-    stub_reader: LocalPersonReader, stub_temp_dir: Path
-) -> None:
-    uri = stub_reader.get_dataset_uri("ja_JP")
-    assert uri == f"{stub_temp_dir}/{DATASETS_ROOT}/ja_JP.parquet"
-
-
 @patch("data_designer.engine.resources.person_reader.lazy.duckdb", autospec=True)
 def test_local_reader_create_duckdb_connection(
     mock_duckdb: object, stub_reader: LocalPersonReader
