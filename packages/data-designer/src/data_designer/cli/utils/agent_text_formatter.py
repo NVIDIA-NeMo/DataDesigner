@@ -13,21 +13,20 @@ def format_context_text(data: dict[str, Any]) -> str:
         "",
         "## Config Module",
         "",
-        "The config module is the only part of the codebase agents need to work with.",
-        f"path: {data['config_module_path']}",
-        f"builder: {data['config_builder_file']}",
+        f"root: {data['config_module_path']}",
+        "This is the only part of the codebase agents need to work with. All files below are relative to root.",
+        "",
+        f"builder: {_strip_config_prefix(data['config_builder_file'])}",
+        f"base: {_strip_config_prefix(data['base_config_file'])} (read for inherited fields shared by columns and processors)",
         "import: import data_designer.config as dd",
         "",
-        "## Families",
-        "",
-        'A "family" is a group of related config types that share a discriminator field.',
-        "",
+        "## Types",
         "",
         format_types_text({"families": data["families"], "items": data["types"]}),
         "",
         "## Model Aliases",
         "",
-        format_model_aliases_text(data["state"]["model_aliases"]),
+        _format_model_aliases_context(data["state"]["model_aliases"]),
         "",
         "## Persona Datasets",
         "",
@@ -44,8 +43,7 @@ def format_types_text(data: dict[str, Any]) -> str:
     """Format type listings for one family or all families."""
     columns = ["type_name", "description"]
     if "families" in data:
-        lines: list[str] = [f"{f['family']}: {f['count']} types" for f in data["families"]]
-        lines.append("")
+        lines: list[str] = []
         for family_info in data["families"]:
             lines.append(_format_family_header(family_info))
             lines.append(_format_table(data["items"][family_info["family"]], columns))
@@ -80,7 +78,7 @@ def _format_family_header(info: dict[str, Any]) -> str:
     name = info.get("family", "")
     lines = [f"### {name}"]
     for path in info.get("files", []):
-        lines.append(f"config_file: {path}")
+        lines.append(f"file: {_strip_config_prefix(path)}")
     lines.append("")
     return "\n".join(lines)
 
@@ -105,6 +103,31 @@ def _format_table(
         lines.append("  ".join(f"{_cell(row.get(col)):<{col_widths[col]}}" for col in columns))
 
     return "\n".join(lines)
+
+
+def _format_model_aliases_context(state: dict[str, Any]) -> str:
+    """Format model aliases for the context command, separating usable from unusable."""
+    lines: list[str] = [f"default_provider: {state.get('default_provider') or '(none)'}", ""]
+    items = state.get("items", [])
+    usable = [i for i in items if i.get("usable")]
+    unusable = [i for i in items if not i.get("usable")]
+    lines.append(
+        _format_table(
+            usable,
+            ["model_alias", "model", "generation_type", "effective_provider"],
+            column_labels={"effective_provider": "provider"},
+        )
+    )
+    if unusable:
+        aliases = ", ".join(i["model_alias"] for i in unusable)
+        lines.append(f"\n{len(unusable)} unusable aliases (missing API keys): {aliases}")
+    return "\n".join(lines)
+
+
+def _strip_config_prefix(path: str) -> str:
+    """Strip the ``data_designer/config/`` prefix so paths are relative to root."""
+    prefix = "data_designer/config/"
+    return path[len(prefix) :] if path.startswith(prefix) else path
 
 
 def _cell(value: Any) -> str:

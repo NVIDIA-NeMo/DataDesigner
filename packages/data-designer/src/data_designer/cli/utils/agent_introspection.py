@@ -129,6 +129,7 @@ def get_context(config_dir: Path) -> dict[str, Any]:
         "library_version": get_library_version(),
         "config_module_path": get_config_module_path(),
         "config_builder_file": _get_config_builder_file(),
+        "base_config_file": _get_base_config_file(),
         "operations": get_operations(),
         "families": [{"family": f, "count": len(catalogs[f]), "files": get_family_source_files(f)} for f in families],
         "types": catalogs,
@@ -241,6 +242,12 @@ def _get_config_builder_file() -> str:
     from data_designer.config.config_builder import DataDesignerConfigBuilder
 
     return _get_source_file(DataDesignerConfigBuilder)
+
+
+def _get_base_config_file() -> str:
+    from data_designer.config.base import ConfigBase
+
+    return _get_source_file(ConfigBase)
 
 
 def _extract_literal_value(annotation: Any) -> str:

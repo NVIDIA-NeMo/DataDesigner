@@ -20,6 +20,7 @@ def test_format_context_text_includes_config_module_path() -> None:
         "library_version": "1.0.0",
         "config_module_path": "/some/path/to/config",
         "config_builder_file": "data_designer/config/config_builder.py",
+        "base_config_file": "data_designer/config/base.py",
         "families": [{"family": "columns", "count": 1, "files": ["/a.py"]}],
         "types": {
             "columns": [{"type_name": "a", "description": "A thing."}],
@@ -34,9 +35,9 @@ def test_format_context_text_includes_config_module_path() -> None:
 
     assert "Data Designer v1.0.0" in result
     assert "## Config Module" in result
-    assert "path: /some/path/to/config" in result
-    assert "builder: data_designer/config/config_builder.py" in result
-    assert "## Families" in result
+    assert "root: /some/path/to/config" in result
+    assert "builder: config_builder.py" in result
+    assert "## Types" in result
     assert "## Commands" in result
 
 
@@ -55,7 +56,7 @@ def test_format_types_text_single_family_shows_file_above_table() -> None:
     result = format_types_text(data)
 
     assert "### columns" in result
-    assert "config_file: /path/to/column_configs.py" in result
+    assert "file: /path/to/column_configs.py" in result
     assert "alpha" in result
     assert "Alpha desc." in result
 
@@ -73,9 +74,9 @@ def test_format_types_text_all_families_shows_file_per_family() -> None:
     }
     result = format_types_text(data)
 
-    assert "columns: 1 types" in result
-    assert "config_file: /cols.py" in result
-    assert "config_file: /samp.py" in result
+    assert "### columns" in result
+    assert "file: /cols.py" in result
+    assert "file: /samp.py" in result
 
 
 def test_format_types_text_empty_items() -> None:

@@ -50,10 +50,13 @@ class DropColumnsProcessorConfig(ProcessorConfig):
     configs are automatically marked with `drop = True`.
 
     Attributes:
+        name: Unique name of the processor.
         column_names: List of column names to remove from the output dataset.
         processor_type: Discriminator field, always `ProcessorType.DROP_COLUMNS` for this configuration type.
     """
 
+    # Redeclared from ProcessorConfig for agent discoverability (inherited fields are easy to miss).
+    name: str
     column_names: list[str] = Field(description="List of column names to drop from the output dataset.")
     processor_type: Literal[ProcessorType.DROP_COLUMNS] = ProcessorType.DROP_COLUMNS
 
@@ -67,12 +70,15 @@ class SchemaTransformProcessorConfig(ProcessorConfig):
     a `processors-outputs/{processor_name}/` directory alongside the main dataset.
 
     Attributes:
+        name: Unique name of the processor.
         template: Dictionary defining the output schema. Keys are new column names,
             values are Jinja2 templates (strings, lists, or nested structures).
             Must be JSON-serializable.
         processor_type: Discriminator field, always `ProcessorType.SCHEMA_TRANSFORM` for this configuration type.
     """
 
+    # Redeclared from ProcessorConfig for agent discoverability (inherited fields are easy to miss).
+    name: str
     template: dict[str, Any] = Field(
         ...,
         description="""
