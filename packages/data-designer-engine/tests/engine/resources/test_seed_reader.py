@@ -15,6 +15,7 @@ from data_designer.engine.resources.seed_reader import (
     DataFrameSeedReader,
     DirectorySeedReader,
     FileContentsSeedReader,
+    FileSystemSeedReader,
     LocalFileSeedReader,
     SeedReaderError,
     SeedReaderFileSystemContext,
@@ -28,14 +29,30 @@ class TrackingFileContentsSeedReader(FileContentsSeedReader):
         super().__init__()
         self.hydrated_relative_paths: list[str] = []
 
-    def hydrate_manifest_records(
+    def hydrate_row(
         self,
         *,
-        manifest_records: list[dict[str, str]],
+        manifest_row: dict[str, str],
         context: SeedReaderFileSystemContext,
-    ) -> list[dict[str, str]]:
-        self.hydrated_relative_paths.extend(record["relative_path"] for record in manifest_records)
-        return super().hydrate_manifest_records(manifest_records=manifest_records, context=context)
+    ) -> dict[str, str]:
+        self.hydrated_relative_paths.append(manifest_row["relative_path"])
+        return super().hydrate_row(manifest_row=manifest_row, context=context)
+
+
+class PluginStyleDirectorySeedReader(FileSystemSeedReader[DirectorySeedSource]):
+    def build_manifest(self, *, context: SeedReaderFileSystemContext) -> lazy.pd.DataFrame | list[dict[str, str]]:
+        matched_paths = self.get_matching_relative_paths(
+            context=context,
+            file_pattern=self.source.file_pattern,
+            recursive=self.source.recursive,
+        )
+        return [
+            {
+                "relative_path": relative_path,
+                "file_name": Path(relative_path).name,
+            }
+            for relative_path in matched_paths
+        ]
 
 
 def test_one_reader_per_seed_type():
@@ -78,6 +95,24 @@ def test_get_reader_missing():
 def test_filesystem_seed_readers_expose_seed_type() -> None:
     assert DirectorySeedReader().get_seed_type() == "directory"
     assert FileContentsSeedReader().get_seed_type() == "file_contents"
+
+
+def test_plugin_style_filesystem_seed_reader_needs_only_manifest_builder(tmp_path: Path) -> None:
+    (tmp_path / "alpha.txt").write_text("alpha", encoding="utf-8")
+    (tmp_path / "nested").mkdir()
+    (tmp_path / "nested" / "beta.txt").write_text("beta", encoding="utf-8")
+
+    reader = PluginStyleDirectorySeedReader()
+    reader.attach(
+        DirectorySeedSource(path=str(tmp_path), file_pattern="*.txt"),
+        PlaintextResolver(),
+    )
+
+    df = reader.create_duckdb_connection().execute(f"SELECT * FROM '{reader.get_dataset_uri()}'").df()
+
+    assert reader.get_dataset_uri() == "seed_reader_directory_rows"
+    assert list(df["relative_path"]) == ["alpha.txt", "nested/beta.txt"]
+    assert list(df["file_name"]) == ["alpha.txt", "beta.txt"]
 
 
 def test_directory_seed_reader_matches_files_recursively(tmp_path: Path) -> None:

@@ -277,8 +277,16 @@ class DataFrameSeedReader(SeedReader[DataFrameSeedSource]):
 
 
 class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
-    _table_name: str
-    _manifest_table_name: str
+    """Base class for filesystem-derived seed readers.
+
+    Plugin authors typically implement `build_manifest(...)` to describe the cheap
+    logical rows available under the configured filesystem root. Readers that need
+    expensive enrichment can optionally override `hydrate_row(...)`, while the
+    framework keeps ownership of manifest sampling, partitioning, randomization,
+    batching, and DuckDB registration details.
+    """
+
+    output_columns: list[str] | None = None
 
     def __init__(self) -> None:
         self._output_df: pd.DataFrame | None = None
@@ -291,26 +299,36 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
 
     def create_duckdb_connection(self) -> duckdb.DuckDBPyConnection:
         return self.create_dataframe_duckdb_connection(
-            table_name=self._table_name,
+            table_name=self.get_dataset_uri(),
             dataframe=self._get_output_dataframe(),
         )
 
     def get_dataset_uri(self) -> str:
-        return self._table_name
+        return self._build_internal_table_name("rows")
+
+    def get_output_column_names(self) -> list[str]:
+        if self.output_columns is not None:
+            return self.output_columns
+        return list(self._get_row_manifest_dataframe().columns)
 
     @abstractmethod
-    def get_output_column_names(self) -> list[str]: ...
+    def build_manifest(self, *, context: SeedReaderFileSystemContext) -> pd.DataFrame | list[dict[str, Any]]: ...
 
-    @abstractmethod
-    def get_row_manifest_records(self, *, context: SeedReaderFileSystemContext) -> list[dict[str, Any]]: ...
-
-    def hydrate_manifest_records(
+    def hydrate_row(
         self,
         *,
-        manifest_records: list[dict[str, Any]],
+        manifest_row: dict[str, Any],
+        context: SeedReaderFileSystemContext,
+    ) -> dict[str, Any]:
+        return manifest_row
+
+    def hydrate_rows(
+        self,
+        *,
+        manifest_rows: list[dict[str, Any]],
         context: SeedReaderFileSystemContext,
     ) -> list[dict[str, Any]]:
-        return manifest_records
+        return [self.hydrate_row(manifest_row=manifest_row, context=context) for manifest_row in manifest_rows]
 
     def get_column_names(self) -> list[str]:
         return self.get_output_column_names()
@@ -327,11 +345,11 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
     ) -> SeedReaderBatchReader:
         context = self.create_filesystem_context(self.source.path)
         conn = self.create_dataframe_duckdb_connection(
-            table_name=self._manifest_table_name,
+            table_name=self._get_manifest_dataset_uri(),
             dataframe=self._get_row_manifest_dataframe(),
         )
         read_query = self.build_dataset_read_query(
-            dataset_uri=self._manifest_table_name,
+            dataset_uri=self._get_manifest_dataset_uri(),
             index_range=index_range,
             shuffle=shuffle,
         )
@@ -339,8 +357,8 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
         manifest_batch_reader = DuckDBSeedReaderBatchReader(conn=conn, query_result=query_result, batch_size=batch_size)
         return HydratingSeedReaderBatchReader(
             manifest_batch_reader=manifest_batch_reader,
-            hydrate_records=lambda manifest_records: self.hydrate_manifest_records(
-                manifest_records=manifest_records,
+            hydrate_records=lambda manifest_records: self.hydrate_rows(
+                manifest_rows=manifest_records,
                 context=context,
             ),
             output_columns=self.get_output_column_names(),
@@ -351,11 +369,12 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
             return self._row_manifest_df
 
         context = self.create_filesystem_context(self.source.path)
-        manifest_records = self.get_row_manifest_records(context=context)
-        if not manifest_records:
+        manifest = self.build_manifest(context=context)
+        manifest_df = self._normalize_rows_to_dataframe(manifest)
+        if manifest_df.empty:
             raise SeedReaderError(f"Seed source at {self.source.path} did not produce any rows")
 
-        self._row_manifest_df = lazy.pd.DataFrame(manifest_records)
+        self._row_manifest_df = manifest_df
         return self._row_manifest_df
 
     def _get_output_dataframe(self) -> pd.DataFrame:
@@ -363,8 +382,8 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
             return self._output_df
 
         context = self.create_filesystem_context(self.source.path)
-        hydrated_records = self.hydrate_manifest_records(
-            manifest_records=self._get_row_manifest_dataframe().to_dict(orient="records"),
+        hydrated_records = self.hydrate_rows(
+            manifest_rows=self._get_row_manifest_dataframe().to_dict(orient="records"),
             context=context,
         )
         if not hydrated_records:
@@ -373,15 +392,21 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
         self._output_df = lazy.pd.DataFrame(hydrated_records, columns=self.get_output_column_names())
         return self._output_df
 
+    def _get_manifest_dataset_uri(self) -> str:
+        return self._build_internal_table_name("manifest")
+
+    def _build_internal_table_name(self, suffix: str) -> str:
+        seed_type = self.get_seed_type().replace("-", "_")
+        return f"seed_reader_{seed_type}_{suffix}"
+
+    def _normalize_rows_to_dataframe(self, rows: pd.DataFrame | list[dict[str, Any]]) -> pd.DataFrame:
+        if isinstance(rows, lazy.pd.DataFrame):
+            return rows.copy()
+        return lazy.pd.DataFrame(rows)
+
 
 class DirectorySeedReader(FileSystemSeedReader[DirectorySeedSource]):
-    _table_name = "directory_df"
-    _manifest_table_name = "directory_manifest_df"
-
-    def get_output_column_names(self) -> list[str]:
-        return ["source_kind", "source_path", "relative_path", "file_name"]
-
-    def get_row_manifest_records(self, *, context: SeedReaderFileSystemContext) -> list[dict[str, Any]]:
+    def build_manifest(self, *, context: SeedReaderFileSystemContext) -> pd.DataFrame | list[dict[str, Any]]:
         matched_paths = self.get_matching_relative_paths(
             context=context,
             file_pattern=self.source.file_pattern,
@@ -398,13 +423,9 @@ class DirectorySeedReader(FileSystemSeedReader[DirectorySeedSource]):
 
 
 class FileContentsSeedReader(FileSystemSeedReader[FileContentsSeedSource]):
-    _table_name = "file_contents_df"
-    _manifest_table_name = "file_contents_manifest_df"
+    output_columns = ["source_kind", "source_path", "relative_path", "file_name", "content"]
 
-    def get_output_column_names(self) -> list[str]:
-        return ["source_kind", "source_path", "relative_path", "file_name", "content"]
-
-    def get_row_manifest_records(self, *, context: SeedReaderFileSystemContext) -> list[dict[str, Any]]:
+    def build_manifest(self, *, context: SeedReaderFileSystemContext) -> pd.DataFrame | list[dict[str, Any]]:
         matched_paths = self.get_matching_relative_paths(
             context=context,
             file_pattern=self.source.file_pattern,
@@ -419,32 +440,27 @@ class FileContentsSeedReader(FileSystemSeedReader[FileContentsSeedSource]):
             for relative_path in matched_paths
         ]
 
-    def hydrate_manifest_records(
+    def hydrate_row(
         self,
         *,
-        manifest_records: list[dict[str, Any]],
+        manifest_row: dict[str, Any],
         context: SeedReaderFileSystemContext,
-    ) -> list[dict[str, Any]]:
-        hydrated_records: list[dict[str, Any]] = []
+    ) -> dict[str, Any]:
+        relative_path = manifest_row["relative_path"]
+        absolute_path = context.root_path / relative_path
+        try:
+            with context.fs.open(relative_path, "r", encoding=self.source.encoding) as handle:
+                content = handle.read()
+        except UnicodeDecodeError as error:
+            raise SeedReaderError(
+                f"Failed to decode file {absolute_path} using encoding {self.source.encoding!r}: {error}"
+            ) from error
+        except OSError as error:
+            raise SeedReaderError(f"Failed to read file {absolute_path}: {error}") from error
 
-        for record in manifest_records:
-            relative_path = record["relative_path"]
-            absolute_path = context.root_path / relative_path
-            try:
-                with context.fs.open(relative_path, "r", encoding=self.source.encoding) as handle:
-                    content = handle.read()
-            except UnicodeDecodeError as error:
-                raise SeedReaderError(
-                    f"Failed to decode file {absolute_path} using encoding {self.source.encoding!r}: {error}"
-                ) from error
-            except OSError as error:
-                raise SeedReaderError(f"Failed to read file {absolute_path}: {error}") from error
-
-            hydrated_record = dict(record)
-            hydrated_record["content"] = content
-            hydrated_records.append(hydrated_record)
-
-        return hydrated_records
+        hydrated_record = dict(manifest_row)
+        hydrated_record["content"] = content
+        return hydrated_record
 
 
 class SeedReaderRegistry:
