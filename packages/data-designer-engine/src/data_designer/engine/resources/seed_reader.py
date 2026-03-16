@@ -60,6 +60,26 @@ class PandasSeedReaderBatch:
         return self.dataframe
 
 
+def create_seed_reader_output_dataframe(
+    *,
+    records: list[dict[str, Any]],
+    output_columns: list[str],
+) -> pd.DataFrame:
+    if not records:
+        return lazy.pd.DataFrame(records, columns=output_columns)
+
+    record_columns = {key for record in records for key in record}
+    extra_columns = sorted(record_columns - set(output_columns))
+    if extra_columns:
+        raise SeedReaderError(
+            "Hydrated rows produced columns "
+            f"{extra_columns!r} that are not declared in output_columns {output_columns!r}. "
+            "Add those columns to output_columns on the seed reader."
+        )
+
+    return lazy.pd.DataFrame(records, columns=output_columns)
+
+
 class DuckDBSeedReaderBatchReader:
     def __init__(
         self,
@@ -98,7 +118,9 @@ class HydratingSeedReaderBatchReader:
         manifest_batch = self._manifest_batch_reader.read_next_batch()
         manifest_records = manifest_batch.to_pandas().to_dict(orient="records")
         hydrated_records = self._hydrate_records(manifest_records)
-        return PandasSeedReaderBatch(lazy.pd.DataFrame(hydrated_records, columns=self._output_columns))
+        return PandasSeedReaderBatch(
+            create_seed_reader_output_dataframe(records=hydrated_records, output_columns=self._output_columns)
+        )
 
 
 SourceT = TypeVar("SourceT", bound=SeedSource)
@@ -188,6 +210,8 @@ class SeedReader(ABC, Generic[SourceT]):
         file_pattern: str,
         recursive: bool,
     ) -> list[str]:
+        # In fsspec, maxdepth=1 means files directly under the root
+        # (depth 0 = the root itself, depth 1 = direct children).
         max_depth = None if recursive else 1
         relative_paths = [
             _normalize_relative_path(path) for path in context.fs.find("", withdirs=False, maxdepth=max_depth)
@@ -411,7 +435,10 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
         if not hydrated_records:
             raise SeedReaderError(f"Seed source at {self.source.path} did not produce any rows")
 
-        self._output_df = lazy.pd.DataFrame(hydrated_records, columns=self.get_output_column_names())
+        self._output_df = create_seed_reader_output_dataframe(
+            records=hydrated_records,
+            output_columns=self.get_output_column_names(),
+        )
         return self._output_df
 
     def _get_manifest_dataset_uri(self) -> str:

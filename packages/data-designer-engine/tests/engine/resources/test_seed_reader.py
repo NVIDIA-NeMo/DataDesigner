@@ -86,6 +86,26 @@ class OnAttachDirectorySeedReader(FileSystemSeedReader[DirectorySeedSource]):
         ]
 
 
+class UndeclaredHydrationColumnSeedReader(FileSystemSeedReader[DirectorySeedSource]):
+    def build_manifest(self, *, context: SeedReaderFileSystemContext) -> lazy.pd.DataFrame | list[dict[str, str]]:
+        matched_paths = self.get_matching_relative_paths(
+            context=context,
+            file_pattern=self.source.file_pattern,
+            recursive=self.source.recursive,
+        )
+        return [{"relative_path": relative_path} for relative_path in matched_paths]
+
+    def hydrate_row(
+        self,
+        *,
+        manifest_row: dict[str, str],
+        context: SeedReaderFileSystemContext,
+    ) -> dict[str, str]:
+        hydrated_row = dict(manifest_row)
+        hydrated_row["content"] = str(context.root_path / manifest_row["relative_path"])
+        return hydrated_row
+
+
 def test_one_reader_per_seed_type():
     local_1 = LocalFileSeedReader()
     local_2 = LocalFileSeedReader()
@@ -301,6 +321,28 @@ def test_filesystem_seed_reader_on_attach_requires_no_super_and_resets_state(tmp
     assert reader.get_seed_dataset_size() == 1
     assert list(second_df["relative_path"]) == ["gamma.txt"]
     assert list(second_df["label"]) == ["plugin:gamma.txt"]
+
+
+@pytest.mark.parametrize("use_batch_reader", [False, True], ids=["full-output", "batch-reader"])
+def test_filesystem_seed_reader_raises_for_undeclared_hydrated_columns(
+    tmp_path: Path,
+    use_batch_reader: bool,
+) -> None:
+    (tmp_path / "alpha.txt").write_text("alpha", encoding="utf-8")
+
+    reader = UndeclaredHydrationColumnSeedReader()
+    reader.attach(DirectorySeedSource(path=str(tmp_path), file_pattern="*.txt"), PlaintextResolver())
+
+    with pytest.raises(SeedReaderError, match="not declared in output_columns"):
+        if use_batch_reader:
+            batch_reader = reader.create_batch_reader(
+                batch_size=1,
+                index_range=IndexRange(start=0, end=0),
+                shuffle=False,
+            )
+            batch_reader.read_next_batch().to_pandas()
+        else:
+            reader.create_duckdb_connection().execute(f"SELECT * FROM '{reader.get_dataset_uri()}'").df()
 
 
 def test_seed_reader_reuses_cached_duckdb_connection_until_reattach() -> None:
