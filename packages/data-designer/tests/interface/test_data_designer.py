@@ -11,14 +11,14 @@ from pydantic import ValidationError
 
 import data_designer.interface.data_designer as dd_mod
 import data_designer.lazy_heavy_imports as lazy
-from data_designer.config.column_configs import SamplerColumnConfig
+from data_designer.config.column_configs import ExpressionColumnConfig, SamplerColumnConfig
 from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.errors import InvalidConfigError
 from data_designer.config.models import ModelProvider
 from data_designer.config.processors import DropColumnsProcessorConfig
 from data_designer.config.run_config import RunConfig
 from data_designer.config.sampler_params import CategorySamplerParams, SamplerType
-from data_designer.config.seed_source import HuggingFaceSeedSource
+from data_designer.config.seed_source import DirectorySeedSource, FileContentsSeedSource, HuggingFaceSeedSource
 from data_designer.engine.secret_resolver import CompositeResolver, EnvironmentResolver, PlaintextResolver
 from data_designer.engine.testing.stubs import StubHuggingFaceSeedReader
 from data_designer.interface.data_designer import DataDesigner
@@ -464,3 +464,71 @@ def test_initialize_interface_runtime_runs_once(monkeypatch: pytest.MonkeyPatch)
         dd_mod._initialize_interface_runtime()
         mock_logging.assert_called_once()
         mock_resolve.assert_called_once()
+
+
+def test_create_dataset_e2e_with_directory_seed_source(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_managed_assets_path: Path,
+    tmp_path: Path,
+) -> None:
+    seed_dir = tmp_path / "directory-seed"
+    (seed_dir / "subdir").mkdir(parents=True)
+    (seed_dir / "alpha.txt").write_text("alpha", encoding="utf-8")
+    (seed_dir / "subdir" / "beta.md").write_text("beta", encoding="utf-8")
+
+    builder = DataDesignerConfigBuilder()
+    builder.with_seed_dataset(DirectorySeedSource(path=str(seed_dir)))
+    builder.add_column(ExpressionColumnConfig(name="path_label", expr="{{ source_kind }}::{{ relative_path }}"))
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    results = data_designer.create(builder, num_records=2, dataset_name="directory-seed-test")
+    df = results.load_dataset().sort_values("relative_path").reset_index(drop=True)
+
+    assert list(df["source_kind"]) == ["directory_file", "directory_file"]
+    assert list(df["relative_path"]) == ["alpha.txt", "subdir/beta.md"]
+    assert list(df["file_name"]) == ["alpha.txt", "beta.md"]
+    assert list(df["path_label"]) == [
+        "directory_file::alpha.txt",
+        "directory_file::subdir/beta.md",
+    ]
+
+
+def test_create_dataset_e2e_with_file_contents_seed_source(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_managed_assets_path: Path,
+    tmp_path: Path,
+) -> None:
+    seed_dir = tmp_path / "file-contents-seed"
+    seed_dir.mkdir(parents=True)
+    (seed_dir / "alpha.txt").write_text("alpha", encoding="utf-8")
+    (seed_dir / "beta.txt").write_text("beta", encoding="utf-8")
+
+    builder = DataDesignerConfigBuilder()
+    builder.with_seed_dataset(FileContentsSeedSource(path=str(seed_dir), file_pattern="*.txt"))
+    builder.add_column(ExpressionColumnConfig(name="content_label", expr="{{ file_name }}::{{ content }}"))
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    results = data_designer.create(builder, num_records=2, dataset_name="file-contents-seed-test")
+    df = results.load_dataset().sort_values("file_name").reset_index(drop=True)
+
+    assert list(df["source_kind"]) == ["file_contents", "file_contents"]
+    assert list(df["file_name"]) == ["alpha.txt", "beta.txt"]
+    assert list(df["content"]) == ["alpha", "beta"]
+    assert list(df["content_label"]) == [
+        "alpha.txt::alpha",
+        "beta.txt::beta",
+    ]

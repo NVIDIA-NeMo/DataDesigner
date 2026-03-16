@@ -7,9 +7,10 @@ from pathlib import Path
 
 import pytest
 
+import data_designer.config as dd
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.errors import InvalidFilePathError
-from data_designer.config.seed_source import LocalFileSeedSource
+from data_designer.config.seed_source import DirectorySeedSource, FileContentsSeedSource, LocalFileSeedSource
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 
 
@@ -73,3 +74,79 @@ def test_dataframe_seed_source_serialization():
     serialized = source.model_dump(mode="json")
     assert "df" not in serialized
     assert serialized == {"seed_type": "df"}
+
+
+def test_directory_seed_source_requires_directory(tmp_path: Path) -> None:
+    file_path = tmp_path / "file.txt"
+    file_path.write_text("alpha", encoding="utf-8")
+
+    with pytest.raises(InvalidFilePathError, match="is not a directory"):
+        DirectorySeedSource(path=str(file_path))
+
+
+def test_directory_seed_source_resolves_relative_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    seed_dir = tmp_path / "seed-dir"
+    seed_dir.mkdir()
+    monkeypatch.chdir(tmp_path)
+
+    source = DirectorySeedSource(path="seed-dir")
+
+    assert source.path == str(seed_dir.resolve())
+    assert source.file_pattern == "*"
+    assert source.recursive is True
+
+
+def test_file_contents_seed_source_defaults() -> None:
+    source = FileContentsSeedSource(path=".", file_pattern="*.md", recursive=False)
+
+    assert source.seed_type == "file_contents"
+    assert source.file_pattern == "*.md"
+    assert source.recursive is False
+    assert source.encoding == "utf-8"
+
+
+def test_seed_sources_are_exported_from_config_module(tmp_path: Path) -> None:
+    directory_source = dd.DirectorySeedSource(path=str(tmp_path))
+    file_contents_source = dd.FileContentsSeedSource(path=str(tmp_path), file_pattern="*.txt")
+
+    assert directory_source.seed_type == "directory"
+    assert file_contents_source.seed_type == "file_contents"
+
+
+def test_file_contents_seed_source_parses_from_dict(tmp_path: Path) -> None:
+    source = FileContentsSeedSource.model_validate(
+        {
+            "path": str(tmp_path),
+            "file_pattern": "*.txt",
+            "recursive": False,
+            "encoding": "latin-1",
+        }
+    )
+
+    assert source.file_pattern == "*.txt"
+    assert source.recursive is False
+    assert source.encoding == "latin-1"
+
+
+@pytest.mark.parametrize(
+    ("source_type", "file_pattern", "error_message"),
+    [
+        pytest.param(DirectorySeedSource, "", "non-empty string", id="directory-empty"),
+        pytest.param(DirectorySeedSource, "subdir/*.txt", "match file names, not relative paths", id="directory-posix"),
+        pytest.param(FileContentsSeedSource, "", "non-empty string", id="contents-empty"),
+        pytest.param(
+            FileContentsSeedSource,
+            r"subdir\\*.txt",
+            "match file names, not relative paths",
+            id="contents-windows",
+        ),
+    ],
+)
+def test_filesystem_seed_sources_reject_path_like_file_patterns(
+    source_type: type[DirectorySeedSource] | type[FileContentsSeedSource],
+    file_pattern: str,
+    error_message: str,
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(ValueError, match=error_message):
+        source_type(path=str(tmp_path), file_pattern=file_pattern)

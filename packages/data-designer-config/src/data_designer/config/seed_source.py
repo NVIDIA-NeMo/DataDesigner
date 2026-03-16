@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 from abc import ABC
+from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, Field, field_validator
 from typing_extensions import Self
 
+from data_designer.config.errors import InvalidFilePathError
 from data_designer.config.utils.io_helpers import (
     VALID_DATASET_FILE_EXTENSIONS,
     validate_dataset_file_path,
@@ -65,3 +67,46 @@ class HuggingFaceSeedSource(SeedSource):
     )
     token: str | None = None
     endpoint: str = "https://huggingface.co"
+
+
+class FileSystemSeedSource(SeedSource, ABC):
+    path: str = Field(..., description="Directory containing seed artifacts.")
+    file_pattern: str = Field(
+        "*",
+        description=(
+            "Case-sensitive filename pattern used to match files under the provided directory. "
+            "Patterns match basenames only, not relative paths."
+        ),
+    )
+    recursive: bool = Field(
+        True,
+        description="Whether to search nested subdirectories under the provided directory for matching files.",
+    )
+
+    @field_validator("path", mode="after")
+    def validate_path(cls, value: str) -> str:
+        path = Path(value).expanduser().resolve()
+        if not path.is_dir():
+            raise InvalidFilePathError(f"🛑 Path {path} is not a directory.")
+        return str(path)
+
+    @field_validator("file_pattern", mode="after")
+    def validate_file_pattern(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("🛑 FileSystemSeedSource.file_pattern must be a non-empty string.")
+        if "/" in value or "\\" in value:
+            raise ValueError("🛑 FileSystemSeedSource.file_pattern must match file names, not relative paths.")
+        return value
+
+
+class DirectorySeedSource(FileSystemSeedSource):
+    seed_type: Literal["directory"] = "directory"
+
+
+class FileContentsSeedSource(FileSystemSeedSource):
+    seed_type: Literal["file_contents"] = "file_contents"
+
+    encoding: str = Field(
+        "utf-8",
+        description="Text encoding used when reading matching files into the `content` column.",
+    )

@@ -240,6 +240,29 @@ def test_seed_dataset_column_generator_reset_batch_reader(
     assert gen._batch_reader == mock_batch_reader
 
 
+def test_seed_dataset_column_generator_reset_batch_reader_supports_fetch_arrow_reader(
+    stub_seed_dataset_generator, stub_duckdb_conn
+) -> None:
+    class QueryResult:
+        def __init__(self, batch_reader: Mock) -> None:
+            self.batch_reader = batch_reader
+            self.batch_size: int | None = None
+
+        def fetch_arrow_reader(self, *, batch_size: int) -> Mock:
+            self.batch_size = batch_size
+            return self.batch_reader
+
+    gen = stub_seed_dataset_generator
+    mock_batch_reader = Mock()
+    query_result = QueryResult(mock_batch_reader)
+    stub_duckdb_conn.query.return_value = query_result
+
+    gen._reset_batch_reader(100)
+
+    assert query_result.batch_size == 100
+    assert gen._batch_reader == mock_batch_reader
+
+
 def test_seed_dataset_column_generator_sample_records_simple(stub_seed_dataset_generator):
     gen = stub_seed_dataset_generator
 

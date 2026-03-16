@@ -42,6 +42,8 @@ from data_designer.engine.resources.managed_storage import init_managed_blob_sto
 from data_designer.engine.resources.resource_provider import ResourceProvider, create_resource_provider
 from data_designer.engine.resources.seed_reader import (
     DataFrameSeedReader,
+    DirectorySeedReader,
+    FileContentsSeedReader,
     HuggingFaceSeedReader,
     LocalFileSeedReader,
     SeedReader,
@@ -88,6 +90,8 @@ DEFAULT_SEED_READERS = [
     HuggingFaceSeedReader(),
     LocalFileSeedReader(),
     DataFrameSeedReader(),
+    DirectorySeedReader(),
+    FileContentsSeedReader(),
 ]
 for plugin in PluginRegistry().get_plugins(PluginType.SEED_READER):
     DEFAULT_SEED_READERS.append(plugin.impl_cls())

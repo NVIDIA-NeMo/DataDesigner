@@ -106,7 +106,11 @@ class SeedDatasetColumnGenerator(FromScratchColumnGenerator[SeedDatasetMultiColu
             read_query = f"SELECT * FROM ({read_query}){shuffle_query}"
         else:
             read_query = f"SELECT * FROM '{self._dataset_uri}'{shuffle_query}"
-        self._batch_reader = self.duckdb_conn.query(read_query).to_arrow_reader(batch_size=num_records)
+        query_result = self.duckdb_conn.query(read_query)
+        if hasattr(query_result, "to_arrow_reader"):
+            self._batch_reader = query_result.to_arrow_reader(batch_size=num_records)
+        else:
+            self._batch_reader = query_result.fetch_arrow_reader(batch_size=num_records)
 
     def _sample_records(self, num_records: int) -> pd.DataFrame:
         logger.info(f"🌱 Sampling {num_records} records from seed dataset")
