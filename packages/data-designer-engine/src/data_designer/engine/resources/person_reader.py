@@ -6,7 +6,7 @@ from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import data_designer.lazy_heavy_imports as lazy
 
@@ -38,7 +38,7 @@ class PersonReader(ABC):
     @abstractmethod
     def get_dataset_uri(self, locale: str) -> str: ...
 
-    def execute(self, query: str, parameters: list[list]) -> pd.DataFrame:
+    def execute(self, query: str, parameters: list[Any]) -> pd.DataFrame:
         conn = self.create_duckdb_connection()
         cursor = conn.cursor()
         try:
