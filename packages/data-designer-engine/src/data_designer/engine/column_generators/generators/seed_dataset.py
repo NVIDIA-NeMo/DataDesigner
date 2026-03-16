@@ -58,7 +58,7 @@ class SeedDatasetColumnGenerator(FromScratchColumnGenerator[SeedDatasetMultiColu
         self._batch_reader = None
         self._df_remaining = None
         self._dataset_uri = self.resource_provider.seed_reader.get_dataset_uri()
-        self._seed_dataset_size = self.duckdb_conn.execute(f"SELECT COUNT(*) FROM '{self._dataset_uri}'").fetchone()[0]
+        self._seed_dataset_size = self.resource_provider.seed_reader.get_seed_dataset_size()
         self._index_range = self._resolve_index_range()
 
     def _validate_selection_strategy(self) -> None:
@@ -89,28 +89,11 @@ class SeedDatasetColumnGenerator(FromScratchColumnGenerator[SeedDatasetMultiColu
 
     def _reset_batch_reader(self, num_records: int) -> None:
         shuffle = self.config.sampling_strategy == SamplingStrategy.SHUFFLE
-        shuffle_query = " ORDER BY RANDOM()" if shuffle else ""
-
-        if self._index_range is not None:
-            # Use LIMIT and OFFSET for efficient index range filtering
-            # IndexRange uses 0-based indexing [start, end] inclusive
-            # OFFSET skips the first 'start' rows (0-based)
-            # LIMIT takes 'end - start + 1' rows to include both start and end (inclusive)
-            offset_value = self._index_range.start
-            limit_value = self._index_range.end - self._index_range.start + 1
-            read_query = f"""
-                SELECT * FROM '{self._dataset_uri}'
-                LIMIT {limit_value} OFFSET {offset_value}
-            """
-
-            read_query = f"SELECT * FROM ({read_query}){shuffle_query}"
-        else:
-            read_query = f"SELECT * FROM '{self._dataset_uri}'{shuffle_query}"
-        query_result = self.duckdb_conn.query(read_query)
-        if hasattr(query_result, "to_arrow_reader"):
-            self._batch_reader = query_result.to_arrow_reader(batch_size=num_records)
-        else:
-            self._batch_reader = query_result.fetch_arrow_reader(batch_size=num_records)
+        self._batch_reader = self.resource_provider.seed_reader.create_batch_reader(
+            batch_size=num_records,
+            index_range=self._index_range,
+            shuffle=shuffle,
+        )
 
     def _sample_records(self, num_records: int) -> pd.DataFrame:
         logger.info(f"🌱 Sampling {num_records} records from seed dataset")

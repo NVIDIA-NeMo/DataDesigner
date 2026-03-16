@@ -21,6 +21,8 @@ from data_designer.engine.column_generators.generators.seed_dataset import (
 from data_designer.engine.column_generators.utils.errors import SeedDatasetError
 from data_designer.engine.dataset_builders.multi_column_configs import SeedDatasetMultiColumnConfig
 from data_designer.engine.resources.resource_provider import ResourceProvider
+from data_designer.engine.resources.seed_reader import LocalFileSeedReader
+from data_designer.engine.secret_resolver import PlaintextResolver
 
 
 @pytest.fixture
@@ -44,6 +46,8 @@ def stub_seed_dataset_generator(stub_resource_provider, stub_duckdb_conn, stub_s
     mock_seed_reader = mock_provider.seed_reader
     mock_seed_reader.create_duckdb_connection.return_value = stub_duckdb_conn
     mock_seed_reader.get_dataset_uri.return_value = "test_uri"
+    mock_seed_reader.get_seed_dataset_size.return_value = 1000
+    mock_seed_reader.create_batch_reader.return_value = Mock()
 
     return SeedDatasetColumnGenerator(config=stub_seed_dataset_config, resource_provider=mock_provider)
 
@@ -216,50 +220,39 @@ def test_seed_dataset_column_generator_generate_from_scratch_valid_records(stub_
     ],
 )
 def test_seed_dataset_column_generator_reset_batch_reader(
-    stub_seed_dataset_generator, stub_duckdb_conn, sampling_strategy, expected_shuffle
+    stub_seed_dataset_generator, sampling_strategy, expected_shuffle
 ):
     gen = stub_seed_dataset_generator
     gen.config.sampling_strategy = sampling_strategy
 
-    mock_query_result = Mock()
     mock_batch_reader = Mock()
-    mock_query_result.to_arrow_reader.return_value = mock_batch_reader
-    stub_duckdb_conn.query.return_value = mock_query_result
+    gen.resource_provider.seed_reader.create_batch_reader.return_value = mock_batch_reader
 
     gen._reset_batch_reader(100)
 
-    # Verify query was called with correct SQL
-    call_args = stub_duckdb_conn.query.call_args[0][0]
-    if expected_shuffle:
-        assert "ORDER BY RANDOM()" in call_args
-    else:
-        assert "ORDER BY RANDOM()" not in call_args
-
-    assert "SELECT * FROM 'test_uri'" in call_args
-    mock_query_result.to_arrow_reader.assert_called_once_with(batch_size=100)
+    gen.resource_provider.seed_reader.create_batch_reader.assert_called_once_with(
+        batch_size=100,
+        index_range=None,
+        shuffle=expected_shuffle,
+    )
     assert gen._batch_reader == mock_batch_reader
 
 
-def test_seed_dataset_column_generator_reset_batch_reader_supports_fetch_arrow_reader(
-    stub_seed_dataset_generator, stub_duckdb_conn
+def test_seed_dataset_column_generator_reset_batch_reader_forwards_index_range(
+    stub_seed_dataset_generator,
 ) -> None:
-    class QueryResult:
-        def __init__(self, batch_reader: Mock) -> None:
-            self.batch_reader = batch_reader
-            self.batch_size: int | None = None
-
-        def fetch_arrow_reader(self, *, batch_size: int) -> Mock:
-            self.batch_size = batch_size
-            return self.batch_reader
-
     gen = stub_seed_dataset_generator
     mock_batch_reader = Mock()
-    query_result = QueryResult(mock_batch_reader)
-    stub_duckdb_conn.query.return_value = query_result
+    gen._index_range = IndexRange(start=10, end=14)
+    gen.resource_provider.seed_reader.create_batch_reader.return_value = mock_batch_reader
 
     gen._reset_batch_reader(100)
 
-    assert query_result.batch_size == 100
+    gen.resource_provider.seed_reader.create_batch_reader.assert_called_once_with(
+        batch_size=100,
+        index_range=IndexRange(start=10, end=14),
+        shuffle=False,
+    )
     assert gen._batch_reader == mock_batch_reader
 
 
@@ -404,13 +397,10 @@ def create_generator_with_real_file(
         selection_strategy=selection_strategy,
     )
 
-    # Create a real DuckDB connection (in-memory by default)
-    real_conn = lazy.duckdb.connect()
-
     mock_provider = stub_resource_provider
-    mock_seed_reader = mock_provider.seed_reader
-    mock_seed_reader.create_duckdb_connection.return_value = real_conn
-    mock_seed_reader.get_dataset_uri.return_value = file_path
+    seed_reader = LocalFileSeedReader()
+    seed_reader.attach(LocalFileSeedSource(path=file_path), PlaintextResolver())
+    mock_provider.seed_reader = seed_reader
 
     generator = SeedDatasetColumnGenerator(config=config, resource_provider=mock_provider)
     return generator
@@ -465,10 +455,10 @@ def test_seed_dataset_generator_ordered_sampling(fixture_name, stub_resource_pro
         sampling_strategy=SamplingStrategy.ORDERED,
     )
 
-    real_conn = lazy.duckdb.connect()
     mock_provider = stub_resource_provider
-    mock_provider.seed_reader.create_duckdb_connection.return_value = real_conn
-    mock_provider.seed_reader.get_dataset_uri.return_value = file_path
+    seed_reader = LocalFileSeedReader()
+    seed_reader.attach(LocalFileSeedSource(path=file_path), PlaintextResolver())
+    mock_provider.seed_reader = seed_reader
 
     generator = SeedDatasetColumnGenerator(config=config, resource_provider=mock_provider)
 
@@ -501,10 +491,10 @@ def test_seed_dataset_generator_shuffle_sampling(fixture_name, stub_resource_pro
         sampling_strategy=SamplingStrategy.SHUFFLE,
     )
 
-    real_conn = lazy.duckdb.connect()
     mock_provider = stub_resource_provider
-    mock_provider.seed_reader.create_duckdb_connection.return_value = real_conn
-    mock_provider.seed_reader.get_dataset_uri.return_value = file_path
+    seed_reader = LocalFileSeedReader()
+    seed_reader.attach(LocalFileSeedSource(path=file_path), PlaintextResolver())
+    mock_provider.seed_reader = seed_reader
 
     generator = SeedDatasetColumnGenerator(config=config, resource_provider=mock_provider)
 

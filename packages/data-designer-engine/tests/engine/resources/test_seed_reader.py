@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 import data_designer.lazy_heavy_imports as lazy
+from data_designer.config.seed import IndexRange
 from data_designer.config.seed_source import DirectorySeedSource, FileContentsSeedSource
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 from data_designer.engine.resources.seed_reader import (
@@ -16,9 +17,25 @@ from data_designer.engine.resources.seed_reader import (
     FileContentsSeedReader,
     LocalFileSeedReader,
     SeedReaderError,
+    SeedReaderFileSystemContext,
     SeedReaderRegistry,
 )
 from data_designer.engine.secret_resolver import PlaintextResolver
+
+
+class TrackingFileContentsSeedReader(FileContentsSeedReader):
+    def __init__(self) -> None:
+        super().__init__()
+        self.hydrated_relative_paths: list[str] = []
+
+    def hydrate_manifest_records(
+        self,
+        *,
+        manifest_records: list[dict[str, str]],
+        context: SeedReaderFileSystemContext,
+    ) -> list[dict[str, str]]:
+        self.hydrated_relative_paths.extend(record["relative_path"] for record in manifest_records)
+        return super().hydrate_manifest_records(manifest_records=manifest_records, context=context)
 
 
 def test_one_reader_per_seed_type():
@@ -108,7 +125,7 @@ def test_directory_seed_reader_raises_for_no_matches(tmp_path: Path) -> None:
     )
 
     with pytest.raises(SeedReaderError, match="No files matched file_pattern '\\*\\.md'"):
-        reader.get_column_names()
+        reader.get_seed_dataset_size()
 
 
 def test_file_contents_seed_reader_reads_text_files(tmp_path: Path) -> None:
@@ -142,3 +159,26 @@ def test_file_contents_seed_reader_respects_encoding(tmp_path: Path) -> None:
     df = reader.create_duckdb_connection().execute(f"SELECT * FROM '{reader.get_dataset_uri()}'").df()
 
     assert list(df["content"]) == ["café"]
+
+
+def test_file_contents_seed_reader_hydrates_only_selected_manifest_rows(tmp_path: Path) -> None:
+    (tmp_path / "alpha.txt").write_text("alpha", encoding="utf-8")
+    (tmp_path / "beta.txt").write_text("beta", encoding="utf-8")
+    (tmp_path / "gamma.txt").write_text("gamma", encoding="utf-8")
+
+    reader = TrackingFileContentsSeedReader()
+    reader.attach(
+        FileContentsSeedSource(path=str(tmp_path), file_pattern="*.txt"),
+        PlaintextResolver(),
+    )
+
+    batch_reader = reader.create_batch_reader(
+        batch_size=1,
+        index_range=IndexRange(start=1, end=1),
+        shuffle=False,
+    )
+    batch_df = batch_reader.read_next_batch().to_pandas()
+
+    assert list(batch_df["relative_path"]) == ["beta.txt"]
+    assert list(batch_df["content"]) == ["beta"]
+    assert reader.hydrated_relative_paths == ["beta.txt"]

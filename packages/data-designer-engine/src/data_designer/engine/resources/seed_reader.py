@@ -4,11 +4,11 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from fnmatch import fnmatchcase
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, Any, Generic, TypeVar, get_args, get_origin
+from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, get_args, get_origin
 
 from fsspec.implementations.dirfs import DirFileSystem
 from fsspec.implementations.local import LocalFileSystem
@@ -17,6 +17,7 @@ from huggingface_hub import HfFileSystem
 from typing_extensions import Self
 
 import data_designer.lazy_heavy_imports as lazy
+from data_designer.config.seed import IndexRange
 from data_designer.config.seed_source import (
     DirectorySeedSource,
     FileContentsSeedSource,
@@ -41,6 +42,60 @@ class SeedReaderError(DataDesignerError): ...
 class SeedReaderFileSystemContext:
     fs: AbstractFileSystem
     root_path: Path
+
+
+class SeedReaderBatch(Protocol):
+    def to_pandas(self) -> pd.DataFrame: ...
+
+
+class SeedReaderBatchReader(Protocol):
+    def read_next_batch(self) -> SeedReaderBatch: ...
+
+
+@dataclass
+class PandasSeedReaderBatch:
+    dataframe: pd.DataFrame
+
+    def to_pandas(self) -> pd.DataFrame:
+        return self.dataframe
+
+
+class DuckDBSeedReaderBatchReader:
+    def __init__(
+        self,
+        *,
+        conn: duckdb.DuckDBPyConnection,
+        query_result: Any,
+        batch_size: int,
+    ) -> None:
+        self._conn = conn
+        self._query_result = query_result
+        if hasattr(query_result, "to_arrow_reader"):
+            self._batch_reader = query_result.to_arrow_reader(batch_size=batch_size)
+        else:
+            self._batch_reader = query_result.fetch_arrow_reader(batch_size=batch_size)
+
+    def read_next_batch(self) -> SeedReaderBatch:
+        return self._batch_reader.read_next_batch()
+
+
+class HydratingSeedReaderBatchReader:
+    def __init__(
+        self,
+        *,
+        manifest_batch_reader: SeedReaderBatchReader,
+        hydrate_records: Callable[[list[dict[str, Any]]], list[dict[str, Any]]],
+        output_columns: list[str],
+    ) -> None:
+        self._manifest_batch_reader = manifest_batch_reader
+        self._hydrate_records = hydrate_records
+        self._output_columns = output_columns
+
+    def read_next_batch(self) -> SeedReaderBatch:
+        manifest_batch = self._manifest_batch_reader.read_next_batch()
+        manifest_records = manifest_batch.to_pandas().to_dict(orient="records")
+        hydrated_records = self._hydrate_records(manifest_records)
+        return PandasSeedReaderBatch(lazy.pd.DataFrame(hydrated_records, columns=self._output_columns))
 
 
 SourceT = TypeVar("SourceT", bound=SeedSource)
@@ -85,6 +140,26 @@ class SeedReader(ABC, Generic[SourceT]):
         conn.register(table_name, dataframe)
         return conn
 
+    def get_seed_dataset_size(self) -> int:
+        conn = self.create_duckdb_connection()
+        return conn.execute(f"SELECT COUNT(*) FROM '{self.get_dataset_uri()}'").fetchone()[0]
+
+    def create_batch_reader(
+        self,
+        *,
+        batch_size: int,
+        index_range: IndexRange | None,
+        shuffle: bool,
+    ) -> SeedReaderBatchReader:
+        conn = self.create_duckdb_connection()
+        read_query = self.build_dataset_read_query(
+            dataset_uri=self.get_dataset_uri(),
+            index_range=index_range,
+            shuffle=shuffle,
+        )
+        query_result = conn.query(read_query)
+        return DuckDBSeedReaderBatchReader(conn=conn, query_result=query_result, batch_size=batch_size)
+
     def create_filesystem_context(self, root_path: Path | str) -> SeedReaderFileSystemContext:
         """Create a rooted filesystem context for directory-backed seed readers."""
         resolved_root_path = Path(root_path).expanduser().resolve()
@@ -121,6 +196,26 @@ class SeedReader(ABC, Generic[SourceT]):
         describe_query = f"DESCRIBE SELECT * FROM '{self.get_dataset_uri()}'"
         column_descriptions = conn.execute(describe_query).fetchall()
         return [col[0] for col in column_descriptions]
+
+    @staticmethod
+    def build_dataset_read_query(
+        *,
+        dataset_uri: str,
+        index_range: IndexRange | None,
+        shuffle: bool,
+    ) -> str:
+        shuffle_query = " ORDER BY RANDOM()" if shuffle else ""
+
+        if index_range is not None:
+            offset_value = index_range.start
+            limit_value = index_range.end - index_range.start + 1
+            read_query = f"""
+                SELECT * FROM '{dataset_uri}'
+                LIMIT {limit_value} OFFSET {offset_value}
+            """
+            return f"SELECT * FROM ({read_query}){shuffle_query}"
+
+        return f"SELECT * FROM '{dataset_uri}'{shuffle_query}"
 
     def get_seed_type(self) -> str:
         """Return the seed_type of the source class this reader is generic over."""
@@ -183,43 +278,110 @@ class DataFrameSeedReader(SeedReader[DataFrameSeedSource]):
 
 class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
     _table_name: str
+    _manifest_table_name: str
 
     def __init__(self) -> None:
-        self._normalized_df: pd.DataFrame | None = None
+        self._output_df: pd.DataFrame | None = None
+        self._row_manifest_df: pd.DataFrame | None = None
 
     def attach(self, source: FileSystemSourceT, secret_resolver: SecretResolver) -> None:
-        self._normalized_df = None
+        self._output_df = None
+        self._row_manifest_df = None
         super().attach(source, secret_resolver)
 
     def create_duckdb_connection(self) -> duckdb.DuckDBPyConnection:
         return self.create_dataframe_duckdb_connection(
             table_name=self._table_name,
-            dataframe=self._get_normalized_dataframe(),
+            dataframe=self._get_output_dataframe(),
         )
 
     def get_dataset_uri(self) -> str:
         return self._table_name
 
     @abstractmethod
-    def get_normalized_records(self, *, context: SeedReaderFileSystemContext) -> list[dict[str, Any]]: ...
+    def get_output_column_names(self) -> list[str]: ...
 
-    def _get_normalized_dataframe(self) -> pd.DataFrame:
-        if self._normalized_df is not None:
-            return self._normalized_df
+    @abstractmethod
+    def get_row_manifest_records(self, *, context: SeedReaderFileSystemContext) -> list[dict[str, Any]]: ...
+
+    def hydrate_manifest_records(
+        self,
+        *,
+        manifest_records: list[dict[str, Any]],
+        context: SeedReaderFileSystemContext,
+    ) -> list[dict[str, Any]]:
+        return manifest_records
+
+    def get_column_names(self) -> list[str]:
+        return self.get_output_column_names()
+
+    def get_seed_dataset_size(self) -> int:
+        return len(self._get_row_manifest_dataframe())
+
+    def create_batch_reader(
+        self,
+        *,
+        batch_size: int,
+        index_range: IndexRange | None,
+        shuffle: bool,
+    ) -> SeedReaderBatchReader:
+        context = self.create_filesystem_context(self.source.path)
+        conn = self.create_dataframe_duckdb_connection(
+            table_name=self._manifest_table_name,
+            dataframe=self._get_row_manifest_dataframe(),
+        )
+        read_query = self.build_dataset_read_query(
+            dataset_uri=self._manifest_table_name,
+            index_range=index_range,
+            shuffle=shuffle,
+        )
+        query_result = conn.query(read_query)
+        manifest_batch_reader = DuckDBSeedReaderBatchReader(conn=conn, query_result=query_result, batch_size=batch_size)
+        return HydratingSeedReaderBatchReader(
+            manifest_batch_reader=manifest_batch_reader,
+            hydrate_records=lambda manifest_records: self.hydrate_manifest_records(
+                manifest_records=manifest_records,
+                context=context,
+            ),
+            output_columns=self.get_output_column_names(),
+        )
+
+    def _get_row_manifest_dataframe(self) -> pd.DataFrame:
+        if self._row_manifest_df is not None:
+            return self._row_manifest_df
 
         context = self.create_filesystem_context(self.source.path)
-        normalized_records = self.get_normalized_records(context=context)
-        if not normalized_records:
+        manifest_records = self.get_row_manifest_records(context=context)
+        if not manifest_records:
             raise SeedReaderError(f"Seed source at {self.source.path} did not produce any rows")
 
-        self._normalized_df = lazy.pd.DataFrame(normalized_records)
-        return self._normalized_df
+        self._row_manifest_df = lazy.pd.DataFrame(manifest_records)
+        return self._row_manifest_df
+
+    def _get_output_dataframe(self) -> pd.DataFrame:
+        if self._output_df is not None:
+            return self._output_df
+
+        context = self.create_filesystem_context(self.source.path)
+        hydrated_records = self.hydrate_manifest_records(
+            manifest_records=self._get_row_manifest_dataframe().to_dict(orient="records"),
+            context=context,
+        )
+        if not hydrated_records:
+            raise SeedReaderError(f"Seed source at {self.source.path} did not produce any rows")
+
+        self._output_df = lazy.pd.DataFrame(hydrated_records, columns=self.get_output_column_names())
+        return self._output_df
 
 
 class DirectorySeedReader(FileSystemSeedReader[DirectorySeedSource]):
     _table_name = "directory_df"
+    _manifest_table_name = "directory_manifest_df"
 
-    def get_normalized_records(self, *, context: SeedReaderFileSystemContext) -> list[dict[str, Any]]:
+    def get_output_column_names(self) -> list[str]:
+        return ["source_kind", "source_path", "relative_path", "file_name"]
+
+    def get_row_manifest_records(self, *, context: SeedReaderFileSystemContext) -> list[dict[str, Any]]:
         matched_paths = self.get_matching_relative_paths(
             context=context,
             file_pattern=self.source.file_pattern,
@@ -237,16 +399,36 @@ class DirectorySeedReader(FileSystemSeedReader[DirectorySeedSource]):
 
 class FileContentsSeedReader(FileSystemSeedReader[FileContentsSeedSource]):
     _table_name = "file_contents_df"
+    _manifest_table_name = "file_contents_manifest_df"
 
-    def get_normalized_records(self, *, context: SeedReaderFileSystemContext) -> list[dict[str, Any]]:
+    def get_output_column_names(self) -> list[str]:
+        return ["source_kind", "source_path", "relative_path", "file_name", "content"]
+
+    def get_row_manifest_records(self, *, context: SeedReaderFileSystemContext) -> list[dict[str, Any]]:
         matched_paths = self.get_matching_relative_paths(
             context=context,
             file_pattern=self.source.file_pattern,
             recursive=self.source.recursive,
         )
-        records: list[dict[str, Any]] = []
+        return [
+            _build_metadata_record(
+                context=context,
+                relative_path=relative_path,
+                source_kind="file_contents",
+            )
+            for relative_path in matched_paths
+        ]
 
-        for relative_path in matched_paths:
+    def hydrate_manifest_records(
+        self,
+        *,
+        manifest_records: list[dict[str, Any]],
+        context: SeedReaderFileSystemContext,
+    ) -> list[dict[str, Any]]:
+        hydrated_records: list[dict[str, Any]] = []
+
+        for record in manifest_records:
+            relative_path = record["relative_path"]
             absolute_path = context.root_path / relative_path
             try:
                 with context.fs.open(relative_path, "r", encoding=self.source.encoding) as handle:
@@ -258,15 +440,11 @@ class FileContentsSeedReader(FileSystemSeedReader[FileContentsSeedSource]):
             except OSError as error:
                 raise SeedReaderError(f"Failed to read file {absolute_path}: {error}") from error
 
-            record = _build_metadata_record(
-                context=context,
-                relative_path=relative_path,
-                source_kind="file_contents",
-            )
-            record["content"] = content
-            records.append(record)
+            hydrated_record = dict(record)
+            hydrated_record["content"] = content
+            hydrated_records.append(hydrated_record)
 
-        return records
+        return hydrated_records
 
 
 class SeedReaderRegistry:
