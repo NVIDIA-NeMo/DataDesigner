@@ -6,9 +6,9 @@ from __future__ import annotations
 import codecs
 from abc import ABC
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, PrivateAttr, field_validator
 from typing_extensions import Self
 
 from data_designer.config.errors import InvalidFilePathError
@@ -34,6 +34,7 @@ class SeedSource(BaseModel, ABC):
 
 class LocalFileSeedSource(SeedSource):
     seed_type: Literal["local"] = "local"
+    _runtime_path: str | None = PrivateAttr(default=None)
 
     path: str = Field(
         ...,
@@ -54,6 +55,15 @@ class LocalFileSeedSource(SeedSource):
         else:
             validate_dataset_file_path(v)
         return v
+
+    def model_post_init(self, __context: Any) -> None:
+        self._runtime_path = _resolve_local_file_runtime_path(self.path)
+
+    @property
+    def runtime_path(self) -> str:
+        if self._runtime_path is None:
+            self._runtime_path = _resolve_local_file_runtime_path(self.path)
+        return self._runtime_path
 
     @classmethod
     def from_dataframe(cls, df: pd.DataFrame, path: str) -> Self:
@@ -77,6 +87,8 @@ class HuggingFaceSeedSource(SeedSource):
 
 
 class FileSystemSeedSource(SeedSource, ABC):
+    _runtime_path: str | None = PrivateAttr(default=None)
+
     path: str = Field(
         ...,
         description=(
@@ -102,6 +114,15 @@ class FileSystemSeedSource(SeedSource, ABC):
         if not path.is_dir():
             raise InvalidFilePathError(f"🛑 Path {path} is not a directory.")
         return value
+
+    def model_post_init(self, __context: Any) -> None:
+        self._runtime_path = _resolve_filesystem_runtime_path(self.path)
+
+    @property
+    def runtime_path(self) -> str:
+        if self._runtime_path is None:
+            self._runtime_path = _resolve_filesystem_runtime_path(self.path)
+        return self._runtime_path
 
     @field_validator("file_pattern", mode="after")
     def validate_file_pattern(cls, value: str) -> str:
@@ -131,3 +152,16 @@ class FileContentsSeedSource(FileSystemSeedSource):
         except LookupError as error:
             raise ValueError(f"🛑 Unknown encoding: {value!r}. Use a valid Python codec name.") from error
         return value
+
+
+def _resolve_filesystem_runtime_path(path: str) -> str:
+    return str(Path(path).expanduser().resolve())
+
+
+def _resolve_local_file_runtime_path(path: str) -> str:
+    if "*" not in path:
+        return _resolve_filesystem_runtime_path(path)
+
+    path_prefix, glob_suffix = path.split("*", 1)
+    resolved_prefix = Path(path_prefix or ".").expanduser().resolve()
+    return str(resolved_prefix / f"*{glob_suffix}")

@@ -65,6 +65,27 @@ def test_local_source_from_dataframe(tmp_path: Path):
     lazy.pd.testing.assert_frame_equal(df, lazy.pd.read_parquet(filepath))
 
 
+def test_local_seed_source_caches_runtime_path_across_cwd_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    initial_root = tmp_path / "initial"
+    later_root = tmp_path / "later"
+    initial_seed_dir = initial_root / "seed-dir"
+    initial_seed_dir.mkdir(parents=True)
+    create_partitions_in_path(initial_seed_dir, "parquet", num_files=1)
+    later_root.mkdir()
+
+    monkeypatch.chdir(initial_root)
+    source = LocalFileSeedSource(path="seed-dir/*.parquet")
+    expected_runtime_path = str(initial_seed_dir.resolve() / "*.parquet")
+
+    monkeypatch.chdir(later_root)
+
+    assert source.path == "seed-dir/*.parquet"
+    assert source.runtime_path == expected_runtime_path
+    assert source.model_dump(mode="json")["path"] == "seed-dir/*.parquet"
+
+
 def test_dataframe_seed_source_serialization():
     """Test that DataFrameSeedSource excludes the DataFrame field during serialization."""
     df = lazy.pd.DataFrame({"col1": [1, 2, 3], "col2": ["a", "b", "c"]})
@@ -117,6 +138,36 @@ def test_file_contents_seed_source_preserves_relative_path_input(
     source = FileContentsSeedSource(path="seed-dir", file_pattern="*.txt")
 
     assert source.path == "seed-dir"
+    assert source.model_dump(mode="json")["path"] == "seed-dir"
+
+
+@pytest.mark.parametrize(
+    ("source_type", "source_kwargs"),
+    [
+        pytest.param(DirectorySeedSource, {}, id="directory"),
+        pytest.param(FileContentsSeedSource, {"file_pattern": "*.txt"}, id="file-contents"),
+    ],
+)
+def test_filesystem_seed_sources_cache_runtime_path_across_cwd_changes(
+    source_type: type[DirectorySeedSource] | type[FileContentsSeedSource],
+    source_kwargs: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    initial_root = tmp_path / "initial"
+    later_root = tmp_path / "later"
+    initial_seed_dir = initial_root / "seed-dir"
+    initial_seed_dir.mkdir(parents=True)
+    later_root.mkdir()
+
+    monkeypatch.chdir(initial_root)
+    source = source_type(path="seed-dir", **source_kwargs)
+    expected_runtime_path = str(initial_seed_dir.resolve())
+
+    monkeypatch.chdir(later_root)
+
+    assert source.path == "seed-dir"
+    assert source.runtime_path == expected_runtime_path
     assert source.model_dump(mode="json")["path"] == "seed-dir"
 
 

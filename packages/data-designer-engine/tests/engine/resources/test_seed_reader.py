@@ -9,7 +9,7 @@ import pytest
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.seed import IndexRange
-from data_designer.config.seed_source import DirectorySeedSource, FileContentsSeedSource
+from data_designer.config.seed_source import DirectorySeedSource, FileContentsSeedSource, LocalFileSeedSource
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 from data_designer.engine.resources.seed_reader import (
     DataFrameSeedReader,
@@ -337,6 +337,57 @@ def test_file_contents_seed_reader_hydrates_only_selected_manifest_rows(tmp_path
     assert list(batch_df["relative_path"]) == ["beta.txt"]
     assert list(batch_df["content"]) == ["beta"]
     assert reader.hydrated_relative_paths == ["beta.txt"]
+
+
+def test_local_file_seed_reader_uses_load_time_runtime_path_when_cwd_changes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    initial_root = tmp_path / "initial"
+    later_root = tmp_path / "later"
+    initial_root.mkdir()
+    later_root.mkdir()
+
+    lazy.pd.DataFrame({"value": [1]}).to_parquet(initial_root / "seed.parquet", index=False)
+    lazy.pd.DataFrame({"value": [2]}).to_parquet(later_root / "seed.parquet", index=False)
+
+    monkeypatch.chdir(initial_root)
+    source = LocalFileSeedSource(path="seed.parquet")
+    reader = LocalFileSeedReader()
+
+    monkeypatch.chdir(later_root)
+    reader.attach(source, PlaintextResolver())
+    df = reader.create_duckdb_connection().execute(f"SELECT * FROM '{reader.get_dataset_uri()}'").df()
+
+    assert source.path == "seed.parquet"
+    assert reader.get_dataset_uri() == str((initial_root / "seed.parquet").resolve())
+    assert list(df["value"]) == [1]
+
+
+def test_directory_seed_reader_uses_load_time_runtime_path_when_cwd_changes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    initial_root = tmp_path / "initial"
+    later_root = tmp_path / "later"
+    initial_seed_dir = initial_root / "seed-dir"
+    later_seed_dir = later_root / "seed-dir"
+    initial_seed_dir.mkdir(parents=True)
+    later_seed_dir.mkdir(parents=True)
+    (initial_seed_dir / "alpha.txt").write_text("alpha", encoding="utf-8")
+    (later_seed_dir / "beta.txt").write_text("beta", encoding="utf-8")
+
+    monkeypatch.chdir(initial_root)
+    source = DirectorySeedSource(path="seed-dir", file_pattern="*.txt")
+    reader = DirectorySeedReader()
+
+    monkeypatch.chdir(later_root)
+    reader.attach(source, PlaintextResolver())
+    df = reader.create_duckdb_connection().execute(f"SELECT * FROM '{reader.get_dataset_uri()}'").df()
+
+    assert source.path == "seed-dir"
+    assert list(df["relative_path"]) == ["alpha.txt"]
+    assert list(df["source_path"]) == [str((initial_seed_dir / "alpha.txt").resolve())]
 
 
 def test_filesystem_seed_reader_on_attach_requires_no_super_and_resets_state(tmp_path: Path) -> None:

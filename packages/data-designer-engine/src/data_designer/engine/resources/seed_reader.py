@@ -303,7 +303,7 @@ class LocalFileSeedReader(SeedReader[LocalFileSeedSource]):
         return lazy.duckdb.connect()
 
     def get_dataset_uri(self) -> str:
-        return self.source.path
+        return self.source.runtime_path
 
 
 class HuggingFaceSeedReader(SeedReader[HuggingFaceSeedSource]):
@@ -457,7 +457,7 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
         self._ensure_attached()
         context = getattr(self, "_filesystem_context", None)
         if context is None:
-            context = self.create_filesystem_context(self.source.path)
+            context = self.create_filesystem_context(self.source.runtime_path)
             self._filesystem_context = context
         return context
 
