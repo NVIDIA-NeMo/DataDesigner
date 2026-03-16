@@ -41,6 +41,28 @@ def test_format_context_text_includes_config_module_path() -> None:
     assert "## Commands" in result
 
 
+def test_format_context_text_missing_model_config_shows_guidance() -> None:
+    data: dict[str, Any] = {
+        "library_version": "1.0.0",
+        "config_module_path": "/some/path/to/config",
+        "config_builder_file": "data_designer/config/config_builder.py",
+        "base_config_file": "data_designer/config/base.py",
+        "families": [{"family": "columns", "count": 1, "files": ["data_designer/config/column_configs.py"]}],
+        "types": {
+            "columns": [{"type_name": "a", "description": "A thing."}],
+        },
+        "state": {
+            "model_aliases": {"model_config_present": False, "default_provider": None, "items": []},
+            "persona_datasets": {"items": []},
+        },
+        "operations": [{"command_pattern": "agent context", "description": "Bootstrap payload."}],
+    }
+    result = format_context_text(data)
+
+    assert "No model config file found" in result
+    assert "data-designer config models" in result
+
+
 # --- format_types_text ---
 
 
