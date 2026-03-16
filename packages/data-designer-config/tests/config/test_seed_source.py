@@ -84,14 +84,15 @@ def test_directory_seed_source_requires_directory(tmp_path: Path) -> None:
         DirectorySeedSource(path=str(file_path))
 
 
-def test_directory_seed_source_resolves_relative_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_directory_seed_source_preserves_relative_path_input(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     seed_dir = tmp_path / "seed-dir"
     seed_dir.mkdir()
     monkeypatch.chdir(tmp_path)
 
     source = DirectorySeedSource(path="seed-dir")
 
-    assert source.path == str(seed_dir.resolve())
+    assert source.path == "seed-dir"
+    assert source.model_dump(mode="json")["path"] == "seed-dir"
     assert source.file_pattern == "*"
     assert source.recursive is True
 
@@ -103,6 +104,33 @@ def test_file_contents_seed_source_defaults() -> None:
     assert source.file_pattern == "*.md"
     assert source.recursive is False
     assert source.encoding == "utf-8"
+
+
+def test_file_contents_seed_source_preserves_relative_path_input(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seed_dir = tmp_path / "seed-dir"
+    seed_dir.mkdir()
+    monkeypatch.chdir(tmp_path)
+
+    source = FileContentsSeedSource(path="seed-dir", file_pattern="*.txt")
+
+    assert source.path == "seed-dir"
+    assert source.model_dump(mode="json")["path"] == "seed-dir"
+
+
+def test_seed_source_path_descriptions_document_cwd_resolution() -> None:
+    local_path_description = LocalFileSeedSource.model_json_schema()["properties"]["path"]["description"]
+    directory_path_description = DirectorySeedSource.model_json_schema()["properties"]["path"]["description"]
+    file_contents_path_description = FileContentsSeedSource.model_json_schema()["properties"]["path"]["description"]
+
+    assert "current working directory" in local_path_description
+    assert "config file location" in local_path_description
+    assert "current working directory" in directory_path_description
+    assert "config file location" in directory_path_description
+    assert "current working directory" in file_contents_path_description
+    assert "config file location" in file_contents_path_description
 
 
 def test_seed_sources_are_exported_from_config_module(tmp_path: Path) -> None:

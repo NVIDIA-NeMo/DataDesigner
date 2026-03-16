@@ -34,7 +34,13 @@ class SeedSource(BaseModel, ABC):
 class LocalFileSeedSource(SeedSource):
     seed_type: Literal["local"] = "local"
 
-    path: str
+    path: str = Field(
+        ...,
+        description=(
+            "Path to a local seed dataset file or wildcard pattern. Relative paths are resolved from the "
+            "current working directory when the config is loaded, not from the config file location."
+        ),
+    )
 
     @field_validator("path", mode="after")
     def validate_path(cls, v: str) -> str:
@@ -70,7 +76,13 @@ class HuggingFaceSeedSource(SeedSource):
 
 
 class FileSystemSeedSource(SeedSource, ABC):
-    path: str = Field(..., description="Directory containing seed artifacts.")
+    path: str = Field(
+        ...,
+        description=(
+            "Directory containing seed artifacts. Relative paths are resolved from the current working "
+            "directory when the config is loaded, not from the config file location."
+        ),
+    )
     file_pattern: str = Field(
         "*",
         description=(
@@ -88,7 +100,7 @@ class FileSystemSeedSource(SeedSource, ABC):
         path = Path(value).expanduser().resolve()
         if not path.is_dir():
             raise InvalidFilePathError(f"🛑 Path {path} is not a directory.")
-        return str(path)
+        return value
 
     @field_validator("file_pattern", mode="after")
     def validate_file_pattern(cls, value: str) -> str:
