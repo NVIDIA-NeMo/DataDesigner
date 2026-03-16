@@ -349,7 +349,7 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
     batching, and DuckDB registration details.
     """
 
-    output_columns: list[str] | None = None
+    output_columns: ClassVar[list[str] | None] = None
 
     def _reset_attachment_state(self) -> None:
         super()._reset_attachment_state()
