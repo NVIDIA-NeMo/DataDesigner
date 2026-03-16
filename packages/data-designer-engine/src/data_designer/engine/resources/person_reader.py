@@ -16,6 +16,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 DATASETS_ROOT = "datasets"
+THREADS = 1
+MEMORY_LIMIT = "2 gb"
 
 
 class PersonReader(ABC):
@@ -43,7 +45,7 @@ class LocalPersonReader(PersonReader):
         self._root_path = root_path
 
     def create_duckdb_connection(self) -> duckdb.DuckDBPyConnection:
-        return lazy.duckdb.connect(config={"threads": 1, "memory_limit": "2 gb"})
+        return lazy.duckdb.connect(config={"threads": THREADS, "memory_limit": MEMORY_LIMIT})
 
     def get_dataset_uri(self, locale: str) -> str:
         return f"{self._root_path}/{DATASETS_ROOT}/{locale}.parquet"
