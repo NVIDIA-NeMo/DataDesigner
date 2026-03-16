@@ -26,13 +26,6 @@ from data_designer.engine.secret_resolver import PlaintextResolver
 
 
 @pytest.fixture
-def stub_duckdb_conn():
-    mock_conn = Mock()
-    mock_conn.execute.return_value.fetchone.return_value = [1000]
-    return mock_conn
-
-
-@pytest.fixture
 def stub_seed_dataset_config():
     return SeedDatasetMultiColumnConfig(
         columns=[SeedDatasetColumnConfig(name="col1")],
@@ -41,11 +34,9 @@ def stub_seed_dataset_config():
 
 
 @pytest.fixture
-def stub_seed_dataset_generator(stub_resource_provider, stub_duckdb_conn, stub_seed_dataset_config):
+def stub_seed_dataset_generator(stub_resource_provider, stub_seed_dataset_config):
     mock_provider = stub_resource_provider
     mock_seed_reader = mock_provider.seed_reader
-    mock_seed_reader.create_duckdb_connection.return_value = stub_duckdb_conn
-    mock_seed_reader.get_dataset_uri.return_value = "test_uri"
     mock_seed_reader.get_seed_dataset_size.return_value = 1000
     mock_seed_reader.create_batch_reader.return_value = Mock()
 
@@ -164,15 +155,10 @@ def test_seed_dataset_column_generator_config_structure():
 
 def test_seed_dataset_column_generator_generator_properties(stub_seed_dataset_generator):
     gen = stub_seed_dataset_generator
-    mock_duckdb_conn = gen.duckdb_conn
 
     assert gen.num_records_sampled == 0
     gen._num_records_sampled = 100
     assert gen.num_records_sampled == 100
-
-    conn1 = gen.duckdb_conn
-    conn2 = gen.duckdb_conn
-    assert conn1 == conn2 == mock_duckdb_conn
 
 
 def test_seed_dataset_column_generator_generate_method(stub_seed_dataset_generator):
@@ -617,41 +603,6 @@ def test_seed_dataset_generator_dataset_size_detection_jsonl(seed_dataset_jsonl,
     generator = create_generator_with_real_file(seed_dataset_jsonl, stub_resource_provider)
 
     assert generator._seed_dataset_size == 10
-
-
-@pytest.mark.parametrize(
-    "fixture_name",
-    [
-        "seed_dataset_parquet",
-        "seed_dataset_csv",
-        "seed_dataset_json",
-        "seed_dataset_jsonl",
-    ],
-)
-def test_seed_dataset_generator_uses_real_duckdb_connection(fixture_name, stub_resource_provider, request):
-    """Test that generator uses a real DuckDB connection to read actual file data."""
-    file_path = request.getfixturevalue(fixture_name)
-
-    generator = create_generator_with_real_file(file_path, stub_resource_provider)
-
-    # Verify the duckdb_conn is a real connection
-    assert isinstance(generator.duckdb_conn, lazy.duckdb.DuckDBPyConnection)
-
-    # Verify we can query the file directly through the connection
-    result = generator.duckdb_conn.execute(f"SELECT * FROM '{file_path}' LIMIT 3").fetchdf()
-
-    assert len(result) == 3
-    assert "name" in result.columns
-    assert result.iloc[0]["name"] == "Alice"
-    assert result.iloc[1]["name"] == "Bob"
-    assert result.iloc[2]["name"] == "Charlie"
-
-    # Verify the dataset URI is set correctly
-    assert generator._dataset_uri == file_path
-
-    # Verify the connection can execute count queries
-    count_result = generator.duckdb_conn.execute(f"SELECT COUNT(*) FROM '{file_path}'").fetchone()[0]
-    assert count_result == 10
 
 
 # ============================================================================

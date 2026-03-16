@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import functools
 import logging
 from typing import TYPE_CHECKING
 
@@ -16,7 +15,6 @@ from data_designer.engine.processing.utils import concat_datasets
 from data_designer.logging import LOG_INDENT
 
 if TYPE_CHECKING:
-    import duckdb
     import pandas as pd
 
 MAX_ZERO_RECORD_RESPONSE_FACTOR = 2
@@ -37,10 +35,6 @@ class SeedDatasetColumnGenerator(FromScratchColumnGenerator[SeedDatasetMultiColu
     def num_records_sampled(self) -> int:
         return self._num_records_sampled
 
-    @functools.cached_property
-    def duckdb_conn(self) -> duckdb.DuckDBPyConnection:
-        return self.resource_provider.seed_reader.create_duckdb_connection()
-
     def generate(self, data: pd.DataFrame) -> pd.DataFrame:
         return concat_datasets([self.generate_from_scratch(len(data)), data])
 
@@ -57,7 +51,6 @@ class SeedDatasetColumnGenerator(FromScratchColumnGenerator[SeedDatasetMultiColu
         self._num_records_sampled = 0
         self._batch_reader = None
         self._df_remaining = None
-        self._dataset_uri = self.resource_provider.seed_reader.get_dataset_uri()
         self._seed_dataset_size = self.resource_provider.seed_reader.get_seed_dataset_size()
         self._index_range = self._resolve_index_range()
 
