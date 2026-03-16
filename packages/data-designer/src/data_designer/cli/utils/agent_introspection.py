@@ -62,9 +62,9 @@ def get_library_version() -> str:
         return "unknown"
 
 
-def get_config_package_path() -> str:
-    """Return the parent directory of the data_designer package so that relative paths resolve directly."""
-    return str(Path(inspect.getfile(dd)).parents[1])
+def get_config_module_path() -> str:
+    """Return the absolute path to the data_designer.config module directory."""
+    return str(Path(inspect.getfile(dd)).parent)
 
 
 def get_family_spec(family: str) -> FamilySpec:
@@ -127,7 +127,7 @@ def get_context(config_dir: Path) -> dict[str, Any]:
     catalogs = {f: get_family_catalog(f) for f in families}
     return {
         "library_version": get_library_version(),
-        "config_package_path": get_config_package_path(),
+        "config_module_path": get_config_module_path(),
         "config_builder_file": _get_config_builder_file(),
         "operations": get_operations(),
         "families": [{"family": f, "count": len(catalogs[f]), "files": get_family_source_files(f)} for f in families],
@@ -279,7 +279,7 @@ def _get_source_file(cls: type) -> str:
     # Use last occurrence so nested paths (e.g. .../data_designer/venv/.../data_designer/config/foo.py) resolve correctly.
     indices = [i for i, p in enumerate(parts) if p == "data_designer"]
     if not indices:
-        return str(full_path)
+        return ""
     return str(Path(*parts[indices[-1] :]))
 
 

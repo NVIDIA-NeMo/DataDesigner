@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from data_designer.cli.utils.agent_introspection import (
     discover_family_types,
-    get_config_package_path,
+    get_config_module_path,
     get_family_catalog,
     get_family_source_files,
     get_family_spec,
@@ -78,7 +78,7 @@ def test_get_operations_returns_all_commands() -> None:
     assert all("name" in op and "command_pattern" in op and "description" in op for op in ops)
 
 
-def test_get_config_package_path_returns_parent_of_data_designer() -> None:
-    path = get_config_package_path()
+def test_get_config_module_path_returns_config_directory() -> None:
+    path = get_config_module_path()
 
-    assert path.endswith("data_designer") or "data_designer" in path
+    assert path.endswith("data_designer/config")

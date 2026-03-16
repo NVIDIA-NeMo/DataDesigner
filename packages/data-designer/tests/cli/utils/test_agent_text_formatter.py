@@ -15,10 +15,10 @@ from data_designer.cli.utils.agent_text_formatter import (
 # --- format_context_text ---
 
 
-def test_format_context_text_includes_config_package_path() -> None:
+def test_format_context_text_includes_config_module_path() -> None:
     data: dict[str, Any] = {
         "library_version": "1.0.0",
-        "config_package_path": "/some/path/to/config",
+        "config_module_path": "/some/path/to/config",
         "config_builder_file": "data_designer/config/config_builder.py",
         "families": [{"family": "columns", "count": 1, "files": ["/a.py"]}],
         "types": {
@@ -33,8 +33,9 @@ def test_format_context_text_includes_config_package_path() -> None:
     result = format_context_text(data)
 
     assert "Data Designer v1.0.0" in result
-    assert "config_package_path: /some/path/to/config" in result
-    assert "config_builder_file: data_designer/config/config_builder.py" in result
+    assert "## Config Module" in result
+    assert "path: /some/path/to/config" in result
+    assert "builder: data_designer/config/config_builder.py" in result
     assert "## Families" in result
     assert "## Commands" in result
 
