@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import importlib.metadata
 import inspect
-import re
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -18,7 +17,6 @@ from data_designer.cli.repositories.persona_repository import PersonaRepository
 from data_designer.cli.repositories.provider_repository import ProviderRepository
 from data_designer.cli.services.download_service import DownloadService
 from data_designer.config.column_types import ColumnConfigT
-from data_designer.config.config_builder import DataDesignerConfigBuilder
 from data_designer.config.default_model_settings import get_providers_with_missing_api_keys
 from data_designer.config.processor_types import ProcessorConfigT
 from data_designer.config.sampler_constraints import ColumnConstraintT
@@ -50,6 +48,9 @@ _FAMILY_SPECS: dict[str, FamilySpec] = {
 }
 
 
+# --- Public API ---
+
+
 def get_family_names() -> list[str]:
     return sorted(_FAMILY_SPECS)
 
@@ -59,6 +60,10 @@ def get_library_version() -> str:
         return importlib.metadata.version("data-designer")
     except importlib.metadata.PackageNotFoundError:
         return "unknown"
+
+
+def get_config_package_path() -> str:
+    return str(Path(inspect.getfile(dd)).parent)
 
 
 def get_family_spec(family: str) -> FamilySpec:
@@ -96,36 +101,13 @@ def get_import_path(cls: type) -> str:
 
 def get_family_catalog(family: str) -> list[dict[str, str]]:
     return [
-        {"type_name": type_name, "class_name": cls.__name__, "import_path": get_import_path(cls)}
+        {
+            "type_name": type_name,
+            "class_name": cls.__name__,
+            "description": _get_first_paragraph(cls.__doc__) or "",
+        }
         for type_name, cls in discover_family_types(family).items()
     ]
-
-
-def get_family_schema(family: str, type_name: str) -> dict[str, Any]:
-    types_map = discover_family_types(family)
-    cls = types_map.get(type_name)
-    if cls is None:
-        raise AgentIntrospectionError(
-            code="unknown_type",
-            message=f"Unknown type {type_name!r} for family {family!r}.",
-            details={"family": family, "available_types": list(types_map)},
-        )
-    return _build_schema_dict(get_family_spec(family).name, type_name, cls)
-
-
-def get_family_schemas(family: str) -> dict[str, Any]:
-    spec = get_family_spec(family)
-    types_map = discover_family_types(family)
-    items = [_build_schema_dict(spec.name, tn, cls) for tn, cls in types_map.items()]
-    return {"family": spec.name, "items": items}
-
-
-def get_builder_api() -> dict[str, Any]:
-    return {
-        "class_name": DataDesignerConfigBuilder.__name__,
-        "import_path": get_import_path(DataDesignerConfigBuilder),
-        "methods": _get_builder_methods(),
-    }
 
 
 def get_operations() -> list[dict[str, str]]:
@@ -135,46 +117,38 @@ def get_operations() -> list[dict[str, str]]:
     ]
 
 
+def get_family_source_file(family: str) -> str:
+    types_map = discover_family_types(family)
+    first_cls = next(iter(types_map.values()), None)
+    return _get_source_file(first_cls) if first_cls else ""
+
+
 def get_context(config_dir: Path) -> dict[str, Any]:
-    catalogs = {f: get_family_catalog(f) for f in get_family_names()}
+    families = get_family_names()
+    catalogs = {f: get_family_catalog(f) for f in families}
     return {
+        "library_version": get_library_version(),
+        "config_package_path": get_config_package_path(),
         "operations": get_operations(),
-        "families": [{"family": f, "count": len(items)} for f, items in catalogs.items()],
+        "families": [{"family": f, "count": len(catalogs[f]), "file": get_family_source_file(f)} for f in families],
         "types": catalogs,
         "state": {
             "model_aliases": get_model_aliases_state(config_dir),
             "persona_datasets": get_persona_datasets_state(config_dir),
         },
-        "builder": get_builder_api(),
     }
 
 
 def get_types(family: str | None) -> dict[str, Any]:
     if family is None:
-        catalogs = {f: get_family_catalog(f) for f in get_family_names()}
+        families = get_family_names()
+        catalogs = {f: get_family_catalog(f) for f in families}
         return {
-            "families": [{"family": f, "count": len(items)} for f, items in catalogs.items()],
+            "families": [{"family": f, "count": len(catalogs[f]), "file": get_family_source_file(f)} for f in families],
             "items": catalogs,
         }
-    return {"family": get_family_spec(family).name, "items": get_family_catalog(family)}
-
-
-def get_schema(family: str, type_name: str | None, *, all_types: bool) -> dict[str, Any]:
-    if all_types and type_name is not None:
-        raise AgentIntrospectionError(
-            code="invalid_schema_request",
-            message="Provide either a type name or --all, but not both.",
-            details={"family": family, "type_name": type_name, "all": all_types},
-        )
-    if all_types:
-        return get_family_schemas(family)
-    if type_name is None:
-        raise AgentIntrospectionError(
-            code="missing_type_name",
-            message="A type name is required unless --all is provided.",
-            details={"family": family},
-        )
-    return get_family_schema(family, type_name)
+    spec = get_family_spec(family)
+    return {"family": spec.name, "file": get_family_source_file(spec.name), "items": get_family_catalog(family)}
 
 
 def get_model_aliases_state(config_dir: Path) -> dict[str, Any]:
@@ -248,15 +222,7 @@ def get_persona_datasets_state(config_dir: Path) -> dict[str, Any]:
     }
 
 
-def _build_schema_dict(family_name: str, type_name: str, cls: type) -> dict[str, Any]:
-    return {
-        "family": family_name,
-        "type_name": type_name,
-        "class_name": cls.__name__,
-        "import_path": get_import_path(cls),
-        "schema": cls.model_json_schema(),
-        "schema_text": cls.schema_text(),
-    }
+# --- Private helpers ---
 
 
 def _normalize_family_name(family: str) -> str:
@@ -279,43 +245,34 @@ def _extract_literal_value(annotation: Any) -> str:
     return str(value.value) if isinstance(value, Enum) else str(value)
 
 
-def _get_builder_methods() -> list[dict[str, Any]]:
-    methods: list[dict[str, Any]] = []
-    for name, attr in inspect.getmembers(DataDesignerConfigBuilder):
-        if name.startswith("_") and name != "__init__":
-            continue
-        if not callable(attr):
-            continue
-        try:
-            sig = inspect.signature(attr)
-        except (TypeError, ValueError):
-            continue
-
-        docstring = inspect.getdoc(attr)
-        methods.append(
-            {
-                "name": name,
-                "signature": _format_signature(name, sig),
-                "summary": _get_first_line(docstring),
-                "docstring": docstring,
-            }
-        )
-
-    return methods
+def _get_first_paragraph(docstring: str | None) -> str | None:
+    """Extract the first paragraph of a docstring, before any blank line or section header."""
+    if not docstring:
+        return None
+    lines: list[str] = []
+    for line in docstring.strip().splitlines():
+        stripped = line.strip()
+        if stripped.lower() in _SECTION_HEADERS:
+            break
+        if not stripped and lines:
+            break
+        if stripped:
+            lines.append(stripped)
+    return " ".join(lines) if lines else None
 
 
-def _format_signature(method_name: str, sig: inspect.Signature) -> str:
-    params = [p for p in sig.parameters.values() if p.name not in {"self", "cls"}]
-    sig_str = str(sig.replace(parameters=params))
-    sig_str = re.sub(r"\b[a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)+", lambda m: m.group().rsplit(".", 1)[-1], sig_str)
-    # Strip quotes left by `from __future__ import annotations` around type annotations.
-    sig_str = re.sub(r"(?<=: )'([^']+)'", r"\1", sig_str)
-    sig_str = re.sub(r"(?<=-> )'([^']+)'", r"\1", sig_str)
-    return f"{method_name}{sig_str}"
-
-
-def _get_first_line(text: str | None) -> str | None:
-    return next((line.strip() for line in text.strip().splitlines() if line.strip()), None) if text else None
+def _get_source_file(cls: type) -> str:
+    """Return the source file path relative to the data_designer package (e.g. 'data_designer/config/foo.py')."""
+    try:
+        full_path = Path(inspect.getfile(cls))
+    except (TypeError, OSError):
+        return ""
+    parts = full_path.parts
+    try:
+        idx = parts.index("data_designer")
+    except ValueError:
+        return str(full_path)
+    return str(Path(*parts[idx:]))
 
 
 def _load_registry(repo: Any) -> Any:
@@ -329,3 +286,25 @@ def _load_registry(repo: Any) -> Any:
             details={"config_file": str(repo.config_file)},
         )
     return registry
+
+
+_SECTION_HEADERS = frozenset(
+    {
+        "args:",
+        "arguments:",
+        "attributes:",
+        "example:",
+        "examples:",
+        "keyword args:",
+        "keyword arguments:",
+        "note:",
+        "notes:",
+        "raises:",
+        "references:",
+        "returns:",
+        "see also:",
+        "todo:",
+        "warns:",
+        "yields:",
+    }
+)
