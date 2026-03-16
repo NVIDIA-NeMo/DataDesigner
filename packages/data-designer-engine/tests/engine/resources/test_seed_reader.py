@@ -55,6 +55,16 @@ class PluginStyleDirectorySeedReader(FileSystemSeedReader[DirectorySeedSource]):
         ]
 
 
+class CountingDataFrameSeedReader(DataFrameSeedReader):
+    def __init__(self) -> None:
+        super().__init__()
+        self.create_duckdb_connection_calls = 0
+
+    def create_duckdb_connection(self) -> lazy.duckdb.DuckDBPyConnection:
+        self.create_duckdb_connection_calls += 1
+        return super().create_duckdb_connection()
+
+
 def test_one_reader_per_seed_type():
     local_1 = LocalFileSeedReader()
     local_2 = LocalFileSeedReader()
@@ -196,6 +206,24 @@ def test_file_contents_seed_reader_respects_encoding(tmp_path: Path) -> None:
     assert list(df["content"]) == ["café"]
 
 
+def test_file_contents_seed_reader_wraps_unknown_encoding_errors(tmp_path: Path) -> None:
+    file_path = tmp_path / "alpha.txt"
+    file_path.write_text("alpha", encoding="utf-8")
+
+    source = FileContentsSeedSource.model_construct(
+        seed_type="file_contents",
+        path=str(tmp_path),
+        file_pattern="*.txt",
+        recursive=True,
+        encoding="utf-999",
+    )
+    reader = FileContentsSeedReader()
+    reader.attach(source, PlaintextResolver())
+
+    with pytest.raises(SeedReaderError, match="Failed to decode file .* using encoding 'utf-999'"):
+        reader.create_duckdb_connection().execute(f"SELECT * FROM '{reader.get_dataset_uri()}'").df()
+
+
 def test_file_contents_seed_reader_hydrates_only_selected_manifest_rows(tmp_path: Path) -> None:
     (tmp_path / "alpha.txt").write_text("alpha", encoding="utf-8")
     (tmp_path / "beta.txt").write_text("beta", encoding="utf-8")
@@ -217,3 +245,24 @@ def test_file_contents_seed_reader_hydrates_only_selected_manifest_rows(tmp_path
     assert list(batch_df["relative_path"]) == ["beta.txt"]
     assert list(batch_df["content"]) == ["beta"]
     assert reader.hydrated_relative_paths == ["beta.txt"]
+
+
+def test_seed_reader_reuses_cached_duckdb_connection_until_reattach() -> None:
+    reader = CountingDataFrameSeedReader()
+    reader.attach(DataFrameSeedSource(df=lazy.pd.DataFrame({"value": [1, 2, 3]})), PlaintextResolver())
+
+    assert reader.get_seed_dataset_size() == 3
+    assert reader.get_column_names() == ["value"]
+    batch_reader = reader.create_batch_reader(
+        batch_size=2,
+        index_range=IndexRange(start=0, end=1),
+        shuffle=False,
+    )
+
+    assert list(batch_reader.read_next_batch().to_pandas()["value"]) == [1, 2]
+    assert reader.create_duckdb_connection_calls == 1
+
+    reader.attach(DataFrameSeedSource(df=lazy.pd.DataFrame({"value": [9]})), PlaintextResolver())
+
+    assert reader.get_seed_dataset_size() == 1
+    assert reader.create_duckdb_connection_calls == 2

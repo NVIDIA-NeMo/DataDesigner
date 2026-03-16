@@ -156,6 +156,11 @@ def test_file_contents_seed_source_parses_from_dict(tmp_path: Path) -> None:
     assert source.encoding == "latin-1"
 
 
+def test_file_contents_seed_source_rejects_unknown_encoding(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="Unknown encoding"):
+        FileContentsSeedSource(path=str(tmp_path), file_pattern="*.txt", encoding="utf-999")
+
+
 @pytest.mark.parametrize(
     ("source_type", "file_pattern", "error_message"),
     [

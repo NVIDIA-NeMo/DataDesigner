@@ -68,6 +68,9 @@ class DuckDBSeedReaderBatchReader:
         query_result: Any,
         batch_size: int,
     ) -> None:
+        # Keep the connection and query result alive for the lifetime of the Arrow
+        # batch reader. Dropping these references can invalidate in-memory tables
+        # or query state before the reader has finished yielding batches.
         self._conn = conn
         self._query_result = query_result
         if hasattr(query_result, "to_arrow_reader"):
@@ -115,6 +118,9 @@ class SeedReader(ABC, Generic[SourceT]):
     source: SourceT
     secret_resolver: SecretResolver
 
+    def __init__(self) -> None:
+        self._duckdb_conn: duckdb.DuckDBPyConnection | None = None
+
     @abstractmethod
     def get_dataset_uri(self) -> str: ...
 
@@ -127,6 +133,7 @@ class SeedReader(ABC, Generic[SourceT]):
         This is called internally by the engine so that these objects do not
         need to be provided in the reader's constructor.
         """
+        self._duckdb_conn = None
         self.source = source
         self.secret_resolver = secret_resolver
 
@@ -141,7 +148,7 @@ class SeedReader(ABC, Generic[SourceT]):
         return conn
 
     def get_seed_dataset_size(self) -> int:
-        conn = self.create_duckdb_connection()
+        conn = self._get_duckdb_connection()
         return conn.execute(f"SELECT COUNT(*) FROM '{self.get_dataset_uri()}'").fetchone()[0]
 
     def create_batch_reader(
@@ -151,7 +158,7 @@ class SeedReader(ABC, Generic[SourceT]):
         index_range: IndexRange | None,
         shuffle: bool,
     ) -> SeedReaderBatchReader:
-        conn = self.create_duckdb_connection()
+        conn = self._get_duckdb_connection()
         read_query = self.build_dataset_read_query(
             dataset_uri=self.get_dataset_uri(),
             index_range=index_range,
@@ -192,10 +199,15 @@ class SeedReader(ABC, Generic[SourceT]):
 
     def get_column_names(self) -> list[str]:
         """Returns the seed dataset's column names"""
-        conn = self.create_duckdb_connection()
+        conn = self._get_duckdb_connection()
         describe_query = f"DESCRIBE SELECT * FROM '{self.get_dataset_uri()}'"
         column_descriptions = conn.execute(describe_query).fetchall()
         return [col[0] for col in column_descriptions]
+
+    def _get_duckdb_connection(self) -> duckdb.DuckDBPyConnection:
+        if self._duckdb_conn is None:
+            self._duckdb_conn = self.create_duckdb_connection()
+        return self._duckdb_conn
 
     @staticmethod
     def build_dataset_read_query(
@@ -289,6 +301,7 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
     output_columns: list[str] | None = None
 
     def __init__(self) -> None:
+        super().__init__()
         self._output_df: pd.DataFrame | None = None
         self._row_manifest_df: pd.DataFrame | None = None
 
@@ -451,7 +464,7 @@ class FileContentsSeedReader(FileSystemSeedReader[FileContentsSeedSource]):
         try:
             with context.fs.open(relative_path, "r", encoding=self.source.encoding) as handle:
                 content = handle.read()
-        except UnicodeDecodeError as error:
+        except (UnicodeDecodeError, LookupError) as error:
             raise SeedReaderError(
                 f"Failed to decode file {absolute_path} using encoding {self.source.encoding!r}: {error}"
             ) from error

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import codecs
 from abc import ABC
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
@@ -122,3 +123,11 @@ class FileContentsSeedSource(FileSystemSeedSource):
         "utf-8",
         description="Text encoding used when reading matching files into the `content` column.",
     )
+
+    @field_validator("encoding", mode="after")
+    def validate_encoding(cls, value: str) -> str:
+        try:
+            codecs.lookup(value)
+        except LookupError as error:
+            raise ValueError(f"🛑 Unknown encoding: {value!r}. Use a valid Python codec name.") from error
+        return value
