@@ -287,7 +287,7 @@ def _get_source_file(cls: type) -> str:
     indices = [i for i, p in enumerate(parts) if p == "data_designer"]
     if not indices:
         return ""
-    return str(Path(*parts[indices[-1] :]))
+    return Path(*parts[indices[-1] :]).as_posix()
 
 
 def _load_registry(repo: Any) -> Any:
