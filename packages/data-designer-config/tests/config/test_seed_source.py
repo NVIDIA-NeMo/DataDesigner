@@ -7,9 +7,10 @@ from pathlib import Path
 
 import pytest
 
+import data_designer.config as dd
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.errors import InvalidFilePathError
-from data_designer.config.seed_source import LocalFileSeedSource
+from data_designer.config.seed_source import DirectorySeedSource, FileContentsSeedSource, LocalFileSeedSource
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 
 
@@ -64,6 +65,27 @@ def test_local_source_from_dataframe(tmp_path: Path):
     lazy.pd.testing.assert_frame_equal(df, lazy.pd.read_parquet(filepath))
 
 
+def test_local_seed_source_caches_runtime_path_across_cwd_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    initial_root = tmp_path / "initial"
+    later_root = tmp_path / "later"
+    initial_seed_dir = initial_root / "seed-dir"
+    initial_seed_dir.mkdir(parents=True)
+    create_partitions_in_path(initial_seed_dir, "parquet", num_files=1)
+    later_root.mkdir()
+
+    monkeypatch.chdir(initial_root)
+    source = LocalFileSeedSource(path="seed-dir/*.parquet")
+    expected_runtime_path = str(initial_seed_dir.resolve() / "*.parquet")
+
+    monkeypatch.chdir(later_root)
+
+    assert source.path == "seed-dir/*.parquet"
+    assert source.runtime_path == expected_runtime_path
+    assert source.model_dump(mode="json")["path"] == "seed-dir/*.parquet"
+
+
 def test_dataframe_seed_source_serialization():
     """Test that DataFrameSeedSource excludes the DataFrame field during serialization."""
     df = lazy.pd.DataFrame({"col1": [1, 2, 3], "col2": ["a", "b", "c"]})
@@ -73,3 +95,142 @@ def test_dataframe_seed_source_serialization():
     serialized = source.model_dump(mode="json")
     assert "df" not in serialized
     assert serialized == {"seed_type": "df"}
+
+
+def test_directory_seed_source_requires_directory(tmp_path: Path) -> None:
+    file_path = tmp_path / "file.txt"
+    file_path.write_text("alpha", encoding="utf-8")
+
+    with pytest.raises(InvalidFilePathError, match="is not a directory"):
+        DirectorySeedSource(path=str(file_path))
+
+
+def test_directory_seed_source_preserves_relative_path_input(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    seed_dir = tmp_path / "seed-dir"
+    seed_dir.mkdir()
+    monkeypatch.chdir(tmp_path)
+
+    source = DirectorySeedSource(path="seed-dir")
+
+    assert source.path == "seed-dir"
+    assert source.model_dump(mode="json")["path"] == "seed-dir"
+    assert source.file_pattern == "*"
+    assert source.recursive is True
+
+
+def test_file_contents_seed_source_defaults() -> None:
+    source = FileContentsSeedSource(path=".", file_pattern="*.md", recursive=False)
+
+    assert source.seed_type == "file_contents"
+    assert source.file_pattern == "*.md"
+    assert source.recursive is False
+    assert source.encoding == "utf-8"
+
+
+def test_file_contents_seed_source_preserves_relative_path_input(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seed_dir = tmp_path / "seed-dir"
+    seed_dir.mkdir()
+    monkeypatch.chdir(tmp_path)
+
+    source = FileContentsSeedSource(path="seed-dir", file_pattern="*.txt")
+
+    assert source.path == "seed-dir"
+    assert source.model_dump(mode="json")["path"] == "seed-dir"
+
+
+@pytest.mark.parametrize(
+    ("source_type", "source_kwargs"),
+    [
+        pytest.param(DirectorySeedSource, {}, id="directory"),
+        pytest.param(FileContentsSeedSource, {"file_pattern": "*.txt"}, id="file-contents"),
+    ],
+)
+def test_filesystem_seed_sources_cache_runtime_path_across_cwd_changes(
+    source_type: type[DirectorySeedSource] | type[FileContentsSeedSource],
+    source_kwargs: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    initial_root = tmp_path / "initial"
+    later_root = tmp_path / "later"
+    initial_seed_dir = initial_root / "seed-dir"
+    initial_seed_dir.mkdir(parents=True)
+    later_root.mkdir()
+
+    monkeypatch.chdir(initial_root)
+    source = source_type(path="seed-dir", **source_kwargs)
+    expected_runtime_path = str(initial_seed_dir.resolve())
+
+    monkeypatch.chdir(later_root)
+
+    assert source.path == "seed-dir"
+    assert source.runtime_path == expected_runtime_path
+    assert source.model_dump(mode="json")["path"] == "seed-dir"
+
+
+def test_seed_source_path_descriptions_document_cwd_resolution() -> None:
+    local_path_description = LocalFileSeedSource.model_json_schema()["properties"]["path"]["description"]
+    directory_path_description = DirectorySeedSource.model_json_schema()["properties"]["path"]["description"]
+    file_contents_path_description = FileContentsSeedSource.model_json_schema()["properties"]["path"]["description"]
+
+    assert "current working directory" in local_path_description
+    assert "config file location" in local_path_description
+    assert "current working directory" in directory_path_description
+    assert "config file location" in directory_path_description
+    assert "current working directory" in file_contents_path_description
+    assert "config file location" in file_contents_path_description
+
+
+def test_seed_sources_are_exported_from_config_module(tmp_path: Path) -> None:
+    directory_source = dd.DirectorySeedSource(path=str(tmp_path))
+    file_contents_source = dd.FileContentsSeedSource(path=str(tmp_path), file_pattern="*.txt")
+
+    assert directory_source.seed_type == "directory"
+    assert file_contents_source.seed_type == "file_contents"
+
+
+def test_file_contents_seed_source_parses_from_dict(tmp_path: Path) -> None:
+    source = FileContentsSeedSource.model_validate(
+        {
+            "path": str(tmp_path),
+            "file_pattern": "*.txt",
+            "recursive": False,
+            "encoding": "latin-1",
+        }
+    )
+
+    assert source.file_pattern == "*.txt"
+    assert source.recursive is False
+    assert source.encoding == "latin-1"
+
+
+def test_file_contents_seed_source_rejects_unknown_encoding(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="Unknown encoding"):
+        FileContentsSeedSource(path=str(tmp_path), file_pattern="*.txt", encoding="utf-999")
+
+
+@pytest.mark.parametrize(
+    ("source_type", "file_pattern", "error_message"),
+    [
+        pytest.param(DirectorySeedSource, "", "non-empty string", id="directory-empty"),
+        pytest.param(DirectorySeedSource, "subdir/*.txt", "match file names, not relative paths", id="directory-posix"),
+        pytest.param(FileContentsSeedSource, "", "non-empty string", id="contents-empty"),
+        pytest.param(
+            FileContentsSeedSource,
+            r"subdir\\*.txt",
+            "match file names, not relative paths",
+            id="contents-windows",
+        ),
+    ],
+)
+def test_filesystem_seed_sources_reject_path_like_file_patterns(
+    source_type: type[DirectorySeedSource] | type[FileContentsSeedSource],
+    file_pattern: str,
+    error_message: str,
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(ValueError, match=error_message):
+        source_type(path=str(tmp_path), file_pattern=file_pattern)
