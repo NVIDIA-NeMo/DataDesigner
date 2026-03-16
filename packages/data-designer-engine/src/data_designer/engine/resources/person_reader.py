@@ -45,6 +45,7 @@ class PersonReader(ABC):
             return cursor.execute(query, parameters).df()
         finally:
             cursor.close()
+            conn.close()
 
 
 class LocalPersonReader(PersonReader):
