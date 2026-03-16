@@ -37,6 +37,13 @@ class ScalarInequalityConstraint(Constraint):
     """Constrain a sampler column to be less/greater than a scalar value.
 
     Only applies to sampler columns.
+
+    Attributes:
+        rhs (required): Scalar value to compare against.
+        operator (required): Comparison operator (lt, le, gt, ge).
+
+    Inherited Attributes:
+        target_column (required): Name of the sampler column this constraint applies to.
     """
 
     rhs: float = Field(description="Scalar value to compare against")
@@ -51,6 +58,13 @@ class ColumnInequalityConstraint(Constraint):
     """Constrain a sampler column to be less/greater than another sampler column.
 
     Only applies to sampler columns.
+
+    Attributes:
+        rhs (required): Name of the other sampler column to compare against.
+        operator (required): Comparison operator (lt, le, gt, ge).
+
+    Inherited Attributes:
+        target_column (required): Name of the sampler column this constraint applies to.
     """
 
     rhs: str = Field(description="Name of the other sampler column to compare against")
