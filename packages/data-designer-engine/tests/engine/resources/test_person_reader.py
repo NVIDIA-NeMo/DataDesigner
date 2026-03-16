@@ -28,9 +28,7 @@ def test_local_reader_get_dataset_uri(stub_reader: LocalPersonReader, stub_temp_
 
 
 @patch("data_designer.engine.resources.person_reader.lazy.duckdb", autospec=True)
-def test_local_reader_create_duckdb_connection(
-    mock_duckdb: object, stub_reader: LocalPersonReader
-) -> None:
+def test_local_reader_create_duckdb_connection(mock_duckdb: object, stub_reader: LocalPersonReader) -> None:
     stub_reader.create_duckdb_connection()
     mock_duckdb.connect.assert_called_once_with(config={"threads": THREADS, "memory_limit": MEMORY_LIMIT})
 
