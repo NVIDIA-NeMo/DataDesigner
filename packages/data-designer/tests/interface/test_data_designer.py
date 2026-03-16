@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -18,11 +19,54 @@ from data_designer.config.models import ModelProvider
 from data_designer.config.processors import DropColumnsProcessorConfig
 from data_designer.config.run_config import RunConfig
 from data_designer.config.sampler_params import CategorySamplerParams, SamplerType
+from data_designer.config.seed import IndexRange, PartitionBlock, SamplingStrategy
 from data_designer.config.seed_source import DirectorySeedSource, FileContentsSeedSource, HuggingFaceSeedSource
+from data_designer.engine.resources.seed_reader import FileSystemSeedReader, SeedReaderFileSystemContext
 from data_designer.engine.secret_resolver import CompositeResolver, EnvironmentResolver, PlaintextResolver
 from data_designer.engine.testing.stubs import StubHuggingFaceSeedReader
 from data_designer.interface.data_designer import DataDesigner
 from data_designer.interface.errors import DataDesignerGenerationError, DataDesignerProfilingError
+
+
+class CustomDirectorySeedReader(FileSystemSeedReader[DirectorySeedSource]):
+    output_columns = ["relative_path", "file_name", "decorated_path"]
+
+    def build_manifest(self, *, context: SeedReaderFileSystemContext) -> lazy.pd.DataFrame | list[dict[str, str]]:
+        matched_paths = self.get_matching_relative_paths(
+            context=context,
+            file_pattern=self.source.file_pattern,
+            recursive=self.source.recursive,
+        )
+        return [
+            {
+                "relative_path": relative_path,
+                "file_name": Path(relative_path).name,
+            }
+            for relative_path in matched_paths
+        ]
+
+    def hydrate_row(
+        self,
+        *,
+        manifest_row: dict[str, Any],
+        context: SeedReaderFileSystemContext,
+    ) -> dict[str, str]:
+        del context
+        return {
+            "relative_path": str(manifest_row["relative_path"]),
+            "file_name": str(manifest_row["file_name"]),
+            "decorated_path": f"custom::{manifest_row['relative_path']}",
+        }
+
+
+def _add_irrelevant_sampler_column(builder: DataDesignerConfigBuilder) -> None:
+    builder.add_column(
+        SamplerColumnConfig(
+            name="irrelevant",
+            sampler_type=SamplerType.CATEGORY,
+            params=CategorySamplerParams(values=["irrelevant"]),
+        )
+    )
 
 
 @pytest.fixture
@@ -500,6 +544,40 @@ def test_create_dataset_e2e_with_directory_seed_source(
     ]
 
 
+def test_preview_dataset_e2e_with_directory_seed_source(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_managed_assets_path: Path,
+    tmp_path: Path,
+) -> None:
+    seed_dir = tmp_path / "directory-preview-seed"
+    (seed_dir / "subdir").mkdir(parents=True)
+    (seed_dir / "alpha.txt").write_text("alpha", encoding="utf-8")
+    (seed_dir / "subdir" / "beta.txt").write_text("beta", encoding="utf-8")
+    (seed_dir / "subdir" / "gamma.md").write_text("gamma", encoding="utf-8")
+
+    builder = DataDesignerConfigBuilder()
+    builder.with_seed_dataset(DirectorySeedSource(path=str(seed_dir), file_pattern="*.txt"))
+    builder.add_column(ExpressionColumnConfig(name="path_label", expr="{{ source_kind }}::{{ relative_path }}"))
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    preview_results = data_designer.preview(builder, num_records=2)
+    df = preview_results.dataset.sort_values("relative_path").reset_index(drop=True)
+
+    assert list(df["source_kind"]) == ["directory_file", "directory_file"]
+    assert list(df["relative_path"]) == ["alpha.txt", "subdir/beta.txt"]
+    assert list(df["path_label"]) == [
+        "directory_file::alpha.txt",
+        "directory_file::subdir/beta.txt",
+    ]
+
+
 def test_create_dataset_e2e_with_file_contents_seed_source(
     stub_artifact_path: Path,
     stub_model_providers: list[ModelProvider],
@@ -532,3 +610,289 @@ def test_create_dataset_e2e_with_file_contents_seed_source(
         "alpha.txt::alpha",
         "beta.txt::beta",
     ]
+
+
+def test_preview_dataset_e2e_with_file_contents_seed_source(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_managed_assets_path: Path,
+    tmp_path: Path,
+) -> None:
+    seed_dir = tmp_path / "file-contents-preview-seed"
+    seed_dir.mkdir(parents=True)
+    (seed_dir / "alpha.txt").write_text("alpha", encoding="utf-8")
+    (seed_dir / "beta.txt").write_text("beta", encoding="utf-8")
+
+    builder = DataDesignerConfigBuilder()
+    builder.with_seed_dataset(FileContentsSeedSource(path=str(seed_dir), file_pattern="*.txt"))
+    builder.add_column(ExpressionColumnConfig(name="content_label", expr="{{ file_name }}::{{ content }}"))
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    preview_results = data_designer.preview(builder, num_records=2)
+    df = preview_results.dataset.sort_values("file_name").reset_index(drop=True)
+
+    assert list(df["source_kind"]) == ["file_contents", "file_contents"]
+    assert list(df["file_name"]) == ["alpha.txt", "beta.txt"]
+    assert list(df["content_label"]) == [
+        "alpha.txt::alpha",
+        "beta.txt::beta",
+    ]
+
+
+def test_create_dataset_e2e_with_directory_seed_source_index_range_cycles_within_selection(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_managed_assets_path: Path,
+    tmp_path: Path,
+) -> None:
+    seed_dir = tmp_path / "directory-index-range-seed"
+    seed_dir.mkdir(parents=True)
+    for index in range(4):
+        (seed_dir / f"file-{index}.txt").write_text(f"value-{index}", encoding="utf-8")
+
+    builder = DataDesignerConfigBuilder()
+    builder.with_seed_dataset(
+        DirectorySeedSource(path=str(seed_dir), file_pattern="*.txt"),
+        selection_strategy=IndexRange(start=1, end=2),
+    )
+    _add_irrelevant_sampler_column(builder)
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    results = data_designer.create(builder, num_records=5, dataset_name="directory-index-range-test")
+    df = results.load_dataset().reset_index(drop=True)
+
+    assert list(df["relative_path"]) == [
+        "file-1.txt",
+        "file-2.txt",
+        "file-1.txt",
+        "file-2.txt",
+        "file-1.txt",
+    ]
+
+
+def test_create_dataset_e2e_with_file_contents_seed_source_partition_block_cycles_within_selection(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_managed_assets_path: Path,
+    tmp_path: Path,
+) -> None:
+    seed_dir = tmp_path / "file-contents-partition-seed"
+    seed_dir.mkdir(parents=True)
+    for index in range(6):
+        (seed_dir / f"file-{index}.txt").write_text(f"value-{index}", encoding="utf-8")
+
+    builder = DataDesignerConfigBuilder()
+    builder.with_seed_dataset(
+        FileContentsSeedSource(path=str(seed_dir), file_pattern="*.txt"),
+        selection_strategy=PartitionBlock(index=1, num_partitions=3),
+    )
+    _add_irrelevant_sampler_column(builder)
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    results = data_designer.create(builder, num_records=5, dataset_name="file-contents-partition-test")
+    df = results.load_dataset().reset_index(drop=True)
+
+    assert list(df["relative_path"]) == [
+        "file-2.txt",
+        "file-3.txt",
+        "file-2.txt",
+        "file-3.txt",
+        "file-2.txt",
+    ]
+    assert list(df["content"]) == [
+        "value-2",
+        "value-3",
+        "value-2",
+        "value-3",
+        "value-2",
+    ]
+
+
+def test_create_dataset_e2e_with_file_contents_seed_source_shuffle_within_selection(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_managed_assets_path: Path,
+    tmp_path: Path,
+) -> None:
+    seed_dir = tmp_path / "file-contents-shuffle-seed"
+    seed_dir.mkdir(parents=True)
+    for index in range(6):
+        (seed_dir / f"file-{index}.txt").write_text(f"value-{index}", encoding="utf-8")
+
+    builder = DataDesignerConfigBuilder()
+    builder.with_seed_dataset(
+        FileContentsSeedSource(path=str(seed_dir), file_pattern="*.txt"),
+        sampling_strategy=SamplingStrategy.SHUFFLE,
+        selection_strategy=IndexRange(start=0, end=4),
+    )
+    _add_irrelevant_sampler_column(builder)
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    results = data_designer.create(builder, num_records=15, dataset_name="file-contents-shuffle-test")
+    df = results.load_dataset().reset_index(drop=True)
+
+    expected_paths = [f"file-{index}.txt" for index in range(5)]
+    assert len(df) == 15
+    assert set(df["relative_path"]) == set(expected_paths)
+    assert list(df["relative_path"]) != expected_paths * 3
+
+
+def test_preview_dataset_e2e_with_custom_filesystem_seed_reader_via_seed_readers_argument(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_managed_assets_path: Path,
+    tmp_path: Path,
+) -> None:
+    seed_dir = tmp_path / "custom-directory-reader"
+    seed_dir.mkdir(parents=True)
+    (seed_dir / "alpha.txt").write_text("alpha", encoding="utf-8")
+    (seed_dir / "beta.txt").write_text("beta", encoding="utf-8")
+
+    builder = DataDesignerConfigBuilder()
+    builder.with_seed_dataset(DirectorySeedSource(path=str(seed_dir), file_pattern="*.txt"))
+    _add_irrelevant_sampler_column(builder)
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+        seed_readers=[CustomDirectorySeedReader()],
+    )
+
+    preview_results = data_designer.preview(builder, num_records=2)
+    df = preview_results.dataset.sort_values("relative_path").reset_index(drop=True)
+
+    assert list(df["decorated_path"]) == [
+        "custom::alpha.txt",
+        "custom::beta.txt",
+    ]
+
+
+def test_create_dataset_e2e_with_directory_seed_source_no_matches_raises_generation_error(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_managed_assets_path: Path,
+    tmp_path: Path,
+) -> None:
+    seed_dir = tmp_path / "directory-no-matches-seed"
+    seed_dir.mkdir(parents=True)
+    (seed_dir / "alpha.txt").write_text("alpha", encoding="utf-8")
+
+    builder = DataDesignerConfigBuilder()
+    builder.with_seed_dataset(DirectorySeedSource(path=str(seed_dir), file_pattern="*.md"))
+    _add_irrelevant_sampler_column(builder)
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    with pytest.raises(DataDesignerGenerationError, match="No files matched file_pattern '\\*\\.md'"):
+        data_designer.create(builder, num_records=1, dataset_name="directory-no-matches-test")
+
+
+def test_preview_dataset_e2e_with_directory_seed_source_no_matches_raises_generation_error(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_managed_assets_path: Path,
+    tmp_path: Path,
+) -> None:
+    seed_dir = tmp_path / "directory-preview-no-matches-seed"
+    seed_dir.mkdir(parents=True)
+    (seed_dir / "alpha.txt").write_text("alpha", encoding="utf-8")
+
+    builder = DataDesignerConfigBuilder()
+    builder.with_seed_dataset(DirectorySeedSource(path=str(seed_dir), file_pattern="*.md"))
+    _add_irrelevant_sampler_column(builder)
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    with pytest.raises(DataDesignerGenerationError, match="No files matched file_pattern '\\*\\.md'"):
+        data_designer.preview(builder, num_records=1)
+
+
+def test_create_dataset_e2e_with_file_contents_seed_source_decode_failure_raises_generation_error(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_managed_assets_path: Path,
+    tmp_path: Path,
+) -> None:
+    seed_dir = tmp_path / "file-contents-decode-error-seed"
+    seed_dir.mkdir(parents=True)
+    (seed_dir / "latin1.txt").write_bytes("café".encode("latin-1"))
+
+    builder = DataDesignerConfigBuilder()
+    builder.with_seed_dataset(FileContentsSeedSource(path=str(seed_dir), file_pattern="*.txt"))
+    _add_irrelevant_sampler_column(builder)
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    with pytest.raises(DataDesignerGenerationError, match="Failed to decode file"):
+        data_designer.create(builder, num_records=1, dataset_name="file-contents-decode-error-test")
+
+
+def test_create_dataset_e2e_with_file_contents_seed_source_unreadable_file_raises_generation_error(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_managed_assets_path: Path,
+    tmp_path: Path,
+) -> None:
+    seed_dir = tmp_path / "file-contents-permissions-seed"
+    seed_dir.mkdir(parents=True)
+    unreadable_path = seed_dir / "blocked.txt"
+    unreadable_path.write_text("blocked", encoding="utf-8")
+    unreadable_path.chmod(0)
+
+    builder = DataDesignerConfigBuilder()
+    builder.with_seed_dataset(FileContentsSeedSource(path=str(seed_dir), file_pattern="*.txt"))
+    _add_irrelevant_sampler_column(builder)
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+    )
+
+    try:
+        with pytest.raises(DataDesignerGenerationError, match="Failed to read file"):
+            data_designer.create(builder, num_records=1, dataset_name="file-contents-permissions-test")
+    finally:
+        unreadable_path.chmod(0o644)
