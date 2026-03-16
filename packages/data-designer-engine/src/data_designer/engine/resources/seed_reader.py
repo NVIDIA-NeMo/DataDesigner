@@ -112,14 +112,13 @@ class SeedReader(ABC, Generic[SourceT]):
     and how to get a URI that can be queried with duckdb (i.e. "... FROM <uri> ...").
 
     The Data Designer engine automatically supplies the appropriate SeedSource
-    and a SecretResolver to use for any secret fields in the config.
+    and a SecretResolver to use for any secret fields in the config via
+    `attach(...)`. Subclasses that need per-attachment setup can override
+    `on_attach(...)` without needing to call `super()`.
     """
 
     source: SourceT
     secret_resolver: SecretResolver
-
-    def __init__(self) -> None:
-        self._duckdb_conn: duckdb.DuckDBPyConnection | None = None
 
     @abstractmethod
     def get_dataset_uri(self) -> str: ...
@@ -133,9 +132,16 @@ class SeedReader(ABC, Generic[SourceT]):
         This is called internally by the engine so that these objects do not
         need to be provided in the reader's constructor.
         """
-        self._duckdb_conn = None
+        self._reset_attachment_state()
         self.source = source
         self.secret_resolver = secret_resolver
+        self.on_attach()
+
+    def on_attach(self) -> None:
+        """Hook for subclasses that need per-attachment setup."""
+
+    def _reset_attachment_state(self) -> None:
+        self._duckdb_conn = None
 
     def create_dataframe_duckdb_connection(
         self,
@@ -148,6 +154,7 @@ class SeedReader(ABC, Generic[SourceT]):
         return conn
 
     def get_seed_dataset_size(self) -> int:
+        self._ensure_attached()
         conn = self._get_duckdb_connection()
         return conn.execute(f"SELECT COUNT(*) FROM '{self.get_dataset_uri()}'").fetchone()[0]
 
@@ -158,6 +165,7 @@ class SeedReader(ABC, Generic[SourceT]):
         index_range: IndexRange | None,
         shuffle: bool,
     ) -> SeedReaderBatchReader:
+        self._ensure_attached()
         conn = self._get_duckdb_connection()
         read_query = self.build_dataset_read_query(
             dataset_uri=self.get_dataset_uri(),
@@ -199,15 +207,23 @@ class SeedReader(ABC, Generic[SourceT]):
 
     def get_column_names(self) -> list[str]:
         """Returns the seed dataset's column names"""
+        self._ensure_attached()
         conn = self._get_duckdb_connection()
         describe_query = f"DESCRIBE SELECT * FROM '{self.get_dataset_uri()}'"
         column_descriptions = conn.execute(describe_query).fetchall()
         return [col[0] for col in column_descriptions]
 
     def _get_duckdb_connection(self) -> duckdb.DuckDBPyConnection:
-        if self._duckdb_conn is None:
-            self._duckdb_conn = self.create_duckdb_connection()
-        return self._duckdb_conn
+        self._ensure_attached()
+        conn = getattr(self, "_duckdb_conn", None)
+        if conn is None:
+            conn = self.create_duckdb_connection()
+            self._duckdb_conn = conn
+        return conn
+
+    def _ensure_attached(self) -> None:
+        if not hasattr(self, "source") or not hasattr(self, "secret_resolver"):
+            raise SeedReaderError("SeedReader must be attached to a source before use")
 
     @staticmethod
     def build_dataset_read_query(
@@ -300,15 +316,10 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
 
     output_columns: list[str] | None = None
 
-    def __init__(self) -> None:
-        super().__init__()
-        self._output_df: pd.DataFrame | None = None
-        self._row_manifest_df: pd.DataFrame | None = None
-
-    def attach(self, source: FileSystemSourceT, secret_resolver: SecretResolver) -> None:
+    def _reset_attachment_state(self) -> None:
+        super()._reset_attachment_state()
         self._output_df = None
         self._row_manifest_df = None
-        super().attach(source, secret_resolver)
 
     def create_duckdb_connection(self) -> duckdb.DuckDBPyConnection:
         return self.create_dataframe_duckdb_connection(
@@ -339,6 +350,7 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
         return self.get_output_column_names()
 
     def get_seed_dataset_size(self) -> int:
+        self._ensure_attached()
         return len(self._get_row_manifest_dataframe())
 
     def create_batch_reader(
@@ -348,6 +360,7 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
         index_range: IndexRange | None,
         shuffle: bool,
     ) -> SeedReaderBatchReader:
+        self._ensure_attached()
         context = self.create_filesystem_context(self.source.path)
         conn = self.create_dataframe_duckdb_connection(
             table_name=self._get_manifest_dataset_uri(),
@@ -370,8 +383,10 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
         )
 
     def _get_row_manifest_dataframe(self) -> pd.DataFrame:
-        if self._row_manifest_df is not None:
-            return self._row_manifest_df
+        self._ensure_attached()
+        manifest_df = getattr(self, "_row_manifest_df", None)
+        if manifest_df is not None:
+            return manifest_df
 
         context = self.create_filesystem_context(self.source.path)
         manifest = self.build_manifest(context=context)
@@ -383,8 +398,10 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
         return self._row_manifest_df
 
     def _get_output_dataframe(self) -> pd.DataFrame:
-        if self._output_df is not None:
-            return self._output_df
+        self._ensure_attached()
+        output_df = getattr(self, "_output_df", None)
+        if output_df is not None:
+            return output_df
 
         context = self.create_filesystem_context(self.source.path)
         hydrated_records = self._hydrate_rows(

@@ -26,7 +26,6 @@ from data_designer.engine.secret_resolver import PlaintextResolver
 
 class TrackingFileContentsSeedReader(FileContentsSeedReader):
     def __init__(self) -> None:
-        super().__init__()
         self.hydrated_relative_paths: list[str] = []
 
     def hydrate_row(
@@ -57,12 +56,34 @@ class PluginStyleDirectorySeedReader(FileSystemSeedReader[DirectorySeedSource]):
 
 class CountingDataFrameSeedReader(DataFrameSeedReader):
     def __init__(self) -> None:
-        super().__init__()
         self.create_duckdb_connection_calls = 0
 
     def create_duckdb_connection(self) -> lazy.duckdb.DuckDBPyConnection:
         self.create_duckdb_connection_calls += 1
         return super().create_duckdb_connection()
+
+
+class OnAttachDirectorySeedReader(FileSystemSeedReader[DirectorySeedSource]):
+    def __init__(self, label_prefix: str) -> None:
+        self.label_prefix = label_prefix
+        self.attach_call_count = 0
+
+    def on_attach(self) -> None:
+        self.attach_call_count += 1
+
+    def build_manifest(self, *, context: SeedReaderFileSystemContext) -> lazy.pd.DataFrame | list[dict[str, str]]:
+        matched_paths = self.get_matching_relative_paths(
+            context=context,
+            file_pattern=self.source.file_pattern,
+            recursive=self.source.recursive,
+        )
+        return [
+            {
+                "relative_path": relative_path,
+                "label": f"{self.label_prefix}:{Path(relative_path).name}",
+            }
+            for relative_path in matched_paths
+        ]
 
 
 def test_one_reader_per_seed_type():
@@ -105,6 +126,13 @@ def test_get_reader_missing():
 def test_filesystem_seed_readers_expose_seed_type() -> None:
     assert DirectorySeedReader().get_seed_type() == "directory"
     assert FileContentsSeedReader().get_seed_type() == "file_contents"
+
+
+def test_seed_reader_requires_attach_before_use() -> None:
+    reader = DataFrameSeedReader()
+
+    with pytest.raises(SeedReaderError, match="must be attached to a source"):
+        reader.get_seed_dataset_size()
 
 
 def test_plugin_style_filesystem_seed_reader_needs_only_manifest_builder(tmp_path: Path) -> None:
@@ -245,6 +273,34 @@ def test_file_contents_seed_reader_hydrates_only_selected_manifest_rows(tmp_path
     assert list(batch_df["relative_path"]) == ["beta.txt"]
     assert list(batch_df["content"]) == ["beta"]
     assert reader.hydrated_relative_paths == ["beta.txt"]
+
+
+def test_filesystem_seed_reader_on_attach_requires_no_super_and_resets_state(tmp_path: Path) -> None:
+    first_dir = tmp_path / "first"
+    first_dir.mkdir()
+    (first_dir / "alpha.txt").write_text("alpha", encoding="utf-8")
+    (first_dir / "beta.txt").write_text("beta", encoding="utf-8")
+
+    second_dir = tmp_path / "second"
+    second_dir.mkdir()
+    (second_dir / "gamma.txt").write_text("gamma", encoding="utf-8")
+
+    reader = OnAttachDirectorySeedReader(label_prefix="plugin")
+
+    reader.attach(DirectorySeedSource(path=str(first_dir), file_pattern="*.txt"), PlaintextResolver())
+    first_df = reader.create_duckdb_connection().execute(f"SELECT * FROM '{reader.get_dataset_uri()}'").df()
+
+    assert reader.attach_call_count == 1
+    assert reader.get_seed_dataset_size() == 2
+    assert list(first_df["label"]) == ["plugin:alpha.txt", "plugin:beta.txt"]
+
+    reader.attach(DirectorySeedSource(path=str(second_dir), file_pattern="*.txt"), PlaintextResolver())
+    second_df = reader.create_duckdb_connection().execute(f"SELECT * FROM '{reader.get_dataset_uri()}'").df()
+
+    assert reader.attach_call_count == 2
+    assert reader.get_seed_dataset_size() == 1
+    assert list(second_df["relative_path"]) == ["gamma.txt"]
+    assert list(second_df["label"]) == ["plugin:gamma.txt"]
 
 
 def test_seed_reader_reuses_cached_duckdb_connection_until_reattach() -> None:
