@@ -21,7 +21,7 @@ def test_format_context_text_includes_config_module_path() -> None:
         "config_module_path": "/some/path/to/config",
         "config_builder_file": "data_designer/config/config_builder.py",
         "base_config_file": "data_designer/config/base.py",
-        "families": [{"family": "columns", "count": 1, "files": ["/a.py"]}],
+        "families": [{"family": "columns", "count": 1, "files": ["data_designer/config/column_configs.py"]}],
         "types": {
             "columns": [{"type_name": "a", "description": "A thing."}],
         },
@@ -44,10 +44,10 @@ def test_format_context_text_includes_config_module_path() -> None:
 # --- format_types_text ---
 
 
-def test_format_types_text_single_family_shows_file_above_table() -> None:
+def test_format_types_text_single_family_strips_config_prefix() -> None:
     data: dict[str, Any] = {
         "family": "columns",
-        "files": ["/path/to/column_configs.py"],
+        "files": ["data_designer/config/column_configs.py"],
         "items": [
             {"type_name": "alpha", "description": "Alpha desc."},
             {"type_name": "beta", "description": "Beta desc."},
@@ -56,7 +56,7 @@ def test_format_types_text_single_family_shows_file_above_table() -> None:
     result = format_types_text(data)
 
     assert "### columns" in result
-    assert "file: /path/to/column_configs.py" in result
+    assert "file: column_configs.py" in result
     assert "alpha" in result
     assert "Alpha desc." in result
 
@@ -64,8 +64,8 @@ def test_format_types_text_single_family_shows_file_above_table() -> None:
 def test_format_types_text_all_families_shows_file_per_family() -> None:
     data: dict[str, Any] = {
         "families": [
-            {"family": "columns", "count": 1, "files": ["/cols.py"]},
-            {"family": "samplers", "count": 1, "files": ["/samp.py"]},
+            {"family": "columns", "count": 1, "files": ["data_designer/config/column_configs.py"]},
+            {"family": "samplers", "count": 1, "files": ["data_designer/config/sampler_params.py"]},
         ],
         "items": {
             "columns": [{"type_name": "a", "description": "Desc A."}],
@@ -75,12 +75,12 @@ def test_format_types_text_all_families_shows_file_per_family() -> None:
     result = format_types_text(data)
 
     assert "### columns" in result
-    assert "file: /cols.py" in result
-    assert "file: /samp.py" in result
+    assert "file: column_configs.py" in result
+    assert "file: sampler_params.py" in result
 
 
 def test_format_types_text_empty_items() -> None:
-    data: dict[str, Any] = {"family": "columns", "files": ["/cols.py"], "items": []}
+    data: dict[str, Any] = {"family": "columns", "files": ["data_designer/config/column_configs.py"], "items": []}
     result = format_types_text(data)
 
     assert "(no items)" in result

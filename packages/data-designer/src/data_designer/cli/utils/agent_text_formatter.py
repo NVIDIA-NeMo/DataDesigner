@@ -107,7 +107,12 @@ def _format_table(
 
 def _format_model_aliases_context(state: dict[str, Any]) -> str:
     """Format model aliases for the context command, separating usable from unusable."""
-    lines: list[str] = [f"default_provider: {state.get('default_provider') or '(none)'}", ""]
+    lines: list[str] = []
+    if not state.get("model_config_present", True):
+        lines.append("No model config file found. Run `data-designer config models` to create one.")
+        return "\n".join(lines)
+    lines.append(f"default_provider: {state.get('default_provider') or '(none)'}")
+    lines.append("")
     items = state.get("items", [])
     usable = [i for i in items if i.get("usable")]
     unusable = [i for i in items if not i.get("usable")]
@@ -119,8 +124,9 @@ def _format_model_aliases_context(state: dict[str, Any]) -> str:
         )
     )
     if unusable:
-        aliases = ", ".join(i["model_alias"] for i in unusable)
-        lines.append(f"\n{len(unusable)} unusable aliases (missing API keys): {aliases}")
+        lines.append(f"\n{len(unusable)} unusable aliases:")
+        for item in unusable:
+            lines.append(f"  {item['model_alias']}: {item.get('reason', 'unknown')}")
     return "\n".join(lines)
 
 
