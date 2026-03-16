@@ -10,6 +10,8 @@ import pytest
 
 from data_designer.engine.resources.person_reader import (
     DATASETS_ROOT,
+    MEMORY_LIMIT,
+    THREADS,
     LocalPersonReader,
     create_person_reader,
 )
@@ -37,7 +39,7 @@ def test_local_reader_create_duckdb_connection(
     mock_duckdb: object, stub_reader: LocalPersonReader
 ) -> None:
     stub_reader.create_duckdb_connection()
-    mock_duckdb.connect.assert_called_once_with(config={"threads": 1, "memory_limit": "2 gb"})
+    mock_duckdb.connect.assert_called_once_with(config={"threads": THREADS, "memory_limit": MEMORY_LIMIT})
 
 
 def test_create_person_reader_returns_local_reader(stub_temp_dir: Path) -> None:
