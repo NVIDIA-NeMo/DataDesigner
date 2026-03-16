@@ -42,6 +42,8 @@ from data_designer.engine.resources.managed_storage import init_managed_blob_sto
 from data_designer.engine.resources.resource_provider import ResourceProvider, create_resource_provider
 from data_designer.engine.resources.seed_reader import (
     DataFrameSeedReader,
+    DirectorySeedReader,
+    FileContentsSeedReader,
     HuggingFaceSeedReader,
     LocalFileSeedReader,
     SeedReader,
@@ -88,6 +90,8 @@ DEFAULT_SEED_READERS = [
     HuggingFaceSeedReader(),
     LocalFileSeedReader(),
     DataFrameSeedReader(),
+    DirectorySeedReader(),
+    FileContentsSeedReader(),
 ]
 for plugin in PluginRegistry().get_plugins(PluginType.SEED_READER):
     DEFAULT_SEED_READERS.append(plugin.impl_cls())
@@ -205,12 +209,11 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
 
         resource_provider = self._create_resource_provider(dataset_name, config_builder)
 
-        builder = self._create_dataset_builder(config_builder.build(), resource_provider)
-
         try:
+            builder = self._create_dataset_builder(config_builder.build(), resource_provider)
             builder.build(num_records=num_records)
         except Exception as e:
-            raise DataDesignerGenerationError(f"🛑 Error generating dataset: {e}")
+            raise DataDesignerGenerationError(f"🛑 Error generating dataset: {e}") from e
 
         try:
             dataset_for_profiler = builder.artifact_storage.load_dataset_with_dropped_columns()
@@ -218,7 +221,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             raise DataDesignerGenerationError(
                 f"🛑 Failed to load generated dataset — all records may have been dropped "
                 f"due to generation failures. Check the warnings above for details. Original error: {e}"
-            )
+            ) from e
 
         # Defensive: the batch manager skips writing when the buffer is empty, so in
         # practice load_dataset_with_dropped_columns() would raise before returning a
@@ -233,7 +236,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             profiler = self._create_dataset_profiler(config_builder, resource_provider)
             analysis = profiler.profile_dataset(num_records, dataset_for_profiler)
         except Exception as e:
-            raise DataDesignerProfilingError(f"🛑 Error profiling dataset: {e}")
+            raise DataDesignerProfilingError(f"🛑 Error profiling dataset: {e}") from e
 
         dataset_metadata = resource_provider.get_dataset_metadata()
 
@@ -273,13 +276,12 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         logger.info(f"{RandomEmoji.previewing()} Preview generation in progress")
 
         resource_provider = self._create_resource_provider("preview-dataset", config_builder)
-        builder = self._create_dataset_builder(config_builder.build(), resource_provider)
-
         try:
+            builder = self._create_dataset_builder(config_builder.build(), resource_provider)
             raw_dataset = builder.build_preview(num_records=num_records)
             processed_dataset = builder.process_preview(raw_dataset)
         except Exception as e:
-            raise DataDesignerGenerationError(f"🛑 Error generating preview dataset: {e}")
+            raise DataDesignerGenerationError(f"🛑 Error generating preview dataset: {e}") from e
 
         if len(processed_dataset) == 0:
             raise DataDesignerGenerationError(
@@ -297,7 +299,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             profiler = self._create_dataset_profiler(config_builder, resource_provider)
             analysis = profiler.profile_dataset(num_records, dataset_for_profiler)
         except Exception as e:
-            raise DataDesignerProfilingError(f"🛑 Error profiling preview dataset: {e}")
+            raise DataDesignerProfilingError(f"🛑 Error profiling preview dataset: {e}") from e
 
         processor_artifacts: dict[str, list[dict]] = {}
         for name in builder.artifact_storage.list_processor_names():
