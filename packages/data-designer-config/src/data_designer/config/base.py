@@ -84,7 +84,7 @@ class ProcessorConfig(ConfigBase, ABC):
     name: str = Field(
         description=(
             "The name of the processor, used to identify the processor in the results "
-            "and to write the artifacts to disk. Must be a valid Python identifier."
+            "and to write the artifacts to disk."
         ),
     )
     processor_type: str
