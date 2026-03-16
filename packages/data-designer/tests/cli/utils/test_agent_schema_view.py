@@ -9,7 +9,7 @@ from typing import Literal
 import pytest
 from pydantic import Field
 
-from data_designer.cli.utils.pydantic_schema import (
+from data_designer.cli.utils.agent_schema_view import (
     PydanticFieldView,
     PydanticModelView,
     describe_pydantic_model,
@@ -113,7 +113,7 @@ class EnumFieldModel(ConfigBase):
 
 class AgentHiddenModel(ConfigBase):
     visible: str
-    hidden: bool = Field(default=False, json_schema_extra={"agent_hidden": True})
+    hidden: bool = False
 
 
 class DiscriminatorModel(ConfigBase):
@@ -164,7 +164,7 @@ class AllHiddenModel(ConfigBase):
     """All fields are hidden."""
 
     discriminator: Literal["test"] = "test"
-    internal: bool = Field(default=False, json_schema_extra={"agent_hidden": True})
+    internal: bool = False
 
 
 def get_field(view: PydanticModelView, field_name: str) -> PydanticFieldView:
@@ -279,8 +279,8 @@ def test_required_single_literal_is_not_suppressed() -> None:
     assert get_field(view, "tag").required is True
 
 
-def test_agent_hidden_field_is_suppressed() -> None:
-    view = describe_pydantic_model(AgentHiddenModel)
+def test_hidden_fields_parameter_suppresses_named_fields() -> None:
+    view = describe_pydantic_model(AgentHiddenModel, hidden_fields={"hidden"})
     assert [field.name for field in view.fields] == ["visible"]
 
 
@@ -405,7 +405,7 @@ def test_hidden_required_fields_are_removed_from_required_names() -> None:
 
 
 def test_all_fields_hidden_produces_valid_model_view() -> None:
-    view = describe_pydantic_model(AllHiddenModel, hidden_fields={"discriminator"})
+    view = describe_pydantic_model(AllHiddenModel, hidden_fields={"discriminator", "internal"})
 
     assert view.class_name == "AllHiddenModel"
     assert view.summary == "All fields are hidden."

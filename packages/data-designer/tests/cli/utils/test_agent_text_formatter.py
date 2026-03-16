@@ -7,7 +7,11 @@ from typing import Any
 
 import pytest
 
-from data_designer.cli.services.agent_context_service import AgentContextService
+from data_designer.cli.utils.agent_introspection import get_family_schema
+from data_designer.cli.utils.agent_schema_view import (
+    PydanticFieldView,
+    PydanticModelView,
+)
 from data_designer.cli.utils.agent_text_formatter import (
     format_builder_text,
     format_context_text,
@@ -16,12 +20,6 @@ from data_designer.cli.utils.agent_text_formatter import (
     format_schema_text,
     format_types_text,
 )
-from data_designer.cli.utils.pydantic_schema import (
-    PydanticFieldView,
-    PydanticModelView,
-)
-
-_SERVICE = AgentContextService()
 
 # --- format_context_text ---
 
@@ -282,25 +280,32 @@ def test_format_persona_datasets_text() -> None:
     ids=["columns-llm-text", "columns-sampler", "samplers-category", "validators-code", "constraints-scalar"],
 )
 def test_format_schema_text_on_real_config_models(family: str, type_name: str) -> None:
-    schema_data = _SERVICE.get_family_schema(family, type_name)
+    schema_data = get_family_schema(family, type_name)
     result = format_schema_text(schema_data)
 
     assert schema_data["class_name"] in result
     assert schema_data["import_path"] in result
 
 
-def test_real_column_schema_excludes_discriminator_and_includes_allow_resize() -> None:
-    schema_data = _SERVICE.get_family_schema("columns", "llm-code")
+def test_real_column_schema_excludes_discriminator_and_allow_resize() -> None:
+    schema_data = get_family_schema("columns", "llm-code")
     text = format_schema_text(schema_data)
 
     assert "column_type:" not in text
-    assert "allow_resize: bool = False" in text
+    assert "allow_resize" not in text
     assert "Example: dd.LLMCodeColumnConfig(" in text
     assert "values:" in text
 
 
+def test_custom_column_schema_shows_allow_resize() -> None:
+    schema_data = get_family_schema("columns", "custom")
+    text = format_schema_text(schema_data)
+
+    assert "allow_resize: bool = False" in text
+
+
 def test_real_judge_schema_expands_score_and_shows_enum_values() -> None:
-    schema_data = _SERVICE.get_family_schema("columns", "llm-judge")
+    schema_data = get_family_schema("columns", "llm-judge")
     text = format_schema_text(schema_data)
 
     assert "Score:" in text

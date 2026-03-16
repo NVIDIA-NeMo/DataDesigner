@@ -3,9 +3,7 @@
 
 from __future__ import annotations
 
-import inspect
 import re
-import sys
 import types
 from dataclasses import dataclass
 from enum import Enum
@@ -41,7 +39,7 @@ def describe_pydantic_model(
     max_depth: int = 1,
 ) -> PydanticModelView:
     """Describe a Pydantic model as structured metadata for downstream renderers."""
-    return _describe_pydantic_model(
+    return _describe_model(
         pydantic_model,
         hidden_fields=frozenset(hidden_fields or ()),
         depth=0,
@@ -49,7 +47,7 @@ def describe_pydantic_model(
     )
 
 
-def _describe_pydantic_model(
+def _describe_model(
     pydantic_model: type[BaseModel],
     *,
     hidden_fields: frozenset[str],
@@ -57,16 +55,15 @@ def _describe_pydantic_model(
     max_depth: int,
 ) -> PydanticModelView:
     summary = _extract_first_paragraph(pydantic_model.__doc__) if pydantic_model.__doc__ else None
-    resolved_annotations = _resolve_annotations(pydantic_model)
     fields: list[PydanticFieldView] = []
     required_field_names: list[str] = []
     expanded_models: set[type[BaseModel]] = set()
 
     for name, info in pydantic_model.model_fields.items():
-        if name in hidden_fields or _is_agent_hidden(info):
+        if name in hidden_fields:
             continue
 
-        annotation = resolved_annotations.get(name, info.annotation)
+        annotation = info.annotation
         required = info.is_required()
         if required:
             required_field_names.append(name)
@@ -79,12 +76,7 @@ def _describe_pydantic_model(
             elif depth < max_depth and leaf not in expanded_models:
                 expanded_models.add(leaf)
                 nested_models.append(
-                    _describe_pydantic_model(
-                        leaf,
-                        hidden_fields=frozenset(),
-                        depth=depth + 1,
-                        max_depth=max_depth,
-                    )
+                    _describe_model(leaf, hidden_fields=frozenset(), depth=depth + 1, max_depth=max_depth)
                 )
 
         fields.append(
@@ -107,26 +99,7 @@ def _describe_pydantic_model(
     )
 
 
-def _resolve_annotations(pydantic_model: type[BaseModel]) -> dict[str, Any]:
-    """Resolve field annotations across the MRO, including deferred strings on Python 3.10."""
-    resolved: dict[str, Any] = {}
-    for klass in reversed(pydantic_model.__mro__):
-        if not vars(klass).get("__annotations__"):
-            continue
-        module = sys.modules.get(klass.__module__)
-        globalns = getattr(module, "__dict__", {}) if module else {}
-        localns = {klass.__name__: klass, **vars(klass)}
-        try:
-            resolved.update(inspect.get_annotations(klass, globals=globalns, locals=localns, eval_str=True))
-        except NameError:
-            continue
-    return resolved
-
-
-def _is_agent_hidden(info: FieldInfo) -> bool:
-    """Return True for fields explicitly marked as hidden from agent schema output."""
-    extra = info.json_schema_extra
-    return isinstance(extra, dict) and extra.get("agent_hidden", False)
+# --- Field helpers ---
 
 
 def _format_type(annotation: Any) -> str:
@@ -151,7 +124,6 @@ def _format_type(annotation: Any) -> str:
 
 
 def _format_default(info: FieldInfo) -> str:
-    """Format a field default for display."""
     if info.default_factory is not None:
         return f"{getattr(info.default_factory, '__name__', repr(info.default_factory))}()"
     default = info.default.value if isinstance(info.default, Enum) else info.default
@@ -160,7 +132,6 @@ def _format_default(info: FieldInfo) -> str:
 
 def _find_expandable_leaves(annotation: Any) -> list[type]:
     """Return Enum and nested Pydantic model leaves for supported annotation shapes."""
-    annotation = _unwrap_annotated(annotation)
     origin = get_origin(annotation)
 
     if origin is None and isinstance(annotation, type):
@@ -184,13 +155,10 @@ def _find_expandable_leaves(annotation: Any) -> list[type]:
     return []
 
 
-def _unwrap_annotated(annotation: Any) -> Any:
-    """Strip Annotated[T, ...] wrappers, returning the inner type."""
-    return get_args(annotation)[0] if hasattr(annotation, "__metadata__") else annotation
+# --- Docstring helpers ---
 
 
 def _extract_first_paragraph(docstring: str) -> str | None:
-    """Extract the first paragraph of a docstring, before any blank line or section header."""
     lines: list[str] = []
     for line in docstring.strip().splitlines():
         stripped = line.strip()
@@ -204,7 +172,6 @@ def _extract_first_paragraph(docstring: str) -> str | None:
 
 
 def _strip_module_paths(text: str) -> str:
-    """Remove module-path prefixes from a type string (e.g. 'foo.bar.Baz' -> 'Baz')."""
     return _MODULE_PATH_RE.sub(lambda match: match.group().rsplit(".", 1)[-1], text)
 
 

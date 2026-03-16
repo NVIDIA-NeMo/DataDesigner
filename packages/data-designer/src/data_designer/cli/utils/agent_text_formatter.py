@@ -6,7 +6,7 @@ from __future__ import annotations
 import importlib.metadata
 from typing import Any
 
-from data_designer.cli.utils.pydantic_schema import PydanticModelView
+from data_designer.cli.utils.agent_schema_view import PydanticModelView
 
 
 def format_context_text(data: dict[str, Any]) -> str:
