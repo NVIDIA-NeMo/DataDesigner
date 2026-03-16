@@ -7,11 +7,7 @@ from pathlib import Path
 
 from data_designer.cli.repositories.model_repository import ModelConfigRegistry, ModelRepository
 from data_designer.cli.repositories.provider_repository import ModelProviderRegistry, ProviderRepository
-from data_designer.cli.utils.agent_introspection import (
-    get_context,
-    get_model_aliases_state,
-    get_persona_datasets_state,
-)
+from data_designer.cli.services.agent_context_service import AgentContextService
 from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig, ModelProvider
 
 
@@ -63,7 +59,7 @@ def test_get_model_aliases_state_reports_provider_status(tmp_path: Path) -> None
         )
     )
 
-    payload = get_model_aliases_state(tmp_path)
+    payload = AgentContextService().get_model_aliases_state(tmp_path)
 
     assert payload["model_config_present"] is True
     assert payload["provider_config_present"] is True
@@ -100,7 +96,7 @@ def test_get_model_aliases_state_reports_provider_status(tmp_path: Path) -> None
 
 
 def test_get_model_aliases_state_handles_missing_local_files(tmp_path: Path) -> None:
-    payload = get_model_aliases_state(tmp_path)
+    payload = AgentContextService().get_model_aliases_state(tmp_path)
 
     assert payload == {
         "model_config_present": False,
@@ -115,7 +111,7 @@ def test_get_persona_datasets_state_reports_installed_locales(tmp_path: Path) ->
     managed_assets_dir.mkdir(parents=True)
     (managed_assets_dir / "en_US.parquet").write_text("stub")
 
-    payload = get_persona_datasets_state(tmp_path)
+    payload = AgentContextService().get_persona_datasets_state(tmp_path)
 
     assert payload["managed_assets_directory"] == str(managed_assets_dir)
     installed_by_locale = {item["locale"]: item["installed"] for item in payload["items"]}
@@ -124,7 +120,7 @@ def test_get_persona_datasets_state_reports_installed_locales(tmp_path: Path) ->
 
 
 def test_get_context_returns_self_describing_payload(tmp_path: Path) -> None:
-    payload = get_context(tmp_path)
+    payload = AgentContextService().get_context(tmp_path)
 
     operation_names = [operation["name"] for operation in payload["operations"]]
     assert operation_names == [

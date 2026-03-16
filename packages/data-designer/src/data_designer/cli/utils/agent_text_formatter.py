@@ -3,16 +3,16 @@
 
 from __future__ import annotations
 
+import importlib.metadata
 from typing import Any
 
-from data_designer.cli.utils.agent_introspection import get_library_version
 from data_designer.cli.utils.pydantic_schema import PydanticModelView
 
 
 def format_context_text(data: dict[str, Any]) -> str:
     """Format the full context payload as sectioned text with tables."""
     sections = [
-        f"Data Designer v{get_library_version()}",
+        f"Data Designer v{_get_library_version()}",
         "",
         "import data_designer.config as dd",
         "",
@@ -136,6 +136,13 @@ def _cell(value: Any) -> str:
     if value is None:
         return ""
     return str(value)
+
+
+def _get_library_version() -> str:
+    try:
+        return importlib.metadata.version("data-designer")
+    except importlib.metadata.PackageNotFoundError:
+        return "unknown"
 
 
 def _format_model_schema(pydantic_model: PydanticModelView, import_path: str, *, depth: int = 0) -> str:
