@@ -228,6 +228,8 @@ class AsyncTaskScheduler:
                     self._buffer_manager.checkpoint_row_group(rg_id)
                 if self._on_row_group_complete:
                     self._on_row_group_complete(rg_id)
+            except Exception:
+                logger.error(f"Failed to checkpoint row group {rg_id}.", exc_info=True)
             finally:
                 self._rg_semaphore.release()
 
@@ -430,7 +432,7 @@ class AsyncTaskScheduler:
             # Map result rows (which exclude dropped) back to buffer indices
             active_rows = rg_size - len(dropped)
             if len(result_df) != active_rows:
-                logger.warning(
+                raise ValueError(
                     f"Batch generator for '{task.column}' returned {len(result_df)} rows "
                     f"but {active_rows} were expected (rg={task.row_group})."
                 )
@@ -438,10 +440,9 @@ class AsyncTaskScheduler:
             for ri in range(rg_size):
                 if ri in dropped:
                     continue
-                if result_idx < len(result_df):
-                    for col in output_cols:
-                        if col in result_df.columns:
-                            self._buffer_manager.update_cell(task.row_group, ri, col, result_df.iloc[result_idx][col])
+                for col in output_cols:
+                    if col in result_df.columns:
+                        self._buffer_manager.update_cell(task.row_group, ri, col, result_df.iloc[result_idx][col])
                 result_idx += 1
 
         return result_df
