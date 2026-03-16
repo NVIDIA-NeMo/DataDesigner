@@ -49,7 +49,7 @@ class LocalPersonReader(PersonReader):
         return f"{self._root_path}/{DATASETS_ROOT}/{locale}.parquet"
 
 
-def init_person_reader(assets_storage: str) -> PersonReader:
+def create_person_reader(assets_storage: str) -> PersonReader:
     path = Path(assets_storage)
     if not path.exists():
         raise RuntimeError(f"Local storage path {assets_storage!r} does not exist.")

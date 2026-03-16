@@ -11,7 +11,7 @@ import pytest
 from data_designer.engine.resources.person_reader import (
     DATASETS_ROOT,
     LocalPersonReader,
-    init_person_reader,
+    create_person_reader,
 )
 
 
@@ -40,11 +40,11 @@ def test_local_reader_create_duckdb_connection(
     mock_duckdb.connect.assert_called_once_with(config={"threads": 1, "memory_limit": "2 gb"})
 
 
-def test_init_person_reader_returns_local_reader(stub_temp_dir: Path) -> None:
-    reader = init_person_reader(str(stub_temp_dir))
+def test_create_person_reader_returns_local_reader(stub_temp_dir: Path) -> None:
+    reader = create_person_reader(str(stub_temp_dir))
     assert isinstance(reader, LocalPersonReader)
 
 
-def test_init_person_reader_nonexistent_path() -> None:
+def test_create_person_reader_nonexistent_path() -> None:
     with pytest.raises(RuntimeError, match="does not exist"):
-        init_person_reader("/nonexistent/path")
+        create_person_reader("/nonexistent/path")

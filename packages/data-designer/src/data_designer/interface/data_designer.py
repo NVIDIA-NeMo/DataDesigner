@@ -40,7 +40,7 @@ from data_designer.engine.mcp.io import list_tool_names
 from data_designer.engine.model_provider import resolve_model_provider_registry
 from data_designer.engine.resources.person_reader import (
     PersonReader,
-    init_person_reader,
+    create_person_reader,
 )
 from data_designer.engine.resources.resource_provider import ResourceProvider, create_resource_provider
 from data_designer.engine.resources.seed_reader import (
@@ -456,8 +456,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             model_configs=config_builder.model_configs,
             secret_resolver=self._secret_resolver,
             model_provider_registry=self._model_provider_registry,
-            person_reader=self._person_reader
-            or init_person_reader(str(self._managed_assets_path)),
+            person_reader=self._person_reader or create_person_reader(str(self._managed_assets_path)),
             seed_dataset_source=seed_dataset_source,
             seed_reader_registry=self._seed_reader_registry,
             run_config=self._run_config,
