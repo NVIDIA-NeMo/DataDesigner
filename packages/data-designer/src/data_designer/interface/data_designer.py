@@ -97,6 +97,10 @@ for plugin in PluginRegistry().get_plugins(PluginType.SEED_READER):
     DEFAULT_SEED_READERS.append(plugin.impl_cls())
 
 
+def _create_default_seed_readers() -> list[SeedReader]:
+    return [type(reader)() for reader in DEFAULT_SEED_READERS]
+
+
 class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
     """Main interface for creating datasets with Data Designer.
 
@@ -143,7 +147,8 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         self._model_provider_registry = resolve_model_provider_registry(
             self._model_providers, get_default_provider_name()
         )
-        self._seed_reader_registry = SeedReaderRegistry(readers=seed_readers or DEFAULT_SEED_READERS)
+        default_seed_readers = _create_default_seed_readers() if seed_readers is None else seed_readers
+        self._seed_reader_registry = SeedReaderRegistry(readers=default_seed_readers)
 
     @property
     def info(self) -> InterfaceInfo:

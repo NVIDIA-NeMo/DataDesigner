@@ -44,20 +44,8 @@ class SeedReaderFileSystemContext:
     root_path: Path
 
 
-class SeedReaderBatch(Protocol):
-    def to_pandas(self) -> pd.DataFrame: ...
-
-
 class SeedReaderBatchReader(Protocol):
-    def read_next_batch(self) -> SeedReaderBatch: ...
-
-
-@dataclass
-class PandasSeedReaderBatch:
-    dataframe: pd.DataFrame
-
-    def to_pandas(self) -> pd.DataFrame:
-        return self.dataframe
+    def read_next_batch(self) -> pd.DataFrame: ...
 
 
 def create_seed_reader_output_dataframe(
@@ -107,29 +95,30 @@ class DuckDBSeedReaderBatchReader:
         else:
             self._batch_reader = query_result.fetch_arrow_reader(batch_size=batch_size)
 
-    def read_next_batch(self) -> SeedReaderBatch:
-        return self._batch_reader.read_next_batch()
+    def read_next_batch(self) -> pd.DataFrame:
+        return self._batch_reader.read_next_batch().to_pandas()
 
 
-class HydratingSeedReaderBatchReader:
+class FileSystemSeedReaderBatchReader:
     def __init__(
         self,
         *,
-        manifest_batch_reader: SeedReaderBatchReader,
-        hydrate_records: Callable[[list[dict[str, Any]]], list[dict[str, Any]]],
-        output_columns: list[str],
+        manifest_dataframe: pd.DataFrame,
+        batch_size: int,
+        hydrate_manifest_dataframe: Callable[[pd.DataFrame], pd.DataFrame],
     ) -> None:
-        self._manifest_batch_reader = manifest_batch_reader
-        self._hydrate_records = hydrate_records
-        self._output_columns = output_columns
+        self._manifest_dataframe = manifest_dataframe.reset_index(drop=True)
+        self._batch_size = batch_size
+        self._hydrate_manifest_dataframe = hydrate_manifest_dataframe
+        self._next_row_index = 0
 
-    def read_next_batch(self) -> SeedReaderBatch:
-        manifest_batch = self._manifest_batch_reader.read_next_batch()
-        manifest_records = manifest_batch.to_pandas().to_dict(orient="records")
-        hydrated_records = self._hydrate_records(manifest_records)
-        return PandasSeedReaderBatch(
-            create_seed_reader_output_dataframe(records=hydrated_records, output_columns=self._output_columns)
-        )
+    def read_next_batch(self) -> pd.DataFrame:
+        if self._next_row_index >= len(self._manifest_dataframe):
+            raise StopIteration
+
+        batch_df = self._manifest_dataframe.iloc[self._next_row_index : self._next_row_index + self._batch_size]
+        self._next_row_index += self._batch_size
+        return self._hydrate_manifest_dataframe(batch_df.reset_index(drop=True))
 
 
 SourceT = TypeVar("SourceT", bound=SeedSource)
@@ -205,38 +194,6 @@ class SeedReader(ABC, Generic[SourceT]):
         )
         query_result = conn.query(read_query)
         return DuckDBSeedReaderBatchReader(conn=conn, query_result=query_result, batch_size=batch_size)
-
-    def create_filesystem_context(self, root_path: Path | str) -> SeedReaderFileSystemContext:
-        """Create a rooted filesystem context for directory-backed seed readers."""
-        resolved_root_path = Path(root_path).expanduser().resolve()
-        rooted_fs = DirFileSystem(path=str(resolved_root_path), fs=LocalFileSystem())
-        return SeedReaderFileSystemContext(fs=rooted_fs, root_path=resolved_root_path)
-
-    def get_matching_relative_paths(
-        self,
-        *,
-        context: SeedReaderFileSystemContext,
-        file_pattern: str,
-        recursive: bool,
-    ) -> list[str]:
-        # In fsspec, maxdepth=1 means files directly under the root
-        # (depth 0 = the root itself, depth 1 = direct children).
-        max_depth = None if recursive else 1
-        relative_paths = [
-            _normalize_relative_path(path) for path in context.fs.find("", withdirs=False, maxdepth=max_depth)
-        ]
-        matched_paths = [
-            relative_path
-            for relative_path in relative_paths
-            if fnmatchcase(PurePosixPath(relative_path).name, file_pattern)
-        ]
-        matched_paths.sort()
-
-        if not matched_paths:
-            search_scope = "under" if recursive else "directly under"
-            raise SeedReaderError(f"No files matched file_pattern {file_pattern!r} {search_scope} {context.root_path}")
-
-        return matched_paths
 
     def get_column_names(self) -> list[str]:
         """Returns the seed dataset's column names"""
@@ -350,6 +307,7 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
     """
 
     output_columns: list[str] | None = None
+    source_kind: str
 
     def _reset_attachment_state(self) -> None:
         super()._reset_attachment_state()
@@ -397,26 +355,58 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
         shuffle: bool,
     ) -> SeedReaderBatchReader:
         self._ensure_attached()
-        context = self._get_filesystem_context()
-        conn = self.create_dataframe_duckdb_connection(
-            table_name=self._get_manifest_dataset_uri(),
-            dataframe=self._get_row_manifest_dataframe(),
+        return FileSystemSeedReaderBatchReader(
+            manifest_dataframe=self._select_manifest_dataframe(index_range=index_range, shuffle=shuffle),
+            batch_size=batch_size,
+            hydrate_manifest_dataframe=self._hydrate_manifest_dataframe,
         )
-        read_query = self.build_dataset_read_query(
-            dataset_uri=self._get_manifest_dataset_uri(),
-            index_range=index_range,
-            shuffle=shuffle,
+
+    def create_filesystem_context(self, root_path: Path | str) -> SeedReaderFileSystemContext:
+        """Create a rooted filesystem context for directory-backed seed readers."""
+        resolved_root_path = Path(root_path).expanduser().resolve()
+        rooted_fs = DirFileSystem(path=str(resolved_root_path), fs=LocalFileSystem())
+        return SeedReaderFileSystemContext(fs=rooted_fs, root_path=resolved_root_path)
+
+    def get_matching_relative_paths(
+        self,
+        *,
+        context: SeedReaderFileSystemContext,
+        file_pattern: str,
+        recursive: bool,
+    ) -> list[str]:
+        # In fsspec, maxdepth=1 means files directly under the root
+        # (depth 0 = the root itself, depth 1 = direct children).
+        max_depth = None if recursive else 1
+        relative_paths = [
+            _normalize_relative_path(path) for path in context.fs.find("", withdirs=False, maxdepth=max_depth)
+        ]
+        matched_paths = [
+            relative_path
+            for relative_path in relative_paths
+            if fnmatchcase(PurePosixPath(relative_path).name, file_pattern)
+        ]
+        matched_paths.sort()
+
+        if not matched_paths:
+            search_scope = "under" if recursive else "directly under"
+            raise SeedReaderError(f"No files matched file_pattern {file_pattern!r} {search_scope} {context.root_path}")
+
+        return matched_paths
+
+    def _build_metadata_manifest(self, *, context: SeedReaderFileSystemContext) -> list[dict[str, str]]:
+        matched_paths = self.get_matching_relative_paths(
+            context=context,
+            file_pattern=self.source.file_pattern,
+            recursive=self.source.recursive,
         )
-        query_result = conn.query(read_query)
-        manifest_batch_reader = DuckDBSeedReaderBatchReader(conn=conn, query_result=query_result, batch_size=batch_size)
-        return HydratingSeedReaderBatchReader(
-            manifest_batch_reader=manifest_batch_reader,
-            hydrate_records=lambda manifest_records: self._hydrate_rows(
-                manifest_rows=manifest_records,
+        return [
+            _build_metadata_record(
                 context=context,
-            ),
-            output_columns=self.get_output_column_names(),
-        )
+                relative_path=relative_path,
+                source_kind=self.source_kind,
+            )
+            for relative_path in matched_paths
+        ]
 
     def _get_row_manifest_dataframe(self) -> pd.DataFrame:
         self._ensure_attached()
@@ -439,17 +429,9 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
         if output_df is not None:
             return output_df
 
-        context = self._get_filesystem_context()
-        hydrated_records = self._hydrate_rows(
-            manifest_rows=self._get_row_manifest_dataframe().to_dict(orient="records"),
-            context=context,
-        )
-        if not hydrated_records:
-            raise SeedReaderError(f"Seed source at {self.source.path} did not produce any rows")
-
-        self._output_df = create_seed_reader_output_dataframe(
-            records=hydrated_records,
-            output_columns=self.get_output_column_names(),
+        self._output_df = self._hydrate_manifest_dataframe(
+            self._get_row_manifest_dataframe(),
+            raise_on_empty=True,
         )
         return self._output_df
 
@@ -461,9 +443,6 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
             self._filesystem_context = context
         return context
 
-    def _get_manifest_dataset_uri(self) -> str:
-        return self._build_internal_table_name("manifest")
-
     def _build_internal_table_name(self, suffix: str) -> str:
         seed_type = self.get_seed_type().replace("-", "_")
         return f"seed_reader_{seed_type}_{suffix}"
@@ -472,6 +451,37 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
         if isinstance(rows, lazy.pd.DataFrame):
             return rows.copy()
         return lazy.pd.DataFrame(rows)
+
+    def _select_manifest_dataframe(
+        self,
+        *,
+        index_range: IndexRange | None,
+        shuffle: bool,
+    ) -> pd.DataFrame:
+        manifest_df = self._get_row_manifest_dataframe()
+        if index_range is not None:
+            manifest_df = manifest_df.iloc[index_range.start : index_range.end + 1]
+        if shuffle:
+            manifest_df = manifest_df.sample(frac=1)
+        return manifest_df.reset_index(drop=True)
+
+    def _hydrate_manifest_dataframe(
+        self,
+        manifest_dataframe: pd.DataFrame,
+        *,
+        raise_on_empty: bool = False,
+    ) -> pd.DataFrame:
+        context = self._get_filesystem_context()
+        hydrated_records = self._hydrate_rows(
+            manifest_rows=manifest_dataframe.to_dict(orient="records"),
+            context=context,
+        )
+        if raise_on_empty and not hydrated_records:
+            raise SeedReaderError(f"Seed source at {self.source.path} did not produce any rows")
+        return create_seed_reader_output_dataframe(
+            records=hydrated_records,
+            output_columns=self.get_output_column_names(),
+        )
 
     def _hydrate_rows(
         self,
@@ -483,39 +493,18 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
 
 
 class DirectorySeedReader(FileSystemSeedReader[DirectorySeedSource]):
+    source_kind = "directory_file"
+
     def build_manifest(self, *, context: SeedReaderFileSystemContext) -> pd.DataFrame | list[dict[str, Any]]:
-        matched_paths = self.get_matching_relative_paths(
-            context=context,
-            file_pattern=self.source.file_pattern,
-            recursive=self.source.recursive,
-        )
-        return [
-            _build_metadata_record(
-                context=context,
-                relative_path=relative_path,
-                source_kind="directory_file",
-            )
-            for relative_path in matched_paths
-        ]
+        return self._build_metadata_manifest(context=context)
 
 
 class FileContentsSeedReader(FileSystemSeedReader[FileContentsSeedSource]):
+    source_kind = "file_contents"
     output_columns = ["source_kind", "source_path", "relative_path", "file_name", "content"]
 
     def build_manifest(self, *, context: SeedReaderFileSystemContext) -> pd.DataFrame | list[dict[str, Any]]:
-        matched_paths = self.get_matching_relative_paths(
-            context=context,
-            file_pattern=self.source.file_pattern,
-            recursive=self.source.recursive,
-        )
-        return [
-            _build_metadata_record(
-                context=context,
-                relative_path=relative_path,
-                source_kind="file_contents",
-            )
-            for relative_path in matched_paths
-        ]
+        return self._build_metadata_manifest(context=context)
 
     def hydrate_row(
         self,

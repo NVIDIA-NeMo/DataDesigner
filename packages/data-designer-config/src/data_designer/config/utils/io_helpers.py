@@ -27,6 +27,10 @@ logger = logging.getLogger(__name__)
 MAX_CONFIG_URL_SIZE_BYTES = 1 * 1024 * 1024  # 1 MB
 VALID_DATASET_FILE_EXTENSIONS = {".parquet", ".csv", ".json", ".jsonl"}
 VALID_CONFIG_FILE_EXTENSIONS = {".yaml", ".yml", ".json"}
+RELATIVE_PATH_CWD_RESOLUTION_DESCRIPTION = (
+    "Relative paths are resolved from the current working directory when the config is loaded, "
+    "not from the config file location."
+)
 
 
 def ensure_config_dir_exists(config_dir: Path) -> None:
@@ -175,6 +179,14 @@ def validate_path_contains_files_of_type(path: str | Path, file_extension: str) 
     """
     if not any(Path(path).glob(f"*.{file_extension}")):
         raise InvalidFilePathError(f"🛑 Path {path!r} does not contain files of type {file_extension!r}.")
+
+
+def validate_directory_path(directory_path: str | Path) -> Path:
+    """Validate that a path points to an existing directory."""
+    directory_path = Path(directory_path).expanduser().resolve()
+    if not directory_path.is_dir():
+        raise InvalidFilePathError(f"🛑 Path {directory_path} is not a directory.")
+    return directory_path
 
 
 def smart_load_dataframe(dataframe: str | Path | pd.DataFrame) -> pd.DataFrame:

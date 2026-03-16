@@ -245,12 +245,8 @@ def test_seed_dataset_column_generator_reset_batch_reader_forwards_index_range(
 def test_seed_dataset_column_generator_sample_records_simple(stub_seed_dataset_generator):
     gen = stub_seed_dataset_generator
 
-    # Mock batch reader to return data
-    mock_batch = Mock()
-    mock_batch.to_pandas.return_value = lazy.pd.DataFrame({"col1": [1, 2, 3]})
-
     gen._batch_reader = Mock()
-    gen._batch_reader.read_next_batch.return_value = mock_batch
+    gen._batch_reader.read_next_batch.return_value = lazy.pd.DataFrame({"col1": [1, 2, 3]})
 
     result = gen._sample_records(3)
 
@@ -263,12 +259,8 @@ def test_seed_dataset_column_generator_sample_records_simple(stub_seed_dataset_g
 def test_seed_dataset_column_generator_sample_records_with_remaining(stub_seed_dataset_generator):
     gen = stub_seed_dataset_generator
 
-    # Mock batch reader to return more data than requested
-    mock_batch = Mock()
-    mock_batch.to_pandas.return_value = lazy.pd.DataFrame({"col1": [1, 2, 3, 4, 5]})
-
     gen._batch_reader = Mock()
-    gen._batch_reader.read_next_batch.return_value = mock_batch
+    gen._batch_reader.read_next_batch.return_value = lazy.pd.DataFrame({"col1": [1, 2, 3, 4, 5]})
 
     result = gen._sample_records(3)
 
@@ -284,12 +276,8 @@ def test_seed_dataset_column_generator_sample_records_with_previous_remaining(st
     gen = stub_seed_dataset_generator
     gen._df_remaining = lazy.pd.DataFrame({"col1": [10, 11]})
 
-    # Mock batch reader to return additional data
-    mock_batch = Mock()
-    mock_batch.to_pandas.return_value = lazy.pd.DataFrame({"col1": [1, 2, 3]})
-
     gen._batch_reader = Mock()
-    gen._batch_reader.read_next_batch.return_value = mock_batch
+    gen._batch_reader.read_next_batch.return_value = lazy.pd.DataFrame({"col1": [1, 2, 3]})
 
     result = gen._sample_records(4)
 
@@ -304,15 +292,11 @@ def test_seed_dataset_column_generator_sample_records_with_previous_remaining(st
 def test_seed_dataset_column_generator_sample_records_with_stop_iteration(stub_seed_dataset_generator):
     gen = stub_seed_dataset_generator
 
-    # First call raises StopIteration, then returns data after reset
-    mock_batch1 = Mock()
-    mock_batch1.to_pandas.side_effect = StopIteration()
-
-    mock_batch2 = Mock()
-    mock_batch2.to_pandas.return_value = lazy.pd.DataFrame({"col1": [1, 2, 3]})
-
     gen._batch_reader = Mock()
-    gen._batch_reader.read_next_batch.side_effect = [mock_batch1, mock_batch2]
+    gen._batch_reader.read_next_batch.side_effect = [
+        StopIteration(),
+        lazy.pd.DataFrame({"col1": [1, 2, 3]}),
+    ]
 
     gen._reset_batch_reader = Mock()
 
@@ -326,12 +310,8 @@ def test_seed_dataset_column_generator_sample_records_with_stop_iteration(stub_s
 def test_seed_dataset_column_generator_sample_records_zero_record_error(stub_seed_dataset_generator):
     gen = stub_seed_dataset_generator
 
-    # Mock batch reader to always return empty dataframes
-    mock_batch = Mock()
-    mock_batch.to_pandas.return_value = lazy.pd.DataFrame({"col1": []})
-
     gen._batch_reader = Mock()
-    gen._batch_reader.read_next_batch.return_value = mock_batch
+    gen._batch_reader.read_next_batch.return_value = lazy.pd.DataFrame({"col1": []})
 
     with pytest.raises(RuntimeError, match="🛑 Something went wrong while reading from the datastore"):
         gen._sample_records(3)
@@ -340,15 +320,11 @@ def test_seed_dataset_column_generator_sample_records_zero_record_error(stub_see
 def test_seed_dataset_column_generator_sample_records_multiple_batches(stub_seed_dataset_generator):
     gen = stub_seed_dataset_generator
 
-    # Mock batch reader to return data in multiple batches
-    mock_batch1 = Mock()
-    mock_batch1.to_pandas.return_value = lazy.pd.DataFrame({"col1": [1, 2]})
-
-    mock_batch2 = Mock()
-    mock_batch2.to_pandas.return_value = lazy.pd.DataFrame({"col1": [3, 4]})
-
     gen._batch_reader = Mock()
-    gen._batch_reader.read_next_batch.side_effect = [mock_batch1, mock_batch2]
+    gen._batch_reader.read_next_batch.side_effect = [
+        lazy.pd.DataFrame({"col1": [1, 2]}),
+        lazy.pd.DataFrame({"col1": [3, 4]}),
+    ]
 
     result = gen._sample_records(4)
 

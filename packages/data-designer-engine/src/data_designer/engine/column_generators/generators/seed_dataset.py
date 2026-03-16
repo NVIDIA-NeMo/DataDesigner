@@ -108,10 +108,11 @@ class SeedDatasetColumnGenerator(FromScratchColumnGenerator[SeedDatasetMultiColu
 
         while len(df_sample) < num_records:
             try:
-                df_batch = self._batch_reader.read_next_batch().to_pandas()
+                df_batch = self._batch_reader.read_next_batch()
                 df_sample = lazy.pd.concat([df_sample, df_batch], ignore_index=True)
             except StopIteration:
                 self._reset_batch_reader(num_records)
+                continue
 
             if len(df_batch) == 0:
                 num_zero_record_responses += 1

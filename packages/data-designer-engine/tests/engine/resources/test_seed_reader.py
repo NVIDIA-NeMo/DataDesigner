@@ -332,7 +332,7 @@ def test_file_contents_seed_reader_hydrates_only_selected_manifest_rows(tmp_path
         index_range=IndexRange(start=1, end=1),
         shuffle=False,
     )
-    batch_df = batch_reader.read_next_batch().to_pandas()
+    batch_df = batch_reader.read_next_batch()
 
     assert list(batch_df["relative_path"]) == ["beta.txt"]
     assert list(batch_df["content"]) == ["beta"]
@@ -384,7 +384,7 @@ def test_filesystem_seed_reader_raises_for_undeclared_hydrated_columns(
                 index_range=IndexRange(start=0, end=0),
                 shuffle=False,
             )
-            batch_reader.read_next_batch().to_pandas()
+            batch_reader.read_next_batch()
         else:
             reader.create_duckdb_connection().execute(f"SELECT * FROM '{reader.get_dataset_uri()}'").df()
 
@@ -407,7 +407,7 @@ def test_filesystem_seed_reader_raises_for_missing_declared_hydrated_columns(
                 index_range=IndexRange(start=0, end=1),
                 shuffle=False,
             )
-            batch_reader.read_next_batch().to_pandas()
+            batch_reader.read_next_batch()
         else:
             reader.create_duckdb_connection().execute(f"SELECT * FROM '{reader.get_dataset_uri()}'").df()
 
@@ -434,7 +434,7 @@ def test_filesystem_seed_reader_reuses_filesystem_context_until_reattach(tmp_pat
         index_range=IndexRange(start=0, end=0),
         shuffle=False,
     )
-    assert list(batch_reader.read_next_batch().to_pandas()["relative_path"]) == ["alpha.txt"]
+    assert list(batch_reader.read_next_batch()["relative_path"]) == ["alpha.txt"]
     assert reader.filesystem_context_calls == 1
 
     first_df = reader.create_duckdb_connection().execute(f"SELECT * FROM '{reader.get_dataset_uri()}'").df()
@@ -459,7 +459,7 @@ def test_seed_reader_reuses_cached_duckdb_connection_until_reattach() -> None:
         shuffle=False,
     )
 
-    assert list(batch_reader.read_next_batch().to_pandas()["value"]) == [1, 2]
+    assert list(batch_reader.read_next_batch()["value"]) == [1, 2]
     assert reader.create_duckdb_connection_calls == 1
 
     reader.attach(DataFrameSeedSource(df=lazy.pd.DataFrame({"value": [9]})), PlaintextResolver())

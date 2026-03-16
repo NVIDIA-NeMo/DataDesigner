@@ -5,16 +5,16 @@ from __future__ import annotations
 
 import codecs
 from abc import ABC
-from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, Field, field_validator
 from typing_extensions import Self
 
-from data_designer.config.errors import InvalidFilePathError
 from data_designer.config.utils.io_helpers import (
+    RELATIVE_PATH_CWD_RESOLUTION_DESCRIPTION,
     VALID_DATASET_FILE_EXTENSIONS,
     validate_dataset_file_path,
+    validate_directory_path,
     validate_path_contains_files_of_type,
 )
 
@@ -37,10 +37,7 @@ class LocalFileSeedSource(SeedSource):
 
     path: str = Field(
         ...,
-        description=(
-            "Path to a local seed dataset file or wildcard pattern. Relative paths are resolved from the "
-            "current working directory when the config is loaded, not from the config file location."
-        ),
+        description=f"Path to a local seed dataset file or wildcard pattern. {RELATIVE_PATH_CWD_RESOLUTION_DESCRIPTION}",
     )
 
     @field_validator("path", mode="after")
@@ -79,10 +76,7 @@ class HuggingFaceSeedSource(SeedSource):
 class FileSystemSeedSource(SeedSource, ABC):
     path: str = Field(
         ...,
-        description=(
-            "Directory containing seed artifacts. Relative paths are resolved from the current working "
-            "directory when the config is loaded, not from the config file location."
-        ),
+        description=f"Directory containing seed artifacts. {RELATIVE_PATH_CWD_RESOLUTION_DESCRIPTION}",
     )
     file_pattern: str = Field(
         "*",
@@ -98,9 +92,7 @@ class FileSystemSeedSource(SeedSource, ABC):
 
     @field_validator("path", mode="after")
     def validate_path(cls, value: str) -> str:
-        path = Path(value).expanduser().resolve()
-        if not path.is_dir():
-            raise InvalidFilePathError(f"🛑 Path {path} is not a directory.")
+        validate_directory_path(value)
         return value
 
     @field_validator("file_pattern", mode="after")
