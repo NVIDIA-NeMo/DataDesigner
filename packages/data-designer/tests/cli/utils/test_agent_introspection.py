@@ -7,7 +7,7 @@ from data_designer.cli.utils.agent_introspection import (
     discover_family_types,
     get_config_package_path,
     get_family_catalog,
-    get_family_source_file,
+    get_family_source_files,
     get_family_spec,
     get_operations,
     get_types,
@@ -31,10 +31,11 @@ def test_get_family_catalog_includes_description() -> None:
     assert "Configuration for text generation" in item["description"]
 
 
-def test_get_family_source_file_returns_relative_path() -> None:
-    path = get_family_source_file("columns")
+def test_get_family_source_files_returns_relative_paths() -> None:
+    files = get_family_source_files("columns")
 
-    assert path == "data_designer/config/column_configs.py"
+    assert "data_designer/config/column_configs.py" in files
+    assert all(f.startswith("data_designer/") for f in files)
 
 
 def test_discover_family_types_returns_pydantic_classes() -> None:
@@ -58,14 +59,14 @@ def test_get_types_returns_all_families_when_no_family_given() -> None:
     assert "items" in data
     assert len(data["families"]) > 0
     assert all(f["family"] in data["items"] for f in data["families"])
-    assert all("file" in f for f in data["families"])
+    assert all("files" in f for f in data["families"])
 
 
 def test_get_types_returns_single_family() -> None:
     data = get_types("columns")
 
     assert data["family"] == "columns"
-    assert data["file"].endswith(".py")
+    assert all(f.endswith(".py") for f in data["files"])
     assert isinstance(data["items"], list)
     assert len(data["items"]) > 0
 

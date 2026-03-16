@@ -11,6 +11,7 @@ def format_context_text(data: dict[str, Any]) -> str:
     sections = [
         f"Data Designer v{data['library_version']}",
         f"config_package_path: {data['config_package_path']}",
+        f"config_builder_file: {data['config_builder_file']}",
         "",
         "Standard import for accessing config objects: import data_designer.config as dd",
         "",
@@ -71,11 +72,11 @@ def format_persona_datasets_text(state: dict[str, Any]) -> str:
 
 
 def _format_family_header(info: dict[str, Any]) -> str:
-    """Format a family header block with name and config_file."""
+    """Format a family header block with name and config file(s)."""
     name = info.get("family", "")
     lines = [f"### {name}"]
-    if info.get("file"):
-        lines.append(f"config_file: {info['file']}")
+    for path in info.get("files", []):
+        lines.append(f"config_file: {path}")
     lines.append("")
     return "\n".join(lines)
 

@@ -63,7 +63,8 @@ def get_library_version() -> str:
 
 
 def get_config_package_path() -> str:
-    return str(Path(inspect.getfile(dd)).parent)
+    """Return the parent directory of the data_designer package so that relative paths resolve directly."""
+    return str(Path(inspect.getfile(dd)).parents[1])
 
 
 def get_family_spec(family: str) -> FamilySpec:
@@ -102,9 +103,16 @@ def get_family_catalog(family: str) -> list[dict[str, str]]:
     ]
 
 
-def get_family_source_file(family: str) -> str:
+def get_family_source_files(family: str) -> list[str]:
     members = get_args(get_family_spec(family).type_union)
-    return _get_source_file(members[0]) if members else ""
+    seen: set[str] = set()
+    files: list[str] = []
+    for member in members:
+        path = _get_source_file(member)
+        if path and path not in seen:
+            seen.add(path)
+            files.append(path)
+    return files
 
 
 def get_operations() -> list[dict[str, str]]:
@@ -120,8 +128,9 @@ def get_context(config_dir: Path) -> dict[str, Any]:
     return {
         "library_version": get_library_version(),
         "config_package_path": get_config_package_path(),
+        "config_builder_file": "data_designer/config/config_builder.py",
         "operations": get_operations(),
-        "families": [{"family": f, "count": len(catalogs[f]), "file": get_family_source_file(f)} for f in families],
+        "families": [{"family": f, "count": len(catalogs[f]), "files": get_family_source_files(f)} for f in families],
         "types": catalogs,
         "state": {
             "model_aliases": get_model_aliases_state(config_dir),
@@ -135,11 +144,13 @@ def get_types(family: str | None) -> dict[str, Any]:
         families = get_family_names()
         catalogs = {f: get_family_catalog(f) for f in families}
         return {
-            "families": [{"family": f, "count": len(catalogs[f]), "file": get_family_source_file(f)} for f in families],
+            "families": [
+                {"family": f, "count": len(catalogs[f]), "files": get_family_source_files(f)} for f in families
+            ],
             "items": catalogs,
         }
     spec = get_family_spec(family)
-    return {"family": spec.name, "file": get_family_source_file(spec.name), "items": get_family_catalog(family)}
+    return {"family": spec.name, "files": get_family_source_files(spec.name), "items": get_family_catalog(family)}
 
 
 def get_model_aliases_state(config_dir: Path) -> dict[str, Any]:
@@ -259,11 +270,11 @@ def _get_source_file(cls: type) -> str:
     except (TypeError, OSError):
         return ""
     parts = full_path.parts
-    try:
-        idx = parts.index("data_designer")
-    except ValueError:
+    # Use last occurrence so nested paths (e.g. .../data_designer/venv/.../data_designer/config/foo.py) resolve correctly.
+    indices = [i for i, p in enumerate(parts) if p == "data_designer"]
+    if not indices:
         return str(full_path)
-    return str(Path(*parts[idx:]))
+    return str(Path(*parts[indices[-1] :]))
 
 
 def _load_registry(repo: Any) -> Any:
@@ -290,6 +301,8 @@ _SECTION_HEADERS = frozenset(
         "keyword arguments:",
         "note:",
         "notes:",
+        "parameters:",
+        "params:",
         "raises:",
         "references:",
         "returns:",

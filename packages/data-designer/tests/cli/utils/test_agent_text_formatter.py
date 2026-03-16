@@ -19,7 +19,8 @@ def test_format_context_text_includes_config_package_path() -> None:
     data: dict[str, Any] = {
         "library_version": "1.0.0",
         "config_package_path": "/some/path/to/config",
-        "families": [{"family": "columns", "count": 1, "file": "/a.py"}],
+        "config_builder_file": "data_designer/config/config_builder.py",
+        "families": [{"family": "columns", "count": 1, "files": ["/a.py"]}],
         "types": {
             "columns": [{"type_name": "a", "description": "A thing."}],
         },
@@ -33,6 +34,7 @@ def test_format_context_text_includes_config_package_path() -> None:
 
     assert "Data Designer v1.0.0" in result
     assert "config_package_path: /some/path/to/config" in result
+    assert "config_builder_file: data_designer/config/config_builder.py" in result
     assert "## Families" in result
     assert "## Commands" in result
 
@@ -43,7 +45,7 @@ def test_format_context_text_includes_config_package_path() -> None:
 def test_format_types_text_single_family_shows_file_above_table() -> None:
     data: dict[str, Any] = {
         "family": "columns",
-        "file": "/path/to/column_configs.py",
+        "files": ["/path/to/column_configs.py"],
         "items": [
             {"type_name": "alpha", "description": "Alpha desc."},
             {"type_name": "beta", "description": "Beta desc."},
@@ -60,8 +62,8 @@ def test_format_types_text_single_family_shows_file_above_table() -> None:
 def test_format_types_text_all_families_shows_file_per_family() -> None:
     data: dict[str, Any] = {
         "families": [
-            {"family": "columns", "count": 1, "file": "/cols.py"},
-            {"family": "samplers", "count": 1, "file": "/samp.py"},
+            {"family": "columns", "count": 1, "files": ["/cols.py"]},
+            {"family": "samplers", "count": 1, "files": ["/samp.py"]},
         ],
         "items": {
             "columns": [{"type_name": "a", "description": "Desc A."}],
@@ -76,7 +78,7 @@ def test_format_types_text_all_families_shows_file_per_family() -> None:
 
 
 def test_format_types_text_empty_items() -> None:
-    data: dict[str, Any] = {"family": "columns", "file": "/cols.py", "items": []}
+    data: dict[str, Any] = {"family": "columns", "files": ["/cols.py"], "items": []}
     result = format_types_text(data)
 
     assert "(no items)" in result

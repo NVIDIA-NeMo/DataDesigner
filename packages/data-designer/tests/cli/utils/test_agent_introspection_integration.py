@@ -137,4 +137,4 @@ def test_get_context_returns_self_describing_payload(tmp_path: Path) -> None:
     assert "columns" in payload["types"]
     assert "config_package_path" in payload
     assert "library_version" in payload
-    assert all("file" in f for f in payload["families"])
+    assert all("files" in f for f in payload["families"])
