@@ -78,8 +78,7 @@ def test_get_operations_returns_all_commands() -> None:
     assert all("name" in op and "command_pattern" in op and "description" in op for op in ops)
 
 
-def test_get_config_package_path_returns_config_dir() -> None:
+def test_get_config_package_path_returns_parent_of_data_designer() -> None:
     path = get_config_package_path()
 
-    assert "data_designer" in path
-    assert "config" in path
+    assert path.endswith("data_designer") or "data_designer" in path

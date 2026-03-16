@@ -128,7 +128,7 @@ def get_context(config_dir: Path) -> dict[str, Any]:
     return {
         "library_version": get_library_version(),
         "config_package_path": get_config_package_path(),
-        "config_builder_file": "data_designer/config/config_builder.py",
+        "config_builder_file": _get_config_builder_file(),
         "operations": get_operations(),
         "families": [{"family": f, "count": len(catalogs[f]), "files": get_family_source_files(f)} for f in families],
         "types": catalogs,
@@ -235,6 +235,12 @@ def _normalize_family_name(family: str) -> str:
     if plural in _FAMILY_SPECS:
         return plural
     return normalized
+
+
+def _get_config_builder_file() -> str:
+    from data_designer.config.config_builder import DataDesignerConfigBuilder
+
+    return _get_source_file(DataDesignerConfigBuilder)
 
 
 def _extract_literal_value(annotation: Any) -> str:
