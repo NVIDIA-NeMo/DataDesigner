@@ -12,6 +12,12 @@ from typing import TYPE_CHECKING, Any, Callable
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.engine.dataset_builders.utils.completion_tracker import CompletionTracker
 from data_designer.engine.dataset_builders.utils.task_model import Task, TaskTrace
+from data_designer.engine.models.errors import (
+    ModelAPIConnectionError,
+    ModelInternalServerError,
+    ModelRateLimitError,
+    ModelTimeoutError,
+)
 
 if TYPE_CHECKING:
     from data_designer.engine.column_generators.generators.base import ColumnGenerator
@@ -128,6 +134,9 @@ class AsyncTaskScheduler:
             if all_done:
                 break
 
+            # All admitted RGs finished their non-deferred work but may not be
+            # "complete" yet (deferred tasks remain for salvage). Exit the main
+            # loop so salvage rounds can handle them.
             if self._all_rgs_admitted and not ready and not self._in_flight:
                 break
 
@@ -170,6 +179,11 @@ class AsyncTaskScheduler:
                         await self._stateful_locks[gid].acquire()
                     await self._submission_semaphore.acquire()
                     self._dispatched.add(task)
+                    # Re-register batch alias to mirror _dispatch_seeds and prevent
+                    # duplicate dispatch if the frontier contains a stale batch task.
+                    self._dispatched.add(
+                        Task(column=task.column, row_group=task.row_group, row_index=None, task_type="batch")
+                    )
                     self._in_flight.add(task)
                     asyncio.create_task(self._execute_seed_task(task, gid))
                 else:
@@ -209,11 +223,13 @@ class AsyncTaskScheduler:
         ]
         for rg_id, rg_size in completed:
             self._active_rgs.remove((rg_id, rg_size))
-            if self._buffer_manager is not None:
-                self._buffer_manager.checkpoint_row_group(rg_id)
-            if self._on_row_group_complete:
-                self._on_row_group_complete(rg_id)
-            self._rg_semaphore.release()
+            try:
+                if self._buffer_manager is not None:
+                    self._buffer_manager.checkpoint_row_group(rg_id)
+                if self._on_row_group_complete:
+                    self._on_row_group_complete(rg_id)
+            finally:
+                self._rg_semaphore.release()
 
     async def _dispatch_seeds(self, rg_id: int, rg_size: int) -> None:
         """Dispatch from_scratch tasks for a row group."""
@@ -273,6 +289,7 @@ class AsyncTaskScheduler:
 
         generator = self._generators[task.column]
         output_cols = self._instance_to_columns.get(id(generator), [task.column])
+        retryable = False
 
         try:
             if self._trace and trace:
@@ -331,12 +348,15 @@ class AsyncTaskScheduler:
                 self.traces.append(trace)
 
             self._in_flight.discard(task)
+            if not retryable:
+                self._dispatched.discard(task)
             self._submission_semaphore.release()
             self._wake_event.set()
 
     async def _run_from_scratch(self, task: Task, generator: ColumnGenerator) -> Any:
         """Execute a from_scratch task."""
         rg_size = self._get_rg_size(task.row_group)
+        # Runtime import: needed for isinstance check; module-level would cause circular import
         from data_designer.engine.column_generators.generators.base import FromScratchColumnGenerator
 
         if isinstance(generator, FromScratchColumnGenerator):
@@ -356,7 +376,8 @@ class AsyncTaskScheduler:
 
     async def _run_cell(self, task: Task, generator: ColumnGenerator) -> Any:
         """Execute a cell-by-cell task."""
-        assert task.row_index is not None
+        if task.row_index is None:
+            raise ValueError(f"Cell task requires a row_index, got None for column '{task.column}'")
 
         if self._tracker.is_dropped(task.row_group, task.row_index):
             return None
@@ -421,12 +442,14 @@ class AsyncTaskScheduler:
         except KeyError:
             raise ValueError(f"Unknown row group: {row_group}") from None
 
+    _RETRYABLE_MODEL_ERRORS = (
+        ModelRateLimitError,
+        ModelTimeoutError,
+        ModelInternalServerError,
+        ModelAPIConnectionError,
+    )
+
     @staticmethod
     def _is_retryable(exc: Exception) -> bool:
         """Classify whether an exception is retryable."""
-        # HTTP-level transient errors
-        exc_str = str(exc).lower()
-        for pattern in ("429", "500", "502", "503", "504", "timeout", "timed out"):
-            if pattern in exc_str:
-                return True
-        return False
+        return isinstance(exc, AsyncTaskScheduler._RETRYABLE_MODEL_ERRORS)

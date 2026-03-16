@@ -25,6 +25,7 @@ from data_designer.engine.dataset_builders.async_scheduler import AsyncTaskSched
 from data_designer.engine.dataset_builders.utils.completion_tracker import CompletionTracker
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
 from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
+from data_designer.engine.models.errors import ModelInternalServerError
 from data_designer.engine.resources.resource_provider import ResourceProvider
 
 MODEL_ALIAS = "stub"
@@ -112,7 +113,7 @@ class MockFailingGenerator(ColumnGenerator[ExpressionColumnConfig]):
     def generate(self, data: dict) -> dict:
         self._calls += 1
         if self._transient_failures > 0 and self._calls <= self._transient_failures:
-            raise RuntimeError("503 Service Unavailable")
+            raise ModelInternalServerError("503 Service Unavailable")
         if self._transient_failures == 0:
             raise ValueError("permanent failure")
         data["fail_col"] = f"recovered_{data.get('seed', '?')}"

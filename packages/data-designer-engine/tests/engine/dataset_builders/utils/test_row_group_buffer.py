@@ -5,6 +5,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, Mock
 
+import pytest
+
 from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
 
 
@@ -101,7 +103,8 @@ def test_checkpoint_frees_memory() -> None:
 
     mgr.checkpoint_row_group(0)
 
-    assert 0 not in mgr._buffers
+    with pytest.raises(KeyError):
+        mgr.get_row(0, 0)
     assert mgr.actual_num_records == 2
 
 
@@ -119,3 +122,18 @@ def test_checkpoint_calls_on_complete() -> None:
     mgr.checkpoint_row_group(0, on_complete=callback)
 
     callback.assert_called_once_with("/fake/final.parquet")
+
+
+def test_checkpoint_calls_on_complete_when_all_rows_dropped() -> None:
+    storage = _mock_artifact_storage()
+    callback = Mock()
+
+    mgr = RowGroupBufferManager(storage)
+    mgr.init_row_group(0, 2)
+    mgr.drop_row(0, 0)
+    mgr.drop_row(0, 1)
+
+    mgr.checkpoint_row_group(0, on_complete=callback)
+
+    callback.assert_called_once_with(None)
+    storage.write_batch_to_parquet_file.assert_not_called()

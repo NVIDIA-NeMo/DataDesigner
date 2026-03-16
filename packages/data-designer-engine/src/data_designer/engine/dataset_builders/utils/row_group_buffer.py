@@ -77,12 +77,13 @@ class RowGroupBufferManager:
     def checkpoint_row_group(
         self,
         row_group: int,
-        on_complete: Callable | None = None,
+        on_complete: Callable[[str | None], None] | None = None,
     ) -> None:
         """Write the row group to parquet and free memory."""
         df = self.get_dataframe(row_group)
         final_path = None
         if len(df) > 0:
+            # Runtime import: needed at call site; module-level would cause circular import
             from data_designer.engine.storage.artifact_storage import BatchStage
 
             self._artifact_storage.write_batch_to_parquet_file(
