@@ -355,9 +355,7 @@ Create labels for workflow state:
 ### 3e. Update Skills to Conform to Templates
 
 Skills that create GitHub artifacts should produce output matching the new templates:
-
-`**create-pr`:**
-
+**`create-pr`:**
 - Produce PR descriptions matching the PR template structure (Summary / Related Issue / Changes / Testing / Checklist)
 - Include the testing checklist populated based on what was actually run
 
