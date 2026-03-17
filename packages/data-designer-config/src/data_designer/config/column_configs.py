@@ -235,6 +235,7 @@ class LLMCodeColumnConfig(LLMTextColumnConfig):
             "sql:tsql", "sql:bigquery", "sql:ansi". See CodeLang enum for complete list.
 
     Inherited Attributes:
+        name (required): Unique name of the column to be generated.
         prompt (required): Prompt template for code generation (supports Jinja2).
         model_alias (required): Alias of the model configuration to use.
         system_prompt: Optional system prompt (supports Jinja2).
@@ -245,7 +246,6 @@ class LLMCodeColumnConfig(LLMTextColumnConfig):
             `TraceType.ALL_MESSAGES`.
         extract_reasoning_content: If True, creates a `{column_name}__reasoning_content`
             column containing the reasoning content from the final assistant response.
-        name (required): Unique name of the column to be generated.
         drop: If True, generate this column but remove it from the final dataset.
     """
 
@@ -273,6 +273,7 @@ class LLMStructuredColumnConfig(LLMTextColumnConfig):
             - A JSON schema dictionary
 
     Inherited Attributes:
+        name (required): Unique name of the column to be generated.
         prompt (required): Prompt template for structured generation (supports Jinja2).
         model_alias (required): Alias of the model configuration to use.
         system_prompt: Optional system prompt (supports Jinja2).
@@ -283,7 +284,6 @@ class LLMStructuredColumnConfig(LLMTextColumnConfig):
             `TraceType.ALL_MESSAGES`.
         extract_reasoning_content: If True, creates a `{column_name}__reasoning_content`
             column containing the reasoning content from the final assistant response.
-        name (required): Unique name of the column to be generated.
         drop: If True, generate this column but remove it from the final dataset.
     """
 
@@ -343,6 +343,7 @@ class LLMJudgeColumnConfig(LLMTextColumnConfig):
             Must contain at least one score.
 
     Inherited Attributes:
+        name (required): Unique name of the column to be generated.
         prompt (required): Prompt template for the judge evaluation (supports Jinja2).
         model_alias (required): Alias of the model configuration to use.
         system_prompt: Optional system prompt (supports Jinja2).
@@ -353,7 +354,6 @@ class LLMJudgeColumnConfig(LLMTextColumnConfig):
             `TraceType.ALL_MESSAGES`.
         extract_reasoning_content: If True, creates a `{column_name}__reasoning_content`
             column containing the reasoning content from the final assistant response.
-        name (required): Unique name of the column to be generated.
         drop: If True, generate this column but remove it from the final dataset.
     """
 
