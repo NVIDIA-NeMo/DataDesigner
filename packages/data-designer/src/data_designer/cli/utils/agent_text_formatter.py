@@ -109,20 +109,14 @@ def _format_table(
     return "\n".join(lines)
 
 
-def _model_config_warning(issue: str) -> str:
-    return (
-        f"{issue}. Tell the user the issue and that they need to configure models"
-        " -- for example, using `data-designer config models` and `data-designer config providers`."
-    )
-
-
 def _format_model_aliases_context(state: dict[str, Any]) -> str:
     """Format model aliases for the context command, showing only usable aliases."""
-    if not state.get("model_config_present", True):
-        return _model_config_warning("No model aliases configured")
     usable = [i for i in state.get("items", []) if i.get("usable")]
     if not usable:
-        return _model_config_warning("No usable model aliases")
+        return (
+            "No usable model aliases. Tell the user the issue and that they need to configure models"
+            " -- for example, using `data-designer config models` and `data-designer config providers`."
+        )
     lines: list[str] = [f"default_provider: {state.get('default_provider') or '(none)'}", ""]
     lines.append(
         _format_table(
