@@ -3,12 +3,15 @@
 
 from __future__ import annotations
 
+import codecs
 from abc import ABC
-from typing import TYPE_CHECKING, Literal
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, PrivateAttr, field_validator
 from typing_extensions import Self
 
+from data_designer.config.errors import InvalidFilePathError
 from data_designer.config.utils.io_helpers import (
     VALID_DATASET_FILE_EXTENSIONS,
     validate_dataset_file_path,
@@ -31,8 +34,15 @@ class SeedSource(BaseModel, ABC):
 
 class LocalFileSeedSource(SeedSource):
     seed_type: Literal["local"] = "local"
+    _runtime_path: str | None = PrivateAttr(default=None)
 
-    path: str
+    path: str = Field(
+        ...,
+        description=(
+            "Path to a local seed dataset file or wildcard pattern. Relative paths are resolved from the "
+            "current working directory when the config is loaded, not from the config file location."
+        ),
+    )
 
     @field_validator("path", mode="after")
     def validate_path(cls, v: str) -> str:
@@ -45,6 +55,15 @@ class LocalFileSeedSource(SeedSource):
         else:
             validate_dataset_file_path(v)
         return v
+
+    def model_post_init(self, __context: Any) -> None:
+        self._runtime_path = _resolve_local_file_runtime_path(self.path)
+
+    @property
+    def runtime_path(self) -> str:
+        if self._runtime_path is None:
+            self._runtime_path = _resolve_local_file_runtime_path(self.path)
+        return self._runtime_path
 
     @classmethod
     def from_dataframe(cls, df: pd.DataFrame, path: str) -> Self:
@@ -65,3 +84,84 @@ class HuggingFaceSeedSource(SeedSource):
     )
     token: str | None = None
     endpoint: str = "https://huggingface.co"
+
+
+class FileSystemSeedSource(SeedSource, ABC):
+    _runtime_path: str | None = PrivateAttr(default=None)
+
+    path: str = Field(
+        ...,
+        description=(
+            "Directory containing seed artifacts. Relative paths are resolved from the current working "
+            "directory when the config is loaded, not from the config file location."
+        ),
+    )
+    file_pattern: str = Field(
+        "*",
+        description=(
+            "Case-sensitive filename pattern used to match files under the provided directory. "
+            "Patterns match basenames only, not relative paths."
+        ),
+    )
+    recursive: bool = Field(
+        True,
+        description="Whether to search nested subdirectories under the provided directory for matching files.",
+    )
+
+    @field_validator("path", mode="after")
+    def validate_path(cls, value: str) -> str:
+        path = Path(value).expanduser().resolve()
+        if not path.is_dir():
+            raise InvalidFilePathError(f"🛑 Path {path} is not a directory.")
+        return value
+
+    def model_post_init(self, __context: Any) -> None:
+        self._runtime_path = _resolve_filesystem_runtime_path(self.path)
+
+    @property
+    def runtime_path(self) -> str:
+        if self._runtime_path is None:
+            self._runtime_path = _resolve_filesystem_runtime_path(self.path)
+        return self._runtime_path
+
+    @field_validator("file_pattern", mode="after")
+    def validate_file_pattern(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("🛑 FileSystemSeedSource.file_pattern must be a non-empty string.")
+        if "/" in value or "\\" in value:
+            raise ValueError("🛑 FileSystemSeedSource.file_pattern must match file names, not relative paths.")
+        return value
+
+
+class DirectorySeedSource(FileSystemSeedSource):
+    seed_type: Literal["directory"] = "directory"
+
+
+class FileContentsSeedSource(FileSystemSeedSource):
+    seed_type: Literal["file_contents"] = "file_contents"
+
+    encoding: str = Field(
+        "utf-8",
+        description="Text encoding used when reading matching files into the `content` column.",
+    )
+
+    @field_validator("encoding", mode="after")
+    def validate_encoding(cls, value: str) -> str:
+        try:
+            codecs.lookup(value)
+        except LookupError as error:
+            raise ValueError(f"🛑 Unknown encoding: {value!r}. Use a valid Python codec name.") from error
+        return value
+
+
+def _resolve_filesystem_runtime_path(path: str) -> str:
+    return str(Path(path).expanduser().resolve())
+
+
+def _resolve_local_file_runtime_path(path: str) -> str:
+    if "*" not in path:
+        return _resolve_filesystem_runtime_path(path)
+
+    path_prefix, glob_suffix = path.split("*", 1)
+    resolved_prefix = Path(path_prefix or ".").expanduser().resolve()
+    return str(resolved_prefix / f"*{glob_suffix}")
