@@ -13,12 +13,12 @@ def format_context_text(data: dict[str, Any]) -> str:
         "",
         "## Config Module",
         "",
-        f"root: {data['config_module_path']}",
-        "This is the only part of the codebase agents need to work with. All files below are relative to root.",
+        "The config module contains all user-facing configuration types. Do not search other modules in the library.",
+        f"config_root: {data['config_module_path']}",
         "",
-        f"builder: {_strip_config_prefix(data['config_builder_file'])}",
-        f"base: {_strip_config_prefix(data['base_config_file'])} (read for inherited fields shared by columns and processors)",
-        "import: import data_designer.config as dd",
+        f"builder: {{config_root}}/{_strip_config_prefix(data['config_builder_file'])}",
+        f"base: {{config_root}}/{_strip_config_prefix(data['base_config_file'])} (read for inherited fields shared by columns and processors)",
+        "All config types are accessible via: import data_designer.config as dd",
         "",
         "## Types",
         "",
@@ -41,18 +41,22 @@ def format_context_text(data: dict[str, Any]) -> str:
 
 def format_types_text(data: dict[str, Any]) -> str:
     """Format type listings for one family or all families."""
-    columns = ["type_name", "description"]
+    columns = ["type", "description"]
+    preamble = ""
+    if "config_module_path" in data:
+        preamble = f"config_root: {data['config_module_path']}\n\n"
+
     if "families" in data:
         lines: list[str] = []
         for family_info in data["families"]:
             lines.append(_format_family_header(family_info))
             lines.append(_format_table(data["items"][family_info["family"]], columns))
             lines.append("")
-        return "\n".join(lines).rstrip()
+        return preamble + "\n".join(lines).rstrip()
 
     lines = [_format_family_header(data)]
     lines.append(_format_table(data["items"], columns))
-    return "\n".join(lines)
+    return preamble + "\n".join(lines)
 
 
 def format_model_aliases_text(state: dict[str, Any]) -> str:
@@ -78,7 +82,7 @@ def _format_family_header(info: dict[str, Any]) -> str:
     name = info.get("family", "")
     lines = [f"### {name}"]
     for path in info.get("files", []):
-        lines.append(f"file: {_strip_config_prefix(path)}")
+        lines.append(f"file: {{config_root}}/{_strip_config_prefix(path)}")
     lines.append("")
     return "\n".join(lines)
 
@@ -105,17 +109,21 @@ def _format_table(
     return "\n".join(lines)
 
 
+def _model_config_warning(issue: str) -> str:
+    return (
+        f"{issue}. Tell the user the issue and that they need to configure models"
+        " -- for example, using `data-designer config models` and `data-designer config providers`."
+    )
+
+
 def _format_model_aliases_context(state: dict[str, Any]) -> str:
-    """Format model aliases for the context command, separating usable from unusable."""
-    lines: list[str] = []
+    """Format model aliases for the context command, showing only usable aliases."""
     if not state.get("model_config_present", True):
-        lines.append("No model config file found. Run `data-designer config models` to create one.")
-        return "\n".join(lines)
-    lines.append(f"default_provider: {state.get('default_provider') or '(none)'}")
-    lines.append("")
-    items = state.get("items", [])
-    usable = [i for i in items if i.get("usable")]
-    unusable = [i for i in items if not i.get("usable")]
+        return _model_config_warning("No model aliases configured")
+    usable = [i for i in state.get("items", []) if i.get("usable")]
+    if not usable:
+        return _model_config_warning("No usable model aliases")
+    lines: list[str] = [f"default_provider: {state.get('default_provider') or '(none)'}", ""]
     lines.append(
         _format_table(
             usable,
@@ -123,10 +131,6 @@ def _format_model_aliases_context(state: dict[str, Any]) -> str:
             column_labels={"effective_provider": "provider"},
         )
     )
-    if unusable:
-        lines.append(f"\n{len(unusable)} unusable aliases:")
-        for item in unusable:
-            lines.append(f"  {item['model_alias']}: {item.get('reason', 'unknown')}")
     return "\n".join(lines)
 
 

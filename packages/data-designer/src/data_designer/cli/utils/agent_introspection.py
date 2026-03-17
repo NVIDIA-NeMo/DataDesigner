@@ -96,7 +96,7 @@ def discover_family_types(family: str) -> dict[str, type]:
 def get_family_catalog(family: str) -> list[dict[str, str]]:
     return [
         {
-            "type_name": type_name,
+            "type": cls.__name__,
             "description": _get_first_paragraph(cls.__doc__) or "",
         }
         for type_name, cls in discover_family_types(family).items()
@@ -141,17 +141,24 @@ def get_context(config_dir: Path) -> dict[str, Any]:
 
 
 def get_types(family: str | None) -> dict[str, Any]:
+    config_module_path = get_config_module_path()
     if family is None:
         families = get_family_names()
         catalogs = {f: get_family_catalog(f) for f in families}
         return {
+            "config_module_path": config_module_path,
             "families": [
                 {"family": f, "count": len(catalogs[f]), "files": get_family_source_files(f)} for f in families
             ],
             "items": catalogs,
         }
     spec = get_family_spec(family)
-    return {"family": spec.name, "files": get_family_source_files(spec.name), "items": get_family_catalog(family)}
+    return {
+        "config_module_path": config_module_path,
+        "family": spec.name,
+        "files": get_family_source_files(spec.name),
+        "items": get_family_catalog(family),
+    }
 
 
 def get_model_aliases_state(config_dir: Path) -> dict[str, Any]:

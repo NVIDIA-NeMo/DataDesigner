@@ -18,15 +18,15 @@ def test_get_family_catalog_accepts_singular_family_names() -> None:
     assert get_family_catalog("validator") == get_family_catalog("validators")
 
 
-def test_get_family_catalog_returns_sorted_type_names() -> None:
+def test_get_family_catalog_returns_sorted_classes() -> None:
     catalog = get_family_catalog("columns")
     assert catalog
-    assert [item["type_name"] for item in catalog] == sorted(item["type_name"] for item in catalog)
+    assert [item["type"] for item in catalog] == sorted(item["type"] for item in catalog)
 
 
 def test_get_family_catalog_includes_description() -> None:
     catalog = get_family_catalog("columns")
-    item = next(i for i in catalog if i["type_name"] == "llm-text")
+    item = next(i for i in catalog if i["type"] == "LLMTextColumnConfig")
 
     assert "Configuration for text generation" in item["description"]
 
@@ -57,6 +57,7 @@ def test_get_types_returns_all_families_when_no_family_given() -> None:
 
     assert "families" in data
     assert "items" in data
+    assert "config_module_path" in data
     assert len(data["families"]) > 0
     assert all(f["family"] in data["items"] for f in data["families"])
     assert all("files" in f for f in data["families"])
@@ -65,6 +66,7 @@ def test_get_types_returns_all_families_when_no_family_given() -> None:
 def test_get_types_returns_single_family() -> None:
     data = get_types("columns")
 
+    assert "config_module_path" in data
     assert data["family"] == "columns"
     assert all(f.endswith(".py") for f in data["files"])
     assert isinstance(data["items"], list)
