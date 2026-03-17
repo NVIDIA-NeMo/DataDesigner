@@ -64,7 +64,7 @@ def get_library_version() -> str:
 
 def get_config_module_path() -> str:
     """Return the absolute path to the data_designer.config module directory."""
-    return str(Path(inspect.getfile(dd)).parent)
+    return Path(inspect.getfile(dd)).parent.as_posix()
 
 
 def get_family_spec(family: str) -> FamilySpec:
@@ -333,6 +333,7 @@ _SECTION_HEADERS = frozenset(
         "returns:",
         "see also:",
         "todo:",
+        "inherited attributes:",
         "warns:",
         "yields:",
     }
