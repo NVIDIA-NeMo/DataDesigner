@@ -6,8 +6,6 @@ authors:
 
 # Plan: Agent-Assisted Development Principles
 
-# Plan: Agent-Assisted Development Principles
-
 ## Problem
 
 DataDesigner was built entirely by humans, and the codebase reflects that with strong architecture, comprehensive tests, and thoughtful design. We are now increasingly moving toward an agent-assisted planning and development workflow. The project already has meaningful agent-oriented infrastructure: seven skills, an agent introspection CLI, and supporting tooling. But a new contributor reading `README.md`, `CONTRIBUTING.md`, or `AGENTS.md` would not immediately discover that these workflows exist. The repository supports agent-assisted work, yet the top-level documentation still presents the project mostly as a conventional human-only codebase.
