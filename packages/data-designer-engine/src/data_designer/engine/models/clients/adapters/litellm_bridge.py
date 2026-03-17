@@ -76,67 +76,67 @@ class LiteLLMBridgeClient(ModelClient):
         return True
 
     def completion(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
-        transport = TransportKwargs.from_request(request)
+        transport = TransportKwargs.from_request(request, flatten_extra_body=False)
         with _handle_non_provider_errors(self.provider_name):
             response = self._router.completion(
                 model=request.model,
                 messages=request.messages,
                 extra_headers=transport.headers or None,
-                **transport.body,
+                **_with_timeout(transport),
             )
         return parse_chat_completion_response(response)
 
     async def acompletion(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
-        transport = TransportKwargs.from_request(request)
+        transport = TransportKwargs.from_request(request, flatten_extra_body=False)
         with _handle_non_provider_errors(self.provider_name):
             response = await self._router.acompletion(
                 model=request.model,
                 messages=request.messages,
                 extra_headers=transport.headers or None,
-                **transport.body,
+                **_with_timeout(transport),
             )
         return await aparse_chat_completion_response(response)
 
     def embeddings(self, request: EmbeddingRequest) -> EmbeddingResponse:
-        transport = TransportKwargs.from_request(request)
+        transport = TransportKwargs.from_request(request, flatten_extra_body=False)
         with _handle_non_provider_errors(self.provider_name):
             response = self._router.embedding(
                 model=request.model,
                 input=request.inputs,
                 extra_headers=transport.headers or None,
-                **transport.body,
+                **_with_timeout(transport),
             )
         vectors = [extract_embedding_vector(item) for item in getattr(response, "data", [])]
         return EmbeddingResponse(vectors=vectors, usage=extract_usage(getattr(response, "usage", None)), raw=response)
 
     async def aembeddings(self, request: EmbeddingRequest) -> EmbeddingResponse:
-        transport = TransportKwargs.from_request(request)
+        transport = TransportKwargs.from_request(request, flatten_extra_body=False)
         with _handle_non_provider_errors(self.provider_name):
             response = await self._router.aembedding(
                 model=request.model,
                 input=request.inputs,
                 extra_headers=transport.headers or None,
-                **transport.body,
+                **_with_timeout(transport),
             )
         vectors = [extract_embedding_vector(item) for item in getattr(response, "data", [])]
         return EmbeddingResponse(vectors=vectors, usage=extract_usage(getattr(response, "usage", None)), raw=response)
 
     def generate_image(self, request: ImageGenerationRequest) -> ImageGenerationResponse:
-        transport = TransportKwargs.from_request(request, exclude=self._IMAGE_EXCLUDE)
+        transport = TransportKwargs.from_request(request, exclude=self._IMAGE_EXCLUDE, flatten_extra_body=False)
         with _handle_non_provider_errors(self.provider_name):
             if request.messages is not None:
                 response = self._router.completion(
                     model=request.model,
                     messages=request.messages,
                     extra_headers=transport.headers or None,
-                    **transport.body,
+                    **_with_timeout(transport),
                 )
             else:
                 response = self._router.image_generation(
                     prompt=request.prompt,
                     model=request.model,
                     extra_headers=transport.headers or None,
-                    **transport.body,
+                    **_with_timeout(transport),
                 )
 
         if request.messages is not None:
@@ -148,21 +148,21 @@ class LiteLLMBridgeClient(ModelClient):
         return ImageGenerationResponse(images=images, usage=usage, raw=response)
 
     async def agenerate_image(self, request: ImageGenerationRequest) -> ImageGenerationResponse:
-        transport = TransportKwargs.from_request(request, exclude=self._IMAGE_EXCLUDE)
+        transport = TransportKwargs.from_request(request, exclude=self._IMAGE_EXCLUDE, flatten_extra_body=False)
         with _handle_non_provider_errors(self.provider_name):
             if request.messages is not None:
                 response = await self._router.acompletion(
                     model=request.model,
                     messages=request.messages,
                     extra_headers=transport.headers or None,
-                    **transport.body,
+                    **_with_timeout(transport),
                 )
             else:
                 response = await self._router.aimage_generation(
                     prompt=request.prompt,
                     model=request.model,
                     extra_headers=transport.headers or None,
-                    **transport.body,
+                    **_with_timeout(transport),
                 )
 
         if request.messages is not None:
@@ -178,6 +178,13 @@ class LiteLLMBridgeClient(ModelClient):
 
     async def aclose(self) -> None:
         return None
+
+
+def _with_timeout(transport: TransportKwargs) -> dict[str, Any]:
+    """Merge ``transport.body`` with the per-request timeout so LiteLLM receives it as a kwarg."""
+    if transport.timeout is not None:
+        return {**transport.body, "timeout": transport.timeout}
+    return transport.body
 
 
 @contextlib.contextmanager

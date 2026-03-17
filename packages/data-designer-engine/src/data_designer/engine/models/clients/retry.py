@@ -40,5 +40,6 @@ def create_retry_transport(config: RetryConfig | None = None) -> RetryTransport:
         max_backoff_wait=cfg.max_backoff_wait,
         status_forcelist=cfg.retryable_status_codes,
         respect_retry_after_header=True,
+        allowed_methods=Retry.RETRYABLE_METHODS | frozenset(["POST"]),
     )
     return RetryTransport(retry=retry)

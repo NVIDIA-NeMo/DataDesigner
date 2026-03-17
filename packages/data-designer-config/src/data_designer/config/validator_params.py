@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import Field, field_serializer, model_validator
 from typing_extensions import Self, TypeAlias
@@ -29,6 +29,10 @@ class CodeValidatorParams(ConfigBase):
             `sql:sqlite`, `sql:postgres`, `sql:mysql`, `sql:tsql`, `sql:bigquery`, `sql:ansi`.
     """
 
+    validator_type: Literal[ValidatorType.CODE] = Field(
+        default=ValidatorType.CODE,
+        description="Validator type discriminator, always 'code' for this validator",
+    )
     code_lang: CodeLang = Field(description="The language of the code to validate")
 
     @model_validator(mode="after")
@@ -50,6 +54,10 @@ class LocalCallableValidatorParams(ConfigBase):
             the output will not be validated.
     """
 
+    validator_type: Literal[ValidatorType.LOCAL_CALLABLE] = Field(
+        default=ValidatorType.LOCAL_CALLABLE,
+        description="Validator type discriminator, always 'local_callable' for this validator",
+    )
     validation_function: Any = Field(
         description="Function (Callable[[pd.DataFrame], pd.DataFrame]) to validate the data"
     )
@@ -81,6 +89,10 @@ class RemoteValidatorParams(ConfigBase):
         max_parallel_requests: The maximum number of parallel requests to make. Defaults to 4.
     """
 
+    validator_type: Literal[ValidatorType.REMOTE] = Field(
+        default=ValidatorType.REMOTE,
+        description="Validator type discriminator, always 'remote' for this validator",
+    )
     endpoint_url: str = Field(description="URL of the remote endpoint")
     output_schema: dict[str, Any] | None = Field(
         default=None, description="Expected schema for remote validator's output"

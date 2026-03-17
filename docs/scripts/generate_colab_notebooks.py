@@ -3,8 +3,8 @@
 """Script to generate Colab-compatible notebooks from notebook source files.
 
 This script processes jupytext percent-format Python files and:
-1. Injects Colab-specific setup cells (pip install, API key from secrets)
-2. Injects cells before the "Import the essentials" section
+1. Injects an "Open in Colab" badge as the first cell
+2. Injects Colab-specific setup cells (pip install, API key from secrets)
 3. Saves the result as .ipynb files in docs/colab_notebooks
 """
 
@@ -16,6 +16,12 @@ from pathlib import Path
 import jupytext
 from nbformat import NotebookNode
 from nbformat.v4 import new_code_cell, new_markdown_cell
+
+COLAB_BADGE_TEMPLATE = (
+    '<a href="https://colab.research.google.com/github/NVIDIA-NeMo/DataDesigner'
+    '/blob/main/docs/colab_notebooks/{filename}" target="_parent">'
+    '<img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a>'
+)
 
 COLAB_SETUP_MARKDOWN = """\
 ### ⚡ Colab Setup
@@ -95,7 +101,8 @@ def process_notebook(notebook: NotebookNode, source_path: Path) -> NotebookNode:
     colab_cells = create_colab_setup_cells(additional_dependencies)
     processed_cells = cells[:import_idx] + colab_cells + cells[import_idx:]
 
-    notebook.cells = processed_cells
+    badge_source = COLAB_BADGE_TEMPLATE.format(filename=f"{source_path.stem}.ipynb")
+    notebook.cells = [new_markdown_cell(source=badge_source)] + processed_cells
     return notebook
 
 

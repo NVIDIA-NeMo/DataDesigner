@@ -89,6 +89,8 @@ def map_http_status_to_provider_error_kind(status_code: int, body_text: str = ""
     if status_code == 429:
         return ProviderErrorKind.RATE_LIMIT
     if status_code == 400:
+        if _looks_like_unsupported_params_error(text):
+            return ProviderErrorKind.UNSUPPORTED_PARAMS
         return ProviderErrorKind.BAD_REQUEST
     if 500 <= status_code <= 599:
         return ProviderErrorKind.INTERNAL_SERVER
@@ -243,5 +245,16 @@ def _looks_like_context_window_error(text: str) -> bool:
             "maximum context",
             "too many tokens",
             "max tokens",
+        )
+    )
+
+
+def _looks_like_unsupported_params_error(text: str) -> bool:
+    return any(
+        token in text
+        for token in (
+            "unsupported parameter",
+            "not supported",
+            "unknown parameter",
         )
     )

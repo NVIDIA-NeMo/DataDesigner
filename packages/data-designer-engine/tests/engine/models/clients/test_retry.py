@@ -41,6 +41,11 @@ def test_create_retry_transport_with_none_uses_defaults() -> None:
     assert transport.retry.total == 3
 
 
+def test_create_retry_transport_allows_post_retries() -> None:
+    transport = create_retry_transport()
+    assert transport.retry.is_retryable_method("POST")
+
+
 @pytest.mark.parametrize(
     "field,config_value,retry_attr,expected",
     [

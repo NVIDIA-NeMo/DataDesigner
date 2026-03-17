@@ -114,9 +114,16 @@ stub_purpose = "running generation for column 'test'"
             f"Cause: One or more of the parameters you provided were found to be unsupported by model '{stub_model_name}' while {stub_purpose}.",
         ),
         (
-            GenerationValidationFailureError("Generation validation failure"),
+            GenerationValidationFailureError(
+                "Generation validation failure",
+                detail="Response doesn't match requested <response_schema>: 'name' is a required property",
+            ),
             ModelGenerationValidationFailureError,
-            f"Cause: The provided output schema was unable to be parsed from model '{stub_model_name}' responses while {stub_purpose}.",
+            (
+                f"Cause: The model output from '{stub_model_name}' could not be parsed into the requested format "
+                f"while {stub_purpose}. Validation detail: Response doesn't match requested <response_schema>: "
+                "'name' is a required property."
+            ),
         ),
         (
             Exception("Some unexpected error"),
@@ -129,6 +136,40 @@ stub_purpose = "running generation for column 'test'"
 def test_handle_llm_exceptions(exception, expected_exception, expected_error_msg):
     with pytest.raises(expected_exception, match=expected_error_msg):
         handle_llm_exceptions(exception, stub_model_name, stub_model_provider_name, stub_purpose)
+
+
+def test_handle_llm_exceptions_preserves_generation_failure_kind() -> None:
+    with pytest.raises(ModelGenerationValidationFailureError) as exc_info:
+        handle_llm_exceptions(
+            GenerationValidationFailureError(
+                "Generation validation failure",
+                detail="Response doesn't match requested <response_schema>: 'name' is a required property",
+                failure_kind="schema_validation",
+            ),
+            stub_model_name,
+            stub_model_provider_name,
+            stub_purpose,
+        )
+
+    assert exc_info.value.failure_kind == "schema_validation"
+    assert exc_info.value.detail == "Response doesn't match requested <response_schema>: 'name' is a required property"
+
+
+def test_handle_llm_exceptions_strips_duplicate_period_from_validation_detail() -> None:
+    with pytest.raises(ModelGenerationValidationFailureError, match=r"Validation detail: Field required\.") as exc_info:
+        handle_llm_exceptions(
+            GenerationValidationFailureError(
+                "Generation validation failure",
+                detail="Field required.",
+                failure_kind="schema_validation",
+            ),
+            stub_model_name,
+            stub_model_provider_name,
+            stub_purpose,
+        )
+
+    assert "Field required.." not in str(exc_info.value)
+    assert exc_info.value.detail == "Field required."
 
 
 def test_catch_llm_exceptions():
