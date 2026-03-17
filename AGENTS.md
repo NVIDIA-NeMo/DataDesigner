@@ -12,8 +12,6 @@ Three packages share the `data_designer` namespace via PEP 420 implicit namespac
 - **Engine** (`data-designer-engine`): Execution layer. Compiler resolves configs into a DAG; runtime executes it via LLM calls, batching, and task scheduling. Registries map config types to implementations.
 - **Interface** (`data-designer`): Entry-point layer. `DataDesigner` class, CLI, and result types. Orchestrates engine on behalf of users.
 
-**Import direction is one-way and absolute.** Config must never import engine. Engine must never import interface. Violations create circular dependencies and break the namespace package structure.
-
 ## Core Concepts
 
 - **Columns** — the primary abstraction. Each column declares its dependencies and extra outputs. The DAG of these declarations determines execution order automatically — users never specify ordering.
