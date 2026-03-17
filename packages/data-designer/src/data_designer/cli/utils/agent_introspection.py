@@ -284,7 +284,12 @@ def _get_first_paragraph(docstring: str | None) -> str | None:
 
 
 def _get_source_file(cls: type) -> str:
-    """Return the source file path relative to the data_designer package (e.g. 'data_designer/config/foo.py')."""
+    """Return the source file path relative to the data_designer package.
+
+    For built-in types returns e.g. 'data_designer/config/foo.py'.
+    For plugin types outside the package, returns the absolute path so the agent
+    still has a readable file reference.
+    """
     try:
         full_path = Path(inspect.getfile(cls))
     except (TypeError, OSError):
@@ -293,7 +298,7 @@ def _get_source_file(cls: type) -> str:
     # Use last occurrence so nested paths (e.g. .../data_designer/venv/.../data_designer/config/foo.py) resolve correctly.
     indices = [i for i, p in enumerate(parts) if p == "data_designer"]
     if not indices:
-        return ""
+        return full_path.as_posix()
     return Path(*parts[indices[-1] :]).as_posix()
 
 
