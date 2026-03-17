@@ -329,13 +329,14 @@ module since `CompletionTracker`, `AsyncTaskScheduler`, and the buffer manager a
 
 The core orchestrator that replaces `_run_batch` for the async path.
 
-- [ ] `AsyncTaskScheduler` class:
+- [x] `AsyncTaskScheduler` class:
   - Constructor takes: generators (by column name), `graph: ExecutionGraph`, row group
     definitions (`list[tuple[int, int]]`), concurrency limit (`async_scheduler_max_submitted_tasks`),
     row group semaphore (`async_max_concurrent_row_groups`), salvage config, error/result
     callbacks, `trace: bool = False`
-  - Initializes `CompletionTracker.with_graph(graph, row_groups)` — the tracker seeds
-    its frontier with root tasks automatically
+  - Tracker is passed in externally (created via `CompletionTracker.with_graph(graph, row_groups)`)
+  - Root task dispatch moved from tracker's `_seed_frontier` to scheduler's `_dispatch_seeds`
+    (tracker frontier now starts empty; scheduler controls seed dispatch with stateful locks)
   - When `trace=True`, populates `scheduler.traces: list[TaskTrace]` (one record per task,
     created via `TaskTrace.from_task()`); otherwise no `TaskTrace` objects are created. See Profiling.
   - `async run()` — main loop:
@@ -367,11 +368,11 @@ The core orchestrator that replaces `_run_batch` for the async path.
     in async mode. A separate background coroutine (`asyncio.create_task`) emits a
     single consolidated summary line every 10 seconds across all active columns;
     it is cancelled once all tasks complete. See UX Considerations.
-- [ ] Use `asyncio.Event` to wake the scheduler when a task completes (avoids polling).
+- [x] Use `asyncio.Event` to wake the scheduler when a task completes (avoids polling).
   `Event` is sufficient — the scheduler resets it and re-checks `get_ready_tasks` on each wake;
   `Condition` would be needed only if waiting on a specific predicate, which the frontier
   already handles.
-- [ ] Unit tests with mock generators
+- [x] Unit tests with mock generators
 
 **Files**: new module `engine/dataset_builders/async_scheduler.py`, tests
 
@@ -435,19 +436,20 @@ and async-first generators (new plugins doing native async I/O) only need to imp
 
 Adapt `DatasetBatchManager` for concurrent row group processing.
 
-- [ ] Support multiple row groups in-flight simultaneously (currently only one batch's buffer exists)
+- [x] Support multiple row groups in-flight simultaneously (currently only one batch's buffer exists)
   - Option A: Multiple buffer instances (one per active row group)
   - Option B: Single shared buffer partitioned by row group offset ranges
-  - Recommendation: **Option A** — cleaner isolation, each row group has its own `list[dict]`
-- [ ] `update_cell(row_group: int, row_index: int, column: str, value: Any)` — cell-level
+  - Implemented: **Option A** — `RowGroupBufferManager` with per-row-group `list[dict]` buffers
+- [x] `update_cell(row_group: int, row_index: int, column: str, value: Any)` — cell-level
   merge is the only write path for the async builder. Whole-record replacement
   (`update_record`) is unsafe under parallel execution (two independent columns
   finishing the same row concurrently would clobber each other's results)
-- [ ] `checkpoint_row_group(row_group: int)` — write parquet, free memory
-- [ ] Preserve `drop_records` semantics within each row group
-- [ ] Keep backward compatibility with sync path (the existing `DatasetBatchManager` is untouched)
+  - Also: `update_cells` (multi-column) and `update_batch` (full column) convenience methods
+- [x] `checkpoint_row_group(row_group: int)` — write parquet via `ArtifactStorage`, free memory
+- [x] Preserve `drop_records` semantics within each row group — `drop_row` / `is_dropped` per row group
+- [x] Keep backward compatibility with sync path (the existing `DatasetBatchManager` is untouched)
 
-**Files**: new class or extension in `dataset_batch_manager.py`, tests
+**Files**: new module `engine/dataset_builders/utils/row_group_buffer.py`, tests
 
 ### Step 7: Builder Integration
 
@@ -499,21 +501,23 @@ Tests are added incrementally with each PR, not deferred to the end.
 - [x] `CustomColumnGenerator.agenerate` detects coroutine functions and calls directly
 - [x] All existing generator tests pass unchanged (`make test`)
 
-**PR 3 (scheduler + buffer) — unit tests with mock generators**:
-- [ ] Scheduler dispatches root tasks first (from `tracker.get_ready_tasks`),
+**PR 3 (scheduler + buffer) — unit tests with mock generators** ([PR #404](https://github.com/NVIDIA-NeMo/DataDesigner/pull/404)):
+- [x] Scheduler dispatches root tasks first (via `_dispatch_seeds`),
   then downstream as deps complete (via tracker's `_enqueue_downstream`)
-- [ ] Stateful generator serializes across row groups; stateless runs concurrently
-- [ ] Retry salvage: transient failure (`TaskResult.retryable=True`) is retried and succeeds;
-  non-retryable failure triggers `tracker.drop_row()` immediately; retry budget exhaustion drops correctly
-- [ ] Eager row-drop: failure on column B calls `tracker.drop_row()` which removes
-  cell tasks for that row from frontier; independent column C does not process the dropped row
-- [ ] Row-drop with in-flight full-column task: completed task may still compute
-  dropped rows, but writeback is suppressed and row remains dropped
-- [ ] Bounded submission: submitted task count never exceeds
-  `async_scheduler_max_submitted_tasks`
-- [ ] Error rate shutdown within sliding window
-- [ ] Buffer manager: concurrent row groups, `update_cell`, `checkpoint_row_group`
-- [ ] Buffer manager: `drop_records` within row group
+- [x] Stateful generator serializes across row groups; stateless runs concurrently
+- [x] Non-retryable failure triggers `tracker.drop_row()` immediately
+- [x] Retry salvage: transient 503 failure deferred, retried in salvage round, succeeds
+- [x] Eager row-drop: failure on column B drops the row, downstream column C is never dispatched
+  (tasks never enter frontier because upstream dependency was never satisfied)
+- [ ] Row-drop with in-flight full-column task: writeback suppressed (not yet tested)
+- [x] Bounded submission: submitted task count respects `max_submitted_tasks`
+- [ ] Error rate shutdown within sliding window (deferred to PR 4 integration)
+- [x] Buffer manager: concurrent row groups, `update_cell`, `update_batch`, `checkpoint_row_group`
+- [x] Buffer manager: `drop_row` / `is_dropped` within row group
+- [x] Three-column pipeline (seed -> cell -> full_column)
+- [x] Multiple row groups
+- [x] Trace enabled/disabled
+- [x] Buffer manager integration with scheduler (checkpoint callback)
 
 **PR 4 (integration) — integration tests + full validation**:
 - [ ] Multi-column config with known dependencies, verify parallel execution
@@ -588,32 +592,37 @@ Existing sync callers are unaffected.
 
 **No dependency on PR 1**: generator changes don't reference the graph/tracker/task model.
 
-### PR 3: Scheduler + buffer manager (Steps 4 + 6)
+### PR 3: Scheduler + buffer manager (Steps 4 + 6) - [PR #404](https://github.com/NVIDIA-NeMo/DataDesigner/pull/404)
 
-**Scope**: `AsyncTaskScheduler`, row group buffer manager.
+**Scope**: `AsyncTaskScheduler`, `RowGroupBufferManager`.
 
-- `async_scheduler.py` + tests (uses `ExecutionGraph.create()`,
-  `CompletionTracker.with_graph()`, `Task`, `TaskResult`, `TaskTrace`, `SliceRef` from PR 1)
-- Buffer manager extension in `dataset_batch_manager.py` + tests
-- Retry/salvage logic, progress consolidation, error handling
+- `async_scheduler.py` + tests (uses `ExecutionGraph`, `CompletionTracker`, `Task`, `TaskTrace` from PR 1)
+- New `row_group_buffer.py` module (standalone, existing `DatasetBatchManager` untouched) + tests
+- Retry/salvage logic, error handling
+- `CompletionTracker._seed_frontier` simplified to no-op (root dispatch moved to scheduler)
+- `CompletionTracker.get_ready_tasks` extended with `admitted_rgs` parameter
 
 **Depends on**: PR 1 (imports `ExecutionGraph`, `CompletionTracker`, `Task`, `SliceRef`), PR 2
-(calls `agenerate` / `agenerate_from_scratch`, reads `is_stateful`).
+(calls `agenerate` / `agenerate_from_scratch`, reads `is_order_dependent`).
 
-**Key integration with PR 1's frontier model**: The scheduler initializes
-`CompletionTracker.with_graph(graph, row_groups)` which auto-seeds the frontier with
-root tasks. The main loop pulls from `tracker.get_ready_tasks(dispatched)`, and on task
+**Key integration with PR 1's frontier model**: The scheduler receives the tracker
+externally (created via `CompletionTracker.with_graph(graph, row_groups)`). Root task
+dispatch is handled by the scheduler's `_dispatch_seeds` (not the tracker's `_seed_frontier`).
+The main loop pulls from `tracker.get_ready_tasks(dispatched, admitted_rgs)`, and on task
 completion calls `mark_cell_complete()` / `mark_row_range_complete()` which internally
 enqueues newly-ready downstream tasks. On row drop, calls `tracker.drop_row()` which
 removes frontier tasks and re-evaluates batch readiness.
 
 **What works after merge**: the scheduler can be instantiated with mock generators and
-driven through its full lifecycle in tests — row group admission, dependency-driven
+driven through its full lifecycle in tests - row group admission, dependency-driven
 dispatch, retry/salvage, row drops, checkpoint callbacks. The buffer manager supports
 concurrent row groups with cell-level writes. Not yet wired into the real builder.
 
-**Can merge independently**: yes — the scheduler is a new module, not yet wired into
-the builder. The buffer manager extension adds new methods without changing existing ones.
+**Deferred to PR 4**: progress tracking/consolidation, error rate shutdown with sliding
+window, retryable-success tests, eager row-drop propagation tests.
+
+**Can merge independently**: yes - the scheduler is a new module, not yet wired into
+the builder. The buffer manager is a new standalone module.
 
 ### PR 4: Builder integration (Steps 7 + 8)
 
