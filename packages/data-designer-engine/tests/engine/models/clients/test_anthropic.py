@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from data_designer.engine.mcp.registry import MCPToolDefinition
 from data_designer.engine.models.clients.adapters.anthropic import AnthropicClient
 from data_designer.engine.models.clients.errors import ProviderError, ProviderErrorKind
 from data_designer.engine.models.clients.types import (
@@ -16,6 +17,7 @@ from data_designer.engine.models.clients.types import (
     EmbeddingRequest,
     ImageGenerationRequest,
 )
+from data_designer.engine.models.utils import ChatMessage
 
 PROVIDER = "anthropic-prod"
 MODEL = "claude-test"
@@ -172,6 +174,24 @@ def test_completion_concatenates_multiple_system_messages() -> None:
     assert payload["system"] == "Be concise.\n\nAnswer in English."
 
 
+def test_completion_extracts_system_from_chat_message_blocks() -> None:
+    sync_mock = _make_sync_client(_text_response())
+    client = _make_client(sync_client=sync_mock)
+
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[
+            ChatMessage.as_system("You are helpful.").to_dict(),
+            ChatMessage.as_user("Hi").to_dict(),
+        ],
+    )
+    client.completion(request)
+
+    payload = sync_mock.post.call_args.kwargs["json"]
+    assert payload["system"] == "You are helpful."
+    assert payload["messages"] == [{"role": "user", "content": [{"type": "text", "text": "Hi"}]}]
+
+
 def test_completion_posts_to_messages_route() -> None:
     sync_mock = _make_sync_client(_text_response())
     client = _make_client(sync_client=sync_mock)
@@ -235,16 +255,116 @@ def test_completion_maps_stop_string_to_list() -> None:
     assert payload["stop_sequences"] == ["END"]
 
 
-def test_completion_forwards_tools() -> None:
+def test_completion_translates_openai_tool_schema_to_anthropic() -> None:
     sync_mock = _make_sync_client(_text_response())
     client = _make_client(sync_client=sync_mock)
 
-    tools = [{"type": "function", "function": {"name": "search", "parameters": {}}}]
+    tools = [
+        MCPToolDefinition(
+            name="search",
+            description="Search the knowledge base.",
+            input_schema={"type": "object", "properties": {"query": {"type": "string"}}},
+        ).to_openai_tool_schema()
+    ]
     request = ChatCompletionRequest(model=MODEL, messages=[{"role": "user", "content": "Hi"}], tools=tools)
     client.completion(request)
 
     payload = sync_mock.post.call_args.kwargs["json"]
-    assert payload["tools"] == tools
+    assert payload["tools"] == [
+        {
+            "name": "search",
+            "description": "Search the knowledge base.",
+            "input_schema": {"type": "object", "properties": {"query": {"type": "string"}}},
+        }
+    ]
+
+
+def test_completion_translates_tool_turns_from_chat_messages() -> None:
+    sync_mock = _make_sync_client(_text_response())
+    client = _make_client(sync_client=sync_mock)
+
+    assistant_message = ChatMessage.as_assistant(
+        content="Let me check.",
+        tool_calls=[
+            {
+                "id": "call_1",
+                "type": "function",
+                "function": {"name": "search", "arguments": '{"query": "weather"}'},
+            }
+        ],
+    )
+    tool_message = ChatMessage.as_tool(content="Sunny and 72F", tool_call_id="call_1")
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[
+            ChatMessage.as_user("What's the weather?").to_dict(),
+            assistant_message.to_dict(),
+            tool_message.to_dict(),
+        ],
+        tools=[
+            MCPToolDefinition(
+                name="search",
+                description="Search the knowledge base.",
+                input_schema={"type": "object", "properties": {"query": {"type": "string"}}},
+            ).to_openai_tool_schema()
+        ],
+    )
+    client.completion(request)
+
+    payload = sync_mock.post.call_args.kwargs["json"]
+    assert payload["messages"] == [
+        {"role": "user", "content": [{"type": "text", "text": "What's the weather?"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "text", "text": "Let me check."},
+                {"type": "tool_use", "id": "call_1", "name": "search", "input": {"query": "weather"}},
+            ],
+        },
+        {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": "call_1", "content": "Sunny and 72F"}],
+        },
+    ]
+
+
+def test_completion_merges_parallel_tool_results_into_single_user_message() -> None:
+    sync_mock = _make_sync_client(_text_response())
+    client = _make_client(sync_client=sync_mock)
+
+    assistant_message = ChatMessage.as_assistant(
+        tool_calls=[
+            {
+                "id": "call_1",
+                "type": "function",
+                "function": {"name": "lookup_city", "arguments": '{"city": "Paris"}'},
+            },
+            {
+                "id": "call_2",
+                "type": "function",
+                "function": {"name": "lookup_weather", "arguments": '{"city": "Paris"}'},
+            },
+        ]
+    )
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[
+            ChatMessage.as_user("Plan my day.").to_dict(),
+            assistant_message.to_dict(),
+            ChatMessage.as_tool(content="City found", tool_call_id="call_1").to_dict(),
+            ChatMessage.as_tool(content="Sunny", tool_call_id="call_2").to_dict(),
+        ],
+    )
+    client.completion(request)
+
+    payload = sync_mock.post.call_args.kwargs["json"]
+    assert payload["messages"][-1] == {
+        "role": "user",
+        "content": [
+            {"type": "tool_result", "tool_use_id": "call_1", "content": "City found"},
+            {"type": "tool_result", "tool_use_id": "call_2", "content": "Sunny"},
+        ],
+    }
 
 
 def test_completion_excludes_openai_specific_params() -> None:

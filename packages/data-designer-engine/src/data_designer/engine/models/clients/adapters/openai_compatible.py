@@ -8,13 +8,13 @@ import threading
 from typing import TYPE_CHECKING, Any
 
 import data_designer.lazy_heavy_imports as lazy
-from data_designer.engine.models.clients.base import ModelClient
-from data_designer.engine.models.clients.errors import (
-    ProviderError,
-    ProviderErrorKind,
-    infer_error_kind_from_exception,
-    map_http_error_to_provider_error,
+from data_designer.engine.models.clients.adapters.http_helpers import (
+    parse_json_body,
+    resolve_timeout,
+    wrap_transport_error,
 )
+from data_designer.engine.models.clients.base import ModelClient
+from data_designer.engine.models.clients.errors import map_http_error_to_provider_error
 from data_designer.engine.models.clients.parsing import (
     aextract_images_from_chat_response,
     aextract_images_from_image_response,
@@ -192,18 +192,21 @@ class OpenAICompatibleClient(ModelClient):
 
     def close(self) -> None:
         with self._init_lock:
-            if self._client is not None:
-                self._client.close()
-                self._client = None
+            client = self._client
+            self._client = None
+        if client is not None:
+            client.close()
 
     async def aclose(self) -> None:
         with self._init_lock:
-            if self._aclient is not None:
-                await self._aclient.aclose()
-                self._aclient = None
-            if self._client is not None:
-                self._client.close()
-                self._client = None
+            async_client = self._aclient
+            sync_client = self._client
+            self._aclient = None
+            self._client = None
+        if async_client is not None:
+            await async_client.aclose()
+        if sync_client is not None:
+            sync_client.close()
 
     # -------------------------------------------------------------------
     # HTTP helpers
@@ -217,9 +220,6 @@ class OpenAICompatibleClient(ModelClient):
             headers.update(extra_headers)
         return headers
 
-    def _resolve_timeout(self, per_request: float | None) -> httpx.Timeout:
-        return lazy.httpx.Timeout(per_request if per_request is not None else self._timeout_s)
-
     def _post_sync(
         self,
         route: str,
@@ -232,15 +232,18 @@ class OpenAICompatibleClient(ModelClient):
         headers = self._build_headers(extra_headers)
         try:
             response = self._get_sync_client().post(
-                url, json=payload, headers=headers, timeout=self._resolve_timeout(timeout)
+                url,
+                json=payload,
+                headers=headers,
+                timeout=resolve_timeout(self._timeout_s, timeout),
             )
         except Exception as exc:
-            raise _wrap_transport_error(exc, self.provider_name, model_name) from exc
+            raise wrap_transport_error(exc, self.provider_name, model_name) from exc
         if response.status_code >= 400:
             raise map_http_error_to_provider_error(
                 response=response, provider_name=self.provider_name, model_name=model_name
             )
-        return _parse_json_body(response, self.provider_name, model_name)
+        return parse_json_body(response, self.provider_name, model_name)
 
     async def _apost(
         self,
@@ -254,15 +257,18 @@ class OpenAICompatibleClient(ModelClient):
         headers = self._build_headers(extra_headers)
         try:
             response = await self._get_async_client().post(
-                url, json=payload, headers=headers, timeout=self._resolve_timeout(timeout)
+                url,
+                json=payload,
+                headers=headers,
+                timeout=resolve_timeout(self._timeout_s, timeout),
             )
         except Exception as exc:
-            raise _wrap_transport_error(exc, self.provider_name, model_name) from exc
+            raise wrap_transport_error(exc, self.provider_name, model_name) from exc
         if response.status_code >= 400:
             raise map_http_error_to_provider_error(
                 response=response, provider_name=self.provider_name, model_name=model_name
             )
-        return _parse_json_body(response, self.provider_name, model_name)
+        return parse_json_body(response, self.provider_name, model_name)
 
 
 # ---------------------------------------------------------------------------
@@ -293,29 +299,3 @@ async def _aparse_image_json(response_json: dict[str, Any], *, is_chat_route: bo
         images = await aextract_images_from_image_response(response_json)
     usage = extract_usage(response_json.get("usage"), generated_images=len(images))
     return ImageGenerationResponse(images=images, usage=usage, raw=response_json)
-
-
-def _parse_json_body(response: httpx.Response, provider_name: str, model_name: str) -> dict[str, Any]:
-    """Parse JSON from a successful HTTP response, wrapping decode errors as ``ProviderError``."""
-    try:
-        return response.json()
-    except Exception as exc:
-        raise ProviderError(
-            kind=ProviderErrorKind.API_ERROR,
-            message=f"Provider {provider_name!r} returned a non-JSON response (status {response.status_code}).",
-            status_code=response.status_code,
-            provider_name=provider_name,
-            model_name=model_name,
-            cause=exc,
-        ) from exc
-
-
-def _wrap_transport_error(exc: Exception, provider_name: str, model_name: str) -> ProviderError:
-    """Convert httpx transport exceptions into canonical ``ProviderError``."""
-    return ProviderError(
-        kind=infer_error_kind_from_exception(exc),
-        message=str(exc) or f"Transport error from provider {provider_name!r}",
-        provider_name=provider_name,
-        model_name=model_name,
-        cause=exc,
-    )
