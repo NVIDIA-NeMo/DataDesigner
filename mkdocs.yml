@@ -44,6 +44,8 @@ nav:
           - Text to Python: recipes/code_generation/text_to_python.md
           - Text to SQL: recipes/code_generation/text_to_sql.md
           - "Nemotron Super Text to SQL": recipes/code_generation/enterprise_text_to_sql.md
+      - Plugin Development:
+          - Markdown Section Seed Reader Plugin: recipes/plugin_development/markdown_seed_reader.md
       - QA and Chat:
           - Product Info QA: recipes/qa_and_chat/product_info_qa.md
           - Multi-Turn Chat: recipes/qa_and_chat/multi_turn_chat.md
@@ -54,6 +56,7 @@ nav:
   - Plugins:
       - Overview: plugins/overview.md
       - Example Plugin: plugins/example.md
+      - FileSystemSeedReader Plugins: plugins/filesystem_seed_reader.md
       - Available Plugin List: plugins/available.md
   - Code Reference:
       - models: code_reference/models.md
