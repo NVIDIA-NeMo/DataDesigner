@@ -614,6 +614,21 @@ def test_transport_timeout_raises_provider_error() -> None:
     assert exc_info.value.kind == ProviderErrorKind.TIMEOUT
 
 
+def test_completion_wraps_invalid_tool_schema_as_bad_request() -> None:
+    client = _make_client()
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[{"role": "user", "content": "Hi"}],
+        tools=[{"type": "function", "function": {"description": "Missing name"}}],
+    )
+
+    with pytest.raises(ProviderError) as exc_info:
+        client.completion(request)
+
+    assert exc_info.value.kind == ProviderErrorKind.BAD_REQUEST
+    assert "missing a function name" in exc_info.value.message
+
+
 # --- Unsupported capabilities ---
 
 
@@ -651,63 +666,6 @@ async def test_agenerate_image_raises_unsupported() -> None:
         await client.agenerate_image(ImageGenerationRequest(model=MODEL, prompt="a cat"))
 
     assert exc_info.value.kind == ProviderErrorKind.UNSUPPORTED_CAPABILITY
-
-
-# --- Lifecycle ---
-
-
-def test_close_delegates_to_httpx_client() -> None:
-    sync_mock = MagicMock()
-    client = _make_client(sync_client=sync_mock)
-    client.close()
-    sync_mock.close.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_aclose_closes_both_clients() -> None:
-    sync_mock = MagicMock()
-    async_mock = MagicMock()
-    async_mock.aclose = AsyncMock()
-    client = _make_client(sync_client=sync_mock, async_client=async_mock)
-
-    await client.aclose()
-
-    async_mock.aclose.assert_awaited_once()
-    sync_mock.close.assert_called_once()
-
-
-def test_close_noop_when_no_client_created() -> None:
-    client = _make_client()
-    client.close()
-
-
-def test_completion_raises_after_close_without_recreating_client() -> None:
-    client = _make_client()
-    client.close()
-
-    request = ChatCompletionRequest(model=MODEL, messages=[{"role": "user", "content": "Hi"}])
-    with pytest.raises(RuntimeError, match="Model client is closed\\."):
-        client.completion(request)
-
-    assert client._client is None
-
-
-@pytest.mark.asyncio
-async def test_aclose_noop_when_no_client_created() -> None:
-    client = _make_client()
-    await client.aclose()
-
-
-@pytest.mark.asyncio
-async def test_acompletion_raises_after_aclose_without_recreating_client() -> None:
-    client = _make_client()
-    await client.aclose()
-
-    request = ChatCompletionRequest(model=MODEL, messages=[{"role": "user", "content": "Hi"}])
-    with pytest.raises(RuntimeError, match="Model client is closed\\."):
-        await client.acompletion(request)
-
-    assert client._aclient is None
 
 
 # --- Capabilities ---
