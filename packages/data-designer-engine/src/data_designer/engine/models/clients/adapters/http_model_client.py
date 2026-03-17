@@ -90,8 +90,14 @@ class HttpModelClient(ABC):
     def close(self) -> None:
         with self._init_lock:
             client = self._client
+            aclient = self._aclient
             self._closed = True
             self._client = None
+            self._aclient = None
+        if aclient is not None:
+            # Best-effort sync teardown; callers that own an async client
+            # should prefer aclose() for a clean shutdown.
+            aclient._transport.close()
         if client is not None:
             client.close()
 

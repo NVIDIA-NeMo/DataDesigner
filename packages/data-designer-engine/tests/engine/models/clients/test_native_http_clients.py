@@ -116,6 +116,23 @@ async def test_aclose_closes_both_clients(client_factory: Callable[..., Any], mo
 
 
 @pytest.mark.parametrize(("client_factory", "model_name"), _CLIENT_CASES)
+def test_close_releases_async_client(client_factory: Callable[..., Any], model_name: str) -> None:
+    sync_mock = MagicMock()
+    async_mock = MagicMock()
+    async_transport = MagicMock()
+    async_mock._transport = async_transport
+    client = client_factory(sync_client=sync_mock, async_client=async_mock)
+
+    client.close()
+
+    sync_mock.close.assert_called_once()
+    async_transport.close.assert_called_once()
+
+    with pytest.raises(RuntimeError, match="Model client is closed\\."):
+        client.completion(_make_chat_request(model_name))
+
+
+@pytest.mark.parametrize(("client_factory", "model_name"), _CLIENT_CASES)
 def test_close_is_idempotent(client_factory: Callable[..., Any], model_name: str) -> None:
     sync_mock = MagicMock()
     client = client_factory(sync_client=sync_mock)

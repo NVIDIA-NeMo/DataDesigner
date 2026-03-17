@@ -20,6 +20,24 @@ _DEFAULT_MAX_TOKENS = 4096
 _DATA_URI_RE = re.compile(r"^data:(?P<media_type>[^;]+);base64,(?P<data>.+)$")
 
 
+def merge_system_parts(parts: list[str | list[dict[str, Any]]]) -> str | list[dict[str, Any]]:
+    """Merge system parts into a single string or Anthropic block list.
+
+    If every part is a plain string, join them with double newlines.
+    Otherwise, normalize all parts into a flat list of content blocks.
+    """
+    if all(isinstance(p, str) for p in parts):
+        return "\n\n".join(parts)  # type: ignore[arg-type]
+
+    blocks: list[dict[str, Any]] = []
+    for part in parts:
+        if isinstance(part, str):
+            blocks.append({"type": "text", "text": part})
+        else:
+            blocks.extend(part)
+    return blocks
+
+
 def build_anthropic_payload(request: ChatCompletionRequest) -> dict[str, Any]:
     """Build an Anthropic Messages API payload from a canonical request."""
     system_parts, messages = translate_request_messages(request.messages)
@@ -31,7 +49,7 @@ def build_anthropic_payload(request: ChatCompletionRequest) -> dict[str, Any]:
     }
 
     if system_parts:
-        payload["system"] = "\n\n".join(system_parts)
+        payload["system"] = merge_system_parts(system_parts)
 
     if request.tools:
         payload["tools"] = [translate_tool_definition(tool) for tool in request.tools]
@@ -86,17 +104,19 @@ def parse_anthropic_response(response_json: dict[str, Any]) -> ChatCompletionRes
     return ChatCompletionResponse(message=message, usage=usage, raw=response_json)
 
 
-def translate_request_messages(messages: list[dict[str, Any]]) -> tuple[list[str], list[dict[str, Any]]]:
-    system_parts: list[str] = []
+def translate_request_messages(
+    messages: list[dict[str, Any]],
+) -> tuple[list[str | list[dict[str, Any]]], list[dict[str, Any]]]:
+    system_parts: list[str | list[dict[str, Any]]] = []
     translated_messages: list[dict[str, Any]] = []
     pending_tool_results: list[dict[str, Any]] = []
 
     for msg in messages:
         role = msg.get("role")
         if role == "system":
-            system_text = extract_system_text(msg.get("content"))
-            if system_text:
-                system_parts.append(system_text)
+            system_content = extract_system_content(msg.get("content"))
+            if system_content is not None:
+                system_parts.append(system_content)
             continue
 
         if role == "tool":
@@ -115,11 +135,23 @@ def translate_request_messages(messages: list[dict[str, Any]]) -> tuple[list[str
     return system_parts, translated_messages
 
 
-def extract_system_text(content: Any) -> str | None:
+def extract_system_content(content: Any) -> str | list[dict[str, Any]] | None:
+    """Extract system content, preserving image blocks for multimodal system prompts.
+
+    Returns a plain string when only text is present, or a list of Anthropic
+    content blocks when non-text blocks (e.g. images) are included.
+    """
     if isinstance(content, str):
         return content or None
 
     translated_blocks = translate_content_blocks(content)
+    if not translated_blocks:
+        return None
+
+    has_non_text = any(not (isinstance(b, dict) and b.get("type") == "text") for b in translated_blocks)
+    if has_non_text:
+        return translated_blocks
+
     text_parts = [
         block.get("text", "")
         for block in translated_blocks
@@ -164,7 +196,7 @@ def translate_content_blocks(content: Any) -> list[dict[str, Any]]:
             anthropic_block = translate_image_url_block(block)
             if anthropic_block is not None:
                 translated.append(anthropic_block)
-                continue
+            continue
         translated.append(block)
     return translated
 

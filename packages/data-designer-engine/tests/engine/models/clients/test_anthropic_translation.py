@@ -10,7 +10,8 @@ import pytest
 from data_designer.engine.mcp.registry import MCPToolDefinition
 from data_designer.engine.models.clients.adapters.anthropic_translation import (
     build_anthropic_payload,
-    extract_system_text,
+    extract_system_content,
+    merge_system_parts,
     parse_anthropic_response,
     parse_tool_call_arguments,
     translate_content_blocks,
@@ -44,6 +45,29 @@ def test_build_anthropic_payload_extracts_system_from_normalized_messages() -> N
     assert payload["system"] == "Be concise."
     assert payload["messages"] == [{"role": "user", "content": [{"type": "text", "text": "Hi"}]}]
     assert payload["max_tokens"] == 4096
+
+
+def test_build_anthropic_payload_preserves_multimodal_system_content() -> None:
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[
+            {
+                "role": "system",
+                "content": [
+                    {"type": "text", "text": "Describe this image."},
+                    {"type": "image_url", "image_url": "https://example.com/reference.png"},
+                ],
+            },
+            {"role": "user", "content": "Go."},
+        ],
+    )
+
+    payload = build_anthropic_payload(request)
+
+    assert payload["system"] == [
+        {"type": "text", "text": "Describe this image."},
+        {"type": "image", "source": {"type": "url", "url": "https://example.com/reference.png"}},
+    ]
 
 
 def test_build_anthropic_payload_translates_tool_schema_and_turns() -> None:
@@ -141,18 +165,76 @@ def test_translate_request_messages_merges_parallel_tool_results() -> None:
                 {"type": "image_url", "image_url": "https://example.com/reference.png"},
                 {"type": "text", "text": "Rule 2"},
             ],
-            "Rule 1\nRule 2",
-            id="text-blocks-and-image",
+            [
+                {"type": "text", "text": "Rule 1"},
+                {"type": "image", "source": {"type": "url", "url": "https://example.com/reference.png"}},
+                {"type": "text", "text": "Rule 2"},
+            ],
+            id="mixed-text-and-image-returns-blocks",
         ),
         pytest.param(
             [{"type": "image_url", "image_url": "https://example.com/reference.png"}],
-            None,
-            id="no-text",
+            [{"type": "image", "source": {"type": "url", "url": "https://example.com/reference.png"}}],
+            id="image-only-returns-blocks",
+        ),
+        pytest.param(
+            [{"type": "text", "text": "Rule 1"}, {"type": "text", "text": "Rule 2"}],
+            "Rule 1\nRule 2",
+            id="text-only-returns-string",
+        ),
+        pytest.param(None, None, id="none"),
+        pytest.param("", None, id="empty-string"),
+    ],
+)
+def test_extract_system_content_normalizes_supported_inputs(
+    content: object, expected: str | list[dict[str, object]] | None
+) -> None:
+    assert extract_system_content(content) == expected
+
+
+@pytest.mark.parametrize(
+    ("parts", "expected"),
+    [
+        pytest.param(
+            ["Part A", "Part B"],
+            "Part A\n\nPart B",
+            id="all-strings-joined",
+        ),
+        pytest.param(
+            ["Part A"],
+            "Part A",
+            id="single-string",
+        ),
+        pytest.param(
+            [
+                "Text preamble",
+                [
+                    {"type": "text", "text": "Rule 1"},
+                    {"type": "image", "source": {"type": "url", "url": "https://example.com/img.png"}},
+                ],
+            ],
+            [
+                {"type": "text", "text": "Text preamble"},
+                {"type": "text", "text": "Rule 1"},
+                {"type": "image", "source": {"type": "url", "url": "https://example.com/img.png"}},
+            ],
+            id="mixed-string-and-blocks",
+        ),
+        pytest.param(
+            [
+                [{"type": "text", "text": "A"}],
+                [{"type": "text", "text": "B"}],
+            ],
+            [{"type": "text", "text": "A"}, {"type": "text", "text": "B"}],
+            id="all-block-lists-flattened",
         ),
     ],
 )
-def test_extract_system_text_normalizes_supported_inputs(content: object, expected: str | None) -> None:
-    assert extract_system_text(content) == expected
+def test_merge_system_parts_normalizes_supported_inputs(
+    parts: list[str | list[dict[str, object]]],
+    expected: str | list[dict[str, object]],
+) -> None:
+    assert merge_system_parts(parts) == expected
 
 
 def test_parse_anthropic_response_maps_tool_use_and_thinking() -> None:
@@ -248,6 +330,17 @@ def test_translate_content_blocks_converts_images_and_preserves_other_blocks() -
         {"type": "text", "text": "Caption"},
         {"type": "custom_block", "value": "kept"},
     ]
+
+
+def test_translate_content_blocks_drops_malformed_image_url_block() -> None:
+    blocks = translate_content_blocks(
+        [
+            {"type": "image_url"},
+            {"type": "text", "text": "Kept"},
+        ]
+    )
+
+    assert blocks == [{"type": "text", "text": "Kept"}]
 
 
 @pytest.mark.parametrize(
