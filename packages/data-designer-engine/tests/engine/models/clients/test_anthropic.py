@@ -681,10 +681,33 @@ def test_close_noop_when_no_client_created() -> None:
     client.close()
 
 
+def test_completion_raises_after_close_without_recreating_client() -> None:
+    client = _make_client()
+    client.close()
+
+    request = ChatCompletionRequest(model=MODEL, messages=[{"role": "user", "content": "Hi"}])
+    with pytest.raises(RuntimeError, match="Model client is closed\\."):
+        client.completion(request)
+
+    assert client._client is None
+
+
 @pytest.mark.asyncio
 async def test_aclose_noop_when_no_client_created() -> None:
     client = _make_client()
     await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_acompletion_raises_after_aclose_without_recreating_client() -> None:
+    client = _make_client()
+    await client.aclose()
+
+    request = ChatCompletionRequest(model=MODEL, messages=[{"role": "user", "content": "Hi"}])
+    with pytest.raises(RuntimeError, match="Model client is closed\\."):
+        await client.acompletion(request)
+
+    assert client._aclient is None
 
 
 # --- Capabilities ---
