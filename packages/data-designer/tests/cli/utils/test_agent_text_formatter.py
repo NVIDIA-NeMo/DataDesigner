@@ -5,154 +5,114 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
-
-from data_designer.cli.utils.agent_introspection import get_family_schema
 from data_designer.cli.utils.agent_text_formatter import (
-    format_builder_text,
     format_context_text,
     format_model_aliases_text,
     format_persona_datasets_text,
-    format_schema_text,
     format_types_text,
 )
 
 # --- format_context_text ---
 
 
-def test_format_context_text_includes_builder_section() -> None:
+def test_format_context_text_includes_config_module_path() -> None:
     data: dict[str, Any] = {
-        "families": [{"family": "columns", "count": 1}],
+        "library_version": "1.0.0",
+        "config_module_path": "/some/path/to/config",
+        "config_builder_file": "data_designer/config/config_builder.py",
+        "base_config_file": "data_designer/config/base.py",
+        "families": [{"family": "columns", "count": 1, "files": ["data_designer/config/column_configs.py"]}],
         "types": {
-            "columns": [{"type_name": "a", "class_name": "A", "import_path": "m.A"}],
+            "columns": [{"type": "a", "description": "A thing."}],
         },
         "state": {
             "model_aliases": {"default_provider": None, "items": []},
             "persona_datasets": {"items": []},
         },
-        "builder": {
-            "class_name": "DataDesignerConfigBuilder",
-            "import_path": "data_designer.config.DataDesignerConfigBuilder",
-            "methods": [{"name": "add_column", "signature": "add_column(col)", "summary": "Add a column."}],
-        },
         "operations": [{"command_pattern": "agent context", "description": "Bootstrap payload."}],
     }
     result = format_context_text(data)
 
-    assert "## Builder" in result
-    assert "DataDesignerConfigBuilder:" in result
-    assert "add_column(col)" in result
+    assert "Data Designer v1.0.0" in result
+    assert "## Config Module" in result
+    assert "config_root: /some/path/to/config" in result
+    assert "Do not search other modules" in result
+    assert "builder: {config_root}/config_builder.py" in result
+    assert "## Types" in result
+    assert "## Commands" in result
+
+
+def test_format_context_text_no_usable_aliases_shows_warning() -> None:
+    data: dict[str, Any] = {
+        "library_version": "1.0.0",
+        "config_module_path": "/some/path/to/config",
+        "config_builder_file": "data_designer/config/config_builder.py",
+        "base_config_file": "data_designer/config/base.py",
+        "families": [],
+        "types": {},
+        "state": {
+            "model_aliases": {
+                "default_provider": "nvidia",
+                "items": [{"model_alias": "bad", "usable": False, "reason": "missing key"}],
+            },
+            "persona_datasets": {"items": []},
+        },
+        "operations": [],
+    }
+    result = format_context_text(data)
+
+    assert "No usable model aliases" in result
+    assert "Tell the user" in result
 
 
 # --- format_types_text ---
 
 
-def test_format_types_text_single_family() -> None:
+def test_format_types_text_single_family_with_config_root() -> None:
     data: dict[str, Any] = {
+        "config_module_path": "/some/path/to/data_designer/config",
         "family": "columns",
+        "files": ["data_designer/config/column_configs.py"],
         "items": [
-            {"type_name": "alpha", "class_name": "AlphaConfig", "import_path": "mod.AlphaConfig"},
-            {"type_name": "beta", "class_name": "BetaConfig", "import_path": "mod.BetaConfig"},
+            {"type": "alpha", "description": "Alpha desc."},
+            {"type": "beta", "description": "Beta desc."},
         ],
     }
     result = format_types_text(data)
 
-    assert "# columns" in result
+    assert "config_root: /some/path/to/data_designer/config" in result
+    assert "### columns" in result
+    assert "file: {config_root}/column_configs.py" in result
     assert "alpha" in result
-    assert "AlphaConfig" in result
+    assert "Alpha desc." in result
 
 
-def test_format_types_text_all_families() -> None:
+def test_format_types_text_all_families_with_config_root() -> None:
     data: dict[str, Any] = {
-        "families": [{"family": "columns", "count": 2}],
+        "config_module_path": "/some/path/to/data_designer/config",
+        "families": [
+            {"family": "columns", "count": 1, "files": ["data_designer/config/column_configs.py"]},
+            {"family": "samplers", "count": 1, "files": ["data_designer/config/sampler_params.py"]},
+        ],
         "items": {
-            "columns": [
-                {"type_name": "a", "class_name": "A", "import_path": "m.A"},
-                {"type_name": "b", "class_name": "B", "import_path": "m.B"},
-            ],
+            "columns": [{"type": "a", "description": "Desc A."}],
+            "samplers": [{"type": "b", "description": "Desc B."}],
         },
     }
     result = format_types_text(data)
 
-    assert "columns: 2 types" in result
-    assert "a" in result
-    assert "b" in result
+    assert "config_root: /some/path/to/data_designer/config" in result
+    assert "### columns" in result
+    assert "file: {config_root}/column_configs.py" in result
+    assert "file: {config_root}/sampler_params.py" in result
 
 
 def test_format_types_text_empty_items() -> None:
-    data: dict[str, Any] = {"family": "columns", "items": []}
+    data: dict[str, Any] = {"family": "columns", "files": ["data_designer/config/column_configs.py"], "items": []}
     result = format_types_text(data)
 
+    assert "file: {config_root}/column_configs.py" in result
     assert "(no items)" in result
-
-
-# --- format_schema_text ---
-
-
-def test_format_schema_text_single_type() -> None:
-    data: dict[str, Any] = {
-        "type_name": "llm-text",
-        "class_name": "LLMTextColumnConfig",
-        "schema_text": "LLMTextColumnConfig:\n  name: str  [required]",
-    }
-    result = format_schema_text(data)
-
-    assert "LLMTextColumnConfig:" in result
-    assert "name: str  [required]" in result
-
-
-def test_format_schema_text_all_types() -> None:
-    data: dict[str, Any] = {
-        "family": "columns",
-        "items": [
-            {"type_name": "a", "class_name": "A", "schema_text": "A:\n  x: int  [required]"},
-            {"type_name": "b", "class_name": "B", "schema_text": "B:\n  y: str = 'hi'"},
-        ],
-    }
-    result = format_schema_text(data)
-
-    assert "# columns schemas (2 types)" in result
-    assert "A:\n  x: int  [required]" in result
-    assert "B:\n  y: str = 'hi'" in result
-
-
-def test_format_schema_text_passes_through_schema_text() -> None:
-    schema_text = "TestModel:\n  name: str  [required]\n  count: int = 0"
-    data: dict[str, Any] = {"type_name": "test", "class_name": "TestModel", "schema_text": schema_text}
-    result = format_schema_text(data)
-
-    assert result == schema_text
-
-
-# --- format_builder_text ---
-
-
-def test_format_builder_text_renders_methods() -> None:
-    data: dict[str, Any] = {
-        "class_name": "MyBuilder",
-        "import_path": "data_designer.config.MyBuilder",
-        "methods": [
-            {"name": "add_column", "signature": "add_column(column: ColumnConfig)", "summary": "Add a column."},
-            {"name": "build", "signature": "build()", "summary": "Build the config."},
-        ],
-    }
-    result = format_builder_text(data)
-
-    assert "MyBuilder:" in result
-    assert "usage: dd.MyBuilder" in result
-    assert "add_column(column: ColumnConfig)" in result
-    assert "Add a column." in result
-
-
-def test_format_builder_text_handles_method_without_summary() -> None:
-    data: dict[str, Any] = {
-        "class_name": "Builder",
-        "import_path": "mod.Builder",
-        "methods": [{"name": "reset", "signature": "reset()", "summary": None}],
-    }
-    result = format_builder_text(data)
-
-    assert "reset()" in result
 
 
 # --- format_model_aliases_text ---
@@ -196,28 +156,5 @@ def test_format_persona_datasets_text() -> None:
     }
     result = format_persona_datasets_text(state)
 
-    assert "# persona datasets" in result
     assert "en_US" in result
     assert "True" in result
-
-
-# --- Real config models ---
-
-
-@pytest.mark.parametrize(
-    "family,type_name",
-    [
-        ("columns", "llm-text"),
-        ("columns", "sampler"),
-        ("samplers", "category"),
-        ("validators", "code"),
-        ("constraints", "scalar_inequality"),
-    ],
-    ids=["columns-llm-text", "columns-sampler", "samplers-category", "validators-code", "constraints-scalar"],
-)
-def test_format_schema_text_on_real_config_models(family: str, type_name: str) -> None:
-    schema_data = get_family_schema(family, type_name)
-    result = format_schema_text(schema_data)
-
-    assert schema_data["class_name"] in result
-    assert result == schema_data["schema_text"]
