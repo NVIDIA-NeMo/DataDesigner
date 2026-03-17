@@ -463,7 +463,7 @@ async def test_scheduler_eager_row_drop_skips_downstream_of_failed_column() -> N
     """When fail_col drops a row, a downstream column never processes it."""
     provider = _mock_provider()
 
-    # Pipeline: seed → fail_col (cell, permanent failure) → downstream (cell)
+    # Pipeline: seed -> fail_col (cell, permanent failure) -> downstream (cell)
     # downstream depends on fail_col, so its tasks only enter the frontier
     # after fail_col completes for each row. Since fail_col always fails,
     # the row is dropped before downstream is ever enqueued.
@@ -502,7 +502,7 @@ async def test_scheduler_eager_row_drop_skips_downstream_of_failed_column() -> N
 async def test_scheduler_non_retryable_seed_failure_no_keyerror_on_downstream() -> None:
     """Non-retryable seed failure does not cause KeyError on vacuously-ready downstream.
 
-    Pipeline: seed (full_column) → cell_out (cell_by_cell) → full_out (full_column).
+    Pipeline: seed (full_column) -> cell_out (cell_by_cell) -> full_out (full_column).
     When seed fails non-retryably, all rows are dropped. cell_out's cell tasks
     become vacuously complete (all rows dropped), which makes full_out ready.
     full_out must not crash with a KeyError when its row group buffer has been
@@ -557,3 +557,155 @@ async def test_scheduler_non_retryable_seed_failure_no_keyerror_on_downstream() 
     # full_out was either never dispatched or silently skipped (no KeyError)
     full_out_errors = [t for t in scheduler.traces if t.column == "full_out" and t.status == "error"]
     assert len(full_out_errors) == 0
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_error_rate_shutdown() -> None:
+    """Early shutdown triggers when error rate exceeds threshold."""
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="fail_col", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "fail_col": GenerationStrategy.CELL_BY_CELL,
+    }
+    generators = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "fail_col": MockFailingGenerator(config=_expr_config("fail_col"), resource_provider=provider),
+    }
+
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 10)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        shutdown_error_rate=0.5,
+        shutdown_error_window=2,
+    )
+    await scheduler.run()
+
+    assert scheduler._early_shutdown is True
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_early_shutdown_disabled() -> None:
+    """disable_early_shutdown=True prevents shutdown even at 100% error rate."""
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="fail_col", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "fail_col": GenerationStrategy.CELL_BY_CELL,
+    }
+    generators = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "fail_col": MockFailingGenerator(config=_expr_config("fail_col"), resource_provider=provider),
+    }
+
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 5)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        disable_early_shutdown=True,
+    )
+    await scheduler.run()
+
+    assert scheduler._early_shutdown is False
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_on_before_checkpoint_callback() -> None:
+    """on_before_checkpoint is called before each row group is checkpointed."""
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+    ]
+    strategies = {"seed": GenerationStrategy.FULL_COLUMN}
+    generators = {"seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider)}
+
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 3), (1, 2)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+
+    storage = MagicMock()
+    storage.dataset_name = "test"
+    storage.get_file_paths.return_value = {}
+    storage.write_batch_to_parquet_file.return_value = "/fake.parquet"
+    storage.move_partial_result_to_final_file_path.return_value = "/fake_final.parquet"
+
+    buffer_mgr = RowGroupBufferManager(storage)
+    callback_log: list[tuple[int, int]] = []
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_mgr,
+        on_before_checkpoint=lambda rg, sz: callback_log.append((rg, sz)),
+    )
+    await scheduler.run()
+
+    assert sorted(callback_log) == [(0, 3), (1, 2)]
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_pre_batch_failure_skips_row_group() -> None:
+    """Pre-batch processor failure drops all rows in the row group; other row groups continue."""
+    provider = _mock_provider()
+    seed_gen = MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider)
+    cell_gen = MockCellGenerator(config=_expr_config("cell_out"), resource_provider=provider)
+
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="cell_out", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "cell_out": GenerationStrategy.CELL_BY_CELL,
+    }
+    generators = {"seed": seed_gen, "cell_out": cell_gen}
+
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 3), (1, 2)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+
+    storage = MagicMock()
+    storage.dataset_name = "test"
+    storage.get_file_paths.return_value = {}
+    storage.write_batch_to_parquet_file.return_value = "/fake.parquet"
+    storage.move_partial_result_to_final_file_path.return_value = "/fake_final.parquet"
+
+    buffer_mgr = RowGroupBufferManager(storage)
+
+    def failing_pre_batch(rg_id: int, rg_size: int) -> None:
+        if rg_id == 0:
+            raise RuntimeError("pre-batch processor failed")
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_mgr,
+        on_seeds_complete=failing_pre_batch,
+    )
+    await scheduler.run()
+
+    # Row group 0: all rows dropped due to pre-batch failure
+    assert all(tracker.is_dropped(0, ri) for ri in range(3))
+    # Row group 1: completed normally
+    assert tracker.is_row_group_complete(1, 2, ["seed", "cell_out"])

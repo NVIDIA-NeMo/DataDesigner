@@ -42,6 +42,7 @@ class RunConfig(ConfigBase):
     non_inference_max_parallel_workers: int = Field(default=4, ge=1)
     max_conversation_restarts: int = Field(default=5, ge=0)
     max_conversation_correction_steps: int = Field(default=0, ge=0)
+    async_trace: bool = False
 
     @model_validator(mode="after")
     def normalize_shutdown_settings(self) -> Self:

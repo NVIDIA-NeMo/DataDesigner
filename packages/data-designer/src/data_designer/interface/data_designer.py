@@ -215,6 +215,8 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         except Exception as e:
             raise DataDesignerGenerationError(f"🛑 Error generating dataset: {e}") from e
 
+        task_traces = builder.task_traces
+
         try:
             dataset_for_profiler = builder.artifact_storage.load_dataset_with_dropped_columns()
         except Exception as e:
@@ -251,6 +253,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             analysis=analysis,
             config_builder=config_builder,
             dataset_metadata=dataset_metadata,
+            task_traces=task_traces,
         )
 
     def preview(

@@ -68,6 +68,18 @@ class RowGroupBufferManager:
         rows = [row for i, row in enumerate(self._buffers[row_group]) if i not in dropped]
         return lazy.pd.DataFrame(rows)
 
+    def replace_dataframe(self, row_group: int, df: pd.DataFrame) -> None:
+        """Replace the buffer for a row group from a DataFrame (non-dropped rows only)."""
+        dropped = self._dropped.get(row_group, set())
+        records = df.to_dict(orient="records")
+        buf_idx = 0
+        for ri in range(self._row_group_sizes[row_group]):
+            if ri in dropped:
+                continue
+            if buf_idx < len(records):
+                self._buffers[row_group][ri] = records[buf_idx]
+            buf_idx += 1
+
     def drop_row(self, row_group: int, row_index: int) -> None:
         self._dropped.setdefault(row_group, set()).add(row_index)
 

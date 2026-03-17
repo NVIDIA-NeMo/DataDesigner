@@ -46,6 +46,11 @@ class AsyncTaskScheduler:
         max_submitted_tasks: int = 256,
         salvage_max_rounds: int = 2,
         on_row_group_complete: Callable[[int], None] | None = None,
+        on_seeds_complete: Callable[[int, int], None] | None = None,
+        on_before_checkpoint: Callable[[int, int], None] | None = None,
+        shutdown_error_rate: float = 0.5,
+        shutdown_error_window: int = 10,
+        disable_early_shutdown: bool = False,
         trace: bool = False,
     ) -> None:
         self._generators = generators
@@ -62,6 +67,13 @@ class AsyncTaskScheduler:
         self._wake_event = asyncio.Event()
         self._salvage_max_rounds = salvage_max_rounds
         self._on_row_group_complete = on_row_group_complete
+        self._on_seeds_complete = on_seeds_complete
+        self._on_before_checkpoint = on_before_checkpoint
+
+        # Error rate shutdown
+        self._shutdown_error_rate = 1.0 if disable_early_shutdown else shutdown_error_rate
+        self._shutdown_error_window = shutdown_error_window
+        self._early_shutdown = False
 
         # Multi-column dedup: group output columns by generator identity
         instance_to_columns: dict[int, list[str]] = {}
@@ -81,6 +93,8 @@ class AsyncTaskScheduler:
         # Active row groups (admitted but not yet checkpointed)
         self._active_rgs: list[tuple[int, int]] = []
         self._admitted_rg_ids: set[int] = set()
+        self._seeds_dispatched_rgs: set[int] = set()
+        self._pre_batch_done_rgs: set[int] = set()
 
         # Tracing
         self._trace = trace
@@ -118,7 +132,28 @@ class AsyncTaskScheduler:
 
         # Main dispatch loop
         while True:
+            if self._early_shutdown:
+                logger.warning("Early shutdown triggered — error rate exceeded threshold")
+                break
+
             self._wake_event.clear()
+
+            # Run pre-batch callbacks for row groups whose seeds just completed
+            for rg_id, rg_size in self._active_rgs:
+                if rg_id in self._seeds_dispatched_rgs and rg_id not in self._pre_batch_done_rgs:
+                    seed_cols = {c for c in all_columns if not self._graph.get_upstream_columns(c)}
+                    all_seeds_done = all(col in self._tracker._completed.get(rg_id, {}) for col in seed_cols)
+                    if all_seeds_done and not self._in_flight_for_rg(rg_id):
+                        self._pre_batch_done_rgs.add(rg_id)
+                        if self._on_seeds_complete:
+                            try:
+                                self._on_seeds_complete(rg_id, rg_size)
+                            except Exception as exc:
+                                logger.warning(f"Pre-batch processor failed for row group {rg_id}, skipping: {exc}")
+                                for ri in range(rg_size):
+                                    self._tracker.drop_row(rg_id, ri)
+                                    if self._buffer_manager:
+                                        self._buffer_manager.drop_row(rg_id, ri)
 
             ready = self._tracker.get_ready_tasks(self._dispatched, self._admitted_rg_ids)
             for task in ready:
@@ -224,6 +259,8 @@ class AsyncTaskScheduler:
         for rg_id, rg_size in completed:
             self._active_rgs.remove((rg_id, rg_size))
             try:
+                if self._on_before_checkpoint:
+                    self._on_before_checkpoint(rg_id, rg_size)
                 if self._buffer_manager is not None:
                     self._buffer_manager.checkpoint_row_group(rg_id)
                 if self._on_row_group_complete:
@@ -233,8 +270,22 @@ class AsyncTaskScheduler:
             finally:
                 self._rg_semaphore.release()
 
+    def _in_flight_for_rg(self, rg_id: int) -> bool:
+        """Check if any tasks are in-flight for a given row group."""
+        return any(t.row_group == rg_id for t in self._in_flight)
+
+    def _check_error_rate(self) -> None:
+        """Trigger early shutdown if error rate exceeds threshold."""
+        completed = self._success_count + self._error_count
+        if completed < self._shutdown_error_window:
+            return
+        error_rate = self._error_count / max(1, completed)
+        if error_rate >= self._shutdown_error_rate:
+            self._early_shutdown = True
+
     async def _dispatch_seeds(self, rg_id: int, rg_size: int) -> None:
         """Dispatch from_scratch tasks for a row group."""
+        self._seeds_dispatched_rgs.add(rg_id)
         seed_cols = [col for col in self._graph.get_topological_order() if not self._graph.get_upstream_columns(col)]
         seen_instances: set[int] = set()
 
@@ -330,6 +381,7 @@ class AsyncTaskScheduler:
 
         except Exception as exc:
             self._error_count += 1
+            self._check_error_rate()
             if self._trace and trace:
                 trace.status = "error"
                 trace.error = str(exc)
