@@ -868,6 +868,42 @@ def test_create_dataset_e2e_with_custom_filesystem_seed_reader_fanout_partition_
     assert list(df["line"]) == ["beta-0", "beta-1", "beta-0"]
 
 
+def test_create_dataset_e2e_with_custom_filesystem_seed_reader_selected_empty_fanout_raises_generation_error(
+    stub_artifact_path: Path,
+    stub_model_providers: list[ModelProvider],
+    stub_managed_assets_path: Path,
+    tmp_path: Path,
+) -> None:
+    seed_dir = tmp_path / "custom-fanout-empty-selection-directory-reader"
+    seed_dir.mkdir(parents=True)
+    (seed_dir / "alpha.txt").write_text("alpha-0", encoding="utf-8")
+    (seed_dir / "beta.txt").write_text("", encoding="utf-8")
+
+    builder = DataDesignerConfigBuilder()
+    builder.with_seed_dataset(
+        DirectorySeedSource(path=str(seed_dir), file_pattern="*.txt"),
+        selection_strategy=PartitionBlock(index=1, num_partitions=2),
+    )
+    _add_irrelevant_sampler_column(builder)
+
+    data_designer = DataDesigner(
+        artifact_path=stub_artifact_path,
+        model_providers=stub_model_providers,
+        secret_resolver=PlaintextResolver(),
+        managed_assets_path=stub_managed_assets_path,
+        seed_readers=[FanoutCustomDirectorySeedReader()],
+    )
+
+    with pytest.raises(
+        DataDesignerGenerationError,
+        match="Selected manifest rows for seed source at .* did not produce any rows after hydration",
+    ) as exc_info:
+        data_designer.create(builder, num_records=1, dataset_name="custom-fanout-empty-selection-directory-reader")
+
+    assert exc_info.value.__cause__ is not None
+    assert "Selected manifest rows for seed source at" in str(exc_info.value.__cause__)
+
+
 def test_create_dataset_e2e_with_directory_seed_source_no_matches_raises_generation_error(
     stub_artifact_path: Path,
     stub_model_providers: list[ModelProvider],

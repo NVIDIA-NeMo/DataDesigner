@@ -466,6 +466,85 @@ def test_filesystem_seed_reader_fanout_keeps_manifest_based_index_selection(tmp_
     assert reader.hydrated_relative_paths == ["beta.txt"]
 
 
+def test_filesystem_seed_reader_batch_reader_raises_for_selected_manifest_rows_with_empty_fanout(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "alpha.txt").write_text("alpha-0", encoding="utf-8")
+    (tmp_path / "beta.txt").write_text("", encoding="utf-8")
+
+    reader = FanoutDirectorySeedReader()
+    reader.attach(
+        DirectorySeedSource(path=str(tmp_path), file_pattern="*.txt"),
+        PlaintextResolver(),
+    )
+
+    batch_reader = reader.create_batch_reader(
+        batch_size=1,
+        index_range=IndexRange(start=1, end=1),
+        shuffle=False,
+    )
+
+    with pytest.raises(
+        SeedReaderError,
+        match="Selected manifest rows for seed source at .* did not produce any rows after hydration",
+    ):
+        batch_reader.read_next_batch()
+
+    assert reader.hydrated_relative_paths == ["beta.txt"]
+
+
+def test_filesystem_seed_reader_batch_reader_skips_empty_fanout_rows_before_returning_records(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "alpha.txt").write_text("", encoding="utf-8")
+    (tmp_path / "beta.txt").write_text("beta-0\nbeta-1", encoding="utf-8")
+
+    reader = FanoutDirectorySeedReader()
+    reader.attach(
+        DirectorySeedSource(path=str(tmp_path), file_pattern="*.txt"),
+        PlaintextResolver(),
+    )
+
+    batch_reader = reader.create_batch_reader(
+        batch_size=1,
+        index_range=None,
+        shuffle=False,
+    )
+    batch_df = batch_reader.read_next_batch().to_pandas()
+
+    assert list(batch_df["relative_path"]) == ["beta.txt", "beta.txt"]
+    assert list(batch_df["line"]) == ["beta-0", "beta-1"]
+    assert reader.hydrated_relative_paths == ["alpha.txt", "beta.txt"]
+
+
+def test_filesystem_seed_reader_batch_reader_stops_cleanly_after_emitting_records_when_only_empty_fanout_rows_remain(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "alpha.txt").write_text("alpha-0", encoding="utf-8")
+    (tmp_path / "beta.txt").write_text("", encoding="utf-8")
+
+    reader = FanoutDirectorySeedReader()
+    reader.attach(
+        DirectorySeedSource(path=str(tmp_path), file_pattern="*.txt"),
+        PlaintextResolver(),
+    )
+
+    batch_reader = reader.create_batch_reader(
+        batch_size=1,
+        index_range=None,
+        shuffle=False,
+    )
+    batch_df = batch_reader.read_next_batch().to_pandas()
+
+    assert list(batch_df["relative_path"]) == ["alpha.txt"]
+    assert list(batch_df["line"]) == ["alpha-0"]
+
+    with pytest.raises(StopIteration):
+        batch_reader.read_next_batch()
+
+    assert reader.hydrated_relative_paths == ["alpha.txt", "beta.txt"]
+
+
 def test_local_file_seed_reader_uses_load_time_runtime_path_when_cwd_changes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

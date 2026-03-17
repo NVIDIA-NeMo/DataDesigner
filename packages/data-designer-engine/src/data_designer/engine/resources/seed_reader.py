@@ -118,18 +118,32 @@ class HydratingSeedReaderBatchReader:
         manifest_batch_reader: SeedReaderBatchReader,
         hydrate_records: Callable[[list[dict[str, Any]]], list[dict[str, Any]]],
         output_columns: list[str],
+        no_rows_error_message: str,
     ) -> None:
         self._manifest_batch_reader = manifest_batch_reader
         self._hydrate_records = hydrate_records
         self._output_columns = output_columns
+        self._no_rows_error_message = no_rows_error_message
+        self._has_emitted_records = False
 
     def read_next_batch(self) -> SeedReaderBatch:
-        manifest_batch = self._manifest_batch_reader.read_next_batch()
-        manifest_records = manifest_batch.to_pandas().to_dict(orient="records")
-        hydrated_records = self._hydrate_records(manifest_records)
-        return PandasSeedReaderBatch(
-            create_seed_reader_output_dataframe(records=hydrated_records, output_columns=self._output_columns)
-        )
+        while True:
+            try:
+                manifest_batch = self._manifest_batch_reader.read_next_batch()
+            except StopIteration:
+                if self._has_emitted_records:
+                    raise
+                raise SeedReaderError(self._no_rows_error_message) from None
+
+            manifest_records = manifest_batch.to_pandas().to_dict(orient="records")
+            hydrated_records = self._hydrate_records(manifest_records)
+            if not hydrated_records:
+                continue
+
+            self._has_emitted_records = True
+            return PandasSeedReaderBatch(
+                create_seed_reader_output_dataframe(records=hydrated_records, output_columns=self._output_columns)
+            )
 
 
 SourceT = TypeVar("SourceT", bound=SeedSource)
@@ -417,6 +431,7 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
                 context=context,
             ),
             output_columns=self.get_output_column_names(),
+            no_rows_error_message=self._get_empty_selected_manifest_rows_error_message(),
         )
 
     def _get_row_manifest_dataframe(self) -> pd.DataFrame:
@@ -468,6 +483,9 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
     def _build_internal_table_name(self, suffix: str) -> str:
         seed_type = self.get_seed_type().replace("-", "_")
         return f"seed_reader_{seed_type}_{suffix}"
+
+    def _get_empty_selected_manifest_rows_error_message(self) -> str:
+        return f"Selected manifest rows for seed source at {self.source.path} did not produce any rows after hydration"
 
     def _normalize_rows_to_dataframe(self, rows: pd.DataFrame | list[dict[str, Any]]) -> pd.DataFrame:
         if isinstance(rows, lazy.pd.DataFrame):
