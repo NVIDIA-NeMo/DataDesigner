@@ -26,6 +26,6 @@
   "sequenceDiagramSection": {
     "included": true,
     "collapsible": true,
-    "defaultOpen": true
+    "defaultOpen": false
   }
 }
