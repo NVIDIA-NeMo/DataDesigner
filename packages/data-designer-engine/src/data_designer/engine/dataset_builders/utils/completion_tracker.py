@@ -39,8 +39,7 @@ class CompletionTracker:
         """Create a frontier-enabled tracker backed by an execution graph."""
         tracker = cls()
         tracker._graph = graph
-        tracker._row_group_sizes = {rg_id: size for rg_id, size in row_groups}
-        tracker._seed_frontier()
+        tracker._row_group_sizes = dict(row_groups)
         return tracker
 
     def mark_cell_complete(self, column: str, row_group: int, row_index: int) -> None:
@@ -109,15 +108,23 @@ class CompletionTracker:
                     return False
         return True
 
-    def get_ready_tasks(self, dispatched: set[Task]) -> list[Task]:
+    def get_ready_tasks(self, dispatched: set[Task], admitted_rgs: set[int] | None = None) -> list[Task]:
         """Return all currently dispatchable tasks from the frontier.
 
-        Excludes already-dispatched/in-flight tasks.
+        Excludes already-dispatched/in-flight tasks and tasks for row groups
+        not yet admitted (if ``admitted_rgs`` is provided).
         """
-        return [t for t in self._frontier if t not in dispatched]
+        return [
+            t for t in self._frontier if t not in dispatched and (admitted_rgs is None or t.row_group in admitted_rgs)
+        ]
 
-    def _seed_frontier(self) -> None:
-        """Populate the frontier with root tasks (columns with no upstream deps)."""
+    def seed_frontier(self) -> None:
+        """Populate the frontier with root tasks (columns with no upstream deps).
+
+        Not called automatically - the scheduler manages root dispatch directly
+        to handle stateful locks and multi-column dedup. Call this explicitly
+        for static introspection (e.g., capacity planning, task enumeration).
+        """
         if self._graph is None:
             raise RuntimeError("This method requires a graph to be set.")
         for col in self._graph.get_root_columns():
