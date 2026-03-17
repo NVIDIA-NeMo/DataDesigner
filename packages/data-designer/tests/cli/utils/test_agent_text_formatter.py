@@ -42,6 +42,29 @@ def test_format_context_text_includes_config_module_path() -> None:
     assert "## Commands" in result
 
 
+def test_format_context_text_no_usable_aliases_shows_warning() -> None:
+    data: dict[str, Any] = {
+        "library_version": "1.0.0",
+        "config_module_path": "/some/path/to/config",
+        "config_builder_file": "data_designer/config/config_builder.py",
+        "base_config_file": "data_designer/config/base.py",
+        "families": [],
+        "types": {},
+        "state": {
+            "model_aliases": {
+                "default_provider": "nvidia",
+                "items": [{"model_alias": "bad", "usable": False, "reason": "missing key"}],
+            },
+            "persona_datasets": {"items": []},
+        },
+        "operations": [],
+    }
+    result = format_context_text(data)
+
+    assert "No usable model aliases" in result
+    assert "Tell the user" in result
+
+
 # --- format_types_text ---
 
 
