@@ -1,8 +1,10 @@
 ---
-
-## date: 2026-03-17
+date: 2026-03-17
 authors:
   - nmulepati
+---
+
+# Plan: Agent-Assisted Development Principles
 
 # Plan: Agent-Assisted Development Principles
 
