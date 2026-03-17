@@ -10,48 +10,30 @@ import typer
 
 from data_designer.cli.utils.agent_introspection import (
     AgentIntrospectionError,
-    get_builder_api,
     get_context,
     get_model_aliases_state,
     get_persona_datasets_state,
-    get_schema,
     get_types,
 )
 from data_designer.cli.utils.agent_text_formatter import (
-    format_builder_text,
     format_context_text,
     format_model_aliases_text,
     format_persona_datasets_text,
-    format_schema_text,
     format_types_text,
 )
 from data_designer.config.utils.constants import DATA_DESIGNER_HOME
 
 
 def context_command() -> None:
-    """Return a bootstrap payload with types, local state, and builder summary."""
+    """Return a bootstrap payload with types, local state, and library path."""
     _run(lambda: get_context(DATA_DESIGNER_HOME), format_context_text)
 
 
 def types_command(
     family: str | None = typer.Argument(None, help="Optional schema family name."),
 ) -> None:
-    """Return available type names and import paths for one family or all families."""
+    """Return available type names, descriptions, and source files for one family or all families."""
     _run(lambda: get_types(family), format_types_text)
-
-
-def schema_command(
-    family: str = typer.Argument(..., help="Schema family name."),
-    type_name: str | None = typer.Argument(None, help="Type name within the selected family."),
-    all_types: bool = typer.Option(False, "--all", help="Return every schema in the selected family."),
-) -> None:
-    """Return schema for a specific type or every type in a family."""
-    _run(lambda: get_schema(family, type_name, all_types=all_types), format_schema_text)
-
-
-def builder_command() -> None:
-    """Return the DataDesignerConfigBuilder method surface with signatures and docstrings."""
-    _run(get_builder_api, format_builder_text)
 
 
 def state_model_aliases_command() -> None:

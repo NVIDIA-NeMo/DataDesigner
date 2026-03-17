@@ -6,8 +6,9 @@ authors:
 
 # Model Facade Overhaul PR-1 Architecture Notes
 
-This document captures the architecture intent for PR-1 from
-`plans/343/model-facade-overhaul-plan-step-1.md`.
+This document captures the architecture intent for
+[PR #359](https://github.com/NVIDIA-NeMo/DataDesigner/pull/359)
+from `plans/343/model-facade-overhaul-plan-step-1.md`.
 
 ## Canonical Adapter Boundary
 

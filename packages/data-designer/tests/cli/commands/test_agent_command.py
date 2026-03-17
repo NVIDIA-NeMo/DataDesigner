@@ -18,7 +18,6 @@ _PATCH = "data_designer.cli.commands.agent"
     [
         (["agent", "context"], "get_context", "format_context_text", "Data Designer"),
         (["agent", "types", "columns"], "get_types", "format_types_text", "columns"),
-        (["agent", "builder"], "get_builder_api", "format_builder_text", "Builder:"),
         (["agent", "state", "model-aliases"], "get_model_aliases_state", "format_model_aliases_text", "model aliases"),
         (
             ["agent", "state", "persona-datasets"],
@@ -27,7 +26,7 @@ _PATCH = "data_designer.cli.commands.agent"
             "persona",
         ),
     ],
-    ids=["context", "types", "builder", "model-aliases", "persona-datasets"],
+    ids=["context", "types", "model-aliases", "persona-datasets"],
 )
 def test_commands_default_text_mode(args: list[str], data_fn: str, format_fn: str, expected_text: str) -> None:
     runner = CliRunner()
@@ -42,22 +41,10 @@ def test_commands_default_text_mode(args: list[str], data_fn: str, format_fn: st
     mock_get.assert_called_once()
 
 
-def test_schema_command_default_outputs_text() -> None:
-    runner = CliRunner()
-    with (
-        patch(f"{_PATCH}.get_schema", return_value={"type_name": "llm-text", "schema": {}}),
-        patch(f"{_PATCH}.format_schema_text", return_value="# llm-text\n{}"),
-    ):
-        result = runner.invoke(app, ["agent", "schema", "columns", "llm-text"])
-
-    assert result.exit_code == 0
-    assert "llm-text" in result.output
-
-
 def test_error_outputs_message_to_stderr() -> None:
     runner = CliRunner()
-    with patch(f"{_PATCH}.get_schema", side_effect=ValueError("boom")):
-        result = runner.invoke(app, ["agent", "schema", "columns", "missing"])
+    with patch(f"{_PATCH}.get_types", side_effect=ValueError("boom")):
+        result = runner.invoke(app, ["agent", "types"])
 
     assert result.exit_code == 1
     assert result.stdout == ""
