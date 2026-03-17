@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from data_designer.engine.models.clients.adapters.openai_compatible import OpenAICompatibleClient
 from data_designer.engine.models.clients.base import ModelClient
 from data_designer.engine.models.clients.errors import (
     ProviderError,
@@ -11,6 +12,8 @@ from data_designer.engine.models.clients.errors import (
     map_http_status_to_provider_error_kind,
 )
 from data_designer.engine.models.clients.factory import create_model_client
+from data_designer.engine.models.clients.retry import RetryConfig
+from data_designer.engine.models.clients.throttle import ThrottleDomain, ThrottleManager
 from data_designer.engine.models.clients.types import (
     AssistantMessage,
     ChatCompletionRequest,
@@ -36,8 +39,12 @@ __all__ = [
     "ImageGenerationResponse",
     "ImagePayload",
     "ModelClient",
+    "OpenAICompatibleClient",
     "ProviderError",
     "ProviderErrorKind",
+    "RetryConfig",
+    "ThrottleDomain",
+    "ThrottleManager",
     "ToolCall",
     "Usage",
     "create_model_client",
