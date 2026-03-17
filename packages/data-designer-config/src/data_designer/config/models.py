@@ -558,6 +558,11 @@ class ModelProvider(ConfigBase):
     extra_body: dict[str, Any] | None = None
     extra_headers: dict[str, str] | None = None
 
+    @field_validator("provider_type", mode="after")
+    @classmethod
+    def normalize_provider_type(cls, v: str) -> str:
+        return v.lower()
+
 
 def load_model_configs(model_configs: list[ModelConfig] | str | Path) -> list[ModelConfig]:
     if isinstance(model_configs, list) and all(isinstance(mc, ModelConfig) for mc in model_configs):

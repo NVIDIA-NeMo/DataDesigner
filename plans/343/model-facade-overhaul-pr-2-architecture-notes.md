@@ -6,8 +6,9 @@ authors:
 
 # Model Facade Overhaul PR-2 Architecture Notes
 
-This document captures the architecture intent for PR-2 from
-`plans/343/model-facade-overhaul-plan-step-1.md`.
+This document captures the architecture intent for
+[PR #373](https://github.com/NVIDIA-NeMo/DataDesigner/pull/373)
+from `plans/343/model-facade-overhaul-plan-step-1.md`.
 
 ## Goal
 
