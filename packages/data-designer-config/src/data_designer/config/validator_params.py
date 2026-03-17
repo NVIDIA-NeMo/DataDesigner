@@ -25,7 +25,7 @@ class CodeValidatorParams(ConfigBase):
     """Configuration for code validation. Supports Python and SQL code validation.
 
     Attributes:
-        code_lang: The language of the code to validate. Supported values include: `python`,
+        code_lang (required): The language of the code to validate. Supported values include: `python`,
             `sql:sqlite`, `sql:postgres`, `sql:mysql`, `sql:tsql`, `sql:bigquery`, `sql:ansi`.
     """
 
@@ -48,7 +48,7 @@ class LocalCallableValidatorParams(ConfigBase):
     """Configuration for local callable validation. Expects a function to be passed that validates the data.
 
     Attributes:
-        validation_function: Function (`Callable[[pd.DataFrame], pd.DataFrame]`) to validate the
+        validation_function (required): Function (`Callable[[pd.DataFrame], pd.DataFrame]`) to validate the
             data. Output must contain a column `is_valid` of type `bool`.
         output_schema: The JSON schema for the local callable validator's output. If not provided,
             the output will not be validated.
@@ -80,7 +80,7 @@ class RemoteValidatorParams(ConfigBase):
     """Configuration for remote validation. Sends data to a remote endpoint for validation.
 
     Attributes:
-        endpoint_url: The URL of the remote endpoint.
+        endpoint_url (required): The URL of the remote endpoint.
         output_schema: The JSON schema for the remote validator's output. If not provided,
             the output will not be validated.
         timeout: The timeout for the HTTP request in seconds. Defaults to 30.0.
