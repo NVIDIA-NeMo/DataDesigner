@@ -289,9 +289,9 @@ class ColumnWiseDatasetBuilder:
             buffer_manager=buffer_manager,
             on_seeds_complete=on_seeds_complete,
             on_before_checkpoint=on_before_checkpoint,
-            on_row_group_complete=lambda rg_id: on_batch_complete(self.artifact_storage.final_dataset_path)
-            if on_batch_complete
-            else None,
+            on_row_group_complete=lambda rg_id: (
+                on_batch_complete(self.artifact_storage.final_dataset_path) if on_batch_complete else None
+            ),
             shutdown_error_rate=settings.shutdown_error_rate,
             shutdown_error_window=settings.shutdown_error_window,
             trace=trace_enabled,
