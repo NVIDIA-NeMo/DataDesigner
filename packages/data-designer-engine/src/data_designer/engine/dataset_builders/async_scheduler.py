@@ -257,6 +257,7 @@ class AsyncTaskScheduler:
         ]
         for rg_id, rg_size in completed:
             self._active_rgs.remove((rg_id, rg_size))
+            self._admitted_rg_ids.discard(rg_id)
             try:
                 if self._on_before_checkpoint:
                     try:
