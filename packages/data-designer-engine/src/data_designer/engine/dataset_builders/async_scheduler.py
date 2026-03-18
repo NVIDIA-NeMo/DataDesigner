@@ -86,6 +86,9 @@ class AsyncTaskScheduler:
             if gen.is_order_dependent and id(gen) not in self._stateful_locks:
                 self._stateful_locks[id(gen)] = asyncio.Lock()
 
+        # Per-RG in-flight counters for O(1) lookup
+        self._in_flight_counts: dict[int, int] = {}
+
         # Deferred retryable failures (retried in salvage rounds)
         self._deferred: list[Task] = []
 
@@ -135,25 +138,12 @@ class AsyncTaskScheduler:
         while True:
             if self._early_shutdown:
                 logger.warning("Early shutdown triggered - error rate exceeded threshold")
+                self._checkpoint_completed_row_groups(all_columns)
                 break
 
             self._wake_event.clear()
 
-            # Run pre-batch callbacks for row groups whose seeds just completed
-            for rg_id, rg_size in self._active_rgs:
-                if rg_id in self._seeds_dispatched_rgs and rg_id not in self._pre_batch_done_rgs:
-                    all_seeds_done = all(self._tracker.is_column_complete_for_rg(col, rg_id) for col in seed_cols)
-                    if all_seeds_done and not self._in_flight_for_rg(rg_id):
-                        self._pre_batch_done_rgs.add(rg_id)
-                        if self._on_seeds_complete:
-                            try:
-                                self._on_seeds_complete(rg_id, rg_size)
-                            except Exception as exc:
-                                logger.warning(f"Pre-batch processor failed for row group {rg_id}, skipping: {exc}")
-                                for ri in range(rg_size):
-                                    self._tracker.drop_row(rg_id, ri)
-                                    if self._buffer_manager:
-                                        self._buffer_manager.drop_row(rg_id, ri)
+            self._run_seeds_complete_check(seed_cols)
 
             ready = self._tracker.get_ready_tasks(self._dispatched, self._admitted_rg_ids)
             # Gate non-seed tasks on pre-batch completion when a pre-batch callback is configured
@@ -163,6 +153,7 @@ class AsyncTaskScheduler:
                 await self._submission_semaphore.acquire()
                 self._dispatched.add(task)
                 self._in_flight.add(task)
+                self._in_flight_counts[task.row_group] = self._in_flight_counts.get(task.row_group, 0) + 1
                 asyncio.create_task(self._execute_task(task))
 
             self._checkpoint_completed_row_groups(all_columns)
@@ -223,12 +214,13 @@ class AsyncTaskScheduler:
                         Task(column=task.column, row_group=task.row_group, row_index=None, task_type="batch")
                     )
                     self._in_flight.add(task)
+                    self._in_flight_counts[task.row_group] = self._in_flight_counts.get(task.row_group, 0) + 1
                     asyncio.create_task(self._execute_seed_task(task, gid))
                 else:
                     self._dispatched.discard(task)
             # Drain: dispatch frontier tasks and any newly-ready downstream tasks
             # until nothing remains in-flight or in the frontier.
-            await self._drain_frontier()
+            await self._drain_frontier(seed_cols, has_pre_batch, all_columns)
             self._checkpoint_completed_row_groups(all_columns)
 
         if self._active_rgs:
@@ -238,14 +230,18 @@ class AsyncTaskScheduler:
                 "These row groups were not checkpointed."
             )
 
-    async def _drain_frontier(self) -> None:
+    async def _drain_frontier(self, seed_cols: frozenset[str], has_pre_batch: bool, all_columns: list[str]) -> None:
         """Dispatch all frontier tasks and their downstream until quiescent."""
         while True:
+            self._run_seeds_complete_check(seed_cols)
             ready = self._tracker.get_ready_tasks(self._dispatched, self._admitted_rg_ids)
+            if has_pre_batch:
+                ready = [t for t in ready if t.row_group in self._pre_batch_done_rgs or t.column in seed_cols]
             for task in ready:
                 await self._submission_semaphore.acquire()
                 self._dispatched.add(task)
                 self._in_flight.add(task)
+                self._in_flight_counts[task.row_group] = self._in_flight_counts.get(task.row_group, 0) + 1
                 asyncio.create_task(self._execute_task(task))
             if not self._in_flight:
                 break
@@ -279,9 +275,26 @@ class AsyncTaskScheduler:
             finally:
                 self._rg_semaphore.release()
 
+    def _run_seeds_complete_check(self, seed_cols: frozenset[str]) -> None:
+        """Run pre-batch callbacks for row groups whose seeds just completed."""
+        for rg_id, rg_size in self._active_rgs:
+            if rg_id in self._seeds_dispatched_rgs and rg_id not in self._pre_batch_done_rgs:
+                all_seeds_done = all(self._tracker.is_column_complete_for_rg(col, rg_id) for col in seed_cols)
+                if all_seeds_done and not self._in_flight_for_rg(rg_id):
+                    self._pre_batch_done_rgs.add(rg_id)
+                    if self._on_seeds_complete:
+                        try:
+                            self._on_seeds_complete(rg_id, rg_size)
+                        except Exception as exc:
+                            logger.warning(f"Pre-batch processor failed for row group {rg_id}, skipping: {exc}")
+                            for ri in range(rg_size):
+                                self._tracker.drop_row(rg_id, ri)
+                                if self._buffer_manager:
+                                    self._buffer_manager.drop_row(rg_id, ri)
+
     def _in_flight_for_rg(self, rg_id: int) -> bool:
         """Check if any tasks are in-flight for a given row group."""
-        return any(t.row_group == rg_id for t in self._in_flight)
+        return self._in_flight_counts.get(rg_id, 0) > 0
 
     def _check_error_rate(self) -> None:
         """Trigger early shutdown if error rate exceeds threshold."""
@@ -289,7 +302,7 @@ class AsyncTaskScheduler:
         if completed < self._shutdown_error_window:
             return
         error_rate = self._error_count / max(1, completed)
-        if error_rate >= self._shutdown_error_rate:
+        if error_rate > self._shutdown_error_rate:
             self._early_shutdown = True
 
     async def _dispatch_seeds(self, rg_id: int, rg_size: int) -> None:
@@ -328,6 +341,7 @@ class AsyncTaskScheduler:
                     )
                     self._dispatched.add(Task(column=sibling_col, row_group=rg_id, row_index=None, task_type="batch"))
             self._in_flight.add(task)
+            self._in_flight_counts[task.row_group] = self._in_flight_counts.get(task.row_group, 0) + 1
             asyncio.create_task(self._execute_seed_task(task, gid))
 
     async def _execute_seed_task(self, task: Task, generator_id: int) -> None:
@@ -421,6 +435,7 @@ class AsyncTaskScheduler:
                 self.traces.append(trace)
 
             self._in_flight.discard(task)
+            self._in_flight_counts[task.row_group] = self._in_flight_counts.get(task.row_group, 0) - 1
             if not retryable and not skipped:
                 self._dispatched.discard(task)
             self._submission_semaphore.release()
