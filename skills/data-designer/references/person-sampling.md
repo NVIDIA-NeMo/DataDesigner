@@ -11,14 +11,6 @@ Prefer `"person"` when the locale is downloaded — it provides census-grounded 
 | `"person_from_faker"` | `PersonFromFakerSamplerParams` | Fallback when locale not downloaded. Basic names/addresses via Faker, not demographically accurate. |
 
 
-## Available locales
-
-Before using `"person"`, check which locales are installed:
-
-```bash
-data-designer agent state persona-datasets
-```
-
 ## Usage
 
 The sampled person column is a nested dict. You can keep it as-is in the final dataset, or set `drop=True` to remove it and extract only the fields you need via `ExpressionColumnConfig`:
@@ -48,7 +40,7 @@ Set `with_synthetic_personas=True` when the dataset benefits from personality tr
 Fields vary by locale. Always run the following script to get the exact schema for the locale you are using (script path is relative to this skill's directory):
 
 ```bash
-.venv/bin/python scripts/get_person_object_schema.py <locale>
+python scripts/get_person_object_schema.py <locale>
 ```
 
 This prints the PII fields (always included) and synthetic persona fields (only included when `with_synthetic_personas=True`) available for that locale.
