@@ -50,11 +50,12 @@ def _make_client(
     sync_client: MagicMock | None = None,
     async_client: MagicMock | None = None,
     api_key: str | None = "sk-ant-test",
+    endpoint: str = ENDPOINT,
 ) -> AnthropicClient:
     return AnthropicClient(
         provider_name=PROVIDER,
         model_id=MODEL,
-        endpoint=ENDPOINT,
+        endpoint=endpoint,
         api_key=api_key,
         sync_client=sync_client,
         async_client=async_client,
@@ -192,9 +193,16 @@ def test_completion_extracts_system_from_chat_message_blocks() -> None:
     assert payload["messages"] == [{"role": "user", "content": [{"type": "text", "text": "Hi"}]}]
 
 
-def test_completion_posts_to_messages_route() -> None:
+@pytest.mark.parametrize(
+    ("endpoint", "expected_url"),
+    [
+        pytest.param("https://api.anthropic.com", "https://api.anthropic.com/v1/messages", id="base-endpoint"),
+        pytest.param("https://api.anthropic.com/v1", "https://api.anthropic.com/v1/messages", id="versioned-endpoint"),
+    ],
+)
+def test_completion_posts_to_messages_route(endpoint: str, expected_url: str) -> None:
     sync_mock = _make_sync_client(_text_response())
-    client = _make_client(sync_client=sync_mock)
+    client = _make_client(sync_client=sync_mock, endpoint=endpoint)
 
     request = ChatCompletionRequest(
         model=MODEL,
@@ -204,7 +212,7 @@ def test_completion_posts_to_messages_route() -> None:
     client.completion(request)
 
     call_url = sync_mock.post.call_args.args[0]
-    assert "/v1/messages" in call_url
+    assert call_url == expected_url
     payload = sync_mock.post.call_args.kwargs["json"]
     assert payload["model"] == MODEL
     assert payload["temperature"] == 0.7

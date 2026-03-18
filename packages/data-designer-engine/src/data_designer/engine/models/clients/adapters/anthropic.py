@@ -35,7 +35,8 @@ class AnthropicClient(HttpModelClient):
     is not managed here — see ``ThrottleManager`` and ``AsyncTaskScheduler``.
     """
 
-    _ROUTE_MESSAGES = "/v1/messages"
+    _ROUTE_MESSAGES = "/messages"
+    _API_VERSION_PATH = "/v1"
     _ANTHROPIC_VERSION = "2023-06-01"
     # Fields handled explicitly and excluded from TransportKwargs forwarding.
     _TRANSPORT_EXCLUDE = frozenset(
@@ -72,7 +73,7 @@ class AnthropicClient(HttpModelClient):
         transport = TransportKwargs.from_request(request, exclude=self._TRANSPORT_EXCLUDE)
         payload.update(transport.body)
         response_json = self._post_sync(
-            self._ROUTE_MESSAGES, payload, transport.headers, request.model, transport.timeout
+            self._get_messages_route(), payload, transport.headers, request.model, transport.timeout
         )
         return parse_anthropic_response(response_json)
 
@@ -81,7 +82,7 @@ class AnthropicClient(HttpModelClient):
         transport = TransportKwargs.from_request(request, exclude=self._TRANSPORT_EXCLUDE)
         payload.update(transport.body)
         response_json = await self._apost(
-            self._ROUTE_MESSAGES, payload, transport.headers, request.model, transport.timeout
+            self._get_messages_route(), payload, transport.headers, request.model, transport.timeout
         )
         return parse_anthropic_response(response_json)
 
@@ -123,3 +124,8 @@ class AnthropicClient(HttpModelClient):
         if extra_headers:
             headers.update(extra_headers)
         return headers
+
+    def _get_messages_route(self) -> str:
+        if self._endpoint.endswith(self._API_VERSION_PATH):
+            return self._ROUTE_MESSAGES
+        return f"{self._API_VERSION_PATH}{self._ROUTE_MESSAGES}"

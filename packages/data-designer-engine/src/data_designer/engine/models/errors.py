@@ -71,6 +71,9 @@ class GenerationValidationFailureError(Exception):
 class ModelRateLimitError(DataDesignerError): ...
 
 
+class ModelQuotaExceededError(DataDesignerError): ...
+
+
 class ModelTimeoutError(DataDesignerError): ...
 
 
@@ -132,16 +135,32 @@ class ImageGenerationError(DataDesignerError): ...
 class FormattedLLMErrorMessage(BaseModel):
     cause: str
     solution: str
+    provider_message: str | None = None
 
     def __str__(self) -> str:
-        return "\n".join(
+        lines = ["  |----------"]
+        if self.provider_message is not None:
+            lines.append(f"  | Provider message: {self.provider_message}")
+        lines.append(f"  | Cause: {self.cause}")
+        lines.extend(
             [
-                "  |----------",
-                f"  | Cause: {self.cause}",
                 f"  | Solution: {self.solution}",
                 "  |----------",
             ]
         )
+        return "\n".join(lines)
+
+
+def _attach_provider_message(
+    formatted_message: FormattedLLMErrorMessage,
+    exception: ProviderError,
+) -> FormattedLLMErrorMessage:
+    if exception.status_code != 400:
+        return formatted_message
+    normalized = _normalize_error_detail(exception.message)
+    if normalized is None:
+        return formatted_message
+    return formatted_message.model_copy(update={"provider_message": normalized})
 
 
 def handle_llm_exceptions(
@@ -400,6 +419,7 @@ def _raise_from_provider_error(
     """Map a canonical ProviderError to the appropriate DataDesignerError subclass."""
     _KIND_MAP: dict[ProviderErrorKind, type[DataDesignerError]] = {
         ProviderErrorKind.RATE_LIMIT: ModelRateLimitError,
+        ProviderErrorKind.QUOTA_EXCEEDED: ModelQuotaExceededError,
         ProviderErrorKind.TIMEOUT: ModelTimeoutError,
         ProviderErrorKind.NOT_FOUND: ModelNotFoundError,
         ProviderErrorKind.PERMISSION_DENIED: ModelPermissionDeniedError,
@@ -455,6 +475,17 @@ def _raise_from_provider_error(
             )
         ) from None
 
+    if kind == ProviderErrorKind.QUOTA_EXCEEDED:
+        raise ModelQuotaExceededError(
+            FormattedLLMErrorMessage(
+                cause=(
+                    f"Model provider {model_provider_name!r} reported insufficient credits or quota for model "
+                    f"{model_name!r} while {purpose}."
+                ),
+                solution=f"Add credits or increase quota/billing for model provider {model_provider_name!r} and try again.",
+            )
+        ) from None
+
     if kind == ProviderErrorKind.BAD_REQUEST:
         err_msg = FormattedLLMErrorMessage(
             cause=f"The request for model {model_name!r} was found to be malformed or missing required parameters while {purpose}.",
@@ -465,17 +496,25 @@ def _raise_from_provider_error(
                 cause=f"Model {model_name!r} is not a multimodal model, but it looks like you are trying to provide multimodal context while {purpose}.",
                 solution="Check your request parameters and try again.",
             )
-        raise ModelBadRequestError(err_msg) from None
+        raise ModelBadRequestError(_attach_provider_message(err_msg, exception)) from None
 
     if kind in _KIND_MAP and kind in _MESSAGES:
         error_cls = _KIND_MAP[kind]
         cause_str, solution_str = _MESSAGES[kind]
-        raise error_cls(FormattedLLMErrorMessage(cause=cause_str, solution=solution_str)) from None
+        raise error_cls(
+            _attach_provider_message(
+                FormattedLLMErrorMessage(cause=cause_str, solution=solution_str),
+                exception,
+            )
+        ) from None
 
     # Fallback for API_ERROR and UNSUPPORTED_CAPABILITY
     raise ModelAPIError(
-        FormattedLLMErrorMessage(
-            cause=f"An unexpected API error occurred with model {model_name!r} while {purpose}.",
-            solution=f"Try again in a few moments. Check with your model provider {model_provider_name!r} if the issue persists.",
+        _attach_provider_message(
+            FormattedLLMErrorMessage(
+                cause=f"An unexpected API error occurred with model {model_name!r} while {purpose}.",
+                solution=f"Try again in a few moments. Check with your model provider {model_provider_name!r} if the issue persists.",
+            ),
+            exception,
         )
     ) from None
