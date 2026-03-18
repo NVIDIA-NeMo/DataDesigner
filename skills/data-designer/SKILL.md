@@ -48,7 +48,7 @@ Read **only** the workflow file that matches the selected mode, then follow it:
 
 # Troubleshooting
 
-- **`data-designer` command not found:** The package is not in your current Python environment's PATH. The user needs to either install it (`pip install data-designer`) or activate their virtual environment.
+- **`data-designer` command not found:** If no virtual environment exists, create one first (`python -m venv .venv && source .venv/bin/activate`), then install (`pip install data-designer`). If a virtual environment already exists, activate it and verify the package is installed.
 - **Network errors during preview:** A sandbox environment may be blocking outbound requests. Ask the user for permission to retry the command with the sandbox disabled. Only as a last resort, if retrying outside the sandbox also fails, tell the user to run the command themselves.
 
 # Output Template
