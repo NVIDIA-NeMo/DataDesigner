@@ -15,16 +15,16 @@ repos:
       - id: debug-statements
       - id: mixed-line-ending
 
-  # Ruff - uses the project's .venv/bin/ruff so the version always matches CI
+  # Ruff - uses uv run so the version always matches pyproject.toml
   - repo: local
     hooks:
       - id: ruff
-        name: ruff (legacy alias)
-        entry: .venv/bin/ruff check --fix
+        name: ruff (linter)
+        entry: uv run ruff check --fix
         language: system
         types: [python]
       - id: ruff-format
         name: ruff format
-        entry: .venv/bin/ruff format
+        entry: uv run ruff format
         language: system
         types: [python]
