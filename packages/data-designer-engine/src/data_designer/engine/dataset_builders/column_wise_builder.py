@@ -298,6 +298,7 @@ class ColumnWiseDatasetBuilder:
             ),
             shutdown_error_rate=settings.shutdown_error_rate,
             shutdown_error_window=settings.shutdown_error_window,
+            disable_early_shutdown=settings.disable_early_shutdown,
             trace=trace_enabled,
         )
 

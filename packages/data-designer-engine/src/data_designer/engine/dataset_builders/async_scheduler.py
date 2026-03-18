@@ -50,6 +50,7 @@ class AsyncTaskScheduler:
         on_before_checkpoint: Callable[[int, int], None] | None = None,
         shutdown_error_rate: float = 0.5,
         shutdown_error_window: int = 10,
+        disable_early_shutdown: bool = False,
         trace: bool = False,
     ) -> None:
         self._generators = generators
@@ -72,6 +73,7 @@ class AsyncTaskScheduler:
         # Error rate shutdown (caller passes pre-normalized values via RunConfig)
         self._shutdown_error_rate = shutdown_error_rate
         self._shutdown_error_window = shutdown_error_window
+        self._disable_early_shutdown = disable_early_shutdown
         self._early_shutdown = False
 
         # Multi-column dedup: group output columns by generator identity
@@ -299,6 +301,8 @@ class AsyncTaskScheduler:
 
     def _check_error_rate(self) -> None:
         """Trigger early shutdown if error rate exceeds threshold."""
+        if self._disable_early_shutdown:
+            return
         completed = self._success_count + self._error_count
         if completed < self._shutdown_error_window:
             return
