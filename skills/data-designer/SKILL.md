@@ -48,8 +48,8 @@ Read **only** the workflow file that matches the selected mode, then follow it:
 
 # Troubleshooting
 
-- **`data-designer` command not found:** The package is not on the PATH. The user needs to either install it (`pip install data-designer`) or activate their virtual environment.
-- **Network errors during preview:** A sandbox environment may be blocking outbound requests. Let the user know and ask them to either run the preview command outside the sandbox or grant the necessary permissions.
+- **`data-designer` command not found:** The package is not in your current Python environment's PATH. The user needs to either install it (`pip install data-designer`) or activate their virtual environment.
+- **Network errors during preview:** A sandbox environment may be blocking outbound requests. Ask the user for permission to retry the command with the sandbox disabled. Only as a last resort, if retrying outside the sandbox also fails, tell the user to run the command themselves.
 
 # Output Template
 
