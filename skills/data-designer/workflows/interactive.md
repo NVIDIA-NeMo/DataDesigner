@@ -25,7 +25,6 @@ This is an interactive, iterative design process. Do not disengage from the loop
   - Give the user a clickable link: `file://<sample-records-dir>/sample_records_browser.html`
 7. **Iterate** — Ask the user for feedback. Edit the script, re-validate, re-preview, and serve again. Repeat until they are satisfied.
 8. **Finalize** — Once the user is happy, tell them they can run the following command to create the dataset:
-  - `data-designer create <path> --num-records <N>`.
+  - `data-designer create <path> --num-records <N> --dataset-name <name>`.
   - Warn the user that generation can take a long time for large record counts (50+).
   - Do not run this command yourself. It requires model endpoints and can take a long time.
-  - Let the user know they can push the dataset to Hugging Face using `results.push_to_hub("org/dataset-name", "description", tags=["tag1", "tag2"])`, or from a saved folder using `HuggingFaceHubClient.push_to_hub_from_folder(dataset_path="{artifact_path}/{dataset_name}", repo_id="org/name", description="...")`.
