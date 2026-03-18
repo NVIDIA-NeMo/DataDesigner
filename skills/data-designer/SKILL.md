@@ -78,8 +78,8 @@ class MyEntity(BaseModel):
     side_effect_columns=["extra_col"],
 )
 def my_custom_generator(row: dict) -> dict:
-    # add custom logic here and update row in place
-    row["custom_field"] = "custom value"
+    # add custom logic here that depends on "col_a" and update row in place
+    row["name_in_custom_column_config"] = "custom value"
     row["extra_col"] = "extra value"
     return row
 
