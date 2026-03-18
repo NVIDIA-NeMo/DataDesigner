@@ -18,7 +18,7 @@ This is an interactive, iterative design process. Do not disengage from the loop
     - The schema of the final dataset.
     - The structure of any required structured output columns.
     - What facets of the output dataset are important to capture.
-3. **Plan** — Determine columns, samplers, processors, validators, and other dataset features needed. Present the plan to the user for approval before proceeding to Build.
+3. **Plan** — Determine columns, samplers, processors, validators, and other dataset features needed. Present the plan to the user and ask if they want any changes before generating a preview.
 4. **Build** — Write the Python script with `load_config_builder()` (see Output Template in SKILL.md).
 5. **Validate** — Run `data-designer validate <path>`. Address any warnings or errors and re-validate until it passes.
 6. **Preview** — Run `data-designer preview <path> --save-results` to generate sample records as HTML files.
