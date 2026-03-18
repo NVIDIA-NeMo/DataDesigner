@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import functools
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -38,14 +39,16 @@ class PersonReader(ABC):
     @abstractmethod
     def get_dataset_uri(self, locale: str) -> str: ...
 
+    @functools.cached_property
+    def _conn(self) -> duckdb.DuckDBPyConnection:
+        return self.create_duckdb_connection()
+
     def execute(self, query: str, parameters: list[Any]) -> pd.DataFrame:
-        conn = self.create_duckdb_connection()
-        cursor = conn.cursor()
+        cursor = self._conn.cursor()
         try:
             return cursor.execute(query, parameters).df()
         finally:
             cursor.close()
-            conn.close()
 
 
 class LocalPersonReader(PersonReader):
