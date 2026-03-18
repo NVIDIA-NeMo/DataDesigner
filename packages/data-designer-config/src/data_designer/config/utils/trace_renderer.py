@@ -7,13 +7,14 @@ import html
 import json
 import logging
 import textwrap
-from typing import Literal, Required, TypedDict
+from typing import Literal, TypedDict
 
 from rich.console import Group
 from rich.padding import Padding
 from rich.panel import Panel
 from rich.rule import Rule
 from rich.text import Text
+from typing_extensions import Required
 
 logger = logging.getLogger(__name__)
 
