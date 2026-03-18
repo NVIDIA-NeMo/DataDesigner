@@ -3,7 +3,7 @@
 This is an interactive, iterative design process. Do not disengage from the loop unless the user says they are satisfied.
 
 1. **Learn** — Run `data-designer agent context`.
-  - If no model aliases are configured, stop and ask the user.
+  - If no model aliases are configured, stop and tell the user to run `data-designer config` to set them up before proceeding.
   - Inspect schemas for every column, sampler type, validator, and processor you plan to use.
   - Never guess types or parameters — read the relevant config files first.
   - Always read `base.py` for inherited fields shared by all config objects.
