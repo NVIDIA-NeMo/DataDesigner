@@ -10,6 +10,7 @@ This is an interactive, iterative design process. Do not disengage from the loop
 2. **Clarify** — Ask the user clarifying questions to narrow down precisely what they want.
   - Use a question-asking UX tool if available.
   - Optimize for a great user experience: batch related questions together, keep the set short, provide concrete options/examples/defaults where possible, and use structured inputs (single-select, multi-select, forms, etc.) when they make answering easier.
+  - If multiple model aliases are available, ask which one(s) to use (or default to the first usable alias).
   - Common things to make precise:
     - What the "axes of diversity" are — what should be well represented and diverse in the resulting dataset.
     - The kind and nature of any input data.
@@ -17,7 +18,7 @@ This is an interactive, iterative design process. Do not disengage from the loop
     - The schema of the final dataset.
     - The structure of any required structured output columns.
     - What facets of the output dataset are important to capture.
-3. **Plan** — Determine columns, samplers, processors, validators, and other dataset features needed.
+3. **Plan** — Determine columns, samplers, processors, validators, and other dataset features needed. Present the plan to the user for approval before proceeding to Build.
 4. **Build** — Write the Python script with `load_config_builder()` (see Output Template in SKILL.md).
 5. **Validate** — Run `data-designer validate <path>`. Address any warnings or errors and re-validate until it passes.
 6. **Preview** — Run `data-designer preview <path> --save-results` to generate sample records as HTML files.
@@ -27,4 +28,4 @@ This is an interactive, iterative design process. Do not disengage from the loop
 8. **Finalize** — Once the user is happy, tell them they can run the following command to create the dataset:
   - `data-designer create <path> --num-records <N> --dataset-name <name>`.
   - Warn the user that generation can take a long time for large record counts (50+).
-  - Do not run this command yourself. It requires model endpoints and can take a long time.
+  - Do not run this command yourself — it can take a long time for large datasets and the user should control when it runs.

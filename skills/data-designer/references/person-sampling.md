@@ -50,8 +50,6 @@ config_builder.add_column(dd.ExpressionColumnConfig(
 | `select_field_values` | `dict[str, list[str]] \| None` | `None` | Flexible field filtering |
 | `with_synthetic_personas` | `bool` | `False` | Append Big Five + persona fields |
 
-Available managed-dataset locales: `en_US`, `en_IN`, `en_SG`, `hi_Deva_IN`, `hi_Latn_IN`, `ja_JP`, `pt_BR`
-
 ## PersonFromFakerSamplerParams
 
 | Parameter | Type | Default | Notes |

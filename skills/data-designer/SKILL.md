@@ -1,26 +1,18 @@
 ---
 name: data-designer
-description: Use when the user wants to create a dataset, generate synthetic data, or build a data generation pipeline. Contains the essential workflow and discovery commands for the Data Designer library. Always invoke before exploring the workspace or writing code.
+description: Use when the user wants to create a dataset, generate synthetic data, or build a data generation pipeline.
 argument-hint: [describe the dataset you want to generate]
 ---
 
 # Before You Start
 
-Do not explore the workspace, browse files, run `ls`/`find`/`Glob`, check git history, or spawn Agent subagents before starting the workflow below.
+Do not explore the workspace first. The workflow's Learn step gives you everything you need.
 
 # Goal
 
 Build a synthetic dataset using the Data Designer library that matches this description:
 
 $ARGUMENTS
-
-# Agent CLI
-
-Always run this command before attempting to design or build a dataset. This command is your single discovery mechanism — it tells you exactly which files to read:
-
-```bash
-data-designer agent context
-```
 
 # Workflow
 
@@ -52,7 +44,7 @@ Read **only** the workflow file that matches the selected mode, then follow it:
 
 # Output Template
 
-Write a Python file to the current directory with a `load_config_builder()` function returning a `DataDesignerConfigBuilder`. Use PEP 723 inline metadata for dependencies.
+Write a Python file to the current directory with a `load_config_builder()` function returning a `DataDesignerConfigBuilder`. Name the file descriptively (e.g., `customer_reviews.py`). Use PEP 723 inline metadata for dependencies.
 
 ```python
 # /// script
