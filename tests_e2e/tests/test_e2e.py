@@ -8,11 +8,9 @@ from pathlib import Path
 import pandas as pd
 
 import data_designer.config as dd
-from data_designer.config.seed import IndexRange
 from data_designer.interface import DataDesigner
 from data_designer_e2e_tests.plugins.column_generator.config import DemoColumnGeneratorConfig
 from data_designer_e2e_tests.plugins.filesystem_seed_reader.config import DemoFileSystemSeedSource
-from data_designer_e2e_tests.plugins.markdown_seed_reader.config import MarkdownSectionSeedSource
 from data_designer_e2e_tests.plugins.regex_filter.config import RegexFilterProcessorConfig
 from data_designer_e2e_tests.plugins.seed_reader.config import DemoSeedSource
 
@@ -105,44 +103,6 @@ def test_filesystem_seed_reader_plugin(tmp_path: Path) -> None:
         "alpha.txt => plugin:alpha",
         "beta.txt => plugin:beta",
     }
-
-
-def test_markdown_section_seed_reader_plugin_fanout_respects_manifest_selection(tmp_path: Path) -> None:
-    seed_dir = tmp_path / "markdown-seed"
-    seed_dir.mkdir()
-    (seed_dir / "alpha.md").write_text(
-        "# Alpha Overview\nAlpha intro.\n\n## Alpha Details\nAlpha details.",
-        encoding="utf-8",
-    )
-    (seed_dir / "beta.md").write_text(
-        "# Beta Overview\nBeta intro.\n\n## Beta Details\nBeta details.",
-        encoding="utf-8",
-    )
-
-    data_designer = DataDesigner()
-
-    config_builder = dd.DataDesignerConfigBuilder()
-    config_builder.with_seed_dataset(
-        MarkdownSectionSeedSource(path=str(seed_dir)),
-        selection_strategy=IndexRange(start=1, end=1),
-    )
-    config_builder.add_column(
-        dd.ExpressionColumnConfig(
-            name="section_summary",
-            expr="{{ file_name }} :: {{ section_header }}",
-        )
-    )
-
-    preview = data_designer.preview(config_builder, num_records=2)
-    dataset = preview.dataset.sort_values("section_index").reset_index(drop=True)
-
-    assert list(dataset["relative_path"]) == ["beta.md", "beta.md"]
-    assert list(dataset["section_header"]) == ["Beta Overview", "Beta Details"]
-    assert list(dataset["section_content"]) == ["Beta intro.", "Beta details."]
-    assert list(dataset["section_summary"]) == [
-        "beta.md :: Beta Overview",
-        "beta.md :: Beta Details",
-    ]
 
 
 def test_processor_plugin() -> None:

@@ -19,7 +19,6 @@ dev = [
 demo-column-generator = "data_designer_e2e_tests.plugins.column_generator.plugin:column_generator_plugin"
 demo-seed-reader = "data_designer_e2e_tests.plugins.seed_reader.plugin:seed_reader_plugin"
 demo-filesystem-seed-reader = "data_designer_e2e_tests.plugins.filesystem_seed_reader.plugin:filesystem_seed_reader_plugin"
-demo-markdown-section-seed-reader = "data_designer_e2e_tests.plugins.markdown_seed_reader.plugin:markdown_section_seed_reader_plugin"
 regex-filter = "data_designer_e2e_tests.plugins.regex_filter.plugin:regex_filter_plugin"
 
 [tool.pytest.ini_options]
