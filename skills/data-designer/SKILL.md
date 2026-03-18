@@ -25,7 +25,7 @@ Read **only** the workflow file that matches the selected mode, then follow it:
 
 # Rules
 
-- Do not drop columns unless the user explicitly asks. Keep all columns in the output by default.
+- Keep all columns in the output by default. The only exceptions for dropping a column are: (1) the user explicitly asks, or (2) it is a helper column that exists solely to derive other columns (e.g., a sampled person object used to extract name, city, etc.). When in doubt, keep the column.
 - Do not suggest or ask about seed datasets. Only use one when the user explicitly provides seed data or asks to build from existing records. When using a seed, read `references/seed-datasets.md`.
 - When the dataset requires person data (names, demographics, addresses), read `references/person-sampling.md`.
 - If a dataset script that matches the dataset description already exists, ask the user whether to edit it or create a new one.
