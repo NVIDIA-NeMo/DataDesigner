@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from fnmatch import fnmatchcase
 from pathlib import Path, PurePosixPath
@@ -77,13 +77,13 @@ def create_seed_reader_output_dataframe(
             continue
 
         message_parts: list[str] = [
-            f"Hydrated row at index {row_index} does not match output_columns {output_columns!r}."
+            f"Hydrated record at index {row_index} does not match output_columns {output_columns!r}."
         ]
         if missing_columns:
             message_parts.append(f"Missing columns: {missing_columns!r}.")
         if extra_columns:
             message_parts.append(f"Undeclared columns: {extra_columns!r}.")
-        message_parts.append("Ensure hydrate_row() returns exactly the declared output schema.")
+        message_parts.append("Ensure each record emitted by hydrate_row() matches the declared output schema.")
         raise SeedReaderError(" ".join(message_parts))
 
     return lazy.pd.DataFrame(records, columns=output_columns)
@@ -118,18 +118,32 @@ class HydratingSeedReaderBatchReader:
         manifest_batch_reader: SeedReaderBatchReader,
         hydrate_records: Callable[[list[dict[str, Any]]], list[dict[str, Any]]],
         output_columns: list[str],
+        no_rows_error_message: str,
     ) -> None:
         self._manifest_batch_reader = manifest_batch_reader
         self._hydrate_records = hydrate_records
         self._output_columns = output_columns
+        self._no_rows_error_message = no_rows_error_message
+        self._has_emitted_records = False
 
     def read_next_batch(self) -> SeedReaderBatch:
-        manifest_batch = self._manifest_batch_reader.read_next_batch()
-        manifest_records = manifest_batch.to_pandas().to_dict(orient="records")
-        hydrated_records = self._hydrate_records(manifest_records)
-        return PandasSeedReaderBatch(
-            create_seed_reader_output_dataframe(records=hydrated_records, output_columns=self._output_columns)
-        )
+        while True:
+            try:
+                manifest_batch = self._manifest_batch_reader.read_next_batch()
+            except StopIteration:
+                if self._has_emitted_records:
+                    raise
+                raise SeedReaderError(self._no_rows_error_message) from None
+
+            manifest_records = manifest_batch.to_pandas().to_dict(orient="records")
+            hydrated_records = self._hydrate_records(manifest_records)
+            if not hydrated_records:
+                continue
+
+            self._has_emitted_records = True
+            return PandasSeedReaderBatch(
+                create_seed_reader_output_dataframe(records=hydrated_records, output_columns=self._output_columns)
+            )
 
 
 SourceT = TypeVar("SourceT", bound=SeedSource)
@@ -342,11 +356,12 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
 
     Plugin authors implement `build_manifest(...)` to describe the cheap logical
     rows available under the configured filesystem root. Readers that need
-    expensive enrichment can optionally override `hydrate_row(...)`. When
-    `hydrate_row(...)` changes the manifest schema, `output_columns` must declare
-    the exact hydrated output schema. The framework owns attachment-scoped
-    filesystem context reuse, manifest sampling, partitioning, randomization,
-    batching, and DuckDB registration details.
+    expensive enrichment can optionally override `hydrate_row(...)` to emit one
+    record dict or an iterable of record dicts per manifest row. When emitted
+    records change the manifest schema, `output_columns` must declare the exact
+    hydrated output schema for each emitted record. The framework owns
+    attachment-scoped filesystem context reuse, manifest sampling, partitioning,
+    randomization, batching, and DuckDB registration details.
     """
 
     output_columns: ClassVar[list[str] | None] = None
@@ -379,7 +394,7 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
         *,
         manifest_row: dict[str, Any],
         context: SeedReaderFileSystemContext,
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | Iterable[dict[str, Any]]:
         return manifest_row
 
     def get_column_names(self) -> list[str]:
@@ -416,6 +431,7 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
                 context=context,
             ),
             output_columns=self.get_output_column_names(),
+            no_rows_error_message=self._get_empty_selected_manifest_rows_error_message(),
         )
 
     def _get_row_manifest_dataframe(self) -> pd.DataFrame:
@@ -468,6 +484,9 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
         seed_type = self.get_seed_type().replace("-", "_")
         return f"seed_reader_{seed_type}_{suffix}"
 
+    def _get_empty_selected_manifest_rows_error_message(self) -> str:
+        return f"Selected manifest rows for seed source at {self.source.path} did not produce any rows after hydration"
+
     def _normalize_rows_to_dataframe(self, rows: pd.DataFrame | list[dict[str, Any]]) -> pd.DataFrame:
         if isinstance(rows, lazy.pd.DataFrame):
             return rows.copy()
@@ -479,7 +498,15 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
         manifest_rows: list[dict[str, Any]],
         context: SeedReaderFileSystemContext,
     ) -> list[dict[str, Any]]:
-        return [self.hydrate_row(manifest_row=manifest_row, context=context) for manifest_row in manifest_rows]
+        hydrated_records: list[dict[str, Any]] = []
+        for manifest_row_index, manifest_row in enumerate(manifest_rows):
+            hydrated_records.extend(
+                _normalize_hydrated_row_output(
+                    hydrated_row_output=self.hydrate_row(manifest_row=manifest_row, context=context),
+                    manifest_row_index=manifest_row_index,
+                )
+            )
+        return hydrated_records
 
 
 class DirectorySeedReader(FileSystemSeedReader[DirectorySeedSource]):
@@ -584,3 +611,30 @@ def _build_metadata_record(
 
 def _normalize_relative_path(path: str) -> str:
     return path.lstrip("/")
+
+
+def _normalize_hydrated_row_output(
+    *,
+    hydrated_row_output: dict[str, Any] | Iterable[dict[str, Any]],
+    manifest_row_index: int,
+) -> list[dict[str, Any]]:
+    if isinstance(hydrated_row_output, dict):
+        return [hydrated_row_output]
+
+    if not isinstance(hydrated_row_output, Iterable):
+        raise SeedReaderError(
+            "hydrate_row() must return a record dict or an iterable of record dicts. "
+            f"Manifest row index {manifest_row_index} returned {type(hydrated_row_output).__name__}."
+        )
+
+    hydrated_records = list(hydrated_row_output)
+    for hydrated_record in hydrated_records:
+        if isinstance(hydrated_record, dict):
+            continue
+        raise SeedReaderError(
+            "hydrate_row() must return a record dict or an iterable of record dicts. "
+            f"Manifest row index {manifest_row_index} returned an iterable containing "
+            f"{type(hydrated_record).__name__}."
+        )
+
+    return hydrated_records
