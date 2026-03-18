@@ -15,12 +15,16 @@ repos:
       - id: debug-statements
       - id: mixed-line-ending
 
-  # Ruff - linting and formatting (using your existing ruff config)
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.5
+  # Ruff - uses the project's .venv/bin/ruff so the version always matches CI
+  - repo: local
     hooks:
-      # Run the linter
       - id: ruff
-        args: [--fix]
-      # Run the formatter
+        name: ruff (legacy alias)
+        entry: .venv/bin/ruff check --fix
+        language: system
+        types: [python]
       - id: ruff-format
+        name: ruff format
+        entry: .venv/bin/ruff format
+        language: system
+        types: [python]
