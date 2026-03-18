@@ -268,6 +268,10 @@ class ColumnWiseDatasetBuilder:
             df = buffer_manager.get_dataframe(rg_id)
             df = self._processor_runner.run_pre_batch_on_df(df)
             buffer_manager.replace_dataframe(rg_id, df)
+            # Sync newly-dropped rows to the tracker so downstream cell tasks are skipped
+            for ri in range(rg_size):
+                if buffer_manager.is_dropped(rg_id, ri) and not tracker.is_dropped(rg_id, ri):
+                    tracker.drop_row(rg_id, ri)
 
         # Post-batch processor callback: runs after all columns, before checkpoint.
         def on_before_checkpoint(rg_id: int, rg_size: int) -> None:

@@ -216,12 +216,13 @@ def main() -> None:
     # --- Warmup: one sync run to prime health checks, caches, etc. ---
     # First DataDesigner() call configures logging, so suppress via devnull.
     print("\nWarmup (sync)...", end=" ", flush=True)
-    devnull = open(os.devnull, "w")  # noqa: SIM115
-    old_stderr = sys.stderr
-    sys.stderr = devnull
-    warmup_time = _run_once(async_mode=False, num_records=num_records, dag=dag, max_parallel=max_parallel)
-    sys.stderr = old_stderr
-    devnull.close()
+    with open(os.devnull, "w") as devnull:
+        old_stderr = sys.stderr
+        sys.stderr = devnull
+        try:
+            warmup_time = _run_once(async_mode=False, num_records=num_records, dag=dag, max_parallel=max_parallel)
+        finally:
+            sys.stderr = old_stderr
     print(f"{warmup_time:.3f}s")
 
     # --- Interleaved trials: ABABABAB to reduce temporal bias ---
