@@ -35,6 +35,9 @@ def _escape_value_for_json(value: Any) -> str:
     if isinstance(value, str):
         return json.dumps(value)[1:-1]
     if isinstance(value, (dict, list)):
+        # Double-encode: inner json.dumps serializes the structure to a JSON string;
+        # outer json.dumps + [1:-1] escapes that string for embedding inside a JSON
+        # string literal (e.g. {"full": "{{ result }}"} -> {"full": "{...}"}).
         return json.dumps(json.dumps(value))[1:-1]
     if value is None:
         return "null"

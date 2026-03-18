@@ -52,6 +52,17 @@ class TemplateValue:
     def __len__(self) -> int:
         return len(self._value)
 
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, TemplateValue):
+            return self._value == other._value  # type: ignore[attr-defined]
+        return self._value == other
+
+    def __hash__(self) -> int:
+        try:
+            return hash(self._value)
+        except TypeError:
+            return id(self._value)
+
     def __bool__(self) -> bool:
         return bool(self._value)
 

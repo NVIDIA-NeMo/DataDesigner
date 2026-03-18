@@ -421,7 +421,7 @@ class WithJinja2UserTemplateRendering:
     """
 
     _template_render_fn: Callable
-    _record_str_fn: Callable[[Any], str] | None
+    _record_str_fn: Callable[[Any], str] | None = None
 
     @sanitize_user_exceptions
     def prepare_jinja2_template_renderer(
