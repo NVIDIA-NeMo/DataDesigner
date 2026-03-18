@@ -25,7 +25,7 @@ from data_designer.engine.processing.ginja.exceptions import (
     UserTemplateUnsupportedFiltersError,
     maybe_handle_missing_filter_exception,
 )
-from data_designer.engine.processing.ginja.record import sanitize_record
+from data_designer.engine.processing.ginja.record import sanitize_record, wrap_record
 
 MAX_RENDERED_LEN = 512_000
 MAX_AST_NODE_COUNT = 600
@@ -312,7 +312,13 @@ class UserTemplateSandboxEnvironment(ImmutableSandboxedEnvironment):
         self._assert_rendered_text_length(rendered_text)
         self._assert_rendered_text_has_no_builtin_descriptions(rendered_text)
 
-    def safe_render(self, user_template: str, record: dict, skip_template_validation: bool = False) -> str:
+    def safe_render(
+        self,
+        user_template: str,
+        record: dict,
+        skip_template_validation: bool = False,
+        skip_record_sanitization: bool = False,
+    ) -> str:
         """Attempt to safely render a user's template.
 
         Args:
@@ -337,7 +343,8 @@ class UserTemplateSandboxEnvironment(ImmutableSandboxedEnvironment):
         if not skip_template_validation:
             self.validate_template(user_template)
 
-        record = sanitize_record(record)
+        if not skip_record_sanitization:
+            record = sanitize_record(record)
 
         try:
             template = self.from_string(user_template)
@@ -414,8 +421,19 @@ class WithJinja2UserTemplateRendering:
     _template_render_fn: Callable
 
     @sanitize_user_exceptions
-    def prepare_jinja2_template_renderer(self, prompt_template: str, dataset_variables: list[str]) -> None:
-        """Build Jinja2 template render function."""
+    def prepare_jinja2_template_renderer(
+        self,
+        prompt_template: str,
+        dataset_variables: list[str],
+        record_str_fn: Callable[[Any], str] | None = None,
+    ) -> None:
+        """Build Jinja2 template render function.
+
+        Args:
+            record_str_fn: When set, record values are wrapped in TemplateValue
+                before rendering, enabling nested dot access ({{ col.sub.field }}).
+                The callable controls how leaf values are converted to strings.
+        """
         jinja_render_env = UserTemplateSandboxEnvironment(allowed_references=dataset_variables)
         jinja_render_env.validate_template(prompt_template)
         self._template_render_fn = partial(
@@ -423,9 +441,14 @@ class WithJinja2UserTemplateRendering:
             prompt_template,
             skip_template_validation=True,
         )
+        self._record_str_fn = record_str_fn
 
     @sanitize_user_exceptions
     def render_template(self, record: dict) -> str:
+        if self._record_str_fn is not None:
+            record = sanitize_record(record)
+            record = wrap_record(record, str_fn=self._record_str_fn)
+            return self._template_render_fn(record, skip_record_sanitization=True)
         return self._template_render_fn(record)
 
     @sanitize_user_exceptions

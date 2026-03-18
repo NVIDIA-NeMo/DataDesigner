@@ -20,24 +20,23 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _json_escape_record(record: dict[str, Any]) -> dict[str, Any]:
-    """Escape record values for safe insertion into a JSON template."""
+def _escape_value_for_json(value: Any) -> str:
+    """Escape a value for safe embedding inside a JSON string.
 
-    def escape_for_json_string(s: str) -> str:
-        """Use json.dumps to escape, then strip the surrounding quotes."""
-        return json.dumps(s)[1:-1]
-
-    escaped = {}
-    for key, value in record.items():
-        if isinstance(value, str):
-            escaped[key] = escape_for_json_string(value)
-        elif isinstance(value, (dict, list)):
-            escaped[key] = escape_for_json_string(json.dumps(value))
-        elif value is None:
-            escaped[key] = "null"
-        else:
-            escaped[key] = str(value)
-    return escaped
+    Unlike prompt or expression templates (which produce plain text),
+    schema transform templates produce JSON. Values interpolated into
+    a JSON string must be escaped - e.g. quotes and backslashes - so
+    the rendered output is valid JSON. We pass this as record_str_fn
+    to also enable nested dot access ({{ col.sub.field }}) on
+    deserialized JSON columns.
+    """
+    if isinstance(value, str):
+        return json.dumps(value)[1:-1]
+    if isinstance(value, (dict, list)):
+        return json.dumps(json.dumps(value))[1:-1]
+    if value is None:
+        return "null"
+    return str(value)
 
 
 class SchemaTransformProcessor(WithJinja2UserTemplateRendering, Processor[SchemaTransformProcessorConfig]):
@@ -65,11 +64,12 @@ class SchemaTransformProcessor(WithJinja2UserTemplateRendering, Processor[Schema
         return data
 
     def _transform(self, data: pd.DataFrame) -> pd.DataFrame:
-        self.prepare_jinja2_template_renderer(self.template_as_str, data.columns.to_list())
+        self.prepare_jinja2_template_renderer(
+            self.template_as_str, data.columns.to_list(), record_str_fn=_escape_value_for_json
+        )
         formatted_records = []
         for record in data.to_dict(orient="records"):
             deserialized = deserialize_json_values(record)
-            escaped = _json_escape_record(deserialized)
-            rendered = self.render_template(escaped)
+            rendered = self.render_template(deserialized)
             formatted_records.append(json.loads(rendered))
         return lazy.pd.DataFrame(formatted_records)

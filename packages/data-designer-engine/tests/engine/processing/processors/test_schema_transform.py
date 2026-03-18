@@ -178,6 +178,66 @@ def test_process_after_batch_with_mixed_special_characters(stub_processor: Schem
     assert output["text"] == 'She replied: "I\'m not sure about that\\nLet me think..."'
 
 
+@pytest.mark.parametrize(
+    "template, expected_records",
+    [
+        pytest.param(
+            {"score": "{{ result.quality.score }}", "label": "{{ result.quality.label }}"},
+            [{"score": "95", "label": "excellent"}, {"score": "42", "label": "poor"}],
+            id="nested-dot-access",
+        ),
+        pytest.param(
+            {"summary": "{{ result.summary }}", "full": "{{ result }}"},
+            [
+                {
+                    "summary": "Great work",
+                    "full": '{"quality": {"score": 95, "label": "excellent"}, "summary": "Great work"}',
+                },
+                {
+                    "summary": "Needs improvement",
+                    "full": '{"quality": {"score": 42, "label": "poor"}, "summary": "Needs improvement"}',
+                },
+            ],
+            id="mixed-nested-and-flat",
+        ),
+        pytest.param(
+            {"first_item": "{{ result.items[0] }}"},
+            [{"first_item": "alpha"}],
+            id="list-indexing",
+        ),
+    ],
+)
+def test_process_after_batch_with_nested_field_access(
+    template: dict,
+    expected_records: list[dict],
+    stub_resource_provider: ResourceProvider,
+) -> None:
+    """Nested dot access on deserialized JSON columns (e.g. {{ result.quality.score }})."""
+    stub_resource_provider.artifact_storage = Mock()
+    stub_resource_provider.artifact_storage.write_batch_to_parquet_file = Mock()
+    processor = SchemaTransformProcessor(
+        config=SchemaTransformProcessorConfig(template=template, name="nested_test"),
+        resource_provider=stub_resource_provider,
+    )
+
+    if "items" in str(template):
+        data = lazy.pd.DataFrame({"result": [json.dumps({"items": ["alpha", "beta"]})]})
+    else:
+        data = lazy.pd.DataFrame(
+            {
+                "result": [
+                    json.dumps({"quality": {"score": 95, "label": "excellent"}, "summary": "Great work"}),
+                    json.dumps({"quality": {"score": 42, "label": "poor"}, "summary": "Needs improvement"}),
+                ]
+            }
+        )
+
+    processor.process_after_batch(data, current_batch_number=0)
+    written: pd.DataFrame = processor.artifact_storage.write_batch_to_parquet_file.call_args.kwargs["dataframe"]
+
+    assert written.to_dict(orient="records") == expected_records
+
+
 def test_process_after_batch_preview_mode_writes_single_file(
     stub_processor: SchemaTransformProcessor, stub_sample_dataframe: pd.DataFrame
 ) -> None:
