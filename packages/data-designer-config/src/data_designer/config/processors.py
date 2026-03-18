@@ -42,18 +42,18 @@ def get_processor_config_from_kwargs(processor_type: ProcessorType, **kwargs: An
 
 
 class DropColumnsProcessorConfig(ProcessorConfig):
-    """Configuration for dropping columns from the output dataset.
+    """Drop columns from the output dataset (prefer ``drop=True`` in the column config).
 
     This processor removes specified columns from the generated dataset. The dropped
     columns are saved separately in a `dropped-columns` directory for reference.
     When this processor is added via the config builder, the corresponding column
     configs are automatically marked with `drop = True`.
 
-    Alternatively, you can set `drop = True` when configuring a column.
-
     Attributes:
-        column_names: List of column names to remove from the output dataset.
-        processor_type: Discriminator field, always `ProcessorType.DROP_COLUMNS` for this configuration type.
+        column_names (required): List of column names to remove from the output dataset.
+
+    Inherited Attributes:
+        name (required): Name of the processor.
     """
 
     column_names: list[str] = Field(description="List of column names to drop from the output dataset.")
@@ -69,10 +69,12 @@ class SchemaTransformProcessorConfig(ProcessorConfig):
     a `processors-outputs/{processor_name}/` directory alongside the main dataset.
 
     Attributes:
-        template: Dictionary defining the output schema. Keys are new column names,
+        template (required): Dictionary defining the output schema. Keys are new column names,
             values are Jinja2 templates (strings, lists, or nested structures).
             Must be JSON-serializable.
-        processor_type: Discriminator field, always `ProcessorType.SCHEMA_TRANSFORM` for this configuration type.
+
+    Inherited Attributes:
+        name (required): Name of the processor.
     """
 
     template: dict[str, Any] = Field(

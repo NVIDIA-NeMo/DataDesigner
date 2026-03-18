@@ -192,13 +192,13 @@ Updated files (Step 1):
 
 ### PR slicing (recommended)
 
-1. PR-1: canonical types/interfaces/errors + bridge adapter + no behavior change.
+1. PR-1 ([#359](https://github.com/NVIDIA-NeMo/DataDesigner/pull/359) — merged): canonical types/interfaces/errors + bridge adapter + no behavior change.
    - files: `clients/base.py`, `clients/types.py`, `clients/errors.py`, `clients/adapters/litellm_bridge.py`
    - docs: add architecture notes for canonical adapter boundary and bridge purpose.
-2. PR-2: `ModelFacade` switched to `ModelClient` + lifecycle wiring + parity tests on bridge.
+2. PR-2 ([#373](https://github.com/NVIDIA-NeMo/DataDesigner/pull/373) — merged): `ModelFacade` switched to `ModelClient` + lifecycle wiring + parity tests on bridge.
    - files: `models/facade.py`, `models/errors.py`, `models/factory.py`, `clients/factory.py`, `models/registry.py`, `resources/resource_provider.py`, `interface/data_designer.py`
    - docs: update internal lifecycle/ownership docs for adapter teardown and resource shutdown behavior.
-3. PR-3: OpenAI-compatible adapter + shared retry/throttle + auth integration.
+3. PR-3 (in progress): OpenAI-compatible adapter + shared retry/throttle + auth integration.
    - files: `clients/retry.py`, `clients/throttle.py`, `clients/adapters/openai_compatible.py`
    - docs: add provider docs for openai-compatible routing, endpoint expectations, and retry/throttle semantics.
 4. PR-4: Anthropic adapter + auth integration + capability gating.

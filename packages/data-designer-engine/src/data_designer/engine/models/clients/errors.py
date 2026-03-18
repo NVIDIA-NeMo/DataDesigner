@@ -89,6 +89,8 @@ def map_http_status_to_provider_error_kind(status_code: int, body_text: str = ""
     if status_code == 429:
         return ProviderErrorKind.RATE_LIMIT
     if status_code == 400:
+        if _looks_like_unsupported_params_error(text):
+            return ProviderErrorKind.UNSUPPORTED_PARAMS
         return ProviderErrorKind.BAD_REQUEST
     if 500 <= status_code <= 599:
         return ProviderErrorKind.INTERNAL_SERVER
@@ -216,6 +218,24 @@ def _parse_http_date_as_delay(value: str) -> float | None:
     return max(delay, 0.0)
 
 
+def infer_error_kind_from_exception(exc: Exception) -> ProviderErrorKind:
+    """Infer a ``ProviderErrorKind`` from an exception's type name.
+
+    Used by adapters to classify transport-level exceptions (timeouts,
+    connection failures, etc.) that don't carry an HTTP status code.
+    """
+    type_name = type(exc).__name__.lower()
+    if "timeout" in type_name:
+        return ProviderErrorKind.TIMEOUT
+    if "connection" in type_name or "connect" in type_name:
+        return ProviderErrorKind.API_CONNECTION
+    if "auth" in type_name:
+        return ProviderErrorKind.AUTHENTICATION
+    if "ratelimit" in type_name:
+        return ProviderErrorKind.RATE_LIMIT
+    return ProviderErrorKind.API_ERROR
+
+
 def _looks_like_context_window_error(text: str) -> bool:
     return any(
         token in text
@@ -225,5 +245,16 @@ def _looks_like_context_window_error(text: str) -> bool:
             "maximum context",
             "too many tokens",
             "max tokens",
+        )
+    )
+
+
+def _looks_like_unsupported_params_error(text: str) -> bool:
+    return any(
+        token in text
+        for token in (
+            "unsupported parameter",
+            "not supported",
+            "unknown parameter",
         )
     )
