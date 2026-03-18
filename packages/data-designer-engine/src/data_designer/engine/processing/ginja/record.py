@@ -4,72 +4,9 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Iterator
-from typing import Any
 
 from data_designer.config.utils.io_helpers import serialize_data
 from data_designer.engine.processing.ginja.exceptions import RecordContentsError
-
-
-class TemplateValue:
-    """Wraps a value so Jinja2 can drill into nested dicts via dot notation.
-
-    Jinja2 resolves {{ x.y }} through __getattr__, so wrapping a dict in
-    TemplateValue lets {{ record.quality.score }} traverse the nested
-    structure. Each lookup returns a new TemplateValue, propagating the
-    behavior down. When Jinja2 interpolates the final value (calls __str__),
-    str_fn controls the conversion - allowing callers to apply custom
-    escaping (e.g. JSON escaping for schema transform templates).
-    """
-
-    __slots__ = ("_value", "_str_fn")
-
-    def __init__(self, value: Any, str_fn: Callable[[Any], str] = str) -> None:
-        object.__setattr__(self, "_value", value)
-        object.__setattr__(self, "_str_fn", str_fn)
-
-    def __getattr__(self, name: str) -> TemplateValue:
-        if isinstance(self._value, dict) and name in self._value:
-            return TemplateValue(self._value[name], str_fn=self._str_fn)
-        raise AttributeError(f"'{type(self._value).__name__} object' has no attribute '{name}'")
-
-    def __getitem__(self, key: Any) -> TemplateValue:
-        try:
-            return TemplateValue(self._value[key], str_fn=self._str_fn)
-        except (KeyError, IndexError, TypeError) as e:
-            raise LookupError(f"Cannot access [{key!r}] on {type(self._value).__name__}") from e
-
-    def __str__(self) -> str:
-        return self._str_fn(self._value)
-
-    def __iter__(self) -> Iterator[TemplateValue]:
-        try:
-            for item in self._value:
-                yield TemplateValue(item, str_fn=self._str_fn)
-        except TypeError as e:
-            raise TypeError(f"Cannot iterate over {type(self._value).__name__} value") from e
-
-    def __len__(self) -> int:
-        return len(self._value)
-
-    def __eq__(self, other: object) -> bool:
-        if isinstance(other, TemplateValue):
-            return self._value == other._value  # type: ignore[attr-defined]
-        return self._value == other
-
-    def __hash__(self) -> int:
-        try:
-            return hash(self._value)
-        except TypeError:
-            return id(self._value)
-
-    def __bool__(self) -> bool:
-        return bool(self._value)
-
-
-def wrap_record(record: dict[str, Any], str_fn: Callable[[Any], str] = str) -> dict[str, TemplateValue]:
-    """Wrap all values in a record as TemplateValues for nested Jinja2 access."""
-    return {k: TemplateValue(v, str_fn=str_fn) for k, v in record.items()}
 
 
 def sanitize_record(record: dict) -> dict:

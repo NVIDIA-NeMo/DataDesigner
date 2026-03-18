@@ -25,7 +25,7 @@ from data_designer.engine.processing.ginja.exceptions import (
     UserTemplateUnsupportedFiltersError,
     maybe_handle_missing_filter_exception,
 )
-from data_designer.engine.processing.ginja.record import sanitize_record, wrap_record
+from data_designer.engine.processing.ginja.record import sanitize_record
 
 MAX_RENDERED_LEN = 512_000
 MAX_AST_NODE_COUNT = 600
@@ -140,6 +140,7 @@ class UserTemplateSandboxEnvironment(ImmutableSandboxedEnvironment):
     max_ast_node_count: int
     max_ast_depth: int
     allowed_references: list[str]
+    _prefer_dict_key_access: bool
 
     def __init__(
         self,
@@ -147,6 +148,7 @@ class UserTemplateSandboxEnvironment(ImmutableSandboxedEnvironment):
         max_rendered_len: int = MAX_RENDERED_LEN,
         max_ast_node_count: int = MAX_AST_NODE_COUNT,
         max_ast_depth: int = MAX_AST_DEPTH,
+        prefer_dict_key_access: bool = False,
         **kwargs,
     ):
         """Args:
@@ -179,12 +181,20 @@ class UserTemplateSandboxEnvironment(ImmutableSandboxedEnvironment):
         self.max_ast_node_count = max_ast_node_count
         self.max_ast_depth = max_ast_depth
         self.allowed_references = allowed_references if allowed_references else []
+        self._prefer_dict_key_access = prefer_dict_key_access
 
         ## Add on our supported filters
         self.filters["jsonpath"] = jsonpath_jinja_filter
 
         ## Cut out all but approved Jinja filters
         self.filters = {k: v for k, v in self.filters.items() if k in ALLOWED_JINJA_FILTERS}
+
+    def getattr(self, obj: Any, attribute: str) -> Any:
+        # When enabled, prefer dict key lookup over attribute access so that
+        # keys like "items" resolve to dict["items"] instead of dict.items.
+        if self._prefer_dict_key_access and isinstance(obj, dict) and attribute in obj:
+            return obj[attribute]
+        return super().getattr(obj, attribute)
 
     def _assert_template_has_valid_references(self, ast: Template) -> None:
         """Assert that all named variable references are allowed.
@@ -317,7 +327,6 @@ class UserTemplateSandboxEnvironment(ImmutableSandboxedEnvironment):
         user_template: str,
         record: dict,
         skip_template_validation: bool = False,
-        _skip_record_sanitization: bool = False,
     ) -> str:
         """Attempt to safely render a user's template.
 
@@ -327,8 +336,6 @@ class UserTemplateSandboxEnvironment(ImmutableSandboxedEnvironment):
             skip_template_validation (optional, bool): If true, then AST checks against the
                 template itself will not be performed. WARNING: this should ONLY be set to true
                 if the template has already been validated.
-            _skip_record_sanitization: Internal-only. When True, the caller has already
-                sanitized the record (e.g. via render_template's TemplateValue path).
 
         Raises:
             UserTemplateError: If the template cannot be rendered because the
@@ -345,8 +352,7 @@ class UserTemplateSandboxEnvironment(ImmutableSandboxedEnvironment):
         if not skip_template_validation:
             self.validate_template(user_template)
 
-        if not _skip_record_sanitization:
-            record = sanitize_record(record)
+        record = sanitize_record(record)
 
         try:
             template = self.from_string(user_template)
@@ -421,7 +427,6 @@ class WithJinja2UserTemplateRendering:
     """
 
     _template_render_fn: Callable
-    _record_str_fn: Callable[[Any], str] | None = None
 
     @sanitize_user_exceptions
     def prepare_jinja2_template_renderer(
@@ -433,25 +438,25 @@ class WithJinja2UserTemplateRendering:
         """Build Jinja2 template render function.
 
         Args:
-            record_str_fn: When set, record values are wrapped in TemplateValue
-                before rendering, enabling nested dot access ({{ col.sub.field }}).
-                The callable controls how leaf values are converted to strings.
+            record_str_fn: When set, the environment uses Jinja2's finalize hook
+                to apply this callable to every interpolated value at render time,
+                and enables dict-key-priority attribute lookup for nested dot access
+                ({{ col.sub.field }}).
         """
-        jinja_render_env = UserTemplateSandboxEnvironment(allowed_references=dataset_variables)
+        env_kwargs: dict[str, Any] = {}
+        if record_str_fn is not None:
+            env_kwargs["finalize"] = record_str_fn
+            env_kwargs["prefer_dict_key_access"] = True
+        jinja_render_env = UserTemplateSandboxEnvironment(allowed_references=dataset_variables, **env_kwargs)
         jinja_render_env.validate_template(prompt_template)
         self._template_render_fn = partial(
             jinja_render_env.safe_render,
             prompt_template,
             skip_template_validation=True,
         )
-        self._record_str_fn = record_str_fn
 
     @sanitize_user_exceptions
     def render_template(self, record: dict) -> str:
-        if self._record_str_fn is not None:
-            record = sanitize_record(record)
-            record = wrap_record(record, str_fn=self._record_str_fn)
-            return self._template_render_fn(record, _skip_record_sanitization=True)
         return self._template_render_fn(record)
 
     @sanitize_user_exceptions
