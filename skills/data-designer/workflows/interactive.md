@@ -9,7 +9,7 @@ This is an interactive, iterative design process. Do not disengage from the loop
   - Always read `base.py` for inherited fields shared by all config objects.
 2. **Clarify** — Ask the user clarifying questions to narrow down precisely what they want.
   - Optimize for a great user experience: prefer a structured question tool over plain text if one is available, batch related questions together, keep the set short, provide concrete options/examples/defaults where possible, and use structured inputs (single-select, multi-select, free text, etc.) when they make answering easier.
-  - If multiple model aliases are available, ask which one(s) to use (or default to the first usable alias).
+  - If multiple model aliases are available, ask which one(s) to use (or default to an alias with the appropriate `generation_type` for each column).
   - Common things to make precise:
     - What the "axes of diversity" are — what should be well represented and diverse in the resulting dataset.
     - The kind and nature of any input data.
