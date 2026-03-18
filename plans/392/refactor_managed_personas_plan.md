@@ -1,4 +1,4 @@
-# Refactor: Replace ManagedBlobStorage + ManagedDatasetRepository with NemotronPersonasDatasetReader
+# Refactor: Replace ManagedBlobStorage + ManagedDatasetRepository with PersonReader
 
 ## Context
 
@@ -10,12 +10,16 @@ Client applications cannot customize how managed datasets (person data by locale
 
 The `SeedReader` pattern already in this codebase is the right model: clients provide an object that creates a duckdb connection (with custom fsspec clients) and returns URIs that work with it.
 
-## New Abstraction: `NemotronPersonasDatasetReader`
+## New Abstraction: `PersonReader`
 
-**New file:** `packages/data-designer-engine/src/data_designer/engine/resources/nemotron_personas_reader.py`
+**New file:** `packages/data-designer-engine/src/data_designer/engine/resources/person_reader.py`
 
 ```python
-class NemotronPersonasDatasetReader(ABC):
+DATASETS_ROOT = "datasets"
+THREADS = 1
+MEMORY_LIMIT = "2 gb"
+
+class PersonReader(ABC):
     """Provides duckdb access to managed datasets (e.g., person name data).
 
     Implementations control connection creation (custom fsspec clients, caching, etc.)
@@ -31,19 +35,30 @@ class NemotronPersonasDatasetReader(ABC):
 
     @abstractmethod
     def get_dataset_uri(self, locale: str) -> str: ...
+
+    @functools.cached_property
+    def _conn(self) -> duckdb.DuckDBPyConnection:
+        return self.create_duckdb_connection()
+
+    def execute(self, query: str, parameters: list[Any]) -> pd.DataFrame:
+        cursor = self._conn.cursor()
+        try:
+            return cursor.execute(query, parameters).df()
+        finally:
+            cursor.close()
 ```
+
+The ABC owns connection lifecycle via a `cached_property` and exposes an `execute()` method that manages cursor creation/cleanup. Subclasses only need to implement `create_duckdb_connection()` and `get_dataset_uri()`.
 
 **Default implementation** in same file:
 
 ```python
-DATASETS_ROOT = "datasets"
-
-class LocalNemotronPersonasDatasetReader(NemotronPersonasDatasetReader):
+class LocalPersonReader(PersonReader):
     def __init__(self, root_path: Path) -> None:
         self._root_path = root_path
 
     def create_duckdb_connection(self) -> duckdb.DuckDBPyConnection:
-        return lazy.duckdb.connect(config={"threads": 1, "memory_limit": "2 gb"})
+        return lazy.duckdb.connect(config={"threads": THREADS, "memory_limit": MEMORY_LIMIT})
 
     def get_dataset_uri(self, locale: str) -> str:
         return f"{self._root_path}/{DATASETS_ROOT}/{locale}.parquet"
@@ -52,16 +67,16 @@ class LocalNemotronPersonasDatasetReader(NemotronPersonasDatasetReader):
 **Factory function** in same file:
 
 ```python
-def init_nemotron_personas_reader(assets_storage: str) -> NemotronPersonasDatasetReader:
+def create_person_reader(assets_storage: str) -> PersonReader:
     path = Path(assets_storage)
     if not path.exists():
         raise RuntimeError(f"Local storage path {assets_storage!r} does not exist.")
-    return LocalNemotronPersonasDatasetReader(path)
+    return LocalPersonReader(path)
 ```
 
 **Client injection example** (not in codebase, illustrative):
 ```python
-class S3NemotronPersonasDatasetReader(NemotronPersonasDatasetReader):
+class S3PersonReader(PersonReader):
     def create_duckdb_connection(self):
         fs = s3fs.S3FileSystem(...)
         conn = duckdb.connect()
@@ -72,7 +87,7 @@ class S3NemotronPersonasDatasetReader(NemotronPersonasDatasetReader):
         # Client controls full URI — no DATASETS_ROOT or .parquet assumption
         return f"s3://my-bucket/person-data/{locale}"
 
-designer = DataDesigner(nemotron_personas_reader=S3NemotronPersonasDatasetReader())
+designer = DataDesigner(person_reader=S3PersonReader())
 ```
 
 ## Files to Delete
@@ -84,37 +99,37 @@ designer = DataDesigner(nemotron_personas_reader=S3NemotronPersonasDatasetReader
 
 ### 1. `managed_dataset_generator.py`
 
-Change from taking `ManagedDatasetRepository` to taking `NemotronPersonasDatasetReader`. Handle duckdb queries directly instead of delegating to a repository.
+Change from taking `ManagedDatasetRepository` to taking `PersonReader`. Delegates query execution to `PersonReader.execute()` instead of managing connection/cursor directly.
 
-- Constructor: `__init__(self, reader: NemotronPersonasDatasetReader, locale: str)`
-- Store `self._conn = reader.create_duckdb_connection()` and `self._uri = reader.get_dataset_uri(locale)`
-- `generate_samples()`: build SQL with `FROM '{self._uri}'` instead of `FROM {dataset_name}`, execute via cursor on `self._conn`
+- Constructor: `__init__(self, reader: PersonReader, locale: str)`
+- Store reader as `self._person_reader` and locale as `self._locale`
+- `generate_samples()`: build SQL with `FROM '{uri}'` (where `uri = self._person_reader.get_dataset_uri(self._locale)`), execute via `self._person_reader.execute(query, parameters)`
 
-### 2. `person.py` (lines 12-13, 130-137)
+### 2. `person.py`
 
 - Remove imports of `load_managed_dataset_repository`, `ManagedBlobStorage`
-- Import `NemotronPersonasDatasetReader` instead
-- Change `load_person_data_sampler(blob_storage: ManagedBlobStorage, locale: str)` to `load_person_data_sampler(reader: NemotronPersonasDatasetReader, locale: str)`
+- Import `PersonReader` instead
+- Change `load_person_data_sampler(blob_storage: ManagedBlobStorage, locale: str)` to `load_person_data_sampler(reader: PersonReader, locale: str)`
 - Replace body: create `ManagedDatasetGenerator(reader=reader, locale=locale)` — the reader handles URI construction internally
 
-### 3. `resource_provider.py` (lines 21, 35, 85, 142)
+### 3. `resource_provider.py`
 
-- Replace `ManagedBlobStorage` import with `NemotronPersonasDatasetReader` import
-- `ResourceProvider.blob_storage: ManagedBlobStorage | None` → `nemotron_personas_reader: NemotronPersonasDatasetReader | None`
-- `ResourceType.BLOB_STORAGE` → `ResourceType.NEMOTRON_PERSONAS_READER`
-- `create_resource_provider()`: rename `blob_storage` param → `nemotron_personas_reader`, pass through
+- Replace `ManagedBlobStorage` import with `PersonReader` import
+- `ResourceProvider.blob_storage: ManagedBlobStorage | None` → `person_reader: PersonReader | None`
+- `ResourceType.BLOB_STORAGE` → `ResourceType.PERSON_READER`
+- `create_resource_provider()`: rename `blob_storage` param → `person_reader`, pass through
 
-### 4. `samplers.py` (lines 17, 46)
+### 4. `samplers.py`
 
-- Replace import of `load_person_data_sampler` (already there), remove blob storage reference
-- `_person_generator_loader`: change `partial(load_person_data_sampler, blob_storage=self.resource_provider.blob_storage)` → `partial(load_person_data_sampler, reader=self.resource_provider.nemotron_personas_reader)`
+- Replace blob storage reference with `PersonReader`
+- `_person_generator_loader`: change `partial(load_person_data_sampler, blob_storage=self.resource_provider.blob_storage)` → `partial(load_person_data_sampler, reader=self.resource_provider.person_reader)`
 
-### 5. `data_designer.py` (lines 41, 444-448)
+### 5. `data_designer.py`
 
-- Replace `init_managed_blob_storage` import with `init_nemotron_personas_reader` import
-- Add constructor parameter: `nemotron_personas_reader: NemotronPersonasDatasetReader | None = None`
-- Store as `self._nemotron_personas_reader`
-- In `_create_resource_provider()`: replace `blob_storage=init_managed_blob_storage(...)` with `nemotron_personas_reader=self._nemotron_personas_reader or init_nemotron_personas_reader(str(self._managed_assets_path))`
+- Replace `init_managed_blob_storage` import with `create_person_reader` import
+- Add constructor parameter: `person_reader: PersonReader | None = None`
+- Store as `self._person_reader`
+- In `_create_resource_provider()`: replace `blob_storage=init_managed_blob_storage(...)` with `person_reader=self._person_reader or create_person_reader(str(self._managed_assets_path))`
 
 ## Test Changes
 
@@ -123,30 +138,30 @@ Change from taking `ManagedDatasetRepository` to taking `NemotronPersonasDataset
 - **`test_managed_dataset_repository.py`** — tests the deleted `DuckDBDatasetRepository`
 
 ### Create:
-- **`test_nemotron_personas_reader.py`** — test `LocalNemotronPersonasDatasetReader` (URI construction, connection creation) and `init_nemotron_personas_reader` factory
+- **`test_person_reader.py`** — test `LocalPersonReader` (URI construction, connection creation, constants) and `create_person_reader` factory (returns `LocalPersonReader`, raises on nonexistent path)
 
 ### Update:
 - **`test_managed_dataset_generator.py`**:
-  - Replace `stub_repository` fixture (was `Mock(spec=ManagedDatasetRepository)`) with `stub_reader` fixture (`Mock(spec=NemotronPersonasDatasetReader)`)
+  - Replace `stub_repository` fixture with `stub_person_reader` fixture (`LocalPersonReader`)
   - Update `ManagedDatasetGenerator` instantiation: `ManagedDatasetGenerator(reader, locale=...)` instead of `ManagedDatasetGenerator(repo, dataset_name=...)`
   - Update query assertions: SQL should use `FROM '{uri}'` instead of `FROM dataset_name`
   - Update `test_load_person_data_sampler_scenarios`: mock reader instead of blob_storage + load_managed_dataset_repository
 
-- **`tests/engine/resources/conftest.py`** (line 13, 23-24):
-  - Replace `stub_local_blob_storage` fixture with `stub_nemotron_personas_reader` using `LocalNemotronPersonasDatasetReader`
+- **`tests/engine/resources/conftest.py`**:
+  - Replace `stub_local_blob_storage` fixture with `stub_person_reader` using `LocalPersonReader`
   - Remove `stub_managed_dataset_repository` fixture (no longer needed)
 
-- **`tests/engine/conftest.py`** (line 14, 40):
-  - Replace `ManagedBlobStorage` import with `NemotronPersonasDatasetReader`
-  - Change `mock_provider.blob_storage = Mock(spec=ManagedBlobStorage)` → `mock_provider.nemotron_personas_reader = Mock(spec=NemotronPersonasDatasetReader)`
+- **`tests/engine/conftest.py`**:
+  - Replace `ManagedBlobStorage` import with `PersonReader`
+  - Change `mock_provider.blob_storage = Mock(spec=ManagedBlobStorage)` → `mock_provider.person_reader = Mock(spec=PersonReader)`
 
 ## Implementation Order
 
-1. Create `nemotron_personas_reader.py` (new ABC + `LocalNemotronPersonasDatasetReader` + factory)
-2. Update `managed_dataset_generator.py` (take reader, query directly)
+1. Create `person_reader.py` (new ABC with `execute()` + cached `_conn`, `LocalPersonReader`, factory)
+2. Update `managed_dataset_generator.py` (take reader, delegate via `reader.execute()`)
 3. Update `person.py` (use reader instead of blob_storage)
 4. Update `resource_provider.py` (swap field + param)
-5. Update `samplers.py` (use `nemotron_personas_reader`)
+5. Update `samplers.py` (use `person_reader`)
 6. Update `data_designer.py` (add injection parameter, wire up)
 7. Delete `managed_storage.py` and `managed_dataset_repository.py`
 8. Update all test files
