@@ -34,14 +34,20 @@ class TemplateValue:
         raise AttributeError(f"'{type(self._value).__name__} object' has no attribute '{name}'")
 
     def __getitem__(self, key: Any) -> TemplateValue:
-        return TemplateValue(self._value[key], str_fn=self._str_fn)
+        try:
+            return TemplateValue(self._value[key], str_fn=self._str_fn)
+        except (KeyError, IndexError, TypeError) as e:
+            raise LookupError(f"Cannot access [{key!r}] on {type(self._value).__name__}") from e
 
     def __str__(self) -> str:
         return self._str_fn(self._value)
 
     def __iter__(self) -> Iterator[TemplateValue]:
-        for item in self._value:
-            yield TemplateValue(item, str_fn=self._str_fn)
+        try:
+            for item in self._value:
+                yield TemplateValue(item, str_fn=self._str_fn)
+        except TypeError as e:
+            raise TypeError(f"Cannot iterate over {type(self._value).__name__} value") from e
 
     def __len__(self) -> int:
         return len(self._value)

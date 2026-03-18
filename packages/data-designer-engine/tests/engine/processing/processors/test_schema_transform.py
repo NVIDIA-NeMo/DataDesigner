@@ -179,14 +179,26 @@ def test_process_after_batch_with_mixed_special_characters(stub_processor: Schem
 
 
 @pytest.mark.parametrize(
-    "template, expected_records",
+    "input_data, template, expected_records",
     [
         pytest.param(
+            {
+                "result": [
+                    json.dumps({"quality": {"score": 95, "label": "excellent"}, "summary": "Great work"}),
+                    json.dumps({"quality": {"score": 42, "label": "poor"}, "summary": "Needs improvement"}),
+                ]
+            },
             {"score": "{{ result.quality.score }}", "label": "{{ result.quality.label }}"},
             [{"score": "95", "label": "excellent"}, {"score": "42", "label": "poor"}],
             id="nested-dot-access",
         ),
         pytest.param(
+            {
+                "result": [
+                    json.dumps({"quality": {"score": 95, "label": "excellent"}, "summary": "Great work"}),
+                    json.dumps({"quality": {"score": 42, "label": "poor"}, "summary": "Needs improvement"}),
+                ]
+            },
             {"summary": "{{ result.summary }}", "full": "{{ result }}"},
             [
                 {
@@ -201,6 +213,7 @@ def test_process_after_batch_with_mixed_special_characters(stub_processor: Schem
             id="mixed-nested-and-flat",
         ),
         pytest.param(
+            {"result": [json.dumps({"items": ["alpha", "beta"]})]},
             {"first_item": "{{ result.items[0] }}"},
             [{"first_item": "alpha"}],
             id="list-indexing",
@@ -208,6 +221,7 @@ def test_process_after_batch_with_mixed_special_characters(stub_processor: Schem
     ],
 )
 def test_process_after_batch_with_nested_field_access(
+    input_data: dict,
     template: dict,
     expected_records: list[dict],
     stub_resource_provider: ResourceProvider,
@@ -220,18 +234,7 @@ def test_process_after_batch_with_nested_field_access(
         resource_provider=stub_resource_provider,
     )
 
-    if "items" in str(template):
-        data = lazy.pd.DataFrame({"result": [json.dumps({"items": ["alpha", "beta"]})]})
-    else:
-        data = lazy.pd.DataFrame(
-            {
-                "result": [
-                    json.dumps({"quality": {"score": 95, "label": "excellent"}, "summary": "Great work"}),
-                    json.dumps({"quality": {"score": 42, "label": "poor"}, "summary": "Needs improvement"}),
-                ]
-            }
-        )
-
+    data = lazy.pd.DataFrame(input_data)
     processor.process_after_batch(data, current_batch_number=0)
     written: pd.DataFrame = processor.artifact_storage.write_batch_to_parquet_file.call_args.kwargs["dataframe"]
 

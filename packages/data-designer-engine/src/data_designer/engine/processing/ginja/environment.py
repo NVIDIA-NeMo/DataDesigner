@@ -317,7 +317,7 @@ class UserTemplateSandboxEnvironment(ImmutableSandboxedEnvironment):
         user_template: str,
         record: dict,
         skip_template_validation: bool = False,
-        skip_record_sanitization: bool = False,
+        _skip_record_sanitization: bool = False,
     ) -> str:
         """Attempt to safely render a user's template.
 
@@ -327,6 +327,8 @@ class UserTemplateSandboxEnvironment(ImmutableSandboxedEnvironment):
             skip_template_validation (optional, bool): If true, then AST checks against the
                 template itself will not be performed. WARNING: this should ONLY be set to true
                 if the template has already been validated.
+            _skip_record_sanitization: Internal-only. When True, the caller has already
+                sanitized the record (e.g. via render_template's TemplateValue path).
 
         Raises:
             UserTemplateError: If the template cannot be rendered because the
@@ -343,7 +345,7 @@ class UserTemplateSandboxEnvironment(ImmutableSandboxedEnvironment):
         if not skip_template_validation:
             self.validate_template(user_template)
 
-        if not skip_record_sanitization:
+        if not _skip_record_sanitization:
             record = sanitize_record(record)
 
         try:
@@ -419,6 +421,7 @@ class WithJinja2UserTemplateRendering:
     """
 
     _template_render_fn: Callable
+    _record_str_fn: Callable[[Any], str] | None
 
     @sanitize_user_exceptions
     def prepare_jinja2_template_renderer(
@@ -448,7 +451,7 @@ class WithJinja2UserTemplateRendering:
         if self._record_str_fn is not None:
             record = sanitize_record(record)
             record = wrap_record(record, str_fn=self._record_str_fn)
-            return self._template_render_fn(record, skip_record_sanitization=True)
+            return self._template_render_fn(record, _skip_record_sanitization=True)
         return self._template_render_fn(record)
 
     @sanitize_user_exceptions

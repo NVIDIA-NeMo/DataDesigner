@@ -30,6 +30,8 @@ def _escape_value_for_json(value: Any) -> str:
     to also enable nested dot access ({{ col.sub.field }}) on
     deserialized JSON columns.
     """
+    if isinstance(value, bool):
+        return "true" if value else "false"
     if isinstance(value, str):
         return json.dumps(value)[1:-1]
     if isinstance(value, (dict, list)):
