@@ -19,30 +19,16 @@ AGENT_COMMANDS: tuple[AgentCommandDef, ...] = (
     AgentCommandDef(
         name="context",
         attr="context_command",
-        help="Bootstrap payload with types, state, and builder.",
+        help="Prints output from all agent subcommands to bootstrap context.",
         command_pattern="data-designer agent context",
         returns="agent_context",
     ),
     AgentCommandDef(
         name="types",
         attr="types_command",
-        help="Type names and import paths for one or all families.",
+        help="Type names, descriptions, and source files for one or all families.",
         command_pattern="data-designer agent types [family]",
         returns="agent_types",
-    ),
-    AgentCommandDef(
-        name="schema",
-        attr="schema_command",
-        help="Schema for a type or entire family.",
-        command_pattern="data-designer agent schema <family> <type> | --all",
-        returns="agent_schema",
-    ),
-    AgentCommandDef(
-        name="builder",
-        attr="builder_command",
-        help="ConfigBuilder method surface with signatures.",
-        command_pattern="data-designer agent builder",
-        returns="agent_builder",
     ),
     AgentCommandDef(
         name="state.model-aliases",

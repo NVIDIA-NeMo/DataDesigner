@@ -4,5 +4,6 @@
 from __future__ import annotations
 
 from data_designer.engine.models.clients.adapters.litellm_bridge import LiteLLMBridgeClient, LiteLLMRouter
+from data_designer.engine.models.clients.adapters.openai_compatible import OpenAICompatibleClient
 
-__all__ = ["LiteLLMBridgeClient", "LiteLLMRouter"]
+__all__ = ["LiteLLMBridgeClient", "LiteLLMRouter", "OpenAICompatibleClient"]

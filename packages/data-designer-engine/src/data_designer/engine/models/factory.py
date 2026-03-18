@@ -38,6 +38,8 @@ def create_model_registry(
         A configured ModelRegistry instance.
     """
     from data_designer.engine.models.clients.factory import create_model_client
+    from data_designer.engine.models.clients.retry import RetryConfig
+    from data_designer.engine.models.clients.throttle import ThrottleManager
     from data_designer.engine.models.facade import ModelFacade
     from data_designer.engine.models.litellm_overrides import apply_litellm_patches
     from data_designer.engine.models.registry import ModelRegistry
@@ -48,8 +50,14 @@ def create_model_registry(
         model_config: ModelConfig,
         secret_resolver: SecretResolver,
         model_provider_registry: ModelProviderRegistry,
+        retry_config: RetryConfig | None,
     ) -> ModelFacade:
-        client = create_model_client(model_config, secret_resolver, model_provider_registry)
+        client = create_model_client(
+            model_config,
+            secret_resolver,
+            model_provider_registry,
+            retry_config=retry_config,
+        )
         return ModelFacade(
             model_config,
             model_provider_registry,
@@ -62,4 +70,7 @@ def create_model_registry(
         secret_resolver=secret_resolver,
         model_provider_registry=model_provider_registry,
         model_facade_factory=model_facade_factory,
+        # Throttle acquire/release is wired in a follow-up PR (AsyncTaskScheduler integration).
+        throttle_manager=ThrottleManager(),
+        retry_config=RetryConfig(),
     )
