@@ -4,20 +4,20 @@
 
 Prefer `"person"` when the locale is downloaded — it provides census-grounded demographics and optional personality traits. Fall back to `"person_from_faker"` when the locale isn't available.
 
-| `sampler_type` | Params class | When to use |
-|---|---|---|
-| `"person"` | `PersonSamplerParams` | **Preferred.** Locale downloaded to `~/.data-designer/managed-assets/datasets/` by default. |
+
+| `sampler_type`        | Params class                   | When to use                                                                                         |
+| --------------------- | ------------------------------ | --------------------------------------------------------------------------------------------------- |
+| `"person"`            | `PersonSamplerParams`          | **Preferred.** Locale downloaded to `~/.data-designer/managed-assets/datasets/` by default.         |
 | `"person_from_faker"` | `PersonFromFakerSamplerParams` | Fallback when locale not downloaded. Basic names/addresses via Faker, not demographically accurate. |
 
-## Available persona datasets
+
+## Available locales
 
 Before using `"person"`, check which locales are installed:
 
 ```bash
 data-designer agent state persona-datasets
 ```
-
-If the needed locale is not listed, use `"person_from_faker"` instead.
 
 ## Usage
 
@@ -41,30 +41,14 @@ config_builder.add_column(dd.ExpressionColumnConfig(
 ))
 ```
 
-## PersonSamplerParams
+Set `with_synthetic_personas=True` when the dataset benefits from personality traits, interests, cultural background, or detailed persona descriptions (e.g., for realistic user simulation or persona-driven prompting). This option is only available with `"person"` — `"person_from_faker"` does not support it.
 
-| Parameter | Type | Default | Notes |
-|---|---|---|---|
-| `locale` | `str` | `"en_US"` | Must be a downloaded managed-dataset locale |
-| `sex` | `"Male" \| "Female" \| None` | `None` | Filter by sex |
-| `city` | `str \| list[str] \| None` | `None` | Filter by city |
-| `age_range` | `list[int]` | `[18, 114]` | `[min, max]` inclusive |
-| `select_field_values` | `dict[str, list[str]] \| None` | `None` | Flexible field filtering |
-| `with_synthetic_personas` | `bool` | `False` | Append Big Five + persona fields |
+## Person Object Schema
 
-## PersonFromFakerSamplerParams
+Fields vary by locale. Always run the following script to get the exact schema for the locale you are using:
 
-| Parameter | Type | Default | Notes |
-|---|---|---|---|
-| `locale` | `str` | `"en_US"` | Any Faker-supported locale |
-| `sex` | `"Male" \| "Female" \| None` | `None` | Filter by sex |
-| `city` | `str \| list[str] \| None` | `None` | Filter by city |
-| `age_range` | `list[int]` | `[18, 114]` | `[min, max]` inclusive |
+```bash
+.venv/bin/python scripts/get_person_object_schema.py <locale>
+```
 
-## Person fields (keys in sampled dict)
-
-**Standard fields:** `uuid`, `first_name`, `middle_name`, `last_name`, `sex`, `age`, `birth_date`, `marital_status`, `postcode`, `city`, `region`, `country`, `locale`, `education_level`, `bachelors_field`, `occupation`, `national_id`, `street_name`, `street_number`, `email_address`, `phone_number`
-
-**Locale-specific:** `unit`/`state` (US), `area`/`prefecture`/`zone` (JP), `race` (BR), `district`/`education_degree`/`first_language`/`second_language`/`third_language` (IN), `religion` (BR, IN)
-
-**Persona fields** (when `with_synthetic_personas=True`): `persona`, `detailed_persona`, `cultural_background`, `career_goals_and_ambitions`, `hobbies_and_interests`, `skills_and_expertise`, Big Five scores (`openness`, `conscientiousness`, `extraversion`, `agreeableness`, `neuroticism`), plus domain personas (`professional_persona`, `finance_persona`, `healthcare_persona`, etc.)
+This prints the PII fields (always included) and synthetic persona fields (only included when `with_synthetic_personas=True`) available for that locale.
