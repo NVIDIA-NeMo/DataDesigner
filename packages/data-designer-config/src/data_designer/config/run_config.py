@@ -33,6 +33,8 @@ class RunConfig(ConfigBase):
         max_conversation_correction_steps: Maximum number of correction rounds permitted within a
             single conversation when generation tasks call `ModelFacade.generate(...)`. Must be >= 0.
             Default is 0.
+        async_trace: If True, collect per-task tracing data when using the async engine
+            (DATA_DESIGNER_ASYNC_ENGINE=1). Has no effect on the sync path. Default is False.
     """
 
     disable_early_shutdown: bool = False

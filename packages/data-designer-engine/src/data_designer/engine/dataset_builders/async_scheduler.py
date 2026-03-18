@@ -50,7 +50,6 @@ class AsyncTaskScheduler:
         on_before_checkpoint: Callable[[int, int], None] | None = None,
         shutdown_error_rate: float = 0.5,
         shutdown_error_window: int = 10,
-        disable_early_shutdown: bool = False,
         trace: bool = False,
     ) -> None:
         self._generators = generators
@@ -70,8 +69,8 @@ class AsyncTaskScheduler:
         self._on_seeds_complete = on_seeds_complete
         self._on_before_checkpoint = on_before_checkpoint
 
-        # Error rate shutdown
-        self._shutdown_error_rate = 1.0 if disable_early_shutdown else shutdown_error_rate
+        # Error rate shutdown (caller passes pre-normalized values via RunConfig)
+        self._shutdown_error_rate = shutdown_error_rate
         self._shutdown_error_window = shutdown_error_window
         self._early_shutdown = False
 
@@ -126,6 +125,8 @@ class AsyncTaskScheduler:
     async def run(self) -> None:
         """Main scheduler loop."""
         all_columns = self._graph.columns
+        seed_cols = frozenset(c for c in all_columns if not self._graph.get_upstream_columns(c))
+        has_pre_batch = self._on_seeds_complete is not None
 
         # Launch admission as a background task so it interleaves with dispatch.
         admission_task = asyncio.create_task(self._admit_row_groups())
@@ -133,7 +134,7 @@ class AsyncTaskScheduler:
         # Main dispatch loop
         while True:
             if self._early_shutdown:
-                logger.warning("Early shutdown triggered — error rate exceeded threshold")
+                logger.warning("Early shutdown triggered - error rate exceeded threshold")
                 break
 
             self._wake_event.clear()
@@ -141,8 +142,7 @@ class AsyncTaskScheduler:
             # Run pre-batch callbacks for row groups whose seeds just completed
             for rg_id, rg_size in self._active_rgs:
                 if rg_id in self._seeds_dispatched_rgs and rg_id not in self._pre_batch_done_rgs:
-                    seed_cols = {c for c in all_columns if not self._graph.get_upstream_columns(c)}
-                    all_seeds_done = all(col in self._tracker._completed.get(rg_id, {}) for col in seed_cols)
+                    all_seeds_done = all(self._tracker.is_column_complete_for_rg(col, rg_id) for col in seed_cols)
                     if all_seeds_done and not self._in_flight_for_rg(rg_id):
                         self._pre_batch_done_rgs.add(rg_id)
                         if self._on_seeds_complete:
@@ -156,6 +156,9 @@ class AsyncTaskScheduler:
                                         self._buffer_manager.drop_row(rg_id, ri)
 
             ready = self._tracker.get_ready_tasks(self._dispatched, self._admitted_rg_ids)
+            # Gate non-seed tasks on pre-batch completion when a pre-batch callback is configured
+            if has_pre_batch:
+                ready = [t for t in ready if t.row_group in self._pre_batch_done_rgs or t.column in seed_cols]
             for task in ready:
                 await self._submission_semaphore.acquire()
                 self._dispatched.add(task)
@@ -260,7 +263,13 @@ class AsyncTaskScheduler:
             self._active_rgs.remove((rg_id, rg_size))
             try:
                 if self._on_before_checkpoint:
-                    self._on_before_checkpoint(rg_id, rg_size)
+                    try:
+                        self._on_before_checkpoint(rg_id, rg_size)
+                    except Exception:
+                        logger.error(
+                            f"on_before_checkpoint failed for row group {rg_id}, checkpointing un-processed data.",
+                            exc_info=True,
+                        )
                 if self._buffer_manager is not None:
                     self._buffer_manager.checkpoint_row_group(rg_id)
                 if self._on_row_group_complete:

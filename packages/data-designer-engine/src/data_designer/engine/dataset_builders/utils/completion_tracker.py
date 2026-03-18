@@ -78,6 +78,10 @@ class CompletionTracker:
                 return False
         return True
 
+    def is_column_complete_for_rg(self, column: str, row_group: int) -> bool:
+        """Check if *column* has been completed (batch or all cells) for *row_group*."""
+        return column in self._completed.get(row_group, {})
+
     def drop_row(self, row_group: int, row_index: int) -> None:
         self._validate_row_group(row_group)
         self._dropped[row_group].add(row_index)

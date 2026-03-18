@@ -72,7 +72,6 @@ if DATA_DESIGNER_ASYNC_ENGINE:
     from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
     from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
 
-    logger.info("⚡ DATA_DESIGNER_ASYNC_ENGINE is enabled — using async task-queue builder")
 
 _CLIENT_VERSION: str = get_library_version()
 
@@ -227,6 +226,8 @@ class ColumnWiseDatasetBuilder:
         on_batch_complete: Callable[[Path], None] | None = None,
     ) -> None:
         """Async task-queue builder path — dispatches tasks based on dependency readiness."""
+        logger.info("⚡ DATA_DESIGNER_ASYNC_ENGINE is enabled - using async task-queue builder")
+
         # Build strategy map from generators
         strategies: dict[str, GenerationStrategy] = {}
         gen_map: dict[str, ColumnGenerator] = {}
@@ -265,7 +266,7 @@ class ColumnWiseDatasetBuilder:
             if not self._processor_runner.has_processors_for(ProcessorStage.PRE_BATCH):
                 return
             df = buffer_manager.get_dataframe(rg_id)
-            df = self._processor_runner._run_stage(df, ProcessorStage.PRE_BATCH)
+            df = self._processor_runner.run_pre_batch_on_df(df)
             buffer_manager.replace_dataframe(rg_id, df)
 
         # Post-batch processor callback: runs after all columns, before checkpoint.
@@ -288,9 +289,11 @@ class ColumnWiseDatasetBuilder:
             buffer_manager=buffer_manager,
             on_seeds_complete=on_seeds_complete,
             on_before_checkpoint=on_before_checkpoint,
+            on_row_group_complete=lambda rg_id: on_batch_complete(self.artifact_storage.final_dataset_path)
+            if on_batch_complete
+            else None,
             shutdown_error_rate=settings.shutdown_error_rate,
             shutdown_error_window=settings.shutdown_error_window,
-            disable_early_shutdown=settings.disable_early_shutdown,
             trace=trace_enabled,
         )
 

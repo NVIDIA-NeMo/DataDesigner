@@ -580,22 +580,31 @@ async def test_scheduler_error_rate_shutdown() -> None:
     row_groups = [(0, 10)]
     tracker = CompletionTracker.with_graph(graph, row_groups)
 
+    storage = MagicMock()
+    storage.dataset_name = "test"
+    storage.get_file_paths.return_value = {}
+    storage.write_batch_to_parquet_file.return_value = "/fake.parquet"
+    storage.move_partial_result_to_final_file_path.return_value = "/fake_final.parquet"
+    buffer_mgr = RowGroupBufferManager(storage)
+
     scheduler = AsyncTaskScheduler(
         generators=generators,
         graph=graph,
         tracker=tracker,
         row_groups=row_groups,
+        buffer_manager=buffer_mgr,
         shutdown_error_rate=0.5,
         shutdown_error_window=2,
     )
     await scheduler.run()
 
-    assert scheduler._early_shutdown is True
+    # Early shutdown: not all rows should be checkpointed (some row groups incomplete)
+    assert buffer_mgr.actual_num_records < 10
 
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_scheduler_early_shutdown_disabled() -> None:
-    """disable_early_shutdown=True prevents shutdown even at 100% error rate."""
+    """shutdown_error_rate=1.0 prevents shutdown even at 100% error rate."""
     provider = _mock_provider()
     configs = [
         SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
@@ -614,16 +623,24 @@ async def test_scheduler_early_shutdown_disabled() -> None:
     row_groups = [(0, 5)]
     tracker = CompletionTracker.with_graph(graph, row_groups)
 
+    storage = MagicMock()
+    storage.dataset_name = "test"
+    storage.get_file_paths.return_value = {}
+    buffer_mgr = RowGroupBufferManager(storage)
+
     scheduler = AsyncTaskScheduler(
         generators=generators,
         graph=graph,
         tracker=tracker,
         row_groups=row_groups,
-        disable_early_shutdown=True,
+        buffer_manager=buffer_mgr,
+        shutdown_error_rate=1.0,
     )
     await scheduler.run()
 
-    assert scheduler._early_shutdown is False
+    # All rows dropped (all fail) but no early shutdown - all row groups processed
+    assert all(tracker.is_dropped(0, ri) for ri in range(5))
+    assert tracker.is_row_group_complete(0, 5, ["seed", "fail_col"])
 
 
 @pytest.mark.asyncio(loop_scope="session")

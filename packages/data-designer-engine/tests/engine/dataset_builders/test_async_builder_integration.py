@@ -73,27 +73,30 @@ class MockFullCol(ColumnGeneratorFullColumn[ExpressionColumnConfig]):
 # -- allow_resize validation test ---------------------------------------------
 
 
-def test_validate_async_compatibility_raises_on_allow_resize() -> None:
-    """allow_resize=True with async scheduler raises DatasetGenerationError."""
+@pytest.mark.parametrize(
+    "configs,should_raise",
+    [
+        pytest.param(
+            [Mock(name="col_a", allow_resize=True), Mock(name="col_b", allow_resize=False)],
+            True,
+            id="raises_on_allow_resize",
+        ),
+        pytest.param(
+            [Mock(name="col_a", allow_resize=False), Mock(name="col_b", allow_resize=False)],
+            False,
+            id="passes_without_allow_resize",
+        ),
+    ],
+)
+def test_validate_async_compatibility(configs: list[Mock], should_raise: bool) -> None:
+    """Validation rejects allow_resize=True with the async engine."""
     builder = Mock(spec=ColumnWiseDatasetBuilder)
-    builder.single_column_configs = [
-        Mock(name="col_a", allow_resize=True),
-        Mock(name="col_b", allow_resize=False),
-    ]
-    # Call the unbound method on the mock
-    with pytest.raises(DatasetGenerationError, match="allow_resize=True"):
+    builder.single_column_configs = configs
+    if should_raise:
+        with pytest.raises(DatasetGenerationError, match="allow_resize=True"):
+            ColumnWiseDatasetBuilder._validate_async_compatibility(builder)
+    else:
         ColumnWiseDatasetBuilder._validate_async_compatibility(builder)
-
-
-def test_validate_async_compatibility_passes_without_allow_resize() -> None:
-    """No allow_resize=True passes validation."""
-    builder = Mock(spec=ColumnWiseDatasetBuilder)
-    builder.single_column_configs = [
-        Mock(name="col_a", allow_resize=False),
-        Mock(name="col_b", allow_resize=False),
-    ]
-    # Should not raise
-    ColumnWiseDatasetBuilder._validate_async_compatibility(builder)
 
 
 # -- _build_async integration test with mock generators -----------------------
