@@ -5,7 +5,7 @@
 
 `FileSystemSeedReader` is the simplest way to build a seed reader plugin when your source data lives in a directory of files. You describe the files cheaply in `build_manifest(...)`, then optionally read and reshape them in `hydrate_row(...)`.
 
-This guide focuses on the filesystem-specific contract. For a runnable end-to-end scaffold, see the [Markdown Section Seed Reader recipe](../recipes/plugin_development/markdown_seed_reader.md).
+This guide focuses on the filesystem-specific contract. The fastest way to learn it is usually to start with an inline reader over `DirectorySeedSource`, then package that reader later only if you need automatic plugin discovery or a brand-new `seed_type`. For a runnable single-file example, see the [Markdown Section Seed Reader recipe](../recipes/plugin_development/markdown_seed_reader.md).
 
 ## What the framework owns
 
@@ -17,48 +17,59 @@ When you inherit from `FileSystemSeedReader`, Data Designer already handles:
 - batching and DuckDB registration
 - hydrated output schema validation via `output_columns`
 
-Most plugins only need to implement `build_manifest(...)` and `hydrate_row(...)`.
+Most readers only need to implement `build_manifest(...)` and `hydrate_row(...)`.
 
-## Recommended package layout
+## Start with an existing filesystem config
 
-```text
-data-designer-markdown-seed-reader/
-├── pyproject.toml
-├── demo.py
-├── sample_data/
-│   ├── faq.md
-│   └── guide.md
-└── src/
-    └── data_designer_markdown_seed_reader/
-        ├── __init__.py
-        ├── config.py
-        ├── impl.py
-        └── plugin.py
-```
+If your source data already fits `DirectorySeedSource` or `FileContentsSeedSource`, you do not need a new config model just to learn or prototype a reader. Reuse the built-in source type and override how one `DataDesigner` instance interprets that seed source.
 
-## Step 1: Define the seed source config
-
-Your config class should inherit from `FileSystemSeedSource` and declare a unique `seed_type`.
+The Markdown recipe uses `DirectorySeedSource(path=..., file_pattern="*.md")` and pairs it with an inline reader:
 
 ```python
---8<-- "assets/recipes/plugin_development/markdown_seed_reader/src/data_designer_markdown_seed_reader/config.py"
+import data_designer.config as dd
+from pathlib import Path
+from typing import Any
+
+from data_designer.engine.resources.seed_reader import FileSystemSeedReader, SeedReaderFileSystemContext
+
+
+class MarkdownSectionDirectorySeedReader(FileSystemSeedReader[dd.DirectorySeedSource]):
+    output_columns = [
+        "relative_path",
+        "file_name",
+        "section_index",
+        "section_header",
+        "section_content",
+    ]
+
+    def build_manifest(self, *, context: SeedReaderFileSystemContext) -> list[dict[str, str]]:
+        matched_paths = self.get_matching_relative_paths(
+            context=context,
+            file_pattern=self.source.file_pattern,
+            recursive=self.source.recursive,
+        )
+        return [
+            {
+                "relative_path": relative_path,
+                "file_name": Path(relative_path).name,
+            }
+            for relative_path in matched_paths
+        ]
+
+    def hydrate_row(
+        self,
+        *,
+        manifest_row: dict[str, Any],
+        context: SeedReaderFileSystemContext,
+    ) -> list[dict[str, Any]]:
+        ...
 ```
 
-**Key points:**
+This approach lets you inspect the manifest and hydration contract without first creating a package, entry points, or a new `seed_type`.
 
-- `path` points at a directory, not an individual file
-- `file_pattern` matches basenames only
-- `seed_type` is the discriminator and plugin identity for the reader
-
-## Step 2: Build a cheap manifest
+## Step 1: Build a cheap manifest
 
 `build_manifest(...)` should be inexpensive. Usually that means enumerating matching files and returning one logical row per file, without reading file contents yet.
-
-The Markdown example keeps the manifest file-based and performs the expensive parsing in `hydrate_row(...)`:
-
-```python
---8<-- "assets/recipes/plugin_development/markdown_seed_reader/src/data_designer_markdown_seed_reader/impl.py"
-```
 
 In this example, the manifest only tracks:
 
@@ -67,7 +78,7 @@ In this example, the manifest only tracks:
 
 That keeps selection and partitioning file-based.
 
-## Step 3: Hydrate one file into one or many rows
+## Step 2: Hydrate one file into one or many rows
 
 `hydrate_row(...)` can return either:
 
@@ -86,27 +97,27 @@ output_columns = [
 ]
 ```
 
-In that implementation, `hydrate_row(...)` reads one file and emits one record per ATX heading section.
+In the recipe implementation, `hydrate_row(...)` reads one file and emits one record per ATX heading section.
 
 Every emitted record must match `output_columns` exactly. Data Designer will raise a plugin-facing error if a hydrated record is missing a declared column or includes an undeclared one.
 
-## Step 4: Register the plugin
+## Step 3: Pass the reader to Data Designer
 
-Create a `Plugin` object and register it as a `SEED_READER` entry point:
+Register the inline reader on the `DataDesigner` instance you want to use:
 
 ```python
---8<-- "assets/recipes/plugin_development/markdown_seed_reader/src/data_designer_markdown_seed_reader/plugin.py"
+import data_designer.config as dd
+from data_designer.interface import DataDesigner
+
+data_designer = DataDesigner(seed_readers=[MarkdownSectionDirectorySeedReader()])
+
+builder = dd.DataDesignerConfigBuilder()
+builder.with_seed_dataset(
+    dd.DirectorySeedSource(path="sample_data", file_pattern="*.md"),
+)
 ```
 
-```toml
---8<-- "assets/recipes/plugin_development/markdown_seed_reader/pyproject.toml"
-```
-
-Install the package locally:
-
-```bash
-uv pip install -e .
-```
+That pattern overrides how this `DataDesigner` instance handles the built-in `directory` seed source. Because `seed_readers` sets the registry for that instance, include any other readers you still want available. This is a good fit for local experiments, tests, and docs recipes.
 
 ## Manifest-Based Selection Semantics
 
@@ -122,10 +133,11 @@ If the matched files are:
 and `guide.md` hydrates into two section rows, then:
 
 ```python
+import data_designer.config as dd
 from data_designer.config.seed import IndexRange
 
 builder.with_seed_dataset(
-    MarkdownSectionSeedSource(path="sample_data"),
+    dd.DirectorySeedSource(path="sample_data", file_pattern="*.md"),
     selection_strategy=IndexRange(start=1, end=1),
 )
 ```
@@ -134,16 +146,16 @@ selects only `guide.md`, then returns **all** section rows emitted from `guide.m
 
 That means `get_seed_dataset_size()`, `IndexRange`, `PartitionBlock`, and shuffle all operate on manifest rows before hydration.
 
-## Validate the Plugin
+## Package it later when needed
 
-Use `assert_valid_plugin` while developing the package:
+If you want the same reader to be installable and auto-discovered as a plugin, then move from the inline pattern to a package:
 
-```python
-from data_designer.engine.testing.utils import assert_valid_plugin
-from data_designer_markdown_seed_reader.plugin import markdown_section_seed_reader_plugin
+- define a config class that inherits from `FileSystemSeedSource`
+- give it a unique `seed_type`
+- create a `Plugin` object with `plugin_type=PluginType.SEED_READER`
+- register that plugin via a `data_designer.plugins` entry point
 
-assert_valid_plugin(markdown_section_seed_reader_plugin)
-```
+That extra packaging step is only necessary when you need a reusable plugin boundary. The reader logic itself still lives in the same `build_manifest(...)` and `hydrate_row(...)` methods shown above.
 
 ## Advanced Hooks
 

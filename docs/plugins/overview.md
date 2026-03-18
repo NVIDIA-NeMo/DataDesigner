@@ -85,4 +85,4 @@ my_processor_plugin = Plugin(
 
 - See the [Example Plugin](example.md) for a column generator walkthrough
 - See [FileSystemSeedReader Plugins](filesystem_seed_reader.md) for filesystem-backed seed reader plugins
-- See the [Markdown Section Seed Reader recipe](../recipes/plugin_development/markdown_seed_reader.md) for a runnable `1:N` filesystem plugin scaffold
+- See the [Markdown Section Seed Reader recipe](../recipes/plugin_development/markdown_seed_reader.md) for a runnable single-file `1:N` filesystem reader example
