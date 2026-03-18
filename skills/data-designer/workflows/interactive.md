@@ -22,8 +22,8 @@ This is an interactive, iterative design process. Do not disengage from the loop
 5. **Validate** — Run `data-designer validate <path>`. Address any warnings or errors and re-validate until it passes.
 6. **Preview** — Run `data-designer preview <path> --save-results` to generate sample records as HTML files.
   - `cd` into the sample records directory (which is printed out by the `data-designer preview` command)
-  - Run `python -m http.server 8787` (in background)
-  - Tell the user to open `http://localhost:8787/sample_records_browser.html` to review them
+  - Run `python -m http.server 0` (in background) and note the port it prints
+  - Tell the user to open `http://localhost:<port>/sample_records_browser.html` to review them
 7. **Iterate** — Ask the user for feedback. Edit the script, re-validate, re-preview, and serve again. Repeat until they are satisfied.
 8. **Finalize** — Once the user is happy, tell them they can run the following command to create the dataset:
   - `data-designer create <path> --num-records <N>`.

@@ -16,7 +16,7 @@ $ARGUMENTS
 
 # Agent CLI
 
-Always run this command before starting attempting to design or build a dataset. This command is your single discovery mechanism — it tells you exactly which files to read:
+Always run this command before attempting to design or build a dataset. This command is your single discovery mechanism — it tells you exactly which files to read:
 
 ```bash
 data-designer agent context

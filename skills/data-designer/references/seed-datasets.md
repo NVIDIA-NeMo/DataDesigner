@@ -4,7 +4,7 @@ Seed datasets bootstrap synthetic data generation from existing data. Every colu
 
 ## Before configuring a seed source
 
-1. **Read the source code.** Read `{config_root}/seed_source.py` for all seed source classes and their parameters. Do not guess types or parameters.
+1. **Read the source code.** Read `seed_source.py` under the config root directory printed by `data-designer agent context`. This file contains all seed source classes and their parameters. Do not guess types or parameters.
 
 2. **Verify the dataset is readable and fetch column names.** Before wiring the seed into the config, confirm the file can be read and extract its column names. This catches bad paths and corrupt files, and gives you the exact column names available for downstream prompts.
 
