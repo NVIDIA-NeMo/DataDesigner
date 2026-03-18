@@ -21,10 +21,12 @@ This is an interactive, iterative design process. Do not disengage from the loop
 4. **Build** — Write the Python script with `load_config_builder()` (see Output Template in SKILL.md).
 5. **Validate** — Run `data-designer validate <path>`. Address any warnings or errors and re-validate until it passes.
 6. **Preview** — Run `data-designer preview <path> --save-results` to generate sample records as HTML files.
-  - `cd` into the sample records directory (which is printed out by the `data-designer preview` command)
-  - Run `python -m http.server 0` (in background) and note the port it prints
+  - Note the sample records directory printed by the `data-designer preview` command
+  - Run `python -m http.server 0 --directory <sample-records-dir>` (in background) and note the port it prints
   - Tell the user to open `http://localhost:<port>/sample_records_browser.html` to review them
+  - When the user is done reviewing, stop the background server
 7. **Iterate** — Ask the user for feedback. Edit the script, re-validate, re-preview, and serve again. Repeat until they are satisfied.
 8. **Finalize** — Once the user is happy, tell them they can run the following command to create the dataset:
   - `data-designer create <path> --num-records <N>`.
+  - Warn the user that generation can take a long time for large record counts (50+).
   - Do not run this command yourself. It requires model endpoints and can take a long time.

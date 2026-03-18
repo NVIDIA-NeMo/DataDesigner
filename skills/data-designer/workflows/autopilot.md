@@ -17,9 +17,10 @@ In this mode, make reasonable design decisions autonomously based on the dataset
 4. **Build** — Write the Python script with `load_config_builder()` (see Output Template in SKILL.md).
 5. **Validate** — Run `data-designer validate <path>`. Address any warnings or errors and re-validate until it passes.
 6. **Preview** — Run `data-designer preview <path> --save-results` to generate sample records as HTML files.
-  - `cd` into the sample records directory (which is printed out by the `data-designer preview` command)
-  - Run `python -m http.server 0` (in background) and note the port it prints
+  - Note the sample records directory printed by the `data-designer preview` command
+  - Run `python -m http.server 0 --directory <sample-records-dir>` (in background) and note the port it prints
   - Tell the user to open `http://localhost:<port>/sample_records_browser.html` to review them
+  - When the user is done reviewing, stop the background server
 7. **Create** — If the user specified a record count:
   - 50 or fewer: run `data-designer create <path> --num-records <N>` directly.
   - More than 50: warn that generation can take a long time and ask for confirmation before running.
