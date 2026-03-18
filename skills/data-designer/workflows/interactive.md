@@ -22,12 +22,10 @@ This is an interactive, iterative design process. Do not disengage from the loop
 5. **Validate** — Run `data-designer validate <path>`. Address any warnings or errors and re-validate until it passes.
 6. **Preview** — Run `data-designer preview <path> --save-results` to generate sample records as HTML files.
   - Note the sample records directory printed by the `data-designer preview` command
-  - Run `python -m http.server 8741 --directory <sample-records-dir>` (in background). If port 8741 is taken, retry with port 0 and note the port it prints
-  - **Verify the server started** by reading the background task output until you see `Serving HTTP on ...`. Get the port from that output line. Do not use curl, lsof, or any other probing method
-  - Tell the user to open `http://localhost:<port>/sample_records_browser.html` to review them
-  - When the user is done reviewing, stop the background server
+  - Give the user a clickable link: `file://<sample-records-dir>/sample_records_browser.html`
 7. **Iterate** — Ask the user for feedback. Edit the script, re-validate, re-preview, and serve again. Repeat until they are satisfied.
 8. **Finalize** — Once the user is happy, tell them they can run the following command to create the dataset:
   - `data-designer create <path> --num-records <N>`.
   - Warn the user that generation can take a long time for large record counts (50+).
   - Do not run this command yourself. It requires model endpoints and can take a long time.
+  - Let the user know they can push the dataset to Hugging Face using `results.push_to_hub("org/dataset-name", "description", tags=["tag1", "tag2"])`, or from a saved folder using `HuggingFaceHubClient.push_to_hub_from_folder(dataset_path="{artifact_path}/{dataset_name}", repo_id="org/name", description="...")`.

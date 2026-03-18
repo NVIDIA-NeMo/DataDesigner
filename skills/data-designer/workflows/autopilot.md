@@ -18,12 +18,9 @@ In this mode, make reasonable design decisions autonomously based on the dataset
 5. **Validate** — Run `data-designer validate <path>`. Address any warnings or errors and re-validate until it passes.
 6. **Preview** — Run `data-designer preview <path> --save-results` to generate sample records as HTML files.
   - Note the sample records directory printed by the `data-designer preview` command
-  - Run `python -m http.server 8741 --directory <sample-records-dir>` (in background). If port 8741 is taken, retry with port 0 and note the port it prints
-  - **Verify the server started** by reading the background task output until you see `Serving HTTP on ...`. Get the port from that output line. Do not use curl, lsof, or any other probing method
-  - Tell the user to open `http://localhost:<port>/sample_records_browser.html` to review them
-  - When the user is done reviewing, stop the background server
+  - Give the user a clickable link: `file://<sample-records-dir>/sample_records_browser.html`
 7. **Create** — If the user specified a record count:
   - 50 or fewer: run `data-designer create <path> --num-records <N>` directly.
   - More than 50: warn that generation can take a long time and ask for confirmation before running.
   - If no record count was specified, skip this step.
-8. **Present** — Summarize what was built: columns, samplers used, key design choices. If the create command was run, share the results. Ask the user if they want any changes. If so, edit the script, re-validate, re-preview, and iterate.
+8. **Present** — Summarize what was built: columns, samplers used, key design choices. If the create command was run, share the results. Let the user know they can push the dataset to Hugging Face using `results.push_to_hub("org/dataset-name", "description", tags=["tag1", "tag2"])`, or from a saved folder using `HuggingFaceHubClient.push_to_hub_from_folder(dataset_path="{artifact_path}/{dataset_name}", repo_id="org/name", description="...")`. Ask the user if they want any changes. If so, edit the script, re-validate, re-preview, and iterate.
