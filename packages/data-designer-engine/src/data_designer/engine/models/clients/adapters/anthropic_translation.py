@@ -197,6 +197,9 @@ def translate_content_blocks(content: Any) -> list[dict[str, Any]]:
             if anthropic_block is not None:
                 translated.append(anthropic_block)
             continue
+        # Anthropic rejects empty text blocks — drop them.
+        if isinstance(block, dict) and block.get("type") == "text" and not block.get("text"):
+            continue
         translated.append(block)
     return translated
 

@@ -354,6 +354,39 @@ def test_completion_merges_parallel_tool_results_into_single_user_message() -> N
     }
 
 
+def test_completion_drops_empty_text_blocks_from_assistant_tool_message() -> None:
+    """Anthropic rejects {"type": "text", "text": ""} — verify it's stripped."""
+    sync_mock = make_mock_sync_client(_text_response())
+    client = _make_client(sync_client=sync_mock)
+
+    assistant_message = ChatMessage.as_assistant(
+        content="",
+        tool_calls=[
+            {
+                "id": "call_1",
+                "type": "function",
+                "function": {"name": "search", "arguments": '{"q": "test"}'},
+            }
+        ],
+    )
+    request = ChatCompletionRequest(
+        model=MODEL,
+        messages=[
+            ChatMessage.as_user("Search for test").to_dict(),
+            assistant_message.to_dict(),
+            ChatMessage.as_tool(content="Found it", tool_call_id="call_1").to_dict(),
+        ],
+    )
+    client.completion(request)
+
+    payload = sync_mock.post.call_args.kwargs["json"]
+    assistant_payload = payload["messages"][1]
+    assert assistant_payload["role"] == "assistant"
+    assert assistant_payload["content"] == [
+        {"type": "tool_use", "id": "call_1", "name": "search", "input": {"q": "test"}},
+    ]
+
+
 def test_completion_excludes_openai_specific_params() -> None:
     sync_mock = make_mock_sync_client(_text_response())
     client = _make_client(sync_client=sync_mock)
