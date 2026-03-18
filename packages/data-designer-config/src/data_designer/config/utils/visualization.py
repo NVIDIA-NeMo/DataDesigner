@@ -484,7 +484,7 @@ def display_sample_record(
         display_console.print(Group(*render_list), markup=False)
 
     # Display traces as HTML in notebook
-    if in_notebook and len(traces_to_display_later) > 0:
+    if in_notebook and include_traces and len(traces_to_display_later) > 0:
         for col_name, trace_data in traces_to_display_later:
             trace_renderer.render_notebook_html(trace_data, col_name)
 

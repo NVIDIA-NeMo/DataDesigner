@@ -190,7 +190,7 @@ class TraceRenderer:
                 for tc in tool_calls:
                     tool_call_count += 1
                     func = tc.get("function", {})
-                    func_name = html.escape(func.get("name", "unknown"))
+                    func_name = func.get("name", "unknown")
                     formatted_args = html.escape(_format_tool_call_args(func.get("arguments", "")))
                     blocks.append(
                         _build_html_block(

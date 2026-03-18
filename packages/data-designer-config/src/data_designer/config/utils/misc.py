@@ -42,8 +42,8 @@ def assert_valid_jinja2_template(template: str) -> None:
 def is_notebook_environment() -> bool:
     """Returns True if running inside a Jupyter/IPython notebook."""
     try:
-        get_ipython()  # type: ignore[name-defined]  # noqa: F821
-        return True
+        shell = get_ipython()  # type: ignore[name-defined]  # noqa: F821
+        return shell is not None and shell.__class__.__name__ in ("ZMQInteractiveShell", "google.colab._shell")
     except NameError:
         return False
 
