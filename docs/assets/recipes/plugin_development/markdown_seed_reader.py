@@ -11,6 +11,9 @@
 Prototype a custom FileSystemSeedReader inline by overriding how one
 DataDesigner instance handles DirectorySeedSource inputs. The reader keeps a
 file-based manifest and fans each Markdown file out into one row per section.
+This keeps the example in the same single-file format as the other recipes
+while still showing the core `build_manifest(...)` and `hydrate_row(...)`
+contract for a custom filesystem-backed seed reader.
 
 Run:
     uv run markdown_seed_reader.py
@@ -32,6 +35,8 @@ _ATX_HEADING_PATTERN = re.compile(r"^(#{1,6})[ \t]+(.+?)\s*$")
 
 
 class MarkdownSectionDirectorySeedReader(FileSystemSeedReader[dd.DirectorySeedSource]):
+    """Turn each Markdown file matched by DirectorySeedSource into section rows."""
+
     output_columns: ClassVar[list[str]] = [
         "relative_path",
         "file_name",
@@ -41,6 +46,8 @@ class MarkdownSectionDirectorySeedReader(FileSystemSeedReader[dd.DirectorySeedSo
     ]
 
     def build_manifest(self, *, context: SeedReaderFileSystemContext) -> list[dict[str, str]]:
+        """Return one cheap manifest row per matched Markdown file."""
+
         matched_paths = self.get_matching_relative_paths(
             context=context,
             file_pattern=self.source.file_pattern,
@@ -60,6 +67,8 @@ class MarkdownSectionDirectorySeedReader(FileSystemSeedReader[dd.DirectorySeedSo
         manifest_row: dict[str, Any],
         context: SeedReaderFileSystemContext,
     ) -> list[dict[str, Any]]:
+        """Read one Markdown file and fan it out into one record per heading section."""
+
         relative_path = str(manifest_row["relative_path"])
         file_name = str(manifest_row["file_name"])
         with context.fs.open(relative_path, "r", encoding="utf-8") as handle:
@@ -79,6 +88,8 @@ class MarkdownSectionDirectorySeedReader(FileSystemSeedReader[dd.DirectorySeedSo
 
 
 def extract_markdown_sections(*, markdown_text: str, fallback_header: str) -> list[tuple[str, str]]:
+    """Split Markdown into `(header, content)` pairs using ATX headings."""
+
     sections: list[tuple[str, str]] = []
     current_header = fallback_header
     current_lines: list[str] = []
@@ -106,6 +117,8 @@ def extract_markdown_sections(*, markdown_text: str, fallback_header: str) -> li
 
 
 def create_sample_markdown_files(seed_dir: Path) -> None:
+    """Create a tiny Markdown corpus that keeps the recipe self-contained."""
+
     (seed_dir / "faq.md").write_text(
         "# FAQ\nAnswers to frequent questions.\n\n## Support\nContact support@example.com.",
         encoding="utf-8",
@@ -121,6 +134,8 @@ def build_config(
     seed_path: Path,
     selection_strategy: IndexRange | None = None,
 ) -> dd.DataDesignerConfigBuilder:
+    """Create the dataset config used by both preview runs in the recipe."""
+
     config_builder = dd.DataDesignerConfigBuilder()
     config_builder.with_seed_dataset(
         dd.DirectorySeedSource(path=str(seed_path), file_pattern="*.md"),
@@ -142,6 +157,8 @@ def print_preview(
     config_builder: dd.DataDesignerConfigBuilder,
     num_records: int,
 ) -> None:
+    """Run a preview and print the columns that matter for the walkthrough."""
+
     print(title)
     preview = data_designer.preview(config_builder, num_records=num_records)
     print(
@@ -158,6 +175,8 @@ def print_preview(
 
 
 def main() -> None:
+    """Build sample input files and print previews with and without selection."""
+
     with TemporaryDirectory(prefix="markdown-seed-reader-") as temp_dir:
         seed_dir = Path(temp_dir) / "sample_markdown"
         seed_dir.mkdir()
