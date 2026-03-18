@@ -292,7 +292,9 @@ class ColumnWiseDatasetBuilder:
             row_groups=row_groups,
             buffer_manager=buffer_manager,
             on_seeds_complete=on_seeds_complete,
-            on_before_checkpoint=on_before_checkpoint,
+            on_before_checkpoint=(
+                on_before_checkpoint if self._processor_runner.has_processors_for(ProcessorStage.POST_BATCH) else None
+            ),
             on_row_group_complete=lambda rg_id: (
                 on_batch_complete(self.artifact_storage.final_dataset_path) if on_batch_complete else None
             ),
