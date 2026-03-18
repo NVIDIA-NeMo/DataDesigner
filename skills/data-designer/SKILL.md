@@ -44,7 +44,6 @@ Read **only** the workflow file that matches the selected mode, then follow it:
 - **Jinja2 templates** in `prompt`, `system_prompt`, and `expr` fields: reference columns with `{{ column_name }}`, nested fields with `{{ column_name.field }}`.
 - **`SamplerColumnConfig`:** Takes `params`, not `sampler_params`.
 - **LLM judge score access:** `LLMJudgeColumnConfig` produces a nested dict where each score name maps to `{reasoning: str, score: int}`. To get the numeric score, use the `.score` attribute. For example, for a judge column named `quality` with a score named `correctness`, use `{{ quality.correctness.score }}`. Using `{{ quality.correctness }}` returns the full dict, not the numeric score.
-- **Nested field access in `SchemaTransformProcessorConfig`:** Nested field access (e.g., `{{ column.field }}`) does **not** work inside schema transform templates because the processor sees column values as serialized strings, not parsed dicts. This affects structured columns, judge columns, and any column with nested output. To use nested fields in a schema transform, first extract them into intermediate `ExpressionColumnConfig` columns (e.g., `expr="{{ column.field }}"` with `drop=True`), then reference those flat columns in the template.
 
 # Troubleshooting
 
