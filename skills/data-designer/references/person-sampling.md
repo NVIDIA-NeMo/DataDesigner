@@ -45,7 +45,7 @@ Set `with_synthetic_personas=True` when the dataset benefits from personality tr
 
 ## Person Object Schema
 
-Fields vary by locale. Always run the following script to get the exact schema for the locale you are using (script path is relative to the skill directory):
+Fields vary by locale. Always run the following script to get the exact schema for the locale you are using (script path is relative to this skill's directory):
 
 ```bash
 .venv/bin/python scripts/get_person_object_schema.py <locale>
