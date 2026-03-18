@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -18,31 +18,11 @@ from data_designer.engine.models.clients.types import (
     ImageGenerationRequest,
 )
 from data_designer.engine.models.utils import ChatMessage
+from tests.engine.models.clients.conftest import make_mock_async_client, make_mock_sync_client
 
 PROVIDER = "anthropic-prod"
 MODEL = "claude-test"
-ENDPOINT = "https://api.anthropic.com"
-
-
-def _mock_httpx_response(json_data: dict[str, Any], status_code: int = 200) -> MagicMock:
-    resp = MagicMock()
-    resp.status_code = status_code
-    resp.json.return_value = json_data
-    resp.text = json.dumps(json_data)
-    resp.headers = {}
-    return resp
-
-
-def _make_sync_client(response_json: dict[str, Any], status_code: int = 200) -> MagicMock:
-    mock = MagicMock()
-    mock.post = MagicMock(return_value=_mock_httpx_response(response_json, status_code))
-    return mock
-
-
-def _make_async_client(response_json: dict[str, Any], status_code: int = 200) -> MagicMock:
-    mock = MagicMock()
-    mock.post = AsyncMock(return_value=_mock_httpx_response(response_json, status_code))
-    return mock
+ENDPOINT = "https://api.anthropic.com/v1"
 
 
 def _make_client(
@@ -54,7 +34,6 @@ def _make_client(
 ) -> AnthropicClient:
     return AnthropicClient(
         provider_name=PROVIDER,
-        model_id=MODEL,
         endpoint=endpoint,
         api_key=api_key,
         sync_client=sync_client,
@@ -104,7 +83,7 @@ def _thinking_response() -> dict[str, Any]:
 
 
 def test_completion_maps_text_content() -> None:
-    client = _make_client(sync_client=_make_sync_client(_text_response(text="Hello from Claude!")))
+    client = _make_client(sync_client=make_mock_sync_client(_text_response(text="Hello from Claude!")))
 
     request = ChatCompletionRequest(model=MODEL, messages=[{"role": "user", "content": "Hi"}])
     result = client.completion(request)
@@ -116,7 +95,7 @@ def test_completion_maps_text_content() -> None:
 
 
 def test_completion_maps_tool_use_blocks() -> None:
-    client = _make_client(sync_client=_make_sync_client(_tool_use_response()))
+    client = _make_client(sync_client=make_mock_sync_client(_tool_use_response()))
 
     request = ChatCompletionRequest(model=MODEL, messages=[{"role": "user", "content": "Weather?"}])
     result = client.completion(request)
@@ -129,7 +108,7 @@ def test_completion_maps_tool_use_blocks() -> None:
 
 
 def test_completion_maps_thinking_blocks() -> None:
-    client = _make_client(sync_client=_make_sync_client(_thinking_response()))
+    client = _make_client(sync_client=make_mock_sync_client(_thinking_response()))
 
     request = ChatCompletionRequest(model=MODEL, messages=[{"role": "user", "content": "What is 6*7?"}])
     result = client.completion(request)
@@ -139,7 +118,7 @@ def test_completion_maps_thinking_blocks() -> None:
 
 
 def test_completion_extracts_system_to_top_level() -> None:
-    sync_mock = _make_sync_client(_text_response())
+    sync_mock = make_mock_sync_client(_text_response())
     client = _make_client(sync_client=sync_mock)
 
     request = ChatCompletionRequest(
@@ -158,7 +137,7 @@ def test_completion_extracts_system_to_top_level() -> None:
 
 
 def test_completion_concatenates_multiple_system_messages() -> None:
-    sync_mock = _make_sync_client(_text_response())
+    sync_mock = make_mock_sync_client(_text_response())
     client = _make_client(sync_client=sync_mock)
 
     request = ChatCompletionRequest(
@@ -176,7 +155,7 @@ def test_completion_concatenates_multiple_system_messages() -> None:
 
 
 def test_completion_extracts_system_from_chat_message_blocks() -> None:
-    sync_mock = _make_sync_client(_text_response())
+    sync_mock = make_mock_sync_client(_text_response())
     client = _make_client(sync_client=sync_mock)
 
     request = ChatCompletionRequest(
@@ -201,7 +180,7 @@ def test_completion_extracts_system_from_chat_message_blocks() -> None:
     ],
 )
 def test_completion_posts_to_messages_route(endpoint: str, expected_url: str) -> None:
-    sync_mock = _make_sync_client(_text_response())
+    sync_mock = make_mock_sync_client(_text_response())
     client = _make_client(sync_client=sync_mock, endpoint=endpoint)
 
     request = ChatCompletionRequest(
@@ -219,7 +198,7 @@ def test_completion_posts_to_messages_route(endpoint: str, expected_url: str) ->
 
 
 def test_completion_defaults_max_tokens() -> None:
-    sync_mock = _make_sync_client(_text_response())
+    sync_mock = make_mock_sync_client(_text_response())
     client = _make_client(sync_client=sync_mock)
 
     request = ChatCompletionRequest(model=MODEL, messages=[{"role": "user", "content": "Hi"}])
@@ -230,7 +209,7 @@ def test_completion_defaults_max_tokens() -> None:
 
 
 def test_completion_forwards_explicit_max_tokens() -> None:
-    sync_mock = _make_sync_client(_text_response())
+    sync_mock = make_mock_sync_client(_text_response())
     client = _make_client(sync_client=sync_mock)
 
     request = ChatCompletionRequest(model=MODEL, messages=[{"role": "user", "content": "Hi"}], max_tokens=1024)
@@ -241,7 +220,7 @@ def test_completion_forwards_explicit_max_tokens() -> None:
 
 
 def test_completion_maps_stop_to_stop_sequences() -> None:
-    sync_mock = _make_sync_client(_text_response())
+    sync_mock = make_mock_sync_client(_text_response())
     client = _make_client(sync_client=sync_mock)
 
     request = ChatCompletionRequest(model=MODEL, messages=[{"role": "user", "content": "Hi"}], stop=["END", "STOP"])
@@ -253,7 +232,7 @@ def test_completion_maps_stop_to_stop_sequences() -> None:
 
 
 def test_completion_maps_stop_string_to_list() -> None:
-    sync_mock = _make_sync_client(_text_response())
+    sync_mock = make_mock_sync_client(_text_response())
     client = _make_client(sync_client=sync_mock)
 
     request = ChatCompletionRequest(model=MODEL, messages=[{"role": "user", "content": "Hi"}], stop="END")
@@ -264,7 +243,7 @@ def test_completion_maps_stop_string_to_list() -> None:
 
 
 def test_completion_translates_openai_tool_schema_to_anthropic() -> None:
-    sync_mock = _make_sync_client(_text_response())
+    sync_mock = make_mock_sync_client(_text_response())
     client = _make_client(sync_client=sync_mock)
 
     tools = [
@@ -288,7 +267,7 @@ def test_completion_translates_openai_tool_schema_to_anthropic() -> None:
 
 
 def test_completion_translates_tool_turns_from_chat_messages() -> None:
-    sync_mock = _make_sync_client(_text_response())
+    sync_mock = make_mock_sync_client(_text_response())
     client = _make_client(sync_client=sync_mock)
 
     assistant_message = ChatMessage.as_assistant(
@@ -337,7 +316,7 @@ def test_completion_translates_tool_turns_from_chat_messages() -> None:
 
 
 def test_completion_merges_parallel_tool_results_into_single_user_message() -> None:
-    sync_mock = _make_sync_client(_text_response())
+    sync_mock = make_mock_sync_client(_text_response())
     client = _make_client(sync_client=sync_mock)
 
     assistant_message = ChatMessage.as_assistant(
@@ -376,7 +355,7 @@ def test_completion_merges_parallel_tool_results_into_single_user_message() -> N
 
 
 def test_completion_excludes_openai_specific_params() -> None:
-    sync_mock = _make_sync_client(_text_response())
+    sync_mock = make_mock_sync_client(_text_response())
     client = _make_client(sync_client=sync_mock)
 
     request = ChatCompletionRequest(
@@ -396,7 +375,7 @@ def test_completion_excludes_openai_specific_params() -> None:
 
 def test_completion_empty_content_returns_none() -> None:
     response = {"content": [], "usage": {"input_tokens": 5, "output_tokens": 0}}
-    client = _make_client(sync_client=_make_sync_client(response))
+    client = _make_client(sync_client=make_mock_sync_client(response))
 
     request = ChatCompletionRequest(model=MODEL, messages=[{"role": "user", "content": "Hi"}])
     result = client.completion(request)
@@ -408,7 +387,7 @@ def test_completion_empty_content_returns_none() -> None:
 
 @pytest.mark.asyncio
 async def test_acompletion_maps_text_content() -> None:
-    client = _make_client(async_client=_make_async_client(_text_response(text="async result")))
+    client = _make_client(async_client=make_mock_async_client(_text_response(text="async result")))
 
     request = ChatCompletionRequest(model=MODEL, messages=[{"role": "user", "content": "Hi"}])
     result = await client.acompletion(request)
@@ -420,7 +399,7 @@ async def test_acompletion_maps_text_content() -> None:
 
 
 def test_completion_translates_data_uri_image_blocks() -> None:
-    sync_mock = _make_sync_client(_text_response())
+    sync_mock = make_mock_sync_client(_text_response())
     client = _make_client(sync_client=sync_mock)
 
     request = ChatCompletionRequest(
@@ -450,7 +429,7 @@ def test_completion_translates_data_uri_image_blocks() -> None:
 
 
 def test_completion_translates_url_string_image_blocks() -> None:
-    sync_mock = _make_sync_client(_text_response())
+    sync_mock = make_mock_sync_client(_text_response())
     client = _make_client(sync_client=sync_mock)
 
     request = ChatCompletionRequest(
@@ -476,7 +455,7 @@ def test_completion_translates_url_string_image_blocks() -> None:
 
 
 def test_completion_translates_data_uri_string_image_blocks() -> None:
-    sync_mock = _make_sync_client(_text_response())
+    sync_mock = make_mock_sync_client(_text_response())
     client = _make_client(sync_client=sync_mock)
 
     request = ChatCompletionRequest(
@@ -502,7 +481,7 @@ def test_completion_translates_data_uri_string_image_blocks() -> None:
 
 
 def test_completion_preserves_non_image_content_blocks() -> None:
-    sync_mock = _make_sync_client(_text_response())
+    sync_mock = make_mock_sync_client(_text_response())
     client = _make_client(sync_client=sync_mock)
 
     request = ChatCompletionRequest(
@@ -526,7 +505,7 @@ def test_completion_preserves_non_image_content_blocks() -> None:
 
 
 def test_completion_passes_string_content_unchanged() -> None:
-    sync_mock = _make_sync_client(_text_response())
+    sync_mock = make_mock_sync_client(_text_response())
     client = _make_client(sync_client=sync_mock)
 
     request = ChatCompletionRequest(
@@ -543,7 +522,7 @@ def test_completion_passes_string_content_unchanged() -> None:
 
 
 def test_auth_headers_use_x_api_key() -> None:
-    sync_mock = _make_sync_client(_text_response())
+    sync_mock = make_mock_sync_client(_text_response())
     client = _make_client(sync_client=sync_mock)
 
     request = ChatCompletionRequest(model=MODEL, messages=[{"role": "user", "content": "Hi"}])
@@ -557,7 +536,7 @@ def test_auth_headers_use_x_api_key() -> None:
 
 
 def test_no_api_key_header_when_key_is_none() -> None:
-    sync_mock = _make_sync_client(_text_response())
+    sync_mock = make_mock_sync_client(_text_response())
     client = _make_client(sync_client=sync_mock, api_key=None)
 
     request = ChatCompletionRequest(model=MODEL, messages=[{"role": "user", "content": "Hi"}])
@@ -569,7 +548,7 @@ def test_no_api_key_header_when_key_is_none() -> None:
 
 
 def test_extra_headers_merged() -> None:
-    sync_mock = _make_sync_client(_text_response())
+    sync_mock = make_mock_sync_client(_text_response())
     client = _make_client(sync_client=sync_mock)
 
     request = ChatCompletionRequest(
@@ -600,7 +579,7 @@ def test_extra_headers_merged() -> None:
 )
 def test_http_error_maps_to_provider_error(status_code: int, expected_kind: ProviderErrorKind) -> None:
     client = _make_client(
-        sync_client=_make_sync_client({"error": {"type": "error", "message": "fail"}}, status_code=status_code)
+        sync_client=make_mock_sync_client({"error": {"type": "error", "message": "fail"}}, status_code=status_code)
     )
 
     request = ChatCompletionRequest(model=MODEL, messages=[{"role": "user", "content": "Hi"}])
@@ -620,6 +599,34 @@ def test_transport_timeout_raises_provider_error() -> None:
         client.completion(request)
 
     assert exc_info.value.kind == ProviderErrorKind.TIMEOUT
+
+
+def test_transport_connection_error_raises_provider_error() -> None:
+    sync_mock = MagicMock()
+    sync_mock.post = MagicMock(side_effect=ConnectionError("refused"))
+    client = _make_client(sync_client=sync_mock)
+
+    request = ChatCompletionRequest(model=MODEL, messages=[{"role": "user", "content": "Hi"}])
+    with pytest.raises(ProviderError) as exc_info:
+        client.completion(request)
+
+    assert exc_info.value.kind == ProviderErrorKind.API_CONNECTION
+
+
+def test_non_json_response_raises_provider_error() -> None:
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.json.side_effect = ValueError("not json")
+    sync_mock = MagicMock()
+    sync_mock.post = MagicMock(return_value=resp)
+    client = _make_client(sync_client=sync_mock)
+
+    request = ChatCompletionRequest(model=MODEL, messages=[{"role": "user", "content": "Hi"}])
+    with pytest.raises(ProviderError) as exc_info:
+        client.completion(request)
+
+    assert exc_info.value.kind == ProviderErrorKind.API_ERROR
+    assert "non-JSON" in exc_info.value.message
 
 
 def test_completion_wraps_invalid_tool_schema_as_bad_request() -> None:

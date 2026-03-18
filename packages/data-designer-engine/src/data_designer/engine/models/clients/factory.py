@@ -48,7 +48,6 @@ def create_model_client(
     if provider.provider_type == "openai":
         return OpenAICompatibleClient(
             provider_name=provider.name,
-            model_id=model_config.model,
             endpoint=provider.endpoint,
             api_key=api_key,
             retry_config=retry_config,
@@ -59,7 +58,6 @@ def create_model_client(
     if provider.provider_type == "anthropic":
         return AnthropicClient(
             provider_name=provider.name,
-            model_id=model_config.model,
             endpoint=provider.endpoint,
             api_key=api_key,
             retry_config=retry_config,

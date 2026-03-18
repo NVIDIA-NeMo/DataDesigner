@@ -23,13 +23,17 @@ from data_designer.engine.secret_resolver import SecretResolver
 
 @pytest.fixture
 def openai_registry() -> ModelProviderRegistry:
-    provider = ModelProvider(name="openai-prod", endpoint="https://api.openai.com/v1", provider_type="openai")
+    provider = ModelProvider(
+        name="openai-prod", endpoint="https://api.openai.com/v1", provider_type="openai", api_key="env:OPENAI_KEY"
+    )
     return ModelProviderRegistry(providers=[provider])
 
 
 @pytest.fixture
 def anthropic_registry() -> ModelProviderRegistry:
-    provider = ModelProvider(name="anthropic-prod", endpoint="https://api.anthropic.com", provider_type="anthropic")
+    provider = ModelProvider(
+        name="anthropic-prod", endpoint="https://api.anthropic.com/v1", provider_type="anthropic", api_key="env:ANT_KEY"
+    )
     return ModelProviderRegistry(providers=[provider])
 
 
@@ -75,6 +79,7 @@ def test_openai_provider_creates_native_client(
         retry_config=RetryConfig(),
     )
     assert isinstance(client, OpenAICompatibleClient)
+    secret_resolver.resolve.assert_called_once_with("env:OPENAI_KEY")
 
 
 def test_anthropic_provider_creates_native_client(
@@ -89,6 +94,7 @@ def test_anthropic_provider_creates_native_client(
         retry_config=RetryConfig(),
     )
     assert isinstance(client, AnthropicClient)
+    secret_resolver.resolve.assert_called_once_with("env:ANT_KEY")
 
 
 def test_anthropic_provider_type_case_insensitive(
@@ -96,7 +102,9 @@ def test_anthropic_provider_type_case_insensitive(
     secret_resolver: SecretResolver,
 ) -> None:
     for variant in ("Anthropic", "ANTHROPIC", "anthropic"):
-        provider = ModelProvider(name="anthropic-prod", endpoint="https://api.anthropic.com", provider_type=variant)
+        provider = ModelProvider(
+            name="anthropic-prod", endpoint="https://api.anthropic.com/v1", provider_type=variant, api_key="env:ANT_KEY"
+        )
         registry = ModelProviderRegistry(providers=[provider])
         client = create_model_client(anthropic_model_config, secret_resolver, registry, retry_config=RetryConfig())
         assert isinstance(client, AnthropicClient), f"Failed for provider_type={variant!r}"
@@ -140,12 +148,29 @@ def test_bridge_env_override_forces_bridge_for_openai_provider(
     assert isinstance(client, LiteLLMBridgeClient)
 
 
+@patch("data_designer.engine.models.clients.factory.CustomRouter")
+@patch("data_designer.engine.models.clients.factory.LiteLLMRouterDefaultKwargs")
+def test_bridge_env_override_forces_bridge_for_anthropic_provider(
+    mock_kwargs: MagicMock,
+    mock_router: MagicMock,
+    anthropic_model_config: ModelConfig,
+    secret_resolver: SecretResolver,
+    anthropic_registry: ModelProviderRegistry,
+) -> None:
+    mock_kwargs.return_value.model_dump.return_value = {}
+    with patch.dict("os.environ", {"DATA_DESIGNER_MODEL_BACKEND": "litellm_bridge"}):
+        client = create_model_client(anthropic_model_config, secret_resolver, anthropic_registry)
+    assert isinstance(client, LiteLLMBridgeClient)
+
+
 def test_openai_provider_type_case_insensitive(
     openai_model_config: ModelConfig,
     secret_resolver: SecretResolver,
 ) -> None:
     for variant in ("OpenAI", "OPENAI", "Openai"):
-        provider = ModelProvider(name="openai-prod", endpoint="https://api.openai.com/v1", provider_type=variant)
+        provider = ModelProvider(
+            name="openai-prod", endpoint="https://api.openai.com/v1", provider_type=variant, api_key="env:OPENAI_KEY"
+        )
         registry = ModelProviderRegistry(providers=[provider])
         client = create_model_client(openai_model_config, secret_resolver, registry)
         assert isinstance(client, OpenAICompatibleClient), f"Failed for provider_type={variant!r}"

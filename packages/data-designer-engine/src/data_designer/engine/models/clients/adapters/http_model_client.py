@@ -31,7 +31,6 @@ class HttpModelClient(ABC):
         self,
         *,
         provider_name: str,
-        model_id: str,
         endpoint: str,
         api_key: str | None = None,
         retry_config: RetryConfig | None = None,
@@ -41,7 +40,6 @@ class HttpModelClient(ABC):
         async_client: httpx.AsyncClient | None = None,
     ) -> None:
         self.provider_name = provider_name
-        self._model_id = model_id
         self._endpoint = endpoint.rstrip("/")
         self._api_key = api_key
         self._timeout_s = timeout_s
@@ -76,6 +74,8 @@ class HttpModelClient(ABC):
             return self._client
 
     def _get_async_client(self) -> httpx.AsyncClient:
+        # TODO(plan-346): Replace threading.Lock with asyncio.Lock for async
+        # paths once AsyncTaskScheduler lands concurrent async callers.
         with self._init_lock:
             if self._closed:
                 raise RuntimeError("Model client is closed.")
@@ -91,14 +91,15 @@ class HttpModelClient(ABC):
         with self._init_lock:
             client = self._client
             aclient = self._aclient
+            transport = self._transport if (client is not None or aclient is not None) else None
             self._closed = True
             self._client = None
             self._aclient = None
-        if aclient is not None:
-            # Best-effort sync teardown; callers that own an async client
-            # should prefer aclose() for a clean shutdown.
-            aclient._transport.close()
+        if transport is not None:
+            transport.close()
         if client is not None:
+            # Transport is already closed above; closing the client handle
+            # releases the connection pool without re-closing the transport.
             client.close()
 
     async def aclose(self) -> None:

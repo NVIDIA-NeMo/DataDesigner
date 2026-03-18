@@ -311,7 +311,7 @@ def translate_tool_result_content(content: Any) -> str | list[dict[str, Any]]:
 
     translated_blocks = translate_content_blocks(content)
     if all(isinstance(block, dict) and block.get("type") == "text" for block in translated_blocks):
-        return "\n".join(block.get("text", "") for block in translated_blocks)
+        return "\n".join(block.get("text", "") for block in translated_blocks if block.get("text"))
     return translated_blocks
 
 

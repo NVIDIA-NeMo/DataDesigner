@@ -12,13 +12,14 @@ import pytest
 from data_designer.engine.models.clients.adapters.anthropic import AnthropicClient
 from data_designer.engine.models.clients.adapters.openai_compatible import OpenAICompatibleClient
 from data_designer.engine.models.clients.types import ChatCompletionRequest
+from tests.engine.models.clients.conftest import mock_httpx_response
 
 _OPENAI_PROVIDER = "test-provider"
 _OPENAI_MODEL = "gpt-test"
 _OPENAI_ENDPOINT = "https://api.example.com/v1"
 _ANTHROPIC_PROVIDER = "anthropic-prod"
 _ANTHROPIC_MODEL = "claude-test"
-_ANTHROPIC_ENDPOINT = "https://api.anthropic.com"
+_ANTHROPIC_ENDPOINT = "https://api.anthropic.com/v1"
 _SYNC_CLIENT_PATCH = "data_designer.engine.models.clients.adapters.http_model_client.lazy.httpx.Client"
 _ASYNC_CLIENT_PATCH = "data_designer.engine.models.clients.adapters.http_model_client.lazy.httpx.AsyncClient"
 
@@ -30,7 +31,6 @@ def _make_openai_client(
 ) -> OpenAICompatibleClient:
     return OpenAICompatibleClient(
         provider_name=_OPENAI_PROVIDER,
-        model_id=_OPENAI_MODEL,
         endpoint=_OPENAI_ENDPOINT,
         api_key="sk-test-key",
         sync_client=sync_client,
@@ -45,21 +45,11 @@ def _make_anthropic_client(
 ) -> AnthropicClient:
     return AnthropicClient(
         provider_name=_ANTHROPIC_PROVIDER,
-        model_id=_ANTHROPIC_MODEL,
         endpoint=_ANTHROPIC_ENDPOINT,
         api_key="sk-ant-test",
         sync_client=sync_client,
         async_client=async_client,
     )
-
-
-def _mock_httpx_response(json_data: dict[str, Any], status_code: int = 200) -> MagicMock:
-    response = MagicMock()
-    response.status_code = status_code
-    response.json.return_value = json_data
-    response.text = ""
-    response.headers = {}
-    return response
 
 
 def _make_openai_chat_response(text: str = "lazy result") -> dict[str, Any]:
@@ -119,14 +109,14 @@ async def test_aclose_closes_both_clients(client_factory: Callable[..., Any], mo
 def test_close_releases_async_client(client_factory: Callable[..., Any], model_name: str) -> None:
     sync_mock = MagicMock()
     async_mock = MagicMock()
-    async_transport = MagicMock()
-    async_mock._transport = async_transport
     client = client_factory(sync_client=sync_mock, async_client=async_mock)
+    transport_mock = MagicMock()
+    client._transport = transport_mock
 
     client.close()
 
     sync_mock.close.assert_called_once()
-    async_transport.close.assert_called_once()
+    transport_mock.close.assert_called_once()
 
     with pytest.raises(RuntimeError, match="Model client is closed\\."):
         client.completion(_make_chat_request(model_name))
@@ -199,7 +189,7 @@ def test_completion_lazy_initializes_sync_client(
     response_json: dict[str, Any],
 ) -> None:
     sync_mock = MagicMock()
-    sync_mock.post = MagicMock(return_value=_mock_httpx_response(response_json))
+    sync_mock.post = MagicMock(return_value=mock_httpx_response(response_json))
 
     with patch(_SYNC_CLIENT_PATCH, return_value=sync_mock) as mock_ctor:
         client = client_factory()
@@ -217,7 +207,7 @@ async def test_acompletion_lazy_initializes_async_client(
     response_json: dict[str, Any],
 ) -> None:
     async_mock = MagicMock()
-    async_mock.post = AsyncMock(return_value=_mock_httpx_response(response_json))
+    async_mock.post = AsyncMock(return_value=mock_httpx_response(response_json))
 
     with patch(_ASYNC_CLIENT_PATCH, return_value=async_mock) as mock_ctor:
         client = client_factory()
