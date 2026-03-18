@@ -266,9 +266,12 @@ class AsyncTaskScheduler:
                         self._on_before_checkpoint(rg_id, rg_size)
                     except Exception:
                         logger.error(
-                            f"on_before_checkpoint failed for row group {rg_id}, checkpointing un-processed data.",
+                            f"on_before_checkpoint failed for row group {rg_id}, dropping row group.",
                             exc_info=True,
                         )
+                        for ri in range(rg_size):
+                            if self._buffer_manager:
+                                self._buffer_manager.drop_row(rg_id, ri)
                 if self._buffer_manager is not None:
                     self._buffer_manager.checkpoint_row_group(rg_id)
                 if self._on_row_group_complete:
