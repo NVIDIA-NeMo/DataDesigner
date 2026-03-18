@@ -23,7 +23,7 @@ This is an interactive, iterative design process. Do not disengage from the loop
 6. **Preview** — Run `data-designer preview <path> --save-results` to generate sample records as HTML files.
   - Note the sample records directory printed by the `data-designer preview` command
   - Run `python -m http.server 8741 --directory <sample-records-dir>` (in background). If port 8741 is taken, retry with port 0 and note the port it prints
-  - **Verify the server started** by reading the background task output. Confirm the port from the server's own output — do not guess or scan for other Python processes
+  - **Verify the server started** by reading the background task output until you see `Serving HTTP on ...`. Get the port from that output line. Do not use curl, lsof, or any other probing method
   - Tell the user to open `http://localhost:<port>/sample_records_browser.html` to review them
   - When the user is done reviewing, stop the background server
 7. **Iterate** — Ask the user for feedback. Edit the script, re-validate, re-preview, and serve again. Repeat until they are satisfied.
