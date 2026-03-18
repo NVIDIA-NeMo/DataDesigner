@@ -1,7 +1,7 @@
 ---
 name: data-designer
 description: Use when the user wants to create a dataset, generate synthetic data, or build a data generation pipeline. Contains the essential workflow and discovery commands for the Data Designer library. Always invoke before exploring the workspace or writing code.
-argument-hint: "[describe the dataset you want to generate]"
+argument-hint: [describe the dataset you want to generate]
 ---
 
 # Before You Start
