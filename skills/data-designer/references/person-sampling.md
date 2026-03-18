@@ -11,11 +11,13 @@ Prefer `"person"` when the locale is downloaded — it provides census-grounded 
 
 ## Available persona datasets
 
-Before using, always check for installed persona datasets with this command:
+Before using `"person"`, check which locales are installed:
 
 ```bash
 data-designer agent state persona-datasets
 ```
+
+If the needed locale is not listed, use `"person_from_faker"` instead.
 
 ## Usage
 
