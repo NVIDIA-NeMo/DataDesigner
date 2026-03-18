@@ -438,6 +438,8 @@ class WithJinja2UserTemplateRendering:
         """Build Jinja2 template render function.
 
         Args:
+            prompt_template: A user-provided Jinja2 template string.
+            dataset_variables: Column names allowed as template references.
             record_str_fn: When set, the environment uses Jinja2's finalize hook
                 to apply this callable to every interpolated value at render time,
                 and enables dict-key-priority attribute lookup for nested dot access
