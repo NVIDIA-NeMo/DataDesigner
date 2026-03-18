@@ -10,6 +10,13 @@ authors:
 
 DataDesigner was built entirely by humans, and the codebase reflects that with strong architecture, comprehensive tests, and thoughtful design. We are now increasingly moving toward an agent-assisted planning and development workflow. The project already has meaningful agent-oriented infrastructure: seven skills, an agent introspection CLI, and supporting tooling. But a new contributor reading `README.md`, `CONTRIBUTING.md`, or `AGENTS.md` would not immediately discover that these workflows exist. The repository supports agent-assisted work, yet the top-level documentation still presents the project mostly as a conventional human-only codebase.
 
+This plan distinguishes two surfaces for agent tooling:
+
+- **Usage tooling** — skills and workflows that help end users build synthetic datasets with DataDesigner (e.g., the forthcoming official "build a dataset" skill, which runs outside the repo).
+- **Development tooling** — skills and workflows that help contributors plan, implement, test, and review changes to DataDesigner itself (e.g., `search-docs`, `review-code`, `create-pr`).
+
+The implementation work in this plan focuses on the **development** surface, but the plan must also ensure agents can clearly distinguish between the two. An agent working inside the repo should understand it is contributing to DataDesigner, not using it to build datasets. An agent helping a user build a dataset should not be confused by development-oriented skills and guidance.
+
 ## Inspiration
 
 This proposal draws strong inspiration from [NVIDIA/OpenShell](https://github.com/NVIDIA/OpenShell), which makes agent workflows and contributor guidance highly visible from the repository root. The goal is to bring those ideas into DataDesigner in a way that makes the project more agent-friendly while fitting its role as a public open-source Python library for synthetic data generation. Because DataDesigner serves a different audience, the resulting workflow should remain lighter-weight and more flexible than OpenShell's.
@@ -21,7 +28,7 @@ This proposal draws strong inspiration from [NVIDIA/OpenShell](https://github.co
 | ----------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | README.md         | Product-focused, usage-first                                                  | Zero mention of agent-first development                                                                 |
 | CONTRIBUTING.md   | Standard OSS contributing guide                                               | Zero mention of skills or agent workflows                                                               |
-| AGENTS.md         | ~500 lines, mixes architecture, code style, and engineering workflow guidance | No skills inventory, no workflow chains                                                                 |
+| AGENTS.md         | ~500 lines, mixes architecture, code style, and engineering workflow guidance | Bloated; mixes reference material with architectural invariants                                         |
 | CLAUDE.md         | 1 line: `@AGENTS.md`                                                          | Minimal                                                                                                 |
 | Issue templates   | 4 templates (bug, feature, dev task, config)                                  | No agent investigation fields                                                                           |
 | PR template       | Doesn't exist                                                                 | --                                                                                                      |
@@ -38,14 +45,55 @@ This proposal draws strong inspiration from [NVIDIA/OpenShell](https://github.co
 1. **Agents accelerate work; humans stay accountable.** Agents can speed up planning, implementation, and review, but people still make design decisions and own quality.
 2. **Design intent should remain explicit.** The project should communicate that systems are deliberately engineered, with agents supporting the work rather than replacing architectural judgment.
 3. **Encourage agent investigation without blocking real users.** Issue templates should normalize agent-assisted investigation, but contributors who cannot or did not use an agent still need a clear path to report bugs and propose features.
-4. **Skills are part of the contributor surface area.** The future `.agents/skills/` directory should be treated as a maintained interface between the project and contributor agents.
-5. **Top-level docs should advertise the workflow.** `README.md`, `CONTRIBUTING.md`, and `AGENTS.md` should make agent-assisted paths obvious to new contributors.
+4. **Development and usage are separate surfaces.** An agent working inside the repo is a contributor; an agent helping a user build a dataset is a consumer. The repo's agent infrastructure (skills, `AGENTS.md`, `CONTRIBUTING.md`) serves the development surface. Usage tooling lives outside the repo. Both docs and skill metadata should make the boundary unambiguous so agents don't confuse the two contexts.
+5. **README is for users; CONTRIBUTING.md is for contributors.** Agent-assisted development messaging belongs in `CONTRIBUTING.md` and `AGENTS.md`, not prominently in `README.md`.
+
+---
+
+## Phase 0: AGENTS.md
+
+AGENTS.md is injected into every agent prompt. It must land first because every subsequent phase references the architectural invariants it establishes. It should also be the most stable file in the repo — if it changes often, something is wrong.
+
+**Current state:** ~500 lines. Mixes project overview, architecture, code style, development workflow, and testing guidance into one file.
+
+**Target state:** ~50 lines. Only high-level design decisions that are consequential for development. Content that changes when features ship (key files, registries, column types) or that duplicates tooling enforcement (code style, linter rules) does not belong here.
+
+**Target sections:**
+
+| Section                  | Content                                                                                                                                                                     |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity                 | 3-4 sentences: what DataDesigner is, the "declare, don't orchestrate" contract, and the implication for every change. Must state that this file is for agents *developing* DataDesigner. If you are an agent helping a user *build a dataset*, see the product documentation and tutorials instead — not this file. |
+| The Layering Is Structural | Three packages (config → engine → interface), what each owns, and the PEP 420 namespace package detail                                                                   |
+| Core Concepts            | One-liner definitions: columns, samplers, seed datasets, processors, models, plugins                                                                                        |
+| Core Design Principles   | Declarative config vs. imperative engine, registries connect types to behavior, errors normalize at boundaries                                                               |
+| Structural Invariants    | Import direction, fast imports, no relative imports, typed code, follow established patterns, no untested code paths                                                         |
+| Development              | Four `make` targets only: `check-all-fix`, `test`, `update-license-headers`, `perf-import`                                                                                  |
+
+**What moves out:**
+
+- Code style, type annotations, import patterns, lazy loading, `TYPE_CHECKING`, naming conventions, common pitfalls → `STYLEGUIDE.md`
+- Development workflow, testing commands, pre-commit, setup → `DEVELOPMENT.md`
+- Key files list, column/model configuration details, registry system → removed (agents discover these via code search; they change too often to maintain in a static doc)
+
+**What is NOT added:**
+
+- Skills inventory — agent harnesses have built-in skill discovery and loading; duplicating the inventory in AGENTS.md creates a maintenance burden with no benefit
+- Suggested workflows / skill sequences — these belong in skill files themselves or in `CONTRIBUTING.md`
+- Issue and PR conventions — these belong in the templates and in `CONTRIBUTING.md`
+
+**CLAUDE.md remains:**
+
+```
+@AGENTS.md
+```
+
+This preserves Claude Code's native include mechanism and the ability to compose multiple files in the future (e.g., `@AGENTS.md` + `@STYLEGUIDE.md`).
 
 ---
 
 ## Phase 1: Skill & Agent Infrastructure
 
-This phase lands first so the repository has a stable, tool-agnostic home for shared agent assets before the documentation starts pointing contributors at it.
+This phase lands after AGENTS.md so the repository has a stable, tool-agnostic home for shared agent assets before the remaining documentation starts pointing contributors at it.
 
 ### 1a. Consolidate `.agents/` and `.claude/`
 
@@ -93,6 +141,7 @@ This phase lands first so the repository has a stable, tool-agnostic home for sh
 - Verify all skill files reference `.agents/skills/` not `.claude/skills/`
 - Verify sub-agent references point to `.agents/agents/`
 - Ensure all cross-skill references use consistent naming
+- Each skill's description or frontmatter should identify it as a **development** skill (e.g., "for contributors developing DataDesigner") so that agent harnesses with skill discovery can distinguish repo skills from usage skills
 
 ---
 
@@ -102,83 +151,48 @@ This phase updates the contributor-facing docs after the agent-infrastructure pa
 
 ### 2a. README.md
 
-**Current state:** Product-focused. Zero signal of agent-first development.
+**Current state:** Product-focused, usage-first. Designed for humans. Zero signal of agent-assisted development.
 
-**Target state:** Retains the product pitch while making it obvious that DataDesigner supports agent-assisted development. A new developer should quickly understand that the repo contains workflows and guidance their agent can use.
+**Target state:** Remains a product-focused document for users. Agent-assisted development gets a brief mention — a sentence or two near the development installation section — not a prominent hero section. The README is often the only documentation a DataDesigner *user* reads; it should not be dominated by contributor workflow details. The README should also help agents distinguish the two surfaces: users who want to *build datasets* should be directed toward usage documentation and the official usage skill (once available), not toward the in-repo development skills.
 
+| Section                | Action                                                                                                                                                |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Quickstart / usage     | Keep product-focused. When usage tooling (e.g., the official "build a dataset" skill) ships, link to it here so user-facing agents find it naturally. |
+| Development install    | Add 1-2 sentences noting that the repo supports agent-assisted development and linking to `CONTRIBUTING.md` for the contributor workflow.              |
+| Contributing           | Brief mention linking to `CONTRIBUTING.md`. No dedicated agent workflow sections in README itself.                                                     |
 
-| Section                           | Action                                                                                                                                                                          |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Hero / intro paragraph            | Add a line signaling agent-first development alongside the product pitch                                                                                                        |
-| New: "Get Oriented with an Agent" | After quickstart. Show contributors how to clone the repo, point an agent at it, and use the repo guidance to answer questions quickly                                          |
-| New: "How Agent Workflows Fit In" | After the product sections. Explain how agent-assisted workflows support development here, and link to `AGENTS.md` for the authoritative skills inventory and workflow guidance |
-| Contributing                      | Expand from current brief mention to set expectations: agent-first contributions, link to CONTRIBUTING.md                                                                       |
-
-
-**Key language to establish:**
-
-- "DataDesigner supports agent-assisted planning, implementation, and review."
-- "Before opening an issue, consider asking your coding agent to inspect the repository first."
+**Key language:** Keep it minimal. Something like: "This repository supports agent-assisted development — see [CONTRIBUTING.md](CONTRIBUTING.md) for the recommended workflow."
 
 ### 2b. CONTRIBUTING.md
 
 **Current state:** Standard OSS contributing guide. Welcoming tone, good fork→develop→PR workflow, but zero agent awareness.
 
-**Target state:** Agent-assisted contribution workflow is the recommended path. Human-only paths are fully supported but agent workflows are encouraged and well-documented.
+**Target state:** A complete overhaul that reflects how contributions actually happen now. The traditional fork→develop→PR workflow is being replaced by agent-assisted planning and development. CONTRIBUTING.md should guide contributors toward submitting plans via issues, using agents for investigation and implementation, and treating PRs as the output of an agent-assisted workflow rather than a purely manual one.
+
+| Section                          | Action                                                                                                                                                                                                                                                                                       |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Opening philosophy               | 2-3 sentences: this project uses agent-assisted development. Contributors are expected to use agents for investigation, planning, and implementation. The repo includes skills and guidance that make agents effective.                                                                        |
+| "How to Contribute"              | Primary path: (1) Open an issue using the appropriate template, (2) Include agent investigation output, (3) For non-trivial changes, submit a plan in the issue for review before building, (4) Once approved, use agent-assisted development to implement. Link to `DEVELOPMENT.md` for setup. |
+| "Before You Open an Issue"       | Checklist: clone the repo, point your agent at it, have it search docs/issues. If the agent can't resolve it, include the diagnostics. If you didn't use an agent, include the troubleshooting you tried.                                                                                    |
+| "When to Open an Issue"          | Real bugs (reproduced or agent-confirmed), feature proposals with design context, problems that `search-docs`/`search-github` couldn't resolve.                                                                                                                                              |
+| "When NOT to Open an Issue"      | Questions about how things work (agent can answer), configuration problems (agent can diagnose), "how do I..." requests.                                                                                                                                                                     |
+| Pull Requests                    | Reference the PR template and the `create-pr` skill. PRs should link to the issue they address.                                                                                                                                                                                              |
+| Commit Messages / DCO            | Keep as-is.                                                                                                                                                                                                                                                                                  |
 
 
-| Section                          | Action                                                                                                                                                                                                                                                                                          |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| New: Opening philosophy          | 2-3 sentences explaining that this project supports agent-assisted development and includes repo guidance and skills that make agents more effective contributors.                                                                                                                              |
-| New: "Before You Open an Issue"  | Recommended path. Checklist: (1) Clone the repo, (2) Point your agent at it, (3) Load relevant skills, (4) Have your agent diagnose/investigate. If the agent can't solve it, include the diagnostics. If you couldn't use an agent, say why and include the troubleshooting you already tried. |
-| New: "Contributor Skill Map"     | Short category summary plus a link to `AGENTS.md`, which remains the authoritative skill inventory                                                                                                                                                                                              |
-| New: "Common Agent Workflows"    | Document typical paths such as investigation → development, and future spike → build                                                                                                                                                                                                            |
-| Getting Started                  | Keep as-is (fork, clone, install)                                                                                                                                                                                                                                                               |
-| Development Guide                | Keep the contributor-facing summary, but link to `DEVELOPMENT.md` for detailed setup, testing, and day-to-day engineering workflow                                                                                                                                                              |
-| Pull Requests                    | Update to reference the new PR template and the `create-pr` skill                                                                                                                                                                                                                               |
-| New: "When to Open an Issue"     | Clear guidance: real bugs your agent confirmed or you reproduced yourself with enough detail, feature proposals with design context, problems the `search-docs`/`search-github` skills couldn't resolve                                                                                         |
-| New: "When NOT to Open an Issue" | Questions about how things work (agent can answer), configuration problems (agent can diagnose), "how do I..." requests (agent has skills for this)                                                                                                                                             |
-| Commit Messages / DCO            | Keep as-is                                                                                                                                                                                                                                                                                      |
+CONTRIBUTING.md should open by clarifying the boundary: "The skills and workflows in this repository are for *developing* DataDesigner. If you're looking to *use* DataDesigner to build datasets, see the product documentation and the official usage skill (once available)."
+
+**Repo skill categories (development only):**
 
 
-**Skill categories to summarize (keep `AGENTS.md` as the authoritative inventory):**
+| Category      | Skills                             | Purpose                                |
+| ------------- | ---------------------------------- | -------------------------------------- |
+| Investigation | `search-docs`, `search-github`     | Find information, check for duplicates |
+| Development   | `commit`, `create-pr`, `update-pr` | Standard development cycle             |
+| Review        | `review-code`                      | Multi-pass code review                 |
 
 
-| Category        | Skills                             | Purpose                                        |
-| --------------- | ---------------------------------- | ---------------------------------------------- |
-| Getting Started | `search-docs`, `search-github`     | Find information, check for duplicates         |
-| Data Generation | `new-sdg`                          | Design synthetic data generators interactively |
-| Development     | `commit`, `create-pr`, `update-pr` | Standard development cycle                     |
-| Review          | `review-code`                      | Multi-pass code review                         |
-
-
-### 2c. AGENTS.md
-
-**Current state:** ~500 lines. Mixes project overview, architecture, code style, development workflow, and testing guidance into one file. No skills inventory, no workflow chains, no project identity statement.
-
-**Target state:** The main onboarding document for agents working on this codebase. It should provide enough architectural and workflow context to make an agent effective, while moving code-authoring reference material to `STYLEGUIDE.md` and detailed development/testing workflow guidance to `DEVELOPMENT.md`.
-
-
-| Section                                               | Action                                                                                                                                                                                             |
-| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Opening                                               | Keep the CONTRIBUTING.md reference. Add: "This file is the main onboarding surface for agents contributing to DataDesigner."                                                                       |
-| New: "Project Identity"                               | 3-4 sentences: DataDesigner is a synthetic-data project built by humans that now supports agent-assisted planning and development, while keeping human ownership over design decisions             |
-| New: "Skills"                                         | Authoritative skill inventory. Note where skills live after consolidation, how harnesses discover them, and keep the full inventory here rather than duplicating it across README and CONTRIBUTING |
-| New: "Suggested Workflows"                            | Document the common skill sequences and when to use them                                                                                                                                           |
-| Architecture                                          | Keep existing 3-layer overview, key files, registries. Add brief component map.                                                                                                                    |
-| New: "Issue and PR Conventions"                       | Reference the templates. When creating issues, use the template format. When creating PRs, use the PR template. Skills should produce output conforming to these templates.                        |
-| Development Workflow                                  | Move detailed setup and day-to-day engineering commands to `DEVELOPMENT.md`; keep only a short summary and link                                                                                    |
-| Working Guidelines                                    | Split the section: code-authoring guidance (license headers, `__future__` imports, comments) moves to `STYLEGUIDE.md`, while operational safety guidance stays in `AGENTS.md`                      |
-| Testing                                               | Move detailed test commands and "when to run what" guidance to `DEVELOPMENT.md`; keep only short expectations and link                                                                             |
-| New: "Security"                                       | Don't commit secrets, don't run destructive operations without confirmation, scope changes to the issue at hand                                                                                    |
-| Pre-commit                                            | Move command details to `DEVELOPMENT.md`; keep only a brief mention in `AGENTS.md` if needed                                                                                                       |
-| Column/Model Configuration                            | Keep as-is (brief summaries)                                                                                                                                                                       |
-| Registry System                                       | Keep as-is                                                                                                                                                                                         |
-| **REMOVE** Code Style sections                        | Move to STYLEGUIDE.md (see 2d)                                                                                                                                                                     |
-| **MOVE** detailed workflow/testing reference sections | Move to `DEVELOPMENT.md` (see 2e)                                                                                                                                                                  |
-
-
-### 2d. STYLEGUIDE.md (new file)
+### 2c. STYLEGUIDE.md (new file)
 
 Extract from AGENTS.md. Contains all code style reference material:
 
@@ -192,17 +206,9 @@ Extract from AGENTS.md. Contains all code style reference material:
 - Code-authoring guidance from Working Guidelines: license headers, `from __future__ import annotations`, and comment expectations
 - Active linter rules (ruff rule reference)
 
-**CLAUDE.md remains:**
-
-```
-@AGENTS.md
-```
-
-`AGENTS.md` should link to `STYLEGUIDE.md` and `DEVELOPMENT.md` when deeper reference material is needed.
-
 **Why:** AGENTS.md is loaded into every agent conversation. Code style is reference material — needed when writing code, not when triaging issues or creating spikes. Splitting reduces context cost only if `STYLEGUIDE.md` is not loaded unconditionally.
 
-### 2e. DEVELOPMENT.md (new file)
+### 2d. DEVELOPMENT.md (new file)
 
 Collect from `AGENTS.md` and `CONTRIBUTING.md`. Contains development and testing reference material:
 
@@ -216,7 +222,7 @@ Collect from `AGENTS.md` and `CONTRIBUTING.md`. Contains development and testing
 
 **Why:** Development workflow and testing guidance are operational reference material, not project identity or code style. Moving them out keeps `AGENTS.md` focused on onboarding and architecture, keeps `STYLEGUIDE.md` focused on how code should look, and keeps `CONTRIBUTING.md` concise.
 
-### 2f. Create `architecture/` Directory (Skeleton)
+### 2e. Create `architecture/` Directory (Skeleton)
 
 Create stub files for each major subsystem. Each stub lists section headings but doesn't contain full content yet. Docs are populated incrementally as features are built.
 
@@ -292,7 +298,7 @@ Update existing `.github/ISSUE_TEMPLATE/` templates:
 
 **config.yml** updates:
 
-- Keep the Discussions link, but update the copy to: "Have a question? Try pointing your agent at the repo first. It has skills for searching docs, finding issues, and more. See CONTRIBUTING.md for the workflow and AGENTS.md for the full skill inventory."
+- Keep the Discussions link, but update the copy to: "Have a question? Try pointing your agent at the repo first — it can search docs, find issues, and more. See CONTRIBUTING.md for the recommended workflow."
 
 ### 3b. PR Template
 
@@ -324,16 +330,10 @@ Intentionally lean. The `create-pr` and `review-code` skills already produce wel
 
 ### 3c. CODEOWNERS
 
-Update `.github/CODEOWNERS` to explicitly call out agent-infrastructure ownership paths:
+Keep the existing single-group ownership for now. All paths — including agent infrastructure — are owned by `@NVIDIA-NeMo/data_designer_reviewers`. Introduce a distinct agent infra owner group only if the need becomes clear later.
 
 ```
-# Broad ownership — core team reviews everything
 * @NVIDIA-NeMo/data_designer_reviewers
-
-# Agent infrastructure — explicit path callouts for visibility
-.agents/ @NVIDIA-NeMo/data_designer_reviewers
-AGENTS.md @NVIDIA-NeMo/data_designer_reviewers
-STYLEGUIDE.md @NVIDIA-NeMo/data_designer_reviewers
 ```
 
 ### 3d. Label Taxonomy
@@ -359,7 +359,7 @@ Skills that create GitHub artifacts should produce output matching the new templ
 - Produce PR descriptions matching the PR template structure (Summary / Related Issue / Changes / Testing / Checklist)
 - Include the testing checklist populated based on what was actually run
 
-`**review-code`:**
+**`review-code`:**
 
 - When reviewing PRs created from templates, check that the template sections are properly filled
 
@@ -404,8 +404,9 @@ Create `.github/workflows/issue-triage.yml`:
 
 Land this work as a sequence of incremental PRs rather than a single large rollout:
 
+0. **Phase 0 PR** — `AGENTS.md` restructure (~50 lines). Lands first because it is injected into every agent prompt and every subsequent phase references it.
 1. **Phase 1 PR(s)** — agent infrastructure consolidation and path cleanup.
-2. **Phase 2 PR(s)** — documentation restructuring (`AGENTS.md`, `STYLEGUIDE.md`, `DEVELOPMENT.md`, `CONTRIBUTING.md`, `README.md`, and optional `architecture/` skeleton).
+2. **Phase 2 PR(s)** — remaining documentation (`STYLEGUIDE.md`, `DEVELOPMENT.md`, `CONTRIBUTING.md`, `README.md`, and optional `architecture/` skeleton).
 3. **Phase 3 PR(s)** — GitHub machinery such as templates, labels, and skill output conformance.
 4. **Phase 4** — do not start implementation directly from this plan. Treat it as follow-on work that requires another planning pass, design review, and then its own incremental PRs.
 
@@ -416,39 +417,44 @@ The default PR boundary should be the phase boundary. If a phase is still too la
 ## Execution Order
 
 
-| Step | Deliverable                                                | Dependencies                           | Parallelizable      |
-| ---- | ---------------------------------------------------------- | -------------------------------------- | ------------------- |
-| 1    | Skill consolidation (`.agents/`, `.claude/` cleanup)       | None                                   | --                  |
-| 2    | AGENTS.md restructure + STYLEGUIDE.md/DEVELOPMENT.md split | Step 1 (canonical paths settled)       | --                  |
-| 3    | CONTRIBUTING.md overhaul                                   | AGENTS.md (references it)              | --                  |
-| 4    | README.md updates                                          | CONTRIBUTING.md (references it)        | --                  |
-| 5    | Issue templates                                            | CONTRIBUTING.md (templates link to it) | Yes (with 6-9)      |
-| 6    | PR template                                                | None                                   | Yes (with 5, 7-9)   |
-| 7    | CODEOWNERS update                                          | None                                   | Yes (with 5-6, 8-9) |
-| 8    | Label creation (via `gh label create`)                     | None                                   | Yes (with 5-7, 9)   |
-| 9    | `architecture/` skeleton                                   | None                                   | Yes (with 5-8)      |
-| 10   | Skill template conformance updates                         | Issue/PR templates (steps 5-6)         | --                  |
+| Step | Deliverable                                                | Dependencies                           | Parallelizable       |
+| ---- | ---------------------------------------------------------- | -------------------------------------- | -------------------- |
+| 0    | AGENTS.md restructure (~50 lines)                          | None                                   | --                   |
+| 1    | Skill consolidation (`.agents/`, `.claude/` cleanup)       | Step 0 (AGENTS.md settled)             | --                   |
+| 2    | STYLEGUIDE.md + DEVELOPMENT.md (extracted from old AGENTS.md) | Step 0                              | --                   |
+| 3    | CONTRIBUTING.md overhaul                                   | Step 0 (references it)                 | --                   |
+| 4    | README.md updates                                          | CONTRIBUTING.md (references it)        | --                   |
+| 5    | Issue templates                                            | CONTRIBUTING.md (templates link to it) | Yes (with 6-9)       |
+| 6    | PR template                                                | None                                   | Yes (with 5, 7-9)    |
+| 7    | CODEOWNERS update                                          | None                                   | Yes (with 5-6, 8-9)  |
+| 8    | Label creation (via `gh label create`)                     | None                                   | Yes (with 5-7, 9)    |
+| 9    | `architecture/` skeleton                                   | None                                   | Yes (with 5-8)       |
+| 10   | Skill template conformance updates                         | Issue/PR templates (steps 5-6)         | --                   |
 
 
-Step 1 lands first so the docs can reference canonical paths truthfully. Steps 2-4 are sequential. Steps 5-9 are independent and can be parallelized. Step 10 depends on earlier steps.
+Step 0 lands first because AGENTS.md is injected into every prompt and establishes the architectural vocabulary. Steps 1-4 are sequential. Steps 5-9 are independent and can be parallelized. Step 10 depends on earlier steps.
 
-In practice, Steps 1-4 map cleanly to Phase 1 and Phase 2 PRs, while Steps 5-10 map to one or more Phase 3 PRs. Phase 4 should be planned separately before any implementation PRs are opened.
+In practice, Step 0 is Phase 0, Steps 1-4 map to Phase 1 and Phase 2 PRs, and Steps 5-10 map to one or more Phase 3 PRs. Phase 4 should be planned separately before any implementation PRs are opened.
 
 ---
 
 ## Out of Scope
 
-- **New skills** — the 7 existing skills are sufficient; this plan surfaces them
+- **New skills in Phases 0–3** — the 7 existing development skills are sufficient for the work in this plan; Phase 4 captures future skill additions that require a separate planning pass
 - **LLM-powered issue triage** — deliberate choice to keep triage deterministic
 - **Vouch system** — defer until external contributor volume warrants it
 - **CI/CD changes** — existing workflows are solid
 - **Full architecture docs** — create skeleton only, populate incrementally
 - **Dependabot / Renovate** — dependency management automation (separate concern)
 
+## Resolved Questions
+
+1. **Reference doc naming** — `STYLEGUIDE.md` and `DEVELOPMENT.md` (no suffix).
+2. **README tone** — Minimal. A sentence or two near the development installation section. The README is for users, not contributors.
+3. **CODEOWNERS granularity** — Keep it simple: all data designer maintainers for now. No separate agent infra group until the need is clear.
+4. **Symlink compatibility** — Prefer symlinks. They've been used in popular repos and are cleaner than mirrored directories. If a harness doesn't resolve them, fall back to mirrored directories with a drift-check task.
+
 ## Open Questions
 
-1. **Reference doc naming** — `STYLEGUIDE.md` vs `CODE_STYLE.md` vs `STYLE.md`, and `DEVELOPMENT.md` vs `DEVELOPMENT_GUIDE.md`?
-2. **README tone** — How prominent should the agent-first messaging be? A line in the hero paragraph, or a dedicated section?
-3. **CODEOWNERS granularity** — Keep the explicit path callouts only, or introduce a distinct owner group for agent infra later?
-4. `**development-task.yml` audience** — Keep it public for all contributors, or narrow it to maintainers/internal work?
-5. **Symlink compatibility** — Do Claude/Codex harnesses handle symlinked skill directories reliably enough, or should we prefer mirrored directories plus drift checks?
+1. **`development-task.yml` audience** — Keep it public for all contributors, or narrow it to maintainers/internal work?
+2. **Development vs. dataset-building agents** — How should the repo handle an agent that is both developing DataDesigner and using it to build datasets in the same session (e.g., running a tutorial notebook to verify a change)? Should there be an explicit context-switching mechanism, or is the AGENTS.md redirect plus skill metadata sufficient?
