@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -16,17 +16,14 @@ from data_designer.engine.resources.agent_rollout.claude_code import (
 from data_designer.engine.resources.agent_rollout.types import AgentRolloutSeedParseError
 
 
-def _write_jsonl(path: Path, records: list[dict[str, Any]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(json.dumps(r) for r in records) + "\n", encoding="utf-8")
-
-
 def _make_handler() -> ClaudeCodeAgentRolloutFormatHandler:
     return ClaudeCodeAgentRolloutFormatHandler()
 
 
-def test_parse_file_comprehensive_happy_path(tmp_path: Path) -> None:
-    _write_jsonl(
+def test_parse_file_comprehensive_happy_path(
+    tmp_path: Path, write_jsonl: Callable[[Path, list[dict[str, Any]]], None]
+) -> None:
+    write_jsonl(
         tmp_path / "session.jsonl",
         [
             {"type": "user", "sessionId": "s1", "message": {"content": "Do something"}},
@@ -63,16 +60,6 @@ def test_parse_file_comprehensive_happy_path(tmp_path: Path) -> None:
             },
         ],
     )
-    (tmp_path / "sessions-index.json").write_text(
-        json.dumps(
-            {
-                "version": 1,
-                "entries": [{"sessionId": "s1", "projectPath": "/my/project", "summary": "A test session"}],
-            }
-        ),
-        encoding="utf-8",
-    )
-
     session_index = {"s1": {"projectPath": "/my/project", "summary": "A test session"}}
     ctx = ClaudeCodeParseContext(session_index=session_index)
     handler = _make_handler()
@@ -104,8 +91,10 @@ def test_parse_file_skips_empty_files(tmp_path: Path) -> None:
     assert records == []
 
 
-def test_parse_file_raises_on_malformed_assistant_record(tmp_path: Path) -> None:
-    _write_jsonl(
+def test_parse_file_raises_on_malformed_assistant_record(
+    tmp_path: Path, write_jsonl: Callable[[Path, list[dict[str, Any]]], None]
+) -> None:
+    write_jsonl(
         tmp_path / "session.jsonl",
         [{"type": "assistant", "sessionId": "s1", "message": "not a dict"}],
     )

@@ -92,10 +92,6 @@ class AgentRolloutFinetuningRecord(BaseModel):
     )
 
 
-AgentRolloutTraceDigest.model_rebuild()
-AgentRolloutFinetuningRecord.model_rebuild()
-
-
 TRACE_DIGEST_SYSTEM_PROMPT = """\
 You are curating real coding-assistant traces into training data for supervised fine-tuning.
 Extract the practical substance of the task without copying long code blocks, logs, or markdown verbatim.

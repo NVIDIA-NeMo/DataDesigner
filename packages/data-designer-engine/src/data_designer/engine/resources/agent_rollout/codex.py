@@ -14,7 +14,6 @@ from data_designer.engine.resources.agent_rollout.utils import (
     build_message,
     coerce_optional_str,
     load_jsonl_rows,
-    normalize_message_role,
     require_string,
     stringify_json_value,
 )
@@ -39,7 +38,7 @@ class CodexAgentRolloutFormatHandler(AgentRolloutFormatHandler):
         del parse_context
         file_path = root_path / relative_path
 
-        rows = load_jsonl_rows(file_path)
+        rows = list(load_jsonl_rows(file_path))
         if not rows:
             logger.warning("Skipping empty Codex rollout file %s", file_path)
             return []
@@ -80,7 +79,7 @@ class CodexAgentRolloutFormatHandler(AgentRolloutFormatHandler):
             response_item_types.add(item_type)
 
             if item_type == "message":
-                role = normalize_message_role(payload.get("role"), context=f"Codex message in {file_path}")
+                role = payload.get("role")
                 reasoning_content = (
                     "\n\n".join(pending_reasoning) if role == "assistant" and pending_reasoning else None
                 )

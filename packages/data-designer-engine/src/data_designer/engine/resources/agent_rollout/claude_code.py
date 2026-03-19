@@ -52,7 +52,7 @@ class ClaudeCodeAgentRolloutFormatHandler(AgentRolloutFormatHandler):
         if isinstance(parse_context, ClaudeCodeParseContext):
             session_index = parse_context.session_index
 
-        rows = load_jsonl_rows(file_path)
+        rows = list(load_jsonl_rows(file_path))
         if not rows:
             logger.warning("Skipping empty Claude Code trace file %s", file_path)
             return []
@@ -125,8 +125,6 @@ def normalize_content_block(block: Any) -> dict[str, Any]:
         block_type = coerce_optional_str(block.get("type"))
         if block_type in {"text", "input_text", "output_text"} and "text" in block:
             return {"type": "text", "text": stringify_text_value(block.get("text"))}
-        if block_type == "thinking":
-            return {"type": "text", "text": stringify_text_value(block.get("thinking") or block.get("text"))}
         if block_type is not None:
             return block
     return {"type": "text", "text": stringify_text_value(block)}
@@ -166,7 +164,7 @@ def normalize_claude_assistant_messages(raw_record: dict[str, Any]) -> list[dict
                 reasoning_parts.append(reasoning_text)
         elif block_type == "tool_use":
             tool_calls.append(normalize_claude_tool_call(block))
-        elif block_type == "tool_result":
+        elif block_type == "tool_result":  # Claude Code traces nest tool results inside assistant records
             tool_messages.append(
                 build_message(
                     role="tool",
@@ -253,6 +251,6 @@ def load_claude_session_index(root_path: Path, *, recursive: bool = True) -> dic
             for entry in entries:
                 if isinstance(entry, dict) and (session_id := coerce_optional_str(entry.get("sessionId"))):
                     entries_by_session_id[session_id] = entry
-        except (AgentRolloutSeedParseError, json.JSONDecodeError) as error:
+        except (AgentRolloutSeedParseError, json.JSONDecodeError, OSError) as error:
             logger.warning("Skipping malformed Claude sessions index %s: %s", index_path, error)
     return entries_by_session_id

@@ -200,16 +200,12 @@ class TrackingAgentRolloutSeedReader(AgentRolloutSeedReader):
         return super().hydrate_row(manifest_row=manifest_row, context=context)
 
 
-def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as file:
-        for row in rows:
-            file.write(f"{json.dumps(row)}\n")
+WriteJsonl = Callable[[Path, list[dict[str, Any]]], None]
 
 
-def _write_claude_trace_directory(root_path: Path) -> None:
+def _write_claude_trace_directory(root_path: Path, write_jsonl: WriteJsonl) -> None:
     session_dir = root_path / "project-a"
-    _write_jsonl(
+    write_jsonl(
         session_dir / "session-1.jsonl",
         [
             {"type": "user", "sessionId": "session-1", "message": {"content": "Hello"}},
@@ -220,7 +216,7 @@ def _write_claude_trace_directory(root_path: Path) -> None:
             },
         ],
     )
-    _write_jsonl(
+    write_jsonl(
         session_dir / "session-2.jsonl",
         [
             {"type": "user", "sessionId": "session-2", "message": {"content": "Bye"}},
@@ -808,8 +804,8 @@ def test_seed_reader_reuses_cached_duckdb_connection_until_reattach() -> None:
     assert reader.create_duckdb_connection_calls == 2
 
 
-def test_agent_rollout_seed_reader_manifest_returns_file_count(tmp_path: Path) -> None:
-    _write_claude_trace_directory(tmp_path)
+def test_agent_rollout_seed_reader_manifest_returns_file_count(tmp_path: Path, write_jsonl: WriteJsonl) -> None:
+    _write_claude_trace_directory(tmp_path, write_jsonl)
 
     reader = AgentRolloutSeedReader()
     reader.attach(
@@ -823,8 +819,8 @@ def test_agent_rollout_seed_reader_manifest_returns_file_count(tmp_path: Path) -
     assert reader.get_seed_dataset_size() == 2
 
 
-def test_agent_rollout_seed_reader_hydrates_to_record_count(tmp_path: Path) -> None:
-    _write_claude_trace_directory(tmp_path)
+def test_agent_rollout_seed_reader_hydrates_to_record_count(tmp_path: Path, write_jsonl: WriteJsonl) -> None:
+    _write_claude_trace_directory(tmp_path, write_jsonl)
 
     reader = TrackingAgentRolloutSeedReader()
     reader.attach(
@@ -846,8 +842,8 @@ def test_agent_rollout_seed_reader_hydrates_to_record_count(tmp_path: Path) -> N
     assert sorted(reader.hydrated_relative_paths) == ["project-a/session-1.jsonl", "project-a/session-2.jsonl"]
 
 
-def test_agent_rollout_seed_reader_hydration_laziness(tmp_path: Path) -> None:
-    _write_claude_trace_directory(tmp_path)
+def test_agent_rollout_seed_reader_hydration_laziness(tmp_path: Path, write_jsonl: WriteJsonl) -> None:
+    _write_claude_trace_directory(tmp_path, write_jsonl)
 
     reader = AgentRolloutSeedReader()
     reader.attach(
@@ -863,9 +859,11 @@ def test_agent_rollout_seed_reader_hydration_laziness(tmp_path: Path) -> None:
         mock_load.assert_not_called()
 
 
-def test_agent_rollout_seed_reader_wraps_os_errors_as_seed_reader_error(tmp_path: Path) -> None:
+def test_agent_rollout_seed_reader_wraps_os_errors_as_seed_reader_error(
+    tmp_path: Path, write_jsonl: WriteJsonl
+) -> None:
     session_dir = tmp_path / "project-a"
-    _write_jsonl(session_dir / "session.jsonl", [{"type": "user", "message": {"content": "Hi"}}])
+    write_jsonl(session_dir / "session.jsonl", [{"type": "user", "message": {"content": "Hi"}}])
 
     reader = AgentRolloutSeedReader()
     source = AgentRolloutSeedSource.model_construct(
@@ -887,8 +885,9 @@ def test_agent_rollout_seed_reader_wraps_os_errors_as_seed_reader_error(tmp_path
 
 def test_agent_rollout_seed_reader_uses_resolved_file_pattern_when_model_construct_skips_validation(
     tmp_path: Path,
+    write_jsonl: WriteJsonl,
 ) -> None:
-    _write_claude_trace_directory(tmp_path)
+    _write_claude_trace_directory(tmp_path, write_jsonl)
 
     source = AgentRolloutSeedSource.model_construct(
         seed_type="agent_rollout",
@@ -903,8 +902,8 @@ def test_agent_rollout_seed_reader_uses_resolved_file_pattern_when_model_constru
     assert reader.get_seed_dataset_size() == 2
 
 
-def test_claude_session_index_scanning_respects_recursive_false(tmp_path: Path) -> None:
-    _write_jsonl(
+def test_claude_session_index_scanning_respects_recursive_false(tmp_path: Path, write_jsonl: WriteJsonl) -> None:
+    write_jsonl(
         tmp_path / "top-session.jsonl",
         [
             {"type": "user", "sessionId": "top-sess", "message": {"content": "Hello"}},
@@ -917,7 +916,7 @@ def test_claude_session_index_scanning_respects_recursive_false(tmp_path: Path) 
     )
 
     nested_dir = tmp_path / "project-a"
-    _write_jsonl(
+    write_jsonl(
         nested_dir / "session.jsonl",
         [
             {"type": "user", "sessionId": "nested-sess", "message": {"content": "Bye"}},
@@ -960,3 +959,33 @@ def test_claude_session_index_scanning_respects_recursive_false(tmp_path: Path) 
     batch_reader_nr = reader_non_recursive.create_batch_reader(batch_size=10, index_range=None, shuffle=False)
     non_recursive_df = batch_reader_nr.read_next_batch().to_pandas()
     assert list(non_recursive_df["project_path"]) == ["/from-top-index"]
+
+
+def test_agent_rollout_seed_reader_gracefully_skips_malformed_files(tmp_path: Path, write_jsonl: WriteJsonl) -> None:
+    session_dir = tmp_path / "project"
+    write_jsonl(
+        session_dir / "good.jsonl",
+        [
+            {"type": "user", "sessionId": "s1", "message": {"content": "Hello"}},
+            {"type": "assistant", "sessionId": "s1", "message": {"content": [{"type": "text", "text": "Hi"}]}},
+        ],
+    )
+    malformed_path = session_dir / "bad.jsonl"
+    malformed_path.parent.mkdir(parents=True, exist_ok=True)
+    malformed_path.write_text('{"type": "assistant", "message": "not-a-dict"}\n', encoding="utf-8")
+
+    reader = AgentRolloutSeedReader()
+    reader.attach(
+        AgentRolloutSeedSource(
+            path=str(tmp_path),
+            format=AgentRolloutFormat.CLAUDE_CODE,
+            file_pattern="*.jsonl",
+        ),
+        PlaintextResolver(),
+    )
+
+    batch_reader = reader.create_batch_reader(batch_size=10, index_range=None, shuffle=False)
+    batch_df = batch_reader.read_next_batch().to_pandas()
+
+    assert len(batch_df) == 1
+    assert batch_df.iloc[0]["root_session_id"] == "s1"

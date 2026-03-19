@@ -4,8 +4,9 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from data_designer.engine.models.utils import ChatMessage
 from data_designer.engine.resources.agent_rollout.types import AgentRolloutSeedParseError
@@ -29,7 +30,7 @@ def build_message(
     ).to_dict()
 
 
-def normalize_message_role(raw_role: Any, *, context: str) -> str:
+def normalize_message_role(raw_role: Any, *, context: str) -> Literal["user", "assistant", "system", "tool"]:
     role = coerce_optional_str(raw_role)
     if role == "developer":
         return "system"
@@ -38,8 +39,7 @@ def normalize_message_role(raw_role: Any, *, context: str) -> str:
     raise AgentRolloutSeedParseError(f"Unsupported message role {raw_role!r} in {context}")
 
 
-def load_jsonl_rows(file_path: Path) -> list[tuple[int, dict[str, Any]]]:
-    rows: list[tuple[int, dict[str, Any]]] = []
+def load_jsonl_rows(file_path: Path) -> Iterator[tuple[int, dict[str, Any]]]:
     with file_path.open(encoding="utf-8") as file:
         for line_number, raw_line in enumerate(file, start=1):
             stripped_line = raw_line.strip()
@@ -55,8 +55,7 @@ def load_jsonl_rows(file_path: Path) -> list[tuple[int, dict[str, Any]]]:
                 raise AgentRolloutSeedParseError(
                     f"Expected JSON object in {file_path} line {line_number}, got {type(parsed_line).__name__}"
                 )
-            rows.append((line_number, parsed_line))
-    return rows
+            yield (line_number, parsed_line)
 
 
 def require_string(value: Any, context: str) -> str:

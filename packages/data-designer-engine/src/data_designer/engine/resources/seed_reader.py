@@ -455,7 +455,7 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
         manifest = self.build_manifest(context=context)
         manifest_df = self._normalize_rows_to_dataframe(manifest)
         if manifest_df.empty:
-            raise SeedReaderError(f"Seed source at {self.source.path} did not produce any rows")
+            raise SeedReaderError(f"Seed source at {self.source.runtime_path} did not produce any rows")
 
         self._row_manifest_df = manifest_df
         return self._row_manifest_df
@@ -472,7 +472,7 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
             context=context,
         )
         if not hydrated_records:
-            raise SeedReaderError(f"Seed source at {self.source.path} did not produce any rows")
+            raise SeedReaderError(f"Seed source at {self.source.runtime_path} did not produce any rows")
 
         self._output_df = create_seed_reader_output_dataframe(
             records=hydrated_records,
@@ -496,7 +496,7 @@ class FileSystemSeedReader(SeedReader[FileSystemSourceT], ABC):
         return f"seed_reader_{seed_type}_{suffix}"
 
     def _get_empty_selected_manifest_rows_error_message(self) -> str:
-        return f"Selected manifest rows for seed source at {self.source.path} did not produce any rows after hydration"
+        return f"Selected manifest rows for seed source at {self.source.runtime_path} did not produce any rows after hydration"
 
     def _normalize_rows_to_dataframe(self, rows: pd.DataFrame | list[dict[str, Any]]) -> pd.DataFrame:
         if isinstance(rows, lazy.pd.DataFrame):
