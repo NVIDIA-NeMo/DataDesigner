@@ -3,6 +3,8 @@ name: commit
 description: Commit current changes with a clear, descriptive message
 argument-hint: [special instructions]
 disable-model-invocation: true
+metadata:
+    internal: true
 ---
 
 # Commit Changes

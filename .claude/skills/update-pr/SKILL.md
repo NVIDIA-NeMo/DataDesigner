@@ -3,6 +3,8 @@ name: update-pr
 description: Update an existing GitHub PR description to reflect current changes after incorporating feedback
 argument-hint: [special instructions]
 disable-model-invocation: true
+metadata:
+    internal: true
 ---
 
 # Update Pull Request
