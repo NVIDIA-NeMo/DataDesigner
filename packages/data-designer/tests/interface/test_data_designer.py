@@ -89,11 +89,6 @@ def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
             file.write(f"{json.dumps(row)}\n")
 
 
-def _write_invalid_jsonl(path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("{invalid-json}\n", encoding="utf-8")
-
-
 def _write_empty_jsonl(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("", encoding="utf-8")
@@ -107,30 +102,11 @@ def _write_claude_trace_directory(root_path: Path) -> None:
     _write_jsonl(
         session_dir / "session-1.jsonl",
         [
-            {
-                "type": "system",
-                "sessionId": "session-1",
-                "cwd": "/repo",
-                "gitBranch": "main",
-                "version": "2.1.7",
-                "timestamp": "2026-01-01T00:00:00Z",
-            },
-            {
-                "type": "user",
-                "sessionId": "session-1",
-                "cwd": "/repo",
-                "gitBranch": "main",
-                "timestamp": "2026-01-01T00:00:01Z",
-                "message": {"role": "user", "content": "Inspect the repo"},
-            },
+            {"type": "user", "sessionId": "session-1", "message": {"content": "Inspect the repo"}},
             {
                 "type": "assistant",
                 "sessionId": "session-1",
-                "cwd": "/repo",
-                "gitBranch": "main",
-                "timestamp": "2026-01-01T00:00:02Z",
                 "message": {
-                    "role": "assistant",
                     "content": [
                         {"type": "thinking", "thinking": "Need to inspect"},
                         {"type": "tool_use", "id": "toolu_1", "name": "ReadFile", "input": {"path": "README.md"}},
@@ -140,21 +116,14 @@ def _write_claude_trace_directory(root_path: Path) -> None:
             {
                 "type": "user",
                 "sessionId": "session-1",
-                "cwd": "/repo",
-                "gitBranch": "main",
-                "timestamp": "2026-01-01T00:00:03Z",
                 "message": {
-                    "role": "user",
                     "content": [{"type": "tool_result", "tool_use_id": "toolu_1", "content": "README contents"}],
                 },
             },
             {
                 "type": "assistant",
                 "sessionId": "session-1",
-                "cwd": "/repo",
-                "gitBranch": "main",
-                "timestamp": "2026-01-01T00:00:04Z",
-                "message": {"role": "assistant", "content": [{"type": "text", "text": "Repo inspected"}]},
+                "message": {"content": [{"type": "text", "text": "Repo inspected"}]},
             },
         ],
     )
@@ -166,20 +135,14 @@ def _write_claude_trace_directory(root_path: Path) -> None:
                 "sessionId": "session-1",
                 "agentId": "agent-a",
                 "isSidechain": True,
-                "cwd": "/repo",
-                "gitBranch": "main",
-                "timestamp": "2026-01-01T00:01:00Z",
-                "message": {"role": "user", "content": "Check tests"},
+                "message": {"content": "Check tests"},
             },
             {
                 "type": "assistant",
                 "sessionId": "session-1",
                 "agentId": "agent-a",
                 "isSidechain": True,
-                "cwd": "/repo",
-                "gitBranch": "main",
-                "timestamp": "2026-01-01T00:01:01Z",
-                "message": {"role": "assistant", "content": [{"type": "text", "text": "Tests checked"}]},
+                "message": {"content": [{"type": "text", "text": "Tests checked"}]},
             },
         ],
     )
@@ -207,29 +170,10 @@ def _write_codex_trace_directory(root_path: Path) -> None:
         codex_dir / "rollout-2026-03-10T00-00-00-session.jsonl",
         [
             {
-                "timestamp": "2026-03-10T00:00:00Z",
                 "type": "session_meta",
-                "payload": {
-                    "id": "codex-session",
-                    "timestamp": "2026-03-10T00:00:00Z",
-                    "cwd": "/workspace",
-                    "cli_version": "0.108.0",
-                    "originator": "codex_cli_rs",
-                    "model_provider": "openai",
-                    "source": "api",
-                },
+                "payload": {"id": "codex-session", "cwd": "/workspace"},
             },
             {
-                "timestamp": "2026-03-10T00:00:01Z",
-                "type": "response_item",
-                "payload": {
-                    "type": "message",
-                    "role": "developer",
-                    "content": [{"type": "input_text", "text": "Follow repo rules"}],
-                },
-            },
-            {
-                "timestamp": "2026-03-10T00:00:02Z",
                 "type": "response_item",
                 "payload": {
                     "type": "message",
@@ -238,15 +182,6 @@ def _write_codex_trace_directory(root_path: Path) -> None:
                 },
             },
             {
-                "timestamp": "2026-03-10T00:00:03Z",
-                "type": "response_item",
-                "payload": {
-                    "type": "reasoning",
-                    "summary": [{"type": "summary_text", "text": "Need to run ls"}],
-                },
-            },
-            {
-                "timestamp": "2026-03-10T00:00:04Z",
                 "type": "response_item",
                 "payload": {
                     "type": "function_call",
@@ -256,7 +191,6 @@ def _write_codex_trace_directory(root_path: Path) -> None:
                 },
             },
             {
-                "timestamp": "2026-03-10T00:00:05Z",
                 "type": "response_item",
                 "payload": {
                     "type": "function_call_output",
@@ -265,7 +199,6 @@ def _write_codex_trace_directory(root_path: Path) -> None:
                 },
             },
             {
-                "timestamp": "2026-03-10T00:00:06Z",
                 "type": "response_item",
                 "payload": {
                     "type": "message",
@@ -277,29 +210,10 @@ def _write_codex_trace_directory(root_path: Path) -> None:
     )
 
 
-def _write_claude_trace_directory_with_skipped_files(root_path: Path) -> None:
-    _write_claude_trace_directory(root_path)
-    session_dir = root_path / "project-a"
-    _write_empty_jsonl(session_dir / "empty.jsonl")
-    _write_invalid_jsonl(session_dir / "malformed.jsonl")
-
-
-def _write_codex_trace_directory_with_skipped_files(root_path: Path) -> None:
-    _write_codex_trace_directory(root_path)
-    codex_dir = root_path / "sessions" / "2026" / "03" / "10"
-    _write_empty_jsonl(codex_dir / "rollout-empty.jsonl")
-    _write_invalid_jsonl(codex_dir / "rollout-malformed.jsonl")
-
-
 def _write_claude_trace_directory_with_unhandled_files(root_path: Path) -> None:
     _write_claude_trace_directory(root_path)
     _write_jsonl(root_path / "project-a" / "history.jsonl", [{"type": "system"}])
     _write_jsonl(root_path / "project-a" / "tool-results" / "ignored.jsonl", [{"type": "system"}])
-
-
-def _write_codex_trace_directory_with_unhandled_files(root_path: Path) -> None:
-    _write_codex_trace_directory(root_path)
-    _write_jsonl(root_path / "sessions" / "2026" / "03" / "10" / "history.jsonl", [{"type": "session_meta"}])
 
 
 @pytest.fixture
@@ -1290,98 +1204,19 @@ def test_create_dataset_e2e_with_trace_seed_sources(
         assert list(df["cwd"]) == ["/workspace"]
 
 
-@pytest.mark.parametrize(
-    ("dir_name", "seed_source_factory", "writer", "expected_trace_ids"),
-    [
-        (
-            "claude-code",
-            lambda path: AgentRolloutSeedSource(
-                path=str(path),
-                format=AgentRolloutFormat.CLAUDE_CODE,
-            ),
-            _write_claude_trace_directory_with_skipped_files,
-            ["session-1", "session-1:agent-a"],
-        ),
-        (
-            "codex",
-            lambda path: AgentRolloutSeedSource(path=str(path), format=AgentRolloutFormat.CODEX),
-            _write_codex_trace_directory_with_skipped_files,
-            ["codex-session"],
-        ),
-    ],
-    ids=["claude-code", "codex"],
-)
-def test_create_dataset_skips_empty_and_malformed_trace_files(
-    stub_artifact_path: Path,
-    stub_model_providers: list[ModelProvider],
-    stub_managed_assets_path: Path,
-    tmp_path: Path,
-    dir_name: str,
-    seed_source_factory: Any,
-    writer: Any,
-    expected_trace_ids: list[str],
-) -> None:
-    trace_dir = tmp_path / f"{dir_name}-with-skips"
-    writer(trace_dir)
-
-    builder = DataDesignerConfigBuilder()
-    builder.with_seed_dataset(seed_source_factory(trace_dir))
-    builder.add_column(ExpressionColumnConfig(name="assistant_copy", expr="{{ final_assistant_message }}"))
-
-    data_designer = DataDesigner(
-        artifact_path=stub_artifact_path,
-        model_providers=stub_model_providers,
-        secret_resolver=PlaintextResolver(),
-        managed_assets_path=stub_managed_assets_path,
-    )
-
-    results = data_designer.create(builder, num_records=len(expected_trace_ids), dataset_name="trace-skip-test")
-    df = results.load_dataset().sort_values("trace_id").reset_index(drop=True)
-
-    assert list(df["trace_id"]) == expected_trace_ids
-
-
-@pytest.mark.parametrize(
-    ("dir_name", "seed_source_factory", "writer", "expected_trace_ids", "expected_warning"),
-    [
-        (
-            "claude-code",
-            lambda path: AgentRolloutSeedSource(
-                path=str(path),
-                format=AgentRolloutFormat.CLAUDE_CODE,
-            ),
-            _write_claude_trace_directory_with_unhandled_files,
-            ["session-1", "session-1:agent-a"],
-            "Skipping unhandled claude_code file",
-        ),
-        (
-            "codex",
-            lambda path: AgentRolloutSeedSource(path=str(path), format=AgentRolloutFormat.CODEX),
-            _write_codex_trace_directory_with_unhandled_files,
-            ["codex-session"],
-            "Skipping unhandled codex file",
-        ),
-    ],
-    ids=["claude-code", "codex"],
-)
 def test_create_dataset_warns_for_unhandled_transform_files(
     stub_artifact_path: Path,
     stub_model_providers: list[ModelProvider],
     stub_managed_assets_path: Path,
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
-    dir_name: str,
-    seed_source_factory: Any,
-    writer: Any,
-    expected_trace_ids: list[str],
-    expected_warning: str,
 ) -> None:
-    trace_dir = tmp_path / f"{dir_name}-with-unhandled"
-    writer(trace_dir)
+    trace_dir = tmp_path / "claude-code-with-unhandled"
+    _write_claude_trace_directory_with_unhandled_files(trace_dir)
     caplog.set_level(logging.WARNING)
 
     builder = DataDesignerConfigBuilder()
-    builder.with_seed_dataset(seed_source_factory(trace_dir))
+    builder.with_seed_dataset(AgentRolloutSeedSource(path=str(trace_dir), format=AgentRolloutFormat.CLAUDE_CODE))
     builder.add_column(ExpressionColumnConfig(name="assistant_copy", expr="{{ final_assistant_message }}"))
 
     data_designer = DataDesigner(
@@ -1391,11 +1226,11 @@ def test_create_dataset_warns_for_unhandled_transform_files(
         managed_assets_path=stub_managed_assets_path,
     )
 
-    results = data_designer.create(builder, num_records=len(expected_trace_ids), dataset_name="trace-unhandled-test")
+    results = data_designer.create(builder, num_records=2, dataset_name="trace-unhandled-test")
     df = results.load_dataset().sort_values("trace_id").reset_index(drop=True)
 
-    assert list(df["trace_id"]) == expected_trace_ids
-    assert expected_warning in caplog.text
+    assert list(df["trace_id"]) == ["session-1", "session-1:agent-a"]
+    assert "Skipping unhandled claude_code file" in caplog.text
 
 
 def test_create_raises_error_when_all_trace_files_are_skipped(

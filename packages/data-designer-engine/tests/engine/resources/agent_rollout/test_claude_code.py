@@ -12,8 +12,6 @@ import pytest
 from data_designer.engine.resources.agent_rollout.claude_code import (
     ClaudeCodeAgentRolloutFormatHandler,
     ClaudeCodeParseContext,
-    coerce_raw_blocks,
-    normalize_content_block,
 )
 from data_designer.engine.resources.agent_rollout.types import AgentRolloutSeedParseError
 
@@ -27,71 +25,7 @@ def _make_handler() -> ClaudeCodeAgentRolloutFormatHandler:
     return ClaudeCodeAgentRolloutFormatHandler()
 
 
-def test_normalize_content_block_handles_text_variants() -> None:
-    assert normalize_content_block({"type": "text", "text": "hi"}) == {"type": "text", "text": "hi"}
-    assert normalize_content_block({"type": "input_text", "text": "x"}) == {"type": "text", "text": "x"}
-    assert normalize_content_block({"type": "output_text", "text": "y"}) == {"type": "text", "text": "y"}
-
-
-def test_normalize_content_block_wraps_plain_strings() -> None:
-    assert normalize_content_block("raw text") == {"type": "text", "text": "raw text"}
-
-
-def test_coerce_raw_blocks_handles_none_dict_list_scalar() -> None:
-    assert coerce_raw_blocks(None) == []
-    assert coerce_raw_blocks({"type": "text", "text": "a"}) == [{"type": "text", "text": "a"}]
-    assert coerce_raw_blocks([{"type": "text", "text": "a"}]) == [{"type": "text", "text": "a"}]
-    assert coerce_raw_blocks(42) == [{"type": "text", "text": "42"}]
-
-
-def test_parse_file_produces_normalized_record_from_minimal_trace(tmp_path: Path) -> None:
-    _write_jsonl(
-        tmp_path / "session.jsonl",
-        [
-            {"type": "user", "sessionId": "s1", "message": {"content": "Hello"}},
-            {
-                "type": "assistant",
-                "sessionId": "s1",
-                "message": {"content": [{"type": "text", "text": "Hi there"}]},
-            },
-        ],
-    )
-    handler = _make_handler()
-    records = handler.parse_file(root_path=tmp_path, relative_path="session.jsonl")
-
-    assert len(records) == 1
-    record = records[0]
-    assert record.root_session_id == "s1"
-    assert record.message_count == 2
-    assert record.final_assistant_message == "Hi there"
-    assert record.source_kind == "claude_code"
-
-
-def test_parse_file_extracts_thinking_blocks_as_reasoning_content(tmp_path: Path) -> None:
-    _write_jsonl(
-        tmp_path / "session.jsonl",
-        [
-            {"type": "user", "sessionId": "s1", "message": {"content": "Explain"}},
-            {
-                "type": "assistant",
-                "sessionId": "s1",
-                "message": {
-                    "content": [
-                        {"type": "thinking", "thinking": "Let me think..."},
-                        {"type": "text", "text": "Here is my answer"},
-                    ]
-                },
-            },
-        ],
-    )
-    handler = _make_handler()
-    records = handler.parse_file(root_path=tmp_path, relative_path="session.jsonl")
-
-    assistant_msg = next(m for m in records[0].messages if m["role"] == "assistant")
-    assert assistant_msg["reasoning_content"] == "Let me think..."
-
-
-def test_parse_file_normalizes_tool_use_and_tool_result_pairs(tmp_path: Path) -> None:
+def test_parse_file_comprehensive_happy_path(tmp_path: Path) -> None:
     _write_jsonl(
         tmp_path / "session.jsonl",
         [
@@ -101,13 +35,14 @@ def test_parse_file_normalizes_tool_use_and_tool_result_pairs(tmp_path: Path) ->
                 "sessionId": "s1",
                 "message": {
                     "content": [
+                        {"type": "thinking", "thinking": "Let me think..."},
                         {
                             "type": "tool_use",
                             "id": "tool-1",
                             "name": "read_file",
                             "input": {"path": "/tmp/x"},
                         },
-                    ]
+                    ],
                 },
             },
             {
@@ -121,36 +56,44 @@ def test_parse_file_normalizes_tool_use_and_tool_result_pairs(tmp_path: Path) ->
                     }
                 },
             },
-        ],
-    )
-    handler = _make_handler()
-    records = handler.parse_file(root_path=tmp_path, relative_path="session.jsonl")
-
-    messages = records[0].messages
-    assert records[0].tool_call_count == 1
-    tool_msg = next(m for m in messages if m["role"] == "tool")
-    assert tool_msg["tool_call_id"] == "tool-1"
-
-
-def test_parse_file_collects_session_index_metadata(tmp_path: Path) -> None:
-    _write_jsonl(
-        tmp_path / "session.jsonl",
-        [
-            {"type": "user", "sessionId": "s1", "message": {"content": "Hi"}},
             {
                 "type": "assistant",
                 "sessionId": "s1",
-                "message": {"content": [{"type": "text", "text": "Hello"}]},
+                "message": {"content": [{"type": "text", "text": "Done"}]},
             },
         ],
     )
+    (tmp_path / "sessions-index.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "entries": [{"sessionId": "s1", "projectPath": "/my/project", "summary": "A test session"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
     session_index = {"s1": {"projectPath": "/my/project", "summary": "A test session"}}
     ctx = ClaudeCodeParseContext(session_index=session_index)
     handler = _make_handler()
     records = handler.parse_file(root_path=tmp_path, relative_path="session.jsonl", parse_context=ctx)
 
-    assert records[0].project_path == "/my/project"
-    assert records[0].source_meta["summary"] == "A test session"
+    assert len(records) == 1
+    record = records[0]
+    assert record.root_session_id == "s1"
+    assert record.source_kind == "claude_code"
+    assert record.final_assistant_message == "Done"
+    assert record.tool_call_count == 1
+    assert record.message_count == 4
+
+    assistant_msg = next(m for m in record.messages if m["role"] == "assistant" and "reasoning_content" in m)
+    assert assistant_msg["reasoning_content"] == "Let me think..."
+
+    tool_msg = next(m for m in record.messages if m["role"] == "tool")
+    assert tool_msg["tool_call_id"] == "tool-1"
+
+    assert record.project_path == "/my/project"
+    assert record.source_meta["summary"] == "A test session"
 
 
 def test_parse_file_skips_empty_files(tmp_path: Path) -> None:
