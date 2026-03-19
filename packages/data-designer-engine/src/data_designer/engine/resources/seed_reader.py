@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
@@ -19,6 +20,7 @@ from typing_extensions import Self
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.seed import IndexRange
 from data_designer.config.seed_source import (
+    AgentRolloutSeedSource,
     DirectorySeedSource,
     FileContentsSeedSource,
     FileSystemSeedSource,
@@ -27,6 +29,12 @@ from data_designer.config.seed_source import (
     SeedSource,
 )
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
+from data_designer.engine.resources.agent_rollout import (
+    AgentRolloutFormatHandler,
+    AgentRolloutParseContext,
+    AgentRolloutSeedParseError,
+    get_format_handler,
+)
 from data_designer.engine.secret_resolver import SecretResolver
 from data_designer.errors import DataDesignerError
 
@@ -34,8 +42,30 @@ if TYPE_CHECKING:
     import duckdb
     import pandas as pd
 
+logger = logging.getLogger(__name__)
+
 
 class SeedReaderError(DataDesignerError): ...
+
+
+AGENT_ROLLOUT_OUTPUT_COLUMNS = [
+    "trace_id",
+    "source_kind",
+    "source_path",
+    "root_session_id",
+    "agent_id",
+    "is_sidechain",
+    "cwd",
+    "project_path",
+    "git_branch",
+    "started_at",
+    "ended_at",
+    "messages",
+    "message_count",
+    "tool_call_count",
+    "final_assistant_message",
+    "source_meta",
+]
 
 
 @dataclass(frozen=True)
@@ -565,6 +595,73 @@ class FileContentsSeedReader(FileSystemSeedReader[FileContentsSeedSource]):
         hydrated_record = dict(manifest_row)
         hydrated_record["content"] = content
         return hydrated_record
+
+
+class AgentRolloutSeedReader(FileSystemSeedReader[AgentRolloutSeedSource]):
+    output_columns = AGENT_ROLLOUT_OUTPUT_COLUMNS
+
+    def _reset_attachment_state(self) -> None:
+        super()._reset_attachment_state()
+        self._parse_context: AgentRolloutParseContext | None = None
+
+    def build_manifest(self, *, context: SeedReaderFileSystemContext) -> list[dict[str, Any]]:
+        matched_paths = self.get_matching_relative_paths(
+            context=context,
+            file_pattern=self.source.resolved_file_pattern,
+            recursive=self.source.recursive,
+        )
+        handler = self.get_format_handler()
+        handled: list[str] = []
+        for p in matched_paths:
+            if handler.is_handled_file(p):
+                handled.append(p)
+            else:
+                logger.warning("Skipping unhandled %s file %s", self.source.format.value, p)
+        return [
+            _build_metadata_record(context=context, relative_path=p, source_kind=self.source.format.value)
+            for p in handled
+        ]
+
+    def hydrate_row(
+        self,
+        *,
+        manifest_row: dict[str, Any],
+        context: SeedReaderFileSystemContext,
+    ) -> list[dict[str, Any]]:
+        handler = self.get_format_handler()
+        relative_path = manifest_row["relative_path"]
+        try:
+            parse_ctx = self._get_parse_context(context)
+            records = handler.parse_file(
+                root_path=context.root_path,
+                relative_path=relative_path,
+                parse_context=parse_ctx,
+            )
+        except AgentRolloutSeedParseError as error:
+            logger.warning("Skipping malformed file %s: %s", relative_path, error)
+            return []
+        except OSError as error:
+            raise SeedReaderError(
+                f"Failed to read agent rollout file {context.root_path / relative_path}: {error}"
+            ) from error
+        return [r.to_dict() for r in records]
+
+    def get_format_handler(self) -> AgentRolloutFormatHandler:
+        rollout_format = self.source.format
+        try:
+            return get_format_handler(rollout_format)
+        except KeyError as error:
+            raise SeedReaderError(
+                f"No AgentRollout format handler found for format {rollout_format.value!r}"
+            ) from error
+
+    def _get_parse_context(self, context: SeedReaderFileSystemContext) -> AgentRolloutParseContext | None:
+        if self._parse_context is not None:
+            return self._parse_context
+
+        handler = self.get_format_handler()
+        self._parse_context = handler.build_parse_context(root_path=context.root_path, recursive=self.source.recursive)
+        return self._parse_context
 
 
 class SeedReaderRegistry:

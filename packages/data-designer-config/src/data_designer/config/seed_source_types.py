@@ -9,6 +9,7 @@ from pydantic import Field
 from typing_extensions import TypeAlias
 
 from data_designer.config.seed_source import (
+    AgentRolloutSeedSource,
     DirectorySeedSource,
     FileContentsSeedSource,
     HuggingFaceSeedSource,
@@ -20,7 +21,12 @@ from data_designer.plugin_manager import PluginManager
 plugin_manager = PluginManager()
 
 _SeedSourceT: TypeAlias = (
-    LocalFileSeedSource | HuggingFaceSeedSource | DataFrameSeedSource | DirectorySeedSource | FileContentsSeedSource
+    LocalFileSeedSource
+    | HuggingFaceSeedSource
+    | DataFrameSeedSource
+    | DirectorySeedSource
+    | FileContentsSeedSource
+    | AgentRolloutSeedSource
 )
 _SeedSourceT = plugin_manager.inject_into_seed_source_type_union(_SeedSourceT)
 

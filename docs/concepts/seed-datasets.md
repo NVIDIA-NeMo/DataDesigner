@@ -100,6 +100,64 @@ seed_source = dd.DataFrameSeedSource(df=df)
 !!! warning "Serialization"
     `DataFrameSeedSource` can't be serialized to YAML/JSON configs. Use `LocalFileSeedSource` if you need to save and share configurations.
 
+### 📂 DirectorySeedSource
+
+Read a directory of artifacts as a seed dataset. Each matched file becomes one row with file metadata such as
+`source_path`, `relative_path`, and `file_name`.
+
+```python
+seed_source = dd.DirectorySeedSource(
+    path="data/documents",
+)
+```
+
+Directory traversal behavior is configured directly on the seed source:
+
+```python
+seed_source = dd.DirectorySeedSource(
+    path="data/documents",
+    file_pattern="train_*.txt",
+    recursive=False,
+)
+```
+
+`DirectorySeedSource.file_pattern` is case-sensitive on every platform and matches file names only, not relative
+paths.
+
+### 📄 FileContentsSeedSource
+
+Read matching text files into seed rows and include their contents directly in a `content` column.
+
+```python
+seed_source = dd.FileContentsSeedSource(
+    path="data/documents",
+    file_pattern="*.md",
+)
+```
+
+### 🧭 Agent Rollout Seed Source
+
+Data Designer also ships a built-in filesystem seed source that normalizes agent rollouts into a common row format:
+
+- `dd.AgentRolloutSeedSource(format=dd.AgentRolloutFormat.CLAUDE_CODE, path=...)`
+- `dd.AgentRolloutSeedSource(format=dd.AgentRolloutFormat.CODEX, path=...)`
+
+For example:
+
+```python
+seed_source = dd.AgentRolloutSeedSource(
+    path="trace-data/codex",
+    format=dd.AgentRolloutFormat.CODEX,
+)
+```
+
+`AgentRolloutSeedSource(format=dd.AgentRolloutFormat.CLAUDE_CODE)` defaults to `~/.claude/projects`,
+and `AgentRolloutSeedSource(format=dd.AgentRolloutFormat.CODEX)` defaults to `~/.codex/sessions`.
+
+This source exposes normalized rollout rows with common metadata such as `trace_id`, `source_kind`,
+`final_assistant_message`, and `messages`, so you can reference imported trajectories directly in prompts and
+expressions.
+
 ## Sampling Strategies
 
 Control how rows are read from the seed dataset.

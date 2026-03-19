@@ -5,25 +5,24 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from data_designer.engine.resources.person_reader import PersonReader
+from data_designer.engine.resources.managed_dataset_repository import ManagedDatasetRepository
 
 if TYPE_CHECKING:
     import pandas as pd
 
 
 class ManagedDatasetGenerator:
-    def __init__(self, reader: PersonReader, locale: str) -> None:
-        self._person_reader = reader
-        self._locale = locale
+    def __init__(self, managed_datasets: ManagedDatasetRepository, dataset_name: str):
+        self.managed_datasets = managed_datasets
+        self.dataset_name = dataset_name
 
     def generate_samples(
         self,
         size: int = 1,
-        evidence: dict[str, Any | list[Any]] | None = None,
+        evidence: dict[str, Any | list[Any]] = {},
     ) -> pd.DataFrame:
         parameters = []
-        uri = self._person_reader.get_dataset_uri(self._locale)
-        query = f"select * from '{uri}'"
+        query = f"select * from {self.dataset_name}"
         if evidence:
             where_conditions = []
             for column, values in evidence.items():
@@ -36,5 +35,4 @@ class ManagedDatasetGenerator:
             if where_conditions:
                 query += " where " + " and ".join(where_conditions)
         query += f" order by random() limit {size}"
-
-        return self._person_reader.execute(query, parameters)
+        return self.managed_datasets.query(query, parameters)

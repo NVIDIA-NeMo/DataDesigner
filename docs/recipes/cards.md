@@ -99,6 +99,23 @@ Each recipe is a self-contained example that can be run independently.
     [:material-book-open-page-variant: View Recipe](qa_and_chat/multi_turn_chat.md){ .md-button }
     [Download Code :octicons-download-24:](../assets/recipes/qa_and_chat/multi_turn_chat.py){ .md-button download="multi_turn_chat.py" }
 
+-   :material-source-branch:{ .lg .middle } **Agent Rollout Trace Distillation**
+
+    Read agent rollout traces from disk and turn each imported rollout into a structured workflow record inside a Data Designer pipeline.
+
+    ---
+
+    **Demonstrates:**
+
+    - `AgentRolloutSeedSource` across Claude Code, Codex, and chat-completion rollout formats
+    - Using normalized trace columns in generation prompts
+    - Distilling agent traces into reusable structured records
+
+    ---
+
+    [:material-book-open-page-variant: View Recipe](trace_ingestion/agent_rollout_distillation.md){ .md-button }
+    [Download Code :octicons-download-24:](../assets/recipes/trace_ingestion/agent_rollout_distillation.py){ .md-button download="agent_rollout_distillation.py" }
+
 
 -   :material-tools:{ .lg .middle } **Basic MCP Tool Use**
 
