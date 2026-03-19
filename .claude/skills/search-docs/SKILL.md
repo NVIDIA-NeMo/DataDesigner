@@ -2,6 +2,8 @@
 name: search-docs
 description: Search local documentation in the docs/ folder for content related to a topic
 argument-hint: <search-topic>
+metadata:
+    internal: true
 ---
 
 # Documentation Search

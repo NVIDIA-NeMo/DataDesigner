@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from data_designer.engine.testing.seed_readers import LineFanoutDirectorySeedReader
 from data_designer.engine.testing.stubs import (
     StubChoice,
     StubHuggingFaceSeedReader,
@@ -15,6 +16,7 @@ from data_designer.engine.testing.stubs import (
 from data_designer.engine.testing.utils import assert_valid_plugin
 
 __all__ = [
+    LineFanoutDirectorySeedReader.__name__,
     "StubChoice",
     "StubHuggingFaceSeedReader",
     "StubMCPFacade",
