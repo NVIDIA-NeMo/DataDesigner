@@ -39,6 +39,10 @@ class NormalizedAgentRolloutRecord:
     def to_dict(self) -> dict[str, Any]:
         return dataclasses.asdict(self)
 
+    @staticmethod
+    def get_field_names() -> list[str]:
+        return [f.name for f in dataclasses.fields(NormalizedAgentRolloutRecord)]
+
 
 def _extract_final_assistant_text(messages: list[dict[str, Any]]) -> str | None:
     for message in reversed(messages):

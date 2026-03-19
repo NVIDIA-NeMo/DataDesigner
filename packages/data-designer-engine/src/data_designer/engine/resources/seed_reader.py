@@ -33,6 +33,7 @@ from data_designer.engine.resources.agent_rollout import (
     AgentRolloutFormatHandler,
     AgentRolloutParseContext,
     AgentRolloutSeedParseError,
+    NormalizedAgentRolloutRecord,
     get_format_handler,
 )
 from data_designer.engine.secret_resolver import SecretResolver
@@ -46,26 +47,6 @@ logger = logging.getLogger(__name__)
 
 
 class SeedReaderError(DataDesignerError): ...
-
-
-AGENT_ROLLOUT_OUTPUT_COLUMNS = [
-    "trace_id",
-    "source_kind",
-    "source_path",
-    "root_session_id",
-    "agent_id",
-    "is_sidechain",
-    "cwd",
-    "project_path",
-    "git_branch",
-    "started_at",
-    "ended_at",
-    "messages",
-    "message_count",
-    "tool_call_count",
-    "final_assistant_message",
-    "source_meta",
-]
 
 
 @dataclass(frozen=True)
@@ -598,7 +579,7 @@ class FileContentsSeedReader(FileSystemSeedReader[FileContentsSeedSource]):
 
 
 class AgentRolloutSeedReader(FileSystemSeedReader[AgentRolloutSeedSource]):
-    output_columns = AGENT_ROLLOUT_OUTPUT_COLUMNS
+    output_columns = NormalizedAgentRolloutRecord.get_field_names()
 
     def _reset_attachment_state(self) -> None:
         super()._reset_attachment_state()
