@@ -39,9 +39,9 @@ class NormalizedAgentRolloutRecord:
     def to_dict(self) -> dict[str, Any]:
         return {f.name: getattr(self, f.name) for f in dataclasses.fields(self)}
 
-    @staticmethod
-    def get_field_names() -> list[str]:
-        return [f.name for f in dataclasses.fields(NormalizedAgentRolloutRecord)]
+    @classmethod
+    def get_field_names(cls) -> list[str]:
+        return [f.name for f in dataclasses.fields(cls)]
 
 
 def _extract_final_assistant_text(messages: list[dict[str, Any]]) -> str | None:

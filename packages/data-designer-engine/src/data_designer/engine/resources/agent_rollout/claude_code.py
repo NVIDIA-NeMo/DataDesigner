@@ -127,6 +127,8 @@ def normalize_content_block(block: Any) -> dict[str, Any]:
             return {"type": "text", "text": stringify_text_value(block.get("text"))}
         if block_type is not None:
             return block
+        if "text" in block:
+            return {"type": "text", "text": stringify_text_value(block["text"])}
     return {"type": "text", "text": stringify_text_value(block)}
 
 

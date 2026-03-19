@@ -103,6 +103,13 @@ def test_parse_file_raises_on_malformed_assistant_record(
         handler.parse_file(root_path=tmp_path, relative_path="session.jsonl")
 
 
+def test_normalize_content_block_extracts_text_from_dict_without_type() -> None:
+    from data_designer.engine.resources.agent_rollout.claude_code import normalize_content_block
+
+    result = normalize_content_block({"text": "hello"})
+    assert result == {"type": "text", "text": "hello"}
+
+
 def test_is_handled_file_accepts_jsonl_rejects_tool_results_and_history() -> None:
     handler = _make_handler()
     assert handler.is_handled_file("project/session.jsonl") is True

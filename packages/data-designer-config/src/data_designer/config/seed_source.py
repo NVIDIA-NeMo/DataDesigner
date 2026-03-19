@@ -8,7 +8,7 @@ from abc import ABC
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import BaseModel, Field, PrivateAttr, field_validator, model_validator
+from pydantic import BaseModel, Field, PrivateAttr, field_validator
 from typing_extensions import Self
 
 from data_designer.config.errors import InvalidFilePathError
@@ -111,15 +111,16 @@ class FileSystemSeedSource(SeedSource, ABC):
 
     @field_validator("path", mode="after")
     def validate_path(cls, value: str | None) -> str | None:
+        # Signature is str | None because AgentRolloutSeedSource overrides path to str | None
+        # and inherited validators fire for all subclasses.
         return _validate_filesystem_seed_source_path(value)
 
     def model_post_init(self, __context: Any) -> None:
+        # None guard is exercised by AgentRolloutSeedSource (path: str | None) via inheritance.
         self._runtime_path = None if self.path is None else _resolve_filesystem_runtime_path(self.path)
 
     @property
     def runtime_path(self) -> str:
-        if self.path is None:
-            raise ValueError("🛑 FileSystemSeedSource.path must be set before runtime_path can be resolved.")
         if self._runtime_path is None:
             self._runtime_path = _resolve_filesystem_runtime_path(self.path)
         return self._runtime_path
@@ -228,21 +229,6 @@ class AgentRolloutSeedSource(FileSystemSeedSource):
         ),
     )
 
-    @model_validator(mode="after")
-    def validate_resolved_path_exists(self) -> Self:
-        default_path, _ = get_agent_rollout_format_defaults(self.format)
-        resolved_path = self.path if self.path is not None else default_path
-        _validate_filesystem_seed_source_path(resolved_path)
-        self._runtime_path = _resolve_filesystem_runtime_path(resolved_path)
-        return self
-
-    @property
-    def resolved_file_pattern(self) -> str:
-        if self.file_pattern is not None:
-            return self.file_pattern
-        _, default_file_pattern = get_agent_rollout_format_defaults(self.format)
-        return default_file_pattern
-
     @property
     def runtime_path(self) -> str:
         if self._runtime_path is not None:
@@ -251,3 +237,10 @@ class AgentRolloutSeedSource(FileSystemSeedSource):
         resolved_path = self.path if self.path is not None else default_path
         self._runtime_path = _resolve_filesystem_runtime_path(resolved_path)
         return self._runtime_path
+
+    @property
+    def resolved_file_pattern(self) -> str:
+        if self.file_pattern is not None:
+            return self.file_pattern
+        _, default_file_pattern = get_agent_rollout_format_defaults(self.format)
+        return default_file_pattern

@@ -16,6 +16,7 @@ from data_designer.engine.resources.agent_rollout.utils import (
     load_jsonl_rows,
     require_string,
     stringify_json_value,
+    stringify_text_value,
 )
 
 logger = logging.getLogger(__name__)
@@ -79,12 +80,11 @@ class CodexAgentRolloutFormatHandler(AgentRolloutFormatHandler):
             response_item_types.add(item_type)
 
             if item_type == "message":
-                role = payload.get("role")
+                role = require_string(payload.get("role"), f"Codex message role in {file_path}")
                 reasoning_content = (
                     "\n\n".join(pending_reasoning) if role == "assistant" and pending_reasoning else None
                 )
-                if role == "assistant":
-                    pending_reasoning.clear()
+                pending_reasoning.clear()
                 messages.append(
                     build_message(
                         role=role,
@@ -92,7 +92,7 @@ class CodexAgentRolloutFormatHandler(AgentRolloutFormatHandler):
                         reasoning_content=reasoning_content,
                     )
                 )
-            elif item_type == "function_call":
+            elif item_type in {"function_call", "custom_tool_call", "apply_patch_call"}:
                 reasoning_content = "\n\n".join(pending_reasoning) if pending_reasoning else None
                 pending_reasoning.clear()
                 messages.append(
@@ -106,13 +106,15 @@ class CodexAgentRolloutFormatHandler(AgentRolloutFormatHandler):
                                 "type": "function",
                                 "function": {
                                     "name": require_string(payload.get("name"), f"Codex tool name in {file_path}"),
-                                    "arguments": stringify_json_value(payload.get("arguments")),
+                                    "arguments": stringify_json_value(payload.get("arguments"))
+                                    if "arguments" in payload
+                                    else stringify_text_value(payload.get("input")),
                                 },
                             }
                         ],
                     )
                 )
-            elif item_type == "function_call_output":
+            elif item_type in {"function_call_output", "custom_tool_call_output", "apply_patch_call_output"}:
                 messages.append(
                     build_message(
                         role="tool",
@@ -125,6 +127,8 @@ class CodexAgentRolloutFormatHandler(AgentRolloutFormatHandler):
                 )
             elif item_type == "reasoning":
                 pending_reasoning.extend(extract_codex_reasoning_summaries(payload))
+            else:
+                logger.warning("Skipping unrecognized Codex response_item type %r in %s", item_type, file_path)
 
         session_id = coerce_optional_str(session_meta.get("id")) or file_path.stem
         source_meta: dict[str, Any] = {

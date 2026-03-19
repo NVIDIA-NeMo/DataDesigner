@@ -620,7 +620,7 @@ class AgentRolloutSeedReader(FileSystemSeedReader[AgentRolloutSeedSource]):
                 relative_path=relative_path,
                 parse_context=parse_ctx,
             )
-        except AgentRolloutSeedParseError as error:
+        except (AgentRolloutSeedParseError, UnicodeDecodeError) as error:
             logger.warning("Skipping malformed file %s: %s", relative_path, error)
             return []
         except OSError as error:
