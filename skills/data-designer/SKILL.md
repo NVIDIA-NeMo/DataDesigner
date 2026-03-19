@@ -49,8 +49,9 @@ Write a Python file to the current directory with a `load_config_builder()` func
 ```python
 # /// script
 # dependencies = [
-#   "data-designer", # required
-#   # add any additional dependencies here
+#   "data-designer", # always required
+#   "pydantic", # only if this script imports from pydantic
+#   # add additional dependencies here
 # ]
 # ///
 import data_designer.config as dd
