@@ -581,9 +581,11 @@ class FileContentsSeedReader(FileSystemSeedReader[FileContentsSeedSource]):
 class AgentRolloutSeedReader(FileSystemSeedReader[AgentRolloutSeedSource]):
     output_columns = NormalizedAgentRolloutRecord.get_field_names()
 
+    _PARSE_CONTEXT_UNSET: AgentRolloutParseContext | None = object()  # type: ignore[assignment]
+
     def _reset_attachment_state(self) -> None:
         super()._reset_attachment_state()
-        self._parse_context: AgentRolloutParseContext | None = None
+        self._parse_context: AgentRolloutParseContext | None = self._PARSE_CONTEXT_UNSET  # type: ignore[assignment]
 
     def build_manifest(self, *, context: SeedReaderFileSystemContext) -> list[dict[str, Any]]:
         matched_paths = self.get_matching_relative_paths(
@@ -637,7 +639,7 @@ class AgentRolloutSeedReader(FileSystemSeedReader[AgentRolloutSeedSource]):
             ) from error
 
     def _get_parse_context(self, context: SeedReaderFileSystemContext) -> AgentRolloutParseContext | None:
-        if self._parse_context is not None:
+        if self._parse_context is not self._PARSE_CONTEXT_UNSET:
             return self._parse_context
 
         handler = self.get_format_handler()

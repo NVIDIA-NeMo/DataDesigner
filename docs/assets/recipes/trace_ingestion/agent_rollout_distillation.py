@@ -401,7 +401,7 @@ def run_recipe(
     return data_designer.create(config_builder, num_records=num_records, dataset_name=dataset_name)
 
 
-def parse_args() -> ArgumentParser:
+def build_arg_parser() -> ArgumentParser:
     parser = ArgumentParser()
     parser.add_argument(
         "--format",
@@ -470,7 +470,7 @@ def build_seed_source(
 
 
 def main() -> None:
-    args = parse_args().parse_args()
+    args = build_arg_parser().parse_args()
     rollout_format = dd.AgentRolloutFormat(args.format)
     trace_dir = args.trace_dir.expanduser().resolve() if args.trace_dir is not None else None
     sampling_strategy = dd.SamplingStrategy.SHUFFLE if args.shuffle else dd.SamplingStrategy.ORDERED
