@@ -27,6 +27,7 @@ from data_designer.engine.resources.seed_reader import (
     SeedReaderFileSystemContext,
 )
 from data_designer.engine.secret_resolver import CompositeResolver, EnvironmentResolver, PlaintextResolver
+from data_designer.engine.testing.seed_readers import LineFanoutDirectorySeedReader
 from data_designer.engine.testing.stubs import StubHuggingFaceSeedReader
 from data_designer.interface.data_designer import DataDesigner
 from data_designer.interface.errors import DataDesignerGenerationError, DataDesignerProfilingError
@@ -61,36 +62,6 @@ class CustomDirectorySeedReader(FileSystemSeedReader[DirectorySeedSource]):
             "file_name": str(manifest_row["file_name"]),
             "decorated_path": f"custom::{manifest_row['relative_path']}",
         }
-
-
-class FanoutCustomDirectorySeedReader(FileSystemSeedReader[DirectorySeedSource]):
-    output_columns = ["relative_path", "line_index", "line"]
-
-    def build_manifest(self, *, context: SeedReaderFileSystemContext) -> lazy.pd.DataFrame | list[dict[str, str]]:
-        matched_paths = self.get_matching_relative_paths(
-            context=context,
-            file_pattern=self.source.file_pattern,
-            recursive=self.source.recursive,
-        )
-        return [{"relative_path": relative_path} for relative_path in matched_paths]
-
-    def hydrate_row(
-        self,
-        *,
-        manifest_row: dict[str, Any],
-        context: SeedReaderFileSystemContext,
-    ) -> list[dict[str, Any]]:
-        relative_path = str(manifest_row["relative_path"])
-        with context.fs.open(relative_path, "r", encoding="utf-8") as handle:
-            lines = handle.read().splitlines()
-        return [
-            {
-                "relative_path": relative_path,
-                "line_index": line_index,
-                "line": line,
-            }
-            for line_index, line in enumerate(lines)
-        ]
 
 
 def _add_irrelevant_sampler_column(builder: DataDesignerConfigBuilder) -> None:
@@ -857,7 +828,7 @@ def test_create_dataset_e2e_with_custom_filesystem_seed_reader_fanout_partition_
         model_providers=stub_model_providers,
         secret_resolver=PlaintextResolver(),
         managed_assets_path=stub_managed_assets_path,
-        seed_readers=[FanoutCustomDirectorySeedReader()],
+        seed_readers=[LineFanoutDirectorySeedReader()],
     )
 
     results = data_designer.create(builder, num_records=3, dataset_name="custom-fanout-directory-reader-test")
@@ -891,7 +862,7 @@ def test_create_dataset_e2e_with_custom_filesystem_seed_reader_selected_empty_fa
         model_providers=stub_model_providers,
         secret_resolver=PlaintextResolver(),
         managed_assets_path=stub_managed_assets_path,
-        seed_readers=[FanoutCustomDirectorySeedReader()],
+        seed_readers=[LineFanoutDirectorySeedReader()],
     )
 
     with pytest.raises(
