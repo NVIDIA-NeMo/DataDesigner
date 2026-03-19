@@ -2,6 +2,8 @@
 name: search-github
 description: Search GitHub issues, discussions, and PRs for content related to a topic
 argument-hint: <search-topic>
+metadata:
+    internal: true
 ---
 
 # GitHub Search
