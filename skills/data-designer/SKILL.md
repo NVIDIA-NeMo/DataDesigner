@@ -13,8 +13,6 @@ Do not explore the workspace first. The workflow's Learn step gives you everythi
 
 Build a synthetic dataset using the Data Designer library that matches this description:
 
-
-
 $ARGUMENTS
 
 # Workflow
