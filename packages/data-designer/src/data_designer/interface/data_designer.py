@@ -38,7 +38,10 @@ from data_designer.engine.compiler import compile_data_designer_config
 from data_designer.engine.dataset_builders.column_wise_builder import ColumnWiseDatasetBuilder
 from data_designer.engine.mcp.io import list_tool_names
 from data_designer.engine.model_provider import resolve_model_provider_registry
-from data_designer.engine.resources.managed_storage import init_managed_blob_storage
+from data_designer.engine.resources.person_reader import (
+    PersonReader,
+    create_person_reader,
+)
 from data_designer.engine.resources.resource_provider import ResourceProvider, create_resource_provider
 from data_designer.engine.resources.seed_reader import (
     AgentRolloutSeedReader,
@@ -120,6 +123,10 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             If not provided, will check for an environment variable called DATA_DESIGNER_MANAGED_ASSETS_PATH.
             If the environment variable is not set, will use the default managed assets directory, which
             is defined in `data_designer.config.utils.constants`.
+        person_reader: Optional custom reader for person datasets.
+            If provided, this reader will be used instead of the default local reader.
+            This allows clients to customize how managed datasets are accessed (e.g.,
+            using custom fsspec clients for S3 or other remote storage).
         mcp_providers: Optional list of MCP provider configurations to enable tool-calling for
             LLM generation columns. Supports both MCPProvider (remote/SSE) and
             LocalStdioMCPProvider (local subprocess).
@@ -133,6 +140,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         secret_resolver: SecretResolver | None = None,
         seed_readers: list[SeedReader] | None = None,
         managed_assets_path: Path | str | None = None,
+        person_reader: PersonReader | None = None,
         mcp_providers: list[MCPProviderT] | None = None,
     ):
         _initialize_interface_runtime()
@@ -140,6 +148,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         self._artifact_path = Path(artifact_path) if artifact_path is not None else Path.cwd() / "artifacts"
         self._run_config = RunConfig()
         self._managed_assets_path = Path(managed_assets_path or MANAGED_ASSETS_PATH)
+        self._person_reader = person_reader
         self._model_providers = self._resolve_model_providers(model_providers)
         self._mcp_providers = mcp_providers or []
         self._model_provider_registry = resolve_model_provider_registry(
@@ -449,7 +458,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             model_configs=config_builder.model_configs,
             secret_resolver=self._secret_resolver,
             model_provider_registry=self._model_provider_registry,
-            blob_storage=init_managed_blob_storage(str(self._managed_assets_path)),
+            person_reader=self._person_reader or create_person_reader(str(self._managed_assets_path)),
             seed_dataset_source=seed_dataset_source,
             seed_reader_registry=self._seed_reader_registry,
             run_config=self._run_config,
