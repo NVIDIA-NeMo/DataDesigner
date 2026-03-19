@@ -66,7 +66,7 @@ if DATA_DESIGNER_ASYNC_ENGINE:
     from data_designer.engine.dataset_builders.async_scheduler import AsyncTaskScheduler
     from data_designer.engine.dataset_builders.utils.async_concurrency import (
         AsyncConcurrentExecutor,
-        _ensure_async_engine_loop,
+        ensure_async_engine_loop,
     )
     from data_designer.engine.dataset_builders.utils.completion_tracker import CompletionTracker
     from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
@@ -274,6 +274,7 @@ class ColumnWiseDatasetBuilder:
                     tracker.drop_row(rg_id, ri)
 
         # Post-batch processor callback: runs after all columns, before checkpoint.
+        # rg_id is used as current_batch_number; both are 0-based sequential indices today.
         def on_before_checkpoint(rg_id: int, rg_size: int) -> None:
             df = buffer_manager.get_dataframe(rg_id)
             df = self._processor_runner.run_post_batch(df, current_batch_number=rg_id)
@@ -291,7 +292,9 @@ class ColumnWiseDatasetBuilder:
             tracker=tracker,
             row_groups=row_groups,
             buffer_manager=buffer_manager,
-            on_seeds_complete=on_seeds_complete,
+            on_seeds_complete=(
+                on_seeds_complete if self._processor_runner.has_processors_for(ProcessorStage.PRE_BATCH) else None
+            ),
             on_before_checkpoint=(
                 on_before_checkpoint if self._processor_runner.has_processors_for(ProcessorStage.POST_BATCH) else None
             ),
@@ -305,7 +308,7 @@ class ColumnWiseDatasetBuilder:
         )
 
         # Run on background event loop
-        loop = _ensure_async_engine_loop()
+        loop = ensure_async_engine_loop()
         future = asyncio.run_coroutine_threadsafe(scheduler.run(), loop)
         future.result()
 
@@ -316,7 +319,7 @@ class ColumnWiseDatasetBuilder:
             usage_deltas = self._resource_provider.model_registry.get_usage_deltas(pre_batch_snapshot)
             self._emit_batch_inference_events("batch", usage_deltas, group_id)
         except Exception:
-            pass
+            logger.debug("Failed to emit batch telemetry for async run", exc_info=True)
 
         # Write metadata
         buffer_manager.write_metadata(target_num_records=num_records, buffer_size=buffer_size)

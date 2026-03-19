@@ -6,6 +6,7 @@ from __future__ import annotations
 import os
 from collections import defaultdict
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -23,9 +24,7 @@ def test_async_engine_concurrent_columns(tmp_path: Path) -> None:
     if os.environ.get("NVIDIA_API_KEY") is None:
         pytest.skip("NVIDIA_API_KEY must be set")
 
-    original = cwb.DATA_DESIGNER_ASYNC_ENGINE
-    cwb.DATA_DESIGNER_ASYNC_ENGINE = True
-    try:
+    with patch.object(cwb, "DATA_DESIGNER_ASYNC_ENGINE", True):
         dd_instance = DataDesigner(artifact_path=str(tmp_path))
         dd_instance.set_run_config(RunConfig(buffer_size=NUM_RECORDS, async_trace=True))
 
@@ -48,8 +47,6 @@ def test_async_engine_concurrent_columns(tmp_path: Path) -> None:
 
         result = dd_instance.create(config, num_records=NUM_RECORDS, dataset_name="async_e2e")
         df = result.load_dataset()
-    finally:
-        cwb.DATA_DESIGNER_ASYNC_ENGINE = original
 
     # Dataset correctness
     assert len(df) == NUM_RECORDS

@@ -112,6 +112,9 @@ class AsyncTaskScheduler:
         # Pre-compute row-group sizes for O(1) lookup
         self._rg_size_map: dict[int, int] = dict(row_groups)
 
+        # Pre-compute seed columns (graph is static)
+        self._seed_cols: frozenset[str] = frozenset(c for c in graph.columns if not graph.get_upstream_columns(c))
+
     async def _admit_row_groups(self) -> None:
         """Admit row groups as semaphore slots become available."""
         for rg_id, rg_size in self._row_groups:
@@ -130,7 +133,7 @@ class AsyncTaskScheduler:
     async def run(self) -> None:
         """Main scheduler loop."""
         all_columns = self._graph.columns
-        seed_cols = frozenset(c for c in all_columns if not self._graph.get_upstream_columns(c))
+        seed_cols = self._seed_cols
         has_pre_batch = self._on_seeds_complete is not None
 
         # Launch admission as a background task so it interleaves with dispatch.
@@ -265,6 +268,7 @@ class AsyncTaskScheduler:
                     try:
                         self._on_before_checkpoint(rg_id, rg_size)
                     except Exception:
+                        # Post-batch is mandatory; drop rather than checkpoint unprocessed data.
                         logger.error(
                             f"on_before_checkpoint failed for row group {rg_id}, dropping row group.",
                             exc_info=True,
@@ -283,7 +287,7 @@ class AsyncTaskScheduler:
 
     def _run_seeds_complete_check(self, seed_cols: frozenset[str]) -> None:
         """Run pre-batch callbacks for row groups whose seeds just completed."""
-        for rg_id, rg_size in self._active_rgs:
+        for rg_id, rg_size in list(self._active_rgs):
             if rg_id in self._seeds_dispatched_rgs and rg_id not in self._pre_batch_done_rgs:
                 all_seeds_done = all(self._tracker.is_column_complete_for_rg(col, rg_id) for col in seed_cols)
                 if all_seeds_done and not self._in_flight_for_rg(rg_id):
@@ -316,7 +320,7 @@ class AsyncTaskScheduler:
     async def _dispatch_seeds(self, rg_id: int, rg_size: int) -> None:
         """Dispatch from_scratch tasks for a row group."""
         self._seeds_dispatched_rgs.add(rg_id)
-        seed_cols = [col for col in self._graph.get_topological_order() if not self._graph.get_upstream_columns(col)]
+        seed_cols = self._seed_cols
         seen_instances: set[int] = set()
 
         for col in seed_cols:
@@ -443,7 +447,7 @@ class AsyncTaskScheduler:
                 self.traces.append(trace)
 
             self._in_flight.discard(task)
-            self._in_flight_counts[task.row_group] = self._in_flight_counts.get(task.row_group, 0) - 1
+            self._in_flight_counts[task.row_group] = max(0, self._in_flight_counts.get(task.row_group, 0) - 1)
             if not retryable and not skipped:
                 self._dispatched.discard(task)
             self._submission_semaphore.release()

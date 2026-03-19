@@ -21,6 +21,7 @@ from data_designer.engine.column_generators.generators.base import (
     ColumnGeneratorFullColumn,
     FromScratchColumnGenerator,
 )
+from data_designer.engine.dataset_builders.async_scheduler import AsyncTaskScheduler
 from data_designer.engine.dataset_builders.column_wise_builder import ColumnWiseDatasetBuilder
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 from data_designer.engine.dataset_builders.utils.completion_tracker import CompletionTracker
@@ -105,7 +106,6 @@ def test_validate_async_compatibility(configs: list[Mock], should_raise: bool) -
 @pytest.mark.asyncio(loop_scope="session")
 async def test_build_async_end_to_end() -> None:
     """Test _build_async with mock generators produces correct results in buffer."""
-    from data_designer.engine.dataset_builders.async_scheduler import AsyncTaskScheduler
 
     provider = _mock_provider()
     seed_gen = MockSeed(config=_expr_config("seed"), resource_provider=provider)
@@ -224,7 +224,6 @@ def test_execution_graph_from_real_configs() -> None:
 @pytest.mark.asyncio(loop_scope="session")
 async def test_checkpoint_produces_correct_parquet_calls() -> None:
     """Verify checkpoint writes parquet for each row group."""
-    from data_designer.engine.dataset_builders.async_scheduler import AsyncTaskScheduler
 
     provider = _mock_provider()
     seed_gen = MockSeed(config=_expr_config("seed"), resource_provider=provider)
