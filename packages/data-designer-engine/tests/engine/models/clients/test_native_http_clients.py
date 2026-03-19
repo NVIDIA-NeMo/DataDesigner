@@ -235,6 +235,23 @@ def test_mode_property_reflects_constructor_arg(client_factory: Callable[..., An
 
 
 # ---------------------------------------------------------------------------
+# Constructor validation tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(("client_factory", "model_name"), _SYNC_CLIENT_CASES)
+def test_sync_mode_rejects_async_client_injection(client_factory: Callable[..., Any], model_name: str) -> None:
+    with pytest.raises(ValueError, match="async_client must not be provided"):
+        client_factory(concurrency_mode=ClientConcurrencyMode.SYNC, async_client=MagicMock())
+
+
+@pytest.mark.parametrize(("client_factory", "model_name"), _SYNC_CLIENT_CASES)
+def test_async_mode_rejects_sync_client_injection(client_factory: Callable[..., Any], model_name: str) -> None:
+    with pytest.raises(ValueError, match="sync_client must not be provided"):
+        client_factory(concurrency_mode=ClientConcurrencyMode.ASYNC, sync_client=MagicMock())
+
+
+# ---------------------------------------------------------------------------
 # Lazy initialization tests
 # ---------------------------------------------------------------------------
 

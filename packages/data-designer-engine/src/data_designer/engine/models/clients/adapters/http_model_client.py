@@ -54,6 +54,11 @@ class HttpModelClient(ABC):
         sync_client: httpx.Client | None = None,
         async_client: httpx.AsyncClient | None = None,
     ) -> None:
+        if concurrency_mode == ClientConcurrencyMode.SYNC and async_client is not None:
+            raise ValueError("async_client must not be provided for a sync-mode HttpModelClient")
+        if concurrency_mode == ClientConcurrencyMode.ASYNC and sync_client is not None:
+            raise ValueError("sync_client must not be provided for an async-mode HttpModelClient")
+
         self.provider_name = provider_name
         self._endpoint = endpoint.rstrip("/")
         self._api_key = api_key
@@ -123,10 +128,10 @@ class HttpModelClient(ABC):
             self._closed = True
             self._client = None
             self._transport = None  # type: ignore[assignment]
-        if transport is not None:
-            transport.close()
         if client is not None:
             client.close()
+        elif transport is not None:
+            transport.close()
 
     async def aclose(self) -> None:
         """Release async-mode resources.  No-op if this is a sync-mode client."""
@@ -138,10 +143,10 @@ class HttpModelClient(ABC):
             self._closed = True
             self._aclient = None
             self._transport = None  # type: ignore[assignment]
-        if transport is not None:
-            await transport.aclose()
         if async_client is not None:
             await async_client.aclose()
+        elif transport is not None:
+            await transport.aclose()
 
     # --- HTTP helpers ---
 

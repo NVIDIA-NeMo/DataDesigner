@@ -74,6 +74,12 @@ The constructor accepts
 `concurrency_mode: ClientConcurrencyMode = ClientConcurrencyMode.SYNC`.
 Each instance owns exactly one transport and one httpx client type.
 
+Constructor validation:
+
+- Rejects mismatched client injection (e.g. passing `async_client` to a
+  sync-mode instance raises `ValueError`), preventing silent resource
+  leaks from unused injected clients.
+
 Mode enforcement:
 
 - `_get_sync_client()` raises `RuntimeError` if `mode == ASYNC`.
@@ -81,10 +87,14 @@ Mode enforcement:
 
 Simplified lifecycle -- each method only handles its own mode:
 
-- `close()`: tears down `self._transport` and `self._client`. No-op if
-async mode.
-- `aclose()`: awaits `self._transport.aclose()` and
-`self._aclient.aclose()`. No-op if sync mode.
+- `close()`: delegates to `client.close()` (which owns transport
+  teardown); falls back to `transport.close()` only if no client was
+  created. No-op if async mode.
+- `aclose()`: delegates to `async_client.aclose()`; falls back to
+  `transport.aclose()` only if no client was created. No-op if sync mode.
+
+Transport teardown is handled by the httpx client when one exists,
+avoiding double-close of the `RetryTransport`.
 
 The `threading.Lock` is retained for both modes. It is only strictly
 needed in sync mode (thread pool), but is harmless in async mode and
@@ -125,7 +135,7 @@ enforcement guard.
 - **Sync path** (default): calls `registry.run_health_check()` directly.
 - **Async path**: submits `registry.arun_health_check()` to the
 background event loop via `asyncio.run_coroutine_threadsafe` and blocks
-on `future.result()`.
+on `future.result(timeout=180)` with a 3-minute wall-clock guard.
 
 Health checks remain blocking from the main thread's perspective (same
 UX), but use the async client internally when in async-engine mode.
@@ -199,6 +209,7 @@ authentication error paths.
 | Async-mode lifecycle    | `aclose()` delegates to httpx async client, idempotent aclose, no-op when no client created, acompletion raises after aclose   |
 | Cross-mode no-ops       | `aclose()` is no-op on sync-mode client, `close()` is no-op on async-mode client                                               |
 | Mode enforcement        | `_get_sync_client()` raises on async-mode, `_get_async_client()` raises on sync-mode, `concurrency_mode` property reflects constructor arg |
+| Constructor validation  | Sync-mode rejects `async_client` injection, async-mode rejects `sync_client` injection                                        |
 | Lazy initialization     | Sync completion lazily creates `httpx.Client`, async acompletion lazily creates `httpx.AsyncClient`                            |
 | Factory mode forwarding | `client_concurrency_mode` forwarded to OpenAI client, `client_concurrency_mode` forwarded to Anthropic client, default is sync |
 | Async health check      | `arun_health_check` success (chat + embedding), `arun_health_check` authentication error propagation                           |
