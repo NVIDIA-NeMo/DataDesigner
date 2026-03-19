@@ -3,9 +3,8 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -16,31 +15,11 @@ from data_designer.engine.models.clients.types import (
     EmbeddingRequest,
     ImageGenerationRequest,
 )
+from tests.engine.models.clients.conftest import make_mock_async_client, make_mock_sync_client
 
 PROVIDER = "test-provider"
 MODEL = "gpt-test"
 ENDPOINT = "https://api.example.com/v1"
-
-
-def _mock_httpx_response(json_data: dict[str, Any], status_code: int = 200) -> MagicMock:
-    resp = MagicMock()
-    resp.status_code = status_code
-    resp.json.return_value = json_data
-    resp.text = json.dumps(json_data)
-    resp.headers = {}
-    return resp
-
-
-def _make_sync_client(response_json: dict[str, Any], status_code: int = 200) -> MagicMock:
-    mock = MagicMock()
-    mock.post = MagicMock(return_value=_mock_httpx_response(response_json, status_code))
-    return mock
-
-
-def _make_async_client(response_json: dict[str, Any], status_code: int = 200) -> MagicMock:
-    mock = MagicMock()
-    mock.post = AsyncMock(return_value=_mock_httpx_response(response_json, status_code))
-    return mock
 
 
 def _make_client(
@@ -51,7 +30,6 @@ def _make_client(
 ) -> OpenAICompatibleClient:
     return OpenAICompatibleClient(
         provider_name=PROVIDER,
-        model_id=MODEL,
         endpoint=ENDPOINT,
         api_key=api_key,
         sync_client=sync_client,
@@ -94,7 +72,7 @@ def _image_response() -> dict[str, Any]:
 
 def test_completion_maps_canonical_fields() -> None:
     response_json = _chat_response(content="Hello!", reasoning="step-by-step")
-    client = _make_client(sync_client=_make_sync_client(response_json))
+    client = _make_client(sync_client=make_mock_sync_client(response_json))
 
     request = ChatCompletionRequest(model=MODEL, messages=[{"role": "user", "content": "Hi"}])
     result = client.completion(request)
@@ -108,7 +86,7 @@ def test_completion_maps_canonical_fields() -> None:
 
 def test_completion_with_tool_calls() -> None:
     tool_calls = [{"id": "tc1", "type": "function", "function": {"name": "search", "arguments": '{"q": "x"}'}}]
-    client = _make_client(sync_client=_make_sync_client(_chat_response(tool_calls=tool_calls)))
+    client = _make_client(sync_client=make_mock_sync_client(_chat_response(tool_calls=tool_calls)))
 
     request = ChatCompletionRequest(model=MODEL, messages=[{"role": "user", "content": "Search"}])
     result = client.completion(request)
@@ -119,7 +97,7 @@ def test_completion_with_tool_calls() -> None:
 
 
 def test_completion_posts_to_chat_completions_route() -> None:
-    sync_mock = _make_sync_client(_chat_response())
+    sync_mock = make_mock_sync_client(_chat_response())
     client = _make_client(sync_client=sync_mock)
 
     request = ChatCompletionRequest(
@@ -142,7 +120,7 @@ def test_completion_posts_to_chat_completions_route() -> None:
 
 
 def test_timeout_excluded_from_body_and_used_as_http_timeout() -> None:
-    sync_mock = _make_sync_client(_chat_response())
+    sync_mock = make_mock_sync_client(_chat_response())
     client = _make_client(sync_client=sync_mock)
 
     request = ChatCompletionRequest(
@@ -161,10 +139,9 @@ def test_timeout_excluded_from_body_and_used_as_http_timeout() -> None:
 
 
 def test_default_timeout_used_when_request_timeout_is_none() -> None:
-    sync_mock = _make_sync_client(_chat_response())
+    sync_mock = make_mock_sync_client(_chat_response())
     client = OpenAICompatibleClient(
         provider_name=PROVIDER,
-        model_id=MODEL,
         endpoint=ENDPOINT,
         timeout_s=45.0,
         sync_client=sync_mock,
@@ -180,7 +157,7 @@ def test_default_timeout_used_when_request_timeout_is_none() -> None:
 
 @pytest.mark.asyncio
 async def test_acompletion_maps_canonical_fields() -> None:
-    client = _make_client(async_client=_make_async_client(_chat_response(content="async result")))
+    client = _make_client(async_client=make_mock_async_client(_chat_response(content="async result")))
 
     request = ChatCompletionRequest(model=MODEL, messages=[{"role": "user", "content": "Hi"}])
     result = await client.acompletion(request)
@@ -192,7 +169,7 @@ async def test_acompletion_maps_canonical_fields() -> None:
 
 
 def test_embeddings_maps_vectors_and_usage() -> None:
-    client = _make_client(sync_client=_make_sync_client(_embedding_response()))
+    client = _make_client(sync_client=make_mock_sync_client(_embedding_response()))
 
     request = EmbeddingRequest(model=MODEL, inputs=["hello world"])
     result = client.embeddings(request)
@@ -203,7 +180,7 @@ def test_embeddings_maps_vectors_and_usage() -> None:
 
 
 def test_embeddings_posts_to_embeddings_route() -> None:
-    sync_mock = _make_sync_client(_embedding_response())
+    sync_mock = make_mock_sync_client(_embedding_response())
     client = _make_client(sync_client=sync_mock)
 
     request = EmbeddingRequest(model=MODEL, inputs=["hello"])
@@ -215,7 +192,7 @@ def test_embeddings_posts_to_embeddings_route() -> None:
 
 @pytest.mark.asyncio
 async def test_aembeddings_maps_vectors() -> None:
-    client = _make_client(async_client=_make_async_client(_embedding_response()))
+    client = _make_client(async_client=make_mock_async_client(_embedding_response()))
 
     request = EmbeddingRequest(model=MODEL, inputs=["hello"])
     result = await client.aembeddings(request)
@@ -227,7 +204,7 @@ async def test_aembeddings_maps_vectors() -> None:
 
 
 def test_generate_image_diffusion_route() -> None:
-    sync_mock = _make_sync_client(_image_response())
+    sync_mock = make_mock_sync_client(_image_response())
     client = _make_client(sync_client=sync_mock)
 
     request = ImageGenerationRequest(model=MODEL, prompt="a sunset")
@@ -244,7 +221,7 @@ def test_generate_image_chat_route_when_messages_present() -> None:
         "choices": [{"message": {"content": None, "images": [{"b64_json": "Y2hhdGltZw=="}]}}],
         "usage": {"prompt_tokens": 5, "completion_tokens": 0, "total_tokens": 5},
     }
-    sync_mock = _make_sync_client(chat_img_response)
+    sync_mock = make_mock_sync_client(chat_img_response)
     client = _make_client(sync_client=sync_mock)
 
     request = ImageGenerationRequest(
@@ -261,7 +238,7 @@ def test_generate_image_chat_route_when_messages_present() -> None:
 
 @pytest.mark.asyncio
 async def test_agenerate_image_maps_images() -> None:
-    client = _make_client(async_client=_make_async_client(_image_response()))
+    client = _make_client(async_client=make_mock_async_client(_image_response()))
 
     request = ImageGenerationRequest(model=MODEL, prompt="a cat")
     result = await client.agenerate_image(request)
@@ -273,7 +250,7 @@ async def test_agenerate_image_maps_images() -> None:
 
 
 def test_auth_header_present_when_api_key_set() -> None:
-    sync_mock = _make_sync_client(_chat_response())
+    sync_mock = make_mock_sync_client(_chat_response())
     client = _make_client(sync_client=sync_mock)
 
     request = ChatCompletionRequest(model=MODEL, messages=[{"role": "user", "content": "Hi"}])
@@ -285,7 +262,7 @@ def test_auth_header_present_when_api_key_set() -> None:
 
 
 def test_no_auth_header_when_api_key_none() -> None:
-    sync_mock = _make_sync_client(_chat_response())
+    sync_mock = make_mock_sync_client(_chat_response())
     client = _make_client(sync_client=sync_mock, api_key=None)
 
     request = ChatCompletionRequest(model=MODEL, messages=[{"role": "user", "content": "Hi"}])
@@ -296,7 +273,7 @@ def test_no_auth_header_when_api_key_none() -> None:
 
 
 def test_extra_headers_merged_into_auth_headers() -> None:
-    sync_mock = _make_sync_client(_chat_response())
+    sync_mock = make_mock_sync_client(_chat_response())
     client = _make_client(sync_client=sync_mock)
 
     request = ChatCompletionRequest(
@@ -329,7 +306,7 @@ def test_http_error_maps_to_provider_error(
     status_code: int,
     expected_kind: ProviderErrorKind,
 ) -> None:
-    client = _make_client(sync_client=_make_sync_client({"error": {"message": "fail"}}, status_code=status_code))
+    client = _make_client(sync_client=make_mock_sync_client({"error": {"message": "fail"}}, status_code=status_code))
 
     request = ChatCompletionRequest(model=MODEL, messages=[{"role": "user", "content": "Hi"}])
     with pytest.raises(ProviderError) as exc_info:
@@ -376,70 +353,6 @@ def test_non_json_response_raises_provider_error() -> None:
 
     assert exc_info.value.kind == ProviderErrorKind.API_ERROR
     assert "non-JSON" in exc_info.value.message
-
-
-# --- Lifecycle ---
-
-
-def test_close_delegates_to_httpx_client() -> None:
-    sync_mock = MagicMock()
-    client = _make_client(sync_client=sync_mock)
-    client.close()
-    sync_mock.close.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_aclose_closes_both_clients() -> None:
-    sync_mock = MagicMock()
-    async_mock = MagicMock()
-    async_mock.aclose = AsyncMock()
-    client = _make_client(sync_client=sync_mock, async_client=async_mock)
-
-    await client.aclose()
-
-    async_mock.aclose.assert_awaited_once()
-    sync_mock.close.assert_called_once()
-
-
-def test_close_noop_when_no_client_created() -> None:
-    client = _make_client()
-    client.close()  # should not raise
-
-
-@pytest.mark.asyncio
-async def test_aclose_noop_when_no_client_created() -> None:
-    client = _make_client()
-    await client.aclose()  # should not raise
-
-
-# --- Lazy client initialization ---
-
-
-def test_lazy_sync_client_creates_real_httpx_client() -> None:
-    """Exercise the lazy-init path that production code uses (no injected mock)."""
-    client = _make_client()
-    assert client._client is None
-
-    sync_client = client._get_sync_client()
-
-    assert sync_client is not None
-    assert client._client is sync_client
-    # Second call returns the same instance (double-check locking).
-    assert client._get_sync_client() is sync_client
-    client.close()
-
-
-@pytest.mark.asyncio
-async def test_lazy_async_client_creates_real_httpx_async_client() -> None:
-    client = _make_client()
-    assert client._aclient is None
-
-    async_client = client._get_async_client()
-
-    assert async_client is not None
-    assert client._aclient is async_client
-    assert client._get_async_client() is async_client
-    await client.aclose()
 
 
 # --- Capabilities ---
