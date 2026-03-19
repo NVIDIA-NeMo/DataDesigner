@@ -54,9 +54,16 @@ Write a Python file to the current directory with a `load_config_builder()` func
 # ]
 # ///
 import data_designer.config as dd
+from pydantic import BaseModel, Field
 
 
-# Use custom generators when bespoke generation logic is needed
+# Use Pydantic models when the output needs to conform to a specific schema
+class MyStructuredOutput(BaseModel):
+    field_one: str = Field(description="...")
+    field_two: int = Field(description="...")
+
+
+# Use custom generators when built-in column types aren't enough
 @dd.custom_column_generator(
     required_columns=["col_a"],
     side_effect_columns=["extra_col"],
