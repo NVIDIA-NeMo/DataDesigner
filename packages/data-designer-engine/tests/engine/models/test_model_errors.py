@@ -40,6 +40,7 @@ from data_designer.engine.models.errors import (
     ModelRateLimitError,
     ModelTimeoutError,
     ModelUnprocessableEntityError,
+    ModelUnsupportedCapabilityError,
     ModelUnsupportedParamsError,
     catch_llm_exceptions,
     get_exception_primary_cause,
@@ -137,6 +138,14 @@ stub_purpose = "running generation for column 'test'"
                 f"Cause: Model provider '{stub_model_provider_name}' reported insufficient credits or quota for model "
                 f"'{stub_model_name}' while {stub_purpose}."
             ),
+        ),
+        (
+            ProviderError(
+                kind=ProviderErrorKind.UNSUPPORTED_CAPABILITY,
+                message="Provider 'anthropic-prod' does not support operation 'embeddings'.",
+            ),
+            ModelUnsupportedCapabilityError,
+            f"Cause: Provider 'anthropic-prod' does not support operation 'embeddings' while {stub_purpose}.",
         ),
         (
             ProviderError(

@@ -98,6 +98,9 @@ class ModelBadRequestError(DataDesignerError): ...
 class ModelInternalServerError(DataDesignerError): ...
 
 
+class ModelUnsupportedCapabilityError(DataDesignerError): ...
+
+
 class ModelAPIError(DataDesignerError): ...
 
 
@@ -508,7 +511,18 @@ def _raise_from_provider_error(
             )
         ) from None
 
-    # Fallback for API_ERROR and UNSUPPORTED_CAPABILITY
+    if kind == ProviderErrorKind.UNSUPPORTED_CAPABILITY:
+        raise ModelUnsupportedCapabilityError(
+            FormattedLLMErrorMessage(
+                cause=f"{exception.message.rstrip('.')} while {purpose}.",
+                solution=(
+                    f"Use a model provider that supports this operation, or switch to a different model on "
+                    f"{model_provider_name!r} that supports it."
+                ),
+            )
+        ) from None
+
+    # Fallback for API_ERROR and other unhandled kinds
     raise ModelAPIError(
         _attach_provider_message(
             FormattedLLMErrorMessage(
