@@ -904,18 +904,32 @@ def test_agent_rollout_seed_reader_uses_resolved_file_pattern_when_model_constru
 
 
 def test_claude_session_index_scanning_respects_recursive_false(tmp_path: Path) -> None:
-    session_dir = tmp_path / "project-a"
-    session_dir.mkdir()
     _write_jsonl(
-        session_dir / "session.jsonl",
+        tmp_path / "top-session.jsonl",
         [
-            {"type": "user", "sessionId": "sess-1", "message": {"content": "Hello"}},
-            {"type": "assistant", "sessionId": "sess-1", "message": {"content": [{"type": "text", "text": "Hi"}]}},
+            {"type": "user", "sessionId": "top-sess", "message": {"content": "Hello"}},
+            {"type": "assistant", "sessionId": "top-sess", "message": {"content": [{"type": "text", "text": "Hi"}]}},
         ],
     )
-    nested_index = tmp_path / "project-a" / "sessions-index.json"
-    nested_index.write_text(
-        json.dumps({"entries": [{"sessionId": "sess-1", "projectPath": "/from-nested-index"}]}),
+    (tmp_path / "sessions-index.json").write_text(
+        json.dumps({"entries": [{"sessionId": "top-sess", "projectPath": "/from-top-index"}]}),
+        encoding="utf-8",
+    )
+
+    nested_dir = tmp_path / "project-a"
+    _write_jsonl(
+        nested_dir / "session.jsonl",
+        [
+            {"type": "user", "sessionId": "nested-sess", "message": {"content": "Bye"}},
+            {
+                "type": "assistant",
+                "sessionId": "nested-sess",
+                "message": {"content": [{"type": "text", "text": "Goodbye"}]},
+            },
+        ],
+    )
+    (nested_dir / "sessions-index.json").write_text(
+        json.dumps({"entries": [{"sessionId": "nested-sess", "projectPath": "/from-nested-index"}]}),
         encoding="utf-8",
     )
 
@@ -931,12 +945,12 @@ def test_claude_session_index_scanning_respects_recursive_false(tmp_path: Path) 
     )
     batch_reader = reader.create_batch_reader(batch_size=10, index_range=None, shuffle=False)
     recursive_df = batch_reader.read_next_batch().to_pandas()
-    assert list(recursive_df["project_path"]) == ["/from-nested-index"]
+    assert sorted(recursive_df["project_path"]) == ["/from-nested-index", "/from-top-index"]
 
     reader_non_recursive = AgentRolloutSeedReader()
     reader_non_recursive.attach(
         AgentRolloutSeedSource(
-            path=str(session_dir),
+            path=str(tmp_path),
             format=AgentRolloutFormat.CLAUDE_CODE,
             file_pattern="*.jsonl",
             recursive=False,
@@ -945,4 +959,4 @@ def test_claude_session_index_scanning_respects_recursive_false(tmp_path: Path) 
     )
     batch_reader_nr = reader_non_recursive.create_batch_reader(batch_size=10, index_range=None, shuffle=False)
     non_recursive_df = batch_reader_nr.read_next_batch().to_pandas()
-    assert list(non_recursive_df["project_path"]) == ["/from-nested-index"]
+    assert list(non_recursive_df["project_path"]) == ["/from-top-index"]

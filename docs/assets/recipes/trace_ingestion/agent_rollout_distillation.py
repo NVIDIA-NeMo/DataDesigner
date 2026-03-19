@@ -329,35 +329,35 @@ def build_config(
     config_builder.add_column(
         dd.ExpressionColumnConfig(
             name="groundedness_score",
-            expr="{{ sft_quality_judge_result.groundedness.score if sft_quality_judge_result.groundedness.score else 0 }}",
+            expr="{{ sft_quality_judge_result.groundedness.score if sft_quality_judge_result.groundedness.score is not none else 0 }}",
             dtype="int",
         )
     )
     config_builder.add_column(
         dd.ExpressionColumnConfig(
             name="standalone_task_score",
-            expr="{{ sft_quality_judge_result.standalone_task.score if sft_quality_judge_result.standalone_task.score else 0 }}",
+            expr="{{ sft_quality_judge_result.standalone_task.score if sft_quality_judge_result.standalone_task.score is not none else 0 }}",
             dtype="int",
         )
     )
     config_builder.add_column(
         dd.ExpressionColumnConfig(
             name="response_quality_score",
-            expr="{{ sft_quality_judge_result.response_quality.score if sft_quality_judge_result.response_quality.score else 0 }}",
+            expr="{{ sft_quality_judge_result.response_quality.score if sft_quality_judge_result.response_quality.score is not none else 0 }}",
             dtype="int",
         )
     )
     config_builder.add_column(
         dd.ExpressionColumnConfig(
             name="faithfulness_score",
-            expr="{{ sft_quality_judge_result.faithfulness.score if sft_quality_judge_result.faithfulness.score else 0 }}",
+            expr="{{ sft_quality_judge_result.faithfulness.score if sft_quality_judge_result.faithfulness.score is not none else 0 }}",
             dtype="int",
         )
     )
     config_builder.add_column(
         dd.ExpressionColumnConfig(
             name="training_utility_score",
-            expr="{{ sft_quality_judge_result.training_utility.score if sft_quality_judge_result.training_utility.score else 0 }}",
+            expr="{{ sft_quality_judge_result.training_utility.score if sft_quality_judge_result.training_utility.score is not none else 0 }}",
             dtype="int",
         )
     )

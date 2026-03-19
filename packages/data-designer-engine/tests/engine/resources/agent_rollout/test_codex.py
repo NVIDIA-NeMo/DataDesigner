@@ -82,6 +82,8 @@ def test_parse_file_comprehensive_happy_path(tmp_path: Path) -> None:
     assert len(records) == 1
     record = records[0]
     assert record.root_session_id == "sess-1"
+    assert record.source_kind == "codex"
+    assert record.message_count == 4
     assert record.final_assistant_message == "Here are the files"
     assert record.tool_call_count == 1
 

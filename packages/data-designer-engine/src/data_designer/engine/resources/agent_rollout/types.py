@@ -37,7 +37,7 @@ class NormalizedAgentRolloutRecord:
         self.final_assistant_message = _extract_final_assistant_text(self.messages)
 
     def to_dict(self) -> dict[str, Any]:
-        return dataclasses.asdict(self)
+        return {f.name: getattr(self, f.name) for f in dataclasses.fields(self)}
 
     @staticmethod
     def get_field_names() -> list[str]:

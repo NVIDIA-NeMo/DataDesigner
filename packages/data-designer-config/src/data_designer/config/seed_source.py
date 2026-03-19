@@ -228,18 +228,10 @@ class AgentRolloutSeedSource(FileSystemSeedSource):
         ),
     )
 
-    @field_validator("path", mode="after")
-    def validate_path(cls, value: str | None) -> str | None:
-        return _validate_filesystem_seed_source_path(value)
-
-    @field_validator("file_pattern", mode="after")
-    def validate_file_pattern(cls, value: str | None) -> str | None:
-        return _validate_filesystem_seed_source_file_pattern(value)
-
     @model_validator(mode="after")
     def validate_resolved_path_exists(self) -> Self:
         default_path, _ = get_agent_rollout_format_defaults(self.format)
-        resolved_path = self.path or default_path
+        resolved_path = self.path if self.path is not None else default_path
         _validate_filesystem_seed_source_path(resolved_path)
         self._runtime_path = _resolve_filesystem_runtime_path(resolved_path)
         return self
@@ -256,6 +248,6 @@ class AgentRolloutSeedSource(FileSystemSeedSource):
         if self._runtime_path is not None:
             return self._runtime_path
         default_path, _ = get_agent_rollout_format_defaults(self.format)
-        resolved_path = self.path or default_path
+        resolved_path = self.path if self.path is not None else default_path
         self._runtime_path = _resolve_filesystem_runtime_path(resolved_path)
         return self._runtime_path

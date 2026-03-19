@@ -107,7 +107,7 @@ Each recipe is a self-contained example that can be run independently.
 
     **Demonstrates:**
 
-    - `AgentRolloutSeedSource` across Claude Code, Codex, and chat-completion rollout formats
+    - `AgentRolloutSeedSource` across Claude Code and Codex rollout formats
     - Using normalized trace columns in generation prompts
     - Distilling agent traces into reusable structured records
 
