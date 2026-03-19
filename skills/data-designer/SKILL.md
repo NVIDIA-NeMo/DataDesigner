@@ -49,26 +49,19 @@ Write a Python file to the current directory with a `load_config_builder()` func
 ```python
 # /// script
 # dependencies = [
-#   "data-designer",
-#   "pydantic",
+#   "data-designer", # required
+#   # add any additional dependencies here
 # ]
 # ///
 import data_designer.config as dd
-from pydantic import BaseModel, Field
 
 
-# Define Pydantic models when a column needs structured output
-class MyEntity(BaseModel):
-    field_one: str = Field(description="...")
-    field_two: int = Field(description="...")
-
-
-# Use custom generators when built-in column types aren't enough
+# Use custom generators when bespoke generation logic is needed
 @dd.custom_column_generator(
     required_columns=["col_a"],
     side_effect_columns=["extra_col"],
 )
-def my_custom_generator(row: dict) -> dict:
+def generator_function(row: dict) -> dict:
     # add custom logic here that depends on "col_a" and update row in place
     row["name_in_custom_column_config"] = "custom value"
     row["extra_col"] = "extra value"
