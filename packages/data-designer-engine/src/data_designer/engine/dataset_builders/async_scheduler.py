@@ -7,6 +7,7 @@ import asyncio
 import contextlib
 import logging
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -26,6 +27,16 @@ if TYPE_CHECKING:
     from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class _RowGroupState:
+    """Lifecycle state for a single admitted row group."""
+
+    size: int
+    seeds_dispatched: bool = False
+    pre_batch_done: bool = False
+    in_flight_count: int = 0
 
 
 class AsyncTaskScheduler:
@@ -91,17 +102,11 @@ class AsyncTaskScheduler:
             if gen.is_order_dependent and id(gen) not in self._stateful_locks:
                 self._stateful_locks[id(gen)] = asyncio.Lock()
 
-        # Per-RG in-flight counters for O(1) lookup
-        self._in_flight_counts: dict[int, int] = {}
+        # Per-RG lifecycle state (admitted but not yet checkpointed)
+        self._rg_states: dict[int, _RowGroupState] = {}
 
         # Deferred retryable failures (retried in salvage rounds)
         self._deferred: list[Task] = []
-
-        # Active row groups (admitted but not yet checkpointed)
-        self._active_rgs: list[tuple[int, int]] = []
-        self._admitted_rg_ids: set[int] = set()
-        self._seeds_dispatched_rgs: set[int] = set()
-        self._pre_batch_done_rgs: set[int] = set()
 
         # Tracing
         self._trace = trace
@@ -122,8 +127,7 @@ class AsyncTaskScheduler:
         """Admit row groups as semaphore slots become available."""
         for rg_id, rg_size in self._row_groups:
             await self._rg_semaphore.acquire()
-            self._active_rgs.append((rg_id, rg_size))
-            self._admitted_rg_ids.add(rg_id)
+            self._rg_states[rg_id] = _RowGroupState(size=rg_size)
 
             if self._buffer_manager is not None:
                 self._buffer_manager.init_row_group(rg_id, rg_size)
@@ -153,21 +157,27 @@ class AsyncTaskScheduler:
 
             self._run_seeds_complete_check(seed_cols)
 
-            ready = self._tracker.get_ready_tasks(self._dispatched, self._admitted_rg_ids)
+            admitted_ids = set(self._rg_states)
+            ready = self._tracker.get_ready_tasks(self._dispatched, admitted_ids)
             # Gate non-seed tasks on pre-batch completion when a pre-batch callback is configured
             if has_pre_batch:
-                ready = [t for t in ready if t.row_group in self._pre_batch_done_rgs or t.column in seed_cols]
+                ready = [
+                    t
+                    for t in ready
+                    if (s := self._rg_states.get(t.row_group)) is not None and s.pre_batch_done or t.column in seed_cols
+                ]
             for task in ready:
                 await self._submission_semaphore.acquire()
                 self._dispatched.add(task)
                 self._in_flight.add(task)
-                self._in_flight_counts[task.row_group] = self._in_flight_counts.get(task.row_group, 0) + 1
+                if (s := self._rg_states.get(task.row_group)) is not None:
+                    s.in_flight_count += 1
                 asyncio.create_task(self._execute_task(task))
 
             self._checkpoint_completed_row_groups(all_columns)
 
             # Are we done?
-            all_done = self._all_rgs_admitted and not self._active_rgs and not self._in_flight
+            all_done = self._all_rgs_admitted and not self._rg_states and not self._in_flight
             if all_done:
                 break
 
@@ -222,7 +232,8 @@ class AsyncTaskScheduler:
                         Task(column=task.column, row_group=task.row_group, row_index=None, task_type="batch")
                     )
                     self._in_flight.add(task)
-                    self._in_flight_counts[task.row_group] = self._in_flight_counts.get(task.row_group, 0) + 1
+                    if (s := self._rg_states.get(task.row_group)) is not None:
+                        s.in_flight_count += 1
                     asyncio.create_task(self._execute_seed_task(task, gid))
                 else:
                     self._dispatched.discard(task)
@@ -231,10 +242,10 @@ class AsyncTaskScheduler:
             await self._drain_frontier(seed_cols, has_pre_batch, all_columns)
             self._checkpoint_completed_row_groups(all_columns)
 
-        if self._active_rgs:
-            incomplete = [rg_id for rg_id, _ in self._active_rgs]
+        if self._rg_states:
+            incomplete = list(self._rg_states)
             logger.error(
-                f"Scheduler exited with {len(self._active_rgs)} unfinished row group(s): {incomplete}. "
+                f"Scheduler exited with {len(self._rg_states)} unfinished row group(s): {incomplete}. "
                 "These row groups were not checkpointed."
             )
 
@@ -242,14 +253,20 @@ class AsyncTaskScheduler:
         """Dispatch all frontier tasks and their downstream until quiescent."""
         while True:
             self._run_seeds_complete_check(seed_cols)
-            ready = self._tracker.get_ready_tasks(self._dispatched, self._admitted_rg_ids)
+            admitted_ids = set(self._rg_states)
+            ready = self._tracker.get_ready_tasks(self._dispatched, admitted_ids)
             if has_pre_batch:
-                ready = [t for t in ready if t.row_group in self._pre_batch_done_rgs or t.column in seed_cols]
+                ready = [
+                    t
+                    for t in ready
+                    if (s := self._rg_states.get(t.row_group)) is not None and s.pre_batch_done or t.column in seed_cols
+                ]
             for task in ready:
                 await self._submission_semaphore.acquire()
                 self._dispatched.add(task)
                 self._in_flight.add(task)
-                self._in_flight_counts[task.row_group] = self._in_flight_counts.get(task.row_group, 0) + 1
+                if (s := self._rg_states.get(task.row_group)) is not None:
+                    s.in_flight_count += 1
                 asyncio.create_task(self._execute_task(task))
             if not self._in_flight:
                 break
@@ -259,15 +276,12 @@ class AsyncTaskScheduler:
     def _checkpoint_completed_row_groups(self, all_columns: list[str]) -> None:
         """Checkpoint any row groups that reached completion."""
         completed = [
-            (rg_id, rg_size)
-            for rg_id, rg_size in self._active_rgs
-            if self._tracker.is_row_group_complete(rg_id, rg_size, all_columns)
+            (rg_id, state.size)
+            for rg_id, state in self._rg_states.items()
+            if self._tracker.is_row_group_complete(rg_id, state.size, all_columns)
         ]
         for rg_id, rg_size in completed:
-            self._active_rgs.remove((rg_id, rg_size))
-            self._admitted_rg_ids.discard(rg_id)
-            self._seeds_dispatched_rgs.discard(rg_id)
-            self._pre_batch_done_rgs.discard(rg_id)
+            del self._rg_states[rg_id]
             try:
                 if self._on_before_checkpoint:
                     try:
@@ -300,24 +314,25 @@ class AsyncTaskScheduler:
 
     def _run_seeds_complete_check(self, seed_cols: frozenset[str]) -> None:
         """Run pre-batch callbacks for row groups whose seeds just completed."""
-        for rg_id, rg_size in list(self._active_rgs):
-            if rg_id in self._seeds_dispatched_rgs and rg_id not in self._pre_batch_done_rgs:
+        for rg_id, state in list(self._rg_states.items()):
+            if state.seeds_dispatched and not state.pre_batch_done:
                 all_seeds_done = all(self._tracker.is_column_complete_for_rg(col, rg_id) for col in seed_cols)
-                if all_seeds_done and not self._in_flight_for_rg(rg_id):
-                    self._pre_batch_done_rgs.add(rg_id)
+                if all_seeds_done and state.in_flight_count == 0:
+                    state.pre_batch_done = True
                     if self._on_seeds_complete:
                         try:
-                            self._on_seeds_complete(rg_id, rg_size)
+                            self._on_seeds_complete(rg_id, state.size)
                         except Exception as exc:
                             logger.warning(f"Pre-batch processor failed for row group {rg_id}, skipping: {exc}")
-                            for ri in range(rg_size):
+                            for ri in range(state.size):
                                 self._tracker.drop_row(rg_id, ri)
                                 if self._buffer_manager:
                                     self._buffer_manager.drop_row(rg_id, ri)
 
     def _in_flight_for_rg(self, rg_id: int) -> bool:
         """Check if any tasks are in-flight for a given row group."""
-        return self._in_flight_counts.get(rg_id, 0) > 0
+        state = self._rg_states.get(rg_id)
+        return state is not None and state.in_flight_count > 0
 
     def _check_error_rate(self) -> None:
         """Trigger early shutdown if error rate exceeds threshold."""
@@ -332,7 +347,7 @@ class AsyncTaskScheduler:
 
     async def _dispatch_seeds(self, rg_id: int, rg_size: int) -> None:
         """Dispatch from_scratch tasks for a row group."""
-        self._seeds_dispatched_rgs.add(rg_id)
+        self._rg_states[rg_id].seeds_dispatched = True
         seed_cols = self._seed_cols
         seen_instances: set[int] = set()
 
@@ -366,7 +381,8 @@ class AsyncTaskScheduler:
                     )
                     self._dispatched.add(Task(column=sibling_col, row_group=rg_id, row_index=None, task_type="batch"))
             self._in_flight.add(task)
-            self._in_flight_counts[task.row_group] = self._in_flight_counts.get(task.row_group, 0) + 1
+            if (s := self._rg_states.get(task.row_group)) is not None:
+                s.in_flight_count += 1
             asyncio.create_task(self._execute_seed_task(task, gid))
 
     async def _execute_seed_task(self, task: Task, generator_id: int) -> None:
@@ -399,7 +415,7 @@ class AsyncTaskScheduler:
             # Skip tasks whose row group was already checkpointed (can happen
             # when a vacuously-ready downstream is dispatched via create_task
             # in the same loop iteration that checkpoints the row group).
-            if not any(rg_id == task.row_group for rg_id, _ in self._active_rgs):
+            if task.row_group not in self._rg_states:
                 skipped = True
                 return
 
@@ -460,7 +476,8 @@ class AsyncTaskScheduler:
                 self.traces.append(trace)
 
             self._in_flight.discard(task)
-            self._in_flight_counts[task.row_group] = max(0, self._in_flight_counts.get(task.row_group, 0) - 1)
+            if (s := self._rg_states.get(task.row_group)) is not None:
+                s.in_flight_count = max(0, s.in_flight_count - 1)
             if not retryable and not skipped:
                 self._dispatched.discard(task)
             self._submission_semaphore.release()
