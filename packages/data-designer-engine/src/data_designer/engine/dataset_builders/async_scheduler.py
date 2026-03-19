@@ -7,6 +7,7 @@ import asyncio
 import contextlib
 import logging
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 import data_designer.lazy_heavy_imports as lazy
@@ -46,6 +47,7 @@ class AsyncTaskScheduler:
         max_submitted_tasks: int = 256,
         salvage_max_rounds: int = 2,
         on_row_group_complete: Callable[[int], None] | None = None,
+        on_checkpoint_complete: Callable[[Path | str], None] | None = None,
         on_seeds_complete: Callable[[int, int], None] | None = None,
         on_before_checkpoint: Callable[[int, int], None] | None = None,
         shutdown_error_rate: float = 0.5,
@@ -67,6 +69,7 @@ class AsyncTaskScheduler:
         self._wake_event = asyncio.Event()
         self._salvage_max_rounds = salvage_max_rounds
         self._on_row_group_complete = on_row_group_complete
+        self._on_checkpoint_complete = on_checkpoint_complete
         self._on_seeds_complete = on_seeds_complete
         self._on_before_checkpoint = on_before_checkpoint
 
@@ -277,7 +280,15 @@ class AsyncTaskScheduler:
                             if self._buffer_manager:
                                 self._buffer_manager.drop_row(rg_id, ri)
                 if self._buffer_manager is not None:
-                    self._buffer_manager.checkpoint_row_group(rg_id)
+                    if self._on_checkpoint_complete is not None:
+
+                        def on_complete(final_path: Path | str | None) -> None:
+                            if final_path is not None:
+                                self._on_checkpoint_complete(final_path)
+
+                        self._buffer_manager.checkpoint_row_group(rg_id, on_complete=on_complete)
+                    else:
+                        self._buffer_manager.checkpoint_row_group(rg_id)
                 if self._on_row_group_complete:
                     self._on_row_group_complete(rg_id)
             except Exception:

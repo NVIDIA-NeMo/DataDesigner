@@ -680,6 +680,78 @@ async def test_scheduler_on_before_checkpoint_callback() -> None:
 
 
 @pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_on_checkpoint_complete_callback_receives_final_path() -> None:
+    """on_checkpoint_complete is called with the written parquet file path."""
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+    ]
+    strategies = {"seed": GenerationStrategy.FULL_COLUMN}
+    generators = {"seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider)}
+
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 3)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+
+    storage = MagicMock()
+    storage.dataset_name = "test"
+    storage.get_file_paths.return_value = {}
+    storage.write_batch_to_parquet_file.return_value = "/fake.parquet"
+    storage.move_partial_result_to_final_file_path.return_value = "/fake_final.parquet"
+
+    buffer_mgr = RowGroupBufferManager(storage)
+    callback_log: list[str] = []
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_mgr,
+        on_checkpoint_complete=lambda path: callback_log.append(path),
+    )
+    await scheduler.run()
+
+    assert callback_log == ["/fake_final.parquet"]
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_on_checkpoint_complete_skips_empty_row_group() -> None:
+    """on_checkpoint_complete is not called when a row group writes no file."""
+    provider = _mock_provider()
+    storage = MagicMock()
+    storage.dataset_name = "test"
+    storage.get_file_paths.return_value = {}
+
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+    ]
+    strategies = {"seed": GenerationStrategy.FULL_COLUMN}
+    generators = {
+        "seed": MockFailingSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+    }
+
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 3)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+    buffer_mgr = RowGroupBufferManager(storage)
+    callback = MagicMock()
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_mgr,
+        on_checkpoint_complete=callback,
+    )
+    await scheduler.run()
+
+    callback.assert_not_called()
+    storage.write_batch_to_parquet_file.assert_not_called()
+
+
+@pytest.mark.asyncio(loop_scope="session")
 async def test_scheduler_pre_batch_failure_skips_row_group() -> None:
     """Pre-batch processor failure drops all rows in the row group; other row groups continue."""
     provider = _mock_provider()
