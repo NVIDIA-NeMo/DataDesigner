@@ -61,7 +61,12 @@ if DATA_DESIGNER_ASYNC_ENGINE:
             "DATA_DESIGNER_ASYNC_ENGINE requires Python 3.11+ (asyncio.TaskGroup). "
             f"Current version: {sys.version_info.major}.{sys.version_info.minor}"
         )
-    from data_designer.engine.dataset_builders.utils.async_concurrency import AsyncConcurrentExecutor
+    import asyncio
+
+    from data_designer.engine.dataset_builders.utils.async_concurrency import (
+        AsyncConcurrentExecutor,
+        ensure_async_engine_loop,
+    )
 
     logger.info("⚡ DATA_DESIGNER_ASYNC_ENGINE is enabled — using async concurrency")
 
@@ -304,7 +309,17 @@ class ColumnWiseDatasetBuilder:
             if isinstance(config, CustomColumnConfig) and config.model_aliases:
                 model_aliases.update(config.model_aliases)
 
-        if model_aliases:
+        if not model_aliases:
+            return
+
+        if DATA_DESIGNER_ASYNC_ENGINE:
+            loop = ensure_async_engine_loop()
+            future = asyncio.run_coroutine_threadsafe(
+                self._resource_provider.model_registry.arun_health_check(list(model_aliases)),
+                loop,
+            )
+            future.result()
+        else:
             self._resource_provider.model_registry.run_health_check(list(model_aliases))
 
     def _run_mcp_tool_check_if_needed(self) -> None:

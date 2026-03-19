@@ -8,6 +8,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
 import data_designer.lazy_heavy_imports as lazy
+from data_designer.config.utils.type_helpers import StrEnum
 from data_designer.engine.models.clients.adapters.http_helpers import (
     parse_json_body,
     resolve_timeout,
@@ -19,13 +20,26 @@ from data_designer.engine.models.clients.retry import RetryConfig, create_retry_
 if TYPE_CHECKING:
     import httpx
 
+
+class ClientConcurrencyMode(StrEnum):
+    SYNC = "sync"
+    ASYNC = "async"
+
+
 _POOL_MAX_MULTIPLIER = 2
 _MIN_MAX_CONNECTIONS = 32
 _MIN_KEEPALIVE_CONNECTIONS = 16
 
 
 class HttpModelClient(ABC):
-    """Shared HTTP transport and lifecycle logic for native model adapters."""
+    """Shared HTTP transport and lifecycle logic for native model adapters.
+
+    Each instance operates in exactly one mode — ``"sync"`` or ``"async"`` —
+    set at construction time.  The mode determines which httpx client and
+    transport teardown path is used.  Calling the wrong-mode methods raises
+    ``RuntimeError`` immediately, preventing accidental dual-mode usage that
+    leads to transport leaks and cross-mode teardown complexity.
+    """
 
     def __init__(
         self,
@@ -36,6 +50,7 @@ class HttpModelClient(ABC):
         retry_config: RetryConfig | None = None,
         max_parallel_requests: int = 32,
         timeout_s: float = 60.0,
+        concurrency_mode: ClientConcurrencyMode = ClientConcurrencyMode.SYNC,
         sync_client: httpx.Client | None = None,
         async_client: httpx.AsyncClient | None = None,
     ) -> None:
@@ -44,6 +59,7 @@ class HttpModelClient(ABC):
         self._api_key = api_key
         self._timeout_s = timeout_s
         self._retry_config = retry_config
+        self._mode: ClientConcurrencyMode = concurrency_mode
 
         pool_max = max(_MIN_MAX_CONNECTIONS, _POOL_MAX_MULTIPLIER * max_parallel_requests)
         pool_keepalive = max(_MIN_KEEPALIVE_CONNECTIONS, max_parallel_requests)
@@ -57,11 +73,19 @@ class HttpModelClient(ABC):
         self._init_lock = threading.Lock()
         self._closed = False
 
+    @property
+    def concurrency_mode(self) -> ClientConcurrencyMode:
+        return self._mode
+
     @abstractmethod
     def _build_headers(self, extra_headers: dict[str, str]) -> dict[str, str]:
         """Build provider-specific request headers."""
 
+    # --- lazy client initialization ---
+
     def _get_sync_client(self) -> httpx.Client:
+        if self._mode != ClientConcurrencyMode.SYNC:
+            raise RuntimeError("Sync methods are not available on an async-mode HttpModelClient.")
         with self._init_lock:
             if self._closed:
                 raise RuntimeError("Model client is closed.")
@@ -74,8 +98,8 @@ class HttpModelClient(ABC):
             return self._client
 
     def _get_async_client(self) -> httpx.AsyncClient:
-        # TODO(plan-346): Replace threading.Lock with asyncio.Lock for async
-        # paths once AsyncTaskScheduler lands concurrent async callers.
+        if self._mode != ClientConcurrencyMode.ASYNC:
+            raise RuntimeError("Async methods are not available on a sync-mode HttpModelClient.")
         with self._init_lock:
             if self._closed:
                 raise RuntimeError("Model client is closed.")
@@ -87,32 +111,39 @@ class HttpModelClient(ABC):
                 )
             return self._aclient
 
+    # --- lifecycle ---
+
     def close(self) -> None:
+        """Release sync-mode resources.  No-op if this is an async-mode client."""
+        if self._mode != ClientConcurrencyMode.SYNC:
+            return
         with self._init_lock:
             client = self._client
-            aclient = self._aclient
-            transport = self._transport if (client is not None or aclient is not None) else None
+            transport = self._transport
             self._closed = True
             self._client = None
-            self._aclient = None
+            self._transport = None  # type: ignore[assignment]
         if transport is not None:
             transport.close()
         if client is not None:
-            # Transport is already closed above; closing the client handle
-            # releases the connection pool without re-closing the transport.
             client.close()
 
     async def aclose(self) -> None:
+        """Release async-mode resources.  No-op if this is a sync-mode client."""
+        if self._mode != ClientConcurrencyMode.ASYNC:
+            return
         with self._init_lock:
             async_client = self._aclient
-            sync_client = self._client
+            transport = self._transport
             self._closed = True
             self._aclient = None
-            self._client = None
+            self._transport = None  # type: ignore[assignment]
+        if transport is not None:
+            await transport.aclose()
         if async_client is not None:
             await async_client.aclose()
-        if sync_client is not None:
-            sync_client.close()
+
+    # --- HTTP helpers ---
 
     def _post_sync(
         self,

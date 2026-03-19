@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -372,6 +372,41 @@ def test_run_health_check_skip_health_check_flag(
     # Verify the correct models were called
     called_model_aliases = {call[0][0].model_alias for call in mock_completion.call_args_list}
     assert called_model_aliases == {"check-model", "default-model"}
+
+
+# --- Async health check tests ---
+
+
+@patch.object(ModelFacade, "agenerate_text_embeddings", new_callable=AsyncMock)
+@patch.object(ModelFacade, "agenerate", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_arun_health_check_success(
+    mock_agenerate: AsyncMock,
+    mock_agenerate_text_embeddings: AsyncMock,
+    stub_model_registry: ModelRegistry,
+) -> None:
+    model_aliases = ["stub-text", "stub-reasoning", "stub-embedding"]
+    await stub_model_registry.arun_health_check(model_aliases)
+    assert mock_agenerate.call_count == 2
+    assert mock_agenerate_text_embeddings.call_count == 1
+
+
+@patch.object(ModelFacade, "agenerate_text_embeddings", new_callable=AsyncMock)
+@patch.object(ModelFacade, "agenerate", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_arun_health_check_authentication_error(
+    mock_agenerate: AsyncMock,
+    mock_agenerate_text_embeddings: AsyncMock,
+    stub_model_registry: ModelRegistry,
+) -> None:
+    mock_agenerate.side_effect = ModelAuthenticationError("Invalid API key")
+    model_aliases = ["stub-text", "stub-reasoning", "stub-embedding"]
+
+    with pytest.raises(ModelAuthenticationError):
+        await stub_model_registry.arun_health_check(model_aliases)
+
+    mock_agenerate.assert_awaited_once()
+    mock_agenerate_text_embeddings.assert_not_awaited()
 
 
 @pytest.mark.parametrize(
