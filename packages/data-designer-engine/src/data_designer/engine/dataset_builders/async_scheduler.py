@@ -282,6 +282,7 @@ class AsyncTaskScheduler:
         ]
         for rg_id, rg_size in completed:
             del self._rg_states[rg_id]
+            dropped = False
             try:
                 if self._on_before_checkpoint:
                     try:
@@ -295,7 +296,8 @@ class AsyncTaskScheduler:
                         for ri in range(rg_size):
                             if self._buffer_manager:
                                 self._buffer_manager.drop_row(rg_id, ri)
-                if self._buffer_manager is not None:
+                        dropped = True
+                if not dropped and self._buffer_manager is not None:
                     if self._on_checkpoint_complete is not None:
 
                         def on_complete(final_path: Path | str | None) -> None:
@@ -305,7 +307,7 @@ class AsyncTaskScheduler:
                         self._buffer_manager.checkpoint_row_group(rg_id, on_complete=on_complete)
                     else:
                         self._buffer_manager.checkpoint_row_group(rg_id)
-                if self._on_row_group_complete:
+                if not dropped and self._on_row_group_complete:
                     self._on_row_group_complete(rg_id)
             except Exception:
                 logger.error(f"Failed to checkpoint row group {rg_id}.", exc_info=True)
