@@ -3,6 +3,8 @@ name: create-pr
 description: Create a GitHub PR with a well-formatted description including summary, categorized changes, and attention areas
 argument-hint: [special instructions]
 disable-model-invocation: true
+metadata:
+    internal: true
 ---
 
 # Create Pull Request
