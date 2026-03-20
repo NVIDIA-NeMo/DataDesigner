@@ -58,6 +58,11 @@ class ColumnGenerator(ConfigurableTask[TaskConfigT], ABC):
         return False
 
     @property
+    def is_llm_bound(self) -> bool:
+        """Whether this generator makes LLM/HTTP calls during generation."""
+        return False
+
+    @property
     def is_order_dependent(self) -> bool:
         """Whether this generator's output depends on prior row-group calls.
 
@@ -130,6 +135,10 @@ class FromScratchColumnGenerator(ColumnGenerator[TaskConfigT], ABC):
 
 
 class ColumnGeneratorWithModelRegistry(ColumnGenerator[TaskConfigT], ABC):
+    @property
+    def is_llm_bound(self) -> bool:
+        return True
+
     @property
     def model_registry(self) -> ModelRegistry:
         return self.resource_provider.model_registry

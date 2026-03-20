@@ -115,8 +115,17 @@ The acquire/release contract for each method:
 - On entry: acquire a throttle slot (with `TimeoutError` → `ProviderError(kind=TIMEOUT)` normalization)
 - On `ProviderError(kind=RATE_LIMIT)`: call `release_rate_limited` with `retry_after`
 - On other `ProviderError`: call `release_failure`
-- On non-`ProviderError` exception: call `release_failure`
+- On any other `BaseException` (including `asyncio.CancelledError`): call `release_failure`
 - On success: call `release_success`
+
+**Cancellation safety:** `asyncio.CancelledError` is a `BaseException`,
+not an `Exception`. The context managers catch `BaseException` (not
+just `Exception`) so that cancelling an in-flight async request always
+releases the throttle permit via `release_failure` before re-raising.
+Without this, a single cancelled request would permanently reduce
+available concurrency for that provider/model/domain. The same pattern
+is applied to `_throttled_sync` for consistency, even though sync
+callers are not subject to `asyncio.CancelledError`.
 
 The sync methods (`completion`, `embeddings`, `generate_image`) use
 `acquire_sync` instead of `acquire_async`. The pattern is identical
@@ -157,24 +166,27 @@ async def _athrottled(self, domain: ThrottleDomain):
             provider_name=self._provider_name,
             model_name=self._model_id,
         ) from exc
+    exc_to_reraise: BaseException | None = None
     try:
         yield
     except ProviderError as exc:
+        exc_to_reraise = exc
         self._release_on_provider_error(domain, exc)
-        raise
-    except Exception:
+    except BaseException as exc:
+        exc_to_reraise = exc
         self._tm.release_failure(
             provider_name=self._provider_name,
             model_id=self._model_id,
             domain=domain,
         )
-        raise
     else:
         self._tm.release_success(
             provider_name=self._provider_name,
             model_id=self._model_id,
             domain=domain,
         )
+    if exc_to_reraise is not None:
+        raise exc_to_reraise
 ```
 
 Each method then becomes a one-liner delegation:
@@ -267,23 +279,31 @@ generation. The sequence is:
 3. Later, during generation, the client calls `acquire_async()` →
    `try_acquire()` — registration is already done.
 
-### 3. AIMD tuning via `RunConfig`
+### 3. AIMD tuning via `RunConfig` / `ThrottleConfig`
 
-`RunConfig` gains four new optional fields that mirror the
-`ThrottleManager` constructor parameters:
+The four AIMD tuning knobs are grouped into a dedicated
+`ThrottleConfig` Pydantic model in `config/run_config.py`, and
+`RunConfig` exposes them as a single nested field:
 
 ```python
+class ThrottleConfig(ConfigBase):
+    reduce_factor: float = Field(default=0.5, gt=0.0, lt=1.0)
+    additive_increase: int = Field(default=1, ge=1)
+    success_window: int = Field(default=50, ge=1)
+    block_seconds: float = Field(default=2.0, gt=0.0)
+
 class RunConfig(ConfigBase):
     # ... existing fields ...
-
-    throttle_reduce_factor: float = Field(default=0.5, gt=0.0, lt=1.0)
-    throttle_additive_increase: int = Field(default=1, ge=1)
-    throttle_success_window: int = Field(default=50, ge=1)
-    throttle_block_seconds: float = Field(default=2.0, gt=0.0)
+    throttle: ThrottleConfig = Field(default_factory=ThrottleConfig)
 ```
 
-These fields have the same defaults as the current `throttle.py`
-constants, so existing behavior is unchanged when users don't set them.
+The defaults mirror the `throttle_manager.py` constants, so existing behavior
+is unchanged when users don't set them. Grouping the knobs into a
+sub-config keeps `RunConfig` manageable as more features land and
+makes the forwarding to `ThrottleManager` a clean one-liner.
+
+`ThrottleConfig` is exported from `data_designer.config` alongside
+`RunConfig`.
 
 **Wiring:** `create_resource_provider` already has `run_config` at the
 call site where `create_model_registry` is invoked. Two changes are
@@ -299,15 +319,16 @@ needed in the factory chain:
    `create_model_registry` call.
 
 Inside `create_model_registry`, the `ThrottleManager` is constructed
-with the `RunConfig` values:
+from the nested `ThrottleConfig`:
 
 ```python
+tc = run_config.throttle if run_config is not None else None
 throttle_manager = ThrottleManager(
-    reduce_factor=run_config.throttle_reduce_factor,
-    additive_increase=run_config.throttle_additive_increase,
-    success_window=run_config.throttle_success_window,
-    default_block_seconds=run_config.throttle_block_seconds,
-) if run_config else ThrottleManager()
+    reduce_factor=tc.reduce_factor,
+    additive_increase=tc.additive_increase,
+    success_window=tc.success_window,
+    default_block_seconds=tc.block_seconds,
+) if tc is not None else ThrottleManager()
 ```
 
 ### 4. Scheduler: dual-semaphore model for LLM tasks
@@ -560,7 +581,9 @@ throttling is handled by the client wrapper inside each `ModelFacade`.
 
 PR-6 changes the retry boundary before a `ModelRateLimitError` occurs:
 
-1. `RetryTransport` no longer retries `429`. It continues to retry
+1. `RetryTransport` no longer retries `429`. The `RetryConfig`
+   docstring has been updated to document this boundary (replacing the
+   old "mirrors LiteLLM router" wording). It continues to retry
    non-rate-limit transient failures (`502` / `503` / `504`,
    connection/transport errors).
 2. The first throttled HTTP response is mapped to
@@ -627,8 +650,16 @@ in the enum) with permissive limits.
   held)
 - Image generation: `request.messages is None` → `IMAGE` domain;
   `request.messages` set → `CHAT` domain
-- `ThrottleManager=None` path (no wrapper, inner client called directly)
+- Cancellation safety: `asyncio.CancelledError` during in-flight async
+  request releases throttle permit via `release_failure`; `in_flight`
+  returns to 0
 - Sync methods use `acquire_sync`
+- E2E AIMD feedback loop: success → 429 halves limit → successes
+  recover via additive increase (real `ThrottleManager`, aggressive
+  tuning with `success_window=2`)
+- E2E concurrent request bounding: 5 concurrent async calls with
+  `max_parallel_requests=2` — peak `in_flight` never exceeds 2, all
+  5 complete successfully
 
 **`test_async_scheduler.py`**:
 
@@ -637,12 +668,9 @@ in the enum) with permissive limits.
 - Submission slot held (no release/reacquire) for non-LLM generators
 - Deadlock regression: `max_submitted_tasks=1`, `max_llm_wait_tasks=1`,
   two ready LLM tasks — completes without deadlock
-- Cancellation regression: task cancelled while awaiting
-  `_llm_wait_semaphore.acquire()` — semaphore counts remain correct
-  (no over-increment)
-- Stress test: LLM-wait semaphore saturated with many ready LLM tasks
-  — assert live coroutines stay bounded by
-  `max_submitted_tasks + max_llm_wait_tasks`
+- Cancellation safety: scheduler cancelled while LLM-bound tasks are
+  blocked mid-flight — semaphore slots are recovered (real cancellation
+  via `task.cancel()`, not run-to-completion)
 - `is_llm_bound` property drives lookup (no isinstance)
 - Existing tests pass unchanged
 
@@ -657,17 +685,21 @@ in the enum) with permissive limits.
 - `create_model_client` without `throttle_manager` returns inner
   client directly
 
-**Retry tests** (existing or new):
+**`test_retry.py`** (updated):
 
-- `429` is excluded from transport-level retryable statuses
+- `test_retry_config_defaults` (renamed from
+  `test_retry_config_defaults_match_litellm_router`): asserts
+  `retryable_status_codes == {502, 503, 504}` (429 excluded)
 - `502` / `503` / `504` remain transport-retryable
 
 ## What Does NOT Change
 
-1. **`ThrottleManager` API** — no changes to `throttle.py`. The
-   existing `try_acquire`, `release_success`, `release_rate_limited`,
-   `release_failure`, `acquire_async`, `acquire_sync` methods are
-   used as-is. The constructor already accepts AIMD tuning params.
+1. **`ThrottleManager` API** — no changes to the `ThrottleManager`
+   class itself (renamed from `throttle.py` to `throttle_manager.py`
+   for discoverability). The existing `try_acquire`, `release_success`,
+   `release_rate_limited`, `release_failure`, `acquire_async`,
+   `acquire_sync` methods are used as-is. The constructor already
+   accepts AIMD tuning params.
 2. **`ModelFacade`** — untouched. Throttling is below it in the client
    layer. Correction loops, tool-calling loops, and custom columns
    are automatically gated because they all go through the client.
@@ -692,18 +724,21 @@ in the enum) with permissive limits.
 
 | File | Change |
 | --- | --- |
-| `models/clients/throttled.py` (new) | `ThrottledModelClient` wrapper with `_throttled_sync` / `_athrottled` context managers |
-| `models/clients/retry.py` | Remove `429` from transport retryable statuses; retain non-rate-limit transient retries |
+| `models/clients/throttle.py` → `models/clients/throttle_manager.py` (rename) | Renamed for discoverability; no API changes to `ThrottleManager` |
+| `models/clients/throttled.py` (new) | `ThrottledModelClient` wrapper with cancellation-safe `_throttled_sync` / `_athrottled` context managers |
+| `models/clients/retry.py` | Remove `429` from transport retryable statuses; update docstring to document the boundary |
 | `models/clients/factory.py` | Accept optional `throttle_manager`; wrap inner client with `ThrottledModelClient` when provided |
-| `models/factory.py` | Forward `ThrottleManager` to `model_facade_factory` closure → `create_model_client`; accept `run_config` parameter; construct `ThrottleManager` with `RunConfig` values; remove TODO comment |
+| `models/factory.py` | Forward `ThrottleManager` to `model_facade_factory` closure → `create_model_client`; accept `run_config` parameter; construct `ThrottleManager` from `run_config.throttle` (`ThrottleConfig`); remove TODO comment |
 | `models/registry.py` | Add `get_aggregate_max_parallel_requests()` public method |
-| `config/run_config.py` | Add `throttle_reduce_factor`, `throttle_additive_increase`, `throttle_success_window`, `throttle_block_seconds` fields |
+| `config/run_config.py` | Add `ThrottleConfig` sub-model (`reduce_factor`, `additive_increase`, `success_window`, `block_seconds`); add `RunConfig.throttle: ThrottleConfig` field |
 | `resources/resource_provider.py` | Forward `run_config` to `create_model_registry` |
 | `column_generators/generators/base.py` | Add `is_llm_bound` property to `ColumnGenerator` (default `False`), override to `True` in `ColumnGeneratorWithModelRegistry` |
 | `dataset_builders/async_scheduler.py` | Add `_llm_wait_semaphore`, one-way semaphore handoff for LLM tasks, `MIN_SUBMITTED_TASKS` / `LLM_WAIT_POOL_MULTIPLIER` constants |
 | `dataset_builders/column_wise_builder.py` | Forward `max_submitted_tasks` and `max_llm_wait_tasks` to scheduler |
-| `tests/.../test_throttled_model_client.py` (new) | Throttle wrapper unit tests |
-| `tests/.../test_async_scheduler.py` | Submission slot management tests |
+| `tests/.../test_throttle.py` → `tests/.../test_throttle_manager.py` (rename) | Renamed to match source module rename |
+| `tests/.../test_throttled_model_client.py` (new) | Throttle wrapper unit tests + cancellation safety + E2E AIMD tests |
+| `tests/.../test_retry.py` | Updated assertion and test name for new `retryable_status_codes` default |
+| `tests/.../test_async_scheduler.py` | Dual-semaphore tests + rewritten cancellation test with real task cancellation |
 | `tests/.../test_model_registry.py` | Test for `get_aggregate_max_parallel_requests` |
 | `tests/.../test_client_factory.py` | Test wrapper wiring in `create_model_client` |
 
@@ -717,18 +752,19 @@ in the enum) with permissive limits.
 | Client wrapper: acquire timeout | `TimeoutError` from `acquire_async` normalized to `ProviderError(kind=TIMEOUT)`, no release (no slot held) |
 | Client wrapper: image domain routing | `request.messages is None` → `IMAGE`; `request.messages` set → `CHAT` |
 | Client wrapper: sync path | Sync methods use `acquire_sync` / `release_*` |
-| Client wrapper: no throttle | `ThrottleManager=None` → inner client called directly |
-| Transport retry boundary | `429` excluded from transport retryable statuses; `502` / `503` / `504` remain retried |
+| Client wrapper: cancellation safety | `asyncio.CancelledError` during in-flight async request releases throttle permit via `release_failure`; `in_flight` returns to 0 |
+| Client wrapper: E2E AIMD loop | Success → 429 halves limit → successes recover via additive increase (real `ThrottleManager`, `success_window=2`) |
+| Client wrapper: E2E concurrency | 5 concurrent async calls with `max_parallel_requests=2` — peak `in_flight` ≤ 2, all 5 complete |
+| Transport retry boundary | `429` excluded from transport retryable statuses; `502` / `503` / `504` remain retried; `RetryConfig` docstring updated; test renamed from `test_retry_config_defaults_match_litellm_router` to `test_retry_config_defaults` |
 | Scheduler: one-way handoff for LLM tasks | LLM-wait acquired before submission released; submission never reacquired (no circular wait) |
 | Scheduler: non-LLM tasks | Submission slot held during generator execution (no release/reacquire) |
 | Scheduler: deadlock regression | `max_submitted_tasks=1`, `max_llm_wait_tasks=1`, two ready LLM tasks — completes without deadlock |
-| Scheduler: cancellation regression | Task cancelled while awaiting `_llm_wait_semaphore.acquire()` — semaphore counts remain correct (no over-increment) |
-| Scheduler: bounded fan-out stress test | Many LLM tasks ready with saturated LLM-wait semaphore — live coroutines stay ≤ `max_submitted_tasks + max_llm_wait_tasks` |
+| Scheduler: cancellation safety | Scheduler cancelled while LLM-bound tasks are in-flight — semaphore slots are recovered (real cancellation via `task.cancel()`, not run-to-completion) |
 | Scheduler: acquire timeout retryable | Throttle acquire timeout surfaces as `ModelTimeoutError` (via `ProviderError(kind=TIMEOUT)` → `@catch_llm_exceptions`), already in `_RETRYABLE_MODEL_ERRORS` |
 | Scheduler: backward compat | Existing tests pass unchanged |
 | Submission pool sizing | `MIN_SUBMITTED_TASKS` (unchanged true cap) |
 | LLM-wait pool sizing | `max(MIN_SUBMITTED_TASKS, LLM_WAIT_POOL_MULTIPLIER * aggregate)` |
-| RunConfig → AIMD wiring | Custom `RunConfig` throttle fields forwarded to `ThrottleManager` constructor |
+| RunConfig → AIMD wiring | `RunConfig.throttle` (`ThrottleConfig`) forwarded to `ThrottleManager` constructor |
 | Factory wiring | `create_model_client` with `throttle_manager` returns `ThrottledModelClient` |
 | Factory wiring: bridge scope | `LiteLLMBridgeClient` is wrapped (best-effort AIMD), with documented limitation |
 

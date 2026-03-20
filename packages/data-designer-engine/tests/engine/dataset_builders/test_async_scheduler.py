@@ -11,18 +11,21 @@ import pytest
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.column_configs import (
+    CustomColumnConfig,
     ExpressionColumnConfig,
     GenerationStrategy,
     LLMTextColumnConfig,
     SamplerColumnConfig,
 )
+from data_designer.config.custom_column import custom_column_generator
 from data_designer.config.sampler_params import SamplerType
 from data_designer.engine.column_generators.generators.base import (
     ColumnGenerator,
     ColumnGeneratorFullColumn,
     FromScratchColumnGenerator,
 )
-from data_designer.engine.dataset_builders.async_scheduler import AsyncTaskScheduler
+from data_designer.engine.column_generators.generators.custom import CustomColumnGenerator
+from data_designer.engine.dataset_builders.async_scheduler import AsyncTaskScheduler, build_llm_bound_lookup
 from data_designer.engine.dataset_builders.utils.completion_tracker import CompletionTracker
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
 from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
@@ -920,3 +923,235 @@ async def test_scheduler_out_of_order_row_group_completion() -> None:
     assert set(checkpoint_order) == {0, 1}
     # RG 1 (fewer rows, fewer seed yields) checkpoints before RG 0
     assert checkpoint_order.index(1) < checkpoint_order.index(0)
+
+
+# -- Dual-semaphore / LLM-bound tests -----------------------------------------
+
+
+class MockLLMBoundCellGenerator(ColumnGenerator[ExpressionColumnConfig]):
+    """Mock cell-by-cell generator that reports is_llm_bound=True."""
+
+    @property
+    def is_llm_bound(self) -> bool:
+        return True
+
+    @staticmethod
+    def get_generation_strategy() -> GenerationStrategy:
+        return GenerationStrategy.CELL_BY_CELL
+
+    def generate(self, data: dict) -> dict:
+        data[self.config.name] = f"llm_{data.get('seed', '?')}"
+        return data
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_llm_bound_one_way_handoff() -> None:
+    """LLM-bound tasks release submission slot and hold LLM-wait slot during execution."""
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="llm_col", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "llm_col": GenerationStrategy.CELL_BY_CELL,
+    }
+    generators = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "llm_col": MockLLMBoundCellGenerator(config=_expr_config("llm_col"), resource_provider=provider),
+    }
+
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 3)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        max_submitted_tasks=2,
+        max_llm_wait_tasks=2,
+    )
+    await scheduler.run()
+
+    assert tracker.is_row_group_complete(0, 3, ["seed", "llm_col"])
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_non_llm_holds_submission_slot() -> None:
+    """Non-LLM generators hold the submission slot for the entire execution (no handoff)."""
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="cell_out", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "cell_out": GenerationStrategy.CELL_BY_CELL,
+    }
+    generators = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "cell_out": MockCellGenerator(config=_expr_config("cell_out"), resource_provider=provider),
+    }
+
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 3)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        max_submitted_tasks=2,
+        max_llm_wait_tasks=2,
+    )
+    await scheduler.run()
+
+    assert tracker.is_row_group_complete(0, 3, ["seed", "cell_out"])
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_deadlock_regression() -> None:
+    """max_submitted_tasks=1, max_llm_wait_tasks=1, two ready LLM tasks completes without deadlock."""
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="llm_col", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "llm_col": GenerationStrategy.CELL_BY_CELL,
+    }
+    generators = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "llm_col": MockLLMBoundCellGenerator(config=_expr_config("llm_col"), resource_provider=provider),
+    }
+
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 2)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        max_submitted_tasks=1,
+        max_llm_wait_tasks=1,
+    )
+
+    await asyncio.wait_for(scheduler.run(), timeout=10.0)
+    assert tracker.is_row_group_complete(0, 2, ["seed", "llm_col"])
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_is_llm_bound_property_drives_lookup() -> None:
+    """is_llm_bound property on generators drives the lookup, not isinstance."""
+    provider = _mock_provider()
+    llm_gen = MockLLMBoundCellGenerator(config=_expr_config("llm_col"), resource_provider=provider)
+    non_llm_gen = MockCellGenerator(config=_expr_config("cell_out"), resource_provider=provider)
+
+    assert llm_gen.is_llm_bound is True
+    assert non_llm_gen.is_llm_bound is False
+
+    lookup = build_llm_bound_lookup({"llm_col": llm_gen, "cell_out": non_llm_gen})
+    assert lookup == {"llm_col": True, "cell_out": False}
+
+
+def test_custom_generator_with_model_aliases_is_llm_bound() -> None:
+    """CustomColumnGenerator with model_aliases reports is_llm_bound=True."""
+
+    @custom_column_generator(model_aliases=["my_model"])
+    def gen_with_models(row: dict, generator_params: None, models: dict) -> dict:
+        row["custom_llm"] = "val"
+        return row
+
+    @custom_column_generator()
+    def gen_no_models(row: dict) -> dict:
+        row["custom_plain"] = "val"
+        return row
+
+    provider = _mock_provider()
+    llm_config = CustomColumnConfig(name="custom_llm", generator_function=gen_with_models)
+    plain_config = CustomColumnConfig(name="custom_plain", generator_function=gen_no_models)
+
+    llm_gen = CustomColumnGenerator(config=llm_config, resource_provider=provider)
+    plain_gen = CustomColumnGenerator(config=plain_config, resource_provider=provider)
+
+    assert llm_gen.is_llm_bound is True
+    assert plain_gen.is_llm_bound is False
+
+    lookup = build_llm_bound_lookup({"custom_llm": llm_gen, "custom_plain": plain_gen})
+    assert lookup == {"custom_llm": True, "custom_plain": False}
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_cancellation_releases_semaphores() -> None:
+    """Cancelling the scheduler while LLM-bound tasks are in-flight releases all semaphore slots."""
+    provider = _mock_provider()
+
+    blocked = asyncio.Event()
+    proceed = asyncio.Event()
+
+    class BlockingLLMGenerator(ColumnGenerator[ExpressionColumnConfig]):
+        @property
+        def is_llm_bound(self) -> bool:
+            return True
+
+        @staticmethod
+        def get_generation_strategy() -> GenerationStrategy:
+            return GenerationStrategy.CELL_BY_CELL
+
+        def generate(self, data: dict) -> dict:
+            data[self.config.name] = "val"
+            return data
+
+        async def agenerate(self, data: dict) -> dict:
+            blocked.set()
+            await proceed.wait()
+            return self.generate(data)
+
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="llm_col", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "llm_col": GenerationStrategy.CELL_BY_CELL,
+    }
+    generators: dict[str, ColumnGenerator] = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "llm_col": BlockingLLMGenerator(config=_expr_config("llm_col"), resource_provider=provider),
+    }
+
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 2)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+
+    max_submitted = 4
+    max_llm_wait = 2
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        max_submitted_tasks=max_submitted,
+        max_llm_wait_tasks=max_llm_wait,
+    )
+
+    run_task = asyncio.create_task(scheduler.run())
+
+    await asyncio.wait_for(blocked.wait(), timeout=5.0)
+    run_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await run_task
+
+    sub_available, llm_available = scheduler.get_semaphore_permits()
+    assert sub_available == max_submitted, (
+        f"Submission semaphore leaked: available={sub_available}, expected={max_submitted}"
+    )
+    assert llm_available == max_llm_wait, (
+        f"LLM-wait semaphore leaked: available={llm_available}, expected={max_llm_wait}"
+    )

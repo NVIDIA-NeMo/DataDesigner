@@ -16,11 +16,11 @@ from data_designer.engine.models.clients.retry import RetryConfig, create_retry_
         ("backoff_factor", 2.0),
         ("backoff_jitter", 0.2),
         ("max_backoff_wait", 60.0),
-        ("retryable_status_codes", frozenset({429, 502, 503, 504})),
+        ("retryable_status_codes", frozenset({502, 503, 504})),
     ],
     ids=["max_retries", "backoff_factor", "backoff_jitter", "max_backoff_wait", "retryable_status_codes"],
 )
-def test_retry_config_defaults_match_litellm_router(field: str, expected: object) -> None:
+def test_retry_config_defaults(field: str, expected: object) -> None:
     config = RetryConfig()
     assert getattr(config, field) == expected
 
@@ -51,7 +51,7 @@ def test_create_retry_transport_allows_post_retries() -> None:
     [
         ("max_retries", 5, "total", 5),
         ("backoff_factor", 1.0, "backoff_factor", 1.0),
-        ("retryable_status_codes", frozenset({429, 500}), "status_forcelist", frozenset({429, 500})),
+        ("retryable_status_codes", frozenset({500, 502}), "status_forcelist", frozenset({500, 502})),
     ],
     ids=["max_retries", "backoff_factor", "status_forcelist"],
 )
@@ -61,3 +61,11 @@ def test_create_retry_transport_propagates_config(
     config = RetryConfig(**{field: config_value})
     transport = create_retry_transport(config)
     assert getattr(transport.retry, retry_attr) == expected
+
+
+def test_create_retry_transport_strips_429(caplog: pytest.LogCaptureFixture) -> None:
+    """429 is stripped from retryable_status_codes so AIMD feedback loop works."""
+    config = RetryConfig(retryable_status_codes=frozenset({429, 500, 503}))
+    transport = create_retry_transport(config)
+    assert transport.retry.status_forcelist == frozenset({500, 503})
+    assert "429" in caplog.text

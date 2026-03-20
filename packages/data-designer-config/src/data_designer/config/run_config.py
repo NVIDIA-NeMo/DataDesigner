@@ -9,6 +9,49 @@ from typing_extensions import Self
 from data_designer.config.base import ConfigBase
 
 
+class ThrottleConfig(ConfigBase):
+    """AIMD throttle tuning parameters for adaptive concurrency control.
+
+    These knobs configure the ``ThrottleManager`` that wraps every outbound
+    model HTTP request.  The defaults are conservative and suitable for most
+    workloads; override only when you understand the trade-offs.
+
+    Attributes:
+        reduce_factor: Multiplicative decrease factor applied to the per-domain
+            concurrency limit on a 429 / rate-limit signal.  Must be in (0, 1).
+            Default is 0.5 (halve on rate-limit).
+        additive_increase: Additive increase step applied after every
+            ``success_window`` consecutive successes.  Default is 1.
+        success_window: Number of consecutive successful releases before
+            the additive increase is applied.  Default is 50.
+        block_seconds: Default cooldown duration (seconds) applied after a
+            rate-limit when the provider does not include a ``Retry-After``
+            header.  Default is 2.0.
+    """
+
+    reduce_factor: float = Field(
+        default=0.5,
+        gt=0.0,
+        lt=1.0,
+        description="Multiplicative decrease factor applied to the per-domain concurrency limit on a 429 signal.",
+    )
+    additive_increase: int = Field(
+        default=1,
+        ge=1,
+        description="Additive increase step applied after every `success_window` consecutive successes.",
+    )
+    success_window: int = Field(
+        default=50,
+        ge=1,
+        description="Number of consecutive successful releases before the additive increase is applied.",
+    )
+    block_seconds: float = Field(
+        default=2.0,
+        gt=0.0,
+        description="Default cooldown duration (seconds) after a rate-limit when no Retry-After header is present.",
+    )
+
+
 class RunConfig(ConfigBase):
     """Runtime configuration for dataset generation.
 
@@ -35,6 +78,7 @@ class RunConfig(ConfigBase):
             Default is 0.
         async_trace: If True, collect per-task tracing data when using the async engine
             (DATA_DESIGNER_ASYNC_ENGINE=1). Has no effect on the sync path. Default is False.
+        throttle: AIMD throttle tuning parameters.  See ``ThrottleConfig`` for details.
     """
 
     disable_early_shutdown: bool = False
@@ -45,6 +89,7 @@ class RunConfig(ConfigBase):
     max_conversation_restarts: int = Field(default=5, ge=0)
     max_conversation_correction_steps: int = Field(default=0, ge=0)
     async_trace: bool = False
+    throttle: ThrottleConfig = Field(default_factory=ThrottleConfig)
 
     @model_validator(mode="after")
     def normalize_shutdown_settings(self) -> Self:

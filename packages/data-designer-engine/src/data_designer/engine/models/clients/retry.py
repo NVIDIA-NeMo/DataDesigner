@@ -3,27 +3,34 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 
 from httpx_retries import Retry, RetryTransport
+
+logger = logging.getLogger(__name__)
+
+# 429 must not be retried at the transport layer so that rate-limit signals
+# propagate to ThrottledModelClient for AIMD backoff.
+_RESERVED_STATUS_CODES: frozenset[int] = frozenset({429})
 
 
 @dataclass(frozen=True)
 class RetryConfig:
     """Retry policy for native HTTP adapters.
 
-    Defaults mirror the current LiteLLM router settings in
-    ``LiteLLMRouterDefaultKwargs`` so behavior is preserved during migration.
+    Retries non-rate-limit transient failures (``502``, ``503``, ``504``) and
+    connection/transport errors.  ``429`` is intentionally excluded so that
+    rate-limit signals reach the ``ThrottledModelClient`` wrapper for AIMD
+    backoff.  If a caller includes ``429`` in ``retryable_status_codes``,
+    ``create_retry_transport`` will strip it and log a warning.
     """
 
     max_retries: int = 3
     backoff_factor: float = 2.0
     backoff_jitter: float = 0.2
     max_backoff_wait: float = 60.0
-    # TODO: Remove 429 from retryable_status_codes once ThrottleManager is
-    # wired via AsyncTaskScheduler (plan 346), so every rate-limit signal
-    # reaches AIMD backoff instead of being silently retried at the transport layer.
-    retryable_status_codes: frozenset[int] = field(default_factory=lambda: frozenset({429, 502, 503, 504}))
+    retryable_status_codes: frozenset[int] = field(default_factory=lambda: frozenset({502, 503, 504}))
 
 
 def create_retry_transport(config: RetryConfig | None = None) -> RetryTransport:
@@ -31,14 +38,27 @@ def create_retry_transport(config: RetryConfig | None = None) -> RetryTransport:
 
     The returned transport handles both sync and async requests (``RetryTransport``
     inherits from ``httpx.BaseTransport`` and ``httpx.AsyncBaseTransport``).
+
+    Any status codes in ``_RESERVED_STATUS_CODES`` (currently ``{429}``) are
+    stripped from the retry list so that rate-limit responses always reach the
+    ``ThrottledModelClient`` AIMD feedback loop.
     """
     cfg = config or RetryConfig()
+    status_codes = cfg.retryable_status_codes
+    reserved_overlap = status_codes & _RESERVED_STATUS_CODES
+    if reserved_overlap:
+        logger.warning(
+            "Stripping reserved status codes %s from retryable_status_codes; "
+            "these must reach ThrottledModelClient for AIMD backoff.",
+            sorted(reserved_overlap),
+        )
+        status_codes = status_codes - _RESERVED_STATUS_CODES
     retry = Retry(
         total=cfg.max_retries,
         backoff_factor=cfg.backoff_factor,
         backoff_jitter=cfg.backoff_jitter,
         max_backoff_wait=cfg.max_backoff_wait,
-        status_forcelist=cfg.retryable_status_codes,
+        status_forcelist=status_codes,
         respect_retry_after_header=True,
         allowed_methods=Retry.RETRYABLE_METHODS | frozenset(["POST"]),
     )

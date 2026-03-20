@@ -11,6 +11,7 @@ from data_designer.engine.models.clients.adapters.http_model_client import Clien
 from data_designer.engine.secret_resolver import SecretResolver
 
 if TYPE_CHECKING:
+    from data_designer.config.run_config import RunConfig
     from data_designer.engine.mcp.registry import MCPRegistry
     from data_designer.engine.models.registry import ModelRegistry
 
@@ -22,6 +23,7 @@ def create_model_registry(
     model_provider_registry: ModelProviderRegistry,
     mcp_registry: MCPRegistry | None = None,
     client_concurrency_mode: ClientConcurrencyMode = ClientConcurrencyMode.SYNC,
+    run_config: RunConfig | None = None,
 ) -> ModelRegistry:
     """Factory function for creating a ModelRegistry instance.
 
@@ -38,18 +40,30 @@ def create_model_registry(
         client_concurrency_mode: ``"sync"`` (default) or ``"async"``.  Forwarded
             to native HTTP adapters so each client is constrained to a single
             concurrency mode.
+        run_config: Optional runtime configuration.  The nested
+            ``run_config.throttle`` (a ``ThrottleConfig``) is forwarded to the
+            ``ThrottleManager`` constructor.
 
     Returns:
         A configured ModelRegistry instance.
     """
+    from data_designer.config.run_config import RunConfig
     from data_designer.engine.models.clients.factory import create_model_client
     from data_designer.engine.models.clients.retry import RetryConfig
-    from data_designer.engine.models.clients.throttle import ThrottleManager
+    from data_designer.engine.models.clients.throttle_manager import ThrottleManager
     from data_designer.engine.models.facade import ModelFacade
     from data_designer.engine.models.litellm_overrides import apply_litellm_patches
     from data_designer.engine.models.registry import ModelRegistry
 
     apply_litellm_patches()
+
+    tc = (run_config or RunConfig()).throttle
+    throttle_manager = ThrottleManager(
+        reduce_factor=tc.reduce_factor,
+        additive_increase=tc.additive_increase,
+        success_window=tc.success_window,
+        default_block_seconds=tc.block_seconds,
+    )
 
     def model_facade_factory(
         model_config: ModelConfig,
@@ -63,6 +77,7 @@ def create_model_registry(
             model_provider_registry,
             retry_config=retry_config,
             client_concurrency_mode=client_concurrency_mode,
+            throttle_manager=throttle_manager,
         )
         return ModelFacade(
             model_config,
@@ -76,7 +91,6 @@ def create_model_registry(
         secret_resolver=secret_resolver,
         model_provider_registry=model_provider_registry,
         model_facade_factory=model_facade_factory,
-        # TODO: Throttle acquire/release is wired in a follow-up PR (AsyncTaskScheduler integration).
-        throttle_manager=ThrottleManager(),
+        throttle_manager=throttle_manager,
         retry_config=RetryConfig(),
     )

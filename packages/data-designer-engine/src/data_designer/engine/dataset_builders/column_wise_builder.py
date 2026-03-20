@@ -63,7 +63,11 @@ if DATA_DESIGNER_ASYNC_ENGINE:
             "DATA_DESIGNER_ASYNC_ENGINE requires Python 3.11+ (asyncio.TaskGroup). "
             f"Current version: {sys.version_info.major}.{sys.version_info.minor}"
         )
-    from data_designer.engine.dataset_builders.async_scheduler import AsyncTaskScheduler
+    from data_designer.engine.dataset_builders.async_scheduler import (
+        LLM_WAIT_POOL_MULTIPLIER,
+        MIN_SUBMITTED_TASKS,
+        AsyncTaskScheduler,
+    )
     from data_designer.engine.dataset_builders.utils.async_concurrency import (
         AsyncConcurrentExecutor,
         ensure_async_engine_loop,
@@ -285,12 +289,19 @@ class ColumnWiseDatasetBuilder:
 
         trace_enabled = settings.async_trace or os.environ.get("DATA_DESIGNER_ASYNC_TRACE", "0") == "1"
 
+        # Coarse upper bound: sums all registered aliases, not just those used
+        # in this build.  Oversizing is harmless — ThrottleManager enforces
+        # the real per-key limit; the semaphore is a memory-safety cap.
+        aggregate = self._resource_provider.model_registry.get_aggregate_max_parallel_requests()
+
         scheduler = AsyncTaskScheduler(
             generators=gen_map,
             graph=graph,
             tracker=tracker,
             row_groups=row_groups,
             buffer_manager=buffer_manager,
+            max_submitted_tasks=MIN_SUBMITTED_TASKS,
+            max_llm_wait_tasks=max(MIN_SUBMITTED_TASKS, LLM_WAIT_POOL_MULTIPLIER * aggregate),
             on_checkpoint_complete=on_batch_complete,
             on_seeds_complete=(
                 on_seeds_complete if self._processor_runner.has_processors_for(ProcessorStage.PRE_BATCH) else None

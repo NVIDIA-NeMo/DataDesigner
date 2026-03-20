@@ -8,7 +8,7 @@ import time
 
 import pytest
 
-from data_designer.engine.models.clients.throttle import (
+from data_designer.engine.models.clients.throttle_manager import (
     DEFAULT_BLOCK_SECONDS,
     ThrottleDomain,
     ThrottleManager,
