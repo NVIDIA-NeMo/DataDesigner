@@ -23,7 +23,10 @@ This is an interactive, iterative design process. Do not disengage from the loop
 6. **Preview** — Run `data-designer preview <path> --save-results` to generate sample records as HTML files.
   - Note the sample records directory printed by the `data-designer preview` command
   - Give the user a clickable link: `file://<sample-records-dir>/sample_records_browser.html`
-7. **Iterate** — Ask the user for feedback and offer to review the records and suggest improvements yourself. If asked to review, read `references/preview-review.md`. Edit the script, re-validate, and re-preview. Repeat until they are satisfied.
+7. **Iterate**
+   - Ask the user for feedback.
+   - Offer to review the records yourself and suggest improvements. If the user accepts, read `references/preview-review.md` for guidance.
+   - Apply changes, re-validate, and re-preview. Repeat until they are satisfied.
 8. **Finalize** — Once the user is happy, tell them they can run the following command to create the dataset:
   - `data-designer create <path> --num-records <N> --dataset-name <name>`.
   - Warn the user that generation can take a long time for large record counts (50+).
