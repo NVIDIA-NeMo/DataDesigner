@@ -22,7 +22,7 @@ from data_designer.engine.column_generators.generators.base import (
     FromScratchColumnGenerator,
 )
 from data_designer.engine.dataset_builders.async_scheduler import AsyncTaskScheduler
-from data_designer.engine.dataset_builders.column_wise_builder import ColumnWiseDatasetBuilder
+from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 from data_designer.engine.dataset_builders.utils.completion_tracker import CompletionTracker
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
@@ -91,13 +91,13 @@ class MockFullCol(ColumnGeneratorFullColumn[ExpressionColumnConfig]):
 )
 def test_validate_async_compatibility(configs: list[Mock], should_raise: bool) -> None:
     """Validation rejects allow_resize=True with the async engine."""
-    builder = Mock(spec=ColumnWiseDatasetBuilder)
+    builder = Mock(spec=DatasetBuilder)
     builder.single_column_configs = configs
     if should_raise:
         with pytest.raises(DatasetGenerationError, match="allow_resize=True"):
-            ColumnWiseDatasetBuilder._validate_async_compatibility(builder)
+            DatasetBuilder._validate_async_compatibility(builder)
     else:
-        ColumnWiseDatasetBuilder._validate_async_compatibility(builder)
+        DatasetBuilder._validate_async_compatibility(builder)
 
 
 # -- _build_async integration test with mock generators -----------------------
@@ -152,13 +152,17 @@ async def test_build_async_end_to_end() -> None:
 
     checkpointed: list[int] = []
 
+    def finalize_and_track(rg_id: int) -> None:
+        buffer_manager.checkpoint_row_group(rg_id)
+        checkpointed.append(rg_id)
+
     scheduler = AsyncTaskScheduler(
         generators=gen_map,
         graph=graph,
         tracker=tracker,
         row_groups=row_groups,
         buffer_manager=buffer_manager,
-        on_row_group_complete=lambda rg: checkpointed.append(rg),
+        on_finalize_row_group=finalize_and_track,
     )
     await scheduler.run()
 
@@ -177,7 +181,7 @@ async def test_build_async_end_to_end() -> None:
 
 def test_sync_path_unaffected_by_async_engine_flag() -> None:
     """DATA_DESIGNER_ASYNC_ENGINE=0 keeps the sync path unchanged."""
-    import data_designer.engine.dataset_builders.column_wise_builder as builder_mod
+    import data_designer.engine.dataset_builders.dataset_builder as builder_mod
 
     assert hasattr(builder_mod, "DATA_DESIGNER_ASYNC_ENGINE")
     assert isinstance(builder_mod.DATA_DESIGNER_ASYNC_ENGINE, bool)
@@ -250,10 +254,65 @@ async def test_checkpoint_produces_correct_parquet_calls() -> None:
         tracker=tracker,
         row_groups=row_groups,
         buffer_manager=buffer_manager,
+        on_finalize_row_group=lambda rg_id: buffer_manager.checkpoint_row_group(rg_id),
     )
     await scheduler.run()
 
-    # Two row groups → two write_batch_to_parquet_file calls
+    # Two row groups -> two write_batch_to_parquet_file calls
     assert storage.write_batch_to_parquet_file.call_count == 2
     assert storage.move_partial_result_to_final_file_path.call_count == 2
     assert buffer_manager.actual_num_records == 5
+
+
+# -- Async preview integration test -------------------------------------------
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_build_async_preview_returns_dataframe_without_disk_writes() -> None:
+    """Async preview runs a single row group and returns a DataFrame without writing parquet."""
+    provider = _mock_provider()
+    seed_gen = MockSeed(config=_expr_config("seed"), resource_provider=provider)
+    cell_gen = MockCell(config=_expr_config("cell_out"), resource_provider=provider)
+
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="cell_out", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "cell_out": GenerationStrategy.CELL_BY_CELL,
+    }
+    gen_map = {"seed": seed_gen, "cell_out": cell_gen}
+
+    num_records = 3
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups: list[tuple[int, int]] = [(0, num_records)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+
+    storage = MagicMock()
+    storage.dataset_name = "test"
+    storage.get_file_paths.return_value = {}
+
+    buffer_manager = RowGroupBufferManager(storage)
+
+    scheduler = AsyncTaskScheduler(
+        generators=gen_map,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_manager,
+        # No on_finalize_row_group - buffers retained for caller to read
+        num_records=num_records,
+        buffer_size=num_records,
+    )
+    await scheduler.run()
+
+    # Extract the DataFrame before freeing (mirrors _build_async_preview)
+    df = buffer_manager.get_dataframe(0)
+    buffer_manager.free_row_group(0)
+
+    assert len(df) == num_records
+    assert "seed" in df.columns
+    assert "cell_out" in df.columns
+    # No parquet writes (no finalize callback)
+    storage.write_batch_to_parquet_file.assert_not_called()

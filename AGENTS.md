@@ -117,7 +117,7 @@ make coverage       # Run tests with coverage report
 - [packages/data-designer/src/data_designer/interface/data_designer.py](packages/data-designer/src/data_designer/interface/data_designer.py) - Main entry point (`DataDesigner` class)
 - [packages/data-designer-config/src/data_designer/config/config_builder.py](packages/data-designer-config/src/data_designer/config/config_builder.py) - Configuration API (`DataDesignerConfigBuilder`)
 - [packages/data-designer-config/src/data_designer/config/__init__.py](packages/data-designer-config/src/data_designer/config/__init__.py) - User-facing config API exports
-- [packages/data-designer-engine/src/data_designer/engine/dataset_builders/column_wise_builder.py](packages/data-designer-engine/src/data_designer/engine/dataset_builders/column_wise_builder.py) - Generation orchestrator
+- [packages/data-designer-engine/src/data_designer/engine/dataset_builders/dataset_builder.py](packages/data-designer-engine/src/data_designer/engine/dataset_builders/dataset_builder.py) - Generation orchestrator
 - [pyproject.toml](pyproject.toml) - Project dependencies and tool configurations
 - [Makefile](Makefile) - Common development commands
 
