@@ -115,6 +115,8 @@ def _normalize_content_blocks(content: Any) -> list[dict[str, Any]]:
 def _normalize_content_block(block: Any) -> dict[str, Any]:
     if isinstance(block, dict) and "type" in block:
         return block
+    if isinstance(block, dict) and "text" in block:
+        return _text_block(block["text"])
     return _text_block(block)
 
 

@@ -44,6 +44,7 @@ from data_designer.engine.resources.person_reader import (
 )
 from data_designer.engine.resources.resource_provider import ResourceProvider, create_resource_provider
 from data_designer.engine.resources.seed_reader import (
+    AgentRolloutSeedReader,
     DataFrameSeedReader,
     DirectorySeedReader,
     FileContentsSeedReader,
@@ -95,6 +96,7 @@ DEFAULT_SEED_READERS = [
     DataFrameSeedReader(),
     DirectorySeedReader(),
     FileContentsSeedReader(),
+    AgentRolloutSeedReader(),
 ]
 for plugin in PluginRegistry().get_plugins(PluginType.SEED_READER):
     DEFAULT_SEED_READERS.append(plugin.impl_cls())
