@@ -8,7 +8,7 @@ argument-hint: [describe the dataset you want to generate]
 
 Do not explore the workspace first. The workflow's Learn step gives you everything you need.
 
-**Resolve the `data-designer` command before doing anything else.** Run `which data-designer 2>/dev/null || (test -x .venv/bin/data-designer && realpath .venv/bin/data-designer)`. If the command is not on PATH but exists at `.venv/bin/data-designer`, use the **absolute** path printed by `realpath` for ALL `data-designer` commands throughout this skill. If neither works, see the Troubleshooting section.
+**Resolve the `data-designer` command first.** Run `which data-designer 2>/dev/null || (test -x .venv/bin/data-designer && realpath .venv/bin/data-designer)`. If it's only in `.venv/bin/`, use the absolute path for all `data-designer` commands. If neither works, see Troubleshooting.
 
 # Goal
 
