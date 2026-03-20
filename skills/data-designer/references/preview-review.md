@@ -24,6 +24,7 @@ The specifics depend on the dataset and its intended use. The categories below a
 - **Plausibility**: do examples look like they could come from the real domain, or are they obviously synthetic?
 
 ### Design Choices
-- **Column types**: if a text column consistently produces structured data or code, use the appropriate specialized column type. If values come from a fixed set or known distribution, use a sampler instead of an LLM column.
-- **Validation**: if output could be checked programmatically (syntax, schema conformance, value ranges), attach a validator.
-- **Judge calibration** (if applicable): are scores consistent across similar-quality records? Does the judge catch visible problems? Consider the user's intent — uniformly high scores may be correct if the judge is a quality filter; a spread matters more if it's a training signal.
+Are the right Data Designer features being used? For example:
+- A text column that consistently produces structured data or code might be better as a specialized column type.
+- Values drawn from a fixed set or known distribution could use a sampler instead of an LLM column.
+- If the dataset has judge columns, check whether scores are consistent across similar-quality records and whether the judge catches visible problems.
