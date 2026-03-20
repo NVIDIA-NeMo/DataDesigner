@@ -75,6 +75,7 @@ class AsyncTaskScheduler:
         self._buffer_manager = buffer_manager
 
         self._rg_semaphore = asyncio.Semaphore(max_concurrent_row_groups)
+        self._max_submitted_tasks = max_submitted_tasks
         self._submission_semaphore = asyncio.Semaphore(max_submitted_tasks)
 
         self._dispatched: set[Task] = set()
@@ -155,7 +156,7 @@ class AsyncTaskScheduler:
         has_pre_batch = self._on_seeds_complete is not None
 
         for tracker in self._progress_trackers.values():
-            tracker.log_start(max_workers=self._submission_semaphore._value)
+            tracker.log_start(max_workers=self._max_submitted_tasks)
 
         # Launch admission as a background task so it interleaves with dispatch.
         admission_task = asyncio.create_task(self._admit_row_groups())
