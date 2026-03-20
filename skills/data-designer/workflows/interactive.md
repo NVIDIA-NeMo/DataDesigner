@@ -26,7 +26,7 @@ This is an interactive, iterative design process. Do not disengage from the loop
 7. **Iterate**
    - Ask the user for feedback.
    - Offer to review the records yourself and suggest improvements. If the user accepts, read `references/preview-review.md` for guidance.
-   - Apply changes, re-validate, and re-preview. Repeat until they are satisfied.
+   - Apply changes, re-validate, and re-preview. Repeat until the user is satisfied.
 8. **Finalize** — Once the user is happy, tell them they can run the following command to create the dataset:
   - `data-designer create <path> --num-records <N> --dataset-name <name>`.
   - Warn the user that generation can take a long time for large record counts (50+).
