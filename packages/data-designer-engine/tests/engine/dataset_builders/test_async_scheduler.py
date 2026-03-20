@@ -849,11 +849,10 @@ async def test_scheduler_pre_batch_failure_skips_row_group() -> None:
 
 
 class _SlowSeedGenerator(FromScratchColumnGenerator[ExpressionColumnConfig]):
-    """Seed generator whose async cost scales with row count via event-loop yields.
+    """Seed generator whose async cost scales with row count.
 
-    Both RGs' seed tasks run as concurrent asyncio tasks. Because they interleave
-    via ``asyncio.sleep(0)``, the task with fewer yields (smaller RG) finishes first,
-    causing its downstream to be dispatched and completed before the larger RG.
+    Both RGs' seed tasks run concurrently. The task with fewer rows sleeps for
+    less real time, causing its downstream to be dispatched and completed first.
     """
 
     @staticmethod
@@ -867,8 +866,7 @@ class _SlowSeedGenerator(FromScratchColumnGenerator[ExpressionColumnConfig]):
         return lazy.pd.DataFrame({self.config.name: list(range(num_records))})
 
     async def agenerate_from_scratch(self, num_records: int) -> lazy.pd.DataFrame:
-        for _ in range(num_records * 10):
-            await asyncio.sleep(0)
+        await asyncio.sleep(num_records * 0.02)
         return self.generate_from_scratch(num_records)
 
 
@@ -876,9 +874,8 @@ class _SlowSeedGenerator(FromScratchColumnGenerator[ExpressionColumnConfig]):
 async def test_scheduler_out_of_order_row_group_completion() -> None:
     """Row groups may complete out of order; both are checkpointed correctly."""
     provider = _mock_provider()
-    # Slow seed generator: RG 0 (5 rows) does 50 yields, RG 1 (1 row) does 10 yields.
-    # Because seed tasks interleave in the event loop, RG 1 finishes seeds first,
-    # its downstream cell_out is dispatched and completes before RG 0.
+    # Slow seed generator: RG 0 (5 rows) sleeps 100ms, RG 1 (1 row) sleeps 20ms.
+    # RG 1 finishes seeds first, its downstream is dispatched and completes before RG 0.
     slow_seed = _SlowSeedGenerator(config=_expr_config("seed"), resource_provider=provider)
     cell_gen = MockCellGenerator(config=_expr_config("cell_out"), resource_provider=provider)
 
