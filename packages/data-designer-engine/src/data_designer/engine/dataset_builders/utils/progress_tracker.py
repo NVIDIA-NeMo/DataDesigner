@@ -62,6 +62,19 @@ class ProgressTracker:
             self.label,
             max_workers,
         )
+        self._log_interval_info()
+
+    def log_start_async(self, num_row_groups: int) -> None:
+        """Log the start of async processing with task and row group counts."""
+        logger.info(
+            "⚡️ Processing %s: %d tasks across %d row group(s)",
+            self.label,
+            self.total_records,
+            num_row_groups,
+        )
+        self._log_interval_info()
+
+    def _log_interval_info(self) -> None:
         interval_str = "after each record" if self.log_interval == 1 else f"every {self.log_interval} records"
         logger.info(
             "⏱️ %s will report progress %s",

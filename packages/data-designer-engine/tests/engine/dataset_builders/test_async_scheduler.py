@@ -959,10 +959,8 @@ async def test_scheduler_creates_progress_trackers_with_correct_counts() -> None
         buffer_size=3,
     )
 
-    assert "seed" in scheduler._progress_trackers
+    assert "seed" not in scheduler._progress_trackers  # FULL_COLUMN columns are excluded
     assert "cell_out" in scheduler._progress_trackers
-    # FULL_COLUMN: ceil(5/3) = 2 tasks; CELL_BY_CELL: 5 tasks
-    assert scheduler._progress_trackers["seed"].total_records == 2
     assert scheduler._progress_trackers["cell_out"].total_records == 5
 
 
@@ -997,9 +995,8 @@ async def test_scheduler_progress_trackers_record_success() -> None:
     )
     await scheduler.run()
 
-    # seed: 1 batch task succeeded
-    assert scheduler._progress_trackers["seed"].success == 1
-    # cell_out: 3 cell tasks succeeded
+    # cell_out: 3 cell tasks succeeded (FULL_COLUMN columns have no tracker)
+    assert "seed" not in scheduler._progress_trackers
     assert scheduler._progress_trackers["cell_out"].success == 3
 
 

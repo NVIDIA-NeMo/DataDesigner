@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable
 
 import data_designer.lazy_heavy_imports as lazy
+from data_designer.config.column_configs import GenerationStrategy
 from data_designer.engine.dataset_builders.utils.completion_tracker import CompletionTracker
 from data_designer.engine.dataset_builders.utils.progress_tracker import ProgressTracker
 from data_designer.engine.dataset_builders.utils.task_model import Task, TaskTrace
@@ -75,7 +76,6 @@ class AsyncTaskScheduler:
         self._buffer_manager = buffer_manager
 
         self._rg_semaphore = asyncio.Semaphore(max_concurrent_row_groups)
-        self._max_submitted_tasks = max_submitted_tasks
         self._submission_semaphore = asyncio.Semaphore(max_submitted_tasks)
 
         self._dispatched: set[Task] = set()
@@ -124,15 +124,16 @@ class AsyncTaskScheduler:
         # Pre-compute seed columns (graph is static)
         self._seed_cols: frozenset[str] = frozenset(c for c in graph.columns if not graph.get_upstream_columns(c))
 
-        # Per-column progress tracking
+        # Per-column progress tracking (cell-by-cell only; full-column tasks are instant)
         self._progress_trackers: dict[str, ProgressTracker] = {}
         if num_records > 0 and buffer_size > 0:
             task_counts = graph.compute_task_count(num_records, buffer_size)
             for col in graph.columns:
-                col_type = graph.get_strategy(col).value
+                if graph.get_strategy(col) != GenerationStrategy.CELL_BY_CELL:
+                    continue
                 self._progress_trackers[col] = ProgressTracker(
                     total_records=task_counts[col],
-                    label=f"{col_type} column '{col}'",
+                    label=f"column '{col}'",
                 )
 
     async def _admit_row_groups(self) -> None:
@@ -155,8 +156,9 @@ class AsyncTaskScheduler:
         seed_cols = self._seed_cols
         has_pre_batch = self._on_seeds_complete is not None
 
+        num_rgs = len(self._row_groups)
         for tracker in self._progress_trackers.values():
-            tracker.log_start(max_workers=self._max_submitted_tasks)
+            tracker.log_start_async(num_row_groups=num_rgs)
 
         # Launch admission as a background task so it interleaves with dispatch.
         admission_task = asyncio.create_task(self._admit_row_groups())
@@ -372,6 +374,10 @@ class AsyncTaskScheduler:
         """Dispatch from_scratch tasks for a row group."""
         self._rg_states[rg_id].seeds_dispatched = True
         seed_cols = self._seed_cols
+        if not seed_cols:
+            return
+        num_rgs = len(self._rg_size_map)
+        logger.info(f"🚀 Dispatching row group {rg_id + 1}/{num_rgs} ({rg_size} records)")
         seen_instances: set[int] = set()
 
         for col in seed_cols:
