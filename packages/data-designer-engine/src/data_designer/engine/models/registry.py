@@ -216,9 +216,9 @@ class ModelRegistry:
                 else:
                     raise ValueError(f"Unsupported generation type: {model.model_generation_type}")
                 logger.info(f"{LOG_INDENT}✅ Passed!")
-            except Exception as e:
+            except Exception:
                 logger.error(f"{LOG_INDENT}❌ Failed!")
-                raise e
+                raise
 
     async def arun_health_check(self, model_aliases: list[str]) -> None:
         """Async version of ``run_health_check`` for async-mode registries."""
@@ -261,9 +261,9 @@ class ModelRegistry:
                 else:
                     raise ValueError(f"Unsupported generation type: {model.model_generation_type}")
                 logger.info(f"{LOG_INDENT}✅ Passed!")
-            except Exception as e:
+            except Exception:
                 logger.error(f"{LOG_INDENT}❌ Failed!")
-                raise e
+                raise
 
     def close(self) -> None:
         """Release resources held by all model facades.
