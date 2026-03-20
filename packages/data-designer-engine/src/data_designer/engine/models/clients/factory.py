@@ -9,6 +9,7 @@ import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.models import ModelConfig
 from data_designer.engine.model_provider import ModelProvider, ModelProviderRegistry
 from data_designer.engine.models.clients.adapters.anthropic import AnthropicClient
+from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
 from data_designer.engine.models.clients.adapters.litellm_bridge import LiteLLMBridgeClient
 from data_designer.engine.models.clients.adapters.openai_compatible import OpenAICompatibleClient
 from data_designer.engine.models.clients.base import ModelClient
@@ -26,8 +27,25 @@ def create_model_client(
     model_provider_registry: ModelProviderRegistry,
     *,
     retry_config: RetryConfig | None = None,
+    client_concurrency_mode: ClientConcurrencyMode = ClientConcurrencyMode.SYNC,
 ) -> ModelClient:
     """Create a ``ModelClient`` for the given model configuration.
+
+    Args:
+        model_config: Model configuration specifying alias, model ID, provider,
+            and inference parameters.
+        secret_resolver: Resolver for secrets referenced in provider API key configs.
+        model_provider_registry: Registry of model provider configurations used
+            to look up endpoint, provider type, and API key reference.
+        retry_config: Optional retry configuration for native HTTP adapters.
+            Ignored by the ``LiteLLMBridgeClient`` (which has its own retry logic).
+        client_concurrency_mode: ``"sync"`` (default) for the sync engine path,
+            ``"async"`` for the async engine path.  Native HTTP adapters are
+            constrained to a single concurrency mode; the ``LiteLLMBridgeClient``
+            ignores this parameter.
+
+    Returns:
+        A ``ModelClient`` instance routed by provider type.
 
     Routing logic:
     1. If ``DATA_DESIGNER_MODEL_BACKEND=litellm_bridge`` → always use bridge.
@@ -53,6 +71,7 @@ def create_model_client(
             retry_config=retry_config,
             max_parallel_requests=max_parallel,
             timeout_s=timeout_s,
+            concurrency_mode=client_concurrency_mode,
         )
 
     if provider.provider_type == "anthropic":
@@ -63,6 +82,7 @@ def create_model_client(
             retry_config=retry_config,
             max_parallel_requests=max_parallel,
             timeout_s=timeout_s,
+            concurrency_mode=client_concurrency_mode,
         )
 
     return _create_bridge_client(model_config, provider, api_key, max_parallel)

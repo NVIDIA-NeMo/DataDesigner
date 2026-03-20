@@ -435,7 +435,21 @@ class ColumnWiseDatasetBuilder:
             if isinstance(config, CustomColumnConfig) and config.model_aliases:
                 model_aliases.update(config.model_aliases)
 
-        if model_aliases:
+        if not model_aliases:
+            return
+
+        if DATA_DESIGNER_ASYNC_ENGINE:
+            loop = ensure_async_engine_loop()
+            future = asyncio.run_coroutine_threadsafe(
+                self._resource_provider.model_registry.arun_health_check(list(model_aliases)),
+                loop,
+            )
+            try:
+                future.result(timeout=180)
+            except TimeoutError:
+                future.cancel()
+                raise
+        else:
             self._resource_provider.model_registry.run_health_check(list(model_aliases))
 
     def _run_mcp_tool_check_if_needed(self) -> None:
