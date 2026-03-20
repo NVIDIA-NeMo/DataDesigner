@@ -241,13 +241,17 @@ async def test_scheduler_with_buffer_manager() -> None:
 
     checkpointed: list[int] = []
 
+    def finalize_and_track(rg_id: int) -> None:
+        buffer_mgr.checkpoint_row_group(rg_id)
+        checkpointed.append(rg_id)
+
     scheduler = AsyncTaskScheduler(
         generators=generators,
         graph=graph,
         tracker=tracker,
         row_groups=row_groups,
         buffer_manager=buffer_mgr,
-        on_row_group_complete=lambda rg: checkpointed.append(rg),
+        on_finalize_row_group=finalize_and_track,
     )
     await scheduler.run()
 
@@ -543,7 +547,7 @@ async def test_scheduler_non_retryable_seed_failure_no_keyerror_on_downstream() 
         tracker=tracker,
         row_groups=row_groups,
         buffer_manager=buffer_mgr,
-        on_row_group_complete=lambda rg: checkpointed.append(rg),
+        on_finalize_row_group=lambda rg: checkpointed.append(rg),
         trace=True,
     )
     await scheduler.run()
@@ -552,7 +556,7 @@ async def test_scheduler_non_retryable_seed_failure_no_keyerror_on_downstream() 
     for ri in range(3):
         assert tracker.is_dropped(0, ri)
 
-    # Row group still completes (vacuously) and is checkpointed
+    # Row group still completes (vacuously) - finalize is called
     assert 0 in checkpointed
 
     # full_out was either never dispatched or silently skipped (no KeyError)
@@ -594,6 +598,7 @@ async def test_scheduler_error_rate_shutdown() -> None:
         tracker=tracker,
         row_groups=row_groups,
         buffer_manager=buffer_mgr,
+        on_finalize_row_group=lambda rg_id: buffer_mgr.checkpoint_row_group(rg_id),
         shutdown_error_rate=0.5,
         shutdown_error_window=2,
     )
@@ -728,8 +733,8 @@ async def test_scheduler_on_before_checkpoint_callback() -> None:
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_scheduler_on_checkpoint_complete_callback_receives_final_path() -> None:
-    """on_checkpoint_complete is called with the written parquet file path."""
+async def test_scheduler_on_finalize_row_group_receives_rg_id() -> None:
+    """on_finalize_row_group is called with the row group id on completion."""
     provider = _mock_provider()
     configs = [
         SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
@@ -748,7 +753,7 @@ async def test_scheduler_on_checkpoint_complete_callback_receives_final_path() -
     storage.move_partial_result_to_final_file_path.return_value = "/fake_final.parquet"
 
     buffer_mgr = RowGroupBufferManager(storage)
-    callback_log: list[str] = []
+    finalized: list[int] = []
 
     scheduler = AsyncTaskScheduler(
         generators=generators,
@@ -756,16 +761,16 @@ async def test_scheduler_on_checkpoint_complete_callback_receives_final_path() -
         tracker=tracker,
         row_groups=row_groups,
         buffer_manager=buffer_mgr,
-        on_checkpoint_complete=lambda path: callback_log.append(path),
+        on_finalize_row_group=lambda rg_id: finalized.append(rg_id),
     )
     await scheduler.run()
 
-    assert callback_log == ["/fake_final.parquet"]
+    assert finalized == [0]
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_scheduler_on_checkpoint_complete_skips_empty_row_group() -> None:
-    """on_checkpoint_complete is not called when a row group writes no file."""
+async def test_scheduler_no_finalize_without_callback() -> None:
+    """Without on_finalize_row_group, buffers are retained for the caller to read."""
     provider = _mock_provider()
     storage = MagicMock()
     storage.dataset_name = "test"
@@ -775,15 +780,12 @@ async def test_scheduler_on_checkpoint_complete_skips_empty_row_group() -> None:
         SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
     ]
     strategies = {"seed": GenerationStrategy.FULL_COLUMN}
-    generators = {
-        "seed": MockFailingSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
-    }
+    generators = {"seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider)}
 
     graph = ExecutionGraph.create(configs, strategies)
     row_groups = [(0, 3)]
     tracker = CompletionTracker.with_graph(graph, row_groups)
     buffer_mgr = RowGroupBufferManager(storage)
-    callback = MagicMock()
 
     scheduler = AsyncTaskScheduler(
         generators=generators,
@@ -791,11 +793,13 @@ async def test_scheduler_on_checkpoint_complete_skips_empty_row_group() -> None:
         tracker=tracker,
         row_groups=row_groups,
         buffer_manager=buffer_mgr,
-        on_checkpoint_complete=callback,
+        # No on_finalize_row_group - buffer should stay alive
     )
     await scheduler.run()
 
-    callback.assert_not_called()
+    # Buffer still readable (not checkpointed/freed)
+    df = buffer_mgr.get_dataframe(0)
+    assert len(df) == 3
     storage.write_batch_to_parquet_file.assert_not_called()
 
 
@@ -909,14 +913,175 @@ async def test_scheduler_out_of_order_row_group_completion() -> None:
         row_groups=row_groups,
         buffer_manager=buffer_mgr,
         max_concurrent_row_groups=2,
-        on_row_group_complete=lambda rg_id: checkpoint_order.append(rg_id),
+        on_finalize_row_group=lambda rg_id: checkpoint_order.append(rg_id),
     )
     await scheduler.run()
 
     # Both row groups completed
     assert tracker.is_row_group_complete(0, 5, ["seed", "cell_out"])
     assert tracker.is_row_group_complete(1, 1, ["seed", "cell_out"])
-    # Both were checkpointed
+    # Both were finalized
     assert set(checkpoint_order) == {0, 1}
-    # RG 1 (fewer rows, fewer seed yields) checkpoints before RG 0
+    # RG 1 (fewer rows, fewer seed yields) finalized before RG 0
     assert checkpoint_order.index(1) < checkpoint_order.index(0)
+
+
+# -- Progress tracker integration tests ----------------------------------------
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_creates_progress_trackers_with_correct_counts() -> None:
+    """Progress trackers are created per column with task counts from the graph."""
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="cell_out", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "cell_out": GenerationStrategy.CELL_BY_CELL,
+    }
+    generators = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "cell_out": MockCellGenerator(config=_expr_config("cell_out"), resource_provider=provider),
+    }
+
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 3), (1, 2)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        num_records=5,
+        buffer_size=3,
+    )
+
+    assert "seed" in scheduler._progress_trackers
+    assert "cell_out" in scheduler._progress_trackers
+    # FULL_COLUMN: ceil(5/3) = 2 tasks; CELL_BY_CELL: 5 tasks
+    assert scheduler._progress_trackers["seed"].total_records == 2
+    assert scheduler._progress_trackers["cell_out"].total_records == 5
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_progress_trackers_record_success() -> None:
+    """Progress trackers record success after tasks complete."""
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="cell_out", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "cell_out": GenerationStrategy.CELL_BY_CELL,
+    }
+    generators = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "cell_out": MockCellGenerator(config=_expr_config("cell_out"), resource_provider=provider),
+    }
+
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 3)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        num_records=3,
+        buffer_size=3,
+    )
+    await scheduler.run()
+
+    # seed: 1 batch task succeeded
+    assert scheduler._progress_trackers["seed"].success == 1
+    # cell_out: 3 cell tasks succeeded
+    assert scheduler._progress_trackers["cell_out"].success == 3
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_progress_trackers_record_failure() -> None:
+    """Progress trackers record failure for non-retryable errors."""
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="fail_col", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "fail_col": GenerationStrategy.CELL_BY_CELL,
+    }
+    generators = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "fail_col": MockFailingGenerator(config=_expr_config("fail_col"), resource_provider=provider),
+    }
+
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 2)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        num_records=2,
+        buffer_size=2,
+    )
+    await scheduler.run()
+
+    assert scheduler._progress_trackers["fail_col"].failed == 2
+
+
+# -- free_row_group caller verification ----------------------------------------
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_on_before_checkpoint_failure_frees_row_group_buffer() -> None:
+    """When on_before_checkpoint fails, free_row_group is called on the buffer manager."""
+    provider = _mock_provider()
+    seed_gen = MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider)
+
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+    ]
+    strategies = {"seed": GenerationStrategy.FULL_COLUMN}
+    generators = {"seed": seed_gen}
+
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 3), (1, 2)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+
+    storage = MagicMock()
+    storage.dataset_name = "test"
+    storage.get_file_paths.return_value = {}
+    storage.write_batch_to_parquet_file.return_value = "/fake.parquet"
+    storage.move_partial_result_to_final_file_path.return_value = "/fake_final.parquet"
+
+    buffer_mgr = RowGroupBufferManager(storage)
+    finalized: list[int] = []
+
+    def failing_post_batch(rg_id: int, rg_size: int) -> None:
+        if rg_id == 0:
+            raise RuntimeError("post-batch failed")
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_mgr,
+        on_before_checkpoint=failing_post_batch,
+        on_finalize_row_group=lambda rg_id: finalized.append(rg_id),
+    )
+    await scheduler.run()
+
+    # RG 0: freed (on_before_checkpoint failed) - buffer should be gone
+    with pytest.raises(KeyError):
+        buffer_mgr.get_row(0, 0)
+    # RG 0 was not finalized (dropped), RG 1 was
+    assert finalized == [1]

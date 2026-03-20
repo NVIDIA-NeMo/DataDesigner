@@ -9,11 +9,11 @@ import logging
 import time
 from collections import deque
 from dataclasses import dataclass
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.engine.dataset_builders.utils.completion_tracker import CompletionTracker
+from data_designer.engine.dataset_builders.utils.progress_tracker import ProgressTracker
 from data_designer.engine.dataset_builders.utils.task_model import Task, TaskTrace
 from data_designer.engine.models.errors import (
     ModelAPIConnectionError,
@@ -58,14 +58,15 @@ class AsyncTaskScheduler:
         max_concurrent_row_groups: int = 3,
         max_submitted_tasks: int = 256,
         salvage_max_rounds: int = 2,
-        on_row_group_complete: Callable[[int], None] | None = None,
-        on_checkpoint_complete: Callable[[Path | str], None] | None = None,
+        on_finalize_row_group: Callable[[int], None] | None = None,
         on_seeds_complete: Callable[[int, int], None] | None = None,
         on_before_checkpoint: Callable[[int, int], None] | None = None,
         shutdown_error_rate: float = 0.5,
         shutdown_error_window: int = 10,
         disable_early_shutdown: bool = False,
         trace: bool = False,
+        num_records: int = 0,
+        buffer_size: int = 0,
     ) -> None:
         self._generators = generators
         self._graph = graph
@@ -80,8 +81,7 @@ class AsyncTaskScheduler:
         self._in_flight: set[Task] = set()
         self._wake_event = asyncio.Event()
         self._salvage_max_rounds = salvage_max_rounds
-        self._on_row_group_complete = on_row_group_complete
-        self._on_checkpoint_complete = on_checkpoint_complete
+        self._on_finalize_row_group = on_finalize_row_group
         self._on_seeds_complete = on_seeds_complete
         self._on_before_checkpoint = on_before_checkpoint
 
@@ -123,6 +123,17 @@ class AsyncTaskScheduler:
         # Pre-compute seed columns (graph is static)
         self._seed_cols: frozenset[str] = frozenset(c for c in graph.columns if not graph.get_upstream_columns(c))
 
+        # Per-column progress tracking
+        self._progress_trackers: dict[str, ProgressTracker] = {}
+        if num_records > 0 and buffer_size > 0:
+            task_counts = graph.compute_task_count(num_records, buffer_size)
+            for col in graph.columns:
+                col_type = graph.get_strategy(col).value
+                self._progress_trackers[col] = ProgressTracker(
+                    total_records=task_counts[col],
+                    label=f"{col_type} column '{col}'",
+                )
+
     async def _admit_row_groups(self) -> None:
         """Admit row groups as semaphore slots become available."""
         for rg_id, rg_size in self._row_groups:
@@ -142,6 +153,9 @@ class AsyncTaskScheduler:
         all_columns = self._graph.columns
         seed_cols = self._seed_cols
         has_pre_batch = self._on_seeds_complete is not None
+
+        for tracker in self._progress_trackers.values():
+            tracker.log_start(max_workers=self._submission_semaphore._value)
 
         # Launch admission as a background task so it interleaves with dispatch.
         admission_task = asyncio.create_task(self._admit_row_groups())
@@ -243,6 +257,14 @@ class AsyncTaskScheduler:
             await self._drain_frontier(seed_cols, has_pre_batch, all_columns)
             self._checkpoint_completed_row_groups(all_columns)
 
+        # Record failure for tasks that exhausted all salvage rounds
+        for task in self._deferred:
+            if tracker := self._progress_trackers.get(task.column):
+                tracker.record_failure()
+
+        for tracker in self._progress_trackers.values():
+            tracker.log_final()
+
         if self._rg_states:
             incomplete = list(self._rg_states)
             logger.error(
@@ -299,19 +321,11 @@ class AsyncTaskScheduler:
                             self._tracker.drop_row(rg_id, ri)
                             if self._buffer_manager:
                                 self._buffer_manager.drop_row(rg_id, ri)
+                        if self._buffer_manager:
+                            self._buffer_manager.free_row_group(rg_id)
                         dropped = True
-                if not dropped and self._buffer_manager is not None:
-                    if self._on_checkpoint_complete is not None:
-
-                        def on_complete(final_path: Path | str | None) -> None:
-                            if final_path is not None:
-                                self._on_checkpoint_complete(final_path)
-
-                        self._buffer_manager.checkpoint_row_group(rg_id, on_complete=on_complete)
-                    else:
-                        self._buffer_manager.checkpoint_row_group(rg_id)
-                if not dropped and self._on_row_group_complete:
-                    self._on_row_group_complete(rg_id)
+                if not dropped and self._on_finalize_row_group is not None:
+                    self._on_finalize_row_group(rg_id)
             except Exception:
                 logger.error(f"Failed to checkpoint row group {rg_id}.", exc_info=True)
             finally:
@@ -448,16 +462,21 @@ class AsyncTaskScheduler:
                     self._tracker.mark_cell_complete(col, task.row_group, task.row_index)
 
             self._check_error_rate(success=True)
+            if tracker := self._progress_trackers.get(task.column):
+                tracker.record_success()
             if self._trace and trace:
                 trace.status = "ok"
 
         except Exception as exc:
             self._check_error_rate(success=False)
+            retryable = self._is_retryable(exc)
+            if not retryable:
+                if tracker := self._progress_trackers.get(task.column):
+                    tracker.record_failure()
             if self._trace and trace:
                 trace.status = "error"
                 trace.error = str(exc)
 
-            retryable = self._is_retryable(exc)
             if retryable:
                 self._deferred.append(task)
             else:
