@@ -75,7 +75,7 @@ def _make_chat_request(model_name: str) -> ChatCompletionRequest:
     return ChatCompletionRequest(model=model_name, messages=[{"role": "user", "content": "Hi"}])
 
 
-_SYNC_CLIENT_CASES = [
+_CLIENT_FACTORY_CASES = [
     pytest.param(_make_openai_client, _OPENAI_MODEL, id="openai"),
     pytest.param(_make_anthropic_client, _ANTHROPIC_MODEL, id="anthropic"),
 ]
@@ -96,7 +96,7 @@ _ASYNC_LAZY_INIT_CASES = [
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(("client_factory", "model_name"), _SYNC_CLIENT_CASES)
+@pytest.mark.parametrize(("client_factory", "model_name"), _CLIENT_FACTORY_CASES)
 def test_sync_close_delegates_to_httpx_client(client_factory: Callable[..., Any], model_name: str) -> None:
     sync_mock = MagicMock()
     client = client_factory(concurrency_mode=ClientConcurrencyMode.SYNC, sync_client=sync_mock)
@@ -106,7 +106,7 @@ def test_sync_close_delegates_to_httpx_client(client_factory: Callable[..., Any]
     sync_mock.close.assert_called_once()
 
 
-@pytest.mark.parametrize(("client_factory", "model_name"), _SYNC_CLIENT_CASES)
+@pytest.mark.parametrize(("client_factory", "model_name"), _CLIENT_FACTORY_CASES)
 def test_sync_close_is_idempotent(client_factory: Callable[..., Any], model_name: str) -> None:
     """Second close() should be a no-op — the underlying httpx client is only closed once."""
     sync_mock = MagicMock()
@@ -118,13 +118,13 @@ def test_sync_close_is_idempotent(client_factory: Callable[..., Any], model_name
     sync_mock.close.assert_called_once()
 
 
-@pytest.mark.parametrize(("client_factory", "model_name"), _SYNC_CLIENT_CASES)
+@pytest.mark.parametrize(("client_factory", "model_name"), _CLIENT_FACTORY_CASES)
 def test_sync_close_noop_when_no_client_created(client_factory: Callable[..., Any], model_name: str) -> None:
     client = client_factory(concurrency_mode=ClientConcurrencyMode.SYNC)
     client.close()
 
 
-@pytest.mark.parametrize(("client_factory", "model_name"), _SYNC_CLIENT_CASES)
+@pytest.mark.parametrize(("client_factory", "model_name"), _CLIENT_FACTORY_CASES)
 def test_sync_completion_raises_after_close(client_factory: Callable[..., Any], model_name: str) -> None:
     client = client_factory(concurrency_mode=ClientConcurrencyMode.SYNC)
     client.close()
@@ -133,7 +133,7 @@ def test_sync_completion_raises_after_close(client_factory: Callable[..., Any], 
         client.completion(_make_chat_request(model_name))
 
 
-@pytest.mark.parametrize(("client_factory", "model_name"), _SYNC_CLIENT_CASES)
+@pytest.mark.parametrize(("client_factory", "model_name"), _CLIENT_FACTORY_CASES)
 @pytest.mark.asyncio
 async def test_aclose_is_noop_on_sync_mode_client(client_factory: Callable[..., Any], model_name: str) -> None:
     sync_mock = MagicMock()
@@ -149,7 +149,7 @@ async def test_aclose_is_noop_on_sync_mode_client(client_factory: Callable[..., 
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(("client_factory", "model_name"), _SYNC_CLIENT_CASES)
+@pytest.mark.parametrize(("client_factory", "model_name"), _CLIENT_FACTORY_CASES)
 @pytest.mark.asyncio
 async def test_async_aclose_delegates_to_httpx_async_client(
     client_factory: Callable[..., Any], model_name: str
@@ -163,7 +163,7 @@ async def test_async_aclose_delegates_to_httpx_async_client(
     async_mock.aclose.assert_awaited_once()
 
 
-@pytest.mark.parametrize(("client_factory", "model_name"), _SYNC_CLIENT_CASES)
+@pytest.mark.parametrize(("client_factory", "model_name"), _CLIENT_FACTORY_CASES)
 @pytest.mark.asyncio
 async def test_async_aclose_is_idempotent(client_factory: Callable[..., Any], model_name: str) -> None:
     """Second aclose() should be a no-op — the underlying httpx async client is only closed once."""
@@ -177,14 +177,14 @@ async def test_async_aclose_is_idempotent(client_factory: Callable[..., Any], mo
     async_mock.aclose.assert_awaited_once()
 
 
-@pytest.mark.parametrize(("client_factory", "model_name"), _SYNC_CLIENT_CASES)
+@pytest.mark.parametrize(("client_factory", "model_name"), _CLIENT_FACTORY_CASES)
 @pytest.mark.asyncio
 async def test_async_aclose_noop_when_no_client_created(client_factory: Callable[..., Any], model_name: str) -> None:
     client = client_factory(concurrency_mode=ClientConcurrencyMode.ASYNC)
     await client.aclose()
 
 
-@pytest.mark.parametrize(("client_factory", "model_name"), _SYNC_CLIENT_CASES)
+@pytest.mark.parametrize(("client_factory", "model_name"), _CLIENT_FACTORY_CASES)
 @pytest.mark.asyncio
 async def test_async_acompletion_raises_after_aclose(client_factory: Callable[..., Any], model_name: str) -> None:
     client = client_factory(concurrency_mode=ClientConcurrencyMode.ASYNC)
@@ -194,7 +194,7 @@ async def test_async_acompletion_raises_after_aclose(client_factory: Callable[..
         await client.acompletion(_make_chat_request(model_name))
 
 
-@pytest.mark.parametrize(("client_factory", "model_name"), _SYNC_CLIENT_CASES)
+@pytest.mark.parametrize(("client_factory", "model_name"), _CLIENT_FACTORY_CASES)
 def test_close_is_noop_on_async_mode_client(client_factory: Callable[..., Any], model_name: str) -> None:
     async_mock = MagicMock()
     client = client_factory(concurrency_mode=ClientConcurrencyMode.ASYNC, async_client=async_mock)
@@ -209,7 +209,7 @@ def test_close_is_noop_on_async_mode_client(client_factory: Callable[..., Any], 
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(("client_factory", "model_name"), _SYNC_CLIENT_CASES)
+@pytest.mark.parametrize(("client_factory", "model_name"), _CLIENT_FACTORY_CASES)
 def test_sync_mode_blocks_async_methods(client_factory: Callable[..., Any], model_name: str) -> None:
     client = client_factory(concurrency_mode=ClientConcurrencyMode.SYNC)
 
@@ -217,7 +217,7 @@ def test_sync_mode_blocks_async_methods(client_factory: Callable[..., Any], mode
         client._get_async_client()
 
 
-@pytest.mark.parametrize(("client_factory", "model_name"), _SYNC_CLIENT_CASES)
+@pytest.mark.parametrize(("client_factory", "model_name"), _CLIENT_FACTORY_CASES)
 def test_async_mode_blocks_sync_methods(client_factory: Callable[..., Any], model_name: str) -> None:
     client = client_factory(concurrency_mode=ClientConcurrencyMode.ASYNC)
 
@@ -225,7 +225,7 @@ def test_async_mode_blocks_sync_methods(client_factory: Callable[..., Any], mode
         client._get_sync_client()
 
 
-@pytest.mark.parametrize(("client_factory", "model_name"), _SYNC_CLIENT_CASES)
+@pytest.mark.parametrize(("client_factory", "model_name"), _CLIENT_FACTORY_CASES)
 def test_mode_property_reflects_constructor_arg(client_factory: Callable[..., Any], model_name: str) -> None:
     sync_client = client_factory(concurrency_mode=ClientConcurrencyMode.SYNC)
     async_client = client_factory(concurrency_mode=ClientConcurrencyMode.ASYNC)
@@ -239,13 +239,13 @@ def test_mode_property_reflects_constructor_arg(client_factory: Callable[..., An
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(("client_factory", "model_name"), _SYNC_CLIENT_CASES)
+@pytest.mark.parametrize(("client_factory", "model_name"), _CLIENT_FACTORY_CASES)
 def test_sync_mode_rejects_async_client_injection(client_factory: Callable[..., Any], model_name: str) -> None:
     with pytest.raises(ValueError, match="async_client must not be provided"):
         client_factory(concurrency_mode=ClientConcurrencyMode.SYNC, async_client=MagicMock())
 
 
-@pytest.mark.parametrize(("client_factory", "model_name"), _SYNC_CLIENT_CASES)
+@pytest.mark.parametrize(("client_factory", "model_name"), _CLIENT_FACTORY_CASES)
 def test_async_mode_rejects_sync_client_injection(client_factory: Callable[..., Any], model_name: str) -> None:
     with pytest.raises(ValueError, match="sync_client must not be provided"):
         client_factory(concurrency_mode=ClientConcurrencyMode.ASYNC, sync_client=MagicMock())

@@ -15,7 +15,7 @@ from data_designer.engine.models.clients.adapters.http_helpers import (
     wrap_transport_error,
 )
 from data_designer.engine.models.clients.errors import map_http_error_to_provider_error
-from data_designer.engine.models.clients.retry import RetryConfig, create_retry_transport
+from data_designer.engine.models.clients.retry import RetryConfig, RetryTransport, create_retry_transport
 
 if TYPE_CHECKING:
     import httpx
@@ -51,6 +51,7 @@ class HttpModelClient(ABC):
         max_parallel_requests: int = 32,
         timeout_s: float = 60.0,
         concurrency_mode: ClientConcurrencyMode = ClientConcurrencyMode.SYNC,
+        transport: RetryTransport | None = None,
         sync_client: httpx.Client | None = None,
         async_client: httpx.AsyncClient | None = None,
     ) -> None:
@@ -72,7 +73,7 @@ class HttpModelClient(ABC):
             max_connections=pool_max,
             max_keepalive_connections=pool_keepalive,
         )
-        self._transport = create_retry_transport(self._retry_config)
+        self._transport: RetryTransport | None = transport
         self._client: httpx.Client | None = sync_client
         self._aclient: httpx.AsyncClient | None = async_client
         self._init_lock = threading.Lock()
@@ -95,6 +96,8 @@ class HttpModelClient(ABC):
             if self._closed:
                 raise RuntimeError("Model client is closed.")
             if self._client is None:
+                if self._transport is None:
+                    self._transport = create_retry_transport(self._retry_config)
                 self._client = lazy.httpx.Client(
                     transport=self._transport,
                     limits=self._limits,
@@ -109,6 +112,8 @@ class HttpModelClient(ABC):
             if self._closed:
                 raise RuntimeError("Model client is closed.")
             if self._aclient is None:
+                if self._transport is None:
+                    self._transport = create_retry_transport(self._retry_config)
                 self._aclient = lazy.httpx.AsyncClient(
                     transport=self._transport,
                     limits=self._limits,
@@ -127,7 +132,7 @@ class HttpModelClient(ABC):
             transport = self._transport
             self._closed = True
             self._client = None
-            self._transport = None  # type: ignore[assignment]
+            self._transport = None
         if client is not None:
             client.close()
         elif transport is not None:
@@ -142,7 +147,7 @@ class HttpModelClient(ABC):
             transport = self._transport
             self._closed = True
             self._aclient = None
-            self._transport = None  # type: ignore[assignment]
+            self._transport = None
         if async_client is not None:
             await async_client.aclose()
         elif transport is not None:

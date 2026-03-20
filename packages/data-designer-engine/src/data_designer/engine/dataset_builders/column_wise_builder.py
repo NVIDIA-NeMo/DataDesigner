@@ -318,7 +318,11 @@ class ColumnWiseDatasetBuilder:
                 self._resource_provider.model_registry.arun_health_check(list(model_aliases)),
                 loop,
             )
-            future.result(timeout=300)
+            try:
+                future.result(timeout=180)
+            except TimeoutError:
+                future.cancel()
+                raise
         else:
             self._resource_provider.model_registry.run_health_check(list(model_aliases))
 
