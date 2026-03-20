@@ -7,6 +7,7 @@ import asyncio
 import contextlib
 import logging
 import time
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
@@ -112,9 +113,8 @@ class AsyncTaskScheduler:
         self._trace = trace
         self.traces: list[TaskTrace] = []
 
-        # Stats
-        self._success_count = 0
-        self._error_count = 0
+        # Sliding window for error rate shutdown
+        self._recent_outcomes: deque[bool] = deque(maxlen=shutdown_error_window)
         self._all_rgs_admitted = False
 
         # Pre-compute row-group sizes for O(1) lookup
@@ -337,15 +337,15 @@ class AsyncTaskScheduler:
         state = self._rg_states.get(rg_id)
         return state is not None and state.in_flight_count > 0
 
-    def _check_error_rate(self) -> None:
-        """Trigger early shutdown if error rate exceeds threshold."""
+    def _check_error_rate(self, *, success: bool) -> None:
+        """Trigger early shutdown if recent error rate exceeds threshold."""
         if self._disable_early_shutdown:
             return
-        completed = self._success_count + self._error_count
-        if completed < self._shutdown_error_window:
+        self._recent_outcomes.append(success)
+        if len(self._recent_outcomes) < self._shutdown_error_window:
             return
-        error_rate = self._error_count / max(1, completed)
-        if error_rate > self._shutdown_error_rate:
+        errors = sum(1 for ok in self._recent_outcomes if not ok)
+        if errors / self._shutdown_error_window > self._shutdown_error_rate:
             self._early_shutdown = True
 
     async def _dispatch_seeds(self, rg_id: int, rg_size: int) -> None:
@@ -442,13 +442,12 @@ class AsyncTaskScheduler:
                 else:
                     self._tracker.mark_cell_complete(col, task.row_group, task.row_index)
 
-            self._success_count += 1
+            self._check_error_rate(success=True)
             if self._trace and trace:
                 trace.status = "ok"
 
         except Exception as exc:
-            self._error_count += 1
-            self._check_error_rate()
+            self._check_error_rate(success=False)
             if self._trace and trace:
                 trace.status = "error"
                 trace.error = str(exc)

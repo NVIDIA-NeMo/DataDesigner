@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -644,6 +645,53 @@ async def test_scheduler_early_shutdown_disabled() -> None:
 
 
 @pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_sliding_window_error_rate_recovers() -> None:
+    """Transient errors diluted by successes do not trigger early shutdown."""
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="col", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "col": GenerationStrategy.CELL_BY_CELL,
+    }
+    # First 2 calls fail (retryable 503), rest succeed.
+    # With window=10 and 10 cell tasks, at most 2/10 = 20% error rate
+    # when the window first fills - well below the 0.4 threshold.
+    generators = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "col": MockFailingGenerator(config=_expr_config("col"), resource_provider=provider, transient_failures=2),
+    }
+
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 10)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+
+    storage = MagicMock()
+    storage.dataset_name = "test"
+    storage.get_file_paths.return_value = {}
+    storage.write_batch_to_parquet_file.return_value = "/fake.parquet"
+    storage.move_partial_result_to_final_file_path.return_value = "/fake_final.parquet"
+    buffer_mgr = RowGroupBufferManager(storage)
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_mgr,
+        shutdown_error_rate=0.4,
+        shutdown_error_window=10,
+    )
+    await scheduler.run()
+
+    # No early shutdown - transient errors recovered in salvage
+    assert not scheduler._early_shutdown
+    assert tracker.is_row_group_complete(0, 10, ["seed", "col"])
+
+
+@pytest.mark.asyncio(loop_scope="session")
 async def test_scheduler_on_before_checkpoint_callback() -> None:
     """on_before_checkpoint is called before each row group is checkpointed."""
     provider = _mock_provider()
@@ -798,3 +846,80 @@ async def test_scheduler_pre_batch_failure_skips_row_group() -> None:
     assert all(tracker.is_dropped(0, ri) for ri in range(3))
     # Row group 1: completed normally
     assert tracker.is_row_group_complete(1, 2, ["seed", "cell_out"])
+
+
+class _SlowSeedGenerator(FromScratchColumnGenerator[ExpressionColumnConfig]):
+    """Seed generator whose async cost scales with row count via event-loop yields.
+
+    Both RGs' seed tasks run as concurrent asyncio tasks. Because they interleave
+    via ``asyncio.sleep(0)``, the task with fewer yields (smaller RG) finishes first,
+    causing its downstream to be dispatched and completed before the larger RG.
+    """
+
+    @staticmethod
+    def get_generation_strategy() -> GenerationStrategy:
+        return GenerationStrategy.FULL_COLUMN
+
+    def generate(self, data: lazy.pd.DataFrame) -> lazy.pd.DataFrame:
+        return data
+
+    def generate_from_scratch(self, num_records: int) -> lazy.pd.DataFrame:
+        return lazy.pd.DataFrame({self.config.name: list(range(num_records))})
+
+    async def agenerate_from_scratch(self, num_records: int) -> lazy.pd.DataFrame:
+        for _ in range(num_records * 10):
+            await asyncio.sleep(0)
+        return self.generate_from_scratch(num_records)
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_out_of_order_row_group_completion() -> None:
+    """Row groups may complete out of order; both are checkpointed correctly."""
+    provider = _mock_provider()
+    # Slow seed generator: RG 0 (5 rows) does 50 yields, RG 1 (1 row) does 10 yields.
+    # Because seed tasks interleave in the event loop, RG 1 finishes seeds first,
+    # its downstream cell_out is dispatched and completes before RG 0.
+    slow_seed = _SlowSeedGenerator(config=_expr_config("seed"), resource_provider=provider)
+    cell_gen = MockCellGenerator(config=_expr_config("cell_out"), resource_provider=provider)
+
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="cell_out", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "cell_out": GenerationStrategy.CELL_BY_CELL,
+    }
+    generators = {"seed": slow_seed, "cell_out": cell_gen}
+
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 5), (1, 1)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+
+    storage = MagicMock()
+    storage.dataset_name = "test"
+    storage.get_file_paths.return_value = {}
+    storage.write_batch_to_parquet_file.return_value = "/fake.parquet"
+    storage.move_partial_result_to_final_file_path.return_value = "/fake_final.parquet"
+    buffer_mgr = RowGroupBufferManager(storage)
+
+    checkpoint_order: list[int] = []
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_mgr,
+        max_concurrent_row_groups=2,
+        on_row_group_complete=lambda rg_id: checkpoint_order.append(rg_id),
+    )
+    await scheduler.run()
+
+    # Both row groups completed
+    assert tracker.is_row_group_complete(0, 5, ["seed", "cell_out"])
+    assert tracker.is_row_group_complete(1, 1, ["seed", "cell_out"])
+    # Both were checkpointed
+    assert set(checkpoint_order) == {0, 1}
+    # RG 1 (fewer rows, fewer seed yields) checkpoints before RG 0
+    assert checkpoint_order.index(1) < checkpoint_order.index(0)
