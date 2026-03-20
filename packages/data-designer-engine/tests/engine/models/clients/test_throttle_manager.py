@@ -48,10 +48,10 @@ def test_acquire_respects_blocked_until(manager: ThrottleManager) -> None:
     assert wait == pytest.approx(4.0, abs=0.01)
 
 
-def test_acquire_without_registration_uses_min_limit() -> None:
+def test_acquire_without_registration_raises() -> None:
     tm = ThrottleManager()
-    assert tm.try_acquire(provider_name="unknown", model_id="m", domain=DOMAIN, now=0.0) == 0.0
-    assert tm.try_acquire(provider_name="unknown", model_id="m", domain=DOMAIN, now=0.0) > 0.0
+    with pytest.raises(RuntimeError, match="register"):
+        tm.try_acquire(provider_name="unknown", model_id="m", domain=DOMAIN, now=0.0)
 
 
 # --- release_success ---
