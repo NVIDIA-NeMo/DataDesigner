@@ -281,9 +281,9 @@ class AsyncTaskScheduler:
             if self._tracker.is_row_group_complete(rg_id, state.size, all_columns)
         ]
         for rg_id, rg_size in completed:
-            del self._rg_states[rg_id]
             dropped = False
             try:
+                del self._rg_states[rg_id]
                 if self._on_before_checkpoint:
                     try:
                         self._on_before_checkpoint(rg_id, rg_size)
@@ -325,8 +325,11 @@ class AsyncTaskScheduler:
                     if self._on_seeds_complete:
                         try:
                             self._on_seeds_complete(rg_id, state.size)
-                        except Exception as exc:
-                            logger.warning(f"Pre-batch processor failed for row group {rg_id}, skipping: {exc}")
+                        except Exception:
+                            logger.warning(
+                                f"Pre-batch processor failed for row group {rg_id}, skipping.",
+                                exc_info=True,
+                            )
                             for ri in range(state.size):
                                 self._tracker.drop_row(rg_id, ri)
                                 if self._buffer_manager:
@@ -339,7 +342,7 @@ class AsyncTaskScheduler:
 
     def _check_error_rate(self, *, success: bool) -> None:
         """Trigger early shutdown if recent error rate exceeds threshold."""
-        if self._disable_early_shutdown:
+        if self._disable_early_shutdown or self._early_shutdown:
             return
         self._recent_outcomes.append(success)
         if len(self._recent_outcomes) < self._shutdown_error_window:
