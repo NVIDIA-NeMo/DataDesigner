@@ -395,7 +395,7 @@ async def test_arun_health_check_success(
     await stub_model_registry.arun_health_check(model_aliases)
     assert mock_agenerate.call_count == 2
     assert mock_agenerate_text_embeddings.call_count == 1
-    assert mock_agenerate_image.await_count == 1
+    assert mock_agenerate_image.call_count == 1
 
 
 @patch.object(ModelFacade, "agenerate_text_embeddings", new_callable=AsyncMock)
