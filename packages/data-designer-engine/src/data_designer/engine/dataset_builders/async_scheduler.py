@@ -155,7 +155,8 @@ class AsyncTaskScheduler:
 
             self._wake_event.clear()
 
-            self._run_seeds_complete_check(seed_cols)
+            if has_pre_batch:
+                self._run_seeds_complete_check(seed_cols)
 
             admitted_ids = set(self._rg_states)
             ready = self._tracker.get_ready_tasks(self._dispatched, admitted_ids)
@@ -252,7 +253,8 @@ class AsyncTaskScheduler:
     async def _drain_frontier(self, seed_cols: frozenset[str], has_pre_batch: bool, all_columns: list[str]) -> None:
         """Dispatch all frontier tasks and their downstream until quiescent."""
         while True:
-            self._run_seeds_complete_check(seed_cols)
+            if has_pre_batch:
+                self._run_seeds_complete_check(seed_cols)
             admitted_ids = set(self._rg_states)
             ready = self._tracker.get_ready_tasks(self._dispatched, admitted_ids)
             if has_pre_batch:
@@ -348,7 +350,7 @@ class AsyncTaskScheduler:
         if len(self._recent_outcomes) < self._shutdown_error_window:
             return
         errors = sum(1 for ok in self._recent_outcomes if not ok)
-        if errors / self._shutdown_error_window > self._shutdown_error_rate:
+        if errors / self._shutdown_error_window >= self._shutdown_error_rate:
             self._early_shutdown = True
 
     async def _dispatch_seeds(self, rg_id: int, rg_size: int) -> None:

@@ -167,7 +167,6 @@ class ColumnWiseDatasetBuilder:
 
         if DATA_DESIGNER_ASYNC_ENGINE:
             self._validate_async_compatibility()
-            logger.info("⚡ Using async task-queue builder")
             self._build_async(generators, num_records, buffer_size, on_batch_complete)
         else:
             group_id = uuid.uuid4().hex
