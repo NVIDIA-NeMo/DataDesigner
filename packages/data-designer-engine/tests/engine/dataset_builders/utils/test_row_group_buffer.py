@@ -176,6 +176,28 @@ def test_replace_dataframe_fewer_rows_marks_trailing_dropped() -> None:
     assert len(result_df) == 2
 
 
+def test_free_row_group_releases_memory() -> None:
+    """free_row_group releases buffer memory without writing to disk."""
+    storage = _mock_artifact_storage()
+    mgr = RowGroupBufferManager(storage)
+    mgr.init_row_group(0, 3)
+    mgr.update_batch(0, "col", ["a", "b", "c"])
+    mgr.drop_row(0, 1)
+
+    mgr.free_row_group(0)
+
+    with pytest.raises(KeyError):
+        mgr.get_row(0, 0)
+    storage.write_batch_to_parquet_file.assert_not_called()
+    assert mgr.actual_num_records == 0
+
+
+def test_free_row_group_idempotent() -> None:
+    """free_row_group on a non-existent row group is a no-op."""
+    mgr = RowGroupBufferManager(_mock_artifact_storage())
+    mgr.free_row_group(99)  # should not raise
+
+
 def test_checkpoint_calls_on_complete_when_all_rows_dropped() -> None:
     storage = _mock_artifact_storage()
     callback = Mock()
