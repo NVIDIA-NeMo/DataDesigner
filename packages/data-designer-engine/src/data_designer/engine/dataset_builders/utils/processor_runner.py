@@ -72,6 +72,10 @@ class ProcessorRunner:
         df = self._run_stage(df, ProcessorStage.PRE_BATCH)
         batch_manager.replace_buffer(df.to_dict(orient="records"), allow_resize=True)
 
+    def run_pre_batch_on_df(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Run PRE_BATCH processors on a DataFrame and return the result."""
+        return self._run_stage(df, ProcessorStage.PRE_BATCH)
+
     def run_post_batch(self, df: pd.DataFrame, current_batch_number: int | None) -> pd.DataFrame:
         """Run process_after_batch() on processors that implement it."""
         return self._run_stage(df, ProcessorStage.POST_BATCH, current_batch_number=current_batch_number)
