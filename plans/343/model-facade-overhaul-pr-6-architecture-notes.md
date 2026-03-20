@@ -19,8 +19,8 @@ throttle permits.
 
 The design uses a **dual-layer** approach: a `ThrottledModelClient`
 wrapper handles per-HTTP-request AIMD acquire/release, while the
-`AsyncTaskScheduler` manages submission slot release/reacquire for
-LLM-bound tasks to prevent cross-key starvation.
+`AsyncTaskScheduler` uses a one-way semaphore handoff for LLM-bound
+tasks to prevent cross-key starvation.
 
 ## Goal
 
@@ -69,7 +69,7 @@ Two layers work together:
 | Layer | Where | What it does |
 | --- | --- | --- |
 | **Client wrapper** | `ThrottledModelClient` (new) | Acquires/releases a throttle permit around every HTTP call (`completion`, `acompletion`, `embeddings`, `aembeddings`, `generate_image`, `agenerate_image`). Provides per-request AIMD accuracy. |
-| **Scheduler** | `AsyncTaskScheduler` | Releases the submission slot before dispatching LLM-bound tasks and reacquires after. Prevents cross-key starvation. No throttle logic. |
+| **Scheduler** | `AsyncTaskScheduler` | Dual-semaphore model with one-way handoff: acquires LLM-wait slot then releases submission slot for LLM-bound tasks (never reacquires). Prevents cross-key starvation while bounding live coroutines. No throttle logic. |
 
 The `ModelFacade` is **untouched** — throttling is a transport concern
 handled below it. The facade's correction loops, tool-calling loops,
@@ -110,46 +110,13 @@ The wrapper implements the `ModelClient` protocol by delegating to
   set (chat-backed image generation). This matches the actual HTTP
   route chosen by `OpenAICompatibleClient`.
 
-The acquire/release pattern for each method:
+The acquire/release contract for each method:
 
-```python
-async def acompletion(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
-    await self._tm.acquire_async(
-        provider_name=self._provider_name,
-        model_id=self._model_id,
-        domain=ThrottleDomain.CHAT,
-    )
-    try:
-        return await self._inner.acompletion(request)
-    except ProviderError as exc:
-        if exc.kind == ProviderErrorKind.RATE_LIMIT:
-            self._tm.release_rate_limited(
-                provider_name=self._provider_name,
-                model_id=self._model_id,
-                domain=ThrottleDomain.CHAT,
-                retry_after=exc.retry_after,
-            )
-        else:
-            self._tm.release_failure(
-                provider_name=self._provider_name,
-                model_id=self._model_id,
-                domain=ThrottleDomain.CHAT,
-            )
-        raise
-    except Exception:
-        self._tm.release_failure(
-            provider_name=self._provider_name,
-            model_id=self._model_id,
-            domain=ThrottleDomain.CHAT,
-        )
-        raise
-    else:
-        self._tm.release_success(
-            provider_name=self._provider_name,
-            model_id=self._model_id,
-            domain=ThrottleDomain.CHAT,
-        )
-```
+- On entry: acquire a throttle slot (with `TimeoutError` → `ProviderError(kind=TIMEOUT)` normalization)
+- On `ProviderError(kind=RATE_LIMIT)`: call `release_rate_limited` with `retry_after`
+- On other `ProviderError`: call `release_failure`
+- On non-`ProviderError` exception: call `release_failure`
+- On success: call `release_success`
 
 The sync methods (`completion`, `embeddings`, `generate_image`) use
 `acquire_sync` instead of `acquire_async`. The pattern is identical
@@ -177,11 +144,19 @@ private helper `_release_on_error` and paired context managers
 ```python
 @contextlib.asynccontextmanager
 async def _athrottled(self, domain: ThrottleDomain):
-    await self._tm.acquire_async(
-        provider_name=self._provider_name,
-        model_id=self._model_id,
-        domain=domain,
-    )
+    try:
+        await self._tm.acquire_async(
+            provider_name=self._provider_name,
+            model_id=self._model_id,
+            domain=domain,
+        )
+    except TimeoutError as exc:
+        raise ProviderError(
+            kind=ProviderErrorKind.TIMEOUT,
+            message=str(exc),
+            provider_name=self._provider_name,
+            model_name=self._model_id,
+        ) from exc
     try:
         yield
     except ProviderError as exc:
@@ -247,6 +222,38 @@ The `ThrottleManager` flows from `create_model_registry` →
 access to the `ThrottleManager` instance (it creates it). The closure
 just needs to pass it through to `create_model_client`.
 
+**LiteLLM bridge scope:** The `ThrottledModelClient` wrapper is
+applied to **all** clients returned by `create_model_client`,
+including `LiteLLMBridgeClient`. However, the "first raw 429 reaches
+AIMD" contract only holds for native adapters (`OpenAICompatibleClient`,
+`AnthropicClient`), because LiteLLM's internal router can retry 429s
+before the `ProviderError` reaches the wrapper. This means:
+
+- **Native adapters**: Full AIMD accuracy. The transport layer does
+  not retry 429 (PR-6 removes it), so the first 429 reaches the
+  wrapper with `retry_after` intact.
+- **LiteLLM bridge**: Best-effort AIMD. The bridge's internal retries
+  may mask some 429s, so the wrapper sees fewer rate-limit signals
+  than actually occurred. The AIMD state is still updated on the 429s
+  that do surface, but the feedback loop is less precise.
+
+This is acceptable for PR-6 because:
+
+1. The bridge is the **fallback** path — native adapters are preferred
+   for `openai` and `anthropic` provider types.
+2. PR-8 flips the default to native, and PR-9 removes the bridge.
+3. Wrapping the bridge is still better than not wrapping it — even
+   imprecise AIMD is better than no concurrency control.
+
+A test explicitly documents this limitation:
+
+```python
+def test_bridge_client_is_wrapped_with_throttle_manager():
+    """LiteLLMBridgeClient is wrapped, but AIMD accuracy is best-effort
+    because the bridge's internal router may retry 429s before the
+    wrapper sees them. See architecture notes for scope."""
+```
+
 **Registration ordering:** `ThrottleManager.register()` must be called
 before `try_acquire()`. Registration happens in
 `ModelRegistry._get_model()` *after* the facade (and thus the client)
@@ -303,12 +310,31 @@ throttle_manager = ThrottleManager(
 ) if run_config else ThrottleManager()
 ```
 
-### 4. Scheduler: submission slot management for LLM tasks
+### 4. Scheduler: dual-semaphore model for LLM tasks
 
 The `AsyncTaskScheduler` does **not** acquire or release throttle
-permits. That is the client wrapper's job. The scheduler's only
-throttle-related change is managing submission slots to prevent
-cross-key starvation.
+permits. That is the client wrapper's job. The scheduler's change is
+a **dual-semaphore** model that separates task admission from
+provider-wait capacity, preventing cross-key starvation without
+removing the global task cap.
+
+**New semaphore:** `_llm_wait_semaphore` — a separate semaphore that
+LLM-bound tasks hold while executing the generator (including any
+throttle waits inside the client wrapper). This bounds the number of
+coroutines parked inside throttle waits, preventing unbounded memory
+growth from scheduler fan-out.
+
+**One-way handoff (no reacquire):** LLM-bound tasks acquire the
+LLM-wait slot *before* releasing the submission slot (so the task is
+never holding neither), then hold only the LLM-wait slot for the
+duration of the generator. On completion, the task releases the
+LLM-wait slot and does **not** reacquire the submission slot. The
+`finally` bookkeeping (trace, `_in_flight`, `_dispatched`,
+`in_flight_count`, wake) is all in-memory state mutation that does not
+require holding the submission semaphore.
+
+This avoids circular wait: both semaphores are only ever acquired in
+one order (submission → LLM-wait), never the reverse.
 
 **Dispatch pattern change in `_execute_task_inner`:**
 
@@ -317,49 +343,100 @@ cross-key starvation.
 acquire submission slot → execute generator → release submission slot
 ```
 
-**After:**
+**After (LLM-bound):**
 ```
 acquire submission slot →
-  if LLM-bound:
-    release submission slot
-    execute generator (client wrapper handles throttle per HTTP call)
-    reacquire submission slot
-  else:
-    execute generator
-→ release submission slot
+  acquire LLM-wait slot         ← while still holding submission
+  release submission slot       ← one-way: never reacquired
+  execute generator (client wrapper handles throttle per HTTP call)
+  release LLM-wait slot
+  bookkeeping (no semaphore held)
 ```
 
-LLM-bound tasks release the submission slot *before* the generator
-runs. The generator may block inside the client wrapper's throttle
-acquire, but the submission slot is already free, so other tasks can
-proceed. When the generator completes (success or failure), the
-scheduler reacquires the submission slot for bookkeeping (completion
-tracking, error classification, checkpoint logic).
+**After (non-LLM):**
+```
+acquire submission slot → execute generator → release submission slot
+```
+
+The `finally` block uses two flags to track which semaphores are
+actually held, so release is conditional on successful acquire. This
+is critical for cancellation safety: if a task is cancelled while
+awaiting `_llm_wait_semaphore.acquire()`, it never owned that permit,
+and releasing it would over-increment the semaphore.
+
+```python
+holds_submission = True
+holds_llm_wait = False
+try:
+    if is_llm_bound:
+        await self._llm_wait_semaphore.acquire()
+        holds_llm_wait = True
+        self._submission_semaphore.release()
+        holds_submission = False
+    # ... execute generator ...
+finally:
+    if holds_llm_wait:
+        self._llm_wait_semaphore.release()
+    if holds_submission:
+        self._submission_semaphore.release()
+    # ... bookkeeping (trace, _in_flight, _dispatched, wake) ...
+```
+
+**Bound:** The total number of live coroutines is bounded by
+`max_submitted_tasks + max_llm_wait_tasks`. During the generator
+execution phase, every coroutine holds exactly one of the two
+semaphores. After the generator completes, the `finally` block
+releases whichever semaphore is held and then runs bookkeeping with
+no semaphore held — this is safe because the bookkeeping is all
+in-memory state mutation. The two semaphores have independent sizes:
+
+- `_submission_semaphore`: bounds total admitted tasks (unchanged role)
+- `_llm_wait_semaphore`: bounds coroutines executing LLM generators
+
+```python
+self._submission_semaphore = asyncio.Semaphore(max_submitted_tasks)
+self._llm_wait_semaphore = asyncio.Semaphore(max_llm_wait_tasks)
+```
+
+`max_llm_wait_tasks` is derived from aggregate throttle capacity (see
+section 5). This ensures the scheduler cannot spawn more parked
+coroutines than the throttle system can eventually service.
 
 **LLM-bound detection:** The scheduler needs to know which generators
-are LLM-bound. A simple `_is_llm_bound` lookup is built at init time:
-`dict[str, bool]` mapping column name → whether the generator
-subclasses `ColumnGeneratorWithModel`. This replaces the more complex
-`ThrottleKey` / `build_throttle_keys` approach from the scheduler-only
-design — the scheduler doesn't need to know provider/model/domain,
-just whether the task will make HTTP calls.
+are LLM-bound. Rather than using `isinstance` checks against the
+class hierarchy (which is brittle for custom generators), the
+`ColumnGenerator` base class exposes an `is_llm_bound` property:
+
+```python
+class ColumnGenerator(ConfigurableTask[TaskConfigT], ABC):
+    @property
+    def is_llm_bound(self) -> bool:
+        """Whether this generator makes LLM/HTTP calls during generation."""
+        return False
+```
+
+`ColumnGeneratorWithModelRegistry` overrides this to return `True`:
+
+```python
+class ColumnGeneratorWithModelRegistry(ColumnGenerator[TaskConfigT], ABC):
+    @property
+    def is_llm_bound(self) -> bool:
+        return True
+```
+
+The scheduler builds its lookup from this property at init time:
 
 ```python
 def _build_llm_bound_lookup(
     generators: dict[str, ColumnGenerator],
 ) -> dict[str, bool]:
-    from data_designer.engine.column_generators.generators.base import (
-        ColumnGeneratorWithModel,
-        ColumnGeneratorWithModelRegistry,
-    )
-    result: dict[str, bool] = {}
-    for col, gen in generators.items():
-        result[col] = isinstance(gen, (ColumnGeneratorWithModel, ColumnGeneratorWithModelRegistry))
-    return result
+    return {col: gen.is_llm_bound for col, gen in generators.items()}
 ```
 
-`ColumnGeneratorWithModelRegistry` is included because custom columns
-subclass it (not `ColumnGeneratorWithModel`) but still make model calls.
+This approach is inheritance-agnostic: custom generators that make
+HTTP calls can override `is_llm_bound` to return `True` without
+needing to subclass `ColumnGeneratorWithModelRegistry`. The scheduler
+never inspects the class hierarchy.
 
 **Error handling:** The scheduler's `except` block no longer needs to
 distinguish `ModelRateLimitError` for throttle release — the client
@@ -368,24 +445,65 @@ for the salvage queue. The existing `_is_retryable` check is
 unchanged.
 
 **`TimeoutError` from throttle acquire:** The client wrapper's
-`acquire_async` can raise a builtin `TimeoutError`. This propagates
-through the generator and reaches the scheduler's `except` block.
-`TimeoutError` is added to `_is_retryable` so the task is deferred to
-a salvage round:
+`acquire_async` can raise a builtin `TimeoutError`. Because the
+wrapper sits *below* `@catch_llm_exceptions`, a raw `TimeoutError`
+would be caught by the decorator's generic `case _:` branch and
+re-raised as a `DataDesignerError` — which is **not** in
+`_RETRYABLE_MODEL_ERRORS`, causing silent row drops instead of
+salvage retries.
+
+To stay within the existing error contract, the `ThrottledModelClient`
+wrapper catches `TimeoutError` from `acquire_async` / `acquire_sync`
+and normalizes it into a `ProviderError(kind=TIMEOUT)`:
 
 ```python
-@staticmethod
-def _is_retryable(exc: Exception) -> bool:
-    if isinstance(exc, TimeoutError):
-        return True
-    return isinstance(exc, AsyncTaskScheduler._RETRYABLE_MODEL_ERRORS)
+try:
+    await self._tm.acquire_async(...)
+except TimeoutError as exc:
+    raise ProviderError(
+        kind=ProviderErrorKind.TIMEOUT,
+        message=str(exc),
+        provider_name=self._provider_name,
+        model_name=self._model_id,
+    ) from exc
 ```
 
-### 5. Submission pool sizing
+This `ProviderError` flows through `@catch_llm_exceptions` →
+`_raise_from_provider_error` → `ModelTimeoutError`, which is already
+in `_RETRYABLE_MODEL_ERRORS`. No changes to `_is_retryable` are
+needed — the existing retry path handles it correctly.
 
-The submission semaphore is currently hardcoded at 256. With the
-submission slot release/reacquire pattern, the pool must be large
-enough to not bottleneck the aggregate throttle capacity.
+**No release on acquire timeout:** When `acquire_async` raises, no
+throttle slot was acquired, so no `release_*` call is made. The
+`_athrottled` context manager catches the `TimeoutError` *before*
+entering the `try` body, so the `except` / `else` release branches
+are never reached.
+
+### 5. Semaphore sizing
+
+Two semaphores, two sizing strategies:
+
+**Submission semaphore** (`_submission_semaphore`): Unchanged role —
+bounds total admitted tasks. The hardcoded `256` floor is extracted to
+a named constant but the value is unchanged:
+
+```python
+MIN_SUBMITTED_TASKS: int = 256
+```
+
+The builder keeps the existing default:
+
+```python
+max_submitted_tasks = MIN_SUBMITTED_TASKS
+```
+
+This is a true cap. LLM-bound tasks temporarily release their slot
+while parked in throttle waits, but the cap still governs how many
+tasks can be admitted at any point in time.
+
+**LLM-wait semaphore** (`_llm_wait_semaphore`): Bounds the number of
+coroutines parked inside throttle waits. Sized from aggregate throttle
+capacity so it cannot exceed what the throttle system can service:
 
 `ModelRegistry` exposes a new public method:
 
@@ -398,33 +516,31 @@ def get_aggregate_max_parallel_requests(self) -> int:
     )
 ```
 
-The hardcoded `256` floor is extracted to named constants:
-
 ```python
-MIN_SUBMITTED_TASKS: int = 256
-SUBMISSION_POOL_MULTIPLIER: int = 2
+LLM_WAIT_POOL_MULTIPLIER: int = 2
 ```
-
-The builder derives `max_submitted_tasks`:
 
 ```python
 aggregate = model_registry.get_aggregate_max_parallel_requests()
-max_submitted_tasks = max(MIN_SUBMITTED_TASKS, SUBMISSION_POOL_MULTIPLIER * aggregate)
+max_llm_wait_tasks = max(MIN_SUBMITTED_TASKS, LLM_WAIT_POOL_MULTIPLIER * aggregate)
 ```
 
-**Precision note:** This is a deliberate **heuristic over-estimate**.
-The real shared upstream cap in `ThrottleManager` is
-`min(max_parallel_requests)` across aliases sharing the same
-`(provider_name, model_id)` key. Summing individual values overstates
-the true capacity when aliases share a key. However, the submission
-pool is an upper bound on in-flight tasks, not a concurrency target —
+**Why the multiplier?** A task may make multiple HTTP calls (correction
+loops, tool calls), so the wait pool should be somewhat larger than
+the raw throttle capacity. The `2x` multiplier is a heuristic — the
+`ThrottleManager` enforces the real per-key limit regardless.
+
+**Precision note:** Summing `max_parallel_requests` across all model
+configs overstates the true capacity when aliases share a
+`(provider_name, model_id)` key. However, the LLM-wait pool is an
+upper bound on parked coroutines, not a concurrency target —
 oversizing wastes a few coroutine slots but doesn't cause incorrect
 behavior. The `ThrottleManager` enforces the real per-key limit.
 
 ### 6. Builder wiring
 
-`_build_async` in `ColumnWiseDatasetBuilder` passes the computed
-`max_submitted_tasks` to the `AsyncTaskScheduler`:
+`_build_async` in `ColumnWiseDatasetBuilder` passes both semaphore
+sizes to the `AsyncTaskScheduler`:
 
 ```python
 registry = self._resource_provider.model_registry
@@ -432,7 +548,8 @@ aggregate = registry.get_aggregate_max_parallel_requests()
 
 scheduler = AsyncTaskScheduler(
     ...,
-    max_submitted_tasks=max(MIN_SUBMITTED_TASKS, SUBMISSION_POOL_MULTIPLIER * aggregate),
+    max_submitted_tasks=MIN_SUBMITTED_TASKS,
+    max_llm_wait_tasks=max(MIN_SUBMITTED_TASKS, LLM_WAIT_POOL_MULTIPLIER * aggregate),
 )
 ```
 
@@ -505,8 +622,9 @@ in the enum) with permissive limits.
   `kind=RATE_LIMIT`
 - `release_failure` on non-rate-limit `ProviderError`
 - `release_failure` on non-`ProviderError` exceptions
-- `TimeoutError` from `acquire_async` propagates without release
-  (acquire failed, no slot held)
+- `TimeoutError` from `acquire_async` is normalized to
+  `ProviderError(kind=TIMEOUT)`, no release (acquire failed, no slot
+  held)
 - Image generation: `request.messages is None` → `IMAGE` domain;
   `request.messages` set → `CHAT` domain
 - `ThrottleManager=None` path (no wrapper, inner client called directly)
@@ -514,9 +632,18 @@ in the enum) with permissive limits.
 
 **`test_async_scheduler.py`**:
 
-- Submission slot released before LLM-bound generator runs
-- Submission slot NOT released for non-LLM generators
-- `TimeoutError` is retryable via `_is_retryable`
+- One-way handoff: LLM-wait slot acquired before submission slot
+  released; submission slot never reacquired (no circular wait)
+- Submission slot held (no release/reacquire) for non-LLM generators
+- Deadlock regression: `max_submitted_tasks=1`, `max_llm_wait_tasks=1`,
+  two ready LLM tasks — completes without deadlock
+- Cancellation regression: task cancelled while awaiting
+  `_llm_wait_semaphore.acquire()` — semaphore counts remain correct
+  (no over-increment)
+- Stress test: LLM-wait semaphore saturated with many ready LLM tasks
+  — assert live coroutines stay bounded by
+  `max_submitted_tasks + max_llm_wait_tasks`
+- `is_llm_bound` property drives lookup (no isinstance)
 - Existing tests pass unchanged
 
 **`test_model_registry.py`**:
@@ -554,7 +681,9 @@ in the enum) with permissive limits.
    unchanged. The client wrapper works with `ProviderError` directly,
    so `retry_after` propagation through `ModelRateLimitError` is not
    needed.
-6. **Generator code** — generators are unaware of throttling.
+6. **Generator code** — generators are unaware of throttling. The new
+   `is_llm_bound` property on `ColumnGenerator` is a scheduling hint,
+   not throttling logic — generators do not acquire or release permits.
 7. **Non-rate-limit transport retries** — `502` / `503` / `504` and
    connection failures still use the shared HTTP retry layer. PR-6
    only removes `429` from that retry set.
@@ -570,8 +699,9 @@ in the enum) with permissive limits.
 | `models/registry.py` | Add `get_aggregate_max_parallel_requests()` public method |
 | `config/run_config.py` | Add `throttle_reduce_factor`, `throttle_additive_increase`, `throttle_success_window`, `throttle_block_seconds` fields |
 | `resources/resource_provider.py` | Forward `run_config` to `create_model_registry` |
-| `dataset_builders/async_scheduler.py` | Add `_is_llm_bound` lookup, submission slot release/reacquire for LLM tasks, `MIN_SUBMITTED_TASKS` / `SUBMISSION_POOL_MULTIPLIER` constants, add `TimeoutError` to `_is_retryable` |
-| `dataset_builders/column_wise_builder.py` | Forward data-driven `max_submitted_tasks` to scheduler |
+| `column_generators/generators/base.py` | Add `is_llm_bound` property to `ColumnGenerator` (default `False`), override to `True` in `ColumnGeneratorWithModelRegistry` |
+| `dataset_builders/async_scheduler.py` | Add `_llm_wait_semaphore`, one-way semaphore handoff for LLM tasks, `MIN_SUBMITTED_TASKS` / `LLM_WAIT_POOL_MULTIPLIER` constants |
+| `dataset_builders/column_wise_builder.py` | Forward `max_submitted_tasks` and `max_llm_wait_tasks` to scheduler |
 | `tests/.../test_throttled_model_client.py` (new) | Throttle wrapper unit tests |
 | `tests/.../test_async_scheduler.py` | Submission slot management tests |
 | `tests/.../test_model_registry.py` | Test for `get_aggregate_max_parallel_requests` |
@@ -584,18 +714,23 @@ in the enum) with permissive limits.
 | Client wrapper: acquire/release on success | Chat, embedding, image (diffusion + chat-backed) all call `release_success` |
 | Client wrapper: rate limit | `ProviderError(kind=RATE_LIMIT)` calls `release_rate_limited` with `retry_after` |
 | Client wrapper: failure | Non-rate-limit errors call `release_failure` |
-| Client wrapper: acquire timeout | `TimeoutError` from `acquire_async` propagates, no release (no slot held) |
+| Client wrapper: acquire timeout | `TimeoutError` from `acquire_async` normalized to `ProviderError(kind=TIMEOUT)`, no release (no slot held) |
 | Client wrapper: image domain routing | `request.messages is None` → `IMAGE`; `request.messages` set → `CHAT` |
 | Client wrapper: sync path | Sync methods use `acquire_sync` / `release_*` |
 | Client wrapper: no throttle | `ThrottleManager=None` → inner client called directly |
 | Transport retry boundary | `429` excluded from transport retryable statuses; `502` / `503` / `504` remain retried |
-| Scheduler: submission slot for LLM tasks | Slot released before generator runs, reacquired after |
-| Scheduler: non-LLM tasks | Slot held during generator execution (no release/reacquire) |
-| Scheduler: TimeoutError retryable | Builtin `TimeoutError` classified as retryable, deferred to salvage |
+| Scheduler: one-way handoff for LLM tasks | LLM-wait acquired before submission released; submission never reacquired (no circular wait) |
+| Scheduler: non-LLM tasks | Submission slot held during generator execution (no release/reacquire) |
+| Scheduler: deadlock regression | `max_submitted_tasks=1`, `max_llm_wait_tasks=1`, two ready LLM tasks — completes without deadlock |
+| Scheduler: cancellation regression | Task cancelled while awaiting `_llm_wait_semaphore.acquire()` — semaphore counts remain correct (no over-increment) |
+| Scheduler: bounded fan-out stress test | Many LLM tasks ready with saturated LLM-wait semaphore — live coroutines stay ≤ `max_submitted_tasks + max_llm_wait_tasks` |
+| Scheduler: acquire timeout retryable | Throttle acquire timeout surfaces as `ModelTimeoutError` (via `ProviderError(kind=TIMEOUT)` → `@catch_llm_exceptions`), already in `_RETRYABLE_MODEL_ERRORS` |
 | Scheduler: backward compat | Existing tests pass unchanged |
-| Submission pool sizing | `max(MIN_SUBMITTED_TASKS, SUBMISSION_POOL_MULTIPLIER * aggregate)` |
+| Submission pool sizing | `MIN_SUBMITTED_TASKS` (unchanged true cap) |
+| LLM-wait pool sizing | `max(MIN_SUBMITTED_TASKS, LLM_WAIT_POOL_MULTIPLIER * aggregate)` |
 | RunConfig → AIMD wiring | Custom `RunConfig` throttle fields forwarded to `ThrottleManager` constructor |
 | Factory wiring | `create_model_client` with `throttle_manager` returns `ThrottledModelClient` |
+| Factory wiring: bridge scope | `LiteLLMBridgeClient` is wrapped (best-effort AIMD), with documented limitation |
 
 ## Design Rationale
 
@@ -606,11 +741,18 @@ Key points:
   HTTP calls (correction loops, tool calls, custom columns). The client
   wrapper sees every actual HTTP request.
 
-- **Why keep the scheduler's submission slot dance?** Without it, a
-  throttled key holds its submission slot for the entire generator
-  invocation (which may include multiple throttle waits inside the
-  client wrapper). Releasing the slot before the generator runs
-  prevents cross-key starvation.
+- **Why the dual-semaphore model?** Without it, a throttled key holds
+  its submission slot for the entire generator invocation (which may
+  include multiple throttle waits inside the client wrapper).
+  Releasing the submission slot before the generator runs prevents
+  cross-key starvation. The separate LLM-wait semaphore bounds the
+  number of coroutines executing LLM generators. The handoff is
+  **one-way** (submission → LLM-wait, never reversed) to avoid
+  circular wait. The `finally` bookkeeping is all in-memory state
+  mutation that does not require holding either semaphore, so the
+  LLM-bound path simply releases the LLM-wait slot and proceeds.
+  Total live coroutine count is bounded by
+  `max_submitted_tasks + max_llm_wait_tasks`.
 
 - **Why a client wrapper, not facade instrumentation?** The client
   layer is below `@catch_llm_exceptions`, so it sees `ProviderError`
@@ -629,7 +771,7 @@ Key points:
 
 ## Planned Follow-On
 
-- **Exact submission pool sizing** — replace the sum-based heuristic
+- **Exact LLM-wait pool sizing** — replace the sum-based heuristic
   with a `get_effective_throttle_capacity()` method that deduplicates
   by `(provider_name, model_id)` and uses the real `min()` cap.
 
