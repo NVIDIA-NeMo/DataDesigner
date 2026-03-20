@@ -215,7 +215,7 @@ class AsyncTaskScheduler:
                 admission_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await admission_task
-            await self._cancel_workers()
+            await asyncio.shield(self._cancel_workers())
             raise
 
     async def _main_dispatch_loop(

@@ -157,6 +157,11 @@ class ThrottleManager:
     # Core non-blocking primitives
     # -------------------------------------------------------------------
 
+    def is_registered(self, provider_name: str, model_id: str) -> bool:
+        """Return ``True`` if ``register()`` has been called for this key."""
+        with self._lock:
+            return (provider_name, model_id) in self._global_caps
+
     def try_acquire(
         self,
         *,
@@ -169,9 +174,18 @@ class ThrottleManager:
 
         Returns ``0.0`` if the slot was acquired, otherwise the number of
         seconds the caller should wait before retrying.
+
+        Raises ``RuntimeError`` if the ``(provider_name, model_id)`` pair
+        has not been registered via ``register()``.
         """
         now = now if now is not None else time.monotonic()
         with self._lock:
+            if (provider_name, model_id) not in self._global_caps:
+                raise RuntimeError(
+                    f"ThrottleManager.try_acquire() called before register() "
+                    f"for ({provider_name!r}, {model_id!r}). "
+                    f"Call register() first to set the concurrency limit."
+                )
             state = self._get_or_create_domain(provider_name, model_id, domain)
             if now < state.blocked_until:
                 wait = state.blocked_until - now

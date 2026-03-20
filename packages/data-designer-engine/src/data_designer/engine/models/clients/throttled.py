@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import contextlib
+import logging
 from typing import TYPE_CHECKING
 
 from data_designer.engine.models.clients.base import ModelClient
@@ -22,6 +23,9 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Iterator
 
     from data_designer.engine.models.clients.throttle_manager import ThrottleManager
+
+
+logger = logging.getLogger(__name__)
 
 
 class ThrottledModelClient(ModelClient):
@@ -124,14 +128,20 @@ class ThrottledModelClient(ModelClient):
             yield
         except ProviderError as exc:
             exc_to_reraise = exc
-            self._release_on_provider_error(domain, exc)
+            try:
+                self._release_on_provider_error(domain, exc)
+            except Exception:
+                logger.exception("ThrottleManager release failed; permit may leak")
         except BaseException as exc:
             exc_to_reraise = exc
-            self._tm.release_failure(
-                provider_name=self._provider_name,
-                model_id=self._model_id,
-                domain=domain,
-            )
+            try:
+                self._tm.release_failure(
+                    provider_name=self._provider_name,
+                    model_id=self._model_id,
+                    domain=domain,
+                )
+            except Exception:
+                logger.exception("ThrottleManager release failed; permit may leak")
         else:
             self._tm.release_success(
                 provider_name=self._provider_name,
@@ -161,14 +171,20 @@ class ThrottledModelClient(ModelClient):
             yield
         except ProviderError as exc:
             exc_to_reraise = exc
-            self._release_on_provider_error(domain, exc)
+            try:
+                self._release_on_provider_error(domain, exc)
+            except Exception:
+                logger.exception("ThrottleManager release failed; permit may leak")
         except BaseException as exc:
             exc_to_reraise = exc
-            self._tm.release_failure(
-                provider_name=self._provider_name,
-                model_id=self._model_id,
-                domain=domain,
-            )
+            try:
+                self._tm.release_failure(
+                    provider_name=self._provider_name,
+                    model_id=self._model_id,
+                    domain=domain,
+                )
+            except Exception:
+                logger.exception("ThrottleManager release failed; permit may leak")
         else:
             self._tm.release_success(
                 provider_name=self._provider_name,
