@@ -294,6 +294,7 @@ class AsyncTaskScheduler:
                             exc_info=True,
                         )
                         for ri in range(rg_size):
+                            self._tracker.drop_row(rg_id, ri)
                             if self._buffer_manager:
                                 self._buffer_manager.drop_row(rg_id, ri)
                         dropped = True
@@ -535,22 +536,21 @@ class AsyncTaskScheduler:
         """Execute a full-column/batch task."""
         if self._buffer_manager is not None:
             batch_df = self._buffer_manager.get_dataframe(task.row_group)
+            # Snapshot dropped rows before the await so the row-count expectation
+            # is consistent with batch_df (concurrent tasks may drop rows during agenerate).
+            rg_size = self._get_rg_size(task.row_group)
+            pre_dropped: set[int] = {ri for ri in range(rg_size) if self._buffer_manager.is_dropped(task.row_group, ri)}
         else:
             batch_df = lazy.pd.DataFrame()
+            rg_size = self._get_rg_size(task.row_group)
+            pre_dropped = set()
 
         result_df = await generator.agenerate(batch_df)
 
         # Merge result columns back to buffer
         if self._buffer_manager is not None:
             output_cols = self._instance_to_columns.get(id(generator), [task.column])
-            rg_size = self._get_rg_size(task.row_group)
-            dropped = set()
-            for ri in range(rg_size):
-                if self._buffer_manager.is_dropped(task.row_group, ri):
-                    dropped.add(ri)
-
-            # Map result rows (which exclude dropped) back to buffer indices
-            active_rows = rg_size - len(dropped)
+            active_rows = rg_size - len(pre_dropped)
             if len(result_df) != active_rows:
                 raise ValueError(
                     f"Batch generator for '{task.column}' returned {len(result_df)} rows "
@@ -558,11 +558,13 @@ class AsyncTaskScheduler:
                 )
             result_idx = 0
             for ri in range(rg_size):
-                if ri in dropped:
+                if ri in pre_dropped:
                     continue
-                for col in output_cols:
-                    if col in result_df.columns:
-                        self._buffer_manager.update_cell(task.row_group, ri, col, result_df.iloc[result_idx][col])
+                # Skip writing to rows dropped by concurrent tasks during the await
+                if not self._buffer_manager.is_dropped(task.row_group, ri):
+                    for col in output_cols:
+                        if col in result_df.columns:
+                            self._buffer_manager.update_cell(task.row_group, ri, col, result_df.iloc[result_idx][col])
                 result_idx += 1
 
         return result_df
