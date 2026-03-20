@@ -22,9 +22,9 @@ The specifics depend on the dataset and its intended use. The categories below a
 - **Internal consistency**: does data within a record agree with itself?
 - **Encoding integrity**: no garbled encoding, mojibake, or broken unicode.
 - **Plausibility**: do examples look like they could come from the real domain, or are they obviously synthetic?
+- **Judge calibration** (if applicable): are scores consistent across similar-quality records? Does the judge catch visible problems?
 
 ### Design Choices
 Are the right Data Designer features being used? For example:
 - A text column that consistently produces structured data or code might be better as a specialized column type.
 - Values drawn from a fixed set or known distribution could use a sampler instead of an LLM column.
-- If the dataset has judge columns, check whether scores are consistent across similar-quality records and whether the judge catches visible problems.
