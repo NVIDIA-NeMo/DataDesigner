@@ -17,6 +17,7 @@ from data_designer.config.utils.io_helpers import (
     validate_dataset_file_path,
     validate_path_contains_files_of_type,
 )
+from data_designer.config.utils.type_helpers import StrEnum
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -109,14 +110,14 @@ class FileSystemSeedSource(SeedSource, ABC):
     )
 
     @field_validator("path", mode="after")
-    def validate_path(cls, value: str) -> str:
-        path = Path(value).expanduser().resolve()
-        if not path.is_dir():
-            raise InvalidFilePathError(f"🛑 Path {path} is not a directory.")
-        return value
+    def validate_path(cls, value: str | None) -> str | None:
+        # Signature is str | None because AgentRolloutSeedSource overrides path to str | None
+        # and inherited validators fire for all subclasses.
+        return _validate_filesystem_seed_source_path(value)
 
     def model_post_init(self, __context: Any) -> None:
-        self._runtime_path = _resolve_filesystem_runtime_path(self.path)
+        # None guard is exercised by AgentRolloutSeedSource (path: str | None) via inheritance.
+        self._runtime_path = None if self.path is None else _resolve_filesystem_runtime_path(self.path)
 
     @property
     def runtime_path(self) -> str:
@@ -125,12 +126,8 @@ class FileSystemSeedSource(SeedSource, ABC):
         return self._runtime_path
 
     @field_validator("file_pattern", mode="after")
-    def validate_file_pattern(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("🛑 FileSystemSeedSource.file_pattern must be a non-empty string.")
-        if "/" in value or "\\" in value:
-            raise ValueError("🛑 FileSystemSeedSource.file_pattern must match file names, not relative paths.")
-        return value
+    def validate_file_pattern(cls, value: str | None) -> str | None:
+        return _validate_filesystem_seed_source_file_pattern(value)
 
 
 class DirectorySeedSource(FileSystemSeedSource):
@@ -165,3 +162,85 @@ def _resolve_local_file_runtime_path(path: str) -> str:
     path_prefix, glob_suffix = path.split("*", 1)
     resolved_prefix = Path(path_prefix or ".").expanduser().resolve()
     return str(resolved_prefix / f"*{glob_suffix}")
+
+
+def get_claude_code_default_path() -> str:
+    return str(Path("~/.claude/projects").expanduser())
+
+
+def get_codex_default_path() -> str:
+    return str(Path("~/.codex/sessions").expanduser())
+
+
+def _validate_filesystem_seed_source_path(value: str | None) -> str | None:
+    if value is None:
+        return None
+    path = Path(value).expanduser().resolve()
+    if not path.is_dir():
+        raise InvalidFilePathError(f"🛑 Path {path} is not a directory.")
+    return value
+
+
+def _validate_filesystem_seed_source_file_pattern(value: str | None) -> str | None:
+    if value is None:
+        return None
+    if not value.strip():
+        raise ValueError("🛑 FileSystemSeedSource.file_pattern must be a non-empty string.")
+    if "/" in value or "\\" in value:
+        raise ValueError("🛑 FileSystemSeedSource.file_pattern must match file names, not relative paths.")
+    return value
+
+
+class AgentRolloutFormat(StrEnum):
+    CLAUDE_CODE = "claude_code"
+    CODEX = "codex"
+
+
+def get_agent_rollout_format_defaults(fmt: AgentRolloutFormat) -> tuple[str, str]:
+    if fmt == AgentRolloutFormat.CLAUDE_CODE:
+        return (get_claude_code_default_path(), "*.jsonl")
+    if fmt == AgentRolloutFormat.CODEX:
+        return (get_codex_default_path(), "*.jsonl")
+    raise ValueError(f"🛑 Unknown agent rollout format: {fmt!r}")
+
+
+class AgentRolloutSeedSource(FileSystemSeedSource):
+    seed_type: Literal["agent_rollout"] = "agent_rollout"
+
+    format: AgentRolloutFormat = Field(
+        ...,
+        description="Built-in agent rollout format to use for parsing trace files.",
+    )
+
+    path: str | None = Field(
+        None,
+        description=(
+            "Directory containing agent rollout artifacts. When omitted, built-in defaults are used: "
+            "Claude Code defaults to ~/.claude/projects and Codex defaults to ~/.codex/sessions. "
+            "Relative paths are resolved from the current working directory when the config is loaded, "
+            "not from the config file location."
+        ),
+    )
+
+    file_pattern: str | None = Field(
+        None,
+        description=(
+            "Case-sensitive filename pattern used to match agent rollout files. When omitted, defaults to '*.jsonl'."
+        ),
+    )
+
+    @property
+    def runtime_path(self) -> str:
+        if self._runtime_path is not None:
+            return self._runtime_path
+        default_path, _ = get_agent_rollout_format_defaults(self.format)
+        resolved_path = self.path if self.path is not None else default_path
+        self._runtime_path = _resolve_filesystem_runtime_path(resolved_path)
+        return self._runtime_path
+
+    @property
+    def resolved_file_pattern(self) -> str:
+        if self.file_pattern is not None:
+            return self.file_pattern
+        _, default_file_pattern = get_agent_rollout_format_defaults(self.format)
+        return default_file_pattern
