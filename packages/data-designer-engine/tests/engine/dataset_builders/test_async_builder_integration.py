@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import math
+from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock
 
 import pytest
@@ -26,6 +27,7 @@ from data_designer.engine.dataset_builders.dataset_builder import DatasetBuilder
 from data_designer.engine.dataset_builders.errors import DatasetGenerationError
 from data_designer.engine.dataset_builders.utils.completion_tracker import CompletionTracker
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
+from data_designer.engine.dataset_builders.utils.processor_runner import ProcessorStage
 from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
 from data_designer.engine.resources.resource_provider import ResourceProvider
 
@@ -316,3 +318,53 @@ async def test_build_async_preview_returns_dataframe_without_disk_writes() -> No
     assert "cell_out" in df.columns
     # No parquet writes (no finalize callback)
     storage.write_batch_to_parquet_file.assert_not_called()
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_async_preview_defers_post_batch_until_process_preview(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Async preview should return raw rows and apply POST_BATCH only in process_preview()."""
+    import data_designer.engine.dataset_builders.dataset_builder as builder_mod
+
+    monkeypatch.setattr(builder_mod, "AsyncTaskScheduler", AsyncTaskScheduler, raising=False)
+    monkeypatch.setattr(builder_mod, "CompletionTracker", CompletionTracker, raising=False)
+    monkeypatch.setattr(builder_mod, "ExecutionGraph", ExecutionGraph, raising=False)
+    monkeypatch.setattr(builder_mod, "RowGroupBufferManager", RowGroupBufferManager, raising=False)
+
+    provider = _mock_provider()
+    seed_gen = MockSeed(config=_expr_config("seed"), resource_provider=provider)
+    cell_gen = MockCell(config=_expr_config("cell_out"), resource_provider=provider)
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="cell_out", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+
+    processor_runner = Mock()
+    processor_runner.has_processors_for.side_effect = lambda stage: stage == ProcessorStage.POST_BATCH
+    processor_runner.run_post_batch.side_effect = lambda df, current_batch_number=None: df.assign(
+        post_batch_calls=df.get("post_batch_calls", 0) + 1
+    )
+    processor_runner.run_after_generation_on_df.side_effect = lambda df: df
+
+    fake_builder = SimpleNamespace(
+        _column_configs=configs,
+        _processor_runner=processor_runner,
+        artifact_storage=MagicMock(),
+    )
+
+    scheduler, buffer_manager = DatasetBuilder._prepare_async_run(
+        fake_builder,
+        [seed_gen, cell_gen],
+        num_records=3,
+        buffer_size=3,
+        run_post_batch_in_scheduler=False,
+    )
+    await scheduler.run()
+
+    raw_df = buffer_manager.get_dataframe(0)
+    processed_df = DatasetBuilder.process_preview(fake_builder, raw_df)
+
+    assert "post_batch_calls" not in raw_df.columns
+    assert processed_df["post_batch_calls"].tolist() == [1, 1, 1]
+    processor_runner.run_post_batch.assert_called_once()

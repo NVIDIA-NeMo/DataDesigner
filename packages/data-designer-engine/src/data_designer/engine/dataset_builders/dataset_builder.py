@@ -220,6 +220,7 @@ class DatasetBuilder:
             generators,
             num_records,
             buffer_size=num_records,
+            run_post_batch_in_scheduler=False,
         )
 
         loop = ensure_async_engine_loop()
@@ -301,6 +302,7 @@ class DatasetBuilder:
         buffer_size: int,
         *,
         on_finalize_row_group: Callable[[int], None] | None = None,
+        run_post_batch_in_scheduler: bool = True,
         shutdown_error_rate: float = 0.5,
         shutdown_error_window: int = 10,
         disable_early_shutdown: bool = False,
@@ -367,7 +369,9 @@ class DatasetBuilder:
                 on_seeds_complete if self._processor_runner.has_processors_for(ProcessorStage.PRE_BATCH) else None
             ),
             on_before_checkpoint=(
-                on_before_checkpoint if self._processor_runner.has_processors_for(ProcessorStage.POST_BATCH) else None
+                on_before_checkpoint
+                if run_post_batch_in_scheduler and self._processor_runner.has_processors_for(ProcessorStage.POST_BATCH)
+                else None
             ),
             shutdown_error_rate=shutdown_error_rate,
             shutdown_error_window=shutdown_error_window,
