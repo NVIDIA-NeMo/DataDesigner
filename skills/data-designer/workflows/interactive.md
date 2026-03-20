@@ -29,5 +29,5 @@ This is an interactive, iterative design process. Do not disengage from the loop
    - Apply changes, re-validate, and re-preview. Repeat until the user is satisfied.
 8. **Finalize** — Once the user is happy, tell them they can run the following command to create the dataset:
   - `data-designer create <path> --num-records <N> --dataset-name <name>`.
-  - Warn that generation time varies — it depends on factors like record count, number of LLM columns, and inference throughput.
+  - Caution the user that generation speed depends heavily on the dataset configuration and their inference setup.
   - Do not run this command yourself — the user should control when it runs.

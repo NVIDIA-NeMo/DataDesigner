@@ -21,6 +21,6 @@ In this mode, make reasonable design decisions autonomously based on the dataset
   - Give the user a clickable link: `file://<sample-records-dir>/sample_records_browser.html`
 7. **Create** — If the user specified a record count:
   - Run `data-designer create <path> --num-records <N> --dataset-name <name>`.
-  - Generation time varies — it depends on factors like record count, number of LLM columns, and inference throughput. For larger datasets, warn the user and ask for confirmation before running.
+  - Generation speed depends heavily on the dataset configuration and the user's inference setup. For larger datasets, warn the user and ask for confirmation before running.
   - If no record count was specified, skip this step.
 8. **Present** — Summarize what was built: columns, samplers used, key design choices. If the create command was run, share the results. Ask the user if they want any changes. If so, edit the script, re-validate, re-preview, and iterate.
