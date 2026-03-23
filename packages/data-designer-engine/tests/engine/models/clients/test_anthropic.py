@@ -11,6 +11,7 @@ import pytest
 
 from data_designer.engine.mcp.registry import MCPToolDefinition
 from data_designer.engine.models.clients.adapters.anthropic import AnthropicClient
+from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
 from data_designer.engine.models.clients.errors import ProviderError, ProviderErrorKind
 from data_designer.engine.models.clients.types import (
     ChatCompletionRequest,
@@ -32,10 +33,12 @@ def _make_client(
     api_key: str | None = "sk-ant-test",
     endpoint: str = ENDPOINT,
 ) -> AnthropicClient:
+    concurrency_mode = ClientConcurrencyMode.ASYNC if async_client is not None else ClientConcurrencyMode.SYNC
     return AnthropicClient(
         provider_name=PROVIDER,
         endpoint=endpoint,
         api_key=api_key,
+        concurrency_mode=concurrency_mode,
         sync_client=sync_client,
         async_client=async_client,
     )

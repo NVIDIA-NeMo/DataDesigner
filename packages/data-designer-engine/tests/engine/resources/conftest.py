@@ -3,8 +3,11 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 from unittest.mock import Mock
 
 import pytest
@@ -49,3 +52,14 @@ def stub_secret_resolver() -> Mock:
     mock_resolver = Mock()
     mock_resolver.resolve = Mock(return_value="resolved_secret")
     return mock_resolver
+
+
+@pytest.fixture
+def write_jsonl() -> Callable[[Path, list[dict[str, Any]]], None]:
+    def _write(path: Path, records: list[dict[str, Any]]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", encoding="utf-8") as file:
+            for record in records:
+                file.write(f"{json.dumps(record)}\n")
+
+    return _write

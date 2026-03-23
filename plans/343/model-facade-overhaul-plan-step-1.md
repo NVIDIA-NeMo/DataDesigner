@@ -194,22 +194,26 @@ Updated files (Step 1):
 
 1. PR-1 ([#359](https://github.com/NVIDIA-NeMo/DataDesigner/pull/359) — merged): canonical types/interfaces/errors + bridge adapter + no behavior change.
    - files: `clients/base.py`, `clients/types.py`, `clients/errors.py`, `clients/adapters/litellm_bridge.py`
-   - docs: add architecture notes for canonical adapter boundary and bridge purpose.
+   - docs: `plans/343/model-facade-overhaul-pr-1-architecture-notes.md`
 2. PR-2 ([#373](https://github.com/NVIDIA-NeMo/DataDesigner/pull/373) — merged): `ModelFacade` switched to `ModelClient` + lifecycle wiring + parity tests on bridge.
    - files: `models/facade.py`, `models/errors.py`, `models/factory.py`, `clients/factory.py`, `models/registry.py`, `resources/resource_provider.py`, `interface/data_designer.py`
-   - docs: update internal lifecycle/ownership docs for adapter teardown and resource shutdown behavior.
-3. PR-3 (in progress): OpenAI-compatible adapter + shared retry/throttle + auth integration.
+   - docs: `plans/343/model-facade-overhaul-pr-2-architecture-notes.md`
+3. PR-3 ([#402](https://github.com/NVIDIA-NeMo/DataDesigner/pull/402) — merged): OpenAI-compatible adapter + shared retry/throttle + auth integration.
    - files: `clients/retry.py`, `clients/throttle.py`, `clients/adapters/openai_compatible.py`
-   - docs: add provider docs for openai-compatible routing, endpoint expectations, and retry/throttle semantics.
-4. PR-4: Anthropic adapter + auth integration + capability gating.
-   - files: `clients/adapters/anthropic.py`
-   - docs: add Anthropic capability/limitations documentation for Step 1 scope.
-5. PR-5: Config/CLI auth schema rollout + migration guards + docs.
+   - docs: `plans/343/model-facade-overhaul-pr-3-architecture-notes.md`
+4. PR-4 ([#426](https://github.com/NVIDIA-NeMo/DataDesigner/pull/426) — merged): Anthropic adapter + shared HTTP client infrastructure + auth integration + capability gating.
+   - files: `clients/adapters/anthropic.py`, `clients/adapters/anthropic_translation.py`, `clients/adapters/http_model_client.py`, `clients/adapters/http_helpers.py`
+   - docs: `plans/343/model-facade-overhaul-pr-4-architecture-notes.md`
+5. PR-5 (in progress): Single-mode `HttpModelClient` lifecycle fix + async health checks.
+   - Repurposed from original "Config/CLI auth schema rollout" scope. PR #426 review revealed that the dual-mode sync/async `HttpModelClient` creates intractable lifecycle bugs (transport leaks, cross-mode teardown). This PR constrains each `HttpModelClient` instance to a single mode (`sync` or `async`) via a constructor flag, simplifies `close()`/`aclose()` to single-mode teardown, and adds `ModelRegistry.arun_health_check()` so async-engine health checks use the async path consistently.
+   - files: `clients/adapters/http_model_client.py`, `clients/factory.py`, `models/factory.py`, `models/registry.py`, `dataset_builders/column_wise_builder.py`
+   - docs: `plans/343/model-facade-overhaul-pr-5-architecture-notes.md`
+6. PR-6: Config/CLI auth schema rollout + migration guards + docs.
    - files: `config/models.py`, `cli/forms/provider_builder.py`
    - docs: publish auth schema migration guide (legacy `api_key` fallback + typed `auth` objects) and CLI examples.
-6. PR-6: Cutover flag default flip to native while retaining bridge path.
+7. PR-7: Cutover flag default flip to native while retaining bridge path.
    - docs: update rollout runbook and env-flag guidance (`DATA_DESIGNER_MODEL_BACKEND`) for operators.
-7. PR-7: Remove LiteLLM dependency/path after soak window.
+8. PR-8: Remove LiteLLM dependency/path after soak window.
    - files: `lazy_heavy_imports.py` and removal of legacy LiteLLM runtime path
    - docs: remove LiteLLM references and close out migration notes.
 

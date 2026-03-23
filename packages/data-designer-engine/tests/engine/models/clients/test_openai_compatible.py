@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
 from data_designer.engine.models.clients.adapters.openai_compatible import OpenAICompatibleClient
 from data_designer.engine.models.clients.errors import ProviderError, ProviderErrorKind
 from data_designer.engine.models.clients.types import (
@@ -28,10 +29,12 @@ def _make_client(
     async_client: MagicMock | None = None,
     api_key: str | None = "sk-test-key",
 ) -> OpenAICompatibleClient:
+    concurrency_mode = ClientConcurrencyMode.ASYNC if async_client is not None else ClientConcurrencyMode.SYNC
     return OpenAICompatibleClient(
         provider_name=PROVIDER,
         endpoint=ENDPOINT,
         api_key=api_key,
+        concurrency_mode=concurrency_mode,
         sync_client=sync_client,
         async_client=async_client,
     )

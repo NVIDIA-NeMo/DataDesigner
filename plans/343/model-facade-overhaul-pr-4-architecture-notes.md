@@ -323,9 +323,11 @@ concrete adapters.
 
 ## Planned Follow-On
 
-PR-5 introduces the config/CLI auth schema rollout, adding typed
-provider-specific auth objects (`AnthropicAuth`, `OpenAIApiKeyAuth`) to
-`ModelProvider` with backward-compatible `api_key` fallback.
+PR-5 constrains `HttpModelClient` to single-mode (sync or async) via a
+constructor `ClientConcurrencyMode` enum, simplifying `close()`/`aclose()` to
+single-mode teardown and adding `ModelRegistry.arun_health_check()` for
+async-engine consistency. The config/CLI auth schema rollout shifts to
+PR-6.
 
 The `AsyncTaskScheduler` (plan 346) will call `ThrottleManager` for
 Anthropic models using the same acquire/release pattern as OpenAI models,
