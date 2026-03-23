@@ -328,6 +328,8 @@ class ThrottleManager:
         if wait == 0.0:
             return
         with self._lock:
+            # state is captured once and reused in the finally block; safe
+            # because DomainThrottleState objects are never replaced after creation.
             state = self._get_or_create_domain(provider_name, model_id, domain)
             state.waiters += 1
             if state.waiters == 1:
@@ -375,6 +377,8 @@ class ThrottleManager:
         if wait == 0.0:
             return
         with self._lock:
+            # state is captured once and reused in the finally block; safe
+            # because DomainThrottleState objects are never replaced after creation.
             state = self._get_or_create_domain(provider_name, model_id, domain)
             state.waiters += 1
             if state.waiters == 1:
