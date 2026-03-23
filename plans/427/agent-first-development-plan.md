@@ -52,7 +52,7 @@ This proposal draws strong inspiration from [NVIDIA/OpenShell](https://github.co
 
 ## Phase 0: AGENTS.md
 
-AGENTS.md is injected into every agent prompt. It must land first because every subsequent phase references the architectural invariants it establishes. It should also be the most stable file in the repo — if it changes often, something is wrong.
+AGENTS.md is injected into every agent prompt. It must be authored first within the PR because every subsequent deliverable references the architectural invariants it establishes. It should also be the most stable file in the repo — if it changes often, something is wrong.
 
 **Current state:** ~500 lines. Mixes project overview, architecture, code style, development workflow, and testing guidance into one file.
 
@@ -404,37 +404,40 @@ Create `.github/workflows/issue-triage.yml`:
 
 Land this work as a sequence of incremental PRs rather than a single large rollout:
 
-0. **Phase 0 PR** — `AGENTS.md` restructure (~50 lines). Lands first because it is injected into every agent prompt and every subsequent phase references it.
-1. **Phase 1 PR(s)** — agent infrastructure consolidation and path cleanup.
-2. **Phase 2 PR(s)** — remaining documentation (`STYLEGUIDE.md`, `DEVELOPMENT.md`, `CONTRIBUTING.md`, `README.md`, and optional `architecture/` skeleton).
-3. **Phase 3 PR(s)** — GitHub machinery such as templates, labels, and skill output conformance.
-4. **Phase 4** — do not start implementation directly from this plan. Treat it as follow-on work that requires another planning pass, design review, and then its own incremental PRs.
-
-The default PR boundary should be the phase boundary. If a phase is still too large, split it into a small sequence of focused PRs, but keep the phases ordered and avoid mixing deliverables from different phases in one PR.
+1. **PR 1 (Phases 0 + 1 + 2)** — `AGENTS.md` restructure, agent infrastructure consolidation (`.agents/` / `.claude/` cleanup), and foundation documents (`STYLEGUIDE.md`, `DEVELOPMENT.md`, `CONTRIBUTING.md`, `README.md`, and optional `architecture/` skeleton). These phases are tightly coupled: the new `AGENTS.md` establishes vocabulary that the extracted docs and skill paths reference, and shipping them together avoids an intermediate state where `AGENTS.md` is slim but the extracted content doesn't exist yet.
+2. **PR 2 (Phase 3)** — GitHub machinery such as templates, labels, and skill output conformance.
+3. **Phase 4** — do not start implementation directly from this plan. Treat it as follow-on work that requires another planning pass, design review, and then its own incremental PRs.
 
 ---
 
 ## Execution Order
 
+### PR 1 — Phases 0 + 1 + 2
 
-| Step | Deliverable                                                | Dependencies                           | Parallelizable       |
-| ---- | ---------------------------------------------------------- | -------------------------------------- | -------------------- |
-| 0    | AGENTS.md restructure (~50 lines)                          | None                                   | --                   |
-| 1    | Skill consolidation (`.agents/`, `.claude/` cleanup)       | Step 0 (AGENTS.md settled)             | --                   |
-| 2    | STYLEGUIDE.md + DEVELOPMENT.md (extracted from old AGENTS.md) | Step 0                              | --                   |
-| 3    | CONTRIBUTING.md overhaul                                   | Step 0 (references it)                 | --                   |
-| 4    | README.md updates                                          | CONTRIBUTING.md (references it)        | --                   |
-| 5    | Issue templates                                            | CONTRIBUTING.md (templates link to it) | Yes (with 6-9)       |
-| 6    | PR template                                                | None                                   | Yes (with 5, 7-9)    |
-| 7    | CODEOWNERS update                                          | None                                   | Yes (with 5-6, 8-9)  |
-| 8    | Label creation (via `gh label create`)                     | None                                   | Yes (with 5-7, 9)    |
-| 9    | `architecture/` skeleton                                   | None                                   | Yes (with 5-8)       |
-| 10   | Skill template conformance updates                         | Issue/PR templates (steps 5-6)         | --                   |
+All steps within PR 1 are implemented in the order listed. The suggested authoring sequence groups tightly coupled work together.
 
+| Step | Deliverable                                                   | Notes                                                              |
+| ---- | ------------------------------------------------------------- | ------------------------------------------------------------------ |
+| 1    | AGENTS.md restructure (~50 lines)                             | Establishes vocabulary; author first                               |
+| 2    | STYLEGUIDE.md + DEVELOPMENT.md (extracted from old AGENTS.md) | Must exist before AGENTS.md ships so extracted content isn't lost   |
+| 3    | Skill consolidation (`.agents/`, `.claude/` cleanup)          | Paths settle before docs reference them                            |
+| 4    | CONTRIBUTING.md overhaul                                      | References AGENTS.md, DEVELOPMENT.md, and skill paths              |
+| 5    | README.md updates                                             | References CONTRIBUTING.md                                         |
+| 6    | `architecture/` skeleton                                      | Independent; can be authored at any point                          |
 
-Step 0 lands first because AGENTS.md is injected into every prompt and establishes the architectural vocabulary. Steps 1-4 are sequential. Steps 5-9 are independent and can be parallelized. Step 10 depends on earlier steps.
+### PR 2 — Phase 3
 
-In practice, Step 0 is Phase 0, Steps 1-4 map to Phase 1 and Phase 2 PRs, and Steps 5-10 map to one or more Phase 3 PRs. Phase 4 should be planned separately before any implementation PRs are opened.
+Steps within PR 2 are largely independent and can be authored in parallel.
+
+| Step | Deliverable                        | Dependencies                           | Parallelizable      |
+| ---- | ---------------------------------- | -------------------------------------- | -------------------- |
+| 7    | Issue templates                    | CONTRIBUTING.md (templates link to it) | Yes (with 8-11)      |
+| 8    | PR template                        | None                                   | Yes (with 7, 9-11)   |
+| 9    | CODEOWNERS update                  | None                                   | Yes (with 7-8, 10-11)|
+| 10   | Label creation (via `gh label create`) | None                               | Yes (with 7-9, 11)   |
+| 11   | Skill template conformance updates | Issue/PR templates (steps 7-8)         | --                   |
+
+Phase 4 should be planned separately before any implementation PRs are opened.
 
 ---
 
