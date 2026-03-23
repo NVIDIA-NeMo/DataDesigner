@@ -3,11 +3,13 @@
 
 from __future__ import annotations
 
+import io
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
 import pytest
+from rich.console import Console
 
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.config_builder import DataDesignerConfigBuilder
@@ -100,6 +102,17 @@ def multi_turn_tool_trace() -> list[TraceMessage]:
     ]
 
 
+# --- Helpers ---
+
+
+def _render_panel_to_text(panel: Any) -> str:
+    """Render a Rich Panel to plain text for assertion."""
+    buf = io.StringIO()
+    test_console = Console(width=120, file=buf)
+    test_console.print(panel)
+    return buf.getvalue()
+
+
 # --- render_rich tests ---
 
 
@@ -119,10 +132,10 @@ def test_render_rich_single_tool_call(renderer: TraceRenderer, tool_call_trace: 
 
 
 def test_render_rich_multi_turn_tool_calls(renderer: TraceRenderer, multi_turn_tool_trace: list[TraceMessage]) -> None:
-    """Trace with multiple tool calls shows correct count."""
+    """Parallel tool calls in one assistant message count as 1 turn."""
     panel = renderer.render_rich(multi_turn_tool_trace, "col__trace")
     rendered = _render_panel_to_text(panel)
-    assert "2 tool calls" in rendered
+    assert "2 tool calls in 1 turn" in rendered
 
 
 def test_render_rich_reasoning_content(renderer: TraceRenderer, tool_call_trace: list[TraceMessage]) -> None:
@@ -324,15 +337,3 @@ def test_existing_display_sample_record_unaffected(
     )
 
     display_sample_record(record, builder)
-
-
-# --- Helpers ---
-
-
-def _render_panel_to_text(panel: Any) -> str:
-    """Render a Rich Panel to plain text for assertion."""
-    from rich.console import Console
-
-    console = Console(width=120, file=__import__("io").StringIO())
-    console.print(panel)
-    return console.file.getvalue()

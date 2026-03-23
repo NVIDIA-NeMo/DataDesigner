@@ -60,7 +60,9 @@ _REASONING_BODY_STYLE = "italic medium_orchid1"
 _TOOL_CALL_LABEL_STYLE = "bold bright_yellow"
 _TOOL_CALL_BODY_STYLE = "bright_yellow"
 
-_ROLE_HTML_COLORS: dict[str, str] = {
+RoleHtmlColor = Literal["#e8e8e8", "#dbeafe", "#f3e8ff", "#fef3c7", "#fce7f3", "#dcfce7", "#f0f0f0"]
+
+_ROLE_HTML_COLORS: dict[str, RoleHtmlColor] = {
     "system": "#e8e8e8",
     "user": "#dbeafe",
     "reasoning": "#f3e8ff",
@@ -99,9 +101,8 @@ class TraceRenderer:
 
     def render_rich(self, traces: list[TraceMessage], column_name: str) -> Panel:
         """Return a Rich Panel containing the formatted trace conversation."""
-        sections: list = []
+        sections: list[Text | Padding | Rule] = []
         tool_call_count = 0
-        turn_ids: set[str] = set()
         separator = Padding(Rule(style="dim"), (1, 0))
 
         for msg in traces:
@@ -120,8 +121,6 @@ class TraceRenderer:
             if tool_calls:
                 for tc in tool_calls:
                     tool_call_count += 1
-                    tc_id = tc.get("id", "")
-                    turn_ids.add(tc_id)
                     func = tc.get("function", {})
                     func_name = func.get("name", "unknown")
                     formatted_args = _format_tool_call_args(func.get("arguments", "")).strip()
@@ -154,7 +153,7 @@ class TraceRenderer:
             sections.append(Text(label_text, style=f"bold {style}"))
             sections.append(Text(f"{text_content}\n", style=style, overflow="fold"))
 
-        turn_count = max(len(turn_ids), 1) if tool_call_count > 0 else 0
+        turn_count = sum(1 for msg in traces if msg.get("tool_calls")) if tool_call_count > 0 else 0
         call_word = "call" if tool_call_count == 1 else "calls"
         turn_word = "turn" if turn_count == 1 else "turns"
         summary = f"{tool_call_count} tool {call_word} in {turn_count} {turn_word}" if tool_call_count > 0 else ""
@@ -241,14 +240,14 @@ class TraceRenderer:
             {body_html}
         </div>
         """
-        display(HTML(container))  # noqa: F821
+        display(HTML(container))
         return True
 
 
 def _build_html_block(
     title: str,
     body: str,
-    bg_color: str,
+    bg_color: RoleHtmlColor,
     *,
     escape_body: bool = True,
 ) -> str:

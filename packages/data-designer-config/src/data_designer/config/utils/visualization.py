@@ -64,6 +64,24 @@ _DEDICATED_DISPLAY_COL_TYPES = {
     DataDesignerColumnType.LLM_JUDGE,
 }
 
+_LLM_COLUMN_TYPES = [
+    DataDesignerColumnType.LLM_TEXT,
+    DataDesignerColumnType.LLM_CODE,
+    DataDesignerColumnType.LLM_STRUCTURED,
+    DataDesignerColumnType.LLM_JUDGE,
+]
+
+
+def _display_notebook_html(html_content: str) -> bool:
+    """Display raw HTML in a Jupyter notebook. Returns True if displayed."""
+    try:
+        from IPython.display import HTML, display
+
+        display(HTML(html_content))
+        return True
+    except ImportError:
+        return False
+
 
 def _display_image_if_in_notebook(image_data: str, col_name: str) -> bool:
     """Display image with caption in Jupyter notebook if available.
@@ -79,24 +97,17 @@ def _display_image_if_in_notebook(image_data: str, col_name: str) -> bool:
         return False
 
     try:
-        from IPython.display import HTML, display
-    except ImportError:
-        return False
-
-    try:
         escaped_col_name = html.escape(col_name)
 
         # URLs: render directly as <img src='url'>
         if is_image_url(image_data):
             escaped_url = html.escape(image_data)
-            html_content = f"""
+            return _display_notebook_html(f"""
             <div style='display: flex; flex-direction: column; align-items: flex-start; margin-top: 20px; margin-bottom: 20px;'>
                 <div style='margin-bottom: 10px;'><strong>🖼️ {escaped_col_name}</strong></div>
                 <img src='{escaped_url}'/>
             </div>
-            """
-            display(HTML(html_content))
-            return True
+            """)
 
         # File paths: load from disk and convert to base64
         if is_image_path(image_data) and not image_data.startswith("data:image/"):
@@ -113,15 +124,12 @@ def _display_image_if_in_notebook(image_data: str, col_name: str) -> bool:
         # Extract base64 from data URI if present
         img_base64 = extract_base64_from_data_uri(base64_data)
 
-        # Create HTML with caption and image in left-aligned container
-        html_content = f"""
+        return _display_notebook_html(f"""
         <div style='display: flex; flex-direction: column; align-items: flex-start; margin-top: 20px; margin-bottom: 20px;'>
             <div style='margin-bottom: 10px;'><strong>🖼️ {escaped_col_name}</strong></div>
             <img src='data:image/png;base64,{img_base64}'/>
         </div>
-        """
-        display(HTML(html_content))
-        return True
+        """)
     except Exception as e:
         console.print(f"[yellow]⚠️ Could not display image for column '{col_name}': {e}[/yellow]")
         return False
@@ -294,17 +302,10 @@ def display_sample_record(
 
     if record_index is not None:
         if in_notebook:
-            try:
-                from IPython.display import HTML, display
-
-                display(
-                    HTML(
-                        f"<div style='text-align:center;font-family:Menlo,Monaco,Consolas,monospace;"
-                        f"font-size:12px;color:#666;margin:8px 0;'>[index: {record_index}]</div>"
-                    )
-                )
-            except ImportError:
-                pass
+            _display_notebook_html(
+                f"<div style='text-align:center;font-family:Menlo,Monaco,Consolas,monospace;"
+                f"font-size:12px;color:#666;margin:8px 0;'>[index: {record_index}]</div>"
+            )
         else:
             render_list.append(Text(f"[index: {record_index}]", justify="center"))
 
@@ -341,24 +342,16 @@ def display_sample_record(
                             table.add_row(output_col, convert_to_row_element(record[output_col]))
         render_list.append(pad_console_element(table))
 
-    # Trace sections for LLM columns
-    _LLM_COLUMN_TYPES = [
-        DataDesignerColumnType.LLM_TEXT,
-        DataDesignerColumnType.LLM_CODE,
-        DataDesignerColumnType.LLM_STRUCTURED,
-        DataDesignerColumnType.LLM_JUDGE,
-    ]
-
     traces_to_display_later: list[tuple[str, list[TraceMessage]]] = []
+    trace_renderer = TraceRenderer()
     if include_traces:
-        trace_renderer = TraceRenderer()
         for col_type in _LLM_COLUMN_TYPES:
             for col in config_builder.get_columns_of_type(col_type):
                 for side_col in col.side_effect_columns:
                     if side_col.endswith(TRACE_COLUMN_POSTFIX) and side_col in record:
                         traces: list[TraceMessage] = record[side_col]
                         if isinstance(traces, list) and len(traces) > 0:
-                            if not in_notebook:
+                            if not in_notebook or save_path is not None:
                                 render_list.append(pad_console_element(trace_renderer.render_rich(traces, side_col)))
                             traces_to_display_later.append((side_col, traces))
 
@@ -622,7 +615,7 @@ def convert_to_row_element(elem: Any) -> str | Pretty:
     return elem
 
 
-def pad_console_element(elem: Any, padding: tuple[int, int, int, int] = (0, 0, 1, 0)) -> Padding:
+def pad_console_element(elem: Any, padding: tuple[int, int, int, int] = (1, 0, 1, 0)) -> Padding:
     return Padding(elem, padding)
 
 
