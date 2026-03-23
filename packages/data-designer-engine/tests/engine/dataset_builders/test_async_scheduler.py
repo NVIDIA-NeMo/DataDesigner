@@ -1011,6 +1011,30 @@ class MockLLMBoundCellGenerator(ColumnGenerator[ExpressionColumnConfig]):
         return data
 
 
+class MockLLMBoundRateLimitGenerator(ColumnGenerator[ExpressionColumnConfig]):
+    """LLM-bound generator that raises ModelRateLimitError for the first N calls, then succeeds."""
+
+    def __init__(self, *args: Any, rate_limit_failures: int = 0, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._rate_limit_failures = rate_limit_failures
+        self._calls = 0
+
+    @property
+    def is_llm_bound(self) -> bool:
+        return True
+
+    @staticmethod
+    def get_generation_strategy() -> GenerationStrategy:
+        return GenerationStrategy.CELL_BY_CELL
+
+    def generate(self, data: dict) -> dict:
+        self._calls += 1
+        if self._calls <= self._rate_limit_failures:
+            raise ModelRateLimitError("429 Too Many Requests")
+        data[self.config.name] = f"llm_ok_{data.get('seed', '?')}"
+        return data
+
+
 @pytest.mark.asyncio(loop_scope="session")
 async def test_scheduler_llm_bound_one_way_handoff() -> None:
     """LLM-bound tasks release submission slot and hold LLM-wait slot during execution."""
@@ -1168,6 +1192,63 @@ def test_custom_generator_with_model_aliases_is_llm_bound() -> None:
 
     lookup = build_llm_bound_lookup({"custom_llm": llm_gen, "custom_plain": plain_gen})
     assert lookup == {"custom_llm": True, "custom_plain": False}
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_scheduler_llm_bound_429_retried_in_salvage() -> None:
+    """A 429'd LLM-bound task is deferred, retried in salvage (handoff runs twice), and completes."""
+    provider = _mock_provider()
+    num_records = 3
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="llm_col", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "llm_col": GenerationStrategy.CELL_BY_CELL,
+    }
+    generators: dict[str, ColumnGenerator] = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "llm_col": MockLLMBoundRateLimitGenerator(
+            config=_expr_config("llm_col"),
+            resource_provider=provider,
+            rate_limit_failures=num_records,
+        ),
+    }
+
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, num_records)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+
+    storage = MagicMock()
+    storage.dataset_name = "test"
+    storage.get_file_paths.return_value = {}
+    storage.write_batch_to_parquet_file.return_value = "/fake.parquet"
+    storage.move_partial_result_to_final_file_path.return_value = "/fake_final.parquet"
+    buffer_mgr = RowGroupBufferManager(storage)
+
+    max_submitted = 4
+    max_llm_wait = 2
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_mgr,
+        max_submitted_tasks=max_submitted,
+        max_llm_wait_tasks=max_llm_wait,
+    )
+    await scheduler.run()
+
+    assert tracker.is_row_group_complete(0, num_records, ["seed", "llm_col"])
+
+    sub_available, llm_available = scheduler.get_semaphore_permits()
+    assert sub_available == max_submitted, (
+        f"Submission semaphore leaked after salvage retry: available={sub_available}, expected={max_submitted}"
+    )
+    assert llm_available == max_llm_wait, (
+        f"LLM-wait semaphore leaked after salvage retry: available={llm_available}, expected={max_llm_wait}"
+    )
 
 
 @pytest.mark.asyncio(loop_scope="session")
