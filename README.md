@@ -112,7 +112,9 @@ data-designer config list      # View current settings
 
 ### 🤝 Get involved
 
-- **[Contributing Guide](https://nvidia-nemo.github.io/DataDesigner/latest/CONTRIBUTING)** – Help improve Data Designer
+This repository supports agent-assisted development — see [CONTRIBUTING.md](CONTRIBUTING.md) for the recommended workflow.
+
+- **[Contributing Guide](CONTRIBUTING.md)** – How to contribute, including agent-assisted workflows
 - **[GitHub Issues](https://github.com/NVIDIA-NeMo/DataDesigner/issues)** – Report bugs or make a feature request
 
 ---
