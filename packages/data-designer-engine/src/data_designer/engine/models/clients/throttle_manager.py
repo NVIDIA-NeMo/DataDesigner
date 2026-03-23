@@ -30,6 +30,7 @@ class ThrottleDomain(str, Enum):
 DEFAULT_MIN_LIMIT: int = 1
 DEFAULT_ACQUIRE_TIMEOUT: float = 300.0
 DEFAULT_CEILING_OVERSHOOT: float = 0.10
+CAPACITY_POLL_INTERVAL: float = 0.05
 
 
 # ---------------------------------------------------------------------------
@@ -196,7 +197,7 @@ class ThrottleManager:
             if now < state.blocked_until:
                 return state.blocked_until - now
             if state.in_flight >= state.current_limit:
-                return self._default_block_seconds
+                return CAPACITY_POLL_INTERVAL
             state.in_flight += 1
             return 0.0
 

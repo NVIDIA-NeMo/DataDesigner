@@ -143,8 +143,17 @@ directly — not the translated `ModelRateLimitError`. This means:
 **Critical retry-boundary requirement:** This only works if the shared
 HTTP transport does **not** auto-retry `429`. PR-6 therefore updates
 `clients/retry.py` to remove `429` from transport-level retryable
-statuses. Non-rate-limit transient failures (`502` / `503` / `504`,
-connection/transport errors) remain retried in the shared HTTP layer.
+statuses for **async-mode** clients (which have the salvage queue and
+AIMD feedback loop). **Sync-mode** clients keep `429` in the transport
+retry list because the sync engine has no salvage queue — a surfaced
+429 would simply drop the row via `_worker_error_callback`.
+
+The mode-awareness is implemented in `HttpModelClient`: the sync path
+calls `create_retry_transport(config, strip_rate_limit_codes=False)`
+while the async path calls `create_retry_transport(config,
+strip_rate_limit_codes=True)`. Non-rate-limit transient failures
+(`502` / `503` / `504`, connection/transport errors) remain retried
+in the shared HTTP layer for both modes.
 
 **DRY:** The six methods share the same acquire/release pattern. A
 private helper `_release_on_error` and paired context managers
@@ -747,6 +756,10 @@ in the enum) with permissive limits.
    and the module was renamed from `throttle.py` to
    `throttle_manager.py` for discoverability. Internal AIMD behavior
    was refined (see "AIMD behavioral refinements" below).
+   `try_acquire` now returns `CAPACITY_POLL_INTERVAL` (50ms) instead
+   of `default_block_seconds` (2s) when at capacity but not
+   rate-limited, so callers poll responsively instead of waiting the
+   full cooldown duration when a slot could free in milliseconds.
 2. **`ModelFacade`** — untouched. Throttling is below it in the client
    layer. Correction loops, tool-calling loops, and custom columns
    are automatically gated because they all go through the client.
@@ -773,11 +786,12 @@ in the enum) with permissive limits.
 | --- | --- |
 | `models/clients/throttle.py` → `models/clients/throttle_manager.py` (rename) | Renamed for discoverability; constructor updated to accept `ThrottleConfig`; cascade dampening (`consecutive_429s`), ceiling stabilization (`rate_limit_ceiling`, `ceiling_overshoot`), refined logging |
 | `models/clients/throttled.py` (new) | `ThrottledModelClient` wrapper with cancellation-safe `_throttled_sync` / `_athrottled` context managers |
-| `models/clients/retry.py` | Remove `429` from transport retryable statuses; update docstring to document the boundary |
-| `models/clients/factory.py` | Accept optional `throttle_manager`; wrap inner client with `ThrottledModelClient` when provided |
+| `models/clients/retry.py` | `create_retry_transport` gains `strip_rate_limit_codes` kwarg (default `True`); async-mode strips 429 for AIMD, sync-mode keeps 429 for transport-level retry |
+| `models/clients/adapters/http_model_client.py` | Sync transport: `strip_rate_limit_codes=False`; async transport: `strip_rate_limit_codes=True` |
+| `models/clients/factory.py` | Accept optional `throttle_manager`; wrap inner client with `ThrottledModelClient` when provided; docstring documents registration ordering invariant |
 | `models/factory.py` | Forward `ThrottleManager` to `model_facade_factory` closure → `create_model_client`; accept `run_config` parameter; construct `ThrottleManager` from `run_config.throttle` (`ThrottleConfig`); remove TODO comment |
 | `models/registry.py` | Add `get_aggregate_max_parallel_requests()` public method |
-| `config/run_config.py` | Add `ThrottleConfig` sub-model with `ClassVar` defaults (`reduce_factor=0.75`, `additive_increase=1`, `success_window=25`, `block_seconds=2.0`); add `RunConfig.throttle: ThrottleConfig` field |
+| `config/run_config.py` | Add `ThrottleConfig` sub-model with `ClassVar` defaults (`reduce_factor=0.75`, `additive_increase=1`, `success_window=25`, `block_seconds=2.0`); add `RunConfig.throttle: ThrottleConfig` field. `block_seconds` now only applies to rate-limit cooldowns; capacity waits use `CAPACITY_POLL_INTERVAL` (50ms) |
 | `resources/resource_provider.py` | Forward `run_config` to `create_model_registry` |
 | `column_generators/generators/base.py` | Add `is_llm_bound` property to `ColumnGenerator` (default `False`), override to `True` in `ColumnGeneratorWithModelRegistry` |
 | `dataset_builders/async_scheduler.py` | Add `_llm_wait_semaphore`, one-way semaphore handoff for LLM tasks, `MIN_SUBMITTED_TASKS` / `LLM_WAIT_POOL_MULTIPLIER` constants; exclude `ModelRateLimitError` from early shutdown error rate |
@@ -802,7 +816,7 @@ in the enum) with permissive limits.
 | Client wrapper: cancellation safety | `asyncio.CancelledError` during in-flight async request releases throttle permit via `release_failure`; `in_flight` returns to 0 |
 | Client wrapper: E2E AIMD loop | Success → 429 halves limit → successes recover via additive increase (real `ThrottleManager`, `success_window=2`) |
 | Client wrapper: E2E concurrency | 5 concurrent async calls with `max_parallel_requests=2` — peak `in_flight` ≤ 2, all 5 complete |
-| Transport retry boundary | `429` excluded from transport retryable statuses; `502` / `503` / `504` remain retried; `RetryConfig` docstring updated; test renamed from `test_retry_config_defaults_match_litellm_router` to `test_retry_config_defaults` |
+| Transport retry boundary | Async-mode: `429` stripped from transport retryable statuses for AIMD feedback; sync-mode: `429` kept for transport-level retry (no salvage queue). `strip_rate_limit_codes` kwarg on `create_retry_transport` controls behavior. `502` / `503` / `504` remain retried in both modes |
 | Scheduler: one-way handoff for LLM tasks | LLM-wait acquired before submission released; submission never reacquired (no circular wait) |
 | Scheduler: non-LLM tasks | Submission slot held during generator execution (no release/reacquire) |
 | Scheduler: deadlock regression | `max_submitted_tasks=1`, `max_llm_wait_tasks=1`, two ready LLM tasks — completes without deadlock |

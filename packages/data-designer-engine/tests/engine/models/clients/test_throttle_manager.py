@@ -10,6 +10,7 @@ import pytest
 
 from data_designer.config.run_config import ThrottleConfig
 from data_designer.engine.models.clients.throttle_manager import (
+    CAPACITY_POLL_INTERVAL,
     ThrottleDomain,
     ThrottleManager,
 )
@@ -34,14 +35,15 @@ def test_acquire_under_limit_returns_zero(manager: ThrottleManager) -> None:
     assert wait == 0.0
 
 
-def test_acquire_at_capacity_returns_positive_wait(manager: ThrottleManager) -> None:
+def test_acquire_at_capacity_returns_short_poll_interval(manager: ThrottleManager) -> None:
     for _ in range(4):
         manager.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=0.0)
     wait = manager.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=0.0)
-    assert wait > 0.0
+    assert wait == pytest.approx(CAPACITY_POLL_INTERVAL)
 
 
 def test_acquire_respects_blocked_until(manager: ThrottleManager) -> None:
+    """Rate-limit cooldown returns remaining block duration (not the short capacity poll)."""
     manager.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=0.0)
     manager.release_rate_limited(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, retry_after=5.0, now=1.0)
     wait = manager.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=2.0)

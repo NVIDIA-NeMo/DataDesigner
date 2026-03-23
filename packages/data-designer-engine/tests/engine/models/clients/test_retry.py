@@ -69,3 +69,16 @@ def test_create_retry_transport_strips_429(caplog: pytest.LogCaptureFixture) -> 
     transport = create_retry_transport(config)
     assert transport.retry.status_forcelist == frozenset({500, 503})
     assert "429" in caplog.text
+
+
+def test_create_retry_transport_keeps_429_when_strip_disabled() -> None:
+    """Sync-mode clients keep 429 in the retry list (no salvage queue)."""
+    config = RetryConfig(retryable_status_codes=frozenset({429, 502, 503}))
+    transport = create_retry_transport(config, strip_rate_limit_codes=False)
+    assert 429 in transport.retry.status_forcelist
+
+
+def test_create_retry_transport_default_codes_exclude_429() -> None:
+    """Default retryable_status_codes do not include 429 regardless of strip flag."""
+    transport = create_retry_transport(strip_rate_limit_codes=False)
+    assert 429 not in transport.retry.status_forcelist

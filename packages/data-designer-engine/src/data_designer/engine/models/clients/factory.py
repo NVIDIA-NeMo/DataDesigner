@@ -50,6 +50,14 @@ def create_model_client(
             concurrency control.  When provided, the returned client is wrapped
             with ``ThrottledModelClient``.
 
+            **Ordering invariant:** the ``(provider_name, model_id)`` pair must
+            be registered on the ``ThrottleManager`` via ``register()`` before
+            the returned client makes its first request.  In the standard flow,
+            ``ModelRegistry._get_model()`` calls ``register()`` during model
+            setup, which happens before any generation task invokes the client.
+            Direct callers of this factory must ensure registration happens
+            before use.
+
     Returns:
         A ``ModelClient`` instance routed by provider type.
 

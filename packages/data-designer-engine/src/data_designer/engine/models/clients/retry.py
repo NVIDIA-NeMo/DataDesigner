@@ -33,26 +33,36 @@ class RetryConfig:
     retryable_status_codes: frozenset[int] = field(default_factory=lambda: frozenset({502, 503, 504}))
 
 
-def create_retry_transport(config: RetryConfig | None = None) -> RetryTransport:
+def create_retry_transport(
+    config: RetryConfig | None = None,
+    *,
+    strip_rate_limit_codes: bool = True,
+) -> RetryTransport:
     """Build an httpx ``RetryTransport`` from a :class:`RetryConfig`.
 
     The returned transport handles both sync and async requests (``RetryTransport``
     inherits from ``httpx.BaseTransport`` and ``httpx.AsyncBaseTransport``).
 
-    Any status codes in ``_RESERVED_STATUS_CODES`` (currently ``{429}``) are
-    stripped from the retry list so that rate-limit responses always reach the
-    ``ThrottledModelClient`` AIMD feedback loop.
+    Args:
+        config: Retry policy.  Uses ``RetryConfig()`` defaults when ``None``.
+        strip_rate_limit_codes: When ``True`` (default, used by the async engine),
+            status codes in ``_RESERVED_STATUS_CODES`` (currently ``{429}``) are
+            stripped so that rate-limit responses reach the ``ThrottledModelClient``
+            AIMD feedback loop.  When ``False`` (used by the sync engine, which has
+            no salvage queue), 429 is kept in the retry list so the transport layer
+            retries it transparently.
     """
     cfg = config or RetryConfig()
     status_codes = cfg.retryable_status_codes
-    reserved_overlap = status_codes & _RESERVED_STATUS_CODES
-    if reserved_overlap:
-        logger.warning(
-            "Stripping reserved status codes %s from retryable_status_codes; "
-            "these must reach ThrottledModelClient for AIMD backoff.",
-            sorted(reserved_overlap),
-        )
-        status_codes = status_codes - _RESERVED_STATUS_CODES
+    if strip_rate_limit_codes:
+        reserved_overlap = status_codes & _RESERVED_STATUS_CODES
+        if reserved_overlap:
+            logger.warning(
+                "Stripping reserved status codes %s from retryable_status_codes; "
+                "these must reach ThrottledModelClient for AIMD backoff.",
+                sorted(reserved_overlap),
+            )
+            status_codes = status_codes - _RESERVED_STATUS_CODES
     retry = Retry(
         total=cfg.max_retries,
         backoff_factor=cfg.backoff_factor,

@@ -1032,17 +1032,27 @@ async def test_scheduler_llm_bound_one_way_handoff() -> None:
     row_groups = [(0, 3)]
     tracker = CompletionTracker.with_graph(graph, row_groups)
 
+    max_submitted = 2
+    max_llm_wait = 2
     scheduler = AsyncTaskScheduler(
         generators=generators,
         graph=graph,
         tracker=tracker,
         row_groups=row_groups,
-        max_submitted_tasks=2,
-        max_llm_wait_tasks=2,
+        max_submitted_tasks=max_submitted,
+        max_llm_wait_tasks=max_llm_wait,
     )
     await scheduler.run()
 
     assert tracker.is_row_group_complete(0, 3, ["seed", "llm_col"])
+
+    sub_available, llm_available = scheduler.get_semaphore_permits()
+    assert sub_available == max_submitted, (
+        f"Submission semaphore leaked after LLM handoff: available={sub_available}, expected={max_submitted}"
+    )
+    assert llm_available == max_llm_wait, (
+        f"LLM-wait semaphore leaked after LLM handoff: available={llm_available}, expected={max_llm_wait}"
+    )
 
 
 @pytest.mark.asyncio(loop_scope="session")
