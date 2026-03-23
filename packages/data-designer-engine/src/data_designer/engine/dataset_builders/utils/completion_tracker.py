@@ -78,6 +78,17 @@ class CompletionTracker:
                 return False
         return True
 
+    def is_column_complete_for_rg(self, column: str, row_group_index: int) -> bool:
+        """Check if *column* has been fully completed for *row_group_index*."""
+        if column in self._batch_complete.get(row_group_index, set()):
+            return True
+        rg_size = self._row_group_sizes.get(row_group_index, 0)
+        if rg_size == 0:
+            return False
+        completed = self._completed.get(row_group_index, {}).get(column, set())
+        dropped = self._dropped.get(row_group_index, set())
+        return all(ri in completed or ri in dropped for ri in range(rg_size))
+
     def drop_row(self, row_group: int, row_index: int) -> None:
         self._validate_row_group(row_group)
         self._dropped[row_group].add(row_index)

@@ -44,6 +44,7 @@ from data_designer.engine.resources.person_reader import (
 )
 from data_designer.engine.resources.resource_provider import ResourceProvider, create_resource_provider
 from data_designer.engine.resources.seed_reader import (
+    AgentRolloutSeedReader,
     DataFrameSeedReader,
     DirectorySeedReader,
     FileContentsSeedReader,
@@ -95,6 +96,7 @@ DEFAULT_SEED_READERS = [
     DataFrameSeedReader(),
     DirectorySeedReader(),
     FileContentsSeedReader(),
+    AgentRolloutSeedReader(),
 ]
 for plugin in PluginRegistry().get_plugins(PluginType.SEED_READER):
     DEFAULT_SEED_READERS.append(plugin.impl_cls())
@@ -224,6 +226,8 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
         except Exception as e:
             raise DataDesignerGenerationError(f"🛑 Error generating dataset: {e}") from e
 
+        task_traces = builder.task_traces
+
         try:
             dataset_for_profiler = builder.artifact_storage.load_dataset_with_dropped_columns()
         except Exception as e:
@@ -260,6 +264,7 @@ class DataDesigner(DataDesignerInterface[DatasetCreationResults]):
             analysis=analysis,
             config_builder=config_builder,
             dataset_metadata=dataset_metadata,
+            task_traces=task_traces,
         )
 
     def preview(

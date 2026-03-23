@@ -46,6 +46,16 @@ class StubHttpResponse:
         (413, "", ProviderErrorKind.CONTEXT_WINDOW_EXCEEDED),
         (422, "", ProviderErrorKind.UNPROCESSABLE_ENTITY),
         (429, "", ProviderErrorKind.RATE_LIMIT),
+        (
+            400,
+            "Your credit balance is too low to access the Anthropic API. Please purchase credits.",
+            ProviderErrorKind.QUOTA_EXCEEDED,
+        ),
+        (
+            400,
+            "`temperature` and `top_p` cannot both be specified for this model. Please use only one.",
+            ProviderErrorKind.UNSUPPORTED_PARAMS,
+        ),
         (400, "", ProviderErrorKind.BAD_REQUEST),
         (400, "maximum context length exceeded", ProviderErrorKind.CONTEXT_WINDOW_EXCEEDED),
         (500, "", ProviderErrorKind.INTERNAL_SERVER),
@@ -93,6 +103,30 @@ def test_map_http_status_to_provider_error_kind(
             "The request payload is invalid.",
         ),
         (
+            400,
+            "",
+            {
+                "error": {
+                    "type": "invalid_request_error",
+                    "message": "`temperature` and `top_p` cannot both be specified for this model. Please use only one.",
+                }
+            },
+            ProviderErrorKind.UNSUPPORTED_PARAMS,
+            "`temperature` and `top_p` cannot both be specified for this model. Please use only one.",
+        ),
+        (
+            400,
+            "",
+            {
+                "error": {
+                    "type": "invalid_request_error",
+                    "message": "Your credit balance is too low to access the Anthropic API.",
+                }
+            },
+            ProviderErrorKind.QUOTA_EXCEEDED,
+            "Your credit balance is too low to access the Anthropic API.",
+        ),
+        (
             422,
             "",
             {
@@ -110,6 +144,8 @@ def test_map_http_status_to_provider_error_kind(
         "json-over-raw-text",
         "json-when-text-missing",
         "nested-error-message",
+        "mutually-exclusive-params",
+        "quota-exceeded-message",
         "fastapi-list-detail",
     ],
 )

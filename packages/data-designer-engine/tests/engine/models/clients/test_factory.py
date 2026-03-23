@@ -13,6 +13,8 @@ from data_designer.config.models import (
     ModelProvider,
 )
 from data_designer.engine.model_provider import ModelProviderRegistry
+from data_designer.engine.models.clients.adapters.anthropic import AnthropicClient
+from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
 from data_designer.engine.models.clients.adapters.litellm_bridge import LiteLLMBridgeClient
 from data_designer.engine.models.clients.adapters.openai_compatible import OpenAICompatibleClient
 from data_designer.engine.models.clients.factory import create_model_client
@@ -22,13 +24,17 @@ from data_designer.engine.secret_resolver import SecretResolver
 
 @pytest.fixture
 def openai_registry() -> ModelProviderRegistry:
-    provider = ModelProvider(name="openai-prod", endpoint="https://api.openai.com/v1", provider_type="openai")
+    provider = ModelProvider(
+        name="openai-prod", endpoint="https://api.openai.com/v1", provider_type="openai", api_key="env:OPENAI_KEY"
+    )
     return ModelProviderRegistry(providers=[provider])
 
 
 @pytest.fixture
 def anthropic_registry() -> ModelProviderRegistry:
-    provider = ModelProvider(name="anthropic-prod", endpoint="https://api.anthropic.com", provider_type="anthropic")
+    provider = ModelProvider(
+        name="anthropic-prod", endpoint="https://api.anthropic.com/v1", provider_type="anthropic", api_key="env:ANT_KEY"
+    )
     return ModelProviderRegistry(providers=[provider])
 
 
@@ -74,19 +80,54 @@ def test_openai_provider_creates_native_client(
         retry_config=RetryConfig(),
     )
     assert isinstance(client, OpenAICompatibleClient)
+    secret_resolver.resolve.assert_called_once_with("env:OPENAI_KEY")
 
 
-@patch("data_designer.engine.models.clients.factory.CustomRouter")
-@patch("data_designer.engine.models.clients.factory.LiteLLMRouterDefaultKwargs")
-def test_non_openai_provider_creates_bridge_client(
-    mock_kwargs: MagicMock,
-    mock_router: MagicMock,
+def test_anthropic_provider_creates_native_client(
     anthropic_model_config: ModelConfig,
     secret_resolver: SecretResolver,
     anthropic_registry: ModelProviderRegistry,
 ) -> None:
+    client = create_model_client(
+        anthropic_model_config,
+        secret_resolver,
+        anthropic_registry,
+        retry_config=RetryConfig(),
+    )
+    assert isinstance(client, AnthropicClient)
+    secret_resolver.resolve.assert_called_once_with("env:ANT_KEY")
+
+
+def test_anthropic_provider_type_case_insensitive(
+    anthropic_model_config: ModelConfig,
+    secret_resolver: SecretResolver,
+) -> None:
+    for variant in ("Anthropic", "ANTHROPIC", "anthropic"):
+        provider = ModelProvider(
+            name="anthropic-prod", endpoint="https://api.anthropic.com/v1", provider_type=variant, api_key="env:ANT_KEY"
+        )
+        registry = ModelProviderRegistry(providers=[provider])
+        client = create_model_client(anthropic_model_config, secret_resolver, registry, retry_config=RetryConfig())
+        assert isinstance(client, AnthropicClient), f"Failed for provider_type={variant!r}"
+
+
+@patch("data_designer.engine.models.clients.factory.CustomRouter")
+@patch("data_designer.engine.models.clients.factory.LiteLLMRouterDefaultKwargs")
+def test_unknown_provider_creates_bridge_client(
+    mock_kwargs: MagicMock,
+    mock_router: MagicMock,
+    secret_resolver: SecretResolver,
+) -> None:
     mock_kwargs.return_value.model_dump.return_value = {}
-    client = create_model_client(anthropic_model_config, secret_resolver, anthropic_registry)
+    provider = ModelProvider(name="custom-provider", endpoint="https://custom.example.com", provider_type="custom")
+    registry = ModelProviderRegistry(providers=[provider])
+    config = ModelConfig(
+        alias="test-custom",
+        model="custom-model",
+        inference_parameters=ChatCompletionInferenceParams(),
+        provider="custom-provider",
+    )
+    client = create_model_client(config, secret_resolver, registry)
     assert isinstance(client, LiteLLMBridgeClient)
 
 
@@ -108,12 +149,29 @@ def test_bridge_env_override_forces_bridge_for_openai_provider(
     assert isinstance(client, LiteLLMBridgeClient)
 
 
+@patch("data_designer.engine.models.clients.factory.CustomRouter")
+@patch("data_designer.engine.models.clients.factory.LiteLLMRouterDefaultKwargs")
+def test_bridge_env_override_forces_bridge_for_anthropic_provider(
+    mock_kwargs: MagicMock,
+    mock_router: MagicMock,
+    anthropic_model_config: ModelConfig,
+    secret_resolver: SecretResolver,
+    anthropic_registry: ModelProviderRegistry,
+) -> None:
+    mock_kwargs.return_value.model_dump.return_value = {}
+    with patch.dict("os.environ", {"DATA_DESIGNER_MODEL_BACKEND": "litellm_bridge"}):
+        client = create_model_client(anthropic_model_config, secret_resolver, anthropic_registry)
+    assert isinstance(client, LiteLLMBridgeClient)
+
+
 def test_openai_provider_type_case_insensitive(
     openai_model_config: ModelConfig,
     secret_resolver: SecretResolver,
 ) -> None:
     for variant in ("OpenAI", "OPENAI", "Openai"):
-        provider = ModelProvider(name="openai-prod", endpoint="https://api.openai.com/v1", provider_type=variant)
+        provider = ModelProvider(
+            name="openai-prod", endpoint="https://api.openai.com/v1", provider_type=variant, api_key="env:OPENAI_KEY"
+        )
         registry = ModelProviderRegistry(providers=[provider])
         client = create_model_client(openai_model_config, secret_resolver, registry)
         assert isinstance(client, OpenAICompatibleClient), f"Failed for provider_type={variant!r}"
@@ -131,3 +189,40 @@ def test_native_env_var_still_uses_native_for_openai_provider(
             openai_registry,
         )
     assert isinstance(client, OpenAICompatibleClient)
+
+
+# --- Mode parameter forwarding ---
+
+
+def test_concurrency_mode_forwarded_to_openai_client(
+    openai_model_config: ModelConfig,
+    secret_resolver: SecretResolver,
+    openai_registry: ModelProviderRegistry,
+) -> None:
+    client = create_model_client(
+        openai_model_config, secret_resolver, openai_registry, client_concurrency_mode=ClientConcurrencyMode.ASYNC
+    )
+    assert isinstance(client, OpenAICompatibleClient)
+    assert client.concurrency_mode == ClientConcurrencyMode.ASYNC
+
+
+def test_concurrency_mode_forwarded_to_anthropic_client(
+    anthropic_model_config: ModelConfig,
+    secret_resolver: SecretResolver,
+    anthropic_registry: ModelProviderRegistry,
+) -> None:
+    client = create_model_client(
+        anthropic_model_config, secret_resolver, anthropic_registry, client_concurrency_mode=ClientConcurrencyMode.ASYNC
+    )
+    assert isinstance(client, AnthropicClient)
+    assert client.concurrency_mode == ClientConcurrencyMode.ASYNC
+
+
+def test_concurrency_mode_defaults_to_sync(
+    openai_model_config: ModelConfig,
+    secret_resolver: SecretResolver,
+    openai_registry: ModelProviderRegistry,
+) -> None:
+    client = create_model_client(openai_model_config, secret_resolver, openai_registry)
+    assert isinstance(client, OpenAICompatibleClient)
+    assert client.concurrency_mode == ClientConcurrencyMode.SYNC

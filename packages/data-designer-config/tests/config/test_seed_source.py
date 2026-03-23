@@ -10,7 +10,13 @@ import pytest
 import data_designer.config as dd
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.errors import InvalidFilePathError
-from data_designer.config.seed_source import DirectorySeedSource, FileContentsSeedSource, LocalFileSeedSource
+from data_designer.config.seed_source import (
+    AgentRolloutFormat,
+    AgentRolloutSeedSource,
+    DirectorySeedSource,
+    FileContentsSeedSource,
+    LocalFileSeedSource,
+)
 from data_designer.config.seed_source_dataframe import DataFrameSeedSource
 
 
@@ -23,39 +29,32 @@ def create_partitions_in_path(temp_dir: Path, extension: str, num_files: int = 2
             df.to_parquet(file_path)
         elif extension == "csv":
             df.to_csv(file_path, index=False)
-        elif extension == "json":
-            df.to_json(file_path, orient="records", lines=True)
-        elif extension == "jsonl":
+        elif extension in {"json", "jsonl"}:
             df.to_json(file_path, orient="records", lines=True)
     return temp_dir
 
 
-def test_local_seed_dataset_reference_validation(tmp_path: Path):
+def test_local_seed_dataset_reference_validation(tmp_path: Path) -> None:
     with pytest.raises(InvalidFilePathError, match="🛑 Path test/dataset.parquet is not a file."):
         LocalFileSeedSource(path="test/dataset.parquet")
 
-    # Should not raise an error when referencing supported extensions with wildcard pattern.
     create_partitions_in_path(tmp_path, "parquet")
     create_partitions_in_path(tmp_path, "csv")
     create_partitions_in_path(tmp_path, "json")
     create_partitions_in_path(tmp_path, "jsonl")
 
-    test_cases = ["parquet", "csv", "json", "jsonl"]
-    try:
-        for extension in test_cases:
-            config = LocalFileSeedSource(path=f"{tmp_path}/*.{extension}")
-            assert config.path == f"{tmp_path}/*.{extension}"
-    except Exception as e:
-        pytest.fail(f"Expected no exception, but got {e}")
+    for extension in ["parquet", "csv", "json", "jsonl"]:
+        config = LocalFileSeedSource(path=f"{tmp_path}/*.{extension}")
+        assert config.path == f"{tmp_path}/*.{extension}"
 
 
-def test_local_seed_dataset_reference_validation_error(tmp_path: Path):
+def test_local_seed_dataset_reference_validation_error(tmp_path: Path) -> None:
     create_partitions_in_path(tmp_path, "parquet")
     with pytest.raises(InvalidFilePathError, match="does not contain files of type 'csv'"):
         LocalFileSeedSource(path=f"{tmp_path}/*.csv")
 
 
-def test_local_source_from_dataframe(tmp_path: Path):
+def test_local_source_from_dataframe(tmp_path: Path) -> None:
     df = lazy.pd.DataFrame({"col": [1, 2, 3]})
     filepath = f"{tmp_path}/data.parquet"
 
@@ -86,12 +85,11 @@ def test_local_seed_source_caches_runtime_path_across_cwd_changes(
     assert source.model_dump(mode="json")["path"] == "seed-dir/*.parquet"
 
 
-def test_dataframe_seed_source_serialization():
+def test_dataframe_seed_source_serialization() -> None:
     """Test that DataFrameSeedSource excludes the DataFrame field during serialization."""
     df = lazy.pd.DataFrame({"col1": [1, 2, 3], "col2": ["a", "b", "c"]})
     source = DataFrameSeedSource(df=df)
 
-    # Test model_dump excludes the df field
     serialized = source.model_dump(mode="json")
     assert "df" not in serialized
     assert serialized == {"seed_type": "df"}
@@ -184,14 +182,6 @@ def test_seed_source_path_descriptions_document_cwd_resolution() -> None:
     assert "config file location" in file_contents_path_description
 
 
-def test_seed_sources_are_exported_from_config_module(tmp_path: Path) -> None:
-    directory_source = dd.DirectorySeedSource(path=str(tmp_path))
-    file_contents_source = dd.FileContentsSeedSource(path=str(tmp_path), file_pattern="*.txt")
-
-    assert directory_source.seed_type == "directory"
-    assert file_contents_source.seed_type == "file_contents"
-
-
 def test_file_contents_seed_source_parses_from_dict(tmp_path: Path) -> None:
     source = FileContentsSeedSource.model_validate(
         {
@@ -219,10 +209,7 @@ def test_file_contents_seed_source_rejects_unknown_encoding(tmp_path: Path) -> N
         pytest.param(DirectorySeedSource, "subdir/*.txt", "match file names, not relative paths", id="directory-posix"),
         pytest.param(FileContentsSeedSource, "", "non-empty string", id="contents-empty"),
         pytest.param(
-            FileContentsSeedSource,
-            r"subdir\\*.txt",
-            "match file names, not relative paths",
-            id="contents-windows",
+            FileContentsSeedSource, r"subdir\\*.txt", "match file names, not relative paths", id="contents-windows"
         ),
     ],
 )
@@ -234,3 +221,121 @@ def test_filesystem_seed_sources_reject_path_like_file_patterns(
 ) -> None:
     with pytest.raises(ValueError, match=error_message):
         source_type(path=str(tmp_path), file_pattern=file_pattern)
+
+
+@pytest.mark.parametrize(
+    ("rollout_format", "file_pattern", "error_message"),
+    [
+        pytest.param(
+            AgentRolloutFormat.CLAUDE_CODE,
+            "",
+            "non-empty string",
+            id="claude-empty",
+        ),
+        pytest.param(
+            AgentRolloutFormat.CODEX,
+            "nested/*.jsonl",
+            "match file names, not relative paths",
+            id="codex-posix",
+        ),
+    ],
+)
+def test_agent_rollout_seed_source_rejects_invalid_file_patterns(
+    rollout_format: AgentRolloutFormat,
+    file_pattern: str,
+    error_message: str,
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(ValueError, match=error_message):
+        AgentRolloutSeedSource(path=str(tmp_path), file_pattern=file_pattern, format=rollout_format)
+
+
+def test_agent_rollout_seed_source_uses_default_claude_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    claude_dir = tmp_path / ".claude" / "projects"
+    claude_dir.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    source = AgentRolloutSeedSource(format=AgentRolloutFormat.CLAUDE_CODE)
+
+    assert source.seed_type == "agent_rollout"
+    assert source.path is None
+    assert source.file_pattern is None
+    assert source.resolved_file_pattern == "*.jsonl"
+    assert source.recursive is True
+    assert source.format == AgentRolloutFormat.CLAUDE_CODE
+
+
+def test_agent_rollout_seed_source_uses_default_codex_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    codex_dir = tmp_path / ".codex" / "sessions"
+    codex_dir.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    source = AgentRolloutSeedSource(format=AgentRolloutFormat.CODEX)
+
+    assert source.seed_type == "agent_rollout"
+    assert source.path is None
+    assert source.file_pattern is None
+    assert source.resolved_file_pattern == "*.jsonl"
+    assert source.recursive is True
+    assert source.format == AgentRolloutFormat.CODEX
+
+
+def test_agent_rollout_seed_source_round_trips_none_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    claude_dir = tmp_path / ".claude" / "projects"
+    claude_dir.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    source = AgentRolloutSeedSource(format=AgentRolloutFormat.CLAUDE_CODE)
+    serialized = source.model_dump(mode="json")
+
+    assert serialized["path"] is None
+    assert serialized["file_pattern"] is None
+
+    restored = AgentRolloutSeedSource.model_validate(serialized)
+    assert restored.path is None
+    assert restored.file_pattern is None
+    assert restored.format == AgentRolloutFormat.CLAUDE_CODE
+
+
+def test_agent_rollout_seed_source_parses_format_from_dict(tmp_path: Path) -> None:
+    source = AgentRolloutSeedSource.model_validate(
+        {
+            "path": str(tmp_path),
+            "format": "codex",
+        }
+    )
+
+    assert source.format == AgentRolloutFormat.CODEX
+    assert source.resolved_file_pattern == "*.jsonl"
+
+
+def test_seed_sources_are_exported_from_config_module(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    claude_dir = tmp_path / ".claude" / "projects"
+    codex_dir = tmp_path / ".codex" / "sessions"
+    claude_dir.mkdir(parents=True)
+    codex_dir.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    directory_source = dd.DirectorySeedSource(path=str(tmp_path))
+    file_contents_source = dd.FileContentsSeedSource(path=str(tmp_path), file_pattern="*.txt")
+    rollout_source = dd.AgentRolloutSeedSource(
+        path=str(tmp_path),
+        format=dd.AgentRolloutFormat.CLAUDE_CODE,
+    )
+
+    assert directory_source.seed_type == "directory"
+    assert file_contents_source.seed_type == "file_contents"
+    assert rollout_source.seed_type == "agent_rollout"
+    assert rollout_source.format == dd.AgentRolloutFormat.CLAUDE_CODE
