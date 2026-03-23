@@ -158,8 +158,12 @@ Path: {{ relative_path }}
 )
 ```
 
-`FileContentsSeedSource` adds one extra seeded column:
+`FileContentsSeedSource` exposes these seeded columns:
 
+- `source_kind` - always `"file_contents"`
+- `source_path` - full path to the matched file
+- `relative_path` - path relative to the configured directory
+- `file_name` - basename of the matched file
 - `content` - decoded text contents of the matched file
 
 !!! note "Encoding"
