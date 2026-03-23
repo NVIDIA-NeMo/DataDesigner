@@ -143,11 +143,14 @@ class ThrottledModelClient(ModelClient):
             except Exception:
                 logger.exception("ThrottleManager release failed; permit may leak")
         else:
-            self._tm.release_success(
-                provider_name=self._provider_name,
-                model_id=self._model_id,
-                domain=domain,
-            )
+            try:
+                self._tm.release_success(
+                    provider_name=self._provider_name,
+                    model_id=self._model_id,
+                    domain=domain,
+                )
+            except Exception:
+                logger.exception("ThrottleManager release_success failed")
         if exc_to_reraise is not None:
             raise exc_to_reraise
 
@@ -186,11 +189,14 @@ class ThrottledModelClient(ModelClient):
             except Exception:
                 logger.exception("ThrottleManager release failed; permit may leak")
         else:
-            self._tm.release_success(
-                provider_name=self._provider_name,
-                model_id=self._model_id,
-                domain=domain,
-            )
+            try:
+                self._tm.release_success(
+                    provider_name=self._provider_name,
+                    model_id=self._model_id,
+                    domain=domain,
+                )
+            except Exception:
+                logger.exception("ThrottleManager release_success failed")
         if exc_to_reraise is not None:
             raise exc_to_reraise
 

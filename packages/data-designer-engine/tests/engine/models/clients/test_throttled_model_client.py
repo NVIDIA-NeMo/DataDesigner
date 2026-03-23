@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from data_designer.config.run_config import ThrottleConfig
 from data_designer.engine.models.clients.errors import ProviderError, ProviderErrorKind
 from data_designer.engine.models.clients.throttle_manager import DomainThrottleState, ThrottleDomain, ThrottleManager
 from data_designer.engine.models.clients.throttled import ThrottledModelClient
@@ -361,10 +362,12 @@ async def test_aimd_feedback_loop_rate_limit_reduces_then_successes_recover() ->
     6. Make 2 more successes -> limit increases to 4 (full recovery).
     """
     tm = ThrottleManager(
-        reduce_factor=0.5,
-        additive_increase=1,
-        success_window=2,
-        default_block_seconds=0.01,
+        ThrottleConfig(
+            reduce_factor=0.5,
+            additive_increase=1,
+            success_window=2,
+            block_seconds=0.01,
+        )
     )
     tm.register(provider_name=PROVIDER, model_id=MODEL_ID, alias="a", max_parallel_requests=4)
 

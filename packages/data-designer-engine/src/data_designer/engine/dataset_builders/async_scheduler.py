@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-MIN_SUBMITTED_TASKS: int = 256
+DEFAULT_TASK_POOL_SIZE: int = 256
 LLM_WAIT_POOL_MULTIPLIER: int = 2
 
 _RETRYABLE_MODEL_ERRORS = (
@@ -75,8 +75,8 @@ class AsyncTaskScheduler:
         buffer_manager: RowGroupBufferManager | None = None,
         *,
         max_concurrent_row_groups: int = 3,
-        max_submitted_tasks: int = MIN_SUBMITTED_TASKS,
-        max_llm_wait_tasks: int = MIN_SUBMITTED_TASKS,
+        max_submitted_tasks: int = DEFAULT_TASK_POOL_SIZE,
+        max_llm_wait_tasks: int = DEFAULT_TASK_POOL_SIZE,
         salvage_max_rounds: int = 2,
         on_row_group_complete: Callable[[int], None] | None = None,
         on_checkpoint_complete: Callable[[Path | str], None] | None = None,
@@ -538,7 +538,8 @@ class AsyncTaskScheduler:
                 trace.status = "ok"
 
         except Exception as exc:
-            self._check_error_rate(success=False)
+            if not isinstance(exc, ModelRateLimitError):
+                self._check_error_rate(success=False)
             if self._trace and trace:
                 trace.status = "error"
                 trace.error = str(exc)

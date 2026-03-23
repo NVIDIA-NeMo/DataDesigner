@@ -57,13 +57,7 @@ def create_model_registry(
 
     apply_litellm_patches()
 
-    tc = (run_config or RunConfig()).throttle
-    throttle_manager = ThrottleManager(
-        reduce_factor=tc.reduce_factor,
-        additive_increase=tc.additive_increase,
-        success_window=tc.success_window,
-        default_block_seconds=tc.block_seconds,
-    )
+    throttle_manager = ThrottleManager((run_config or RunConfig()).throttle)
 
     def model_facade_factory(
         model_config: ModelConfig,

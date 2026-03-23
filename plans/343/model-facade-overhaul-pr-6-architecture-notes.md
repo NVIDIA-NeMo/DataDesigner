@@ -287,20 +287,26 @@ The four AIMD tuning knobs are grouped into a dedicated
 
 ```python
 class ThrottleConfig(ConfigBase):
-    reduce_factor: float = Field(default=0.5, gt=0.0, lt=1.0)
-    additive_increase: int = Field(default=1, ge=1)
-    success_window: int = Field(default=50, ge=1)
-    block_seconds: float = Field(default=2.0, gt=0.0)
+    DEFAULT_REDUCE_FACTOR: ClassVar[float] = 0.75
+    DEFAULT_ADDITIVE_INCREASE: ClassVar[int] = 1
+    DEFAULT_SUCCESS_WINDOW: ClassVar[int] = 25
+    DEFAULT_BLOCK_SECONDS: ClassVar[float] = 2.0
+
+    reduce_factor: float = Field(default=DEFAULT_REDUCE_FACTOR, gt=0.0, lt=1.0)
+    additive_increase: int = Field(default=DEFAULT_ADDITIVE_INCREASE, ge=1)
+    success_window: int = Field(default=DEFAULT_SUCCESS_WINDOW, ge=1)
+    block_seconds: float = Field(default=DEFAULT_BLOCK_SECONDS, gt=0.0)
 
 class RunConfig(ConfigBase):
     # ... existing fields ...
     throttle: ThrottleConfig = Field(default_factory=ThrottleConfig)
 ```
 
-The defaults mirror the `throttle_manager.py` constants, so existing behavior
-is unchanged when users don't set them. Grouping the knobs into a
-sub-config keeps `RunConfig` manageable as more features land and
-makes the forwarding to `ThrottleManager` a clean one-liner.
+`ThrottleConfig` is the single source of truth for AIMD defaults —
+`ThrottleManager` accepts an optional `ThrottleConfig` object directly
+(defaulting to `ThrottleConfig()` when `None`), eliminating duplicated
+default constants. The `ClassVar` constants on `ThrottleConfig` are
+also used in tests for assertion values.
 
 `ThrottleConfig` is exported from `data_designer.config` alongside
 `RunConfig`.
@@ -319,16 +325,11 @@ needed in the factory chain:
    `create_model_registry` call.
 
 Inside `create_model_registry`, the `ThrottleManager` is constructed
-from the nested `ThrottleConfig`:
+from the `ThrottleConfig`:
 
 ```python
-tc = run_config.throttle if run_config is not None else None
-throttle_manager = ThrottleManager(
-    reduce_factor=tc.reduce_factor,
-    additive_increase=tc.additive_increase,
-    success_window=tc.success_window,
-    default_block_seconds=tc.block_seconds,
-) if tc is not None else ThrottleManager()
+throttle_config = (run_config or RunConfig()).throttle
+throttle_manager = ThrottleManager(config=throttle_config)
 ```
 
 ### 4. Scheduler: dual-semaphore model for LLM tasks
@@ -614,7 +615,49 @@ billing/account issue that won't resolve within a generation run. The
 client wrapper still calls `release_failure` for quota errors, which
 decrements `in_flight` without triggering AIMD backoff.
 
-### 8. Health check interaction
+### 8. AIMD behavioral refinements
+
+Three refinements to `ThrottleManager` improve AIMD behavior under
+real-world conditions:
+
+**Cascade dampening:** When many in-flight requests return 429
+simultaneously (e.g. 32 requests all rate-limited), each calls
+`release_rate_limited`. Without dampening, the limit drops
+exponentially (`32 * 0.75^9 ≈ 2`), requiring minutes to recover.
+
+The fix uses a `consecutive_429s` counter in `DomainThrottleState`.
+Only the **first** 429 in a cascade (`consecutive_429s == 0` before
+increment) applies the multiplicative decrease. Subsequent cascade
+429s still decrement `in_flight`, increment `consecutive_429s`, set
+`blocked_until`, and reset `success_streak`, but skip the limit
+reduction. `release_success` resets `consecutive_429s` to 0.
+
+Result: `32 → 24` on first 429, remaining cascade 429s just release
+permits. Recovery starts from 24 instead of 1.
+
+**Ceiling stabilization:** Without a ceiling, AIMD creates a
+sawtooth pattern — concurrency climbs to `max_parallel_requests`,
+hits a 429, drops, climbs again, repeats. The `rate_limit_ceiling`
+field in `DomainThrottleState` tracks the highest observed stable
+concurrency before a rate-limit. Combined with `ceiling_overshoot`
+(default 10%), the additive increase phase caps at
+`ceiling + max(1, floor(ceiling * overshoot))` instead of climbing
+all the way to `effective_max`. This allows cautious probing above
+the known server limit without triggering repeated 429 cascades.
+
+The ceiling is set on the first 429 in a cascade and lowered (via
+`min()`) on subsequent isolated 429s after recovery. It is never
+raised — only lowered or preserved — ensuring the system converges
+toward the server's actual limit.
+
+**Early shutdown exclusion:** `ModelRateLimitError` exceptions are
+expected AIMD behavior, not critical failures. The
+`AsyncTaskScheduler._execute_task_inner` method now skips the
+`_check_error_rate(success=False)` call when the exception is a
+`ModelRateLimitError`, preventing initial 429 cascades from
+triggering early shutdown.
+
+### 9. Health check interaction
 
 Health checks call `ModelFacade.generate()` / `agenerate()` (or the
 embedding/image equivalents) with `skip_usage_tracking=True`. These
@@ -672,6 +715,8 @@ in the enum) with permissive limits.
   blocked mid-flight — semaphore slots are recovered (real cancellation
   via `task.cancel()`, not run-to-completion)
 - `is_llm_bound` property drives lookup (no isinstance)
+- Rate-limit errors do not trigger early shutdown
+  (`ModelRateLimitError` excluded from error rate check)
 - Existing tests pass unchanged
 
 **`test_model_registry.py`**:
@@ -694,12 +739,14 @@ in the enum) with permissive limits.
 
 ## What Does NOT Change
 
-1. **`ThrottleManager` API** — no changes to the `ThrottleManager`
-   class itself (renamed from `throttle.py` to `throttle_manager.py`
-   for discoverability). The existing `try_acquire`, `release_success`,
-   `release_rate_limited`, `release_failure`, `acquire_async`,
-   `acquire_sync` methods are used as-is. The constructor already
-   accepts AIMD tuning params.
+1. **`ThrottleManager` public method signatures** — the existing
+   `try_acquire`, `release_success`, `release_rate_limited`,
+   `release_failure`, `acquire_async`, `acquire_sync` methods are
+   unchanged. The constructor was updated to accept an optional
+   `ThrottleConfig` object instead of individual tuning parameters,
+   and the module was renamed from `throttle.py` to
+   `throttle_manager.py` for discoverability. Internal AIMD behavior
+   was refined (see "AIMD behavioral refinements" below).
 2. **`ModelFacade`** — untouched. Throttling is below it in the client
    layer. Correction loops, tool-calling loops, and custom columns
    are automatically gated because they all go through the client.
@@ -724,21 +771,21 @@ in the enum) with permissive limits.
 
 | File | Change |
 | --- | --- |
-| `models/clients/throttle.py` → `models/clients/throttle_manager.py` (rename) | Renamed for discoverability; no API changes to `ThrottleManager` |
+| `models/clients/throttle.py` → `models/clients/throttle_manager.py` (rename) | Renamed for discoverability; constructor updated to accept `ThrottleConfig`; cascade dampening (`consecutive_429s`), ceiling stabilization (`rate_limit_ceiling`, `ceiling_overshoot`), refined logging |
 | `models/clients/throttled.py` (new) | `ThrottledModelClient` wrapper with cancellation-safe `_throttled_sync` / `_athrottled` context managers |
 | `models/clients/retry.py` | Remove `429` from transport retryable statuses; update docstring to document the boundary |
 | `models/clients/factory.py` | Accept optional `throttle_manager`; wrap inner client with `ThrottledModelClient` when provided |
 | `models/factory.py` | Forward `ThrottleManager` to `model_facade_factory` closure → `create_model_client`; accept `run_config` parameter; construct `ThrottleManager` from `run_config.throttle` (`ThrottleConfig`); remove TODO comment |
 | `models/registry.py` | Add `get_aggregate_max_parallel_requests()` public method |
-| `config/run_config.py` | Add `ThrottleConfig` sub-model (`reduce_factor`, `additive_increase`, `success_window`, `block_seconds`); add `RunConfig.throttle: ThrottleConfig` field |
+| `config/run_config.py` | Add `ThrottleConfig` sub-model with `ClassVar` defaults (`reduce_factor=0.75`, `additive_increase=1`, `success_window=25`, `block_seconds=2.0`); add `RunConfig.throttle: ThrottleConfig` field |
 | `resources/resource_provider.py` | Forward `run_config` to `create_model_registry` |
 | `column_generators/generators/base.py` | Add `is_llm_bound` property to `ColumnGenerator` (default `False`), override to `True` in `ColumnGeneratorWithModelRegistry` |
-| `dataset_builders/async_scheduler.py` | Add `_llm_wait_semaphore`, one-way semaphore handoff for LLM tasks, `MIN_SUBMITTED_TASKS` / `LLM_WAIT_POOL_MULTIPLIER` constants |
+| `dataset_builders/async_scheduler.py` | Add `_llm_wait_semaphore`, one-way semaphore handoff for LLM tasks, `MIN_SUBMITTED_TASKS` / `LLM_WAIT_POOL_MULTIPLIER` constants; exclude `ModelRateLimitError` from early shutdown error rate |
 | `dataset_builders/column_wise_builder.py` | Forward `max_submitted_tasks` and `max_llm_wait_tasks` to scheduler |
-| `tests/.../test_throttle.py` → `tests/.../test_throttle_manager.py` (rename) | Renamed to match source module rename |
+| `tests/.../test_throttle.py` → `tests/.../test_throttle_manager.py` (rename) | Renamed to match source module rename; updated for `ThrottleConfig`-based construction, `reduce_factor=0.75` assertions, cascade dampening (`test_cascade_only_first_429_reduces_limit`), ceiling stabilization tests |
 | `tests/.../test_throttled_model_client.py` (new) | Throttle wrapper unit tests + cancellation safety + E2E AIMD tests |
 | `tests/.../test_retry.py` | Updated assertion and test name for new `retryable_status_codes` default |
-| `tests/.../test_async_scheduler.py` | Dual-semaphore tests + rewritten cancellation test with real task cancellation |
+| `tests/.../test_async_scheduler.py` | Dual-semaphore tests + rewritten cancellation test with real task cancellation + rate-limit early shutdown exclusion test |
 | `tests/.../test_model_registry.py` | Test for `get_aggregate_max_parallel_requests` |
 | `tests/.../test_client_factory.py` | Test wrapper wiring in `create_model_client` |
 
@@ -764,7 +811,13 @@ in the enum) with permissive limits.
 | Scheduler: backward compat | Existing tests pass unchanged |
 | Submission pool sizing | `MIN_SUBMITTED_TASKS` (unchanged true cap) |
 | LLM-wait pool sizing | `max(MIN_SUBMITTED_TASKS, LLM_WAIT_POOL_MULTIPLIER * aggregate)` |
-| RunConfig → AIMD wiring | `RunConfig.throttle` (`ThrottleConfig`) forwarded to `ThrottleManager` constructor |
+| AIMD: cascade dampening | Only first 429 in cascade reduces limit; subsequent cascade 429s release permits without reduction (`test_cascade_only_first_429_reduces_limit`) |
+| AIMD: ceiling stabilization | After 429, additive increase caps at `ceiling + overshoot` instead of `effective_max` (`test_ceiling_stabilization_with_overshoot`) |
+| AIMD: ceiling lowering | Repeated isolated 429s after recovery lower the ceiling (`test_ceiling_lowers_on_repeated_429_after_recovery`) |
+| AIMD: ceiling at effective_max | Ceiling does not restrict recovery when effective_max is small (`test_ceiling_does_not_restrict_when_at_effective_max`) |
+| AIMD: reduce_factor=0.75 | Default reduction is 25% (not 50%); assertions updated across all throttle tests |
+| Scheduler: rate-limit exclusion | `ModelRateLimitError` does not count toward early shutdown error rate (`test_rate_limit_errors_do_not_trigger_early_shutdown`) |
+| RunConfig → AIMD wiring | `RunConfig.throttle` (`ThrottleConfig`) forwarded to `ThrottleManager` constructor; `ThrottleConfig` is single source of truth for defaults |
 | Factory wiring | `create_model_client` with `throttle_manager` returns `ThrottledModelClient` |
 | Factory wiring: bridge scope | `LiteLLMBridgeClient` is wrapped (best-effort AIMD), with documented limitation |
 

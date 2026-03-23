@@ -29,7 +29,7 @@ from data_designer.engine.dataset_builders.async_scheduler import AsyncTaskSched
 from data_designer.engine.dataset_builders.utils.completion_tracker import CompletionTracker
 from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
 from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
-from data_designer.engine.models.errors import ModelInternalServerError
+from data_designer.engine.models.errors import ModelInternalServerError, ModelRateLimitError
 from data_designer.engine.resources.resource_provider import ResourceProvider
 
 MODEL_ALIAS = "stub"
@@ -138,6 +138,30 @@ class MockFailingGenerator(ColumnGenerator[ExpressionColumnConfig]):
         if self._transient_failures == 0:
             raise ValueError("permanent failure")
         data[self.config.name] = f"recovered_{data.get('seed', '?')}"
+        return data
+
+
+class MockRateLimitGenerator(ColumnGenerator[ExpressionColumnConfig]):
+    """Generator that fails with rate-limit errors before succeeding.
+
+    The first ``rate_limit_failures`` calls raise ``ModelRateLimitError``,
+    then all subsequent calls succeed.
+    """
+
+    def __init__(self, *args: Any, rate_limit_failures: int = 0, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._rate_limit_failures = rate_limit_failures
+        self._calls = 0
+
+    @staticmethod
+    def get_generation_strategy() -> GenerationStrategy:
+        return GenerationStrategy.CELL_BY_CELL
+
+    def generate(self, data: dict) -> dict:
+        self._calls += 1
+        if self._calls <= self._rate_limit_failures:
+            raise ModelRateLimitError("429 Too Many Requests")
+        data[self.config.name] = f"ok_{data.get('seed', '?')}"
         return data
 
 
@@ -695,6 +719,49 @@ async def test_scheduler_sliding_window_error_rate_recovers() -> None:
 
 
 @pytest.mark.asyncio(loop_scope="session")
+async def test_rate_limit_errors_do_not_trigger_early_shutdown() -> None:
+    """Rate-limit (429) errors are expected AIMD behavior and must not count toward early shutdown."""
+    provider = _mock_provider()
+    configs = [
+        SamplerColumnConfig(name="seed", sampler_type=SamplerType.CATEGORY, params={"values": ["A"]}),
+        LLMTextColumnConfig(name="col", prompt="{{ seed }}", model_alias=MODEL_ALIAS),
+    ]
+    strategies = {
+        "seed": GenerationStrategy.FULL_COLUMN,
+        "col": GenerationStrategy.CELL_BY_CELL,
+    }
+    generators = {
+        "seed": MockSeedGenerator(config=_expr_config("seed"), resource_provider=provider),
+        "col": MockRateLimitGenerator(config=_expr_config("col"), resource_provider=provider, rate_limit_failures=8),
+    }
+
+    graph = ExecutionGraph.create(configs, strategies)
+    row_groups = [(0, 10)]
+    tracker = CompletionTracker.with_graph(graph, row_groups)
+
+    storage = MagicMock()
+    storage.dataset_name = "test"
+    storage.get_file_paths.return_value = {}
+    storage.write_batch_to_parquet_file.return_value = "/fake.parquet"
+    storage.move_partial_result_to_final_file_path.return_value = "/fake_final.parquet"
+    buffer_mgr = RowGroupBufferManager(storage)
+
+    scheduler = AsyncTaskScheduler(
+        generators=generators,
+        graph=graph,
+        tracker=tracker,
+        row_groups=row_groups,
+        buffer_manager=buffer_mgr,
+        shutdown_error_rate=0.5,
+        shutdown_error_window=10,
+    )
+    await scheduler.run()
+
+    assert not scheduler._early_shutdown
+    assert tracker.is_row_group_complete(0, 10, ["seed", "col"])
+
+
+@pytest.mark.asyncio(loop_scope="session")
 async def test_scheduler_on_before_checkpoint_callback() -> None:
     """on_before_checkpoint is called before each row group is checkpointed."""
     provider = _mock_provider()
@@ -999,17 +1066,23 @@ async def test_scheduler_non_llm_holds_submission_slot() -> None:
     row_groups = [(0, 3)]
     tracker = CompletionTracker.with_graph(graph, row_groups)
 
+    max_llm_wait = 2
     scheduler = AsyncTaskScheduler(
         generators=generators,
         graph=graph,
         tracker=tracker,
         row_groups=row_groups,
         max_submitted_tasks=2,
-        max_llm_wait_tasks=2,
+        max_llm_wait_tasks=max_llm_wait,
     )
     await scheduler.run()
 
     assert tracker.is_row_group_complete(0, 3, ["seed", "cell_out"])
+
+    _, llm_available = scheduler.get_semaphore_permits()
+    assert llm_available == max_llm_wait, (
+        f"LLM-wait semaphore was consumed by non-LLM task: available={llm_available}, expected={max_llm_wait}"
+    )
 
 
 @pytest.mark.asyncio(loop_scope="session")

@@ -64,8 +64,8 @@ if DATA_DESIGNER_ASYNC_ENGINE:
             f"Current version: {sys.version_info.major}.{sys.version_info.minor}"
         )
     from data_designer.engine.dataset_builders.async_scheduler import (
+        DEFAULT_TASK_POOL_SIZE,
         LLM_WAIT_POOL_MULTIPLIER,
-        MIN_SUBMITTED_TASKS,
         AsyncTaskScheduler,
     )
     from data_designer.engine.dataset_builders.utils.async_concurrency import (
@@ -300,8 +300,8 @@ class ColumnWiseDatasetBuilder:
             tracker=tracker,
             row_groups=row_groups,
             buffer_manager=buffer_manager,
-            max_submitted_tasks=MIN_SUBMITTED_TASKS,
-            max_llm_wait_tasks=max(MIN_SUBMITTED_TASKS, LLM_WAIT_POOL_MULTIPLIER * aggregate),
+            max_submitted_tasks=DEFAULT_TASK_POOL_SIZE,
+            max_llm_wait_tasks=max(DEFAULT_TASK_POOL_SIZE, LLM_WAIT_POOL_MULTIPLIER * aggregate),
             on_checkpoint_complete=on_batch_complete,
             on_seeds_complete=(
                 on_seeds_complete if self._processor_runner.has_processors_for(ProcessorStage.PRE_BATCH) else None

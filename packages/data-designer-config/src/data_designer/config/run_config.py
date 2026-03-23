@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 from pydantic import Field, model_validator
 from typing_extensions import Self
 
@@ -19,34 +21,39 @@ class ThrottleConfig(ConfigBase):
     Attributes:
         reduce_factor: Multiplicative decrease factor applied to the per-domain
             concurrency limit on a 429 / rate-limit signal.  Must be in (0, 1).
-            Default is 0.5 (halve on rate-limit).
+            Default is 0.75 (reduce by 25% on rate-limit).
         additive_increase: Additive increase step applied after every
             ``success_window`` consecutive successes.  Default is 1.
         success_window: Number of consecutive successful releases before
-            the additive increase is applied.  Default is 50.
+            the additive increase is applied.  Default is 25.
         block_seconds: Default cooldown duration (seconds) applied after a
             rate-limit when the provider does not include a ``Retry-After``
             header.  Default is 2.0.
     """
 
+    DEFAULT_REDUCE_FACTOR: ClassVar[float] = 0.75
+    DEFAULT_ADDITIVE_INCREASE: ClassVar[int] = 1
+    DEFAULT_SUCCESS_WINDOW: ClassVar[int] = 25
+    DEFAULT_BLOCK_SECONDS: ClassVar[float] = 2.0
+
     reduce_factor: float = Field(
-        default=0.5,
+        default=DEFAULT_REDUCE_FACTOR,
         gt=0.0,
         lt=1.0,
         description="Multiplicative decrease factor applied to the per-domain concurrency limit on a 429 signal.",
     )
     additive_increase: int = Field(
-        default=1,
+        default=DEFAULT_ADDITIVE_INCREASE,
         ge=1,
         description="Additive increase step applied after every `success_window` consecutive successes.",
     )
     success_window: int = Field(
-        default=50,
+        default=DEFAULT_SUCCESS_WINDOW,
         ge=1,
         description="Number of consecutive successful releases before the additive increase is applied.",
     )
     block_seconds: float = Field(
-        default=2.0,
+        default=DEFAULT_BLOCK_SECONDS,
         gt=0.0,
         description="Default cooldown duration (seconds) after a rate-limit when no Retry-After header is present.",
     )
