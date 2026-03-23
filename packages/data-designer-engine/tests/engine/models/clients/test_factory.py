@@ -14,6 +14,7 @@ from data_designer.config.models import (
 )
 from data_designer.engine.model_provider import ModelProviderRegistry
 from data_designer.engine.models.clients.adapters.anthropic import AnthropicClient
+from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
 from data_designer.engine.models.clients.adapters.litellm_bridge import LiteLLMBridgeClient
 from data_designer.engine.models.clients.adapters.openai_compatible import OpenAICompatibleClient
 from data_designer.engine.models.clients.factory import create_model_client
@@ -188,3 +189,40 @@ def test_native_env_var_still_uses_native_for_openai_provider(
             openai_registry,
         )
     assert isinstance(client, OpenAICompatibleClient)
+
+
+# --- Mode parameter forwarding ---
+
+
+def test_concurrency_mode_forwarded_to_openai_client(
+    openai_model_config: ModelConfig,
+    secret_resolver: SecretResolver,
+    openai_registry: ModelProviderRegistry,
+) -> None:
+    client = create_model_client(
+        openai_model_config, secret_resolver, openai_registry, client_concurrency_mode=ClientConcurrencyMode.ASYNC
+    )
+    assert isinstance(client, OpenAICompatibleClient)
+    assert client.concurrency_mode == ClientConcurrencyMode.ASYNC
+
+
+def test_concurrency_mode_forwarded_to_anthropic_client(
+    anthropic_model_config: ModelConfig,
+    secret_resolver: SecretResolver,
+    anthropic_registry: ModelProviderRegistry,
+) -> None:
+    client = create_model_client(
+        anthropic_model_config, secret_resolver, anthropic_registry, client_concurrency_mode=ClientConcurrencyMode.ASYNC
+    )
+    assert isinstance(client, AnthropicClient)
+    assert client.concurrency_mode == ClientConcurrencyMode.ASYNC
+
+
+def test_concurrency_mode_defaults_to_sync(
+    openai_model_config: ModelConfig,
+    secret_resolver: SecretResolver,
+    openai_registry: ModelProviderRegistry,
+) -> None:
+    client = create_model_client(openai_model_config, secret_resolver, openai_registry)
+    assert isinstance(client, OpenAICompatibleClient)
+    assert client.concurrency_mode == ClientConcurrencyMode.SYNC
