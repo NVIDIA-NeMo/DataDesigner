@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from data_designer.config.models import ModelConfig
 from data_designer.engine.model_provider import ModelProviderRegistry
+from data_designer.engine.models.clients.adapters.http_model_client import ClientConcurrencyMode
 from data_designer.engine.secret_resolver import SecretResolver
 
 if TYPE_CHECKING:
@@ -20,6 +21,7 @@ def create_model_registry(
     secret_resolver: SecretResolver,
     model_provider_registry: ModelProviderRegistry,
     mcp_registry: MCPRegistry | None = None,
+    client_concurrency_mode: ClientConcurrencyMode = ClientConcurrencyMode.SYNC,
 ) -> ModelRegistry:
     """Factory function for creating a ModelRegistry instance.
 
@@ -33,6 +35,9 @@ def create_model_registry(
         model_provider_registry: Registry of model provider configurations.
         mcp_registry: Optional MCP registry for tool operations. When provided,
             ModelFacades can look up MCPFacades by tool_alias for tool-enabled generation.
+        client_concurrency_mode: ``"sync"`` (default) or ``"async"``.  Forwarded
+            to native HTTP adapters so each client is constrained to a single
+            concurrency mode.
 
     Returns:
         A configured ModelRegistry instance.
@@ -57,6 +62,7 @@ def create_model_registry(
             secret_resolver,
             model_provider_registry,
             retry_config=retry_config,
+            client_concurrency_mode=client_concurrency_mode,
         )
         return ModelFacade(
             model_config,
@@ -70,7 +76,7 @@ def create_model_registry(
         secret_resolver=secret_resolver,
         model_provider_registry=model_provider_registry,
         model_facade_factory=model_facade_factory,
-        # Throttle acquire/release is wired in a follow-up PR (AsyncTaskScheduler integration).
+        # TODO: Throttle acquire/release is wired in a follow-up PR (AsyncTaskScheduler integration).
         throttle_manager=ThrottleManager(),
         retry_config=RetryConfig(),
     )

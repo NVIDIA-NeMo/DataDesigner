@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import re
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -20,6 +21,7 @@ from litellm.exceptions import (
     UnsupportedParamsError,
 )
 
+from data_designer.engine.models.clients.errors import ProviderError, ProviderErrorKind
 from data_designer.engine.models.errors import (
     DataDesignerError,
     DownstreamLLMExceptionMessageParser,
@@ -34,9 +36,11 @@ from data_designer.engine.models.errors import (
     ModelInternalServerError,
     ModelNotFoundError,
     ModelPermissionDeniedError,
+    ModelQuotaExceededError,
     ModelRateLimitError,
     ModelTimeoutError,
     ModelUnprocessableEntityError,
+    ModelUnsupportedCapabilityError,
     ModelUnsupportedParamsError,
     catch_llm_exceptions,
     get_exception_primary_cause,
@@ -99,6 +103,60 @@ stub_purpose = "running generation for column 'test'"
             f"Cause: You have exceeded the rate limit for model '{stub_model_name}' while {stub_purpose}.",
         ),
         (
+            ProviderError(
+                kind=ProviderErrorKind.BAD_REQUEST,
+                message="Unexpected field 'foo' in request payload.",
+                status_code=400,
+            ),
+            ModelBadRequestError,
+            (
+                f"Provider message: Unexpected field 'foo' in request payload.\n  | Cause: The request for model "
+                f"'{stub_model_name}' was found to be malformed or missing required parameters while {stub_purpose}."
+            ),
+        ),
+        (
+            ProviderError(
+                kind=ProviderErrorKind.UNSUPPORTED_PARAMS,
+                message="`temperature` and `top_p` cannot both be specified for this model. Please use only one.",
+                status_code=400,
+            ),
+            ModelUnsupportedParamsError,
+            (
+                "Provider message: `temperature` and `top_p` cannot both be specified for this model. Please use "
+                f"only one.\n  | Cause: One or more of the parameters you provided were found to be unsupported by "
+                f"model '{stub_model_name}' while {stub_purpose}."
+            ),
+        ),
+        (
+            ProviderError(
+                kind=ProviderErrorKind.QUOTA_EXCEEDED,
+                message="Your credit balance is too low to access the Anthropic API.",
+                status_code=400,
+            ),
+            ModelQuotaExceededError,
+            (
+                f"Cause: Model provider '{stub_model_provider_name}' reported insufficient credits or quota for model "
+                f"'{stub_model_name}' while {stub_purpose}."
+            ),
+        ),
+        (
+            ProviderError(
+                kind=ProviderErrorKind.UNSUPPORTED_CAPABILITY,
+                message="Provider 'anthropic-prod' does not support operation 'embeddings'.",
+            ),
+            ModelUnsupportedCapabilityError,
+            f"Cause: Provider 'anthropic-prod' does not support operation 'embeddings' while {stub_purpose}.",
+        ),
+        (
+            ProviderError(
+                kind=ProviderErrorKind.PERMISSION_DENIED,
+                message="Missing required scope.",
+                status_code=403,
+            ),
+            ModelPermissionDeniedError,
+            f"Cause: Your API key was found to lack the necessary permissions to use model '{stub_model_name}' while {stub_purpose}.",
+        ),
+        (
             Timeout("Request timed out", "openai", stub_model_name),
             ModelTimeoutError,
             f"Cause: The request to model '{stub_model_name}' timed out while {stub_purpose}.",
@@ -134,7 +192,7 @@ stub_purpose = "running generation for column 'test'"
     ],
 )
 def test_handle_llm_exceptions(exception, expected_exception, expected_error_msg):
-    with pytest.raises(expected_exception, match=expected_error_msg):
+    with pytest.raises(expected_exception, match=re.escape(expected_error_msg)):
         handle_llm_exceptions(exception, stub_model_name, stub_model_provider_name, stub_purpose)
 
 

@@ -17,6 +17,7 @@ class ProviderErrorKind(str, Enum):
     API_CONNECTION = "api_connection"
     AUTHENTICATION = "authentication"
     CONTEXT_WINDOW_EXCEEDED = "context_window_exceeded"
+    QUOTA_EXCEEDED = "quota_exceeded"
     UNSUPPORTED_PARAMS = "unsupported_params"
     BAD_REQUEST = "bad_request"
     INTERNAL_SERVER = "internal_server"
@@ -74,6 +75,8 @@ class ProviderError(Exception):
 
 def map_http_status_to_provider_error_kind(status_code: int, body_text: str = "") -> ProviderErrorKind:
     text = body_text.lower()
+    if _looks_like_quota_exceeded_error(text):
+        return ProviderErrorKind.QUOTA_EXCEEDED
     if status_code == 401:
         return ProviderErrorKind.AUTHENTICATION
     if status_code == 403:
@@ -256,5 +259,24 @@ def _looks_like_unsupported_params_error(text: str) -> bool:
             "unsupported parameter",
             "not supported",
             "unknown parameter",
+            "cannot both be specified",
+            "please use only one",
+            "mutually exclusive",
+        )
+    )
+
+
+def _looks_like_quota_exceeded_error(text: str) -> bool:
+    return any(
+        token in text
+        for token in (
+            "credit balance is too low",
+            "purchase credits",
+            "out of credits",
+            "not enough credits",
+            "insufficient credits",
+            "insufficient_quota",
+            "insufficient quota",
+            "quota exceeded",
         )
     )
