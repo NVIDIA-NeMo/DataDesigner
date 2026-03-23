@@ -29,7 +29,6 @@ class ThrottleDomain(str, Enum):
 
 DEFAULT_MIN_LIMIT: int = 1
 DEFAULT_ACQUIRE_TIMEOUT: float = 300.0
-DEFAULT_CEILING_OVERSHOOT: float = 0.10
 CAPACITY_POLL_INTERVAL: float = 0.05
 
 
@@ -87,7 +86,7 @@ class ThrottleManager:
     - *Decrease* — on a 429 / rate-limit signal the domain's concurrency limit
       is multiplied by ``reduce_factor`` (default 0.75, i.e. reduced by 25%)
       and a cooldown block is applied for ``retry_after`` seconds (or
-      ``default_block_seconds``).
+      ``default_cooldown_seconds``).
     - *Increase* — after every ``success_window`` consecutive successful
       releases the limit grows by ``additive_increase`` (default 1), up to
       the *rate-limit ceiling* (or the global effective max if no 429 has
@@ -108,15 +107,13 @@ class ThrottleManager:
     def __init__(
         self,
         config: ThrottleConfig | None = None,
-        *,
-        ceiling_overshoot: float = DEFAULT_CEILING_OVERSHOOT,
     ) -> None:
         tc = config or ThrottleConfig()
         self._reduce_factor = tc.reduce_factor
         self._additive_increase = tc.additive_increase
         self._success_window = tc.success_window
-        self._default_block_seconds = tc.block_seconds
-        self._ceiling_overshoot = ceiling_overshoot
+        self._default_cooldown_seconds = tc.cooldown_seconds
+        self._ceiling_overshoot = tc.ceiling_overshoot
         self._lock = threading.Lock()
         self._global_caps: dict[tuple[str, str], GlobalCapState] = {}
         self._domains: dict[tuple[str, str, str], DomainThrottleState] = {}
@@ -261,8 +258,10 @@ class ThrottleManager:
             prev_limit = state.current_limit
             is_first_in_cascade = state.consecutive_429s == 0
             state.consecutive_429s += 1
-            block_duration = retry_after if retry_after is not None and retry_after > 0 else self._default_block_seconds
-            state.blocked_until = now + block_duration
+            cooldown_duration = (
+                retry_after if retry_after is not None and retry_after > 0 else self._default_cooldown_seconds
+            )
+            state.blocked_until = now + cooldown_duration
             state.success_streak = 0
 
             if is_first_in_cascade:
@@ -280,7 +279,7 @@ class ThrottleManager:
                             prev_limit,
                             state.rate_limit_ceiling,
                             state.current_limit,
-                            block_duration,
+                            cooldown_duration,
                         )
                     else:
                         logger.info(
@@ -289,7 +288,7 @@ class ThrottleManager:
                             domain.value,
                             prev_limit,
                             state.current_limit,
-                            block_duration,
+                            cooldown_duration,
                         )
             else:
                 logger.debug(

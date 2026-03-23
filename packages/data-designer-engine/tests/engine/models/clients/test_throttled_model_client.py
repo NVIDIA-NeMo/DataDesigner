@@ -366,7 +366,7 @@ async def test_aimd_feedback_loop_rate_limit_reduces_then_successes_recover() ->
             reduce_factor=0.5,
             additive_increase=1,
             success_window=2,
-            block_seconds=0.01,
+            cooldown_seconds=0.01,
         )
     )
     tm.register(provider_name=PROVIDER, model_id=MODEL_ID, alias="a", max_parallel_requests=4)

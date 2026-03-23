@@ -167,7 +167,7 @@ def test_rate_limited_uses_default_block_when_no_retry_after(manager: ThrottleMa
     manager.release_rate_limited(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=10.0)
     state = manager.get_domain_state(PROVIDER, MODEL, DOMAIN)
     assert state is not None
-    assert state.blocked_until == pytest.approx(10.0 + ThrottleConfig.DEFAULT_BLOCK_SECONDS, abs=0.01)
+    assert state.blocked_until == pytest.approx(10.0 + ThrottleConfig.DEFAULT_COOLDOWN_SECONDS, abs=0.01)
 
 
 # --- release_failure ---
@@ -277,7 +277,7 @@ def test_ceiling_stabilization_with_overshoot() -> None:
     Scenario: 429 at limit 40 → floor(40*0.75)=30 → ceiling=40 → soft cap = 40 + 4 = 44.
     Recovery should stop at 44, not climb to 1000.
     """
-    tm = ThrottleManager(ThrottleConfig(success_window=1, additive_increase=1), ceiling_overshoot=0.10)
+    tm = ThrottleManager(ThrottleConfig(success_window=1, additive_increase=1))
     tm.register(provider_name=PROVIDER, model_id=MODEL, alias="a1", max_parallel_requests=1000)
     state = tm.get_domain_state(PROVIDER, MODEL, DOMAIN)
 
@@ -317,7 +317,7 @@ def test_ceiling_lowers_on_repeated_429_after_recovery() -> None:
     Second 429 at 31 → floor(31*0.75)=23, ceiling = min(40, 31) = 31.
     Soft cap = 31 + max(1, floor(31*0.1)) = 31 + 3 = 34.
     """
-    tm = ThrottleManager(ThrottleConfig(success_window=1, additive_increase=1), ceiling_overshoot=0.10)
+    tm = ThrottleManager(ThrottleConfig(success_window=1, additive_increase=1))
     tm.register(provider_name=PROVIDER, model_id=MODEL, alias="a1", max_parallel_requests=1000)
 
     tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=0.0)
@@ -354,7 +354,7 @@ def test_ceiling_lowers_on_repeated_429_after_recovery() -> None:
 
 def test_cascade_only_first_429_reduces_limit() -> None:
     """Only the first 429 in a cascade reduces the limit; subsequent ones just release permits."""
-    tm = ThrottleManager(ThrottleConfig(success_window=1, additive_increase=1), ceiling_overshoot=0.10)
+    tm = ThrottleManager(ThrottleConfig(success_window=1, additive_increase=1))
     tm.register(provider_name=PROVIDER, model_id=MODEL, alias="a1", max_parallel_requests=100)
 
     for _ in range(4):
@@ -389,7 +389,7 @@ def test_ceiling_does_not_restrict_when_at_effective_max() -> None:
     """When effective_max is small (e.g. 4), the ceiling + overshoot should not
     prevent recovery to effective_max.
     """
-    tm = ThrottleManager(ThrottleConfig(success_window=1, additive_increase=1), ceiling_overshoot=0.10)
+    tm = ThrottleManager(ThrottleConfig(success_window=1, additive_increase=1))
     tm.register(provider_name=PROVIDER, model_id=MODEL, alias="a1", max_parallel_requests=4)
 
     tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN, now=0.0)
@@ -424,7 +424,7 @@ def test_acquire_sync_raises_timeout_when_at_capacity() -> None:
 
 def test_acquire_sync_does_not_overshoot_timeout() -> None:
     """When wait > remaining budget, raise immediately instead of sleeping the full wait."""
-    tm = ThrottleManager(ThrottleConfig(block_seconds=5.0))
+    tm = ThrottleManager(ThrottleConfig(cooldown_seconds=5.0))
     tm.register(provider_name=PROVIDER, model_id=MODEL, alias="a1", max_parallel_requests=1)
     tm.try_acquire(provider_name=PROVIDER, model_id=MODEL, domain=DOMAIN)
 

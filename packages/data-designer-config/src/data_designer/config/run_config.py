@@ -26,15 +26,19 @@ class ThrottleConfig(ConfigBase):
             ``success_window`` consecutive successes.  Default is 1.
         success_window: Number of consecutive successful releases before
             the additive increase is applied.  Default is 25.
-        block_seconds: Default cooldown duration (seconds) applied after a
+        cooldown_seconds: Default cooldown duration (seconds) applied after a
             rate-limit when the provider does not include a ``Retry-After``
             header.  Default is 2.0.
+        ceiling_overshoot: Fraction above the observed rate-limit ceiling
+            that additive increase is allowed to probe before capping.
+            Default is 0.10 (10% overshoot).
     """
 
     DEFAULT_REDUCE_FACTOR: ClassVar[float] = 0.75
     DEFAULT_ADDITIVE_INCREASE: ClassVar[int] = 1
     DEFAULT_SUCCESS_WINDOW: ClassVar[int] = 25
-    DEFAULT_BLOCK_SECONDS: ClassVar[float] = 2.0
+    DEFAULT_COOLDOWN_SECONDS: ClassVar[float] = 2.0
+    DEFAULT_CEILING_OVERSHOOT: ClassVar[float] = 0.10
 
     reduce_factor: float = Field(
         default=DEFAULT_REDUCE_FACTOR,
@@ -52,10 +56,15 @@ class ThrottleConfig(ConfigBase):
         ge=1,
         description="Number of consecutive successful releases before the additive increase is applied.",
     )
-    block_seconds: float = Field(
-        default=DEFAULT_BLOCK_SECONDS,
+    cooldown_seconds: float = Field(
+        default=DEFAULT_COOLDOWN_SECONDS,
         gt=0.0,
         description="Default cooldown duration (seconds) after a rate-limit when no Retry-After header is present.",
+    )
+    ceiling_overshoot: float = Field(
+        default=DEFAULT_CEILING_OVERSHOOT,
+        ge=0.0,
+        description="Fraction above the rate-limit ceiling that additive increase is allowed to probe.",
     )
 
 

@@ -304,7 +304,7 @@ class ThrottleConfig(ConfigBase):
     reduce_factor: float = Field(default=DEFAULT_REDUCE_FACTOR, gt=0.0, lt=1.0)
     additive_increase: int = Field(default=DEFAULT_ADDITIVE_INCREASE, ge=1)
     success_window: int = Field(default=DEFAULT_SUCCESS_WINDOW, ge=1)
-    block_seconds: float = Field(default=DEFAULT_BLOCK_SECONDS, gt=0.0)
+    cooldown_seconds: float = Field(default=DEFAULT_COOLDOWN_SECONDS, gt=0.0)
 
 class RunConfig(ConfigBase):
     # ... existing fields ...
@@ -757,7 +757,7 @@ in the enum) with permissive limits.
    `throttle_manager.py` for discoverability. Internal AIMD behavior
    was refined (see "AIMD behavioral refinements" below).
    `try_acquire` now returns `CAPACITY_POLL_INTERVAL` (50ms) instead
-   of `default_block_seconds` (2s) when at capacity but not
+   of `default_cooldown_seconds` (2s) when at capacity but not
    rate-limited, so callers poll responsively instead of waiting the
    full cooldown duration when a slot could free in milliseconds.
 2. **`ModelFacade`** — untouched. Throttling is below it in the client
@@ -791,7 +791,7 @@ in the enum) with permissive limits.
 | `models/clients/factory.py` | Accept optional `throttle_manager`; wrap inner client with `ThrottledModelClient` when provided; docstring documents registration ordering invariant |
 | `models/factory.py` | Forward `ThrottleManager` to `model_facade_factory` closure → `create_model_client`; accept `run_config` parameter; construct `ThrottleManager` from `run_config.throttle` (`ThrottleConfig`); remove TODO comment |
 | `models/registry.py` | Add `get_aggregate_max_parallel_requests()` public method |
-| `config/run_config.py` | Add `ThrottleConfig` sub-model with `ClassVar` defaults (`reduce_factor=0.75`, `additive_increase=1`, `success_window=25`, `block_seconds=2.0`); add `RunConfig.throttle: ThrottleConfig` field. `block_seconds` now only applies to rate-limit cooldowns; capacity waits use `CAPACITY_POLL_INTERVAL` (50ms) |
+| `config/run_config.py` | Add `ThrottleConfig` sub-model with `ClassVar` defaults (`reduce_factor=0.75`, `additive_increase=1`, `success_window=25`, `cooldown_seconds=2.0`, `ceiling_overshoot=0.10`); add `RunConfig.throttle: ThrottleConfig` field. `cooldown_seconds` only applies to rate-limit cooldowns; capacity waits use `CAPACITY_POLL_INTERVAL` (50ms) |
 | `resources/resource_provider.py` | Forward `run_config` to `create_model_registry` |
 | `column_generators/generators/base.py` | Add `is_llm_bound` property to `ColumnGenerator` (default `False`), override to `True` in `ColumnGeneratorWithModelRegistry` |
 | `dataset_builders/async_scheduler.py` | Add `_llm_wait_semaphore`, one-way semaphore handoff for LLM tasks, `MIN_SUBMITTED_TASKS` / `LLM_WAIT_POOL_MULTIPLIER` constants; exclude `ModelRateLimitError` from early shutdown error rate |
