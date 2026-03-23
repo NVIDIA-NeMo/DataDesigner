@@ -33,7 +33,7 @@ from data_designer.engine.dataset_builders.multi_column_configs import MultiColu
 from data_designer.engine.dataset_builders.utils.concurrency import ConcurrentThreadExecutor
 from data_designer.engine.dataset_builders.utils.config_compiler import compile_dataset_builder_column_configs
 from data_designer.engine.dataset_builders.utils.dataset_batch_manager import DatasetBatchManager
-from data_designer.engine.dataset_builders.utils.processor_runner import ProcessorRunner
+from data_designer.engine.dataset_builders.utils.processor_runner import ProcessorRunner, ProcessorStage
 from data_designer.engine.dataset_builders.utils.progress_tracker import ProgressTracker
 from data_designer.engine.models.telemetry import InferenceEvent, NemoSourceEnum, TaskStatusEnum, TelemetryHandler
 from data_designer.engine.processing.processors.base import Processor
@@ -47,6 +47,7 @@ if TYPE_CHECKING:
     import pandas as pd
 
     from data_designer.engine.column_generators.generators.base import ColumnGeneratorWithModelRegistry
+    from data_designer.engine.dataset_builders.utils.task_model import TaskTrace
     from data_designer.engine.models.usage import ModelUsageStats
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,7 @@ logger = logging.getLogger(__name__)
 DATA_DESIGNER_ASYNC_ENGINE = os.environ.get("DATA_DESIGNER_ASYNC_ENGINE", "0") == "1"
 
 if DATA_DESIGNER_ASYNC_ENGINE:
+    import asyncio
     import sys
 
     if sys.version_info < (3, 11):
@@ -61,9 +63,15 @@ if DATA_DESIGNER_ASYNC_ENGINE:
             "DATA_DESIGNER_ASYNC_ENGINE requires Python 3.11+ (asyncio.TaskGroup). "
             f"Current version: {sys.version_info.major}.{sys.version_info.minor}"
         )
-    from data_designer.engine.dataset_builders.utils.async_concurrency import AsyncConcurrentExecutor
+    from data_designer.engine.dataset_builders.async_scheduler import AsyncTaskScheduler
+    from data_designer.engine.dataset_builders.utils.async_concurrency import (
+        AsyncConcurrentExecutor,
+        ensure_async_engine_loop,
+    )
+    from data_designer.engine.dataset_builders.utils.completion_tracker import CompletionTracker
+    from data_designer.engine.dataset_builders.utils.execution_graph import ExecutionGraph
+    from data_designer.engine.dataset_builders.utils.row_group_buffer import RowGroupBufferManager
 
-    logger.info("⚡ DATA_DESIGNER_ASYNC_ENGINE is enabled — using async concurrency")
 
 _CLIENT_VERSION: str = get_library_version()
 
@@ -80,6 +88,7 @@ class ColumnWiseDatasetBuilder:
         self._records_to_drop: set[int] = set()
         self._cell_resize_results: list[dict | list[dict] | None] = []
         self._cell_resize_mode = False
+        self._task_traces: list[TaskTrace] = []
         self._registry = registry or DataDesignerRegistry()
 
         self._data_designer_config = compile_data_designer_config(data_designer_config, resource_provider)
@@ -98,6 +107,10 @@ class ColumnWiseDatasetBuilder:
     @property
     def processors(self) -> tuple[Processor, ...]:
         return self._processor_runner.processors
+
+    @property
+    def task_traces(self) -> list[TaskTrace]:
+        return self._task_traces
 
     def set_processor_runner(self, processors: list[Processor]) -> None:
         """Replace the processor runner with a new one using the given processors."""
@@ -150,22 +163,26 @@ class ColumnWiseDatasetBuilder:
 
         generators = self._initialize_generators()
         start_time = time.perf_counter()
-        group_id = uuid.uuid4().hex
-
         buffer_size = self._resource_provider.run_config.buffer_size
-        self.batch_manager.start(num_records=num_records, buffer_size=buffer_size)
-        for batch_idx in range(self.batch_manager.num_batches):
-            logger.info(f"⏳ Processing batch {batch_idx + 1} of {self.batch_manager.num_batches}")
-            self._run_batch(
-                generators,
-                batch_mode="batch",
-                group_id=group_id,
-                current_batch_number=batch_idx,
-                on_batch_complete=on_batch_complete,
-            )
-        self.batch_manager.finish()
-        self._processor_runner.run_after_generation(buffer_size)
 
+        if DATA_DESIGNER_ASYNC_ENGINE:
+            self._validate_async_compatibility()
+            self._build_async(generators, num_records, buffer_size, on_batch_complete)
+        else:
+            group_id = uuid.uuid4().hex
+            self.batch_manager.start(num_records=num_records, buffer_size=buffer_size)
+            for batch_idx in range(self.batch_manager.num_batches):
+                logger.info(f"⏳ Processing batch {batch_idx + 1} of {self.batch_manager.num_batches}")
+                self._run_batch(
+                    generators,
+                    batch_mode="batch",
+                    group_id=group_id,
+                    current_batch_number=batch_idx,
+                    on_batch_complete=on_batch_complete,
+                )
+            self.batch_manager.finish()
+
+        self._processor_runner.run_after_generation(buffer_size)
         self._resource_provider.model_registry.log_model_usage(time.perf_counter() - start_time)
 
         return self.artifact_storage.final_dataset_path
@@ -189,6 +206,120 @@ class ColumnWiseDatasetBuilder:
         self._resource_provider.model_registry.log_model_usage(time.perf_counter() - start_time)
 
         return dataset
+
+    def _validate_async_compatibility(self) -> None:
+        """Raise if any column uses allow_resize=True with the async scheduler."""
+        offending = [config.name for config in self.single_column_configs if getattr(config, "allow_resize", False)]
+        if offending:
+            raise DatasetGenerationError(
+                f"allow_resize=True is not supported with DATA_DESIGNER_ASYNC_ENGINE=1. "
+                f"Offending column(s): {offending}. Either remove allow_resize=True or "
+                f"disable the async scheduler."
+            )
+
+    def _build_async(
+        self,
+        generators: list[ColumnGenerator],
+        num_records: int,
+        buffer_size: int,
+        on_batch_complete: Callable[[Path], None] | None = None,
+    ) -> None:
+        """Async task-queue builder path — dispatches tasks based on dependency readiness."""
+        logger.info("⚡ DATA_DESIGNER_ASYNC_ENGINE is enabled - using async task-queue builder")
+
+        # Build strategy map from generators
+        strategies: dict[str, GenerationStrategy] = {}
+        gen_map: dict[str, ColumnGenerator] = {}
+        for gen in generators:
+            if isinstance(gen.config, MultiColumnConfig):
+                for sub in gen.config.columns:
+                    strategies[sub.name] = gen.get_generation_strategy()
+                    gen_map[sub.name] = gen
+            else:
+                strategies[gen.config.name] = gen.get_generation_strategy()
+                gen_map[gen.config.name] = gen
+
+        graph = ExecutionGraph.create(self._column_configs, strategies)
+
+        # Log pre-generation info for all generators
+        for gen in generators:
+            gen.log_pre_generation()
+
+        # Partition into row groups
+        row_groups: list[tuple[int, int]] = []
+        remaining = num_records
+        rg_id = 0
+        while remaining > 0:
+            size = min(buffer_size, remaining)
+            row_groups.append((rg_id, size))
+            remaining -= size
+            rg_id += 1
+
+        tracker = CompletionTracker.with_graph(graph, row_groups)
+        buffer_manager = RowGroupBufferManager(self.artifact_storage)
+        settings = self._resource_provider.run_config
+
+        # Pre-batch processor callback: runs after seed tasks complete for a row group.
+        # If it raises, the scheduler drops all rows in the row group (skips it).
+        def on_seeds_complete(rg_id: int, rg_size: int) -> None:
+            if not self._processor_runner.has_processors_for(ProcessorStage.PRE_BATCH):
+                return
+            df = buffer_manager.get_dataframe(rg_id)
+            df = self._processor_runner.run_pre_batch_on_df(df)
+            buffer_manager.replace_dataframe(rg_id, df)
+            # Sync newly-dropped rows to the tracker so downstream cell tasks are skipped
+            for ri in range(rg_size):
+                if buffer_manager.is_dropped(rg_id, ri) and not tracker.is_dropped(rg_id, ri):
+                    tracker.drop_row(rg_id, ri)
+
+        # Post-batch processor callback: runs after all columns, before checkpoint.
+        # rg_id is used as current_batch_number; both are 0-based sequential indices today.
+        def on_before_checkpoint(rg_id: int, rg_size: int) -> None:
+            df = buffer_manager.get_dataframe(rg_id)
+            df = self._processor_runner.run_post_batch(df, current_batch_number=rg_id)
+            buffer_manager.replace_dataframe(rg_id, df)
+
+        # Telemetry snapshot
+        group_id = uuid.uuid4().hex
+        pre_batch_snapshot = self._resource_provider.model_registry.get_model_usage_snapshot()
+
+        trace_enabled = settings.async_trace or os.environ.get("DATA_DESIGNER_ASYNC_TRACE", "0") == "1"
+
+        scheduler = AsyncTaskScheduler(
+            generators=gen_map,
+            graph=graph,
+            tracker=tracker,
+            row_groups=row_groups,
+            buffer_manager=buffer_manager,
+            on_checkpoint_complete=on_batch_complete,
+            on_seeds_complete=(
+                on_seeds_complete if self._processor_runner.has_processors_for(ProcessorStage.PRE_BATCH) else None
+            ),
+            on_before_checkpoint=(
+                on_before_checkpoint if self._processor_runner.has_processors_for(ProcessorStage.POST_BATCH) else None
+            ),
+            shutdown_error_rate=settings.shutdown_error_rate,
+            shutdown_error_window=settings.shutdown_error_window,
+            disable_early_shutdown=settings.disable_early_shutdown,
+            trace=trace_enabled,
+        )
+
+        # Run on background event loop
+        loop = ensure_async_engine_loop()
+        future = asyncio.run_coroutine_threadsafe(scheduler.run(), loop)
+        future.result()
+
+        self._task_traces = scheduler.traces
+
+        # Emit telemetry
+        try:
+            usage_deltas = self._resource_provider.model_registry.get_usage_deltas(pre_batch_snapshot)
+            self._emit_batch_inference_events("batch", usage_deltas, group_id)
+        except Exception:
+            logger.debug("Failed to emit batch telemetry for async run", exc_info=True)
+
+        # Write metadata
+        buffer_manager.write_metadata(target_num_records=num_records, buffer_size=buffer_size)
 
     def process_preview(self, dataset: pd.DataFrame) -> pd.DataFrame:
         df = self._processor_runner.run_post_batch(dataset.copy(), current_batch_number=None)
@@ -304,7 +435,21 @@ class ColumnWiseDatasetBuilder:
             if isinstance(config, CustomColumnConfig) and config.model_aliases:
                 model_aliases.update(config.model_aliases)
 
-        if model_aliases:
+        if not model_aliases:
+            return
+
+        if DATA_DESIGNER_ASYNC_ENGINE:
+            loop = ensure_async_engine_loop()
+            future = asyncio.run_coroutine_threadsafe(
+                self._resource_provider.model_registry.arun_health_check(list(model_aliases)),
+                loop,
+            )
+            try:
+                future.result(timeout=180)
+            except TimeoutError:
+                future.cancel()
+                raise
+        else:
             self._resource_provider.model_registry.run_health_check(list(model_aliases))
 
     def _run_mcp_tool_check_if_needed(self) -> None:
