@@ -71,6 +71,7 @@ nav:
   - Dev Notes:
       # NOTE: Order is most recent -> oldest (so sidebar shows recent first!)
       - devnotes/index.md
+      - Owning the Model Stack: devnotes/posts/native-model-client-architecture.md
       - Search Agent: devnotes/posts/search-agent.md
       - Structured Outputs from Nemotron: devnotes/posts/structured-outputs-from-nemotron.md
       - Deep Research Trajectories: devnotes/posts/deep-research-trajectories.md
