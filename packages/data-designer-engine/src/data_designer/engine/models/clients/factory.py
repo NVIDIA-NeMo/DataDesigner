@@ -14,6 +14,8 @@ from data_designer.engine.models.clients.adapters.litellm_bridge import LiteLLMB
 from data_designer.engine.models.clients.adapters.openai_compatible import OpenAICompatibleClient
 from data_designer.engine.models.clients.base import ModelClient
 from data_designer.engine.models.clients.retry import RetryConfig
+from data_designer.engine.models.clients.throttle_manager import ThrottleManager
+from data_designer.engine.models.clients.throttled import ThrottledModelClient
 from data_designer.engine.models.litellm_overrides import CustomRouter, LiteLLMRouterDefaultKwargs
 from data_designer.engine.secret_resolver import SecretResolver
 
@@ -28,6 +30,7 @@ def create_model_client(
     *,
     retry_config: RetryConfig | None = None,
     client_concurrency_mode: ClientConcurrencyMode = ClientConcurrencyMode.SYNC,
+    throttle_manager: ThrottleManager | None = None,
 ) -> ModelClient:
     """Create a ``ModelClient`` for the given model configuration.
 
@@ -43,6 +46,17 @@ def create_model_client(
             ``"async"`` for the async engine path.  Native HTTP adapters are
             constrained to a single concurrency mode; the ``LiteLLMBridgeClient``
             ignores this parameter.
+        throttle_manager: Optional throttle manager for per-request AIMD
+            concurrency control.  When provided, the returned client is wrapped
+            with ``ThrottledModelClient``.
+
+            **Ordering invariant:** the ``(provider_name, model_id)`` pair must
+            be registered on the ``ThrottleManager`` via ``register()`` before
+            the returned client makes its first request.  In the standard flow,
+            ``ModelRegistry._get_model()`` calls ``register()`` during model
+            setup, which happens before any generation task invokes the client.
+            Direct callers of this factory must ensure registration happens
+            before use.
 
     Returns:
         A ``ModelClient`` instance routed by provider type.
@@ -61,10 +75,9 @@ def create_model_client(
 
     backend = os.environ.get(_BACKEND_ENV_VAR, "").strip().lower()
     if backend == _BACKEND_BRIDGE:
-        return _create_bridge_client(model_config, provider, api_key, max_parallel)
-
-    if provider.provider_type == "openai":
-        return OpenAICompatibleClient(
+        client: ModelClient = _create_bridge_client(model_config, provider, api_key, max_parallel)
+    elif provider.provider_type == "openai":
+        client = OpenAICompatibleClient(
             provider_name=provider.name,
             endpoint=provider.endpoint,
             api_key=api_key,
@@ -73,9 +86,8 @@ def create_model_client(
             timeout_s=timeout_s,
             concurrency_mode=client_concurrency_mode,
         )
-
-    if provider.provider_type == "anthropic":
-        return AnthropicClient(
+    elif provider.provider_type == "anthropic":
+        client = AnthropicClient(
             provider_name=provider.name,
             endpoint=provider.endpoint,
             api_key=api_key,
@@ -84,8 +96,18 @@ def create_model_client(
             timeout_s=timeout_s,
             concurrency_mode=client_concurrency_mode,
         )
+    else:
+        client = _create_bridge_client(model_config, provider, api_key, max_parallel)
 
-    return _create_bridge_client(model_config, provider, api_key, max_parallel)
+    if throttle_manager is not None:
+        client = ThrottledModelClient(
+            inner=client,
+            throttle_manager=throttle_manager,
+            provider_name=provider.name,
+            model_id=model_config.model,
+        )
+
+    return client
 
 
 # ---------------------------------------------------------------------------

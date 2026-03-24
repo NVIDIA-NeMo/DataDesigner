@@ -140,6 +140,8 @@ def create_resource_provider(
         else ClientConcurrencyMode.SYNC
     )
 
+    effective_run_config = run_config or RunConfig()
+
     return ResourceProvider(
         artifact_storage=artifact_storage,
         model_registry=create_model_registry(
@@ -148,9 +150,10 @@ def create_resource_provider(
             model_provider_registry=model_provider_registry,
             mcp_registry=mcp_registry,
             client_concurrency_mode=client_concurrency_mode,
+            run_config=effective_run_config,
         ),
         person_reader=person_reader,
         mcp_registry=mcp_registry,
         seed_reader=seed_reader,
-        run_config=run_config or RunConfig(),
+        run_config=effective_run_config,
     )

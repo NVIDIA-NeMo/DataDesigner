@@ -19,6 +19,8 @@ from data_designer.engine.models.clients.adapters.litellm_bridge import LiteLLMB
 from data_designer.engine.models.clients.adapters.openai_compatible import OpenAICompatibleClient
 from data_designer.engine.models.clients.factory import create_model_client
 from data_designer.engine.models.clients.retry import RetryConfig
+from data_designer.engine.models.clients.throttle_manager import ThrottleManager
+from data_designer.engine.models.clients.throttled import ThrottledModelClient
 from data_designer.engine.secret_resolver import SecretResolver
 
 
@@ -226,3 +228,67 @@ def test_concurrency_mode_defaults_to_sync(
     client = create_model_client(openai_model_config, secret_resolver, openai_registry)
     assert isinstance(client, OpenAICompatibleClient)
     assert client.concurrency_mode == ClientConcurrencyMode.SYNC
+
+
+# --- Throttle manager wrapping ---
+
+
+def test_throttle_manager_wraps_openai_client(
+    openai_model_config: ModelConfig,
+    secret_resolver: SecretResolver,
+    openai_registry: ModelProviderRegistry,
+) -> None:
+    tm = ThrottleManager()
+    client = create_model_client(
+        openai_model_config, secret_resolver, openai_registry, retry_config=RetryConfig(), throttle_manager=tm
+    )
+    assert isinstance(client, ThrottledModelClient)
+    assert isinstance(client._inner, OpenAICompatibleClient)
+
+
+def test_throttle_manager_wraps_anthropic_client(
+    anthropic_model_config: ModelConfig,
+    secret_resolver: SecretResolver,
+    anthropic_registry: ModelProviderRegistry,
+) -> None:
+    tm = ThrottleManager()
+    client = create_model_client(
+        anthropic_model_config, secret_resolver, anthropic_registry, retry_config=RetryConfig(), throttle_manager=tm
+    )
+    assert isinstance(client, ThrottledModelClient)
+    assert isinstance(client._inner, AnthropicClient)
+
+
+@patch("data_designer.engine.models.clients.factory.CustomRouter")
+@patch("data_designer.engine.models.clients.factory.LiteLLMRouterDefaultKwargs")
+def test_bridge_client_is_wrapped_with_throttle_manager(
+    mock_kwargs: MagicMock,
+    mock_router: MagicMock,
+    secret_resolver: SecretResolver,
+) -> None:
+    """LiteLLMBridgeClient is wrapped, but AIMD accuracy is best-effort
+    because the bridge's internal router may retry 429s before the
+    wrapper sees them. See architecture notes for scope."""
+    mock_kwargs.return_value.model_dump.return_value = {}
+    provider = ModelProvider(name="custom-provider", endpoint="https://custom.example.com", provider_type="custom")
+    registry = ModelProviderRegistry(providers=[provider])
+    config = ModelConfig(
+        alias="test-custom",
+        model="custom-model",
+        inference_parameters=ChatCompletionInferenceParams(),
+        provider="custom-provider",
+    )
+    tm = ThrottleManager()
+    client = create_model_client(config, secret_resolver, registry, throttle_manager=tm)
+    assert isinstance(client, ThrottledModelClient)
+    assert isinstance(client._inner, LiteLLMBridgeClient)
+
+
+def test_no_throttle_manager_returns_inner_client_directly(
+    openai_model_config: ModelConfig,
+    secret_resolver: SecretResolver,
+    openai_registry: ModelProviderRegistry,
+) -> None:
+    client = create_model_client(openai_model_config, secret_resolver, openai_registry)
+    assert isinstance(client, OpenAICompatibleClient)
+    assert not isinstance(client, ThrottledModelClient)

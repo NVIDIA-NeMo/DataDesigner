@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from data_designer.engine.models.clients.retry import RetryConfig
-    from data_designer.engine.models.clients.throttle import ThrottleManager
+    from data_designer.engine.models.clients.throttle_manager import ThrottleManager
     from data_designer.engine.models.facade import ModelFacade
 
     ModelFacadeFactory = Callable[
@@ -171,6 +171,19 @@ class ModelRegistry:
                     request_usage=RequestUsageStats(successful_requests=delta_successful, failed_requests=delta_failed),
                 )
         return deltas
+
+    def get_aggregate_max_parallel_requests(self) -> int:
+        """Sum of ``max_parallel_requests`` across all registered model configs.
+
+        This is a coarse upper bound: it sums over *all* registered aliases,
+        including those not referenced by the current generator set, and does
+        not deduplicate aliases sharing a ``(provider_name, model_id)`` key.
+        The result is used to size the scheduler's LLM-wait semaphore, which
+        is a memory-safety cap — oversizing wastes a few coroutine slots but
+        does not affect correctness because the ``ThrottleManager`` enforces
+        the real per-key limit.
+        """
+        return sum(mc.inference_parameters.max_parallel_requests for mc in self._model_configs.values())
 
     def get_model_provider(self, *, model_alias: str) -> ModelProvider:
         model_config = self.get_model_config(model_alias=model_alias)

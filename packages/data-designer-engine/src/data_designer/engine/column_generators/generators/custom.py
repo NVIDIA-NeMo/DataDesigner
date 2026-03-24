@@ -40,6 +40,11 @@ class CustomColumnGenerator(ColumnGenerator[CustomColumnConfig]):
     The models dict provides direct access to ModelFacade instances keyed by alias.
     """
 
+    @property
+    def is_llm_bound(self) -> bool:
+        """Custom generators with model_aliases make LLM calls and need the handoff."""
+        return bool(self.config.model_aliases)
+
     def get_generation_strategy(self) -> GenerationStrategy:
         """Return strategy based on config."""
         return self.config.generation_strategy

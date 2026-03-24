@@ -97,7 +97,7 @@ class HttpModelClient(ABC):
                 raise RuntimeError("Model client is closed.")
             if self._client is None:
                 if self._transport is None:
-                    self._transport = create_retry_transport(self._retry_config)
+                    self._transport = create_retry_transport(self._retry_config, strip_rate_limit_codes=False)
                 self._client = lazy.httpx.Client(
                     transport=self._transport,
                     limits=self._limits,
@@ -113,7 +113,7 @@ class HttpModelClient(ABC):
                 raise RuntimeError("Model client is closed.")
             if self._aclient is None:
                 if self._transport is None:
-                    self._transport = create_retry_transport(self._retry_config)
+                    self._transport = create_retry_transport(self._retry_config, strip_rate_limit_codes=True)
                 self._aclient = lazy.httpx.AsyncClient(
                     transport=self._transport,
                     limits=self._limits,
