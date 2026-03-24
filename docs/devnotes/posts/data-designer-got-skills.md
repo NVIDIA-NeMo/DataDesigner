@@ -80,11 +80,11 @@ Validate that it is configured correctly using:
 
 </details>
 
-While the agent didn't exactly start from zero, it figures it out – impressive! It finds the package, explores the source, pieces together the API, and produces a valid configuration. But look at the path it takes:
+While the agent didn't exactly start from zero, we didn't give it much and it still figured it out – impressive! It found the package, explored the source, pieced together the API, and produced a valid configuration. But look at the path it took:
 
-- The main agent locates the package and runs `config list`, then spawns a **subagent** to "Explore the Data Designer package thoroughly."
-- The subagent reads **14 source files** (some two or three times), hits an error on `__init__.py`, recovers, and returns a detailed report. **25 tool calls** inside the subagent alone.
-- Back in the main agent, it re-reads `column_configs.py`, `validator_params.py`, and `config/__init__.py` (files the subagent already covered), greps for `CategorySamplerParams` and `add_column`, then writes the config and validates.
+- The main agent located the package and ran `config list`, then spawned a **subagent** to "Explore the Data Designer package thoroughly."
+- The subagent read **14 source files** (some two or three times), hit an error on `__init__.py`, recovered, and returned a detailed report. **25 tool calls** inside the subagent alone.
+- Back in the main agent, it re-read `column_configs.py`, `validator_params.py`, and `config/__init__.py` (files the subagent already covered), grepped for `CategorySamplerParams` and `add_column`, then wrote the config and validated.
 - Total: **35 tool calls**, **1 error**, **159 seconds**, **~1.4M tokens** between the main agent and the subagent.
 
 Review the full session below:

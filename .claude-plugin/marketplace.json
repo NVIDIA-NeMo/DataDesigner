@@ -11,7 +11,7 @@
       "name": "data-designer",
       "source": "./skills/data-designer",
       "description": "Claude Code skill for generating high-quality synthetic data from scratch or based on seed data using NeMo Data Designer.",
-      "keywords": ["synthetic-data", "nvidia", "nemo", "data-generation"],
+      "keywords": ["synthetic-data", "nvidia", "nemo", "data-generation", "sdg", "data-designer"],
       "category": "development"
     }
   ]
