@@ -55,9 +55,17 @@ Example: `nmulepati/feat/123-add-xyz-generator`
 
 ### Syncing with Upstream
 
+If you're working from a fork, add the upstream remote first:
+
 ```bash
-git fetch origin
-git merge origin/main
+git remote add upstream https://github.com/NVIDIA-NeMo/DataDesigner.git
+```
+
+Then sync:
+
+```bash
+git fetch upstream
+git merge upstream/main
 ```
 
 ### Validation Before Committing

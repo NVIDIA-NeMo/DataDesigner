@@ -82,7 +82,7 @@ The repository includes skills for common development tasks. These are located i
 All code files must include the NVIDIA copyright header:
 
 ```python
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 ```
 

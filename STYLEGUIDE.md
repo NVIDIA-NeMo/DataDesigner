@@ -262,7 +262,7 @@ class DatasetGenerator:
     def __init__(self) -> None:
         self._cache: dict[str, str] = {}
 
-    def generate_dataset(self, config: dict[str, str]) -> pd.DataFrame:
+    def generate_dataset(self, config: dict[str, str]) -> list[dict[str, str]]:
         pass
 
 # Bad
@@ -409,7 +409,7 @@ except httpx.HTTPStatusError as exc:
        pass
    ```
 
-3. **Simplify code where possible** (enforced by `SIM`):
+3. **Simplify code where possible** (`SIM` rules; not yet enforced by CI but code should comply):
 
    ```python
    # Bad
