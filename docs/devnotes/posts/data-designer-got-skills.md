@@ -119,7 +119,7 @@ The other three commands standardize config validation and dataset generation. `
 
 ### Coding best practices still matter
 
-Data Designer's modular design and clear boundary between configuration and execution predates any agent work. This design, which we chose for testability, onboarding, maintainability, turns out to be exactly what agents need. A small, predictable set of files that fully describes the API surface. `agent context` exploits this boundary. It dumps the config layer and nothing else. If your library has a similar separation, you're already most of the way there. You just need to surface it.
+Data Designer's modular design and clear boundary between configuration and execution predates any agent work. This design, which we chose for testability, onboarding, and maintainability, turns out to be exactly what agents need. A small, predictable set of files that fully describes the API surface. `agent context` exploits this boundary. It dumps the config layer and nothing else. If your library has a similar separation, you're already most of the way there. You just need to surface it.
 
 ### The Skill in action
 
@@ -167,7 +167,7 @@ In our experiment setup, each session started from a clean slate (new directory,
 
 - ⚡ **Our skill and agent CLI use ~80% fewer tokens (panel a).** The skill replaces source-code exploration with directed context. Output tokens fall **65%**, tool calls **72%**, errors **90%**, wall clock time **47%**. Every downstream metric improves.
 
-- 📈 **Constraining the agent produces better output — and the quality gains surprised us (panel b).** We used an LLM judge (GPT-5.3 Codex) on a 1–5 scale. Mean quality score went from **4.0 → 4.7**. The standout is feature utilization (which assesses how well the agent uses the capabilities of the library), which jumped **3.1 → 4.6**. The skill surfaces capabilities like diversity axes, sampler types, and validators directly in the context.
+- 📈 **Constraining the agent produces better output — and the quality gains surprised us (panel b).** We used an LLM judge (GPT-5.3 Codex) on a 1–5 scale. Mean quality score went from **4.0 → 4.7**. The standout is feature utilization — how well the agent uses the library's capabilities — which jumped **3.1 → 4.6**. The skill surfaces capabilities like diversity axes, sampler types, and validators directly in the context.
 
 - 🛡️ **Errors are nearly eliminated at high reasoning effort (panel c).** Mean errors per session drop from **1.18 → 0.04** when reasoning effort is high, and **1.67 → 0.25** when it's low. Fewer errors mean fewer recovery loops, fewer tokens burned on retries, less chance of the agent going down a dead end. The table below breaks down where the errors come from. The skill nearly wipes out file/path and import errors, and cuts config validation failures by more than two-thirds.
 
