@@ -405,7 +405,7 @@ Create `.github/workflows/issue-triage.yml`:
 Land this work as a sequence of incremental PRs rather than a single large rollout:
 
 1. **PR 1 (Phases 0 + 1 + 2)** — `AGENTS.md` restructure, agent infrastructure consolidation (`.agents/` / `.claude/` cleanup), and foundation documents (`STYLEGUIDE.md`, `DEVELOPMENT.md`, `CONTRIBUTING.md`, `README.md`, and optional `architecture/` skeleton). These phases are tightly coupled: the new `AGENTS.md` establishes vocabulary that the extracted docs and skill paths reference, and shipping them together avoids an intermediate state where `AGENTS.md` is slim but the extracted content doesn't exist yet.
-2. **PR 2 (Phase 3)** — GitHub machinery such as templates, labels, and skill output conformance.
+2. **PR 2 (Phase 3 + architecture content)** — GitHub machinery (templates, labels, skill output conformance) and populating the `architecture/` stubs with content for existing subsystems.
 3. **Phase 4** — do not start implementation directly from this plan. Treat it as follow-on work that requires another planning pass, design review, and then its own incremental PRs.
 
 ---
@@ -425,17 +425,18 @@ All steps within PR 1 are implemented in the order listed. The suggested authori
 | 5    | README.md updates                                             | References CONTRIBUTING.md                                         |
 | 6    | `architecture/` skeleton                                      | Independent; can be authored at any point                          |
 
-### PR 2 — Phase 3
+### PR 2 — Phase 3 + Architecture Content
 
 Steps within PR 2 are largely independent and can be authored in parallel.
 
 | Step | Deliverable                        | Dependencies                           | Parallelizable      |
 | ---- | ---------------------------------- | -------------------------------------- | -------------------- |
-| 7    | Issue templates                    | CONTRIBUTING.md (templates link to it) | Yes (with 8-11)      |
-| 8    | PR template                        | None                                   | Yes (with 7, 9-11)   |
-| 9    | CODEOWNERS update                  | None                                   | Yes (with 7-8, 10-11)|
-| 10   | Label creation (via `gh label create`) | None                               | Yes (with 7-9, 11)   |
-| 11   | Skill template conformance updates | Issue/PR templates (steps 7-8)         | --                   |
+| 7    | Issue templates                    | CONTRIBUTING.md (templates link to it) | Yes (with 8-12)      |
+| 8    | PR template                        | None                                   | Yes (with 7, 9-12)   |
+| 9    | CODEOWNERS update                  | None                                   | Yes (with 7-8, 10-12)|
+| 10   | Label creation (via `gh label create`) | None                               | Yes (with 7-9, 11-12)|
+| 11   | Skill template conformance updates | Issue/PR templates (steps 7-8)         | Yes (with 12)        |
+| 12   | Populate `architecture/` docs      | Stubs from PR 1                        | Yes (with 7-11)      |
 
 Phase 4 should be planned separately before any implementation PRs are opened.
 
@@ -447,7 +448,7 @@ Phase 4 should be planned separately before any implementation PRs are opened.
 - **LLM-powered issue triage** — deliberate choice to keep triage deterministic
 - **Vouch system** — defer until external contributor volume warrants it
 - **CI/CD changes** — existing workflows are solid
-- **Full architecture docs** — create skeleton only, populate incrementally
+- **Full architecture docs** — skeleton created in PR 1; content for existing subsystems populated in PR 2
 - **Dependabot / Renovate** — dependency management automation (separate concern)
 
 ## Resolved Questions
