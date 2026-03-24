@@ -171,7 +171,20 @@ In our experiment setup, each session started from a clean slate (new directory,
 
 - 📈 **Constraining the agent produces better output — and the quality gains surprised us (panel b).** We used an LLM judge (GPT-5.3 Codex) on a 1–5 scale. Mean quality score went from **4.0 → 4.7**. The standout is feature utilization (which assesses how well the agent uses the capabilities of the library), which jumped **3.1 → 4.6**. The skill surfaces capabilities like diversity axes, sampler types, and validators directly in the context.
 
-- 🛡️ **Errors are nearly eliminated at high reasoning effort (panel c).** Mean errors per session drop from **1.18 → 0.04** when reasoning effort is high, and **1.67 → 0.25** when it's low. Fewer errors mean fewer recovery loops, fewer tokens burned on retries, less chance of the agent going down a dead end.
+- 🛡️ **Errors are nearly eliminated at high reasoning effort (panel c).** Mean errors per session drop from **1.18 → 0.04** when reasoning effort is high, and **1.67 → 0.25** when it's low. Fewer errors mean fewer recovery loops, fewer tokens burned on retries, less chance of the agent going down a dead end. The table below breaks down where the errors come from — the skill nearly wipes out file/path and import errors, and cuts config validation failures by more than two-thirds.
+
+    <figure markdown="span">
+
+    **Error Breakdown by Category**
+
+    | Group | Total | % | Baseline | Skill |
+    |---|---|---|---|---|
+    | **File/Path Not Found** | 228 | 63.5% | 216 | 12 |
+    | **Config Validation Failures** | 92 | 25.6% | 70 | 22 |
+    | **Import Errors** | 32 | 8.9% | 32 | 0 |
+    | **Tool/Environment Issues** | 7 | 1.9% | 7 | 0 |
+
+    </figure>
 
 - ⏱️ **Wall-clock time is cut roughly in half (panel d).** **193s → 101s** with high reasoning, **172s → 92s** with low. Less exploration, fewer errors, fewer retries — the time savings follow naturally.
 
