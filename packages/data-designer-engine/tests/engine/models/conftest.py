@@ -93,7 +93,7 @@ def stub_model_registry(
 
 @pytest.fixture
 def stub_model_client() -> MagicMock:
-    """Mock ModelClient for testing ModelFacade without a real LiteLLM router."""
+    """Mock ModelClient for testing ModelFacade without a real HTTP adapter."""
     return MagicMock(spec=ModelClient)
 
 

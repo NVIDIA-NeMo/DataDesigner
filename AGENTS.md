@@ -7,7 +7,7 @@ This file provides guidance to agents when working with code in this repository.
 **DataDesigner** is an NVIDIA NeMo project for creating synthetic datasets from scratch. It's a comprehensive framework that generates structured data using multiple generation strategies:
 
 - **Sampled data**: Built-in generators (UUID, DateTime, etc.) and Faker integration
-- **LLM-generated content**: Text, code, and structured data via LiteLLM
+- **LLM-generated content**: Text, code, and structured data via native HTTP adapters
 - **Expression-based columns**: Derived columns using Jinja2 templates
 - **Validation & scoring**: Python, SQL, and remote validators; LLM-based judge scoring
 - **Seed dataset-based generation**: Generate from existing datasets
@@ -25,7 +25,7 @@ The project follows a layered architecture:
 2. **Engine Layer** ([packages/data-designer-engine/src/data_designer/engine/](packages/data-designer-engine/src/data_designer/engine/)): Internal generation and processing
    - `column_generators/`: Generates individual columns from configs
    - `dataset_builders/`: Orchestrates full dataset generation with DAG-based dependency management
-   - `models/`: LLM integration via LiteLLM with response parsing
+   - `models/`: LLM integration via native HTTP adapters with response parsing
    - `validators/`: Column validation (Python, SQL, Code, Remote)
    - `sampling_gen/`: Sophisticated person/entity sampling
 

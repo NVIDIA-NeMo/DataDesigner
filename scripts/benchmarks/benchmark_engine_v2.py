@@ -411,39 +411,32 @@ def _fake_response(model: str, messages: list[dict[str, Any]], **kwargs: Any) ->
 
 @contextlib.contextmanager
 def _patch_llm_responses(*, simulated_latency: bool = False) -> Iterator[None]:
-    # Imports are deferred so engine selection respects DATA_DESIGNER_ASYNC_ENGINE.
-    from data_designer.engine.models.litellm_overrides import CustomRouter
+    from data_designer.engine.models.clients.adapters.openai_compatible import OpenAICompatibleClient
 
-    original_completion = CustomRouter.completion
-    original_acompletion = getattr(CustomRouter, "acompletion", None)
+    original_completion = OpenAICompatibleClient.completion
+    original_acompletion = OpenAICompatibleClient.acompletion
 
-    def fake_completion(self: Any, model: str, messages: list[dict[str, Any]], **kwargs: Any) -> FakeResponse:
+    def fake_completion(self: Any, request: Any) -> FakeResponse:
         _ = self
-        response = _fake_response(model, messages, **kwargs)
+        response = _fake_response(request.model, request.messages)
         if simulated_latency and response.latency_ms > 0:
             time.sleep(response.latency_ms / 1000.0)
         return response
 
-    async def fake_acompletion(self: Any, model: str, messages: list[dict[str, Any]], **kwargs: Any) -> FakeResponse:
+    async def fake_acompletion(self: Any, request: Any) -> FakeResponse:
         _ = self
-        response = _fake_response(model, messages, **kwargs)
+        response = _fake_response(request.model, request.messages)
         if simulated_latency and response.latency_ms > 0:
             await asyncio.sleep(response.latency_ms / 1000.0)
         return response
 
-    CustomRouter.completion = fake_completion
-    CustomRouter.acompletion = fake_acompletion
+    OpenAICompatibleClient.completion = fake_completion  # type: ignore[assignment]
+    OpenAICompatibleClient.acompletion = fake_acompletion  # type: ignore[assignment]
     try:
         yield
     finally:
-        CustomRouter.completion = original_completion
-        if original_acompletion is not None:
-            CustomRouter.acompletion = original_acompletion
-        else:
-            try:
-                delattr(CustomRouter, "acompletion")
-            except AttributeError:
-                pass
+        OpenAICompatibleClient.completion = original_completion  # type: ignore[assignment]
+        OpenAICompatibleClient.acompletion = original_acompletion  # type: ignore[assignment]
 
 
 @contextlib.contextmanager

@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from data_designer.config.models import ChatCompletionInferenceParams, ModelConfig
-from data_designer.engine.models import litellm_overrides
 from data_designer.engine.models.errors import ModelAuthenticationError
 from data_designer.engine.models.facade import ModelFacade
 from data_designer.engine.models.factory import create_model_registry
@@ -42,9 +41,7 @@ def stub_no_usage_config():
     )
 
 
-@patch.object(litellm_overrides, "apply_litellm_patches", autospec=True)
 def test_create_model_registry(
-    mock_apply_litellm_patches: object,
     stub_model_configs: list[ModelConfig],
     stub_secrets_resolver: object,
     stub_model_provider_registry: object,
@@ -55,7 +52,6 @@ def test_create_model_registry(
         model_provider_registry=stub_model_provider_registry,
     )
     assert isinstance(model_registry, ModelRegistry)
-    mock_apply_litellm_patches.assert_called_once()
 
 
 def test_public_props(stub_model_configs, stub_model_registry):

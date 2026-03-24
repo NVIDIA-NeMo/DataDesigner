@@ -93,7 +93,7 @@ def create_resource_provider(
 ) -> ResourceProvider:
     """Factory function for creating a ResourceProvider instance.
 
-    This function triggers lazy loading of heavy dependencies like litellm.
+    This function triggers lazy loading of heavy dependencies like httpx.
     The creation order is:
     1. MCPProviderRegistry (can be empty)
     2. MCPRegistry with tool_configs
