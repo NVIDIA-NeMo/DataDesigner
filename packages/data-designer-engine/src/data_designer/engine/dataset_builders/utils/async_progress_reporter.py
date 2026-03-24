@@ -54,16 +54,25 @@ class AsyncProgressReporter:
             tracker.record_failure()
             self._maybe_report()
 
+    def record_skipped(self, column: str) -> None:
+        if tracker := self._trackers.get(column):
+            tracker.record_skipped()
+            self._maybe_report()
+
     def log_final(self) -> None:
         self._emit()
         elapsed = time.perf_counter() - self._start_time
-        total_ok = sum(t.success for t in self._trackers.values())
-        total_fail = sum(t.failed for t in self._trackers.values())
+        snapshots = [tracker.get_snapshot(elapsed) for tracker in self._trackers.values()]
+        total_ok = sum(snapshot[2] for snapshot in snapshots)
+        total_fail = sum(snapshot[3] for snapshot in snapshots)
+        total_skipped = sum(snapshot[4] for snapshot in snapshots)
+        skipped_suffix = f", {total_skipped} skipped" if total_skipped else ""
         logger.info(
-            "✅ Async generation complete [%.1fs]: %d ok, %d failed across %d column(s)",
+            "✅ Async generation complete [%.1fs]: %d ok, %d failed%s across %d column(s)",
             elapsed,
             total_ok,
             total_fail,
+            skipped_suffix,
             len(self._trackers),
         )
 
@@ -75,7 +84,7 @@ class AsyncProgressReporter:
         self._emit()
 
     def _emit(self) -> None:
-        current_total = sum(t.completed for t in self._trackers.values())
+        current_total = sum(tracker.get_snapshot(0.0)[0] for tracker in self._trackers.values())
         if current_total == self._last_reported_total:
             return
         self._last_reported_total = current_total
@@ -83,17 +92,16 @@ class AsyncProgressReporter:
         elapsed = time.perf_counter() - self._start_time
         logger.info("📊 Progress [%.1fs]:", elapsed)
         for col, tracker in self._trackers.items():
-            with tracker.lock:
-                pct = (tracker.completed / tracker.total_records * 100) if tracker.total_records else 100.0
-                rate = tracker.completed / elapsed if elapsed > 0 else 0.0
-                emoji = tracker._random_emoji.progress(pct)
+            completed, total_records, _success, _failed, skipped, pct, rate, emoji = tracker.get_snapshot(elapsed)
+            skipped_suffix = f", {skipped} skipped" if skipped else ""
             logger.info(
-                "%s%s %s: %d/%d (%.0f%%) %.1f rec/s",
+                "%s%s %s: %d/%d (%.0f%%) %.1f rec/s%s",
                 LOG_INDENT,
                 emoji,
                 col,
-                tracker.completed,
-                tracker.total_records,
+                completed,
+                total_records,
                 pct,
                 rate,
+                skipped_suffix,
             )

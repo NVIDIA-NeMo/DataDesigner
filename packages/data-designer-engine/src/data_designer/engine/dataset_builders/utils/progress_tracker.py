@@ -48,6 +48,7 @@ class ProgressTracker:
         self.completed = 0
         self.success = 0
         self.failed = 0
+        self.skipped = 0
 
         interval_fraction = max(1, log_interval_percent) / 100.0
         self.log_interval = max(1, int(total_records * interval_fraction)) if total_records > 0 else 1
@@ -82,20 +83,30 @@ class ProgressTracker:
         """Record a failed task completion and log progress if at interval."""
         self._record_completion(success=False)
 
+    def record_skipped(self) -> None:
+        """Record a skipped task completion and log progress if at interval."""
+        self._record_completion(success=None)
+
+    def get_snapshot(self, elapsed: float | None = None) -> tuple[int, int, int, int, int, float, float, str]:
+        with self.lock:
+            return self._get_snapshot_unlocked(elapsed)
+
     def log_final(self) -> None:
         """Log final progress summary."""
         with self.lock:
             if self.completed > 0:
                 self._log_progress_unlocked()
 
-    def _record_completion(self, *, success: bool) -> None:
+    def _record_completion(self, *, success: bool | None) -> None:
         should_log = False
         with self.lock:
             self.completed += 1
-            if success:
+            if success is True:
                 self.success += 1
-            else:
+            elif success is False:
                 self.failed += 1
+            else:
+                self.skipped += 1
 
             if not self.quiet and self.completed >= self.next_log_at and self.completed < self.total_records:
                 should_log = True
@@ -106,24 +117,31 @@ class ProgressTracker:
             with self.lock:
                 self._log_progress_unlocked()
 
+    def _get_snapshot_unlocked(self, elapsed: float | None = None) -> tuple[int, int, int, int, int, float, float, str]:
+        current_elapsed = time.perf_counter() - self.start_time if elapsed is None else elapsed
+        rate = self.completed / current_elapsed if current_elapsed > 0 else 0.0
+        percent = (self.completed / self.total_records) * 100 if self.total_records else 100.0
+        emoji = self._random_emoji.progress(percent)
+        return self.completed, self.total_records, self.success, self.failed, self.skipped, percent, rate, emoji
+
     def _log_progress_unlocked(self) -> None:
         """Log current progress. Must be called while holding the lock."""
-        elapsed = time.perf_counter() - self.start_time
-        rate = self.completed / elapsed if elapsed > 0 else 0.0
-        remaining = max(0, self.total_records - self.completed)
+        completed, total_records, success, failed, skipped, percent, rate, emoji = self._get_snapshot_unlocked()
+        remaining = max(0, total_records - completed)
         eta = f"{(remaining / rate):.1f}s" if rate > 0 else "unknown"
-        percent = (self.completed / self.total_records) * 100 if self.total_records else 100.0
+        skipped_suffix = f", {skipped} skipped" if skipped else ""
 
         logger.info(
-            "%s%s %s progress: %d/%d (%.0f%%) complete, %d ok, %d failed, %.2f rec/s, eta %s",
+            "%s%s %s progress: %d/%d (%.0f%%) complete, %d ok, %d failed%s, %.2f rec/s, eta %s",
             LOG_INDENT,
-            self._random_emoji.progress(percent),
+            emoji,
             self.label,
-            self.completed,
-            self.total_records,
+            completed,
+            total_records,
             percent,
-            self.success,
-            self.failed,
+            success,
+            failed,
+            skipped_suffix,
             rate,
             eta,
         )

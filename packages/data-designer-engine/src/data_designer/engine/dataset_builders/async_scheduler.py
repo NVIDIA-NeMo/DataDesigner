@@ -21,7 +21,7 @@ from data_designer.engine.dataset_builders.utils.async_progress_reporter import 
 )
 from data_designer.engine.dataset_builders.utils.completion_tracker import CompletionTracker
 from data_designer.engine.dataset_builders.utils.progress_tracker import ProgressTracker
-from data_designer.engine.dataset_builders.utils.task_model import Task, TaskTrace
+from data_designer.engine.dataset_builders.utils.task_model import SliceRef, Task, TaskTrace
 from data_designer.engine.models.errors import (
     ModelAPIConnectionError,
     ModelInternalServerError,
@@ -155,21 +155,33 @@ class AsyncTaskScheduler:
         self._seed_cols: frozenset[str] = frozenset(c for c in graph.columns if not graph.get_upstream_columns(c))
 
         # Per-column progress tracking (cell-by-cell only; full-column tasks are instant)
-        self._reporter: AsyncProgressReporter | None = None
-        if num_records > 0 and buffer_size > 0:
-            task_counts = graph.compute_task_count(num_records, buffer_size)
-            trackers: dict[str, ProgressTracker] = {}
-            for col in graph.columns:
-                if graph.get_strategy(col) != GenerationStrategy.CELL_BY_CELL:
-                    continue
-                trackers[col] = ProgressTracker(
-                    total_records=task_counts[col],
-                    label=f"column '{col}'",
-                    quiet=True,
-                )
-            if trackers:
-                interval = progress_interval if progress_interval is not None else DEFAULT_REPORT_INTERVAL
-                self._reporter = AsyncProgressReporter(trackers, report_interval=interval)
+        self._reporter = self._setup_async_progress_reporter(num_records, buffer_size, progress_interval)
+
+    def _setup_async_progress_reporter(
+        self,
+        num_records: int,
+        buffer_size: int,
+        progress_interval: float | None,
+    ) -> AsyncProgressReporter | None:
+        if num_records <= 0 or buffer_size <= 0:
+            return None
+
+        task_counts = self._graph.compute_task_count(num_records, buffer_size)
+        trackers: dict[str, ProgressTracker] = {}
+        for col in self._graph.columns:
+            if self._graph.get_strategy(col) != GenerationStrategy.CELL_BY_CELL:
+                continue
+            trackers[col] = ProgressTracker(
+                total_records=task_counts[col],
+                label=f"column '{col}'",
+                quiet=True,
+            )
+
+        if not trackers:
+            return None
+
+        interval = progress_interval if progress_interval is not None else DEFAULT_REPORT_INTERVAL
+        return AsyncProgressReporter(trackers, report_interval=interval)
 
     def _spawn_worker(self, coro: Coroutine[Any, Any, None]) -> asyncio.Task:
         """Create a tracked worker task that auto-removes itself on completion."""
@@ -400,10 +412,7 @@ class AsyncTaskScheduler:
                             f"on_before_checkpoint failed for row group {rg_id}, dropping row group.",
                             exc_info=True,
                         )
-                        for ri in range(rg_size):
-                            self._tracker.drop_row(rg_id, ri)
-                            if self._buffer_manager:
-                                self._buffer_manager.drop_row(rg_id, ri)
+                        self._drop_row_group(rg_id, rg_size)
                         if self._buffer_manager:
                             self._buffer_manager.free_row_group(rg_id)
                         dropped = True
@@ -434,15 +443,49 @@ class AsyncTaskScheduler:
                                 f"Pre-batch processor failed for row group {rg_id}, skipping.",
                                 exc_info=True,
                             )
-                            for ri in range(state.size):
-                                self._tracker.drop_row(rg_id, ri)
-                                if self._buffer_manager:
-                                    self._buffer_manager.drop_row(rg_id, ri)
+                            self._drop_row_group(rg_id, state.size)
 
     def _in_flight_for_rg(self, rg_id: int) -> bool:
         """Check if any tasks are in-flight for a given row group."""
         state = self._rg_states.get(rg_id)
         return state is not None and state.in_flight_count > 0
+
+    def _drop_row(self, row_group: int, row_index: int, *, exclude_columns: set[str] | None = None) -> None:
+        if self._tracker.is_dropped(row_group, row_index):
+            return
+
+        self._record_skipped_tasks_for_row(row_group, row_index, exclude_columns=exclude_columns)
+        self._tracker.drop_row(row_group, row_index)
+        if self._buffer_manager:
+            self._buffer_manager.drop_row(row_group, row_index)
+
+    def _drop_row_group(self, row_group: int, row_group_size: int, *, exclude_columns: set[str] | None = None) -> None:
+        for row_index in range(row_group_size):
+            self._drop_row(row_group, row_index, exclude_columns=exclude_columns)
+
+    def _record_skipped_tasks_for_row(
+        self,
+        row_group: int,
+        row_index: int,
+        *,
+        exclude_columns: set[str] | None = None,
+    ) -> None:
+        if self._reporter is None:
+            return
+
+        excluded = exclude_columns or set()
+        in_flight_columns = {
+            task.column for task in self._in_flight if task.row_group == row_group and task.row_index == row_index
+        }
+
+        for column in self._graph.columns:
+            if column in excluded or self._graph.get_strategy(column) != GenerationStrategy.CELL_BY_CELL:
+                continue
+            if column in in_flight_columns:
+                continue
+            if self._tracker.is_complete(SliceRef(column=column, row_group=row_group, row_index=row_index)):
+                continue
+            self._reporter.record_skipped(column)
 
     def _check_error_rate(self, *, success: bool) -> None:
         """Trigger early shutdown if recent error rate exceeds threshold."""
@@ -597,16 +640,11 @@ class AsyncTaskScheduler:
             else:
                 # Non-retryable: drop the affected row(s)
                 if task.row_index is not None:
-                    self._tracker.drop_row(task.row_group, task.row_index)
-                    if self._buffer_manager:
-                        self._buffer_manager.drop_row(task.row_group, task.row_index)
+                    self._drop_row(task.row_group, task.row_index, exclude_columns={task.column})
                 else:
                     # Batch/from_scratch failure: drop all rows in the row group
                     rg_size = self._get_rg_size(task.row_group)
-                    for ri in range(rg_size):
-                        self._tracker.drop_row(task.row_group, ri)
-                        if self._buffer_manager:
-                            self._buffer_manager.drop_row(task.row_group, ri)
+                    self._drop_row_group(task.row_group, rg_size)
                 logger.warning(
                     f"Non-retryable failure on {task.column}[rg={task.row_group}, row={task.row_index}]: {exc}"
                 )

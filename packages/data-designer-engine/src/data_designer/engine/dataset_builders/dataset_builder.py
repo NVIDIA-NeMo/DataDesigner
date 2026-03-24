@@ -11,6 +11,7 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
+import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.column_configs import CustomColumnConfig
 from data_designer.config.column_types import ColumnConfigT, DataDesignerColumnType
 from data_designer.config.config_builder import BuilderConfig
@@ -232,6 +233,9 @@ class DatasetBuilder:
         future.result()
 
         self._task_traces = scheduler.traces
+
+        if not buffer_manager.has_row_group(0):
+            return lazy.pd.DataFrame()
 
         dataset = buffer_manager.get_dataframe(0)
         buffer_manager.free_row_group(0)

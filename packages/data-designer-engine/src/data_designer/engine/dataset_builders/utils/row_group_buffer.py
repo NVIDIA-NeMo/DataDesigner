@@ -62,6 +62,9 @@ class RowGroupBufferManager:
     def get_row(self, row_group: int, row_index: int) -> dict[str, Any]:
         return self._buffers[row_group][row_index]
 
+    def has_row_group(self, row_group: int) -> bool:
+        return row_group in self._buffers
+
     def get_dataframe(self, row_group: int) -> pd.DataFrame:
         """Return the row group as a DataFrame (excluding dropped rows)."""
         dropped = self._dropped.get(row_group, set())

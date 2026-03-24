@@ -26,6 +26,18 @@ def test_init_row_group() -> None:
     assert row == {}
 
 
+def test_has_row_group() -> None:
+    mgr = RowGroupBufferManager(_mock_artifact_storage())
+
+    assert not mgr.has_row_group(0)
+
+    mgr.init_row_group(0, 1)
+    assert mgr.has_row_group(0)
+
+    mgr.free_row_group(0)
+    assert not mgr.has_row_group(0)
+
+
 def test_update_cell() -> None:
     mgr = RowGroupBufferManager(_mock_artifact_storage())
     mgr.init_row_group(0, 2)

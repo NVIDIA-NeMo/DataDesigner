@@ -9,6 +9,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+import data_designer.engine.dataset_builders.dataset_builder as builder_mod
 import data_designer.lazy_heavy_imports as lazy
 from data_designer.config.column_configs import CustomColumnConfig, LLMTextColumnConfig, SamplerColumnConfig
 from data_designer.config.config_builder import DataDesignerConfigBuilder
@@ -589,6 +590,50 @@ def test_full_column_custom_generator_error_is_descriptive(stub_resource_provide
 
     with pytest.raises(DatasetGenerationError, match=r"(?s)Failed to process column 'col'.*something broke"):
         builder.build_preview(num_records=3)
+
+
+def test_build_async_preview_returns_empty_dataframe_when_row_group_is_already_freed(
+    stub_resource_provider,
+    stub_test_config_builder,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    builder = DatasetBuilder(
+        data_designer_config=stub_test_config_builder.build(),
+        resource_provider=stub_resource_provider,
+    )
+
+    class StubScheduler:
+        traces: list[object] = []
+
+        async def run(self) -> None:
+            return None
+
+    class MockFuture:
+        def result(self) -> None:
+            return None
+
+    def mock_run_coroutine_threadsafe(coro, loop):
+        coro.close()
+        return MockFuture()
+
+    scheduler = StubScheduler()
+    buffer_manager = Mock()
+    buffer_manager.has_row_group.return_value = False
+
+    monkeypatch.setattr(builder, "_prepare_async_run", Mock(return_value=(scheduler, buffer_manager)))
+    monkeypatch.setattr(builder_mod, "ensure_async_engine_loop", lambda: object(), raising=False)
+    monkeypatch.setattr(
+        builder_mod,
+        "asyncio",
+        Mock(run_coroutine_threadsafe=mock_run_coroutine_threadsafe),
+        raising=False,
+    )
+
+    result = builder._build_async_preview([], num_records=3)
+
+    assert result.empty
+    buffer_manager.get_dataframe.assert_not_called()
+    buffer_manager.free_row_group.assert_not_called()
 
 
 # Processor tests
