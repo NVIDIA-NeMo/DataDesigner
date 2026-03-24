@@ -28,7 +28,7 @@ Agents have become first-class users of basically all software. Somewhere in the
 
 We use agents to both build Data Designer and use it to generate datasets. When we started watching how they actually interact with the tool, a pattern emerged. They spend most of their tokens in the wrong place. Crawling engine internals, reading DAG resolution logic, reconstructing the API after reading most of the source code. They get there eventually, which is impressive, but the path they take is wasteful.
 
-The problem isn't the agent. Data Designer has a small config API — three or four files that contain nearly all the context you need for the typical use case. But nothing was pointing the agent at those files instead of the backend engine. In this post, we'll show how we updated Data Designer's CLI to focus context delivery and help agents use it more efficiently.
+The problem isn't the agent. Data Designer has a small config API — three or four files that contain nearly all the context you need for the typical use case. But nothing was pointing the agent at those files instead of the backend engine. If your library has a CLI, it's worth asking: does it serve your agent users as well as it serves your human ones?
 
 ---
 
@@ -97,7 +97,7 @@ While this session started from a clear context, real sessions often don't start
 
 ## **Shortening the Path: Data Designer's Agent CLI and Skill**
 
-The baseline agent spent 25 of its 35 tool calls exploring Data Designer's source code. To shortcut that context discovery, we added four CLI commands and documented the workflow in a Claude Code skill.
+Data Designer's CLI was previously only used for model configuration and downloading assets. But agents are first-class users now, and they already know how to run commands and read stdout. We saw an opportunity to extend the CLI with commands designed specifically for agent consumption. The `data-designer` skill leverages these new commands with workflows for interactive and autopilot dataset generation.
 
 ```bash
 # Bootstrap all code-derived agent context
@@ -119,13 +119,11 @@ The other three commands standardize config validation and dataset generation. `
 
 ### Coding best practices still matter
 
-Data Designer's modular design and clear boundary between configuration and execution predates any agent work. This design, which we chose for testability, onboarding, maintainability, turns out to be exactly what agents need. A small, predictable set of files that fully describes the API surface. `agent context` exploits this boundary. It dumps the config layer and nothing else.
+Data Designer's modular design and clear boundary between configuration and execution predates any agent work. This design, which we chose for testability, onboarding, maintainability, turns out to be exactly what agents need. A small, predictable set of files that fully describes the API surface. `agent context` exploits this boundary. It dumps the config layer and nothing else. If your library has a similar separation, you're already most of the way there. You just need to surface it.
 
 ### The Skill in action
 
-We wrapped the agent CLI in a [Data Designer skill](https://github.com/NVIDIA-NeMo/DataDesigner/tree/main/skills/data-designer) that also defines workflows for interactive and autopilot dataset generation.
-
-Same dataset task as before, but this time the prompt is just the dataset description. No package path, no `config list`, no validate command. The skill provides all of that.
+Let's see the [skill](https://github.com/NVIDIA-NeMo/DataDesigner/tree/main/skills/data-designer) in action. Same dataset task as before, but this time the prompt is just the dataset description. No package path, no `config list`, no validate command. The skill provides all of that.
 
 <details markdown open>
 <summary><strong>The prompt</strong></summary>
@@ -171,7 +169,7 @@ In our experiment setup, each session started from a clean slate (new directory,
 
 - 📈 **Constraining the agent produces better output — and the quality gains surprised us (panel b).** We used an LLM judge (GPT-5.3 Codex) on a 1–5 scale. Mean quality score went from **4.0 → 4.7**. The standout is feature utilization (which assesses how well the agent uses the capabilities of the library), which jumped **3.1 → 4.6**. The skill surfaces capabilities like diversity axes, sampler types, and validators directly in the context.
 
-- 🛡️ **Errors are nearly eliminated at high reasoning effort (panel c).** Mean errors per session drop from **1.18 → 0.04** when reasoning effort is high, and **1.67 → 0.25** when it's low. Fewer errors mean fewer recovery loops, fewer tokens burned on retries, less chance of the agent going down a dead end. The table below breaks down where the errors come from — the skill nearly wipes out file/path and import errors, and cuts config validation failures by more than two-thirds.
+- 🛡️ **Errors are nearly eliminated at high reasoning effort (panel c).** Mean errors per session drop from **1.18 → 0.04** when reasoning effort is high, and **1.67 → 0.25** when it's low. Fewer errors mean fewer recovery loops, fewer tokens burned on retries, less chance of the agent going down a dead end. The table below breaks down where the errors come from. The skill nearly wipes out file/path and import errors, and cuts config validation failures by more than two-thirds.
 
     <figure markdown="span">
 
@@ -186,7 +184,7 @@ In our experiment setup, each session started from a clean slate (new directory,
 
     </figure>
 
-- ⏱️ **Wall-clock time is cut roughly in half (panel d).** **193s → 101s** with high reasoning, **172s → 92s** with low. Less exploration, fewer errors, fewer retries — the time savings follow naturally.
+- ⏱️ **Wall-clock time is cut roughly in half (panel d).** **193s → 101s** with high reasoning, **172s → 92s** with low. Less exploration, fewer errors, fewer retries. The time savings follow naturally.
 
 ---
 
@@ -209,7 +207,7 @@ Then install the skill. There are two ways:
 npx skills add NVIDIA-NeMo/DataDesigner
 ```
 
-After installation, open Claude Code and type `/data-designer` — or just tell it you want to generate a dataset along with a description of what you want and the skill will kick in.
+After installation, open Claude Code and type `/data-designer`, or just tell it you want to generate a dataset along with a description of what you want and the skill will kick in.
 
 The skill has two modes. In interactive mode, the agent walks you through it. It asks about your use case, helps pick diversity axes and sampling strategies, writes a config, validates, previews. You look at sample records, give feedback, iterate until it's right. Then full run.
 
@@ -221,11 +219,11 @@ Both produce the same artifact. A standalone Python script calling Data Designer
 
 ## **What's Next**
 
-Everything described in this post is live, and we're paying close attention to how people use it. Feedback from early adopters is very welcome and will shape what comes next.
+Everything described in this post is live, and we're paying close attention to how people use it. Feedback from early adopters is very welcome and will help us shape what comes next.
 
-On the automation side, the agent already asks if you want it to review the generated dataset and suggest improvements. We're working on closing that loop — generate config, preview, review, improve, repeat — so the agent runs a few iterations on its own before handing you the result.
+On the automation side, the agent already asks if you want it to review the generated dataset and suggest improvements. We're working on closing that loop (generate config, preview, review, improve, repeat) so the agent runs a few iterations on its own before handing you the result.
 
-We also plan to add domain-specific SDG references that the agent can draw on for specialized use cases — think healthcare, finance, legal. The goal is for the agent to bring domain expertise to dataset design alongside library knowledge.
+We also plan to add domain-specific SDG references that the agent can draw on for specialized use cases (healthcare, finance, legal, etc.). The goal is for the agent to bring domain expertise to dataset design alongside library knowledge.
 
 Stay tuned.
 
