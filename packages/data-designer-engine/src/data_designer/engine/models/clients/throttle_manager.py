@@ -11,6 +11,8 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 
+from data_designer.config.run_config import ThrottleConfig
+
 logger = logging.getLogger(__name__)
 
 
@@ -22,15 +24,12 @@ class ThrottleDomain(str, Enum):
 
 
 # ---------------------------------------------------------------------------
-# AIMD tuning defaults
+# Constants
 # ---------------------------------------------------------------------------
 
-DEFAULT_REDUCE_FACTOR: float = 0.5
-DEFAULT_ADDITIVE_INCREASE: int = 1
-DEFAULT_SUCCESS_WINDOW: int = 50
-DEFAULT_BLOCK_SECONDS: float = 2.0
 DEFAULT_MIN_LIMIT: int = 1
 DEFAULT_ACQUIRE_TIMEOUT: float = 300.0
+CAPACITY_POLL_INTERVAL: float = 0.05
 
 
 # ---------------------------------------------------------------------------
@@ -50,6 +49,9 @@ class DomainThrottleState:
     in_flight: int = 0
     blocked_until: float = 0.0
     success_streak: int = 0
+    waiters: int = 0
+    rate_limit_ceiling: int = 0
+    consecutive_429s: int = 0
 
 
 @dataclass
@@ -82,17 +84,21 @@ class ThrottleManager:
     **AIMD behaviour**:
 
     - *Decrease* — on a 429 / rate-limit signal the domain's concurrency limit
-      is multiplied by ``reduce_factor`` (default 0.5, i.e. halved) and a
-      cooldown block is applied for ``retry_after`` seconds (or
-      ``default_block_seconds``).
+      is multiplied by ``reduce_factor`` (default 0.75, i.e. reduced by 25%)
+      and a cooldown block is applied for ``retry_after`` seconds (or
+      ``default_cooldown_seconds``).
     - *Increase* — after every ``success_window`` consecutive successful
-      releases the limit grows by ``additive_increase`` (default 1), up to the
-      global effective max.
-    - *Recovery cost* — after a single rate-limit halves the limit from *L* to
-      *L/2*, full recovery requires ``(L/2) * success_window / additive_increase``
-      successful requests.  With defaults (window=50, step=1) and L=32 that is
-      800 requests.  Raise ``additive_increase`` for faster recovery at the
-      cost of higher 429 risk.
+      releases the limit grows by ``additive_increase`` (default 1), up to
+      the *rate-limit ceiling* (or the global effective max if no 429 has
+      been observed yet).
+    - *Stabilization* — each 429 records the pre-halving limit as
+      ``rate_limit_ceiling``.  Subsequent additive increases stop at
+      ``ceiling * (1 + ceiling_overshoot)`` (default 10%) instead of
+      climbing all the way to ``effective_max``.  The overshoot band lets
+      the system probe whether the endpoint can now handle more traffic
+      (e.g. after load drops) while dampening the sawtooth.  If the probe
+      succeeds, the ceiling ratchets up; if it triggers another 429, the
+      ceiling lowers.
 
     Thread-safe: all state mutations are guarded by a single lock so that
     sync and async callers co-throttle correctly.
@@ -100,16 +106,14 @@ class ThrottleManager:
 
     def __init__(
         self,
-        *,
-        reduce_factor: float = DEFAULT_REDUCE_FACTOR,
-        additive_increase: int = DEFAULT_ADDITIVE_INCREASE,
-        success_window: int = DEFAULT_SUCCESS_WINDOW,
-        default_block_seconds: float = DEFAULT_BLOCK_SECONDS,
+        config: ThrottleConfig | None = None,
     ) -> None:
-        self._reduce_factor = reduce_factor
-        self._additive_increase = additive_increase
-        self._success_window = success_window
-        self._default_block_seconds = default_block_seconds
+        tc = config or ThrottleConfig()
+        self._reduce_factor = tc.reduce_factor
+        self._additive_increase = tc.additive_increase
+        self._success_window = tc.success_window
+        self._default_cooldown_seconds = tc.cooldown_seconds
+        self._ceiling_overshoot = tc.ceiling_overshoot
         self._lock = threading.Lock()
         self._global_caps: dict[tuple[str, str], GlobalCapState] = {}
         self._domains: dict[tuple[str, str, str], DomainThrottleState] = {}
@@ -157,6 +161,11 @@ class ThrottleManager:
     # Core non-blocking primitives
     # -------------------------------------------------------------------
 
+    def is_registered(self, provider_name: str, model_id: str) -> bool:
+        """Return ``True`` if ``register()`` has been called for this key."""
+        with self._lock:
+            return (provider_name, model_id) in self._global_caps
+
     def try_acquire(
         self,
         *,
@@ -169,31 +178,23 @@ class ThrottleManager:
 
         Returns ``0.0`` if the slot was acquired, otherwise the number of
         seconds the caller should wait before retrying.
+
+        Raises ``RuntimeError`` if the ``(provider_name, model_id)`` pair
+        has not been registered via ``register()``.
         """
         now = now if now is not None else time.monotonic()
         with self._lock:
+            if (provider_name, model_id) not in self._global_caps:
+                raise RuntimeError(
+                    f"ThrottleManager.try_acquire() called before register() "
+                    f"for ({provider_name!r}, {model_id!r}). "
+                    f"Call register() first to set the concurrency limit."
+                )
             state = self._get_or_create_domain(provider_name, model_id, domain)
             if now < state.blocked_until:
-                wait = state.blocked_until - now
-                logger.debug(
-                    "Throttle %s/%s [%s] blocked for %.1fs (cooldown)",
-                    provider_name,
-                    model_id,
-                    domain.value,
-                    wait,
-                )
-                return wait
+                return state.blocked_until - now
             if state.in_flight >= state.current_limit:
-                logger.debug(
-                    "Throttle %s/%s [%s] at capacity (%d/%d), backing off %.1fs",
-                    provider_name,
-                    model_id,
-                    domain.value,
-                    state.in_flight,
-                    state.current_limit,
-                    self._default_block_seconds,
-                )
-                return self._default_block_seconds
+                return CAPACITY_POLL_INTERVAL
             state.in_flight += 1
             return 0.0
 
@@ -208,29 +209,36 @@ class ThrottleManager:
         with self._lock:
             state = self._get_or_create_domain(provider_name, model_id, domain)
             state.in_flight = max(0, state.in_flight - 1)
+            state.consecutive_429s = 0
             state.success_streak += 1
             if state.success_streak >= self._success_window:
                 effective_max = self._effective_max_for(provider_name, model_id)
-                if state.current_limit < effective_max:
+                cap = self._compute_soft_ceiling(state, effective_max)
+                if state.current_limit < cap:
                     prev = state.current_limit
-                    state.current_limit = min(state.current_limit + self._additive_increase, effective_max)
-                    if state.current_limit >= effective_max:
-                        logger.info(
-                            "🟢 Throttle %s/%s [%s] recovered to full capacity (%d)",
-                            provider_name,
-                            model_id,
-                            domain.value,
-                            state.current_limit,
-                        )
+                    state.current_limit = min(state.current_limit + self._additive_increase, cap)
+                    if state.current_limit >= cap:
+                        if cap < effective_max:
+                            logger.info(
+                                "🔋✅ '%s' [%s] concurrency recovered to %d parallel requests",
+                                model_id,
+                                domain.value,
+                                state.current_limit,
+                            )
+                        else:
+                            logger.info(
+                                "🔋✅ '%s' [%s] concurrency fully recovered (%d parallel requests)",
+                                model_id,
+                                domain.value,
+                                state.current_limit,
+                            )
                     else:
-                        logger.debug(
-                            "Throttle %s/%s [%s] AIMD increase: limit %d -> %d (max %d)",
-                            provider_name,
+                        logger.info(
+                            "🪫📈🔥 '%s' [%s] concurrency increased from %d → %d",
                             model_id,
                             domain.value,
                             prev,
                             state.current_limit,
-                            effective_max,
                         )
                 state.success_streak = 0
 
@@ -248,20 +256,48 @@ class ThrottleManager:
             state = self._get_or_create_domain(provider_name, model_id, domain)
             state.in_flight = max(0, state.in_flight - 1)
             prev_limit = state.current_limit
-            state.current_limit = max(DEFAULT_MIN_LIMIT, math.floor(state.current_limit * self._reduce_factor))
-            block_duration = retry_after if retry_after is not None and retry_after > 0 else self._default_block_seconds
-            state.blocked_until = now + block_duration
-            state.success_streak = 0
-            logger.warning(
-                "🚦 Throttle %s/%s [%s] rate-limited: limit %d -> %d, blocked for %.1fs%s",
-                provider_name,
-                model_id,
-                domain.value,
-                prev_limit,
-                state.current_limit,
-                block_duration,
-                f" (retry-after={retry_after:.1f}s)" if retry_after else "",
+            is_first_in_cascade = state.consecutive_429s == 0
+            state.consecutive_429s += 1
+            cooldown_duration = (
+                retry_after if retry_after is not None and retry_after > 0 else self._default_cooldown_seconds
             )
+            state.blocked_until = now + cooldown_duration
+            state.success_streak = 0
+
+            if is_first_in_cascade:
+                state.current_limit = max(DEFAULT_MIN_LIMIT, math.floor(state.current_limit * self._reduce_factor))
+                if state.current_limit < prev_limit:
+                    if state.rate_limit_ceiling == 0:
+                        state.rate_limit_ceiling = prev_limit
+                    else:
+                        state.rate_limit_ceiling = min(state.rate_limit_ceiling, prev_limit)
+                    if state.rate_limit_ceiling < prev_limit:
+                        logger.info(
+                            "🪫📉 '%s' [%s] server rate-limited at %d (server limit ~%d) — concurrency reduced to %d (retrying in %.0fs)",
+                            model_id,
+                            domain.value,
+                            prev_limit,
+                            state.rate_limit_ceiling,
+                            state.current_limit,
+                            cooldown_duration,
+                        )
+                    else:
+                        logger.info(
+                            "🪫📉 '%s' [%s] server rate-limited — concurrency reduced from %d → %d (retrying in %.0fs)",
+                            model_id,
+                            domain.value,
+                            prev_limit,
+                            state.current_limit,
+                            cooldown_duration,
+                        )
+            else:
+                logger.debug(
+                    "Throttle %s [%s] cascade 429 #%d (limit held at %d)",
+                    model_id,
+                    domain.value,
+                    state.consecutive_429s,
+                    state.current_limit,
+                )
 
     def release_failure(
         self,
@@ -288,16 +324,45 @@ class ThrottleManager:
         timeout: float = DEFAULT_ACQUIRE_TIMEOUT,
     ) -> None:
         deadline = time.monotonic() + timeout
-        while True:
-            wait = self.try_acquire(provider_name=provider_name, model_id=model_id, domain=domain)
-            if wait == 0.0:
-                return
-            remaining = deadline - time.monotonic()
-            if remaining <= 0 or wait > remaining:
-                raise TimeoutError(
-                    f"Throttle acquire timed out after {timeout:.0f}s for {provider_name}/{model_id} [{domain.value}]"
+        wait = self.try_acquire(provider_name=provider_name, model_id=model_id, domain=domain)
+        if wait == 0.0:
+            return
+        with self._lock:
+            # state is captured once and reused in the finally block; safe
+            # because DomainThrottleState objects are never replaced after creation.
+            state = self._get_or_create_domain(provider_name, model_id, domain)
+            state.waiters += 1
+            if state.waiters == 1:
+                logger.debug(
+                    "Throttle %s/%s [%s] queue forming (in_flight=%d/%d)",
+                    provider_name,
+                    model_id,
+                    domain.value,
+                    state.in_flight,
+                    state.current_limit,
                 )
-            time.sleep(min(wait, remaining))
+        try:
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0 or wait > remaining:
+                    raise TimeoutError(
+                        f"Throttle acquire timed out after {timeout:.0f}s "
+                        f"for {provider_name}/{model_id} [{domain.value}]"
+                    )
+                time.sleep(min(wait, remaining))
+                wait = self.try_acquire(provider_name=provider_name, model_id=model_id, domain=domain)
+                if wait == 0.0:
+                    return
+        finally:
+            with self._lock:
+                state.waiters -= 1
+                if state.waiters == 0:
+                    logger.debug(
+                        "Throttle %s/%s [%s] queue drained",
+                        provider_name,
+                        model_id,
+                        domain.value,
+                    )
 
     async def acquire_async(
         self,
@@ -308,16 +373,45 @@ class ThrottleManager:
         timeout: float = DEFAULT_ACQUIRE_TIMEOUT,
     ) -> None:
         deadline = time.monotonic() + timeout
-        while True:
-            wait = self.try_acquire(provider_name=provider_name, model_id=model_id, domain=domain)
-            if wait == 0.0:
-                return
-            remaining = deadline - time.monotonic()
-            if remaining <= 0 or wait > remaining:
-                raise TimeoutError(
-                    f"Throttle acquire timed out after {timeout:.0f}s for {provider_name}/{model_id} [{domain.value}]"
+        wait = self.try_acquire(provider_name=provider_name, model_id=model_id, domain=domain)
+        if wait == 0.0:
+            return
+        with self._lock:
+            # state is captured once and reused in the finally block; safe
+            # because DomainThrottleState objects are never replaced after creation.
+            state = self._get_or_create_domain(provider_name, model_id, domain)
+            state.waiters += 1
+            if state.waiters == 1:
+                logger.debug(
+                    "Throttle %s/%s [%s] queue forming (in_flight=%d/%d)",
+                    provider_name,
+                    model_id,
+                    domain.value,
+                    state.in_flight,
+                    state.current_limit,
                 )
-            await asyncio.sleep(min(wait, remaining))
+        try:
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0 or wait > remaining:
+                    raise TimeoutError(
+                        f"Throttle acquire timed out after {timeout:.0f}s "
+                        f"for {provider_name}/{model_id} [{domain.value}]"
+                    )
+                await asyncio.sleep(min(wait, remaining))
+                wait = self.try_acquire(provider_name=provider_name, model_id=model_id, domain=domain)
+                if wait == 0.0:
+                    return
+        finally:
+            with self._lock:
+                state.waiters -= 1
+                if state.waiters == 0:
+                    logger.debug(
+                        "Throttle %s/%s [%s] queue drained",
+                        provider_name,
+                        model_id,
+                        domain.value,
+                    )
 
     # -------------------------------------------------------------------
     # Introspection (useful for tests and telemetry)
@@ -339,6 +433,18 @@ class ThrottleManager:
     # -------------------------------------------------------------------
     # Private helpers
     # -------------------------------------------------------------------
+
+    def _compute_soft_ceiling(self, state: DomainThrottleState, effective_max: int) -> int:
+        """Return the upper bound for additive increase.
+
+        If a rate-limit ceiling has been recorded, allow probing up to
+        ``ceiling * (1 + overshoot)`` (clamped to ``effective_max``).
+        Otherwise fall back to ``effective_max``.
+        """
+        if state.rate_limit_ceiling <= 0:
+            return effective_max
+        soft = state.rate_limit_ceiling + max(1, math.floor(state.rate_limit_ceiling * self._ceiling_overshoot))
+        return min(soft, effective_max)
 
     def _get_or_create_domain(
         self,

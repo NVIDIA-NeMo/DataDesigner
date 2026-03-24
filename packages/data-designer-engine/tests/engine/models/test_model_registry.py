@@ -416,6 +416,18 @@ async def test_arun_health_check_authentication_error(
     mock_agenerate_text_embeddings.assert_not_awaited()
 
 
+def test_get_aggregate_max_parallel_requests(stub_model_registry: ModelRegistry) -> None:
+    """get_aggregate_max_parallel_requests returns the sum across all model configs."""
+    total = stub_model_registry.get_aggregate_max_parallel_requests()
+    expected = sum(mc.inference_parameters.max_parallel_requests for mc in stub_model_registry.model_configs.values())
+    assert total == expected
+    assert total > 0
+
+
+def test_get_aggregate_max_parallel_requests_empty(stub_empty_model_registry: ModelRegistry) -> None:
+    assert stub_empty_model_registry.get_aggregate_max_parallel_requests() == 0
+
+
 @pytest.mark.parametrize(
     "alias,expected_result,expected_error",
     [
